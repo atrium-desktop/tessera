@@ -21,6 +21,14 @@
 use std::os::raw::c_void;
 
 use lens::Ui;
+use tessera_chrome::{
+    AgentActivity, AppCatalog, AppPickParams, BackdropLayer, BackdropLayerId, BackdropLayerSource,
+    BackdropRegion, BatteryAlertParams, CapabilityPickParams, CapabilityPickResult, Chrome,
+    ChromeCommand, ChromeEvents, ChromeUpdate, CompositionRequirements, ConfirmAnswer,
+    ConfirmPickParams, CursorShape, Input, InteractionDomainIntent, LiquidGlassRegion,
+    LivePreviewPresentation, Localizer, MirrorMove, PickerMode, PinAction, Reserved, ResourceStats,
+    SecretPromptParams, SystemAction, SystemStatus, WindowAction, WindowSwitcherPresentation,
+};
 #[cfg(test)]
 use lens::Frame;
 
@@ -41,22 +49,6 @@ pub use system::{
 /// with the chips (the notification toast stack) can share the value without
 /// depending on the component crate.
 pub const HUD_HEIGHT: f32 = 32.0;
-// The chrome contract (ADR-0021) lives in `tessera-chrome`; the shell hosts
-// it. These re-exports keep existing `tessera_shell::` paths resolving while
-// consumers migrate to depend on the contract crate directly.
-pub use tessera_chrome::{
-    AgentActivity, AgentInputKind, AppCatalog, AppMenu, AppPickParams, BackdropCover,
-    BackdropLayer, BackdropLayerId, BackdropLayerSource, BackdropRegion, BackdropWash,
-    BatteryAlertParams, CapabilityFamily, CapabilityGroup, CapabilityPickParams,
-    CapabilityPickResult, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate,
-    CompositionRequirements, ConfirmAnswer, ConfirmPickParams, ConfirmPickStyle, CursorShape,
-    HUD_HEIGHT as CONTRACT_HUD_HEIGHT, IconSet, Input, InteractionDomainIntent, Language,
-    LiquidGlassAdaptation, LiquidGlassFocus, LiquidGlassRegion, LivePreviewPresentation,
-    Localizer, Message, MirrorMove, PickerMode, PinAction, PopupSide, PreviewCard, Reserved,
-    ResourceStats, SecretPromptParams, SystemAction, SystemStatus, WindowAction,
-    WindowSwitcherPresentation, backdrop_layer_id, backdrop_wash, ellipsize,
-    liquid_glass_region_id, modal_scrim_backdrop, place_popup, place_popup_side, truncate,
-};
 use tessera_model::app::{BuiltInApplication, Entry};
 use tessera_model::interaction_domain::InteractionDomainSnapshot;
 use tessera_model::window::Window;

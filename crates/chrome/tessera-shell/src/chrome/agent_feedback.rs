@@ -31,10 +31,8 @@ use tessera_model::window::{Window, WindowId};
 use tessera_model::workspace::WorkspaceSnapshot;
 use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 
-use crate::{
-    AgentActivity, AgentInputKind, Chrome, ChromeEvents, ChromeUpdate, HUD_HEIGHT, Localizer,
-    Message, ellipsize,
-};
+use crate::{HUD_HEIGHT};
+use tessera_chrome::{AgentActivity, AgentInputKind, Chrome, ChromeEvents, ChromeUpdate, Localizer, Message, ellipsize};
 
 const HOLD_FOR: Duration = Duration::from_secs(4);
 const FADE_FOR: Duration = Duration::from_secs(2);
@@ -1020,6 +1018,6 @@ mod tests {
             operation_label(AgentInputKind::Click { button: 0x111 }, &zh),
             "右键点击"
         );
-        assert_eq!(crate::truncate("智能体正在操作", 5), "智能体正…");
+        assert_eq!(tessera_chrome::truncate("智能体正在操作", 5), "智能体正…");
     }
 }

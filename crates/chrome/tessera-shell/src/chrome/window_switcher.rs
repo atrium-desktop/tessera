@@ -11,10 +11,7 @@ use tessera_design::materials::{chrome_place, surface_layout};
 use tessera_design::{Design, GlassRole, PreviewSelectionStyle};
 use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 
-use crate::{
-    BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, IconSet,
-    LiquidGlassRegion, Localizer, Message, PreviewCard, WindowSwitcherPresentation, ellipsize,
-};
+use tessera_chrome::{BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, IconSet, LiquidGlassRegion, Localizer, Message, PreviewCard, WindowSwitcherPresentation, ellipsize};
 use tessera_chrome::preview;
 use tessera_model::input::{KeyAction, KeyChar, key_action};
 use tessera_model::window::{Window, WindowId};

@@ -38,7 +38,7 @@ impl Server {
         let base = self
             .runtime_dir
             .as_deref()
-            .map(|runtime| tessera_ipc::socket_paths::portals_base_path(runtime))
+            .map(tessera_ipc::socket_paths::portals_base_path)
             .ok_or_else(|| {
                 InteractionDomainRuntimeError::Portal(
                     "runtime directory was not injected; the composition root must call \

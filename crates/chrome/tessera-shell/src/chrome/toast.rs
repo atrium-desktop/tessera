@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 
 use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 
-use crate::{Chrome, ChromeEvents, ChromeUpdate, Localizer, ellipsize};
+use tessera_chrome::{Chrome, ChromeEvents, ChromeUpdate, Localizer, ellipsize};
 use tessera_design::Design;
 use tessera_design::materials::{chrome_place, surface_layout};
 use tessera_model::notify::{Notification, NotificationQueue};
@@ -224,8 +224,8 @@ mod tests {
 
     #[test]
     fn toast_copy_is_unicode_safe_and_bounded() {
-        assert_eq!(crate::truncate("Fuji connected", 20), "Fuji connected");
-        assert_eq!(crate::truncate("真实通知已经联通", 6), "真实通知已…");
+        assert_eq!(tessera_chrome::truncate("Fuji connected", 20), "Fuji connected");
+        assert_eq!(tessera_chrome::truncate("真实通知已经联通", 6), "真实通知已…");
     }
 
     #[test]

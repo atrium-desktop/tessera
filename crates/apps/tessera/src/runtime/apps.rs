@@ -457,12 +457,10 @@ pub(super) fn decode_icon(
         ])
         .arg(path)
         .output()
+        && output.status.success()
+        && let Ok(img) = image::load_from_memory(&output.stdout)
     {
-        if output.status.success() {
-            if let Ok(img) = image::load_from_memory(&output.stdout) {
-                return Some(img);
-            }
-        }
+        return Some(img);
     }
     let data = std::fs::read(path).ok()?;
     let tree = usvg::Tree::from_data(&data, &usvg::Options::default()).ok()?;

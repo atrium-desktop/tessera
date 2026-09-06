@@ -16,11 +16,7 @@ use std::collections::BTreeSet;
 
 use lens::{Color, Frame, Input, LayoutOpts, Rect};
 
-use crate::{
-    BackdropRegion, CapabilityFamily, CapabilityPickParams,
-    CapabilityPickResult, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
-    LiquidGlassRegion, Localizer, Reserved, ellipsize, modal_scrim_backdrop,
-};
+use tessera_chrome::{BackdropRegion, CapabilityFamily, CapabilityPickParams, CapabilityPickResult, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, LiquidGlassRegion, Localizer, Reserved, ellipsize, modal_scrim_backdrop};
 use tessera_design::{Design, GlassRole, materials, themes};
 use tessera_model::input::{KeyAction, KeyChar, key_action};
 use tessera_model::window::Window;
@@ -825,7 +821,7 @@ fn label_rect(row: Rect, indent: f32) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::CapabilityGroup;
+    use tessera_chrome::CapabilityGroup;
 
     fn member(key: &str, label: &str, gated: bool) -> CapabilityGroup {
         CapabilityGroup {

@@ -11,11 +11,7 @@
 
 use lens::{Frame, Input, Rect};
 
-use crate::{
-    ConfirmAnswer, ConfirmPickParams, ConfirmPickStyle,
-    BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
-    LiquidGlassRegion, Localizer, Reserved, ellipsize, modal_scrim_backdrop,
-};
+use tessera_chrome::{BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, ConfirmAnswer, ConfirmPickParams, ConfirmPickStyle, CursorShape, LiquidGlassRegion, Localizer, Reserved, ellipsize, modal_scrim_backdrop};
 use tessera_design::{Design, GlassRole, materials, themes};
 use tessera_model::input::{KeyAction, KeyChar, key_action};
 use tessera_model::window::Window;

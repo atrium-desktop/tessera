@@ -1123,23 +1123,23 @@ impl CompositorRuntime {
                             .collect();
                         repaint = repaint.with_rects(effect_damage.clone());
                         presented_damage = presented_damage.with_rects(effect_damage);
-                        if freeze_capturing {
-                            if !self.screenshot_freeze.ensure_target(
+                        if freeze_capturing
+                            && !self.screenshot_freeze.ensure_target(
                                 &self.device,
                                 &self.surface,
                                 &frame,
                                 physical_size,
-                            ) {
-                                self.screenshot_freeze.failed = true;
-                            }
+                            )
+                        {
+                            self.screenshot_freeze.failed = true;
                         }
                         let mut in_freeze_target = false;
-                        if freeze_capturing && !self.screenshot_freeze.failed {
-                            if let Some(target) = self.screenshot_freeze.target(&frame) {
-                                if begin_opaque_target(&self.canvas, &frame, target, self.clear).is_ok() {
-                                    in_freeze_target = true;
-                                }
-                            }
+                        if freeze_capturing
+                            && !self.screenshot_freeze.failed
+                            && let Some(target) = self.screenshot_freeze.target(&frame)
+                            && begin_opaque_target(&self.canvas, &frame, target, self.clear).is_ok()
+                        {
+                            in_freeze_target = true;
                         }
                         if !in_freeze_target {
                             output_render_area = frame_damage_render_area(&repaint);
@@ -1208,23 +1208,23 @@ impl CompositorRuntime {
                         // The desktop still repaints normally, but the effect
                         // image is only sampled. No capture, blur, or liquid
                         // compute is recorded for this frame.
-                        if freeze_capturing {
-                            if !self.screenshot_freeze.ensure_target(
+                        if freeze_capturing
+                            && !self.screenshot_freeze.ensure_target(
                                 &self.device,
                                 &self.surface,
                                 &frame,
                                 physical_size,
-                            ) {
-                                self.screenshot_freeze.failed = true;
-                            }
+                            )
+                        {
+                            self.screenshot_freeze.failed = true;
                         }
                         let mut in_freeze_target = false;
-                        if freeze_capturing && !self.screenshot_freeze.failed {
-                            if let Some(target) = self.screenshot_freeze.target(&frame) {
-                                if begin_opaque_target(&self.canvas, &frame, target, self.clear).is_ok() {
-                                    in_freeze_target = true;
-                                }
-                            }
+                        if freeze_capturing
+                            && !self.screenshot_freeze.failed
+                            && let Some(target) = self.screenshot_freeze.target(&frame)
+                            && begin_opaque_target(&self.canvas, &frame, target, self.clear).is_ok()
+                        {
+                            in_freeze_target = true;
                         }
                         if !in_freeze_target {
                             output_render_area = frame_damage_render_area(&repaint);

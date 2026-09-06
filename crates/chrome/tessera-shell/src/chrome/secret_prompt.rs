@@ -13,11 +13,7 @@
 
 use lens::{Align, Frame, Input, LayoutOpts, Rect};
 
-use crate::{
-    SecretPromptParams,
-    BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
-    LiquidGlassRegion, Localizer, Reserved, ellipsize, modal_scrim_backdrop,
-};
+use tessera_chrome::{BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, LiquidGlassRegion, Localizer, Reserved, SecretPromptParams, ellipsize, modal_scrim_backdrop};
 use tessera_design::{Design, GlassRole, materials, themes};
 use tessera_model::input::{KeyAction, KeyChar, key_action};
 use tessera_model::window::Window;

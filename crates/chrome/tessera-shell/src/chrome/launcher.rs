@@ -33,22 +33,19 @@ use tessera_design::Design;
 use tessera_design::materials::{chrome_place, glass_panel, sized, sized_fill, surface_layout};
 use lens::{Align, Color, Frame, Icon, Input, LayoutOpts, Rect};
 
-use crate::{
-    BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, IconSet,
-    LiquidGlassRegion, Localizer, Message, Reserved, WindowAction, ellipsize,
-};
+use tessera_chrome::{BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, IconSet, LiquidGlassRegion, Localizer, Message, Reserved, WindowAction, ellipsize};
 use tessera_model::app::Entry;
 use tessera_model::input::{KeyAction, KeyChar, key_action};
 use tessera_model::launcher::{Launch, Launcher as Brain};
 use tessera_model::window::Window;
 use tessera_ui::{contains, smoothstep};
 
-use crate::AppMenu;
+use tessera_chrome::AppMenu;
 
 /// Blur width requested from the compositor host, in logical pixels. The host
 /// scales it to its quarter-resolution capture and evaluates a fixed-cost
 /// multi-resolution filter while the desktop remains live.
-const BACKDROP_BLUR_SIGMA: f32 = crate::BackdropCover::BLUR_SIGMA;
+const BACKDROP_BLUR_SIGMA: f32 = tessera_chrome::BackdropCover::BLUR_SIGMA;
 const SEARCH_TOP: f32 = 38.0;
 const SEARCH_H: f32 = 44.0;
 const SEARCH_MAX_W: f32 = 520.0;
@@ -1086,7 +1083,7 @@ impl Chrome for Launcher {
         _workspaces: &crate::WorkspaceSnapshot,
     ) -> Vec<BackdropRegion> {
         if self.active() {
-            vec![crate::BackdropCover::region(display, &self.design)]
+            vec![tessera_chrome::BackdropCover::region(display, &self.design)]
         } else {
             Vec::new()
         }

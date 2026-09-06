@@ -30,11 +30,7 @@
 use tessera_design::{Design, GlassRole, materials};
 use lens::{Align, Color, Frame, Input, LayoutOpts, Rect as LensRect, Style};
 
-use crate::{
-    PickerMode,
-    BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
-    LiquidGlassRegion, Localizer, Message, ellipsize,
-};
+use tessera_chrome::{BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, LiquidGlassRegion, Localizer, Message, PickerMode, ellipsize};
 use tessera_model::app::BuiltInApplication;
 use tessera_model::input::{KeyAction, KeyChar, key_action};
 use tessera_model::window::{Window, WindowId};

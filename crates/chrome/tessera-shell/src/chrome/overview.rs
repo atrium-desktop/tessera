@@ -10,10 +10,7 @@ use tessera_design::Design;
 use tessera_design::materials::{chrome_place, surface_layout};
 use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 
-use crate::{
-    Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, InteractionDomainIntent,
-    Localizer, Message,
-};
+use tessera_chrome::{Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, InteractionDomainIntent, Localizer, Message};
 use tessera_model::input::{KeyAction, KeyChar, key_action};
 use tessera_model::interaction_domain::{
     InteractionDomain, InteractionDomainId, InteractionDomainKind, InteractionDomainSnapshot,
@@ -586,11 +583,9 @@ impl Chrome for Overview {
                     self.anim_active = true;
                 }
             }
-            ChromeCommand::CloseOverview | ChromeCommand::DismissModal => {
-                if self.open {
-                    self.open = false;
-                    self.anim_active = true;
-                }
+            ChromeCommand::CloseOverview | ChromeCommand::DismissModal if self.open => {
+                self.open = false;
+                self.anim_active = true;
             }
             _ => {}
         }
