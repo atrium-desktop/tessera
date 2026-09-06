@@ -1,0 +1,28 @@
+[package]
+name = "tessera-agent-broker"
+description = "Agent principal registry and durable runtime-grant store for capability-borrowing agents (ADR-0088, ADR-0090)"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# Capability vocabulary, agent identities, and pairing payloads.
+tessera-ipc = { workspace = true }
+# Actor principals minted by the transport-neutral authority model.
+tessera-security = { workspace = true }
+serde = { workspace = true }
+# Owner-only file open flags (O_CLOEXEC | O_NOFOLLOW) for the state files.
+libc = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+zeroize = { workspace = true }
+log.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

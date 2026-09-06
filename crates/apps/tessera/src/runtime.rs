@@ -2,7 +2,6 @@ use crate::*;
 use tessera_ipc::CommandScopePolicy as _;
 use tessera_security::authority::{ActorBinding, ObservationLeaseRegistry as ObservationRegistry};
 
-mod agent_auth;
 mod app_pick;
 mod apps;
 mod battery;
@@ -33,7 +32,7 @@ mod stream;
 mod system;
 mod window_capture;
 
-use agent_auth::*;
+use tessera_agent_broker::*;
 use app_pick::*;
 use apps::*;
 use capability_pick::*;

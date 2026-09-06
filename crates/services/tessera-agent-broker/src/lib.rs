@@ -26,7 +26,7 @@ const MAX_GRANTS: usize = 16_384;
 /// whole-output capture it is bounded to one window the scope's `windows`
 /// axis can name, and first use always routes through the interactive
 /// runtime grant, so an agent may request it.
-pub(crate) const AGENT_REQUESTABLE: &[ActorCapability] = &[
+pub const AGENT_REQUESTABLE: &[ActorCapability] = &[
     ActorCapability::ObserveWindows,
     ActorCapability::ObserveWorkspaces,
     ActorCapability::ObserveOutputs,
@@ -72,7 +72,7 @@ const SYSTEM_COMPONENT_CAPABILITIES: &[ActorCapability] = &[
 /// Operation families that always route through the interactive runtime
 /// grant on first use, however the ceiling was approved: destructive,
 /// privacy-sensitive, or authority-transferring (ADR-0088).
-pub(crate) fn is_runtime_gated(op: ActorCapability) -> bool {
+pub fn is_runtime_gated(op: ActorCapability) -> bool {
     matches!(
         op,
         ActorCapability::Close
@@ -104,7 +104,7 @@ struct RegistryFile {
 
 /// One paired agent principal.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) struct PrincipalRecord {
+pub struct PrincipalRecord {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
@@ -115,7 +115,7 @@ pub(crate) struct PrincipalRecord {
 }
 
 /// The compositor-held principal registry (ADR-0088).
-pub(crate) struct PrincipalRegistry {
+pub struct PrincipalRegistry {
     path: Option<PathBuf>,
     principals: Vec<PrincipalRecord>,
     /// First-party component identities valid only for this compositor
@@ -131,7 +131,7 @@ impl PrincipalRegistry {
     /// Load the registry from `path`. A missing file starts empty; a
     /// corrupt or version-mismatched file also starts empty (fail-closed)
     /// and is logged — never silently trusted.
-    pub(crate) fn load(path: PathBuf) -> Self {
+    pub fn load(path: PathBuf) -> Self {
         let principals = match read_private_state(&path) {
             Ok(Some(bytes)) => match serde_json::from_slice::<RegistryFile>(&bytes) {
                 Ok(file) if file.version == REGISTRY_VERSION && valid_registry_file(&file) => {
@@ -173,7 +173,7 @@ impl PrincipalRegistry {
     /// A session-only registry for sessions without a durable data
     /// directory. Pairings then live only until the compositor exits.
     #[cfg(test)]
-    pub(crate) fn in_memory() -> Self {
+    pub fn in_memory() -> Self {
         Self {
             path: None,
             principals: Vec::new(),
@@ -183,7 +183,7 @@ impl PrincipalRegistry {
     }
 
     /// Recognize a credential, returning the bound principal identity.
-    pub(crate) fn lookup(&self, credential: &str) -> Option<AgentIdentity> {
+    pub fn lookup(&self, credential: &str) -> Option<AgentIdentity> {
         let digest = sha256_hex(credential.as_bytes());
         self.principals
             .iter()
@@ -203,7 +203,7 @@ impl PrincipalRegistry {
     /// Resolve the live ceiling by authenticated principal id. Unlike the
     /// handshake credential lookup, this is used to reauthorize an already
     /// connected client after ceiling changes or principal revocation.
-    pub(crate) fn identity_for_principal(&self, principal: &str) -> Option<AgentIdentity> {
+    pub fn identity_for_principal(&self, principal: &str) -> Option<AgentIdentity> {
         self.principals
             .iter()
             .chain(&self.ephemeral)
@@ -222,7 +222,7 @@ impl PrincipalRegistry {
     /// Whether another principal already carries this display label. Used
     /// by the pairing prompt to warn about look-alike installations
     /// (ADR-0088 TOFU continuity).
-    pub(crate) fn label_collision(&self, label: &str) -> bool {
+    pub fn label_collision(&self, label: &str) -> bool {
         self.principals.iter().chain(&self.ephemeral).any(|record| {
             record
                 .label
@@ -232,12 +232,12 @@ impl PrincipalRegistry {
     }
 
     /// Whether pairing this label was already denied this session.
-    pub(crate) fn is_denied(&self, label: Option<&str>) -> bool {
+    pub fn is_denied(&self, label: Option<&str>) -> bool {
         self.denied.contains(&deny_key(label))
     }
 
     /// Cache a pairing denial for the rest of the session.
-    pub(crate) fn deny(&mut self, label: Option<&str>) {
+    pub fn deny(&mut self, label: Option<&str>) {
         self.denied.insert(deny_key(label));
     }
 
@@ -245,7 +245,7 @@ impl PrincipalRegistry {
     /// filtered down to the agent-requestable operations and split into
     /// pregranted and runtime-gated families. The credential is returned
     /// once; the registry keeps only its digest.
-    pub(crate) fn issue(
+    pub fn issue(
         &mut self,
         label: Option<&str>,
         requested: &[ActorCapability],
@@ -274,13 +274,13 @@ impl PrincipalRegistry {
     }
 
     /// Every registered principal, in registration order.
-    pub(crate) fn principals(&self) -> &[PrincipalRecord] {
+    pub fn principals(&self) -> &[PrincipalRecord] {
         &self.principals
     }
 
     /// Rename a principal's display label (`None` clears it). Unknown id
     /// errors.
-    pub(crate) fn rename(&mut self, principal: &str, label: Option<&str>) -> Result<(), String> {
+    pub fn rename(&mut self, principal: &str, label: Option<&str>) -> Result<(), String> {
         validate_label(label)?;
         let Some(record) = self
             .principals
@@ -304,7 +304,7 @@ impl PrincipalRegistry {
 
     /// Forget a principal: the record and its credential die. Unknown id
     /// errors.
-    pub(crate) fn forget(&mut self, principal: &str) -> Result<(), String> {
+    pub fn forget(&mut self, principal: &str) -> Result<(), String> {
         let Some(index) = self
             .principals
             .iter()
@@ -323,7 +323,7 @@ impl PrincipalRegistry {
     /// Replace a principal's approved ceiling. Both groups are filtered
     /// down to the agent-requestable operations and deduplicated, order
     /// preserved. Unknown id errors.
-    pub(crate) fn set_ceiling(
+    pub fn set_ceiling(
         &mut self,
         principal: &str,
         pregranted: Vec<ActorCapability>,
@@ -354,7 +354,7 @@ impl PrincipalRegistry {
     /// Register a principal ahead of time (administrator pre-provisioning):
     /// the same sanitization as pairing, without the interactive prompt.
     /// Returns the issued principal id and credential.
-    pub(crate) fn register(
+    pub fn register(
         &mut self,
         label: Option<&str>,
         pregranted: Vec<ActorCapability>,
@@ -367,7 +367,7 @@ impl PrincipalRegistry {
     /// Provision a first-party process identity for this compositor
     /// lifetime. The returned credential is passed over an inherited pipe;
     /// neither the cleartext credential nor its digest reaches disk.
-    pub(crate) fn register_ephemeral(
+    pub fn register_ephemeral(
         &mut self,
         label: Option<&str>,
         pregranted: Vec<ActorCapability>,
@@ -459,7 +459,7 @@ struct GrantsFile {
 
 /// One durable runtime-grant decision (ADR-0088).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) struct GrantRecord {
+pub struct GrantRecord {
     pub principal: String,
     pub op: ActorCapability,
     pub allow: bool,
@@ -470,7 +470,7 @@ pub(crate) struct GrantRecord {
 /// live in `$XDG_DATA_HOME/tessera/grants.json` with the registry's
 /// owner-only, atomic-write, fail-closed discipline; session decisions
 /// live only in memory and die with the compositor.
-pub(crate) struct GrantStore {
+pub struct GrantStore {
     path: Option<PathBuf>,
     /// Durable decisions, persisted on every change.
     grants: Vec<GrantRecord>,
@@ -483,7 +483,7 @@ impl GrantStore {
     /// Load the store from `path`. A missing file starts empty; a corrupt
     /// or version-mismatched file also starts empty (fail-closed) and is
     /// logged — never silently trusted.
-    pub(crate) fn load(path: PathBuf) -> Self {
+    pub fn load(path: PathBuf) -> Self {
         let grants = match read_private_state(&path) {
             Ok(Some(bytes)) => match serde_json::from_slice::<GrantsFile>(&bytes) {
                 Ok(file) if file.version == GRANTS_VERSION && valid_grants_file(&file) => {
@@ -523,7 +523,7 @@ impl GrantStore {
 
     /// A session-only store for sessions without a durable data directory.
     #[cfg(test)]
-    pub(crate) fn in_memory() -> Self {
+    pub fn in_memory() -> Self {
         Self {
             path: None,
             grants: Vec::new(),
@@ -533,7 +533,7 @@ impl GrantStore {
 
     /// The recorded decision for one principal and operation, if any.
     /// Session decisions win over durable ones.
-    pub(crate) fn decision_for(&self, principal: &str, op: ActorCapability) -> Option<bool> {
+    pub fn decision_for(&self, principal: &str, op: ActorCapability) -> Option<bool> {
         if let Some((_, _, allow)) = self
             .session
             .iter()
@@ -550,7 +550,7 @@ impl GrantStore {
     /// Record one decision. `session: true` keeps it in memory only;
     /// otherwise the durable record is updated or inserted (superseding any
     /// session decision for the same pair) and persisted.
-    pub(crate) fn record(
+    pub fn record(
         &mut self,
         principal: &str,
         op: ActorCapability,
@@ -597,7 +597,7 @@ impl GrantStore {
 
     /// Drop one decision from both scopes and persist. Revoking a grant
     /// that was never recorded is not an error.
-    pub(crate) fn revoke(&mut self, principal: &str, op: ActorCapability) -> Result<(), String> {
+    pub fn revoke(&mut self, principal: &str, op: ActorCapability) -> Result<(), String> {
         let previous_session = self.session.clone();
         let previous_grants = self.grants.clone();
         self.session
@@ -615,7 +615,7 @@ impl GrantStore {
     /// Drop every decision belonging to one principal from both scopes and
     /// persist. A persistence failure is logged, not propagated: the
     /// principal is already gone from the registry either way.
-    pub(crate) fn forget_principal(&mut self, principal: &str) {
+    pub fn forget_principal(&mut self, principal: &str) {
         self.session.retain(|(p, _, _)| p != principal);
         self.grants.retain(|record| record.principal != principal);
         if let Err(error) = self.save() {
@@ -624,7 +624,7 @@ impl GrantStore {
     }
 
     /// List durable decisions, optionally filtered to one principal.
-    pub(crate) fn list(&self, filter: Option<&str>) -> Vec<tessera_ipc::AgentGrantInfo> {
+    pub fn list(&self, filter: Option<&str>) -> Vec<tessera_ipc::AgentGrantInfo> {
         self.grants
             .iter()
             .filter(|record| filter.is_none_or(|principal| record.principal == principal))
@@ -661,7 +661,7 @@ impl GrantStore {
 /// machine key (the `ActorCapability` variant name, parseable back with
 /// [`ActorCapability::from_name`]), a human label, and whether first use is
 /// runtime-gated (ADR-0088).
-pub(crate) struct CapabilityGroupData {
+pub struct CapabilityGroupData {
     pub key: &'static str,
     pub label: &'static str,
     pub gated: bool,
@@ -755,7 +755,7 @@ const CAPABILITY_FAMILIES: &[(&str, &str, &[ActorCapability])] = &[
 
 /// One display family projected for the pairing checklist: a stable machine
 /// key, a human label, and the requested operations in display order.
-pub(crate) struct CapabilityFamilyData {
+pub struct CapabilityFamilyData {
     pub key: &'static str,
     pub label: &'static str,
     pub members: Vec<CapabilityGroupData>,
@@ -765,7 +765,7 @@ pub(crate) struct CapabilityFamilyData {
 /// down to the agent-requestable operations, grouped into display families,
 /// each operation marked with its runtime-gated flag. Families with no
 /// requested operation drop out.
-pub(crate) fn capability_families(requested: &[ActorCapability]) -> Vec<CapabilityFamilyData> {
+pub fn capability_families(requested: &[ActorCapability]) -> Vec<CapabilityFamilyData> {
     CAPABILITY_FAMILIES
         .iter()
         .filter_map(|(key, label, ops)| {
