@@ -13,6 +13,16 @@ rust-version.workspace = true
 [dependencies]
 tracing-log.workspace = true
 tracing-subscriber.workspace = true
+# Typed runtime-environment errors.
+thiserror.workspace = true
+# The panic hook emits through the `log` facade (the bridge routes it
+# into the subscriber), so the dependency is named explicitly here.
+log.workspace = true
+
+[dev-dependencies]
+# The conformance suite asserts the socket-naming composition with the
+# IPC contract (ADR-0147 Decision 6).
+tessera-ipc.workspace = true
 
 [lints]
 workspace = true

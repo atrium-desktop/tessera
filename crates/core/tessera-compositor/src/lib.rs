@@ -1972,6 +1972,11 @@ unsafe fn post_pointer_axis_wire_event(
 pub struct Server {
     state: Box<State>,
     socket: String,
+    /// The validated XDG runtime directory, injected by the composition
+    /// root (ADR-0147 Decision 2: environment resolution is an entry-
+    /// point concern; core never reads the environment). Portal socket
+    /// trees are derived from it via the IPC contract's naming.
+    runtime_dir: Option<PathBuf>,
     interaction_domain_portals: Vec<InteractionDomainPortal>,
     /// Monotonic epoch for pointer buttons, touch, relative motion, and
     /// synthetic events that do not carry a backend timestamp. Axis frames

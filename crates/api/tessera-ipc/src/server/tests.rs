@@ -1,4 +1,5 @@
 use super::*;
+use std::path::PathBuf;
 
 fn frame(stream_id: u64) -> StreamFramePayload {
     StreamFramePayload::Pixels(StreamPixelFrame {
@@ -19,7 +20,8 @@ fn frame(stream_id: u64) -> StreamFramePayload {
 fn bare_server() -> Server {
     Server {
         _accept: thread::spawn(|| {}),
-        socket: PathBuf::new(),
+        socket: crate::socket_paths::SocketGuard::bind(PathBuf::new())
+            .expect("empty path is never a live socket"),
         subs: Arc::new(Mutex::new(HashMap::new())),
         journal_broadcaster: JournalBroadcaster::default(),
         event_filter: Arc::new(Mutex::new(None)),

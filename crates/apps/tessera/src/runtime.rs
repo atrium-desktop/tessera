@@ -247,6 +247,11 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
         dmabuf_scanout_formats,
         dmabuf_scanout_device,
     )?;
+    // Environment resolution is an entry-point concern (ADR-0147 D2):
+    // the runtime directory is validated here and injected into the core,
+    // which never reads the environment itself. A failure is fatal —
+    // interaction-domain portals cannot work without a runtime directory.
+    server.set_runtime_dir(tessera_bootstrap::runtime_dir()?);
     server.set_outputs(host.output_infos());
     server.set_color_pipeline(host.color_pipeline());
     log::info!("server: listening on WAYLAND_DISPLAY={}", server.socket());
@@ -898,29 +903,31 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
     live.set_settings(settings_snapshot.clone());
     shell.set_settings(settings_snapshot);
     live.set_system_status(system_status.clone());
-    let ipc: Option<tessera_ipc::Server> = match std::env::var_os("XDG_RUNTIME_DIR") {
-        Some(d) => {
-            let path = std::path::PathBuf::from(d).join("tessera.sock");
-            match tessera_ipc::Server::start_with_journal_broadcaster(
-                &path,
-                std::sync::Arc::clone(&live),
-                journal_broadcaster,
-            ) {
-                Ok(s) => {
-                    log::info!("ipc: listening on {}", path.display());
-                    Some(s)
-                }
-                Err(e) => {
-                    log::warn!("ipc: failed to bind {}: {e}", path.display());
-                    None
+    let ipc: Option<tessera_ipc::Server> =
+        match tessera_bootstrap::runtime_dir().map(|dir| {
+            tessera_ipc::socket_paths::default_socket_path(&dir)
+        }) {
+            Ok(path) => {
+                match tessera_ipc::Server::start_with_journal_broadcaster(
+                    &path,
+                    std::sync::Arc::clone(&live),
+                    journal_broadcaster,
+                ) {
+                    Ok(s) => {
+                        log::info!("ipc: listening on {}", path.display());
+                        Some(s)
+                    }
+                    Err(e) => {
+                        log::warn!("ipc: failed to bind {}: {e}", path.display());
+                        None
+                    }
                 }
             }
-        }
-        None => {
-            log::warn!("ipc: $XDG_RUNTIME_DIR unset; no IPC socket");
-            None
-        }
-    };
+            Err(error) => {
+                log::warn!("ipc: {error}; no IPC socket");
+                None
+            }
+        };
     // Start the policy client only after both the Wayland and IPC sockets are
     // published. It is supervised for the lifetime of this runtime and
     // inherits the exact session environment advertised above.

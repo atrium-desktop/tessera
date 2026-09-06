@@ -63,10 +63,10 @@ fn run_session_command(cli: tessera_commands::Cli) -> ExitCode {
     let socket = if local_only {
         std::path::PathBuf::new()
     } else {
-        match std::env::var_os("XDG_RUNTIME_DIR") {
-            Some(directory) => std::path::PathBuf::from(directory).join("tessera.sock"),
-            None => {
-                eprintln!("tessera: $XDG_RUNTIME_DIR is unset; cannot locate the running session");
+        match tessera_bootstrap::runtime_dir() {
+            Ok(directory) => tessera_ipc::socket_paths::default_socket_path(&directory),
+            Err(error) => {
+                eprintln!("tessera: {error}; cannot locate the running session");
                 return ExitCode::from(2);
             }
         }

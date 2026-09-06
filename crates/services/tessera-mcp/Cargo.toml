@@ -21,6 +21,8 @@ path = "src/bin/tessera-mcp.rs"
 tessera-model = { workspace = true, features = ["serde"] }
 tessera-ipc = { workspace = true }
 tessera-ipc-client = { workspace = true }
+# Shared runtime-environment resolution (ADR-0147 D2).
+tessera-bootstrap = { workspace = true }
 tessera-desktop-entries = { workspace = true }
 base64 = { workspace = true }
 serde = { workspace = true }

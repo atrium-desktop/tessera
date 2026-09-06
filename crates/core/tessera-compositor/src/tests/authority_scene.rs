@@ -7,6 +7,12 @@ fn agent_seat_lifecycle_is_fail_closed() {
         return;
     }
     let mut server = Server::new().expect("Server::new");
+    // ADR-0147 D2: the environment-resolved runtime directory is
+    // injected, exactly as the composition root does in production.
+    let runtime_dir = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(std::path::PathBuf::from)
+        .expect("XDG_RUNTIME_DIR");
+    server.set_runtime_dir(runtime_dir.clone());
     let bundle = server
         .create_agent_interaction_domain("test-agent", SeatCapabilities::POINTER_KEYBOARD)
         .expect("create agent interaction_domain");
@@ -314,6 +320,7 @@ fn physical_observer_mirror_blocks_click_through_without_taking_focus() {
     let mut server = std::mem::ManuallyDrop::new(Server {
         state: Box::new(state),
         socket: String::new(),
+        runtime_dir: None,
         interaction_domain_portals: Vec::new(),
         epoch: std::time::Instant::now(),
     });
@@ -379,6 +386,7 @@ fn switcher_preview_does_not_restack_and_stationary_rehit_tracks_the_commit() {
     let mut server = std::mem::ManuallyDrop::new(Server {
         state: Box::new(state),
         socket: String::new(),
+        runtime_dir: None,
         interaction_domain_portals: Vec::new(),
         epoch: std::time::Instant::now(),
     });
@@ -445,6 +453,7 @@ fn window_snapshot_drops_an_unmapped_toplevel() {
     let server = std::mem::ManuallyDrop::new(Server {
         state: Box::new(state),
         socket: String::new(),
+        runtime_dir: None,
         interaction_domain_portals: Vec::new(),
         epoch: std::time::Instant::now(),
     });
@@ -492,6 +501,7 @@ fn window_signature_memo_reuses_within_a_millisecond_and_invalidates_on_change()
     let server = std::mem::ManuallyDrop::new(Server {
         state: Box::new(state),
         socket: String::new(),
+        runtime_dir: None,
         interaction_domain_portals: Vec::new(),
         epoch: std::time::Instant::now(),
     });
@@ -540,6 +550,7 @@ fn physical_window_snapshot_contains_only_controlled_or_observed_windows() {
     let mut server = std::mem::ManuallyDrop::new(Server {
         state: Box::new(state),
         socket: String::new(),
+        runtime_dir: None,
         interaction_domain_portals: Vec::new(),
         epoch: std::time::Instant::now(),
     });
@@ -576,6 +587,7 @@ fn raising_a_toplevel_keeps_its_surface_tree_together() {
     let mut server = std::mem::ManuallyDrop::new(Server {
         state: Box::new(state),
         socket: String::new(),
+        runtime_dir: None,
         interaction_domain_portals: Vec::new(),
         epoch: std::time::Instant::now(),
     });
@@ -628,6 +640,7 @@ fn always_on_top_windows_stay_above_raised_normal_windows() {
     let mut server = std::mem::ManuallyDrop::new(Server {
         state: Box::new(state),
         socket: String::new(),
+        runtime_dir: None,
         interaction_domain_portals: Vec::new(),
         epoch: std::time::Instant::now(),
     });
@@ -710,6 +723,7 @@ fn restack_keeps_unfocused_newcomers_below_the_always_on_top_band() {
     let mut server = std::mem::ManuallyDrop::new(Server {
         state: Box::new(state),
         socket: String::new(),
+        runtime_dir: None,
         interaction_domain_portals: Vec::new(),
         epoch: std::time::Instant::now(),
     });
@@ -802,6 +816,7 @@ fn client_surface_order_keeps_each_window_tree_occluded_as_a_unit() {
     let server = std::mem::ManuallyDrop::new(Server {
         state: Box::new(state),
         socket: String::new(),
+        runtime_dir: None,
         interaction_domain_portals: Vec::new(),
         epoch: std::time::Instant::now(),
     });

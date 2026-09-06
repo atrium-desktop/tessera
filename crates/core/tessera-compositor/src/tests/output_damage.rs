@@ -312,6 +312,7 @@ fn committed_opaque_region_culls_a_fully_covered_window_tree() {
     let mut server = std::mem::ManuallyDrop::new(Server {
         state: Box::new(state),
         socket: String::new(),
+        runtime_dir: None,
         interaction_domain_portals: Vec::new(),
         epoch: std::time::Instant::now(),
     });

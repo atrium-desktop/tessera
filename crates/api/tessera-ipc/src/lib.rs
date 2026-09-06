@@ -28,6 +28,7 @@ pub mod codec;
 pub mod journal;
 pub mod schema;
 pub mod server;
+pub mod socket_paths;
 
 pub use tessera_security::authority::{
     ActorPrincipal, ActorResource, ActorSessionId, ActorSessionPolicy, ActorSessionSnapshot,

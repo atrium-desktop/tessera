@@ -343,10 +343,22 @@ impl Server {
             Ok(Server {
                 state,
                 socket,
+                runtime_dir: None,
                 interaction_domain_portals: Vec::new(),
                 epoch: std::time::Instant::now(),
             })
         }
+    }
+
+    /// Inject the validated XDG runtime directory (ADR-0147 Decision 2).
+    ///
+    /// The composition root resolves the environment through
+    /// `tessera_bootstrap::runtime_dir()` and hands the result in here;
+    /// the compositor core never reads the environment itself. Required
+    /// before any interaction-domain portal launch; portal naming is
+    /// derived from the IPC contract.
+    pub fn set_runtime_dir(&mut self, runtime_dir: PathBuf) {
+        self.runtime_dir = Some(runtime_dir);
     }
 
     /// The socket name clients connect to (set `WAYLAND_DISPLAY` to this).

@@ -712,10 +712,9 @@ fn socket_path() -> io::Result<PathBuf> {
     if let Some(path) = std::env::var_os("TESSERA_ATSPI_SOCKET") {
         return Ok(path.into());
     }
-    std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .map(|path| path.join("tessera.sock"))
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "XDG_RUNTIME_DIR is not set"))
+    let runtime = tessera_bootstrap::runtime_dir()
+        .map_err(|error| io::Error::new(io::ErrorKind::NotFound, error.to_string()))?;
+    Ok(tessera_ipc::socket_paths::default_socket_path(&runtime))
 }
 
 #[cfg(test)]

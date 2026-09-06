@@ -449,6 +449,7 @@ fn prepared_keyboard_edges_keep_physical_order_across_route_boundary() {
     let mut server = std::mem::ManuallyDrop::new(Server {
         state: Box::new(state),
         socket: String::new(),
+        runtime_dir: None,
         interaction_domain_portals: Vec::new(),
         epoch: std::time::Instant::now(),
     });

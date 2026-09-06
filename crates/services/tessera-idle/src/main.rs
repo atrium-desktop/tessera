@@ -6,6 +6,7 @@ use std::io;
 use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::UnixDatagram;
+use tessera_ipc::socket_paths::SocketGuard;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
@@ -200,7 +201,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let policy = options.policy.validate()?;
     let control = bind_control_socket(&options.control_socket)?;
-    let _socket_guard = SocketGuard::new(options.control_socket.clone())?;
+    let mut socket_guard = SocketGuard::bind(options.control_socket.clone())?;
+    socket_guard
+        .observe_bound()
+        .or_else(|error| {
+            drop(socket_guard);
+            Err(error)
+        })?;
     let (sleep_tx, sleep_rx) = mpsc::channel();
     if options.logind {
         logind::spawn_signal_monitor(sleep_tx);
@@ -705,39 +712,6 @@ impl Dispatch<ext_idle_notification_v1::ExtIdleNotificationV1, IdleStage> for Da
 delegate_noop!(Daemon: ignore wl_seat::WlSeat);
 delegate_noop!(Daemon: ignore ext_idle_notifier_v1::ExtIdleNotifierV1);
 
-struct SocketGuard {
-    path: PathBuf,
-    device: u64,
-    inode: u64,
-}
-
-impl SocketGuard {
-    fn new(path: PathBuf) -> io::Result<Self> {
-        match path.symlink_metadata() {
-            Ok(metadata) => Ok(Self {
-                path,
-                device: metadata.dev(),
-                inode: metadata.ino(),
-            }),
-            Err(error) => {
-                let _ = std::fs::remove_file(&path);
-                Err(error)
-            }
-        }
-    }
-}
-
-impl Drop for SocketGuard {
-    fn drop(&mut self) {
-        if self.path.symlink_metadata().is_ok_and(|metadata| {
-            metadata.file_type().is_socket()
-                && metadata.dev() == self.device
-                && metadata.ino() == self.inode
-        }) {
-            let _ = std::fs::remove_file(&self.path);
-        }
-    }
-}
 
 fn bind_control_socket(path: &Path) -> io::Result<UnixDatagram> {
     if let Ok(metadata) = path.symlink_metadata() {
@@ -838,13 +812,11 @@ struct Options {
 
 impl Options {
     fn parse(args: impl Iterator<Item = OsString>) -> Result<Self, Box<dyn std::error::Error>> {
-        let runtime = std::env::var_os("XDG_RUNTIME_DIR")
-            .map(PathBuf::from)
-            .ok_or("$XDG_RUNTIME_DIR is unset")?;
+        let runtime = tessera_bootstrap::runtime_dir()?;
         let mut options = Self {
             policy: IdlePolicy::default(),
-            ipc_socket: runtime.join("tessera.sock"),
-            control_socket: runtime.join("tessera-idle.sock"),
+            ipc_socket: tessera_ipc::socket_paths::default_socket_path(&runtime),
+            control_socket: tessera_ipc::socket_paths::idle_control_socket_path(&runtime),
             lock_now: false,
             logind: true,
         };
@@ -984,8 +956,11 @@ mod tests {
     fn socket_guard_does_not_unlink_a_replacement_inode() {
         let path = test_socket("guard");
         let _ = std::fs::remove_file(&path);
+        // Guard first (reclaims nothing on a free path), then bind the
+        // daemon socket and observe it, then simulate a replacement.
+        let mut guard = SocketGuard::bind(path.clone()).unwrap();
         let original = bind_control_socket(&path).unwrap();
-        let guard = SocketGuard::new(path.clone()).unwrap();
+        guard.observe_bound().unwrap();
         std::fs::remove_file(&path).unwrap();
         let replacement = bind_control_socket(&path).unwrap();
         drop(guard);

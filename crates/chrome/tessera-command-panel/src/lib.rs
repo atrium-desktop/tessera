@@ -1076,10 +1076,10 @@ impl Chrome for CommandPanel {
                     }
                 }
             }
-            ChromeCommand::CloseCommandPanel | ChromeCommand::DismissModal => {
-                if self.open {
-                    self.close();
-                }
+            ChromeCommand::CloseCommandPanel | ChromeCommand::DismissModal
+                if self.open =>
+            {
+                self.close();
             }
             _ => {}
         }

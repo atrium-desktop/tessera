@@ -35,10 +35,17 @@ impl Server {
             );
         }
 
-        let runtime = std::env::var_os("XDG_RUNTIME_DIR").ok_or_else(|| {
-            InteractionDomainRuntimeError::Portal("XDG_RUNTIME_DIR is not available".into())
-        })?;
-        let base = PathBuf::from(runtime).join("tessera-portals");
+        let base = self
+            .runtime_dir
+            .as_deref()
+            .map(|runtime| tessera_ipc::socket_paths::portals_base_path(runtime))
+            .ok_or_else(|| {
+                InteractionDomainRuntimeError::Portal(
+                    "runtime directory was not injected; the composition root must call \
+                     Server::set_runtime_dir before launching interaction domain portals"
+                        .into(),
+                )
+            })?;
         std::fs::DirBuilder::new()
             .mode(0o700)
             .recursive(true)

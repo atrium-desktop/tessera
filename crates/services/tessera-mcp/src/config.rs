@@ -69,14 +69,31 @@ impl BridgeConfig {
 
     /// Load the bridge configuration from `TESSERA_MCP_*` variables.
     pub fn from_env() -> Result<Self, ConfigError> {
-        Self::from_lookup(|name| std::env::var_os(name))
+        // The runtime directory is resolved through the shared bootstrap
+        // resolver (absolute-path validation per the basedir spec) and
+        // fed into the lookup-based constructor alongside the other
+        // environment variables, so the validation path is identical in
+        // production and in tests (ADR-0147 Decision 2).
+        match tessera_bootstrap::runtime_dir() {
+            Ok(dir) => Self::from_lookup(|name| {
+                if name == "XDG_RUNTIME_DIR" {
+                    return Some(dir.as_os_str().to_os_string());
+                }
+                std::env::var_os(name)
+            }),
+            Err(error) => Err(error.into()),
+        }
     }
 
     fn from_lookup(mut get: impl FnMut(&str) -> Option<OsString>) -> Result<Self, ConfigError> {
+        // The socket name comes from the IPC contract; the runtime dir
+        // is validated absolute by `validate` (ADR-0147 Decision 3).
         let runtime_dir = PathBuf::from(required_os(&mut get, "XDG_RUNTIME_DIR")?);
         let socket_path = get("TESSERA_MCP_SOCKET")
             .map(PathBuf::from)
-            .unwrap_or_else(|| runtime_dir.join("tessera.sock"));
+            .unwrap_or_else(|| {
+                tessera_ipc::socket_paths::default_socket_path(&runtime_dir)
+            });
         let interaction_domain_label =
             optional_string(&mut get, "TESSERA_MCP_INTERACTION_DOMAIN_LABEL")?
                 .unwrap_or_else(|| DEFAULT_INTERACTION_DOMAIN_LABEL.to_string());
@@ -246,6 +263,10 @@ pub enum ConfigError {
     Missing(&'static str),
     #[error("invalid {name}: {message}")]
     Invalid { name: &'static str, message: String },
+    /// The XDG runtime directory failed validation (unset or relative).
+    /// The message carries the underlying bootstrap error.
+    #[error("runtime environment: {0}")]
+    RuntimeEnvironment(#[from] tessera_bootstrap::RuntimeDirError),
 }
 
 #[cfg(test)]

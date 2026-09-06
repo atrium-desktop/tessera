@@ -17,7 +17,7 @@ use std::io;
 use std::net::Shutdown;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, SyncSender};
 use std::sync::{Arc, Mutex};
@@ -375,11 +375,17 @@ impl JournalBroadcaster {
 }
 
 /// A bound IPC server. The accept thread runs until the handle is dropped
-/// (process exit) or the listener errors. `Drop` removes the socket file
-/// best-effort so a restart rebinds cleanly.
+/// (process exit) or the listener errors. `Drop` unlinks the socket file
+/// through the identity-verified [`SocketGuard`](crate::socket_paths::SocketGuard)
+/// so a restart rebinds cleanly while a successor's socket is never
+/// deleted (ADR-0147 Decision 4).
 pub struct Server {
     _accept: thread::JoinHandle<()>,
-    socket: PathBuf,
+    /// Owns the socket file's lifecycle: dropped after the accept thread
+    /// shuts down, unlinks exactly the file this server bound (ADR-0147
+    /// Decision 4). Never read; held for its Drop.
+    #[allow(dead_code)]
+    socket: crate::socket_paths::SocketGuard,
     subs: Arc<Mutex<HashMap<SubId, SubscriptionLane>>>,
     journal_broadcaster: JournalBroadcaster,
     event_filter: Arc<Mutex<Option<EventFilter>>>,
@@ -425,12 +431,26 @@ impl Server {
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => return Err(error),
         }
-        let listener = UnixListener::bind(path)?;
+        // The guard takes ownership BEFORE the bind: it reclaims a stale
+        // socket file so UnixListener::bind finds a free path, and its
+        // identity is observed after the bind so Drop unlinks exactly
+        // what this server bound (ADR-0147 Decision 4).
+        let mut socket = crate::socket_paths::SocketGuard::bind(path.to_path_buf())?;
+        let listener = match UnixListener::bind(path) {
+            Ok(listener) => listener,
+            Err(error) => {
+                drop(socket);
+                return Err(error);
+            }
+        };
         if let Err(error) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)) {
-            let _ = std::fs::remove_file(path);
+            drop(socket);
             return Err(error);
         }
-        let socket = path.to_path_buf();
+        if let Err(error) = socket.observe_bound() {
+            drop(socket);
+            return Err(error);
+        }
         let subs = Arc::new(Mutex::new(HashMap::new()));
         let journal_subs = Arc::clone(&journal_broadcaster.subscribers);
         let streams = Arc::new(Mutex::new(HashMap::new()));
@@ -477,7 +497,6 @@ impl Server {
             streams,
         })
     }
-
     /// Push a coarse event to every subscribed connection (ADR-0027).
     ///
     /// Delivery is bounded and fail-closed: a full or disconnected lane is
@@ -583,22 +602,11 @@ impl Server {
     }
 }
 
-impl Drop for Server {
-    fn drop(&mut self) {
-        if std::fs::symlink_metadata(&self.socket)
-            .is_ok_and(|metadata| metadata.file_type().is_socket())
-        {
-            let _ = std::fs::remove_file(&self.socket);
-        }
-    }
-}
-
 mod connection;
 use connection::accept_loop;
 mod authorization;
 use authorization::*;
-mod dispatch;
-use dispatch::drive_read_loop;
+mod dispatch;use dispatch::drive_read_loop;
 mod writer;
 use writer::{
     write_interaction_domain_capture, write_output_capture, write_stream_frame,
