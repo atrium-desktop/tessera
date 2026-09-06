@@ -17,7 +17,7 @@ use std::collections::BTreeSet;
 use lens::{Color, Frame, Input, LayoutOpts, Rect};
 
 use crate::{
-    BackdropRegion, CapabilityFamily, CapabilityGroup, CapabilityPickParams,
+    BackdropRegion, CapabilityFamily, CapabilityPickParams,
     CapabilityPickResult, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
     LiquidGlassRegion, Localizer, Reserved, ellipsize, modal_scrim_backdrop,
 };
@@ -825,6 +825,7 @@ fn label_rect(row: Rect, indent: f32) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CapabilityGroup;
 
     fn member(key: &str, label: &str, gated: bool) -> CapabilityGroup {
         CapabilityGroup {
