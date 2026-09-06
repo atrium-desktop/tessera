@@ -15,21 +15,24 @@ tessera/
       tessera-semantic/     validated application accessibility trees and semantic action routing
       tessera-design/       product design tokens, themes, and materials
       tessera-ui/           composite UI patterns and chrome widgets over lens
+      tessera-i18n/         locale negotiation and the typed translated message catalog
+      tessera-chrome/       the Chrome contract: trait, snapshot/event types, backdrop declarations (ADR-0021)
       tessera-config/       TOML schema, typed atomic persistence, loader, live reload
       tessera-ipc/          Actor capability broker and introspection over a unix socket
       tessera-ipc-client/   rich client library for the capability broker
       tessera-commands/     domain command parser and IPC dispatcher (lib-only)
-      tessera-desktop-entries/       freedesktop.org desktop-entry enumeration + icon lookup
+      tessera-icons/        freedesktop.org icon-theme lookup: scale-aware resolution
+      tessera-desktop-entries/       freedesktop.org desktop-entry enumeration
     core/                 platform engines; the only unsafe-allowed tier
       tessera-wayland-protocols/     shared generated Wayland protocol interface tables
       tessera-compositor/        Wayland server: socket, globals, object lifecycle
       tessera-backend/       presentation + input targets (nested, DRM/KMS + libinput + libseat)
       tessera-render/        compositing through flux
-    providers/            shared runtimes consumed by chrome surfaces; no UI
+    providers/            shared runtimes consumed by chrome surfaces; no UI of their own
       tessera-tray/          SNI system tray service
       tessera-avatar/        persona profile + feature-gated still/VRM portrait runtime
     chrome/               user-visible surfaces; depend on api + providers, never on each other
-      tessera-shell/         chrome host plus feature-gated persona domain
+      tessera-shell/         the Chrome host: lens context, component registry, built-in surfaces
       tessera-dock/          bottom-center dock chrome component
       tessera-prism/         compact application-search chrome component
       tessera-hud/           display-only HUD status chips (system status, workspace dots, clock, SNI tray)
@@ -40,7 +43,8 @@ tessera/
       tessera-atspi/          supervised out-of-process AT-SPI semantic adapter
       tessera-idle/           idle / session-lock sidecar
       tessera-launcher/        detached, XDG-environment-aware app launching
-      tessera-bootstrap/        shared tracing-based observability init
+      tessera-bootstrap/       shared process bootstrap: observability init and friends
+      tessera-agent-broker/    agent principal registry and durable runtime-grant store
       tessera-mcp/            scoped platform bridge over MCP
       tessera-remote/         UIP network gateway and remote seat manager
     apps/                 composition roots; wiring only
