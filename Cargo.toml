@@ -1,6 +1,20 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "tooling/*"]
+# Tiered layout; each tier carries a hard dependency rule enforced by
+# `cargo xtask lint-deps` (see tooling/xtask):
+#   api      -> only api + external dependencies (pure types, zero side effects)
+#   core     -> api            (platform engines; the only unsafe-allowed tier)
+#   chrome   -> api            (never core, never other chrome crates)
+#   services -> api + core     (out-of-process daemons / bridges)
+#   apps     -> everything     (composition roots only; thin)
+members = [
+    "crates/api/*",
+    "crates/core/*",
+    "crates/chrome/*",
+    "crates/services/*",
+    "crates/apps/*",
+    "tooling/*",
+]
 
 [workspace.package]
 version = "0.0.57"
@@ -94,59 +108,59 @@ dirs = "5"
 ini = { package = "rust-ini", version = "0.20" }
 
 # Shared, effect-free Tessera state and deterministic model rules.
-tessera-model = { path = "crates/tessera-model" }
+tessera-model = { path = "crates/api/tessera-model" }
 # Transport-neutral Actor authority plus hash-chained audit persistence.
-tessera-security = { path = "crates/tessera-security" }
+tessera-security = { path = "crates/api/tessera-security" }
 # Validated application accessibility trees and semantic dispatch routing.
-tessera-semantic = { path = "crates/tessera-semantic" }
+tessera-semantic = { path = "crates/api/tessera-semantic" }
 # Out-of-process AT-SPI accessibility adapter for semantic observations.
-tessera-atspi = { path = "crates/tessera-atspi" }
+tessera-atspi = { path = "crates/services/tessera-atspi" }
 # Shared tracing-based observability init installed once by every binary.
-tessera-logging = { path = "crates/tessera-logging" }
-tessera-wayland-protocols = { path = "crates/tessera-wayland-protocols" }
-tessera-compositor = { path = "crates/tessera-compositor" }
-tessera-backend = { path = "crates/tessera-backend" }
-tessera-render = { path = "crates/tessera-render" }
-tessera-shell = { path = "crates/tessera-shell" }
+tessera-logging = { path = "crates/services/tessera-logging" }
+tessera-wayland-protocols = { path = "crates/core/tessera-wayland-protocols" }
+tessera-compositor = { path = "crates/core/tessera-compositor" }
+tessera-backend = { path = "crates/core/tessera-backend" }
+tessera-render = { path = "crates/core/tessera-render" }
+tessera-shell = { path = "crates/chrome/tessera-shell" }
 # Product-specific design tokens, themes, and materials shared by chrome.
-tessera-design = { path = "crates/tessera-design" }
+tessera-design = { path = "crates/api/tessera-design" }
 # Composite UI patterns, dialog scaffolding, and chrome widgets.
-tessera-ui = { path = "crates/tessera-ui" }
+tessera-ui = { path = "crates/api/tessera-ui" }
 # Chrome components promoted out of tessera-shell (ADR-0044).
-tessera-dock = { path = "crates/tessera-dock" }
-tessera-prism = { path = "crates/tessera-prism" }
+tessera-dock = { path = "crates/chrome/tessera-dock" }
+tessera-prism = { path = "crates/chrome/tessera-prism" }
 # Display-only floating HUD status chips (ADR-0080).
-tessera-hud = { path = "crates/tessera-hud" }
+tessera-hud = { path = "crates/chrome/tessera-hud" }
 # SNI system tray service shared by shell chrome (ADR-0080).
-tessera-tray = { path = "crates/tessera-tray" }
+tessera-tray = { path = "crates/chrome/tessera-tray" }
 # Modal command panel (ADR-0080).
-tessera-command-panel = { path = "crates/tessera-command-panel" }
-tessera-wallpaper = { path = "crates/tessera-wallpaper" }
+tessera-command-panel = { path = "crates/chrome/tessera-command-panel" }
+tessera-wallpaper = { path = "crates/chrome/tessera-wallpaper" }
 # First-party session products. The compositor retains the protocol and
 # fail-closed authority; these packages are ordinary Wayland clients.
-tessera-lock = { path = "crates/tessera-lock" }
-tessera-idle = { path = "crates/tessera-idle" }
+tessera-lock = { path = "crates/chrome/tessera-lock" }
+tessera-idle = { path = "crates/services/tessera-idle" }
 # Settings module library hosted by the command panel (ADR-0056).
-tessera-settings = { path = "crates/tessera-settings" }
+tessera-settings = { path = "crates/chrome/tessera-settings" }
 # Configuration: versioned TOML schema, loader, and live reload (ADR-0026).
-tessera-config = { path = "crates/tessera-config" }
+tessera-config = { path = "crates/api/tessera-config" }
 # IPC: versioned schema over a unix socket (ADR-0027).
-tessera-ipc = { path = "crates/tessera-ipc" }
+tessera-ipc = { path = "crates/api/tessera-ipc" }
 # Rich client library for the capability broker: pairing, credentials,
 # state recovery, and observation leases for out-of-process consumers
 # (ADR-0125).
-tessera-ipc-client = { path = "crates/tessera-ipc-client" }
+tessera-ipc-client = { path = "crates/api/tessera-ipc-client" }
 # Domain-oriented native command implementation used by the `tessera` binary.
-tessera-commands = { path = "crates/tessera-commands" }
+tessera-commands = { path = "crates/api/tessera-commands" }
 # Remote interaction gateway for the Universal Interaction Protocol (UIP).
-tessera-remote = { path = "crates/tessera-remote" }
+tessera-remote = { path = "crates/services/tessera-remote" }
 # Launcher: XDG application discovery + detached launch. See ADR-0022.
-tessera-desktop-entries = { path = "crates/tessera-desktop-entries" }
-tessera-launcher = { path = "crates/tessera-launcher" }
+tessera-desktop-entries = { path = "crates/api/tessera-desktop-entries" }
+tessera-launcher = { path = "crates/services/tessera-launcher" }
 # tessera-mcp: the scoped Tessera platform bridge over MCP — the standard agent
 # access point (ADR-0047, ADR-0087). It is an out-of-process adapter any MCP
 # client can spawn; the compositor never links it.
-tessera-mcp = { path = "crates/tessera-mcp" }
+tessera-mcp = { path = "crates/services/tessera-mcp" }
 
 # Declarative configuration (ADR-0026). `serde` drives the schema; `toml` is
 # the chosen file format over KDL/YAML/INI for tooling maturity and an

@@ -588,8 +588,17 @@ fn collapsed_handle_has_no_tile_hover_target() {
         &[],
         &workspace_snapshot(),
     ));
-    assert!(!dock.captures_pointer(
+    // Physical bottom edge directly under the capsule corridor captures pointer to eliminate edge dead zone.
+    assert!(dock.captures_pointer(
         display.0 * 0.5,
+        display.1 - 1.0,
+        display,
+        &[],
+        &workspace_snapshot(),
+    ));
+    // Bottom edge laterally outside the capsule corridor remains client-owned.
+    assert!(!dock.captures_pointer(
+        indicator.x - 20.0,
         display.1 - 1.0,
         display,
         &[],
@@ -613,6 +622,15 @@ fn capsule_is_the_only_collapsed_reveal_target() {
         &[],
         &workspaces,
     ));
+    // Corridor extends to physical edge:
+    assert!(dock.captures_pointer(
+        indicator.x + indicator.w * 0.5,
+        display.1 - 1.0,
+        display,
+        &[],
+        &workspaces,
+    ));
+    // Points outside the corridor corridor (left, right, above, or distant bottom edge) remain client-owned:
     for point in [
         (indicator.x - 1.0, indicator.y + indicator.h * 0.5),
         (
@@ -620,10 +638,8 @@ fn capsule_is_the_only_collapsed_reveal_target() {
             indicator.y + indicator.h * 0.5,
         ),
         (indicator.x + indicator.w * 0.5, indicator.y - 1.0),
-        (
-            indicator.x + indicator.w * 0.5,
-            indicator.y + indicator.h + 1.0,
-        ),
+        (indicator.x - 20.0, display.1 - 1.0),
+        (indicator.x + indicator.w + 20.0, display.1 - 1.0),
     ] {
         assert!(
             !dock.captures_pointer(point.0, point.1, display, &[], &workspaces),
@@ -830,16 +846,16 @@ fn backdrop_prepass_reveals_only_from_the_capsule_body() {
     let display = (1920.0, 1080.0);
     let workspaces = workspace_snapshot();
 
-    // The bottom edge outside the visible capsule remains client-owned.
+    // The bottom edge laterally outside the visible capsule corridor remains client-owned.
+    let indicator = Dock::collapsed_indicator_bounds(DockPosition::Bottom, display);
     let mut outside = Input::new(display, 0.016);
-    outside.set_cursor(display.0 * 0.5, display.1 - 1.0);
+    outside.set_cursor(indicator.x - 30.0, display.1 - 1.0);
     dock.prepare_backdrop(&outside, std::slice::from_ref(&maximized), &workspaces);
     assert_eq!(dock.autohide_idle, dock.autohide_timeout);
     assert!(dock.requires_composition());
 
-    // Skimming the capsule for a single brief frame (e.g. 16ms transit) keeps
+    // Skimming the capsule corridor for a single brief frame (e.g. 16ms transit) keeps
     // dwell pending without prematurely triggering dock expansion.
-    let indicator = Dock::collapsed_indicator_bounds(DockPosition::Bottom, display);
     let mut capsule = Input::new(display, 0.016);
     capsule.set_cursor(
         indicator.x + indicator.w * 0.5,
@@ -1631,4 +1647,75 @@ fn cursor_retreat_detection_handles_all_dock_edges() {
         Some((60.0, 500.0)),
         left_panel,
     ));
+}
+
+#[test]
+fn multi_frame_continuous_dwell_expands_dock_from_hidden_state() {
+    let display = (1920.0, 1080.0);
+    let mut dock = Dock::new();
+    dock.set_autohide(true);
+    dock.autohide_reveal = 0.0;
+    dock.autohide_idle = dock.autohide_timeout;
+    let workspaces = workspace_snapshot();
+
+    let indicator = Dock::collapsed_indicator_bounds(DockPosition::Bottom, display);
+    let mut input = Input::new(display, 0.016);
+    input.set_cursor(indicator.x + indicator.w * 0.5, indicator.y + indicator.h * 0.5);
+
+    // Dwell for 10 frames (160ms < 180ms threshold)
+    for _ in 0..10 {
+        dock.prepare_backdrop(&input, &[], &workspaces);
+        assert!(dock.anim_pending(), "dwell accumulation keeps animation ticking");
+        assert_eq!(dock.autohide_idle, dock.autohide_timeout);
+    }
+    assert!(dock.autohide_dwell > 0.15 && dock.autohide_dwell < dock.autohide_dwell_threshold);
+
+    // Next 2 frames (accumulating to > 180ms)
+    dock.prepare_backdrop(&input, &[], &workspaces);
+    dock.prepare_backdrop(&input, &[], &workspaces);
+    assert_eq!(dock.autohide_idle, 0.0, "sustained multi-frame dwell confirms reveal intent");
+    assert!(dock.anim_pending());
+}
+
+#[test]
+fn physical_screen_edge_hover_dwell_expands_dock() {
+    let display = (1920.0, 1080.0);
+    let mut dock = Dock::new();
+    dock.set_autohide(true);
+    dock.autohide_reveal = 0.0;
+    dock.autohide_idle = dock.autohide_timeout;
+    let workspaces = workspace_snapshot();
+
+    // Cursor is parked right on the bottom physical edge under the capsule
+    let mut input = Input::new(display, 0.016);
+    input.set_cursor(display.0 * 0.5, display.1 - 1.0);
+
+    for _ in 0..12 {
+        dock.prepare_backdrop(&input, &[], &workspaces);
+    }
+    assert_eq!(dock.autohide_idle, 0.0, "dwelling at physical screen edge confirms reveal intent");
+}
+
+#[test]
+fn cursor_navigating_toward_dock_tiles_does_not_abort_reveal() {
+    use crate::rendering::detect_cursor_retreat;
+    let display = (1920.0, 1080.0);
+    let rest_bounds = Dock::rest_bounds(5, 5, DockPosition::Bottom, display);
+
+    // Cursor moves upward from the bottom edge into the resting dock tile zone
+    let last_cursor = Some((display.0 * 0.5, display.1 - 2.0));
+    let cursor = (display.0 * 0.5, rest_bounds.y + 20.0);
+
+    assert!(
+        !detect_cursor_retreat(DockPosition::Bottom, cursor, last_cursor, rest_bounds),
+        "moving within rest_bounds toward dock icons is normal navigation, not retreat"
+    );
+
+    // Only moving above rest_bounds toward the client area is retreat
+    let outside_cursor = (display.0 * 0.5, rest_bounds.y - 10.0);
+    let previous = Some((display.0 * 0.5, rest_bounds.y - 2.0));
+    assert!(
+        detect_cursor_retreat(DockPosition::Bottom, outside_cursor, previous, rest_bounds),
+        "moving outside rest_bounds toward client window is retreat"
+    );
 }

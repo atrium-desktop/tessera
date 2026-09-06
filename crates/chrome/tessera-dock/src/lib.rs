@@ -105,7 +105,7 @@ pub const AUTOHIDE_QUICK_DISMISS_TIMEOUT: f32 = 0.15;
 /// Width of the thin stadium handle shown when the Dock is autohidden.
 const AUTOHIDE_HANDLE_WIDTH: f32 = 140.0;
 /// Height of the thin stadium handle shown when the Dock is autohidden.
-const AUTOHIDE_HANDLE_HEIGHT: f32 = 6.0;
+const AUTOHIDE_HANDLE_HEIGHT: f32 = 4.0;
 /// Reveal progress below which iconography has completely drained into the
 /// collapsing surface. The panel continues morphing into the stadium handle
 /// after its content is gone, so neither icons nor running dots linger beside
@@ -347,6 +347,8 @@ pub struct Dock {
     pub(crate) autohide_dwell_threshold: f32,
     /// Continuous hover dwell time in seconds on the collapsed indicator before expanding.
     pub(crate) autohide_dwell: f32,
+    /// Whether dwell was stepped in `prepare_backdrop` during the current frame cycle.
+    pub(crate) dwell_stepped_in_prepass: bool,
     /// Whether the user engaged with the Dock during the current reveal session
     /// (e.g. tooltip dwell, menu open, icon click, or drag).
     pub(crate) dock_interacted: bool,
@@ -465,6 +467,7 @@ impl Dock {
             autohide_timeout: AUTOHIDE_IDLE_TIMEOUT,
             autohide_dwell_threshold: AUTOHIDE_DWELL_THRESHOLD,
             autohide_dwell: 0.0,
+            dwell_stepped_in_prepass: false,
             dock_interacted: false,
             last_cursor: None,
             hidden_trigger_armed: true,
@@ -625,10 +628,26 @@ impl Dock {
         display: (f32, f32),
     ) -> bool {
         let indicator = Self::collapsed_indicator_bounds(position, display);
-        cursor.0 >= indicator.x
-            && cursor.1 >= indicator.y
-            && cursor.0 < indicator.x + indicator.w
-            && cursor.1 < indicator.y + indicator.h
+        match position {
+            DockPosition::Bottom => {
+                cursor.0 >= indicator.x
+                    && cursor.0 < indicator.x + indicator.w
+                    && cursor.1 >= indicator.y
+                    && cursor.1 < display.1
+            }
+            DockPosition::Left => {
+                cursor.0 >= 0.0
+                    && cursor.0 < indicator.x + indicator.w
+                    && cursor.1 >= indicator.y
+                    && cursor.1 < indicator.y + indicator.h
+            }
+            DockPosition::Right => {
+                cursor.0 >= indicator.x
+                    && cursor.0 < display.0
+                    && cursor.1 >= indicator.y
+                    && cursor.1 < indicator.y + indicator.h
+            }
+        }
     }
 
     /// While an autohiding Dock is expanded, keep the stable resting strip
@@ -681,7 +700,8 @@ impl Dock {
                     && cursor.1 < display.1
             }
             DockPosition::Left => {
-                cursor.0 < current_panel.x + current_panel.w
+                cursor.0 >= 0.0
+                    && cursor.0 < current_panel.x + current_panel.w
                     && cursor.1 >= current_panel.y
                     && cursor.1 < current_panel.y + current_panel.h
             }

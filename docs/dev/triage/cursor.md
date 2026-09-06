@@ -101,7 +101,7 @@ This follows the responsibility boundary of
 
 - Land a compositor change only when a trace shows tessera violating the
   protocol or the invariants above. Regression coverage for cursor
-  focus behavior lives in `crates/tessera-compositor/src/tests/`
+  focus behavior lives in `crates/core/tessera-compositor/src/tests/`
   (`popup_e2e.rs`); extend it instead of tuning behavior by hand.
 - Do not add heuristics that second-guess a valid client request — for
   example ignoring a `set_shape(default)` because a submenu "probably"

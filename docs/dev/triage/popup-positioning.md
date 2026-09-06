@@ -51,7 +51,7 @@ Watch the requests sent when the popup or hover card opens:
   Wayland places according to default compositor policy (e.g. top-left cascade).
 - The client requests `get_popup` with an `xdg_positioner`, but `tessera` computes
   wrong coordinates or ignores constraint adjustments → **compositor-side**.
-  File a bug and write regression coverage in `crates/tessera-compositor/src/tests/popup_e2e.rs`.
+  File a bug and write regression coverage in `crates/core/tessera-compositor/src/tests/popup_e2e.rs`.
 
 Quick symptom table:
 

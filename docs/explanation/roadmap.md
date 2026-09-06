@@ -114,7 +114,7 @@ ownership. The nested backend remains for development. Both implement the
 
 **Status.** In progress — code complete, pending hardware verification. The
 backend abstraction ships in
-([`tessera-backend`](../../crates/tessera-backend)) with two implementations behind
+([`tessera-backend`](../../crates/core/tessera-backend)) with two implementations behind
 the `Backend` trait: nested (development) and DRM/KMS. The DRM backend does
 atomic modesetting with a TEST_ONLY preflight, scans out Flux offscreen
 dma-bufs (GBM-less) through a two-slot page-flip ring with explicit-sync

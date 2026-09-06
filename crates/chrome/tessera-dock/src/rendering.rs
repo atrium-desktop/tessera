@@ -363,7 +363,11 @@ impl Chrome for Dock {
                 if self.autohide_reveal >= 0.2 {
                     self.autohide_dwell = 0.0;
                 }
+                self.dwell_stepped_in_prepass = false;
                 false
+            } else if self.dwell_stepped_in_prepass {
+                self.dwell_stepped_in_prepass = false;
+                self.autohide_dwell >= self.autohide_dwell_threshold
             } else {
                 let confirmed = Self::step_hidden_reveal(
                     position,
@@ -401,7 +405,7 @@ impl Chrome for Dock {
                 position,
                 (cursor.x, cursor.y),
                 self.last_cursor,
-                current_panel,
+                rest_bounds,
             );
         self.last_cursor = Some((cursor.x, cursor.y));
 
@@ -452,7 +456,6 @@ impl Chrome for Dock {
         }
         if self.autohide_reveal <= 0.002 && target_reveal == 0.0 {
             self.dock_interacted = false;
-            self.autohide_dwell = 0.0;
         }
 
         // ---- contiguous reflow layout -------------------------------------
@@ -514,8 +517,10 @@ impl Chrome for Dock {
             unsettled |= drifting;
         }
         // An active drag keeps frames ticking: the preview follows the cursor
-        // even when every spring has rested.
-        self.anim_active = unsettled || autohide_moving || drag_active;
+        // even when every spring has rested. Continuous dwell accumulation also ticks frames.
+        let dwell_active =
+            self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold;
+        self.anim_active = unsettled || autohide_moving || drag_active || dwell_active;
 
         // Sum the eased widths (plus the inter-tile gap) to get the live bar
         // length along the strip axis. Ordinary neighbours sit one tile gap
@@ -1145,6 +1150,7 @@ impl Chrome for Dock {
         // A forced maximize/collision collapse remains latched until the
         // pointer exits, preserving its anti-reopen contract.
         if !self.effective_autohide() || self.collapse_pending || self.autohide_reveal >= 0.2 {
+            self.dwell_stepped_in_prepass = false;
             return;
         }
         let dt = raw.dt_seconds.max(0.0);
@@ -1157,6 +1163,7 @@ impl Chrome for Dock {
             display,
             dt,
         );
+        self.dwell_stepped_in_prepass = true;
         if self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold {
             self.anim_active = true;
         }
@@ -1657,20 +1664,21 @@ pub(super) fn entry_matches_app_id(entry: &Entry, app_id: &str) -> bool {
 }
 
 /// Check if the cursor is retreating away from the anchored screen edge toward the
-/// client work area while situated outside the live morphing dock body.
+/// client work area while situated outside the full resting dock footprint.
+/// Cursors moving inside `rest_bounds` are navigating toward dock tiles and are never aborted.
 pub(crate) fn detect_cursor_retreat(
     position: DockPosition,
     cursor: (f32, f32),
     last_cursor: Option<(f32, f32)>,
-    current_panel: Rect,
+    rest_bounds: Rect,
 ) -> bool {
     let Some((last_x, last_y)) = last_cursor else {
         return false;
     };
     match position {
-        DockPosition::Bottom => cursor.1 < current_panel.y && cursor.1 < last_y,
-        DockPosition::Left => cursor.0 > current_panel.x + current_panel.w && cursor.0 > last_x,
-        DockPosition::Right => cursor.0 < current_panel.x && cursor.0 < last_x,
+        DockPosition::Bottom => cursor.1 < rest_bounds.y && cursor.1 < last_y,
+        DockPosition::Left => cursor.0 > rest_bounds.x + rest_bounds.w && cursor.0 > last_x,
+        DockPosition::Right => cursor.0 < rest_bounds.x && cursor.0 < last_x,
     }
 }
 
