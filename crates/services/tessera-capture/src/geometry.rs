@@ -1,6 +1,6 @@
 /// Intersect a logical capture request with a virtual output without relying
 /// on overflowing `i32` endpoint arithmetic.
-pub(in crate::runtime) fn clamp_logical_region(
+pub fn clamp_logical_region(
     rect: tessera_model::Rect,
     width: u32,
     height: u32,
@@ -23,7 +23,7 @@ pub(in crate::runtime) fn clamp_logical_region(
 /// Scaling both endpoints avoids accumulating a rounding error in the width
 /// or height at fractional scales. The result is clamped to the readback
 /// surface so regions partially outside the focused output remain safe.
-pub(in crate::runtime) fn logical_rect_to_physical(
+pub fn logical_rect_to_physical(
     rect: tessera_model::Rect,
     scale: f32,
     width: u32,
@@ -45,7 +45,7 @@ pub(in crate::runtime) fn logical_rect_to_physical(
 }
 
 /// Extract a sub-rectangle from a full RGBA8 buffer.
-pub(super) fn crop_rgba(
+pub fn crop_rgba(
     src: &[u8],
     src_width: u32,
     _src_height: u32,

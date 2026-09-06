@@ -168,6 +168,9 @@ tessera-ipc = { path = "crates/api/tessera-ipc" }
 tessera-ipc-client = { path = "crates/api/tessera-ipc-client" }
 # Domain-oriented native command implementation used by the `tessera` binary.
 tessera-commands = { path = "crates/api/tessera-commands" }
+# Pure pixel-capture domain: readback staging, RGBA encoding, capture
+# geometry. The orchestrating worker stays in the composition root.
+tessera-capture = { path = "crates/services/tessera-capture" }
 # Agent principal registry and durable runtime-grant store (ADR-0088/0090).
 tessera-agent-broker = { path = "crates/services/tessera-agent-broker" }
 # Remote interaction gateway for the Universal Interaction Protocol (UIP).

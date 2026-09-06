@@ -1,4 +1,4 @@
-pub(in crate::runtime) fn atomic_write_capture(path: &str, bytes: &[u8]) -> Result<(), String> {
+pub fn atomic_write_capture(path: &str, bytes: &[u8]) -> Result<(), String> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
 
@@ -47,7 +47,7 @@ pub(in crate::runtime) fn atomic_write_capture(path: &str, bytes: &[u8]) -> Resu
 /// has already been committed to disk. Canonicalization makes relative
 /// screenshot directories unambiguous to paste targets; percent encoding is
 /// applied to the raw Unix path bytes so non-UTF-8 paths remain representable.
-pub(in crate::runtime) fn screenshot_uri_list(path: &str) -> Result<Vec<u8>, String> {
+pub fn screenshot_uri_list(path: &str) -> Result<Vec<u8>, String> {
     use std::os::unix::ffi::OsStrExt;
 
     let path = std::fs::canonicalize(path)

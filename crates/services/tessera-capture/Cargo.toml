@@ -1,0 +1,24 @@
+[package]
+name = "tessera-capture"
+description = "Pure pixel-capture domain: GPU readback staging, RGBA encoding, cursor compositing, and capture geometry for the tessera compositor"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tessera-model = { workspace = true }
+# Readback staging detached from the presentation surface.
+flux = { workspace = true }
+flux-sys = { workspace = true }
+# PNG encoding for screenshot publication.
+image = { workspace = true }
+log.workspace = true
+thiserror.workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["flux-sys"]
+
+[lints]
+workspace = true

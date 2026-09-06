@@ -1,4 +1,4 @@
-use super::encoding::{CapturedPixels, PendingReadback, encode_capture};
+use tessera_capture::{CapturedPixels, PendingReadback, StreamPixels, encode_capture};
 use crate::runtime::commands::journal_effect_and_broadcast;
 use crate::runtime::interaction_domain::InteractionDomainCaptureContext;
 use crate::runtime::window_capture::WindowCaptureContext;
@@ -280,18 +280,6 @@ impl CaptureCompletion {
     }
 }
 
-/// One converted stream frame: tightly packed opaque BGRA (alpha 255),
-/// `width * 4` bytes per row (ADR-0052). `cursor_bgra` carries the
-/// cursor-composited twin produced when the binding attached a cursor
-/// snapshot (ADR-0127); delivery serves it to streams that negotiated the
-/// `embedded` cursor mode and the pristine frame to `hidden` ones.
-pub(in crate::runtime) struct StreamPixels {
-    pub(in crate::runtime) width: u32,
-    pub(in crate::runtime) height: u32,
-    pub(in crate::runtime) bgra: std::sync::Arc<[u8]>,
-    pub(in crate::runtime) cursor_bgra: Option<std::sync::Arc<[u8]>>,
-}
-
 /// Single bounded post-processing lane for screenshots and IPC pixel
 /// captures. Only one full-frame payload may be in flight, which keeps
 /// repeated requests from consuming unbounded memory or compounding stalls.
@@ -362,7 +350,7 @@ impl CaptureWorker {
                             // still suppresses persistent output.
                             let written = encoded.as_ref().map_err(Clone::clone).and_then(|png| {
                                 if permitted() {
-                                    super::output::atomic_write_capture(&path, png)
+                                    tessera_capture::atomic_write_capture(&path, png)
                                 } else {
                                     Err("session locked before capture completed".into())
                                 }
@@ -522,7 +510,7 @@ impl CaptureWorker {
                                     == worker_security_generation
                                         .load(std::sync::atomic::Ordering::Acquire)
                             {
-                                super::encoding::read_picked_pixel(capture)
+                                tessera_capture::read_picked_pixel(capture)
                                     .map(|rgb| tessera_ipc::PickResult::Pixel { point, rgb })
                             } else {
                                 Err("session locked before pixel pick completed".into())
@@ -548,7 +536,7 @@ impl CaptureWorker {
                                     == worker_security_generation
                                         .load(std::sync::atomic::Ordering::Acquire)
                             {
-                                super::encoding::stream_pixels(capture)
+                                tessera_capture::stream_pixels(capture)
                             } else {
                                 Err("session locked before stream frame completed".into())
                             };
@@ -572,7 +560,7 @@ impl CaptureWorker {
                                     == worker_security_generation
                                         .load(std::sync::atomic::Ordering::Acquire)
                             {
-                                super::encoding::stream_pixels(capture)
+                                tessera_capture::stream_pixels(capture)
                             } else {
                                 Err("session locked before stream frame completed".into())
                             };

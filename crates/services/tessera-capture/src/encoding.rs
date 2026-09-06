@@ -5,13 +5,13 @@ use super::geometry::crop_rgba;
 /// physical selection; the legacy `crop` field remains for non-frame sources
 /// that still hand us a full readback. Every CPU operation stays off the
 /// compositor's presentation-critical thread.
-pub(in crate::runtime) struct CapturedPixels {
+pub struct CapturedPixels {
     width: u32,
     height: u32,
     pixels: CapturedPixelsSource,
     crop: Option<tessera_model::Rect>,
     cursor: Option<CaptureCursor>,
-    pub(super) security_generation: u64,
+    pub security_generation: u64,
 }
 
 /// CPU-side source of a captured frame. The windowed presentation surface
@@ -20,7 +20,7 @@ pub(in crate::runtime) struct CapturedPixels {
 /// such as Interaction Domain render targets keep their staging surface-owned
 /// (flux refuses `take_readback` there), so the frame is copied into an owned
 /// buffer on the main loop instead.
-pub(in crate::runtime) enum CapturedPixelsSource {
+pub enum CapturedPixelsSource {
     Readback(flux::Readback),
     Rgba(Vec<u8>),
 }
@@ -29,27 +29,27 @@ pub(in crate::runtime) enum CapturedPixelsSource {
 /// The source is premultiplied BGRA8, matching Xcursor/Flux; `(x, y)` is the
 /// physical-pixel top-left after applying the hotspot.
 #[derive(Clone)]
-pub(in crate::runtime) struct CaptureCursor {
-    pub(in crate::runtime) x: i32,
-    pub(in crate::runtime) y: i32,
-    pub(in crate::runtime) width: u32,
-    pub(in crate::runtime) height: u32,
-    pub(in crate::runtime) bgra: std::sync::Arc<[u8]>,
+pub struct CaptureCursor {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub bgra: std::sync::Arc<[u8]>,
 }
 
-pub(in crate::runtime) struct PendingReadback {
-    pub(in crate::runtime) width: u32,
-    pub(in crate::runtime) height: u32,
-    pub(in crate::runtime) crop: Option<tessera_model::Rect>,
-    pub(in crate::runtime) cursor: Option<CaptureCursor>,
-    pub(in crate::runtime) security_generation: u64,
+pub struct PendingReadback {
+    pub width: u32,
+    pub height: u32,
+    pub crop: Option<tessera_model::Rect>,
+    pub cursor: Option<CaptureCursor>,
+    pub security_generation: u64,
 }
 
 /// Bind a screenshot readback and describe the tightly packed CPU-side layout
 /// it will produce. Region captures stay regional end-to-end: Flux copies only
 /// the requested physical rectangle, the worker allocates only that extent,
 /// and no later CPU crop is needed.
-pub(in crate::runtime) fn request_frame_readback(
+pub fn request_frame_readback(
     frame: &mut flux::Frame,
     full_size: (u32, u32),
     crop: Option<tessera_model::Rect>,
@@ -99,7 +99,7 @@ fn translate_cursor_to_region(cursor: &mut Option<CaptureCursor>, region: tesser
     }
 }
 
-pub(in crate::runtime) fn read_captured_pixels(
+pub fn read_captured_pixels(
     surface: &flux::Surface,
     pending: PendingReadback,
 ) -> Result<CapturedPixels, String> {
@@ -128,7 +128,7 @@ pub(in crate::runtime) fn read_captured_pixels(
 /// [`flux::Surface::take_readback`] there, so the pixel copy happens on the
 /// main loop once [`flux::Surface::read_pixels_ready`] reports the frame; the
 /// capture worker only encodes the already CPU-side bytes.
-pub(in crate::runtime) fn read_captured_pixels_owned(
+pub fn read_captured_pixels_owned(
     surface: &flux::Surface,
     pending: PendingReadback,
 ) -> Result<CapturedPixels, String> {
@@ -148,7 +148,7 @@ pub(in crate::runtime) fn read_captured_pixels_owned(
 
 /// Finish a capture away from the frame thread. Cropping first bounds the
 /// unpremultiply and PNG work for region captures.
-pub(super) fn encode_capture(capture: CapturedPixels) -> Result<(u32, u32, Vec<u8>), String> {
+pub fn encode_capture(capture: CapturedPixels) -> Result<(u32, u32, Vec<u8>), String> {
     let CapturedPixels {
         width,
         height,
@@ -261,7 +261,7 @@ fn composite_cursor_impl(
     }
 }
 
-pub(in crate::runtime) fn encode_rgba_capture(
+pub fn encode_rgba_capture(
     full_width: u32,
     full_height: u32,
     full_rgba: Vec<u8>,
@@ -297,7 +297,7 @@ fn unpremultiply(pixels: &mut [u8]) {
 /// place the picked rectangle at buffer origin; legacy full-frame sources may
 /// still carry a CPU crop. The returned RGB is straight-alpha, matching the
 /// portal's `(ddd)` colour contract after a `/255` normalization.
-pub(in crate::runtime) fn read_picked_pixel(capture: CapturedPixels) -> Result<[u8; 3], String> {
+pub fn read_picked_pixel(capture: CapturedPixels) -> Result<[u8; 3], String> {
     let CapturedPixels {
         width,
         height,
@@ -372,15 +372,27 @@ fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
 /// premultiplied→straight distinction cannot produce visible error here;
 /// the swap is a pure byte shuffle.
 ///
+/// One converted stream frame: tightly packed opaque BGRA (alpha 255),
+/// `width * 4` bytes per row (ADR-0052). `cursor_bgra` carries the
+/// cursor-composited twin produced when the binding attached a cursor
+/// snapshot (ADR-0127); delivery serves it to streams that negotiated the
+/// `embedded` cursor mode and the pristine frame to `hidden` ones.
+pub struct StreamPixels {
+    pub width: u32,
+    pub height: u32,
+    pub bgra: std::sync::Arc<[u8]>,
+    pub cursor_bgra: Option<std::sync::Arc<[u8]>>,
+}
+
 /// When the binding attached a cursor snapshot (at least one due SHM output
 /// stream negotiated `embedded`), a second, cursor-composited copy of the
 /// frame is produced alongside the pristine one (ADR-0127): per-stream
 /// cursor modes make a shared pre-blend incorrect, and one extra frame copy
 /// here keeps the blend off the frame thread. Delivery serves each stream
 /// the variant its mode negotiated.
-pub(in crate::runtime) fn stream_pixels(
+pub fn stream_pixels(
     capture: CapturedPixels,
-) -> Result<super::worker::StreamPixels, String> {
+) -> Result<StreamPixels, String> {
     let CapturedPixels {
         width,
         height,
@@ -408,7 +420,7 @@ pub(in crate::runtime) fn stream_pixels(
         composite_cursor_bgra(&mut blended, width, height, &cursor);
         blended.into()
     });
-    Ok(super::worker::StreamPixels {
+    Ok(StreamPixels {
         width,
         height,
         bgra: rgba.into(),
@@ -418,7 +430,7 @@ pub(in crate::runtime) fn stream_pixels(
 
 /// flux's thread-local diagnostic for the most recent error, formatted for
 /// logs; empty when the call carried no detail.
-pub(in crate::runtime) fn flux_last_error_detail() -> String {
+pub fn flux_last_error_detail() -> String {
     let mut info: flux_sys::flux_error_info = unsafe { std::mem::zeroed() };
     unsafe { flux_sys::flux_get_last_error(&mut info) };
     if info.message.is_null() {

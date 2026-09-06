@@ -58,6 +58,7 @@ tessera-wallpaper = { workspace = true }
 tessera-config = { workspace = true }
 # IPC and introspection surface (ADR-0027).
 tessera-ipc = { workspace = true }
+tessera-capture = { workspace = true }
 tessera-agent-broker = { workspace = true }
 # Native resource commands dispatched through the same executable.
 tessera-commands = { workspace = true }
