@@ -1190,11 +1190,11 @@ fn wallpaper_parallax_rejects_discrete_or_ambiguous_configs() {
 
 #[test]
 fn bundled_parallax_example_and_its_layers_stay_valid() {
-    let text = include_str!("../../../examples/parallax-wallpaper/tessera/config.toml");
+    let text = include_str!("../../../../examples/parallax-wallpaper/tessera/config.toml");
     let config = Config::parse(text).expect("example config parses");
     assert_eq!(config.wallpaper.mode, WallpaperMode::Parallax);
     let config_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../examples/parallax-wallpaper/tessera");
+        .join("../../../examples/parallax-wallpaper/tessera");
     for layer in &config.wallpaper.layers {
         assert!(
             config_dir.join(&layer.path).is_file(),

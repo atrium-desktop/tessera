@@ -20,7 +20,9 @@
 
 use std::os::raw::c_void;
 
-use lens::{Frame, Ui};
+use lens::Ui;
+#[cfg(test)]
+use lens::Frame;
 
 pub mod chrome;
 pub mod system;

@@ -386,7 +386,7 @@ mod tests {
     #[test]
     fn bundled_alpine_planes_decode_as_a_scene() {
         let root =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/wallpapers/parallax-alpine");
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../assets/wallpapers/parallax-alpine");
         let specs = [
             ParallaxLayerSpec::new(root.join("far.png"), 0.0),
             ParallaxLayerSpec::new(root.join("mid.png"), 0.45),
