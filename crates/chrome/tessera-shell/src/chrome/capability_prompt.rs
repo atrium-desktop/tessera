@@ -17,8 +17,8 @@ use std::collections::BTreeSet;
 use lens::{Color, Frame, Input, LayoutOpts, Rect};
 
 use crate::{
-    CapabilityFamily, CapabilityPickParams, CapabilityPickResult,
-    BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
+    BackdropRegion, CapabilityFamily, CapabilityGroup, CapabilityPickParams,
+    CapabilityPickResult, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
     LiquidGlassRegion, Localizer, Reserved, ellipsize, modal_scrim_backdrop,
 };
 use tessera_design::{Design, GlassRole, materials, themes};

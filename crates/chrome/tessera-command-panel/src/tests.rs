@@ -31,7 +31,7 @@ fn toggle_opens_and_closes_the_panel() {
     assert!(panel.exclusive_presentation_active());
     assert!(panel.requires_composition());
     assert!(!panel.anim_pending());
-    assert_eq!(panel.backdrop_blur_sigma(), tessera_shell::BackdropCover::BLUR_SIGMA);
+    assert_eq!(panel.backdrop_blur_sigma(), tessera_chrome::BackdropCover::BLUR_SIGMA);
 
     panel.toggle_command_panel(&mut out);
     assert!(!panel.open);
@@ -263,7 +263,7 @@ fn command_panel_requests_unified_backdrop_cover() {
     panel.reveal = 1.0;
     assert_eq!(
         panel.backdrop_blur_sigma(),
-        tessera_shell::BackdropCover::BLUR_SIGMA
+        tessera_chrome::BackdropCover::BLUR_SIGMA
     );
     let regions = panel.backdrop_regions(display, &[], &workspaces);
     assert_eq!(regions.len(), 1);
