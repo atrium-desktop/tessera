@@ -649,11 +649,14 @@ fn collapsed_dock_does_not_reuse_its_old_resting_region_as_a_trigger() {
         old_dock_point,
         display
     ));
+    let collapsed_panel =
+        Dock::collapsed_panel_rect(DockPosition::Bottom, display, rest.w, 0.0);
     assert!(!Dock::pointer_keeps_revealed(
         true,
         0.0,
         false,
         old_dock_point,
+        collapsed_panel,
         rest,
         DockPosition::Bottom,
         display,
@@ -663,6 +666,7 @@ fn collapsed_dock_does_not_reuse_its_old_resting_region_as_a_trigger() {
         0.0,
         true,
         capsule_point,
+        collapsed_panel,
         rest,
         DockPosition::Bottom,
         display,
@@ -672,6 +676,7 @@ fn collapsed_dock_does_not_reuse_its_old_resting_region_as_a_trigger() {
         1.0,
         false,
         old_dock_point,
+        rest,
         rest,
         DockPosition::Bottom,
         display,
@@ -832,15 +837,29 @@ fn backdrop_prepass_reveals_only_from_the_capsule_body() {
     assert_eq!(dock.autohide_idle, dock.autohide_timeout);
     assert!(dock.requires_composition());
 
-    // Hovering the capsule itself starts the normal reveal animation.
+    // Skimming the capsule for a single brief frame (e.g. 16ms transit) keeps
+    // dwell pending without prematurely triggering dock expansion.
     let indicator = Dock::collapsed_indicator_bounds(DockPosition::Bottom, display);
     let mut capsule = Input::new(display, 0.016);
     capsule.set_cursor(
         indicator.x + indicator.w * 0.5,
         indicator.y + indicator.h * 0.5,
     );
-    dock.prepare_backdrop(&capsule, &[maximized], &workspaces);
-    assert_eq!(dock.autohide_idle, 0.0);
+    dock.prepare_backdrop(&capsule, std::slice::from_ref(&maximized), &workspaces);
+    assert!(dock.anim_pending(), "dwell accumulation keeps animation ticking");
+    assert_eq!(
+        dock.autohide_idle, dock.autohide_timeout,
+        "brief transit skim must not prematurely start reveal"
+    );
+
+    // Once pointer dwell satisfies the intent threshold, reveal formally engages.
+    let mut sustained_capsule = Input::new(display, AUTOHIDE_DWELL_THRESHOLD);
+    sustained_capsule.set_cursor(
+        indicator.x + indicator.w * 0.5,
+        indicator.y + indicator.h * 0.5,
+    );
+    dock.prepare_backdrop(&sustained_capsule, &[maximized], &workspaces);
+    assert_eq!(dock.autohide_idle, 0.0, "sustained dwell confirms reveal intent");
     assert!(dock.anim_pending());
 }
 
@@ -1419,4 +1438,197 @@ fn dock_tiles_fall_back_to_default_icon_when_app_has_no_icon() {
     // Transient running window without an icon also gets the default icon
     let transient_tile = tiles.iter().find(|t| !t.pinned && !t.launchpad).unwrap();
     assert_eq!(transient_tile.icon, Some(dummy_ptr));
+}
+
+#[test]
+fn transit_skim_does_not_reveal_collapsed_dock() {
+    let display = (1920.0, 1080.0);
+    let mut dock = Dock::new();
+    dock.set_autohide(true);
+    dock.autohide_reveal = 0.0;
+    dock.collapse_pending = false;
+    dock.hidden_trigger_armed = true;
+
+    let indicator = Dock::collapsed_indicator_bounds(DockPosition::Bottom, display);
+    let inside_point = (indicator.x + indicator.w * 0.5, indicator.y + indicator.h * 0.5);
+    let outside_work_point = (indicator.x + indicator.w * 0.5, indicator.y - 60.0);
+
+    // Frame 1: cursor skims into indicator (16ms)
+    let confirmed_1 = Dock::step_hidden_reveal(
+        DockPosition::Bottom,
+        &mut dock.hidden_trigger_armed,
+        &mut dock.autohide_dwell,
+        dock.autohide_dwell_threshold,
+        inside_point,
+        display,
+        0.016,
+    );
+    assert!(!confirmed_1, "first 16ms transit frame must not confirm intent");
+    assert_eq!(dock.autohide_dwell, 0.016);
+
+    // Frame 2: cursor still in indicator (another 16ms, total 32ms < 180ms)
+    let confirmed_2 = Dock::step_hidden_reveal(
+        DockPosition::Bottom,
+        &mut dock.hidden_trigger_armed,
+        &mut dock.autohide_dwell,
+        dock.autohide_dwell_threshold,
+        inside_point,
+        display,
+        0.016,
+    );
+    assert!(!confirmed_2, "32ms transit frame must not confirm intent");
+
+    // Frame 3: cursor leaves indicator back into client work area
+    let confirmed_3 = Dock::step_hidden_reveal(
+        DockPosition::Bottom,
+        &mut dock.hidden_trigger_armed,
+        &mut dock.autohide_dwell,
+        dock.autohide_dwell_threshold,
+        outside_work_point,
+        display,
+        0.016,
+    );
+    assert!(!confirmed_3);
+    assert_eq!(dock.autohide_dwell, 0.0, "leaving indicator resets dwell timer");
+}
+
+#[test]
+fn sustained_dwell_triggers_dock_reveal() {
+    let display = (1920.0, 1080.0);
+    let mut dock = Dock::new();
+    dock.set_autohide(true);
+    dock.autohide_reveal = 0.0;
+    dock.collapse_pending = false;
+    dock.hidden_trigger_armed = true;
+
+    let indicator = Dock::collapsed_indicator_bounds(DockPosition::Bottom, display);
+    let inside_point = (indicator.x + indicator.w * 0.5, indicator.y + indicator.h * 0.5);
+
+    // Dwell for 100ms: not yet enough
+    let confirmed_partial = Dock::step_hidden_reveal(
+        DockPosition::Bottom,
+        &mut dock.hidden_trigger_armed,
+        &mut dock.autohide_dwell,
+        dock.autohide_dwell_threshold,
+        inside_point,
+        display,
+        0.100,
+    );
+    assert!(!confirmed_partial);
+
+    // Dwell another 90ms (total 190ms >= AUTOHIDE_DWELL_THRESHOLD of 180ms): intent confirmed!
+    let confirmed_full = Dock::step_hidden_reveal(
+        DockPosition::Bottom,
+        &mut dock.hidden_trigger_armed,
+        &mut dock.autohide_dwell,
+        dock.autohide_dwell_threshold,
+        inside_point,
+        display,
+        0.090,
+    );
+    assert!(confirmed_full, "dwelling past threshold confirms user reveal intent");
+}
+
+#[test]
+fn live_morphing_panel_prevents_hitbox_inflation_trap() {
+    let display = (1920.0, 1080.0);
+    let mut dock = Dock::new();
+    dock.set_autohide(true);
+    // Partially revealed transition state (25% progress)
+    dock.autohide_reveal = 0.25;
+
+    let rest = dock.pointer_bounds(display);
+    let rest_len = rest.w;
+    let live_panel = Dock::collapsed_panel_rect(DockPosition::Bottom, display, rest_len, 0.25);
+
+    // A cursor position inside the eventual resting rectangle, but well above the live panel
+    let work_area_point = (display.0 * 0.5, rest.y + 10.0);
+    assert!(
+        work_area_point.1 < live_panel.y,
+        "the cursor must sit in the client area above the morphing panel"
+    );
+
+    // Crucial UX guarantee: the client area above the live panel must NOT be captured!
+    assert!(
+        !dock.captures_pointer(
+            work_area_point.0,
+            work_area_point.1,
+            display,
+            &[],
+            &workspace_snapshot(),
+        ),
+        "the morphing dock must not inflate its hitbox to capture client pixels ahead of its body"
+    );
+
+    // Pixels inside the live morphing panel ARE captured
+    let inside_live_point = (live_panel.x + live_panel.w * 0.5, live_panel.y + live_panel.h * 0.5);
+    assert!(dock.captures_pointer(
+        inside_live_point.0,
+        inside_live_point.1,
+        display,
+        &[],
+        &workspace_snapshot(),
+    ));
+}
+
+#[test]
+fn quick_dismiss_timeout_is_snappy_for_uninteracted_reveal() {
+    assert!(
+        AUTOHIDE_QUICK_DISMISS_TIMEOUT <= 0.20,
+        "uninteracted reveal must exit rapidly to avoid frustrating the user"
+    );
+    assert!(
+        AUTOHIDE_DWELL_THRESHOLD >= 0.15 && AUTOHIDE_DWELL_THRESHOLD <= 0.25,
+        "dwell threshold must filter transit flings without feeling sluggish"
+    );
+}
+
+#[test]
+fn set_autohide_dwell_clamps_and_customizes_threshold() {
+    let mut dock = Dock::new();
+    assert_eq!(dock.autohide_dwell_threshold, AUTOHIDE_DWELL_THRESHOLD);
+
+    dock.set_autohide_dwell(0.35);
+    assert_eq!(dock.autohide_dwell_threshold, 0.35);
+
+    dock.set_autohide_dwell(0.0001);
+    assert_eq!(dock.autohide_dwell_threshold, 0.01);
+}
+
+#[test]
+fn cursor_retreat_detection_handles_all_dock_edges() {
+    use crate::rendering::detect_cursor_retreat;
+
+    let panel = Rect { x: 800.0, y: 1040.0, w: 320.0, h: 40.0 };
+
+    // Bottom dock: moving upward (y decreases) outside panel detects retreat
+    assert!(detect_cursor_retreat(
+        DockPosition::Bottom,
+        (900.0, 1020.0),
+        Some((900.0, 1030.0)),
+        panel,
+    ));
+    // Moving downward toward bottom dock is approaching, not retreating
+    assert!(!detect_cursor_retreat(
+        DockPosition::Bottom,
+        (900.0, 1035.0),
+        Some((900.0, 1020.0)),
+        panel,
+    ));
+
+    // Left dock: panel on left edge (x: 0..40). Moving rightward (x increases) outside panel detects retreat
+    let left_panel = Rect { x: 0.0, y: 400.0, w: 40.0, h: 280.0 };
+    assert!(detect_cursor_retreat(
+        DockPosition::Left,
+        (60.0, 500.0),
+        Some((50.0, 500.0)),
+        left_panel,
+    ));
+    // Moving leftward toward left dock is approaching
+    assert!(!detect_cursor_retreat(
+        DockPosition::Left,
+        (45.0, 500.0),
+        Some((60.0, 500.0)),
+        left_panel,
+    ));
 }

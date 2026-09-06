@@ -557,7 +557,7 @@ impl Default for ScreenshotConfig {
 /// dock anchors to (left, bottom, or right); it defaults to `bottom`.
 /// `minimize_animation` selects the effect played when a window minimizes
 /// into its dock tile (`genie`, `scale`, or `suck`); it defaults to `genie`.
-#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DockConfig {
     #[serde(default)]
@@ -568,14 +568,34 @@ pub struct DockConfig {
     pub autohide: bool,
     #[serde(default = "default_dock_autohide_timeout")]
     pub autohide_timeout: f32,
+    #[serde(default = "default_dock_autohide_dwell")]
+    pub autohide_dwell: f32,
     #[serde(default)]
     pub position: tessera_model::dock::DockPosition,
     #[serde(default)]
     pub minimize_animation: tessera_model::dock::MinimizeAnimationStyle,
 }
 
+impl Default for DockConfig {
+    fn default() -> Self {
+        Self {
+            pinned: Vec::new(),
+            autopopulate: false,
+            autohide: false,
+            autohide_timeout: default_dock_autohide_timeout(),
+            autohide_dwell: default_dock_autohide_dwell(),
+            position: tessera_model::dock::DockPosition::default(),
+            minimize_animation: tessera_model::dock::MinimizeAnimationStyle::default(),
+        }
+    }
+}
+
 fn default_dock_autohide_timeout() -> f32 {
-    2.5
+    0.50
+}
+
+fn default_dock_autohide_dwell() -> f32 {
+    0.18
 }
 
 /// The `[hud]` section. `enabled` controls whether the display-only HUD

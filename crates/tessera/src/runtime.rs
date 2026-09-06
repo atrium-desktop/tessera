@@ -517,10 +517,15 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
         let autohide_timeout = config
             .as_ref()
             .map(|c| c.dock.autohide_timeout)
-            .unwrap_or(2.5);
+            .unwrap_or(0.50);
+        let autohide_dwell = config
+            .as_ref()
+            .map(|c| c.dock.autohide_dwell)
+            .unwrap_or(0.18);
         let mut dock = tessera_dock::Dock::new();
         dock.set_autohide(autohide);
         dock.set_autohide_timeout(autohide_timeout);
+        dock.set_autohide_dwell(autohide_dwell);
         shell.add(Box::new(dock));
     }
     // Register the held-Super switcher last so its selection chrome stacks

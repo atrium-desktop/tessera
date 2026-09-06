@@ -314,6 +314,23 @@ fn dock_defaults_to_an_empty_user_owned_strip() {
     let cfg = Config::parse("schema_version = 2\n").unwrap();
     assert!(cfg.dock.pinned.is_empty());
     assert!(!cfg.dock.autopopulate);
+    assert_eq!(cfg.dock.autohide_timeout, 0.50);
+    assert_eq!(cfg.dock.autohide_dwell, 0.18);
+}
+
+#[test]
+fn dock_autohide_dwell_and_timeout_can_be_configured() {
+    let cfg = Config::parse(
+        "schema_version = 2\n\
+         [dock]\n\
+         autohide = true\n\
+         autohide_timeout = 0.8\n\
+         autohide_dwell = 0.25\n",
+    )
+    .unwrap();
+    assert!(cfg.dock.autohide);
+    assert_eq!(cfg.dock.autohide_timeout, 0.8);
+    assert_eq!(cfg.dock.autohide_dwell, 0.25);
 }
 
 #[test]

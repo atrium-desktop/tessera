@@ -524,11 +524,19 @@ case-insensitively.
 |-------|------|---------|-------------|
 | `pinned` | array of strings | `[]` | Persistent applications shown in the listed order. An empty array leaves only the `Applications` tile plus transient running applications. |
 | `autopopulate` | boolean | `false` | Whether an empty `pinned` list auto-selects up to 12 applications with decoded icons. Manual pin or unpin actions write this as `false`. |
+| `position` | string | `"bottom"` | Screen edge the dock anchors to: `"bottom"`, `"left"`, or `"right"`. |
+| `autohide` | boolean | `false` | Whether the dock automatically hides offscreen into a thin glass capsule when not in use. Maximized windows force autohide overlay behavior regardless of this setting. |
+| `autohide_timeout` | float | `0.50` | Inactivity delay in seconds before an autohidden dock collapses after interaction. Retreating from an unengaged reveal uses an accelerated 0.15s exit. |
+| `autohide_dwell` | float | `0.18` | Continuous hover dwell time in seconds required on the collapsed indicator before expanding. Prevents accidental reveals while skimming bottom-edge content. |
 | `minimize_animation` | string | `"genie"` | The effect played when a window minimizes into its dock tile (and, reversed, when it restores): `"genie"` funnels the window's lower edge into the icon first, `"scale"` shrinks the window uniformly into the icon, and `"suck"` collapses it into the icon's centre with accelerating ease-in. Also selectable from the command panel's Dock tab. |
 
 ```toml
 [dock]
 pinned = ["foot.desktop", "firefox", "org.gnome.Nautilus"]
+position = "bottom"
+autohide = true
+autohide_timeout = 0.50
+autohide_dwell = 0.18
 minimize_animation = "genie"
 ```
 

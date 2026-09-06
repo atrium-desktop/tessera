@@ -17,12 +17,14 @@ using this hover label.
 ## Access the Dock Around a Maximized Window
 
 1. Move the pointer to the centered translucent capsule at the bottom edge.
-2. Keep the pointer near the capsule until the Dock expands.
+2. Dwell the pointer on the capsule for ~180 milliseconds until the Dock expands (brief transit sweeps across the capsule are filtered out to prevent accidental reveals while skimming bottom-edge content).
 3. Move onto the Dock and use the required application tile.
+4. To dismiss, move the cursor away (collapses automatically after a brief delay), click anywhere outside the Dock, or press `Escape`.
 
 A maximized window forces the Dock into this collapsed overlay mode regardless
 of the `[dock] autohide` setting. Moving to another part of the bottom edge
-does not reveal it.
+does not reveal it. Moving the pointer back upward during reveal cancels the
+expansion immediately.
 
 A fullscreen window removes the Dock and capsule completely. Pointer hover
 has no effect until fullscreen ends. Minimized windows do not affect either

@@ -304,15 +304,52 @@ impl Chrome for Dock {
 
         let effective_autohide = self.effective_autohide();
 
+        let rest_len = if vertical {
+            rest_bounds.h
+        } else {
+            rest_bounds.w
+        };
+        let current_panel = if effective_autohide {
+            Self::collapsed_panel_rect(position, (disp.x, disp.y), rest_len, self.autohide_reveal)
+        } else {
+            rest_bounds
+        };
+
+        let over_hover_surface = self.hover_surface_contains(cursor.x, cursor.y);
+
+        // Click outside an expanded autohiding dock dismisses it immediately (Escape hatch).
+        if effective_autohide && self.autohide_reveal > 0.05 && pressed_edge {
+            let inside_panel = cursor.x >= current_panel.x
+                && cursor.y >= current_panel.y
+                && cursor.x < current_panel.x + current_panel.w
+                && cursor.y < current_panel.y + current_panel.h;
+            let inside_menu = self.app_menu.contains(cursor.x, cursor.y, (disp.x, disp.y));
+            if !inside_panel && !over_hover_surface && !inside_menu {
+                self.app_menu.dismiss();
+                self.menu_tile = None;
+                self.press = None;
+                self.hovered_tile = None;
+                self.hover_elapsed = 0.0;
+                self.tooltip_tile = None;
+                self.tooltip_alpha = 0.0;
+                self.live_preview = None;
+                self.hover_surface_bounds = None;
+                self.hover_owner_bounds = None;
+                self.hovered_preview = None;
+                self.autohide_idle = self.autohide_timeout;
+                self.autohide_dwell = 0.0;
+                self.anim_active = true;
+            }
+        }
+
         // Pointer activation band for magnification. A visible hover surface
         // independently keeps autohide revealed while the pointer travels
         // from the icon into a live preview card.
-        let over_hover_surface = self.hover_surface_contains(cursor.x, cursor.y);
         let over_rest_bounds = cursor.x >= rest_bounds.x
             && cursor.y >= rest_bounds.y
             && cursor.x < rest_bounds.x + rest_bounds.w
             && cursor.y < rest_bounds.y + rest_bounds.h;
-        // The old resting rectangle must stay inert while collapsed. It is
+        // The resting rectangle must stay inert while collapsed. It is
         // enabled for magnification only after the capsule has begun revealing
         // the Dock. An active drag freezes the wave: the drop preview and the
         // magnification spring would fight over the same slots.
@@ -320,28 +357,55 @@ impl Chrome for Dock {
             && !drag_active
             && over_rest_bounds
             && (!effective_autohide || self.autohide_reveal >= 0.2);
+
         let capsule_entry =
             if self.collapse_pending || !effective_autohide || self.autohide_reveal >= 0.2 {
+                if self.autohide_reveal >= 0.2 {
+                    self.autohide_dwell = 0.0;
+                }
                 false
             } else {
-                Self::hidden_reveal_requested(
+                let confirmed = Self::step_hidden_reveal(
                     position,
                     &mut self.hidden_trigger_armed,
+                    &mut self.autohide_dwell,
+                    self.autohide_dwell_threshold,
                     (cursor.x, cursor.y),
                     (disp.x, disp.y),
-                )
+                    dt,
+                );
+                if self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold {
+                    self.anim_active = true;
+                }
+                confirmed
             };
+
         let over_dock_trigger = !self.collapse_pending
             && Self::pointer_keeps_revealed(
                 effective_autohide,
                 self.autohide_reveal,
                 capsule_entry,
                 (cursor.x, cursor.y),
+                current_panel,
                 rest_bounds,
                 position,
                 (disp.x, disp.y),
             );
-        let keeps_revealed = over_dock_trigger || over_hover_surface;
+
+        // Vector retreat cancellation: during reveal transition, if the cursor retreats
+        // toward the client work area away from the anchored edge, abort the reveal immediately.
+        let retreating = effective_autohide
+            && self.autohide_reveal > 0.001
+            && self.autohide_reveal < 0.999
+            && detect_cursor_retreat(
+                position,
+                (cursor.x, cursor.y),
+                self.last_cursor,
+                current_panel,
+            );
+        self.last_cursor = Some((cursor.x, cursor.y));
+
+        let keeps_revealed = (over_dock_trigger || over_hover_surface) && !retreating;
         let menu_open = self.app_menu.is_open();
 
         // A held drag gesture keeps the Dock revealed even when the cursor
@@ -349,13 +413,21 @@ impl Chrome for Dock {
         if effective_autohide {
             if keeps_revealed || menu_open || drag_active {
                 self.autohide_idle = 0.0;
+            } else if retreating {
+                self.autohide_idle = self.autohide_timeout;
             } else {
                 self.autohide_idle += dt;
             }
         }
 
+        let idle_timeout = if self.dock_interacted {
+            self.autohide_timeout
+        } else {
+            AUTOHIDE_QUICK_DISMISS_TIMEOUT
+        };
+
         let target_reveal = if effective_autohide {
-            if self.autohide_idle >= self.autohide_timeout && !menu_open {
+            if self.autohide_idle >= idle_timeout && !menu_open {
                 0.0
             } else {
                 1.0
@@ -377,6 +449,10 @@ impl Chrome for Dock {
         if self.collapse_pending && target_reveal == 0.0 && self.autohide_reveal <= 0.002 {
             self.autohide_reveal = 0.0;
             self.collapse_pending = false;
+        }
+        if self.autohide_reveal <= 0.002 && target_reveal == 0.0 {
+            self.dock_interacted = false;
+            self.autohide_dwell = 0.0;
         }
 
         // ---- contiguous reflow layout -------------------------------------
@@ -585,7 +661,9 @@ impl Chrome for Dock {
         // the stadium handle while keeping lensing, tint and its drop shadow.
         // Edge definition comes from the glass rim, not a painted border.
         let panel_thick = if vertical { panel_rect.w } else { panel_rect.h };
-        let dock_material = collapsing_dock_material(&self.design, surface_progress, panel_thick);
+        let dwell_progress = (self.autohide_dwell / AUTOHIDE_DWELL_THRESHOLD).clamp(0.0, 1.0);
+        let dock_material =
+            collapsing_dock_material(&self.design, surface_progress, panel_thick, dwell_progress);
         // A placed surface with an empty body collapses to ~0 (the rect is
         // only an anchor, not a size); a fixed-size child forces it to the
         // bar size.
@@ -1069,14 +1147,22 @@ impl Chrome for Dock {
         if !self.effective_autohide() || self.collapse_pending || self.autohide_reveal >= 0.2 {
             return;
         }
-        let requested = Self::hidden_reveal_requested(
+        let dt = raw.dt_seconds.max(0.0);
+        let requested = Self::step_hidden_reveal(
             self.position,
             &mut self.hidden_trigger_armed,
+            &mut self.autohide_dwell,
+            self.autohide_dwell_threshold,
             (raw.cursor.x, raw.cursor.y),
             display,
+            dt,
         );
+        if self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold {
+            self.anim_active = true;
+        }
         if requested {
             self.autohide_idle = 0.0;
+            self.dock_interacted = false;
             self.anim_active = true;
             if self.reduced_motion {
                 self.autohide_reveal = 1.0;
@@ -1130,8 +1216,12 @@ impl Chrome for Dock {
 
     fn key_char(&mut self, key: &KeyChar, _out: &mut ChromeEvents) {
         if matches!(key_action(key.keysym, key.ch), KeyAction::Escape) {
-            self.app_menu.dismiss();
-            self.menu_tile = None;
+            self.dismiss_transient_ui();
+            if self.effective_autohide() && self.autohide_reveal > 0.0 {
+                self.autohide_idle = self.autohide_timeout;
+                self.autohide_dwell = 0.0;
+                self.anim_active = true;
+            }
         }
     }
 
@@ -1143,8 +1233,13 @@ impl Chrome for Dock {
             return false;
         }
         let effective_autohide = self.effective_autohide();
+        let idle_timeout = if self.dock_interacted {
+            self.autohide_timeout
+        } else {
+            AUTOHIDE_QUICK_DISMISS_TIMEOUT
+        };
         let target = if effective_autohide {
-            if self.autohide_idle >= self.autohide_timeout && !self.app_menu.is_open() {
+            if self.autohide_idle >= idle_timeout && !self.app_menu.is_open() {
                 0.0
             } else {
                 1.0
@@ -1152,7 +1247,11 @@ impl Chrome for Dock {
         } else {
             1.0
         };
-        self.anim_active || (effective_autohide && (target - self.autohide_reveal).abs() > 0.002)
+        let dwell_active =
+            self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold;
+        self.anim_active
+            || dwell_active
+            || (effective_autohide && (target - self.autohide_reveal).abs() > 0.002)
     }
 
     fn damage_region(&self, _windows: &[Window], display: (f32, f32)) -> Option<tessera_model::Rect> {
@@ -1243,33 +1342,20 @@ impl Chrome for Dock {
         }
         let rest = self.pointer_bounds(display);
         let effective_autohide = self.effective_autohide();
-        let collapsed_indicator =
-            Self::collapsed_indicator_contains(self.position, (x, y), display);
-        if Self::pointer_keeps_revealed(
-            effective_autohide,
-            self.autohide_reveal,
-            collapsed_indicator,
-            (x, y),
-            rest,
-            self.position,
-            display,
-        ) {
-            return true;
-        }
-        if effective_autohide && self.autohide_reveal < 0.2 {
-            return false;
+        if effective_autohide && self.autohide_reveal <= 0.001 {
+            return Self::collapsed_indicator_contains(self.position, (x, y), display);
         }
         let rest_len = if self.position.is_vertical() {
             rest.h
         } else {
             rest.w
         };
-        let r = if effective_autohide {
+        let current_panel = if effective_autohide {
             Self::collapsed_panel_rect(self.position, display, rest_len, self.autohide_reveal)
         } else {
             rest
         };
-        x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h
+        Self::live_panel_contains(self.position, (x, y), current_panel, display)
     }
 
     fn persistent_decoration(&self) -> bool {
@@ -1570,6 +1656,24 @@ pub(super) fn entry_matches_app_id(entry: &Entry, app_id: &str) -> bool {
             .is_some_and(|icon| icon.eq_ignore_ascii_case(app_id))
 }
 
+/// Check if the cursor is retreating away from the anchored screen edge toward the
+/// client work area while situated outside the live morphing dock body.
+pub(crate) fn detect_cursor_retreat(
+    position: DockPosition,
+    cursor: (f32, f32),
+    last_cursor: Option<(f32, f32)>,
+    current_panel: Rect,
+) -> bool {
+    let Some((last_x, last_y)) = last_cursor else {
+        return false;
+    };
+    match position {
+        DockPosition::Bottom => cursor.1 < current_panel.y && cursor.1 < last_y,
+        DockPosition::Left => cursor.0 > current_panel.x + current_panel.w && cursor.0 > last_x,
+        DockPosition::Right => cursor.0 < current_panel.x && cursor.0 < last_x,
+    }
+}
+
 /// A fixed-size, transparent container used to force a placed surface (whose
 /// `rect` is only an anchor, not a size) to a known width and height.
 fn sized(w: f32, h: f32) -> LayoutOpts {
@@ -1605,11 +1709,21 @@ fn collapsing_radius(design: &Design, surface_progress: f32, height: f32) -> f32
     radius.min(height * 0.5)
 }
 
-fn collapsing_dock_material(design: &Design, surface_progress: f32, height: f32) -> LayoutOpts {
+fn collapsing_dock_material(
+    design: &Design,
+    surface_progress: f32,
+    height: f32,
+    dwell_progress: f32,
+) -> LayoutOpts {
     let mut material = materials::glass_panel(design);
     // The painted tint interpolates between the two palette endpoints as the
     // surface morphs between the collapsed handle and the expanded bar.
-    let collapsed = design.dock.bar_surface_collapsed.components();
+    let mut collapsed = design.dock.bar_surface_collapsed.components();
+    if surface_progress <= 0.001 && dwell_progress > 0.0 {
+        // Subtle micro-interaction glow on dwell
+        let boost = (30.0 * dwell_progress).round() as u8;
+        collapsed.3 = collapsed.3.saturating_add(boost);
+    }
     let expanded = design.dock.bar_surface_expanded.components();
     material.bg = Color::rgba(
         mix_channel(collapsed.0, expanded.0, surface_progress),
