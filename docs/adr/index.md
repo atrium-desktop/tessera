@@ -154,3 +154,4 @@ background and how the decisions fit together, see
 | [0144](0144-product-semantic-design-vocabulary.md) | Product-semantic design vocabulary (supersedes Decision 3 of [0081](0081-hud-and-command-panel-naming.md) and the token-retention clause of [0114](0114-panel-hosted-settings-and-hud-command-panel.md)) | Accepted |
 | [0145](0145-drag-tear-off-dynamic-reanchoring.md) | Drag tear-off dynamic re-anchoring for maximized and fullscreen toplevels (amends [0013](0013-interactive-move-and-resize.md)) | Accepted |
 | [0146](0146-dock-intent-dwell-and-anti-trapping-interaction.md) | Dock intent dwell, dynamic bounds, and anti-trapping interaction (amends [0019](0019-dock-as-bottom-center-overlay.md)) | Accepted |
+| [0147](0147-process-bootstrap-seam-and-runtime-environment-facts.md) | Process bootstrap seam and shared runtime-environment facts (amends [0079](0079-tracing-based-observability-seam.md), [0027](0027-ipc-and-introspection.md) socket naming) | Proposed |

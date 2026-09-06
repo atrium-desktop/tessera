@@ -40,6 +40,8 @@ jobs:
         run: cargo run --package xtask -- package-conformity
       - name: Crate dependency boundaries
         run: cargo run --package xtask -- check-boundaries
+      - name: Bootstrap admission (ADR-0147)
+        run: cargo run --package xtask -- check-bootstrap-admission
       - name: Install system dependencies
         run: |
           sudo apt-get update
