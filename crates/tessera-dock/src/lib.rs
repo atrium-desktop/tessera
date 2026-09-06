@@ -95,8 +95,13 @@ const DOCK_PAD: f32 = 10.0;
 const DOCK_DOT: f32 = 5.0;
 /// Width of a running-indicator stadium (pill) for multiple instances.
 const DOCK_DOT_STADIUM: f32 = 12.0;
-/// Inactivity timeout in seconds before an autohiding dock collapses.
-const AUTOHIDE_IDLE_TIMEOUT: f32 = 2.5;
+/// Inactivity timeout in seconds before an autohiding dock collapses after interaction.
+const AUTOHIDE_IDLE_TIMEOUT: f32 = 0.50;
+/// Continuous pointer dwell duration in seconds required on the collapsed indicator
+/// before the dock begins expanding. Prevents accidental reveals while skimming nearby content.
+pub const AUTOHIDE_DWELL_THRESHOLD: f32 = 0.18;
+/// Snappy inactivity timeout in seconds when cursor retreats without interacting with the dock.
+pub const AUTOHIDE_QUICK_DISMISS_TIMEOUT: f32 = 0.15;
 /// Width of the thin stadium handle shown when the Dock is autohidden.
 const AUTOHIDE_HANDLE_WIDTH: f32 = 140.0;
 /// Height of the thin stadium handle shown when the Dock is autohidden.
@@ -338,6 +343,15 @@ pub struct Dock {
     autohide_idle: f32,
     /// Configurable inactivity timeout in seconds before an autohiding dock collapses.
     autohide_timeout: f32,
+    /// Configurable dwell threshold in seconds before the collapsed indicator begins expanding.
+    pub(crate) autohide_dwell_threshold: f32,
+    /// Continuous hover dwell time in seconds on the collapsed indicator before expanding.
+    pub(crate) autohide_dwell: f32,
+    /// Whether the user engaged with the Dock during the current reveal session
+    /// (e.g. tooltip dwell, menu open, icon click, or drag).
+    pub(crate) dock_interacted: bool,
+    /// Previous frame's cursor position used to detect retreat vectors (moving away from dock).
+    pub(crate) last_cursor: Option<(f32, f32)>,
     /// Whether a pointer entry may reveal the collapsed Dock. Entering
     /// maximized mode disarms it until the pointer leaves the capsule,
     /// preventing a Dock under a stationary pointer from reopening on the
@@ -449,6 +463,10 @@ impl Dock {
             autohide_reveal: 1.0,
             autohide_idle: 0.0,
             autohide_timeout: AUTOHIDE_IDLE_TIMEOUT,
+            autohide_dwell_threshold: AUTOHIDE_DWELL_THRESHOLD,
+            autohide_dwell: 0.0,
+            dock_interacted: false,
+            last_cursor: None,
             hidden_trigger_armed: true,
             space_use: SpaceUse::Available,
             dock_obscured: false,
@@ -480,12 +498,19 @@ impl Dock {
         {
             self.autohide_reveal = 1.0;
             self.autohide_idle = 0.0;
+            self.autohide_dwell = 0.0;
+            self.dock_interacted = false;
         }
     }
 
     /// Set the inactivity timeout in seconds before the dock autohides.
     pub fn set_autohide_timeout(&mut self, timeout_secs: f32) {
         self.autohide_timeout = timeout_secs.max(0.1);
+    }
+
+    /// Set the continuous hover dwell threshold in seconds required before expanding.
+    pub fn set_autohide_dwell(&mut self, dwell_secs: f32) {
+        self.autohide_dwell_threshold = dwell_secs.max(0.01);
     }
 
     /// Toggle autohide mode.
@@ -638,15 +663,48 @@ impl Dock {
         }
     }
 
+    /// While an autohiding Dock is morphing/revealing, only the live morphing
+    /// panel and its immediate corridor to the anchored screen edge keep the Dock
+    /// active. Pixels outside the live panel remain owned by the client below,
+    /// preventing premature hitbox inflation from swallowing the user's cursor.
+    fn live_panel_contains(
+        position: DockPosition,
+        cursor: (f32, f32),
+        current_panel: Rect,
+        display: (f32, f32),
+    ) -> bool {
+        match position {
+            DockPosition::Bottom => {
+                cursor.0 >= current_panel.x
+                    && cursor.1 >= current_panel.y
+                    && cursor.0 < current_panel.x + current_panel.w
+                    && cursor.1 < display.1
+            }
+            DockPosition::Left => {
+                cursor.0 < current_panel.x + current_panel.w
+                    && cursor.1 >= current_panel.y
+                    && cursor.1 < current_panel.y + current_panel.h
+            }
+            DockPosition::Right => {
+                cursor.0 >= current_panel.x
+                    && cursor.0 < display.0
+                    && cursor.1 >= current_panel.y
+                    && cursor.1 < current_panel.y + current_panel.h
+            }
+        }
+    }
+
     /// Resolve the single pointer region that may keep the Dock revealed.
     /// While collapsed, the caller-provided capsule entry is the only trigger;
-    /// the resting Dock rectangle becomes active only after reveal has begun.
+    /// during transition, only the actual morphing panel bounds keep it active.
+    /// The full resting Dock rectangle becomes active only after full reveal has completed.
     #[allow(clippy::too_many_arguments)]
     fn pointer_keeps_revealed(
         effective_autohide: bool,
         reveal: f32,
         capsule_entry: bool,
         cursor: (f32, f32),
+        current_panel: Rect,
         rest_bounds: Rect,
         position: DockPosition,
         display: (f32, f32),
@@ -657,26 +715,39 @@ impl Dock {
                 && cursor.0 < rest_bounds.x + rest_bounds.w
                 && cursor.1 < rest_bounds.y + rest_bounds.h;
         }
-        if reveal < 0.2 {
+        if reveal <= 0.001 {
             return capsule_entry;
+        }
+        if reveal < 0.999 {
+            return capsule_entry
+                || Self::collapsed_indicator_contains(position, cursor, display)
+                || Self::live_panel_contains(position, cursor, current_panel, display);
         }
         Self::expanded_trigger_contains(position, cursor, rest_bounds, display)
     }
 
-    /// A forced collapse must observe a pointer exit before the same pointer
-    /// can reveal the Dock again. This turns reveal into an entry gesture
-    /// instead of a level-triggered condition under a stationary cursor.
-    fn hidden_reveal_requested(
+    /// Step the intent dwell timer for the collapsed indicator.
+    /// Returns true when dwell reaches `threshold`, confirming user intent to reveal.
+    pub(crate) fn step_hidden_reveal(
         position: DockPosition,
         armed: &mut bool,
+        dwell: &mut f32,
+        threshold: f32,
         cursor: (f32, f32),
         display: (f32, f32),
+        dt: f32,
     ) -> bool {
         if !Self::collapsed_indicator_contains(position, cursor, display) {
             *armed = true;
+            *dwell = 0.0;
             return false;
         }
-        *armed
+        if !*armed {
+            *dwell = 0.0;
+            return false;
+        }
+        *dwell += dt;
+        *dwell >= threshold
     }
 
     /// Close UI that must not survive an automatic dock hide.

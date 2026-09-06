@@ -12,6 +12,14 @@ project cuts a tagged release.
 > `atrium-desktop/tessera`. Environment variables use the `TESSERA_*` prefix
 > (previously `AEGIS_*`). The bundled cursor theme uses the `Tessera` name.
 
+## [0.0.57] - 2026-09-06
+
+### Added
+- Implemented pointer dwell intent threshold (`autohide_dwell`) and dynamic body hit testing for the autohide dock to eliminate accidental triggers and cursor trapping (ADR-0146).
+
+### Changed
+- Refined dock retreat dismiss timeout to snappy 0.15s and reduced default autohide inactivity timeout to 0.50s.
+
 ## [0.0.56] - 2026-09-05
 
 ### Added
