@@ -84,7 +84,7 @@ serde_json.workspace = true
 zeroize.workspace = true
 log.workspace = true
 tracing.workspace = true
-tessera-logging.workspace = true
+tessera-bootstrap.workspace = true
 # Direct deps purely so this binary's build script receives DEP_FLUX_RPATHS /
 # DEP_LENS_RPATHS (published via the -sys crates' `links` metadata) and can
 # re-emit the rpaths — `rustc-link-arg` does not propagate across crates.

@@ -48,7 +48,7 @@ prism = { git = "https://github.com/ming2k/optics", tag = "v0.0.34" }
 prism-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.34" }
 
 # Observability: crates emit through the `log` facade; each binary installs a
-# `tracing`-based subscriber through the shared `tessera-logging` crate, which
+# `tracing`-based subscriber through the shared `tessera-bootstrap` crate, which
 # bridges `log::` records into structured spans and fields (ADR-0079).
 # Long-term this seam is also how the AI-adaptation phase subscribes to
 # compositor events.
@@ -120,8 +120,10 @@ tessera-security = { path = "crates/api/tessera-security" }
 tessera-semantic = { path = "crates/api/tessera-semantic" }
 # Out-of-process AT-SPI accessibility adapter for semantic observations.
 tessera-atspi = { path = "crates/services/tessera-atspi" }
-# Shared tracing-based observability init installed once by every binary.
-tessera-logging = { path = "crates/services/tessera-logging" }
+# Shared process bootstrap (observability init today; panic hooks, runtime
+# directories, and socket hygiene as they emerge) installed once by every
+# executable. Library crates keep using the `log` facade and never link this.
+tessera-bootstrap = { path = "crates/services/tessera-bootstrap" }
 tessera-wayland-protocols = { path = "crates/core/tessera-wayland-protocols" }
 tessera-compositor = { path = "crates/core/tessera-compositor" }
 tessera-backend = { path = "crates/core/tessera-backend" }
@@ -257,7 +259,7 @@ tiny-skia = { opt-level = 3 }
 usvg = { opt-level = 3 }
 image = { opt-level = 3 }
 tessera-design = { codegen-units = 1 }
-tessera-logging = { codegen-units = 1 }
+tessera-bootstrap = { codegen-units = 1 }
 
 # Keep the compositor responsive without applying full release optimization to
 # workspace crates on every edit. Dependencies change less often, so their

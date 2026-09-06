@@ -181,7 +181,7 @@ struct Daemon {
 }
 
 fn main() {
-    tessera_logging::init("info");
+    tessera_bootstrap::init("info");
     match run() {
         Ok(()) => {}
         Err(error) => {

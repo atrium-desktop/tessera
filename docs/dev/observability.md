@@ -7,12 +7,12 @@ expected to follow. The architectural decision is
 ## The seam
 
 Crates emit through the standard `log` facade. Each first-party binary
-installs a `tracing`-based subscriber through the shared `tessera-logging`
+installs a `tracing`-based subscriber through the shared `tessera-bootstrap`
 crate before doing anything else:
 
 ```rust
 fn main() {
-    tessera_logging::init("info");
+    tessera_bootstrap::init("info");
     // ...
 }
 ```

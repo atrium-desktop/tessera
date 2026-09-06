@@ -46,7 +46,7 @@ struct AdapterState {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tessera_logging::init("tessera-atspi");
+    tessera_bootstrap::init("tessera-atspi");
     let socket = socket_path()?;
     let credential_from_stdin =
         std::env::args_os().any(|argument| argument == "--credential-stdin");

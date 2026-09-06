@@ -1,6 +1,6 @@
 [package]
-name = "tessera-logging"
-description = "Shared tracing-based observability init for Tessera processes"
+name = "tessera-bootstrap"
+description = "Shared process bootstrap for Tessera executables: observability init, panic hooks, runtime directories, and socket hygiene"
 readme = "README.md"
 version.workspace = true
 edition.workspace = true

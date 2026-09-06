@@ -39,7 +39,7 @@ fn main() -> ExitCode {
 
 fn run_compositor() -> ExitCode {
     // `RUST_LOG` controls verbosity; compositor bring-up is visible by default.
-    tessera_logging::init("info");
+    tessera_bootstrap::init("info");
     match runtime::run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -51,7 +51,7 @@ fn run_compositor() -> ExitCode {
 
 fn run_session_command(cli: tessera_commands::Cli) -> ExitCode {
     // One-shot commands print results, not a log stream.
-    tessera_logging::init("warn");
+    tessera_bootstrap::init("warn");
     let local_only = matches!(
         cli.command.as_ref(),
         Some(

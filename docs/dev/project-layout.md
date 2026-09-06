@@ -40,7 +40,7 @@ tessera/
       tessera-atspi/          supervised out-of-process AT-SPI semantic adapter
       tessera-idle/           idle / session-lock sidecar
       tessera-launcher/        detached, XDG-environment-aware app launching
-      tessera-logging/        shared tracing-based observability init
+      tessera-bootstrap/        shared tracing-based observability init
       tessera-mcp/            scoped platform bridge over MCP
       tessera-remote/         UIP network gateway and remote seat manager
     apps/                 composition roots; wiring only
@@ -60,7 +60,7 @@ The optional
 [xdg-desktop-portal-atrium repository](https://github.com/aegis-shell/xdg-desktop-portal-atrium)
 owns the private backend, its encrypted Secret implementation, PipeWire
 bridge, PAM helper, D-Bus activation files, and portal metadata. It depends
-on `tessera-model`, `tessera-ipc`, and `tessera-logging` from its declared
+on `tessera-model`, `tessera-ipc`, and `tessera-bootstrap` from its declared
 compatible Tessera tag; none of its crates are workspace members here. See
 [ADR-0095](../adr/0095-independent-portal-repository-and-component-workspace.md).
 

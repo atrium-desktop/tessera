@@ -107,7 +107,7 @@ struct AppData {
 }
 
 fn main() {
-    tessera_logging::init("info");
+    tessera_bootstrap::init("info");
     if let Err(error) = run() {
         log::error!("lock: {error}");
         eprintln!("tessera-lock: {error}");

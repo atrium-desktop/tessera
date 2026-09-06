@@ -27,7 +27,7 @@ tessera-design.workspace = true
 tessera-avatar = { workspace = true, features = ["persona"] }
 tessera-wallpaper.workspace = true
 ash.workspace = true
-tessera-logging.workspace = true
+tessera-bootstrap.workspace = true
 flux.workspace = true
 flux-sys.workspace = true
 flux-scene-graph-sys.workspace = true
