@@ -34,7 +34,6 @@ tessera/
       tessera-settings/       settings module library: contract, registry, and built-in pages
       tessera-tray/          SNI system tray service
       tessera-wallpaper/     image, video, 3D, and parallax background layer
-      tessera-lock/          session lock host and headless-testable lock logic
     services/             out-of-process daemons and bridges; depend on api (+ core)
       tessera-atspi/          supervised out-of-process AT-SPI semantic adapter
       tessera-idle/           idle / session-lock sidecar
@@ -43,6 +42,7 @@ tessera/
       tessera-mcp/            scoped platform bridge over MCP
       tessera-remote/         UIP network gateway and remote seat manager
     apps/                 composition roots; wiring only
+      tessera-lock/          session lock host and headless-testable lock logic
       tessera/             the binary: wiring and event loop
   docs/                 documentation (see docs/index.md)
 ```

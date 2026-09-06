@@ -138,7 +138,7 @@ tessera-command-panel = { path = "crates/chrome/tessera-command-panel" }
 tessera-wallpaper = { path = "crates/chrome/tessera-wallpaper" }
 # First-party session products. The compositor retains the protocol and
 # fail-closed authority; these packages are ordinary Wayland clients.
-tessera-lock = { path = "crates/chrome/tessera-lock" }
+tessera-lock = { path = "crates/apps/tessera-lock" }
 tessera-idle = { path = "crates/services/tessera-idle" }
 # Settings module library hosted by the command panel (ADR-0056).
 tessera-settings = { path = "crates/chrome/tessera-settings" }

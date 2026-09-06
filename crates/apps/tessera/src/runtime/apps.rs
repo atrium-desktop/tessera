@@ -18,7 +18,7 @@ impl IconCache {
 
 /// Fallback SVG icon used for applications and windows without a desktop icon.
 pub(super) const DEFAULT_APP_ICON_SVG: &str =
-    include_str!("../../../../assets/icons/unknown.svg");
+    include_str!("../../../../../assets/icons/unknown.svg");
 pub(super) const DEFAULT_ICON_KEY: &str = "__tessera_default_app_icon__";
 
 /// Raster extensions the `image` crate decodes directly. SVG/SVGZ uses the

@@ -25,7 +25,7 @@ use include_dir::{Dir, include_dir};
 /// The cursor art shipped with the binary, used as the universal fallback
 /// when no filesystem theme resolves a shape. Original MIT-licensed art;
 /// see `scripts/prepare-tessera-cursors.py`.
-static BUNDLED_THEME: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/../../assets/cursors/Tessera");
+static BUNDLED_THEME: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/../../../assets/cursors/Tessera");
 
 /// `wp_cursor_shape_device_v1.shape` value with its XDG candidate names,
 /// protocol/CSS name first and legacy cursor aliases afterwards. The first

@@ -61,7 +61,7 @@ use system::*;
 use window_capture::*;
 
 const DEFAULT_WALLPAPER: &[u8] =
-    include_bytes!("../../../assets/wallpapers/procedural-generation.png");
+    include_bytes!("../../../../assets/wallpapers/procedural-generation.png");
 
 #[cfg(test)]
 mod tests;
