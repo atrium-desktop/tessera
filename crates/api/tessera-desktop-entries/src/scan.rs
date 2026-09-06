@@ -7,10 +7,9 @@ use std::path::{Path, PathBuf};
 use tessera_model::app::{ApplicationTarget, Entry};
 use ini::Ini;
 
-use crate::icon::resolve_icon_scaled;
+use tessera_icons::{DEFAULT_ICON_SIZE, icon_search_bases, resolve_icon_scaled};
 use crate::locale::{Locale, current_locale};
-use crate::xdg::icon_search_bases;
-use crate::{AppsError, DEFAULT_ICON_SIZE, DEFAULT_ICON_THEME};
+use crate::{AppsError, DEFAULT_ICON_THEME};
 
 struct ParseContext<'a> {
     locale: &'a Locale,

@@ -9,9 +9,9 @@ rust-version.workspace = true
 
 [dependencies]
 # SNI IconName resolution through the freedesktop icon theme: the same
-# lookup (tessera-desktop-entries) and decode (image + rsvg-convert) path as
+# lookup (tessera-icons) and decode (image + rsvg-convert) path as
 # the compositor's app icon cache.
-tessera-desktop-entries = { workspace = true }
+tessera-icons = { workspace = true }
 image = { workspace = true }
 log = { workspace = true }
 zbus = { workspace = true }

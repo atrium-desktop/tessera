@@ -102,10 +102,14 @@ input = { version = "0.10", default-features = false, features = [
 udev = "0.9"
 libc = "0.2"
 
-# Launcher (tessera-desktop-entries): XDG base-directory resolution and .desktop / index.theme
-# INI parsing. Kept off every other crate.
+# Launcher (tessera-desktop-entries): XDG base-directory resolution and .desktop /
+# index.theme INI parsing. Kept off every other crate.
 dirs = "5"
 ini = { package = "rust-ini", version = "0.20" }
+
+# Icon-theme lookup (tessera-icons): scale-aware freedesktop icon resolution
+# shared by the launcher, the SNI tray, and other non-entry consumers.
+tessera-icons = { path = "crates/api/tessera-icons" }
 
 # Shared, effect-free Tessera state and deterministic model rules.
 tessera-model = { path = "crates/api/tessera-model" }

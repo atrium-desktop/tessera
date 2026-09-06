@@ -26,7 +26,7 @@ const SVG_ICON_EXTS: &[&str] = &["svg", "svgz"];
 /// upload. Returns `None` when the name is unknown or the file undecodable;
 /// the caller memoizes the failure so the theme is not rescanned.
 pub(super) fn resolve_theme_icon(name: &str) -> Option<TrayPixmap> {
-    let path = tessera_desktop_entries::resolve_icon_scaled(name, None, &[], 24, TRAY_ICON_SCALE)?;
+    let path = tessera_icons::resolve_icon_scaled(name, None, &[], 24, TRAY_ICON_SCALE)?;
     let ext = path
         .extension()
         .and_then(|extension| extension.to_str())
@@ -70,7 +70,7 @@ fn decode_icon(path: &Path, ext: &str, scale: u32) -> Option<image::DynamicImage
     if !SVG_ICON_EXTS.contains(&ext) {
         return None;
     }
-    let target = tessera_desktop_entries::DEFAULT_ICON_SIZE
+    let target = tessera_icons::DEFAULT_ICON_SIZE
         .saturating_mul(scale.max(1))
         .min(512)
         .to_string();

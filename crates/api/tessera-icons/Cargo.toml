@@ -1,0 +1,21 @@
+[package]
+name = "tessera-icons"
+description = "freedesktop.org icon-theme lookup: scale-aware resolution, theme inheritance, and XDG search bases"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# INI parsing for theme `index.theme` directory metadata and Inherits lines.
+ini.workspace = true
+# `$HOME` fallback for the XDG base-directory resolution (basedir spec
+# allows platform home-directory services; `dirs` needs no other feature).
+dirs = "5"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
