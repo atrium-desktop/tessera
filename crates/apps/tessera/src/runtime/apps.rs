@@ -2,7 +2,7 @@
 /// GPU textures; `map` keys raw pointers (borrowed from `_images`) by every
 /// `app_id` the entry might run as. The cache must outlive the shell:
 /// components hold borrowed handles from the most recently pushed
-/// `tessera_shell::AppCatalog` (see `tessera_shell::IconSet`), so a refreshed cache is
+/// `tessera_chrome::AppCatalog` (see `tessera_chrome::IconSet`), so a refreshed cache is
 /// swapped in only after the new catalog has been fanned out.
 pub(super) struct IconCache {
     pub(super) _images: Vec<flux::Image>,
@@ -11,8 +11,8 @@ pub(super) struct IconCache {
 }
 
 impl IconCache {
-    pub(super) fn as_icon_set(&self) -> tessera_shell::IconSet {
-        tessera_shell::IconSet::from_raw_with_default(self.map.clone(), self.default_icon)
+    pub(super) fn as_icon_set(&self) -> tessera_chrome::IconSet {
+        tessera_chrome::IconSet::from_raw_with_default(self.map.clone(), self.default_icon)
     }
 }
 
@@ -182,23 +182,23 @@ fn canonical_pins(pinned: &[String]) -> Vec<String> {
 pub(super) fn apply_pin_actions(
     apps: &[tessera_model::app::Entry],
     pinned: &[String],
-    actions: &[tessera_shell::PinAction],
+    actions: &[tessera_chrome::PinAction],
 ) -> Vec<String> {
     let mut out = canonical_pins(pinned);
     for action in actions {
         let id = match action {
-            tessera_shell::PinAction::Pin(id) | tessera_shell::PinAction::Unpin(id) => id,
+            tessera_chrome::PinAction::Pin(id) | tessera_chrome::PinAction::Unpin(id) => id,
         };
         let Some(entry) = apps.iter().find(|entry| entry.id == *id) else {
             continue;
         };
         let matches = |name: &String| entry_matches_pin_name(entry, name);
         match action {
-            tessera_shell::PinAction::Pin(_) if !out.iter().any(matches) => {
+            tessera_chrome::PinAction::Pin(_) if !out.iter().any(matches) => {
                 out.push(entry.id.clone());
             }
-            tessera_shell::PinAction::Unpin(_) => out.retain(|name| !matches(name)),
-            tessera_shell::PinAction::Pin(_) => {}
+            tessera_chrome::PinAction::Unpin(_) => out.retain(|name| !matches(name)),
+            tessera_chrome::PinAction::Pin(_) => {}
         }
     }
     out
@@ -497,7 +497,7 @@ mod tests {
         let pinned = apply_pin_actions(
             &apps,
             &[],
-            &[tessera_shell::PinAction::Unpin(
+            &[tessera_chrome::PinAction::Unpin(
                 "org.example.Editor.desktop".into(),
             )],
         );
@@ -525,7 +525,7 @@ mod tests {
         let pinned = apply_pin_actions(
             &apps,
             &["exampleeditor".into()],
-            &[tessera_shell::PinAction::Pin(
+            &[tessera_chrome::PinAction::Pin(
                 "org.example.Editor.desktop".into(),
             )],
         );
@@ -534,7 +534,7 @@ mod tests {
         let pinned = apply_pin_actions(
             &apps,
             &pinned,
-            &[tessera_shell::PinAction::Unpin(
+            &[tessera_chrome::PinAction::Unpin(
                 "org.example.Editor.desktop".into(),
             )],
         );
@@ -555,7 +555,7 @@ mod tests {
         let pinned = apply_pin_actions(
             &apps,
             &materialized,
-            &[tessera_shell::PinAction::Unpin(
+            &[tessera_chrome::PinAction::Unpin(
                 "org.example.Editor.desktop".into(),
             )],
         );

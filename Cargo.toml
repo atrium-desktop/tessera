@@ -10,6 +10,7 @@ resolver = "3"
 members = [
     "crates/api/*",
     "crates/core/*",
+    "crates/providers/*",
     "crates/chrome/*",
     "crates/services/*",
     "crates/apps/*",
@@ -130,13 +131,22 @@ tessera-shell = { path = "crates/chrome/tessera-shell" }
 tessera-design = { path = "crates/api/tessera-design" }
 # Composite UI patterns, dialog scaffolding, and chrome widgets.
 tessera-ui = { path = "crates/api/tessera-ui" }
+# The Chrome contract: trait, snapshot/event types, and backdrop declarations.
+# Implementations live in shell and the component crates; consumers depend on
+# this, never on the host (ADR-0021).
+tessera-chrome = { path = "crates/api/tessera-chrome" }
+# Locale negotiation and the typed translated message catalog for chrome.
+tessera-i18n = { path = "crates/api/tessera-i18n" }
 # Chrome components promoted out of tessera-shell (ADR-0044).
 tessera-dock = { path = "crates/chrome/tessera-dock" }
+# Persona/avatar runtime: profile contract plus the feature-gated still/VRM
+# portrait, motion, and hot-reload pipeline (ADR-0080, ADR-0096).
+tessera-avatar = { path = "crates/providers/tessera-avatar" }
 tessera-prism = { path = "crates/chrome/tessera-prism" }
 # Display-only floating HUD status chips (ADR-0080).
 tessera-hud = { path = "crates/chrome/tessera-hud" }
 # SNI system tray service shared by shell chrome (ADR-0080).
-tessera-tray = { path = "crates/chrome/tessera-tray" }
+tessera-tray = { path = "crates/providers/tessera-tray" }
 # Modal command panel (ADR-0080).
 tessera-command-panel = { path = "crates/chrome/tessera-command-panel" }
 tessera-wallpaper = { path = "crates/chrome/tessera-wallpaper" }

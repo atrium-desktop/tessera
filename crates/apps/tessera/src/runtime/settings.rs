@@ -45,7 +45,7 @@ impl CompositorRuntime {
 
 pub(super) fn publish_settings_parts(
     revision: u64,
-    status: &tessera_shell::SystemStatus,
+    status: &tessera_chrome::SystemStatus,
     config: Option<&tessera_config::Config>,
     shell: &mut tessera_shell::Shell,
     live: &std::sync::Arc<LiveState>,
@@ -93,7 +93,7 @@ pub(super) fn commit_settings_parts(
     reload: &mut Option<tessera_config::ReloadWatcher>,
     idle_process: &mut session::IdleProcess,
     live: &std::sync::Arc<LiveState>,
-    status: &mut tessera_shell::SystemStatus,
+    status: &mut tessera_chrome::SystemStatus,
     input_acc: &mut InputAccumulator,
     ipc: &Option<tessera_ipc::Server>,
 ) -> Result<tessera_ipc::SettingsReceipt, String> {

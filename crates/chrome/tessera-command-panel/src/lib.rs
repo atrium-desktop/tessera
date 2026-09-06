@@ -59,11 +59,11 @@ use tessera_model::window::{SpaceUse, Window};
 use tessera_model::workspace::WorkspaceSnapshot;
 use tessera_settings::builtin_settings_modules;
 use tessera_settings::module::{ModuleAvailability, ModuleEvents, ModuleId, ModuleRegistry};
-use tessera_shell::persona::{Portrait, PortraitConfig, PortraitWatcher, Profile};
+use tessera_avatar::persona::{Portrait, PortraitConfig, PortraitWatcher, Profile};
 use tessera_ui::Spring;
 use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 
-use tessera_shell::{
+use tessera_chrome::{
     Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, IconSet, Localizer, Message,
     SystemAction, SystemStatus, place_popup, truncate,
 };
@@ -132,8 +132,8 @@ const SEGMENTED_DAMPING: f32 = 22.0;
 /// The command panel explicitly owns its VRM composition. Keeping the
 /// parameters here lets another host choose a different crop without changing
 /// the VRM renderer or the shared portrait source policy.
-const AVATAR_CAMERA: tessera_shell::persona::VrmCamera =
-    tessera_shell::persona::VrmCamera::new(28.0, 0.25, 0.48, 0.0);
+const AVATAR_CAMERA: tessera_avatar::persona::VrmCamera =
+    tessera_avatar::persona::VrmCamera::new(28.0, 0.25, 0.48, 0.0);
 
 // dbusmenu popover geometry. Placement follows the shared shell popup policy.
 const MENU_WIDTH: f32 = 236.0;
@@ -318,7 +318,7 @@ impl CommandPanel {
     }
 
     /// Construct the panel. The flux device is borrowed (non-owning, like
-    /// [`tessera_shell::Shell::new`]) to upload SNI tray pixmaps to the GPU;
+    /// [`tessera_chrome::Shell::new`]) to upload SNI tray pixmaps to the GPU;
     /// the caller must keep it alive past the panel. The tray handle comes
     /// from the composition root's single `tessera_tray::spawn()` shared with
     /// the HUD; `None` leaves the tray section empty.
@@ -1087,7 +1087,7 @@ impl Chrome for CommandPanel {
 
     fn backdrop_blur_sigma(&self) -> f32 {
         if self.active() {
-            tessera_shell::BackdropCover::BLUR_SIGMA
+            tessera_chrome::BackdropCover::BLUR_SIGMA
         } else {
             0.0
         }
@@ -1098,9 +1098,9 @@ impl Chrome for CommandPanel {
         display: (f32, f32),
         _windows: &[Window],
         _workspaces: &WorkspaceSnapshot,
-    ) -> Vec<tessera_shell::BackdropRegion> {
+    ) -> Vec<tessera_chrome::BackdropRegion> {
         if self.active() {
-            vec![tessera_shell::BackdropCover::region(display, &self.design)]
+            vec![tessera_chrome::BackdropCover::region(display, &self.design)]
         } else {
             Vec::new()
         }

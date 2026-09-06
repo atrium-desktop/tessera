@@ -14,6 +14,7 @@
 use lens::{Align, Frame, Input, LayoutOpts, Rect};
 
 use crate::{
+    SecretPromptParams,
     BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
     LiquidGlassRegion, Localizer, Reserved, ellipsize, modal_scrim_backdrop,
 };
@@ -37,15 +38,6 @@ const BACKDROP_BLUR_SIGMA: f32 = DEFAULT_BACKDROP_BLUR_SIGMA;
 /// The mask glyph drawn per typed character.
 const MASK: &str = "•";
 
-/// Parameters of one user-consent secret prompt, mapped from the IPC
-/// request by the compositor runtime.
-#[derive(Debug, Clone)]
-pub struct SecretPromptParams {
-    /// Prompt heading (e.g. "Unlock Keyring").
-    pub title: String,
-    /// Optional context line under the title.
-    pub reason: Option<String>,
-}
 
 /// The resolved geometry of the panel for one frame.
 #[derive(Debug, Clone, Copy)]

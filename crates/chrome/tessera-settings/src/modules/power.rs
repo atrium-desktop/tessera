@@ -1,6 +1,6 @@
 use tessera_design::Design;
 use tessera_model::settings::{IdleSettings, SettingsAction, SettingsSnapshot};
-use tessera_shell::{Localizer, Message};
+use tessera_i18n::{Localizer, Message};
 use lens::{Align, Frame, Icon, LayoutOpts};
 
 use crate::module::{
@@ -433,7 +433,7 @@ fn timeout_presets(current: u32) -> Vec<u32> {
 }
 
 fn format_duration(seconds: u32, i18n: &Localizer) -> String {
-    if i18n.language() == tessera_shell::Language::SimplifiedChinese {
+    if i18n.language() == tessera_i18n::Language::SimplifiedChinese {
         if seconds.is_multiple_of(86_400) {
             format!("闲置 {} 天后", seconds / 86_400)
         } else if seconds.is_multiple_of(3_600) {

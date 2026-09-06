@@ -20,7 +20,7 @@ pub(super) fn draw_direct_desktop_scene(
     render_area: Option<flux::CanvasRenderArea>,
     overview: bool,
     overview_progress: f32,
-    window_switcher: Option<&tessera_shell::WindowSwitcherPresentation>,
+    window_switcher: Option<&tessera_chrome::WindowSwitcherPresentation>,
     scheme: tessera_model::settings::ColorScheme,
     soft_shadows: Option<&tessera_render::SoftShadowLayer<'_>>,
     shadow_style: tessera_model::window::WindowShadowStyle,
@@ -249,10 +249,10 @@ pub(super) fn apply_interaction_domain_action(
 }
 
 pub(super) fn interaction_domain_intent_to_action(
-    intent: tessera_shell::InteractionDomainIntent,
+    intent: tessera_chrome::InteractionDomainIntent,
 ) -> tessera_ipc::InteractionDomainAction {
     match intent {
-        tessera_shell::InteractionDomainIntent::TransferWindow {
+        tessera_chrome::InteractionDomainIntent::TransferWindow {
             window,
             target,
             retain_source_as_observer,

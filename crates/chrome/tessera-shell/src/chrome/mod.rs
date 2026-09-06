@@ -18,7 +18,6 @@
 //! `tessera-command-panel`.
 
 mod agent_feedback;
-mod app_menu;
 mod app_picker;
 mod battery_alert;
 mod capability_prompt;
@@ -32,17 +31,14 @@ mod toast;
 mod window_switcher;
 
 pub use agent_feedback::AgentFeedback;
-pub use app_menu::{AppMenu, PinAction};
-pub use app_picker::{AppPickParams, AppPicker};
-pub use battery_alert::{BatteryAlert, BatteryAlertParams};
-pub use capability_prompt::{
-    CapabilityFamily, CapabilityGroup, CapabilityPickParams, CapabilityPickResult, CapabilityPrompt,
-};
-pub use confirm_prompt::{ConfirmAnswer, ConfirmPickParams, ConfirmPickStyle, ConfirmPrompt};
+pub use app_picker::AppPicker;
+pub use battery_alert::BatteryAlert;
+pub use capability_prompt::CapabilityPrompt;
+pub use confirm_prompt::ConfirmPrompt;
 pub use controlled_window_guard::ControlledWindowGuard;
 pub use launcher::Launcher;
 pub use overview::Overview;
-pub use screenshot::{PickerMode, ScreenshotSelector};
-pub use secret_prompt::{SecretPrompt, SecretPromptParams};
+pub use screenshot::ScreenshotSelector;
+pub use secret_prompt::SecretPrompt;
 pub use toast::Toast;
 pub use window_switcher::WindowSwitcher;

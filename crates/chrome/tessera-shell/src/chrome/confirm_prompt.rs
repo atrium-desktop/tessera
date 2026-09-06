@@ -12,6 +12,7 @@
 use lens::{Frame, Input, Rect};
 
 use crate::{
+    ConfirmAnswer, ConfirmPickParams, ConfirmPickStyle,
     BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
     LiquidGlassRegion, Localizer, Reserved, ellipsize, modal_scrim_backdrop,
 };
@@ -38,48 +39,8 @@ const GRANT_ANSWERS: [ConfirmAnswer; 4] = [
     ConfirmAnswer::AllowAlways,
 ];
 
-/// The dialog style: a plain yes/no consent, or the four-option
-/// runtime-grant consent (ADR-0088).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ConfirmPickStyle {
-    /// Cancel plus one affirmative button (portal consent flows).
-    #[default]
-    YesNo,
-    /// Deny / Allow once / This session / Always (agent runtime grants).
-    Grant,
-}
 
-/// The answer the user gave at the confirmation dialog. The yes/no style
-/// only ever yields `Confirmed`/`Cancelled`; the grant style yields
-/// `Cancelled` or one of the three persistence levels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConfirmAnswer {
-    /// Yes/no style: the affirmative button (or Enter).
-    Confirmed,
-    /// Either style: Deny/Cancel, `Escape`, or the compositor panic chord.
-    Cancelled,
-    /// Grant style: allow this one operation only; nothing is recorded.
-    AllowOnce,
-    /// Grant style: allow until the compositor exits.
-    AllowSession,
-    /// Grant style: allow and remember durably.
-    AllowAlways,
-}
 
-/// Parameters of one user-consent confirmation, mapped from the IPC
-/// request by the compositor runtime.
-#[derive(Debug, Clone)]
-pub struct ConfirmPickParams {
-    /// Dialog heading (e.g. "Share personal information?").
-    pub title: String,
-    /// Explanation of what is requested and by whom.
-    pub body: String,
-    /// Affirmative button label override ("Allow", "Share", …); the
-    /// default is "OK". Only used by the yes/no style.
-    pub accept_label: Option<String>,
-    /// Dialog style; the default is the plain yes/no consent.
-    pub style: ConfirmPickStyle,
-}
 
 /// The resolved geometry of the panel for one frame.
 #[derive(Debug, Clone, Copy)]

@@ -24,8 +24,8 @@ pub(super) enum ConfirmPickControl {
         title: String,
         body: String,
         accept_label: Option<String>,
-        style: tessera_shell::ConfirmPickStyle,
-        reply: std::sync::mpsc::Sender<Result<tessera_shell::ConfirmAnswer, String>>,
+        style: tessera_chrome::ConfirmPickStyle,
+        reply: std::sync::mpsc::Sender<Result<tessera_chrome::ConfirmAnswer, String>>,
     },
     /// The IPC handler stopped waiting (interaction timeout): close the
     /// dialog if it is still open for this connection.
@@ -35,7 +35,7 @@ pub(super) enum ConfirmPickControl {
 /// A confirmation waiting for user interaction, owned by the main loop.
 pub(super) struct PendingConfirmPick {
     pub(super) conn_id: u64,
-    pub(super) reply: std::sync::mpsc::Sender<Result<tessera_shell::ConfirmAnswer, String>>,
+    pub(super) reply: std::sync::mpsc::Sender<Result<tessera_chrome::ConfirmAnswer, String>>,
 }
 
 impl CompositorRuntime {
@@ -67,7 +67,7 @@ impl CompositorRuntime {
                             reply,
                         });
                         self.shell
-                            .start_confirm_pick(tessera_shell::ConfirmPickParams {
+                            .start_confirm_pick(tessera_chrome::ConfirmPickParams {
                                 title,
                                 body,
                                 accept_label,
@@ -121,11 +121,11 @@ impl CompositorRuntime {
         };
         self.pending_system_action = Some(action);
         self.shell
-            .start_confirm_pick(tessera_shell::ConfirmPickParams {
+            .start_confirm_pick(tessera_chrome::ConfirmPickParams {
                 title: title.to_owned(),
                 body: body.to_owned(),
                 accept_label: None,
-                style: tessera_shell::ConfirmPickStyle::YesNo,
+                style: tessera_chrome::ConfirmPickStyle::YesNo,
             });
     }
 

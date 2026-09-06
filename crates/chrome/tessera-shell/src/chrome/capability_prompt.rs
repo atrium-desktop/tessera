@@ -17,6 +17,7 @@ use std::collections::BTreeSet;
 use lens::{Color, Frame, Input, LayoutOpts, Rect};
 
 use crate::{
+    CapabilityFamily, CapabilityPickParams, CapabilityPickResult,
     BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
     LiquidGlassRegion, Localizer, Reserved, ellipsize, modal_scrim_backdrop,
 };
@@ -50,50 +51,9 @@ const WHEEL_ROWS: f32 = 3.0;
 const GATED_MARK: &str = "†";
 const GATED_LEGEND: &str = "† confirmed again on first use";
 
-/// Parameters of one capability-borrowing checklist, mapped from the agent
-/// pairing request by the compositor runtime.
-#[derive(Debug, Clone)]
-pub struct CapabilityPickParams {
-    /// Dialog heading (e.g. "Codex wants to borrow desktop capabilities").
-    pub title: String,
-    /// Look-alike installation warning (ADR-0088 TOFU continuity), shown as
-    /// a highlighted row under the title when present.
-    pub warning: Option<String>,
-    /// One row per requested capability family, in display order.
-    pub families: Vec<CapabilityFamily>,
-}
 
-/// One checkable capability family row; its members are the expandable
-/// per-operation detail.
-#[derive(Debug, Clone)]
-pub struct CapabilityFamily {
-    /// Stable machine key, unique within one checklist.
-    pub key: String,
-    /// Human-readable family description (e.g. "Control windows").
-    pub label: String,
-    /// The requested operations in this family, in display order.
-    pub members: Vec<CapabilityGroup>,
-}
 
-/// One checkable operation row inside a family.
-#[derive(Debug, Clone)]
-pub struct CapabilityGroup {
-    /// Stable machine key the runtime maps back to an operation family.
-    pub key: String,
-    /// Human-readable capability description (e.g. "Focus windows").
-    pub label: String,
-    /// High-risk operation: first use is confirmed again interactively.
-    pub gated: bool,
-    /// Initially checked.
-    pub enabled: bool,
-}
 
-/// The user's answer: the checked operation keys on Allow, or `None` on
-/// Deny, `Escape`, or the compositor panic chord.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CapabilityPickResult {
-    pub approved: Option<Vec<String>>,
-}
 
 /// The resolved geometry of the panel for one frame.
 #[derive(Debug, Clone)]

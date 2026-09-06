@@ -10,8 +10,8 @@ rust-version.workspace = true
 [dependencies]
 tessera-model = { workspace = true }
 tessera-design = { workspace = true }
+tessera-i18n = { workspace = true }
 tessera-ui = { workspace = true }
-tessera-shell = { workspace = true }
 lens = { workspace = true }
 # Direct dep purely so this crate's build script receives DEP_LENS_RPATHS
 # (published via the -sys crate's `links` metadata) and can re-emit the rpaths

@@ -1109,13 +1109,13 @@ impl tessera_ipc::Handler for LiveState {
             .then(|| "A different installation already registered under this name.".to_owned());
         let families = capability_families(requested)
             .into_iter()
-            .map(|family| tessera_shell::CapabilityFamily {
+            .map(|family| tessera_chrome::CapabilityFamily {
                 key: family.key.to_owned(),
                 label: family.label.to_owned(),
                 members: family
                     .members
                     .into_iter()
-                    .map(|member| tessera_shell::CapabilityGroup {
+                    .map(|member| tessera_chrome::CapabilityGroup {
                         key: member.key.to_owned(),
                         label: member.label.to_owned(),
                         gated: member.gated,
@@ -1131,7 +1131,7 @@ impl tessera_ipc::Handler for LiveState {
             .send(CapabilityPickControlRequest {
                 conn_id,
                 action: CapabilityPickControl::Start {
-                    params: tessera_shell::CapabilityPickParams {
+                    params: tessera_chrome::CapabilityPickParams {
                         title,
                         warning,
                         families,
@@ -1143,7 +1143,7 @@ impl tessera_ipc::Handler for LiveState {
         // The pairing prompt parks like the picks; the timeout closes the
         // chrome so it never lingers for a dead requester.
         match reply_rx.recv_timeout(PICK_TIMEOUT) {
-            Ok(Ok(tessera_shell::CapabilityPickResult {
+            Ok(Ok(tessera_chrome::CapabilityPickResult {
                 approved: Some(keys),
             })) => {
                 let ops: Vec<tessera_ipc::ActorCapability> = keys
@@ -1158,7 +1158,7 @@ impl tessera_ipc::Handler for LiveState {
                 );
                 Ok(paired)
             }
-            Ok(Ok(tessera_shell::CapabilityPickResult { approved: None })) => {
+            Ok(Ok(tessera_chrome::CapabilityPickResult { approved: None })) => {
                 self.agent_auth.write().unwrap().deny(label);
                 Err("pairing denied by the user".into())
             }
@@ -1212,7 +1212,7 @@ impl tessera_ipc::Handler for LiveState {
                     title,
                     body,
                     accept_label: None,
-                    style: tessera_shell::ConfirmPickStyle::Grant,
+                    style: tessera_chrome::ConfirmPickStyle::Grant,
                     reply: reply_tx,
                 },
             })
@@ -1220,7 +1220,7 @@ impl tessera_ipc::Handler for LiveState {
         // The grant prompt parks like the picks; the timeout closes the
         // chrome so it never lingers for a dead requester.
         match reply_rx.recv_timeout(PICK_TIMEOUT) {
-            Ok(Ok(tessera_shell::ConfirmAnswer::AllowOnce)) => {
+            Ok(Ok(tessera_chrome::ConfirmAnswer::AllowOnce)) => {
                 self.auth_event(
                     Some(conn_id),
                     principal,
@@ -1231,7 +1231,7 @@ impl tessera_ipc::Handler for LiveState {
                 );
                 Ok(true)
             }
-            Ok(Ok(tessera_shell::ConfirmAnswer::AllowSession)) => {
+            Ok(Ok(tessera_chrome::ConfirmAnswer::AllowSession)) => {
                 self.grants
                     .write()
                     .unwrap()
@@ -1246,7 +1246,7 @@ impl tessera_ipc::Handler for LiveState {
                 );
                 Ok(true)
             }
-            Ok(Ok(tessera_shell::ConfirmAnswer::AllowAlways)) => {
+            Ok(Ok(tessera_chrome::ConfirmAnswer::AllowAlways)) => {
                 self.grants
                     .write()
                     .unwrap()
@@ -1804,7 +1804,7 @@ impl tessera_ipc::Handler for LiveState {
                     title,
                     body,
                     accept_label,
-                    style: tessera_shell::ConfirmPickStyle::YesNo,
+                    style: tessera_chrome::ConfirmPickStyle::YesNo,
                     reply: reply_tx,
                 },
             })
@@ -1815,7 +1815,7 @@ impl tessera_ipc::Handler for LiveState {
         // requester. The yes/no style only ever answers Confirmed or
         // Cancelled; map defensively anyway.
         match reply_rx.recv_timeout(PICK_TIMEOUT) {
-            Ok(Ok(tessera_shell::ConfirmAnswer::Confirmed)) => {
+            Ok(Ok(tessera_chrome::ConfirmAnswer::Confirmed)) => {
                 Ok(tessera_ipc::ConfirmPickResult::Confirmed)
             }
             Ok(Ok(_)) => Ok(tessera_ipc::ConfirmPickResult::Cancelled),

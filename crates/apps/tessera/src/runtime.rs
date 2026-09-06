@@ -505,7 +505,7 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
     );
     #[cfg(feature = "chrome-dock")]
     log::info!("dock: {} app(s) pinned", pinned.len());
-    shell.set_app_catalog(tessera_shell::AppCatalog {
+    shell.set_app_catalog(tessera_chrome::AppCatalog {
         apps: launcher_apps.clone(),
         pinned,
         icons: icon_cache.as_icon_set(),
@@ -562,7 +562,7 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
     // CPU/GPU/RAM/network probe contradicted the panel's event-driven
     // scope. `ResourceProbe` stays available for any future consumer that
     // wants to poll on its own cadence.
-    let (status_tx, status_rx) = std::sync::mpsc::channel::<tessera_shell::SystemStatus>();
+    let (status_tx, status_rx) = std::sync::mpsc::channel::<tessera_chrome::SystemStatus>();
     // System actions wake the poller for an out-of-cycle refresh so the HUD
     // reconciles its optimistic values right away; the main loop itself never
     // waits on a probe subprocess.
@@ -579,7 +579,7 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
                 last_ssid: Option<String>,
             }
             impl StatusProbe {
-                fn full(&mut self) -> tessera_shell::SystemStatus {
+                fn full(&mut self) -> tessera_chrome::SystemStatus {
                     let (volume, muted, wifi, ssid) = tessera_shell::detect_forked_status();
                     self.last_volume = volume;
                     self.last_muted = muted;
@@ -587,7 +587,7 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
                     self.last_ssid = ssid.clone();
                     tessera_shell::detect_system_status_lightweight(volume, muted, wifi, ssid)
                 }
-                fn cheap(&self) -> tessera_shell::SystemStatus {
+                fn cheap(&self) -> tessera_chrome::SystemStatus {
                     tessera_shell::detect_system_status_lightweight(
                         self.last_volume,
                         self.last_muted,

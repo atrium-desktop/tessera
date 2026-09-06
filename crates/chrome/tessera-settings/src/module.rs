@@ -8,7 +8,7 @@
 
 use tessera_design::Design;
 use tessera_model::settings::{SettingsAction, SettingsSnapshot};
-use tessera_shell::{Localizer, Message};
+use tessera_i18n::{Localizer, Message};
 use lens::{Frame, Icon};
 
 /// Stable identifier for a settings module and for deep-link routing.

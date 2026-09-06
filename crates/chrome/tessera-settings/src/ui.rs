@@ -1,5 +1,5 @@
 use tessera_design::Design;
-use tessera_shell::{Localizer, Message};
+use tessera_i18n::{Localizer, Message};
 use lens::Frame;
 
 pub(crate) fn unavailable_row(frame: &mut Frame, label: &str, i18n: &Localizer, design: &Design) {

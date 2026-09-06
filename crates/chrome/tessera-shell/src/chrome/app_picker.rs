@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use lens::{Color, Frame, Input, LayoutOpts, Rect};
 
 use crate::{
+    AppPickParams,
     AppCatalog, BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
     LiquidGlassFocus, LiquidGlassRegion, Localizer, Reserved, ellipsize, modal_scrim_backdrop,
 };
@@ -43,18 +44,6 @@ const DOUBLE_CLICK: Duration = DEFAULT_DOUBLE_CLICK_TIMEOUT;
 /// Rows scrolled per wheel detent over the list.
 const WHEEL_ROWS: f32 = DEFAULT_WHEEL_SCROLL_ROWS;
 
-/// Parameters of one user-consent application pick, mapped from the IPC
-/// request by the compositor runtime.
-#[derive(Debug, Clone)]
-pub struct AppPickParams {
-    /// Candidate desktop file ids, in the order the requester supplied.
-    pub choices: Vec<String>,
-    /// Human-readable context line (the file, URI, or content type the app
-    /// is chosen for), shown under the title.
-    pub subject: Option<String>,
-    /// The previously used app id, pre-highlighted when still a candidate.
-    pub last_choice: Option<String>,
-}
 
 /// One candidate row: the requested id plus its catalog-resolved display
 /// name (the id stem when the catalog has no entry for it).

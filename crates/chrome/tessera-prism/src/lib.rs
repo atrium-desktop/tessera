@@ -16,7 +16,7 @@ use tessera_model::input::{KeyChar, key_action};
 use tessera_model::launcher::{Launch, Launcher as SearchBrain};
 use tessera_model::window::Window;
 use tessera_model::workspace::WorkspaceSnapshot;
-use tessera_shell::{
+use tessera_chrome::{
     AppCatalog, BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
     IconSet, LiquidGlassRegion, Localizer, Message, ellipsize,
 };
@@ -46,7 +46,7 @@ pub struct Prism {
     reduced_motion: bool,
     /// The design snapshot the panel paints from, from
     /// [`ChromeUpdate::Appearance`]. Seeded on registration by
-    /// [`tessera_shell::Shell::add`] and refreshed when the desktop color scheme
+    /// [`tessera_chrome::Chrome`] registration and refreshed when the desktop color scheme
     /// changes; defaults to the dark appearance until the first update arrives.
     design: Design,
 }
@@ -561,7 +561,7 @@ impl Chrome for Prism {
             y: 0.0,
             w: display.0,
             h: display.1,
-            wash: Some(tessera_shell::backdrop_wash(lens::Color::rgba(4, 6, 14, 54))),
+            wash: Some(tessera_chrome::backdrop_wash(lens::Color::rgba(4, 6, 14, 54))),
         }]
     }
 

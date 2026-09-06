@@ -750,7 +750,7 @@ impl CompositorRuntime {
                 &self.dock_state.pinned,
                 self.dock_state.autopopulate,
             );
-            self.shell.set_app_catalog(tessera_shell::AppCatalog {
+            self.shell.set_app_catalog(tessera_chrome::AppCatalog {
                 apps: self.launcher_apps.clone(),
                 pinned,
                 icons: self.icon_cache.as_icon_set(),
@@ -798,7 +798,7 @@ impl CompositorRuntime {
                     &self.dock_state.pinned,
                     self.dock_state.autopopulate,
                 );
-                self.shell.set_app_catalog(tessera_shell::AppCatalog {
+                self.shell.set_app_catalog(tessera_chrome::AppCatalog {
                     apps: refreshed.clone(),
                     pinned,
                     icons: refreshed_icons.as_icon_set(),

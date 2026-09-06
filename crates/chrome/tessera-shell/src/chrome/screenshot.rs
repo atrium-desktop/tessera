@@ -31,6 +31,7 @@ use tessera_design::{Design, GlassRole, materials};
 use lens::{Align, Color, Frame, Input, LayoutOpts, Rect as LensRect, Style};
 
 use crate::{
+    PickerMode,
     BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
     LiquidGlassRegion, Localizer, Message, ellipsize,
 };
@@ -57,18 +58,6 @@ const STATUS_MARGIN: f32 = 12.0;
 /// both 1× and HiDPI outputs without creating extra floating Lens layers.
 const SCRIM_CORNER_BAND_HEIGHT: f32 = 0.5;
 
-/// The interaction a portal picker session asks for (ADR-0054).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PickerMode {
-    /// Drag out a screen region (the Print-key interaction).
-    Region,
-    /// Click one screen point (colour picking).
-    Pixel,
-    /// Click a window, or choose the whole output.
-    Window,
-    /// Click an output to pick it by connector (version 29, ADR-0128).
-    Output,
-}
 
 #[derive(Debug, Clone, Copy, Default)]
 struct Point {

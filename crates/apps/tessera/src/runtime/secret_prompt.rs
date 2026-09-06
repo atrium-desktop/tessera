@@ -61,7 +61,7 @@ impl CompositorRuntime {
                             reply,
                         });
                         self.shell
-                            .start_secret_prompt(tessera_shell::SecretPromptParams { title, reason });
+                            .start_secret_prompt(tessera_chrome::SecretPromptParams { title, reason });
                     }
                 }
                 SecretPromptControl::Cancel => {

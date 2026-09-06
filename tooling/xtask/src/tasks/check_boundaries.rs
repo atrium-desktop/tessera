@@ -27,7 +27,7 @@ use toml::Value;
 pub struct CheckBoundariesArgs {}
 
 /// Dependency tiers by directory under `crates/`.
-const TIERS: [&str; 5] = ["api", "core", "chrome", "services", "apps"];
+const TIERS: [&str; 6] = ["api", "core", "providers", "chrome", "services", "apps"];
 
 /// Which tiers a given tier may depend on, including its own tier.
 /// `apps` depends on everything, so it has no restriction.
@@ -35,8 +35,9 @@ fn allowed_tiers(tier: &str) -> Option<&'static [&'static str]> {
     match tier {
         "api" => Some(&["api"]),
         "core" => Some(&["api", "core"]),
-        "chrome" => Some(&["api", "chrome"]),
-        "services" => Some(&["api", "core", "services"]),
+        "providers" => Some(&["api", "core", "providers"]),
+        "chrome" => Some(&["api", "providers", "chrome"]),
+        "services" => Some(&["api", "core", "providers", "services"]),
         "apps" => None,
         _ => bail_tier(tier),
     }
@@ -160,6 +161,18 @@ mod tests {
     fn chrome_never_reaches_core_or_services() {
         let allowed = allowed_tiers("chrome").unwrap();
         assert!(!allowed.contains(&"core"));
+        assert!(!allowed.contains(&"services"));
+    }
+
+    #[test]
+    fn chrome_may_consume_providers() {
+        assert!(allowed_tiers("chrome").unwrap().contains(&"providers"));
+    }
+
+    #[test]
+    fn providers_never_reach_chrome_or_services() {
+        let allowed = allowed_tiers("providers").unwrap();
+        assert!(!allowed.contains(&"chrome"));
         assert!(!allowed.contains(&"services"));
     }
 

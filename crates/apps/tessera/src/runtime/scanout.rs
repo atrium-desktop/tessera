@@ -164,7 +164,7 @@ struct ScanoutSceneFacts {
     transition_pending: bool,
     overview_active: bool,
     window_switcher_active: bool,
-    shell: tessera_shell::CompositionRequirements,
+    shell: tessera_chrome::CompositionRequirements,
     client_overlay_count: usize,
     software_cursor_visible: bool,
     shm_surface_count: usize,
@@ -526,14 +526,14 @@ mod tests {
             Err(ScanoutRejectReason::VisibleShellPixels)
         );
 
-        facts.shell = tessera_shell::CompositionRequirements::default();
+        facts.shell = tessera_chrome::CompositionRequirements::default();
         assert_eq!(evaluate_scene(facts), Ok(()));
     }
 
     #[test]
     fn visible_live_dock_blur_has_a_precise_rejection_reason() {
         let mut facts = eligible_scene();
-        facts.shell = tessera_shell::CompositionRequirements {
+        facts.shell = tessera_chrome::CompositionRequirements {
             visible_pixels: true,
             live_backdrop_effect: true,
         };

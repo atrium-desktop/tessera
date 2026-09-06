@@ -1,7 +1,7 @@
 use super::*;
 
-fn region(x: f32, y: f32, w: f32, h: f32) -> tessera_shell::BackdropRegion {
-    tessera_shell::BackdropRegion {
+fn region(x: f32, y: f32, w: f32, h: f32) -> tessera_chrome::BackdropRegion {
+    tessera_chrome::BackdropRegion {
         x,
         y,
         w,
@@ -73,9 +73,9 @@ fn backdrop_cache_key_tracks_geometry_and_material_exactly() {
     assert_ne!(base, sigma_changed);
     assert_eq!(base, base.clone());
 
-    let glass = tessera_shell::LiquidGlassRegion {
+    let glass = tessera_chrome::LiquidGlassRegion {
         bounds: region(400.0, 1000.0, 320.0, 64.0),
-        focus: Some(tessera_shell::LiquidGlassFocus {
+        focus: Some(tessera_chrome::LiquidGlassFocus {
             bounds: region(420.0, 1008.0, 96.0, 48.0),
             corner_radius: 12.0,
             strength: 1.0,
@@ -87,8 +87,8 @@ fn backdrop_cache_key_tracks_geometry_and_material_exactly() {
     let with_focus = BackdropMaterialKey::new(&frost, &[glass], [255, 255, 255]);
     let moved_focus = BackdropMaterialKey::new(
         &frost,
-        &[tessera_shell::LiquidGlassRegion {
-            focus: glass.focus.map(|focus| tessera_shell::LiquidGlassFocus {
+        &[tessera_chrome::LiquidGlassRegion {
+            focus: glass.focus.map(|focus| tessera_chrome::LiquidGlassFocus {
                 bounds: region(
                     focus.bounds.x + 1.0,
                     focus.bounds.y,
@@ -106,7 +106,7 @@ fn backdrop_cache_key_tracks_geometry_and_material_exactly() {
     // adaptation writeback, and the scheme tint.
     let strengthened = BackdropMaterialKey::new(
         &frost,
-        &[tessera_shell::LiquidGlassRegion {
+        &[tessera_chrome::LiquidGlassRegion {
             frost_strength: 5.0,
             ..glass
         }],
@@ -115,7 +115,7 @@ fn backdrop_cache_key_tracks_geometry_and_material_exactly() {
     assert_ne!(with_focus, strengthened);
     let polarized = BackdropMaterialKey::new(
         &frost,
-        &[tessera_shell::LiquidGlassRegion {
+        &[tessera_chrome::LiquidGlassRegion {
             plate_polarity: 0.0,
             ..glass
         }],
@@ -124,8 +124,8 @@ fn backdrop_cache_key_tracks_geometry_and_material_exactly() {
     assert_ne!(with_focus, polarized);
     let adapted = BackdropMaterialKey::new(
         &frost,
-        &[tessera_shell::LiquidGlassRegion {
-            adaptation: Some(tessera_shell::LiquidGlassAdaptation {
+        &[tessera_chrome::LiquidGlassRegion {
+            adaptation: Some(tessera_chrome::LiquidGlassAdaptation {
                 plate_luminance: 0.5,
                 backdrop_energy: 0.25,
             }),
@@ -157,15 +157,15 @@ fn focused_preview_content_keeps_one_full_brightness_target() {
     let focused = tessera_model::window::WindowId(7);
     let sibling = tessera_model::window::WindowId(8);
     assert_eq!(
-        tessera_shell::preview::content_brightness(Some(focused), focused, 0.74),
+        tessera_chrome::preview::content_brightness(Some(focused), focused, 0.74),
         1.0
     );
     assert_eq!(
-        tessera_shell::preview::content_brightness(Some(focused), sibling, 0.74),
+        tessera_chrome::preview::content_brightness(Some(focused), sibling, 0.74),
         0.74
     );
     assert_eq!(
-        tessera_shell::preview::content_brightness(None, sibling, 0.74),
+        tessera_chrome::preview::content_brightness(None, sibling, 0.74),
         1.0
     );
 }
@@ -277,7 +277,7 @@ fn capture_regions_merge_overlapping_blur_footprints_transitively() {
 
 #[test]
 fn backdrop_graph_accumulates_sampling_radius_across_three_layers() {
-    use tessera_shell::{BackdropLayer, BackdropLayerId, BackdropLayerSource};
+    use tessera_chrome::{BackdropLayer, BackdropLayerId, BackdropLayerSource};
 
     let cover = BackdropLayer::new(BackdropLayerId(1), BackdropLayerSource::Scene, 4.0)
         .with_frost(vec![region(50.0, 50.0, 20.0, 20.0)]);
@@ -344,7 +344,7 @@ fn backdrop_graph_accumulates_sampling_radius_across_three_layers() {
 
 #[test]
 fn backdrop_graph_rejects_missing_sources_and_cycles() {
-    use tessera_shell::{BackdropLayer, BackdropLayerId, BackdropLayerSource};
+    use tessera_chrome::{BackdropLayer, BackdropLayerId, BackdropLayerSource};
 
     let missing = BackdropLayer::new(
         BackdropLayerId(1),
@@ -415,14 +415,14 @@ fn capture_bounds_align_to_downsample() {
 #[test]
 fn material_fingerprints_track_each_frame_slot_independently() {
     let frost = [region(0.0, 0.0, 0.0, 0.0)];
-    let glass = tessera_shell::LiquidGlassRegion {
+    let glass = tessera_chrome::LiquidGlassRegion {
         bounds: region(400.0, 100.0, 320.0, 74.0),
         ..Default::default()
     };
     let base = BackdropMaterialKey::new(&frost, &[glass], [255, 255, 255]);
     let restyled = BackdropMaterialKey::new(
         &frost,
-        &[tessera_shell::LiquidGlassRegion {
+        &[tessera_chrome::LiquidGlassRegion {
             frost_strength: 2.0,
             ..glass
         }],
@@ -502,11 +502,11 @@ fn capture_bounds_respect_output_scale() {
 
 #[test]
 fn liquid_glass_geometry_maps_to_the_downsampled_capture_once() {
-    let source = tessera_shell::LiquidGlassRegion {
+    let source = tessera_chrome::LiquidGlassRegion {
         bounds: region(400.0, 100.0, 320.0, 74.0),
         corner_radius: 18.0,
         opacity: 0.4,
-        focus: Some(tessera_shell::LiquidGlassFocus {
+        focus: Some(tessera_chrome::LiquidGlassFocus {
             bounds: region(480.0, 112.0, 120.0, 50.0),
             corner_radius: 12.0,
             strength: 0.8,

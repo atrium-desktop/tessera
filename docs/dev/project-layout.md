@@ -25,14 +25,16 @@ tessera/
       tessera-compositor/        Wayland server: socket, globals, object lifecycle
       tessera-backend/       presentation + input targets (nested, DRM/KMS + libinput + libseat)
       tessera-render/        compositing through flux
-    chrome/               user-visible surfaces; depend on api, never on each other
+    providers/            shared runtimes consumed by chrome surfaces; no UI
+      tessera-tray/          SNI system tray service
+      tessera-avatar/        persona profile + feature-gated still/VRM portrait runtime
+    chrome/               user-visible surfaces; depend on api + providers, never on each other
       tessera-shell/         chrome host plus feature-gated persona domain
       tessera-dock/          bottom-center dock chrome component
       tessera-prism/         compact application-search chrome component
       tessera-hud/           display-only HUD status chips (system status, workspace dots, clock, SNI tray)
       tessera-command-panel/ full-screen modal command panel (quick settings, settings modules, tray, notifications)
       tessera-settings/       settings module library: contract, registry, and built-in pages
-      tessera-tray/          SNI system tray service
       tessera-wallpaper/     image, video, 3D, and parallax background layer
     services/             out-of-process daemons and bridges; depend on api (+ core)
       tessera-atspi/          supervised out-of-process AT-SPI semantic adapter

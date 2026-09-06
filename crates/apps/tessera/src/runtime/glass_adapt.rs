@@ -37,7 +37,7 @@ const RECOVERY_FLOOR: f32 = 0.55;
 struct Smoothed {
     luminance: f32,
     energy: f32,
-    emitted: tessera_shell::LiquidGlassAdaptation,
+    emitted: tessera_chrome::LiquidGlassAdaptation,
 }
 
 /// Per-region temporal smoother for backdrop statistics. Regions identify
@@ -76,7 +76,7 @@ impl GlassAdaptation {
                     Smoothed {
                         luminance,
                         energy,
-                        emitted: tessera_shell::LiquidGlassAdaptation {
+                        emitted: tessera_chrome::LiquidGlassAdaptation {
                             plate_luminance: quantize(luminance),
                             backdrop_energy: quantize(energy),
                         },
@@ -90,7 +90,7 @@ impl GlassAdaptation {
     /// prism groups: the smoothed statistics, plus the tint-strength
     /// recovery for friendly backdrops. Anonymous regions (id 0) and regions
     /// without a first sample keep their declared material.
-    pub(crate) fn apply_to(&self, region: &mut tessera_shell::LiquidGlassRegion) {
+    pub(crate) fn apply_to(&self, region: &mut tessera_chrome::LiquidGlassRegion) {
         if region.id == 0 {
             return;
         }

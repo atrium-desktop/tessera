@@ -1,0 +1,23 @@
+[package]
+name = "tessera-chrome"
+description = "The Chrome contract: component trait, snapshot and event types, and backdrop declarations shared by every tessera chrome surface"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tessera-model = { workspace = true }
+tessera-design = { workspace = true }
+tessera-i18n = { workspace = true }
+# Menu geometry constants shared with the composite UI widget set.
+tessera-ui = { workspace = true }
+# Immediate-mode UI engine. The contract is expressed against lens's frame,
+# input, and layout types so components and the host bind the same ABI.
+lens = { workspace = true }
+log.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

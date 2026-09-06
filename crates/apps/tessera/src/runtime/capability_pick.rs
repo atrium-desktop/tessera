@@ -22,8 +22,8 @@ pub(super) enum CapabilityPickControl {
     /// Open the checklist; the reply completes when the user allows the
     /// checked groups or denies.
     Start {
-        params: tessera_shell::CapabilityPickParams,
-        reply: std::sync::mpsc::Sender<Result<tessera_shell::CapabilityPickResult, String>>,
+        params: tessera_chrome::CapabilityPickParams,
+        reply: std::sync::mpsc::Sender<Result<tessera_chrome::CapabilityPickResult, String>>,
     },
     /// The IPC handler stopped waiting (interaction timeout): close the
     /// checklist if it is still open for this connection.
@@ -33,7 +33,7 @@ pub(super) enum CapabilityPickControl {
 /// A capability pick waiting for user interaction, owned by the main loop.
 pub(super) struct PendingCapabilityPick {
     pub(super) conn_id: u64,
-    pub(super) reply: std::sync::mpsc::Sender<Result<tessera_shell::CapabilityPickResult, String>>,
+    pub(super) reply: std::sync::mpsc::Sender<Result<tessera_chrome::CapabilityPickResult, String>>,
 }
 
 impl CompositorRuntime {

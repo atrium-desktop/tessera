@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use tessera_desktop_entries::xdg_data_dirs;
+use tessera_icons::xdg_data_dirs;
 
 /// One configured portrait candidate.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -43,7 +43,7 @@ use tessera_model::dock::DockPosition;
 use tessera_model::input::{KeyAction, KeyChar, key_action};
 use tessera_model::window::{SpaceUse, Window};
 use tessera_model::workspace::WorkspaceSnapshot;
-use tessera_shell::{
+use tessera_chrome::{
     AppCatalog, AppMenu, BackdropRegion, Chrome, ChromeEvents, ChromeUpdate, CursorShape, IconSet,
     LiquidGlassRegion, LivePreviewPresentation, Localizer, Message, PinAction, PopupSide,
     PreviewCard, Reserved, ellipsize, liquid_glass_region_id, preview,
@@ -394,7 +394,7 @@ pub struct Dock {
     scale: f32,
     /// The design snapshot the dock paints from, from
     /// [`ChromeUpdate::Appearance`]. Seeded on registration by
-    /// [`tessera_shell::Shell::add`] and refreshed when the desktop color scheme
+    /// [`tessera_chrome::Chrome`] registration and refreshed when the desktop color scheme
     /// changes; defaults to the dark appearance until the first update arrives.
     design: Design,
     /// The screen edge the panel anchors to. Carried on the pushed
@@ -441,7 +441,7 @@ type SpringState = tessera_ui::motion::Spring;
 impl Dock {
     /// An empty dock. The pinned apps and decoded icons arrive through
     /// [`ChromeUpdate::AppCatalog`], seeded on registration by
-    /// [`tessera_shell::Shell::add`].
+    /// [`tessera_chrome::Chrome`] registration.
     pub fn new() -> Dock {
         Dock {
             apps: Vec::new(),

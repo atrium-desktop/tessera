@@ -24,7 +24,7 @@ required-features = ["dev-preview"]
 [dependencies]
 tessera-config.workspace = true
 tessera-design.workspace = true
-tessera-shell = { workspace = true, features = ["persona"] }
+tessera-avatar = { workspace = true, features = ["persona"] }
 tessera-wallpaper.workspace = true
 ash.workspace = true
 tessera-logging.workspace = true

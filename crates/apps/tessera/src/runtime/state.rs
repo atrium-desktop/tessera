@@ -162,8 +162,8 @@ pub(super) struct CompositorRuntime {
     pub(super) scanout_telemetry: ScanoutTelemetry,
     pub(super) keyboard_capture: tessera_model::input::KeyboardCaptureState,
     pub(super) keymap: tessera_model::keybind::Keymap,
-    pub(super) system_status: tessera_shell::SystemStatus,
-    pub(super) status_rx: std::sync::mpsc::Receiver<tessera_shell::SystemStatus>,
+    pub(super) system_status: tessera_chrome::SystemStatus,
+    pub(super) status_rx: std::sync::mpsc::Receiver<tessera_chrome::SystemStatus>,
     /// Wakes the status poller for an out-of-cycle refresh after a system
     /// action, so the HUD reconciles optimistic values without the main loop
     /// ever blocking on a probe subprocess.

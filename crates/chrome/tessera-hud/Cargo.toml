@@ -12,7 +12,8 @@ build = "build.rs"
 tessera-model = { workspace = true }
 tessera-design = { workspace = true }
 tessera-ui = { workspace = true }
-tessera-shell = { workspace = true }
+tessera-chrome = { workspace = true }
+tessera-i18n = { workspace = true }
 # SNI system tray service (watcher/host on the session bus), shared with the
 # command panel through a single spawn in the composition root (ADR-0080).
 tessera-tray = { workspace = true }

@@ -172,7 +172,7 @@ pub(super) struct BackdropCaptureRegion {
 /// bounding box spans the screen. Overlapping padded regions are merged
 /// transitively so no blur pass writes the same pixels twice.
 pub(super) fn blur_capture_regions(
-    regions: &[tessera_shell::BackdropRegion],
+    regions: &[tessera_chrome::BackdropRegion],
     logical_size: (u32, u32),
     physical_size: (u32, u32),
     scale: f32,
@@ -244,7 +244,7 @@ pub(super) fn blur_capture_regions(
 /// behaviour rather than sampling undefined padding.
 #[cfg(test)]
 pub(super) fn blur_capture_bounds(
-    regions: &[tessera_shell::BackdropRegion],
+    regions: &[tessera_chrome::BackdropRegion],
     logical_size: (u32, u32),
     physical_size: (u32, u32),
     scale: f32,
@@ -297,7 +297,7 @@ pub(super) struct BackdropGraphPlan {
 /// desktop source. Glass and frost remain ordinary leaf material operators;
 /// nesting is represented only by image dependencies here.
 pub(super) fn plan_backdrop_graph(
-    layers: &[tessera_shell::BackdropLayer],
+    layers: &[tessera_chrome::BackdropLayer],
     logical_size: (u32, u32),
     physical_size: (u32, u32),
     scale: f32,
@@ -337,8 +337,8 @@ pub(super) fn plan_backdrop_graph(
     }
     for (layer, node) in layers.iter().zip(&nodes) {
         let source = match layer.source {
-            tessera_shell::BackdropLayerSource::Scene => scene,
-            tessera_shell::BackdropLayerSource::Layer(id) => *ids.get(&id).ok_or_else(|| {
+            tessera_chrome::BackdropLayerSource::Scene => scene,
+            tessera_chrome::BackdropLayerSource::Layer(id) => *ids.get(&id).ok_or_else(|| {
                 format!("backdrop layer {:?} references missing {id:?}", layer.id)
             })?,
         };
@@ -388,8 +388,8 @@ pub(super) fn plan_backdrop_graph(
     let sources = order
         .iter()
         .map(|declaration| match layers[*declaration].source {
-            tessera_shell::BackdropLayerSource::Scene => Ok(None),
-            tessera_shell::BackdropLayerSource::Layer(id) => position_for_id
+            tessera_chrome::BackdropLayerSource::Scene => Ok(None),
+            tessera_chrome::BackdropLayerSource::Layer(id) => position_for_id
                 .get(&id)
                 .copied()
                 .map(Some)
@@ -449,7 +449,7 @@ pub(super) fn plan_backdrop_graph(
 }
 
 fn physical_backdrop_rect(
-    region: tessera_shell::BackdropRegion,
+    region: tessera_chrome::BackdropRegion,
     logical_size: (u32, u32),
     physical_size: (u32, u32),
     scale: f32,
@@ -555,7 +555,7 @@ pub(super) fn blur_regions_in_capture(
 /// are used only as Canvas clips while material output is persisted in the
 /// per-slot transparent composite cache.
 pub(super) fn backdrop_regions_in_capture(
-    regions: &[tessera_shell::BackdropRegion],
+    regions: &[tessera_chrome::BackdropRegion],
     capture_origin: (u32, u32),
     capture_extent: (u32, u32),
     capture_size: (u32, u32),
@@ -591,7 +591,7 @@ pub(super) fn backdrop_regions_in_capture(
 /// image rather than becoming rectangular canvas clips — the glass bodies
 /// above them sample exactly these pixels.
 pub(super) fn backdrop_frost_in_capture(
-    regions: &[tessera_shell::BackdropRegion],
+    regions: &[tessera_chrome::BackdropRegion],
     capture_origin: (u32, u32),
     capture_extent: (u32, u32),
     capture_size: (u32, u32),
@@ -626,7 +626,7 @@ pub(super) fn backdrop_frost_in_capture(
 /// A region submits a prism group only when it has area and is visible; the
 /// same predicate gates the submitted-id bookkeeping that aligns the
 /// frame-lagged backdrop statistics with their bodies.
-pub(super) fn glass_region_active(region: &tessera_shell::LiquidGlassRegion) -> bool {
+pub(super) fn glass_region_active(region: &tessera_chrome::LiquidGlassRegion) -> bool {
     region.bounds.w > 0.0 && region.bounds.h > 0.0 && region.opacity > 0.0
 }
 
@@ -635,7 +635,7 @@ pub(super) fn glass_region_active(region: &tessera_shell::LiquidGlassRegion) -> 
 /// used for shape, corner radius, refraction and the final image draw.
 /// Shadow distances scale like the shape; the alpha passes through.
 pub(super) fn liquid_glass_groups(
-    regions: &[tessera_shell::LiquidGlassRegion],
+    regions: &[tessera_chrome::LiquidGlassRegion],
     capture_origin: (u32, u32),
     scale: f32,
     capture_ratio: f32,
@@ -740,7 +740,7 @@ pub(super) struct BackdropMaterialKey {
 pub(super) struct BackdropStackMaterialKey(Vec<BackdropMaterialKey>);
 
 impl BackdropStackMaterialKey {
-    pub(super) fn new(layers: &[tessera_shell::BackdropLayer], glass_tint: [u8; 3]) -> Self {
+    pub(super) fn new(layers: &[tessera_chrome::BackdropLayer], glass_tint: [u8; 3]) -> Self {
         Self(
             layers
                 .iter()
@@ -752,8 +752,8 @@ impl BackdropStackMaterialKey {
 
 impl BackdropMaterialKey {
     pub(super) fn new(
-        frost_regions: &[tessera_shell::BackdropRegion],
-        liquid_regions: &[tessera_shell::LiquidGlassRegion],
+        frost_regions: &[tessera_chrome::BackdropRegion],
+        liquid_regions: &[tessera_chrome::LiquidGlassRegion],
         glass_tint: [u8; 3],
     ) -> Self {
         Self {
@@ -816,8 +816,8 @@ impl BackdropCacheKey {
         model_active: bool,
         capture_regions: &[BackdropCaptureRegion],
         layer_regions: &[Vec<BackdropCaptureRegion>],
-        layers: &[tessera_shell::BackdropLayer],
-        window_switcher: Option<&tessera_shell::WindowSwitcherPresentation>,
+        layers: &[tessera_chrome::BackdropLayer],
+        window_switcher: Option<&tessera_chrome::WindowSwitcherPresentation>,
     ) -> Self {
         fn push_rect(out: &mut Vec<u64>, rect: tessera_model::Rect) {
             out.extend([
@@ -857,8 +857,8 @@ impl BackdropCacheKey {
                 .iter()
                 .map(|layer| {
                     let source = match layer.source {
-                        tessera_shell::BackdropLayerSource::Scene => u64::MAX,
-                        tessera_shell::BackdropLayerSource::Layer(id) => id.0,
+                        tessera_chrome::BackdropLayerSource::Scene => u64::MAX,
+                        tessera_chrome::BackdropLayerSource::Layer(id) => id.0,
                     };
                     [layer.id.0, source, u64::from(layer.blur_sigma.to_bits())]
                 })
@@ -914,7 +914,7 @@ fn intersect_blur_regions(
 }
 
 struct BackdropOperator {
-    id: tessera_shell::BackdropLayerId,
+    id: tessera_chrome::BackdropLayerId,
     blur: flux::BlurFilter,
     glass: prism::BackdropLayerFilter,
 }
@@ -1044,7 +1044,7 @@ impl BackdropGraphExecutor {
     fn ensure_operators(
         &mut self,
         device: &flux::Device,
-        layers: &[tessera_shell::BackdropLayer],
+        layers: &[tessera_chrome::BackdropLayer],
     ) -> Result<(), flux::Error> {
         if self.operators.len() == layers.len()
             && self
@@ -1084,7 +1084,7 @@ impl BackdropGraphExecutor {
         frame: &flux::Frame<'_>,
         config: BackdropCacheKey,
         material: BackdropStackMaterialKey,
-        layers: &[tessera_shell::BackdropLayer],
+        layers: &[tessera_chrome::BackdropLayer],
         source_damage: &FrameDamage,
     ) -> BackdropPlan {
         if !active {
@@ -1155,7 +1155,7 @@ impl BackdropGraphExecutor {
             .map(|(index, layer)| (layer.id, index))
             .collect();
         for layer in layers {
-            if let tessera_shell::BackdropLayerSource::Layer(source) = layer.source
+            if let tessera_chrome::BackdropLayerSource::Layer(source) = layer.source
                 && let Some(index) = positions.get(&source)
             {
                 resolved_needed[*index] = true;
@@ -2220,7 +2220,7 @@ pub(super) fn draw_window_switcher_scrim(
     canvas: &flux::Canvas,
     logical_size: (u32, u32),
     scale: f32,
-    presentation: &tessera_shell::WindowSwitcherPresentation,
+    presentation: &tessera_chrome::WindowSwitcherPresentation,
     scheme: tessera_model::settings::ColorScheme,
 ) {
     let scrim_alpha = (145.0 * presentation.visibility.clamp(0.0, 1.0)).round() as u8;
@@ -2242,7 +2242,7 @@ pub(super) fn draw_window_switcher_cards(
     renderer: &mut tessera_render::Renderer,
     server: &tessera_compositor::Server,
     scale: f32,
-    presentation: &tessera_shell::WindowSwitcherPresentation,
+    presentation: &tessera_chrome::WindowSwitcherPresentation,
 ) {
     let windows = server.windows();
     if windows.is_empty() || presentation.visibility <= 0.001 {
@@ -2266,7 +2266,7 @@ pub(super) fn draw_window_switcher_cards(
         let shm = server.client_preview_frames_for(&target_set);
         let dmabuf = server.client_preview_dmabuf_frames_for(&target_set);
         let surface_order = server.client_preview_frame_order_for(&target_set);
-        let brightness = tessera_shell::preview::content_brightness(
+        let brightness = tessera_chrome::preview::content_brightness(
             presentation.selected,
             card.window,
             presentation.inactive_content_brightness,
@@ -2295,7 +2295,7 @@ pub(super) fn draw_window_switcher_scene(
     server: &tessera_compositor::Server,
     logical_size: (u32, u32),
     scale: f32,
-    presentation: &tessera_shell::WindowSwitcherPresentation,
+    presentation: &tessera_chrome::WindowSwitcherPresentation,
     scheme: tessera_model::settings::ColorScheme,
 ) {
     draw_window_switcher_scrim(canvas, logical_size, scale, presentation, scheme);
@@ -2312,7 +2312,7 @@ pub(super) fn draw_live_preview_scenes(
     renderer: &mut tessera_render::Renderer,
     server: &tessera_compositor::Server,
     scale: f32,
-    presentations: &[tessera_shell::LivePreviewPresentation],
+    presentations: &[tessera_chrome::LivePreviewPresentation],
 ) {
     if presentations.is_empty() {
         return;
@@ -2335,7 +2335,7 @@ pub(super) fn draw_live_preview_scenes(
             let shm = server.client_preview_frames_for(&target_set);
             let dmabuf = server.client_preview_dmabuf_frames_for(&target_set);
             let surface_order = server.client_preview_frame_order_for(&target_set);
-            let brightness = tessera_shell::preview::content_brightness(
+            let brightness = tessera_chrome::preview::content_brightness(
                 presentation.focused,
                 card.window,
                 presentation.inactive_content_brightness,
@@ -2366,7 +2366,7 @@ fn draw_preview_card_scene(
     shm: &[tessera_model::SurfacePixels<'_>],
     dmabuf: &[tessera_model::SurfaceDmabuf],
     window: &tessera_model::window::Window,
-    card: &tessera_shell::PreviewCard,
+    card: &tessera_chrome::PreviewCard,
     opacity: f32,
     brightness: f32,
 ) {

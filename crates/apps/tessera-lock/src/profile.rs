@@ -2,7 +2,7 @@
 
 use std::ffi::{CStr, c_char};
 
-pub use tessera_shell::persona::Profile;
+pub use tessera_avatar::persona::Profile;
 
 pub fn clock_strings() -> (String, String) {
     let mut timestamp = 0;

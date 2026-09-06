@@ -16,7 +16,9 @@ libc.workspace = true
 # Settings module registry hosted in the main panel's module tabs.
 tessera-settings = { workspace = true }
 # Shared personalized profile plus the optional still/VRM portrait runtime.
-tessera-shell = { workspace = true, features = ["persona"] }
+# The Chrome contract and the persona/avatar runtime it hosts visuals for.
+tessera-chrome = { workspace = true }
+tessera-avatar = { workspace = true, features = ["persona"] }
 tessera-tray = { workspace = true }
 # Direct dep purely so this crate's build script receives
 # DEP_FLUX_SCENE_GRAPH_RPATHS (the persona VRM path links the scene graph)

@@ -43,7 +43,7 @@ use tessera_model::launcher::{Launch, Launcher as Brain};
 use tessera_model::window::Window;
 use tessera_ui::{contains, smoothstep};
 
-use super::app_menu::AppMenu;
+use crate::AppMenu;
 
 /// Blur width requested from the compositor host, in logical pixels. The host
 /// scales it to its quarter-resolution capture and evaluates a fixed-cost

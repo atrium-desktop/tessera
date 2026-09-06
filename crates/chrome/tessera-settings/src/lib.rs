@@ -11,7 +11,7 @@ mod ui;
 
 use lens::Icon;
 
-use tessera_shell::Message;
+use tessera_i18n::Message;
 use module::{
     ApplyPolicy, ModuleAvailability, ModuleCategory, ModuleId, ModuleMetadata, ModuleRegistry,
 };

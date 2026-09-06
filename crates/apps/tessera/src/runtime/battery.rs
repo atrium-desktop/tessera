@@ -48,7 +48,7 @@ impl CompositorRuntime {
         {
             let critical = thresholds.iter().min().copied() == Some(threshold);
             self.shell
-                .start_battery_alert(tessera_shell::BatteryAlertParams {
+                .start_battery_alert(tessera_chrome::BatteryAlertParams {
                     percent: battery.percent,
                     critical,
                 });

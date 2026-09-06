@@ -2,8 +2,8 @@ use super::*;
 
 const ID: u64 = 0xdead_beef;
 
-fn region(id: u64, polarity: f32, tint_strength: f32) -> tessera_shell::LiquidGlassRegion {
-    tessera_shell::LiquidGlassRegion {
+fn region(id: u64, polarity: f32, tint_strength: f32) -> tessera_chrome::LiquidGlassRegion {
+    tessera_chrome::LiquidGlassRegion {
         id,
         plate_polarity: polarity,
         tint_strength,

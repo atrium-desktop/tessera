@@ -27,10 +27,11 @@ use tessera_model::window::{SpaceUse, Window};
 use tessera_model::workspace::WorkspaceSnapshot;
 use lens::{Align, Color, Frame, Icon, Input, LayoutOpts, Rect};
 
-use tessera_shell::{
-    BackdropRegion, BatteryStatus, Chrome, ChromeEvents, ChromeUpdate, HUD_HEIGHT, IconSet,
-    LiquidGlassRegion, Localizer, Message, NetworkState, SystemStatus, ellipsize,
+use tessera_chrome::{
+    BackdropRegion, Chrome, ChromeEvents, ChromeUpdate, HUD_HEIGHT, IconSet,
+    LiquidGlassRegion, Localizer, Message, SystemStatus, ellipsize,
 };
+use tessera_model::system::{BatteryStatus, NetworkState};
 
 use crate::tray::{TrayHandle, TrayIcon};
 
@@ -150,7 +151,7 @@ pub struct Hud {
     workspace_position_initialized: bool,
     /// The design snapshot the HUD paints from, from
     /// [`ChromeUpdate::Appearance`]. Seeded on registration by
-    /// [`tessera_shell::Shell::add`] and refreshed when the desktop color scheme
+    /// [`tessera_chrome::Chrome`] registration and refreshed when the desktop color scheme
     /// changes; defaults to the dark appearance until the first update arrives.
     design: Design,
     /// Translation handle for the status labels. The render pass receives it
@@ -201,7 +202,7 @@ impl Hud {
     /// Construct the session HUD with the compositor's flux device, the
     /// shared tray handle (spawned once by the composition root and shared
     /// with the command panel), and the shared notification queue. The device
-    /// is borrowed (non-owning, like [`tessera_shell::Shell::new`]) to upload SNI
+    /// is borrowed (non-owning, like [`tessera_chrome::Chrome`] registration) to upload SNI
     /// tray pixmaps to the GPU; the caller must keep it alive past the HUD.
     pub fn with_sources(
         device: &flux::Device,

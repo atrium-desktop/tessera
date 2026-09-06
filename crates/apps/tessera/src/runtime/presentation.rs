@@ -1883,7 +1883,7 @@ impl CompositorRuntime {
                     && !self.shell.confirm_pick_active()
                     && let Some(pick) = self.pending_confirm_pick.take()
                 {
-                    let _ = pick.reply.send(Ok(tessera_shell::ConfirmAnswer::Cancelled));
+                    let _ = pick.reply.send(Ok(tessera_chrome::ConfirmAnswer::Cancelled));
                 }
 
                 // Destructive system actions parked behind the same consent
@@ -1895,8 +1895,8 @@ impl CompositorRuntime {
                     && let Some(action) = self.pending_system_action.take()
                     && matches!(
                         answer,
-                        tessera_shell::ConfirmAnswer::Confirmed
-                            | tessera_shell::ConfirmAnswer::AllowOnce
+                        tessera_chrome::ConfirmAnswer::Confirmed
+                            | tessera_chrome::ConfirmAnswer::AllowOnce
                     )
                     && let Err(reason) = apply_system_action(
                         &mut self.server,
@@ -1929,7 +1929,7 @@ impl CompositorRuntime {
                 {
                     let _ = pick
                         .reply
-                        .send(Ok(tessera_shell::CapabilityPickResult { approved: None }));
+                        .send(Ok(tessera_chrome::CapabilityPickResult { approved: None }));
                 }
                 // The selector closed this frame (confirmed above or
                 // cancelled). This frame still presented the frozen
@@ -2012,19 +2012,19 @@ impl CompositorRuntime {
                 }
                 for action in self.shell.take_window_actions() {
                     let cmd = match action {
-                        tessera_shell::WindowAction::Focus(id) => {
+                        tessera_chrome::WindowAction::Focus(id) => {
                             tessera_ipc::Command::Focus { id, reveal: true }
                         }
-                        tessera_shell::WindowAction::Minimize(id) => {
+                        tessera_chrome::WindowAction::Minimize(id) => {
                             tessera_ipc::Command::Minimize { id }
                         }
-                        tessera_shell::WindowAction::SetMaximized(id, maximized) => {
+                        tessera_chrome::WindowAction::SetMaximized(id, maximized) => {
                             tessera_ipc::Command::SetMaximized { id, maximized }
                         }
-                        tessera_shell::WindowAction::SetAlwaysOnTop(id, on_top) => {
+                        tessera_chrome::WindowAction::SetAlwaysOnTop(id, on_top) => {
                             tessera_ipc::Command::SetAlwaysOnTop { id, on_top }
                         }
-                        tessera_shell::WindowAction::Close(id) => tessera_ipc::Command::Close { id },
+                        tessera_chrome::WindowAction::Close(id) => tessera_ipc::Command::Close { id },
                     };
                     apply_chrome_window_command(
                         &mut self.server,
@@ -2344,7 +2344,7 @@ impl CompositorRuntime {
                         &pinned_list,
                         false,
                     );
-                    self.shell.set_app_catalog(tessera_shell::AppCatalog {
+                    self.shell.set_app_catalog(tessera_chrome::AppCatalog {
                         apps: self.launcher_apps.clone(),
                         pinned,
                         icons: self.icon_cache.as_icon_set(),
@@ -2371,7 +2371,7 @@ impl CompositorRuntime {
                         &pinned_list,
                         false,
                     );
-                    self.shell.set_app_catalog(tessera_shell::AppCatalog {
+                    self.shell.set_app_catalog(tessera_chrome::AppCatalog {
                         apps: self.launcher_apps.clone(),
                         pinned,
                         icons: self.icon_cache.as_icon_set(),
@@ -2395,7 +2395,7 @@ impl CompositorRuntime {
                         &self.dock_state.pinned,
                         self.dock_state.autopopulate,
                     );
-                    self.shell.set_app_catalog(tessera_shell::AppCatalog {
+                    self.shell.set_app_catalog(tessera_chrome::AppCatalog {
                         apps: self.launcher_apps.clone(),
                         pinned,
                         icons: self.icon_cache.as_icon_set(),

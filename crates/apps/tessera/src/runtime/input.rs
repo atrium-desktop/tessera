@@ -1,7 +1,7 @@
 use super::*;
 
 pub(super) struct FrameState {
-    pub(super) input: tessera_shell::Input,
+    pub(super) input: tessera_chrome::Input,
     pub(super) session_locked: bool,
     pub(super) cursor_hidden: bool,
     pub(super) cursor_shape: u32,
@@ -153,7 +153,7 @@ pub(super) fn agent_activities_from_applied_input(
     actions: &[tessera_model::input::SyntheticInputAction],
     events: &[tessera_model::input::InputEvent],
     sequence: &mut u64,
-) -> Vec<tessera_shell::AgentActivity> {
+) -> Vec<tessera_chrome::AgentActivity> {
     use tessera_model::input::{InputEvent, SyntheticInputAction};
 
     // Every prepared pointer action contributes exactly one global motion
@@ -173,24 +173,24 @@ pub(super) fn agent_activities_from_applied_input(
             let (position, kind) = match *action {
                 SyntheticInputAction::PointerMove { .. } => (
                     Some(pointer_positions.next()?),
-                    tessera_shell::AgentInputKind::PointerMove,
+                    tessera_chrome::AgentInputKind::PointerMove,
                 ),
                 SyntheticInputAction::Click { button, .. } => (
                     Some(pointer_positions.next()?),
-                    tessera_shell::AgentInputKind::Click { button },
+                    tessera_chrome::AgentInputKind::Click { button },
                 ),
                 SyntheticInputAction::Scroll { dx, dy, .. } => (
                     Some(pointer_positions.next()?),
-                    tessera_shell::AgentInputKind::Scroll { dx, dy },
+                    tessera_chrome::AgentInputKind::Scroll { dx, dy },
                 ),
                 // Do not copy the key code into presentation state: the
                 // feedback says only that keyboard input occurred.
                 SyntheticInputAction::KeyPress { .. } => {
-                    (None, tessera_shell::AgentInputKind::Keyboard)
+                    (None, tessera_chrome::AgentInputKind::Keyboard)
                 }
             };
             *sequence = sequence.saturating_add(1);
-            Some(tessera_shell::AgentActivity {
+            Some(tessera_chrome::AgentActivity {
                 sequence: *sequence,
                 interaction_domain,
                 interaction_domain_label: interaction_domain_label.to_owned(),
@@ -667,7 +667,7 @@ impl CompositorRuntime {
         // size) is carried in; edge flags (pressed/released/scroll/keys/text)
         // start at zero so a press/release in one frame can never bleed into
         // the next and trigger phantom clicks in immediate-mode widgets.
-        let mut input = tessera_shell::Input::default();
+        let mut input = tessera_chrome::Input::default();
         input.set_display_size(self.input_acc.display_size.0, self.input_acc.display_size.1);
         input.set_cursor(self.input_acc.cursor.0, self.input_acc.cursor.1);
         input.set_mouse_down(lens::MouseButton::Left, self.input_acc.mouse_down[0]);
@@ -1150,7 +1150,7 @@ impl CompositorRuntime {
             // Keep compositor chrome inert while it is hidden beneath the
             // secure frame. Physical events have already reached the lock
             // client through the server path above.
-            input = tessera_shell::Input::default();
+            input = tessera_chrome::Input::default();
             input.set_display_size(self.input_acc.display_size.0, self.input_acc.display_size.1);
             input.set_cursor(-1.0, -1.0);
         } else {
@@ -1421,7 +1421,7 @@ mod tests {
     use tessera_model::interaction_domain::InteractionDomainId;
     use tessera_model::window::WindowId;
 
-    fn frame(input: tessera_shell::Input, had_input: bool) -> FrameState {
+    fn frame(input: tessera_chrome::Input, had_input: bool) -> FrameState {
         FrameState {
             input,
             session_locked: false,
@@ -1440,21 +1440,21 @@ mod tests {
     /// the render transaction once a later iteration captured the pointer.
     #[test]
     fn frame_state_merge_drops_the_fast_path_once_a_later_iteration_qualifies_out() {
-        let mut first = frame(tessera_shell::Input::new((100.0, 80.0), 0.0), true);
+        let mut first = frame(tessera_chrome::Input::new((100.0, 80.0), 0.0), true);
         first.input_pointer_only = true;
         first.cursor_fast_path = true;
 
         // A later iteration with a button press no longer qualifies: the
         // merged frame must reflect that, or the render path would treat a
         // click batch as pointer-only motion.
-        let second = frame(tessera_shell::Input::new((100.0, 80.0), 0.0), true);
+        let second = frame(tessera_chrome::Input::new((100.0, 80.0), 0.0), true);
         first.merge(second);
         assert!(!first.input_pointer_only);
         assert!(!first.cursor_fast_path);
 
         // Two qualifying motion iterations keep the fast path: the latest
         // position has still only moved the pointer.
-        let mut third = frame(tessera_shell::Input::new((100.0, 80.0), 0.0), true);
+        let mut third = frame(tessera_chrome::Input::new((100.0, 80.0), 0.0), true);
         third.input_pointer_only = true;
         third.cursor_fast_path = true;
         first.input_pointer_only = true;
@@ -1467,7 +1467,7 @@ mod tests {
 
     #[test]
     fn frame_state_merge_preserves_edges_until_redraw() {
-        let mut first = tessera_shell::Input::new((100.0, 80.0), 0.0);
+        let mut first = tessera_chrome::Input::new((100.0, 80.0), 0.0);
         first
             .set_cursor(10.0, 20.0)
             .set_mouse_down(lens::MouseButton::Left, true)
@@ -1478,7 +1478,7 @@ mod tests {
         first.as_raw_mut().ime_delete_before = 2;
         let mut merged = frame(first, true);
 
-        let mut second = tessera_shell::Input::new((120.0, 90.0), 0.0);
+        let mut second = tessera_chrome::Input::new((120.0, 90.0), 0.0);
         second
             .set_cursor(30.0, 40.0)
             .set_mouse_down(lens::MouseButton::Left, false)
@@ -1595,11 +1595,11 @@ mod tests {
         assert_eq!(feedback[1].position, Some(Point { x: 108, y: 209 }));
         assert_eq!(
             feedback[1].kind,
-            tessera_shell::AgentInputKind::Click { button: 0x110 }
+            tessera_chrome::AgentInputKind::Click { button: 0x110 }
         );
         assert_eq!(feedback[2].sequence, 43);
         assert_eq!(feedback[2].position, None);
-        assert_eq!(feedback[2].kind, tessera_shell::AgentInputKind::Keyboard);
+        assert_eq!(feedback[2].kind, tessera_chrome::AgentInputKind::Keyboard);
         assert_eq!(sequence, 43);
     }
 

@@ -41,6 +41,9 @@ tessera-compositor = { workspace = true }
 tessera-backend = { workspace = true }
 tessera-render = { workspace = true }
 tessera-shell = { workspace = true }
+# The Chrome contract consumed by the runtime's chrome driving code.
+tessera-chrome = { workspace = true }
+tessera-i18n = { workspace = true }
 # Chrome components split out of tessera-shell (ADR-0044); only the binary
 # composes them into the shell.
 tessera-dock = { workspace = true, optional = true }
@@ -95,6 +98,9 @@ ignored = ["flux-scene-graph-sys", "lens-sys", "prism-sys"]
 
 [dev-dependencies]
 tempfile = "3"
+# Chrome-host integration tests render components through the real shell.
+tessera-shell = { workspace = true }
+tessera-hud = { workspace = true }
 
 [lints]
 workspace = true

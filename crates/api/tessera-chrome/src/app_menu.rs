@@ -10,8 +10,8 @@ use tessera_ui::{
 use lens::{Frame, Input, LayoutOpts, Rect};
 
 use crate::{
-    BackdropRegion, ChromeEvents, ChromeUpdate, LiquidGlassRegion, Localizer, Message, PopupSide,
-    WindowAction, ellipsize, liquid_glass_region_id, place_popup_side,
+    BackdropRegion, ChromeEvents, ChromeUpdate, LiquidGlassRegion, Localizer, Message, PinAction,
+    PopupSide, WindowAction, ellipsize, liquid_glass_region_id, place_popup_side,
 };
 
 const MENU_WIDTH: f32 = DEFAULT_MENU_WIDTH;
@@ -27,13 +27,6 @@ struct Target {
     entry: Option<Entry>,
     windows: Vec<WindowId>,
     pin_action: Option<PinAction>,
-}
-
-/// Dock-specific pin/unpin action carried by the shared application menu.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PinAction {
-    Pin(String),
-    Unpin(String),
 }
 
 #[derive(Clone)]

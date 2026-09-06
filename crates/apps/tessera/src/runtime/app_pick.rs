@@ -60,7 +60,7 @@ impl CompositorRuntime {
                             conn_id: request.conn_id,
                             reply,
                         });
-                        self.shell.start_app_pick(tessera_shell::AppPickParams {
+                        self.shell.start_app_pick(tessera_chrome::AppPickParams {
                             choices,
                             subject,
                             last_choice,

@@ -14,8 +14,8 @@ use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 use crate::{
     BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, IconSet,
     LiquidGlassRegion, Localizer, Message, PreviewCard, WindowSwitcherPresentation, ellipsize,
-    preview,
 };
+use tessera_chrome::preview;
 use tessera_model::input::{KeyAction, KeyChar, key_action};
 use tessera_model::window::{Window, WindowId};
 use tessera_model::workspace::WorkspaceSnapshot;

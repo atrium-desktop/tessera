@@ -448,7 +448,7 @@ pub(super) fn apply_display_settings(
     host: &mut Host,
     reload: &mut Option<tessera_config::ReloadWatcher>,
     live: &std::sync::Arc<LiveState>,
-    system_status: &mut tessera_shell::SystemStatus,
+    system_status: &mut tessera_chrome::SystemStatus,
     input_acc: &mut InputAccumulator,
 ) -> Result<(), String> {
     if host.name() != "drm" {

@@ -21,8 +21,8 @@ use crate::style::{FramePresentation, painter_for};
 
 const INSTANCE_EXTENSIONS: [&CStr; 2] = [c"VK_KHR_surface", c"VK_KHR_wayland_surface"];
 const DEVICE_EXTENSIONS: [&CStr; 1] = [c"VK_KHR_swapchain"];
-const AVATAR_CAMERA: tessera_shell::persona::VrmCamera =
-    tessera_shell::persona::VrmCamera::new(28.0, 0.25, 0.48, 0.0);
+const AVATAR_CAMERA: tessera_avatar::persona::VrmCamera =
+    tessera_avatar::persona::VrmCamera::new(28.0, 0.25, 0.48, 0.0);
 
 #[derive(Debug, Error)]
 pub enum RenderError {
@@ -41,9 +41,9 @@ pub enum RenderError {
 impl RenderError {
     /// Map a persona portrait error onto the lock's render error. Flux faults
     /// are preserved as-is; everything else becomes a descriptive `Avatar`.
-    fn from_avatar(error: tessera_shell::persona::Error) -> Self {
+    fn from_avatar(error: tessera_avatar::persona::Error) -> Self {
         match error {
-            tessera_shell::persona::Error::Flux(error) => RenderError::Flux(error),
+            tessera_avatar::persona::Error::Flux(error) => RenderError::Flux(error),
             other => RenderError::Avatar(other.to_string()),
         }
     }
@@ -61,12 +61,12 @@ pub enum AvatarStatus {
     Fallback,
 }
 
-impl From<tessera_shell::persona::PortraitKind> for AvatarStatus {
-    fn from(kind: tessera_shell::persona::PortraitKind) -> Self {
+impl From<tessera_avatar::persona::PortraitKind> for AvatarStatus {
+    fn from(kind: tessera_avatar::persona::PortraitKind) -> Self {
         match kind {
-            tessera_shell::persona::PortraitKind::Still => AvatarStatus::Image,
-            tessera_shell::persona::PortraitKind::Vrm { animation } => AvatarStatus::Animated3d {
-                animated: animation == tessera_shell::persona::AnimationSupport::Animated,
+            tessera_avatar::persona::PortraitKind::Still => AvatarStatus::Image,
+            tessera_avatar::persona::PortraitKind::Vrm { animation } => AvatarStatus::Animated3d {
+                animated: animation == tessera_avatar::persona::AnimationSupport::Animated,
             },
         }
     }
@@ -78,13 +78,13 @@ pub struct Graphics {
     visual: LockVisual,
     avatar: AvatarResource,
     avatar_status: AvatarStatus,
-    portrait_config: tessera_shell::persona::PortraitConfig,
-    avatar_watcher: Option<tessera_shell::persona::PortraitWatcher>,
+    portrait_config: tessera_avatar::persona::PortraitConfig,
+    avatar_watcher: Option<tessera_avatar::persona::PortraitWatcher>,
     ash: AshBridge,
 }
 
 enum AvatarResource {
-    Loaded(tessera_shell::persona::Portrait),
+    Loaded(tessera_avatar::persona::Portrait),
     Fallback,
 }
 
@@ -100,7 +100,7 @@ impl AvatarResource {
         matches!(self, Self::Loaded(avatar) if avatar.is_animated())
     }
 
-    fn advance(&mut self, delta_seconds: f32) -> Result<bool, tessera_shell::persona::Error> {
+    fn advance(&mut self, delta_seconds: f32) -> Result<bool, tessera_avatar::persona::Error> {
         match self {
             Self::Loaded(avatar) => avatar.advance(delta_seconds),
             Self::Fallback => Ok(false),
@@ -156,13 +156,13 @@ impl Graphics {
         let device = flux::Device::new(true, &INSTANCE_EXTENSIONS, &DEVICE_EXTENSIONS, 2)?;
         let resolved = resolve_lock_appearance(options);
         let background = load_background(&resolved.background, resolved.config_path.as_deref())?;
-        let portrait_config = tessera_shell::persona::PortraitConfig::current();
+        let portrait_config = tessera_avatar::persona::PortraitConfig::current();
         let (avatar, avatar_status, avatar_watcher) = if resolved.style == LockScreenStyle::Centered
         {
             // Only the centered composition owns a persona portrait. Avoid
             // decoding, uploading, animating, or watching avatar resources for
             // the deliberately typographic cinematic and bsod compositions.
-            let (avatar, status) = match tessera_shell::persona::Portrait::load_transactional(
+            let (avatar, status) = match tessera_avatar::persona::Portrait::load_transactional(
                 &device,
                 &portrait_config,
                 AVATAR_CAMERA,
@@ -183,7 +183,7 @@ impl Graphics {
                     (AvatarResource::Fallback, AvatarStatus::Fallback)
                 }
             };
-            let watcher = match tessera_shell::persona::PortraitWatcher::new(&portrait_config) {
+            let watcher = match tessera_avatar::persona::PortraitWatcher::new(&portrait_config) {
                 Ok(watcher) => Some(watcher),
                 Err(error) => {
                     log::warn!("lock: avatar hot reload disabled: {error}");
@@ -311,7 +311,7 @@ impl Graphics {
     pub fn avatar_reload_pending(&self) -> bool {
         self.avatar_watcher
             .as_ref()
-            .is_some_and(tessera_shell::persona::PortraitWatcher::needs_poll)
+            .is_some_and(tessera_avatar::persona::PortraitWatcher::needs_poll)
     }
 
     /// Build and publish an avatar replacement on the render thread. Failed
@@ -320,7 +320,7 @@ impl Graphics {
         let ready = self
             .avatar_watcher
             .as_mut()
-            .is_some_and(tessera_shell::persona::PortraitWatcher::poll);
+            .is_some_and(tessera_avatar::persona::PortraitWatcher::poll);
         if !ready {
             return false;
         }
@@ -330,7 +330,7 @@ impl Graphics {
             log::warn!("lock: could not refresh avatar watches: {error}");
         }
         let previous_motion = self.avatar.current_motion().map(str::to_owned);
-        match tessera_shell::persona::Portrait::load_transactional(
+        match tessera_avatar::persona::Portrait::load_transactional(
             &self.device,
             &self.portrait_config,
             AVATAR_CAMERA,
@@ -613,7 +613,7 @@ fn load_background(
     match config.mode {
         LockScreenBackgroundMode::Builtin => Ok(LockBackground::Wallpaper(Box::new(
             tessera_wallpaper::Wallpaper::from_static_image_bytes(
-                include_bytes!("../../../assets/wallpapers/procedural-generation.png"),
+                include_bytes!("../../../../assets/wallpapers/procedural-generation.png"),
                 "bundled lock background",
             )?,
         ))),
@@ -640,7 +640,7 @@ fn load_background(
                     );
                     Ok(LockBackground::Wallpaper(Box::new(
                         tessera_wallpaper::Wallpaper::from_static_image_bytes(
-                            include_bytes!("../../../assets/wallpapers/procedural-generation.png"),
+                            include_bytes!("../../../../assets/wallpapers/procedural-generation.png"),
                             "bundled lock background",
                         )?,
                     )))

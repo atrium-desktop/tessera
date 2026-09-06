@@ -13,6 +13,7 @@
 use lens::{Color, Frame, Input, LayoutOpts, Rect};
 
 use crate::{
+    BatteryAlertParams,
     BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
     LiquidGlassRegion, Localizer, Reserved, ellipsize, modal_scrim_backdrop,
 };
@@ -37,16 +38,6 @@ const BUTTON_H: f32 = DEFAULT_BUTTON_HEIGHT;
 const BUTTON_W: f32 = DEFAULT_BUTTON_WIDTH;
 const BACKDROP_BLUR_SIGMA: f32 = DEFAULT_BACKDROP_BLUR_SIGMA;
 
-/// Parameters of one low-battery alert, produced by the compositor runtime
-/// when a configured threshold fires.
-#[derive(Debug, Clone, Copy)]
-pub struct BatteryAlertParams {
-    /// Charge level shown in the panel, in percent.
-    pub percent: u8,
-    /// The lowest configured threshold fired: the alert uses the critical
-    /// wording and the rejection-red fill.
-    pub critical: bool,
-}
 
 /// The resolved geometry of the panel for one frame.
 #[derive(Debug, Clone, Copy)]

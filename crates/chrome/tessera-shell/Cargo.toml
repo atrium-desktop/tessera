@@ -29,6 +29,8 @@ required-features = ["persona"]
 [dependencies]
 tessera-model = { workspace = true }
 tessera-design = { workspace = true }
+tessera-chrome = { workspace = true }
+tessera-i18n = { workspace = true }
 tessera-ui = { workspace = true }
 tessera-desktop-entries = { workspace = true, optional = true }
 fastrand = { workspace = true, optional = true }

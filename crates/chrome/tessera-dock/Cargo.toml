@@ -11,7 +11,8 @@ build = "build.rs"
 [dependencies]
 tessera-model = { workspace = true }
 tessera-design = { workspace = true }
-tessera-shell = { workspace = true }
+tessera-chrome = { workspace = true }
+tessera-i18n = { workspace = true }
 # Shared motion vocabulary (ADR-0139): the magnification springs live here
 # instead of a dock-local integrator.
 tessera-ui = { workspace = true }

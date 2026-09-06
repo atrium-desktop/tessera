@@ -40,12 +40,12 @@ pub(super) struct PendingPick {
 }
 
 /// Map an IPC pick kind onto the selector's interaction mode.
-pub(super) fn picker_mode(kind: tessera_ipc::PickKind) -> tessera_shell::PickerMode {
+pub(super) fn picker_mode(kind: tessera_ipc::PickKind) -> tessera_chrome::PickerMode {
     match kind {
-        tessera_ipc::PickKind::Region => tessera_shell::PickerMode::Region,
-        tessera_ipc::PickKind::Pixel => tessera_shell::PickerMode::Pixel,
-        tessera_ipc::PickKind::Window => tessera_shell::PickerMode::Window,
-        tessera_ipc::PickKind::Output => tessera_shell::PickerMode::Output,
+        tessera_ipc::PickKind::Region => tessera_chrome::PickerMode::Region,
+        tessera_ipc::PickKind::Pixel => tessera_chrome::PickerMode::Pixel,
+        tessera_ipc::PickKind::Window => tessera_chrome::PickerMode::Window,
+        tessera_ipc::PickKind::Output => tessera_chrome::PickerMode::Output,
     }
 }
 
@@ -111,19 +111,19 @@ mod tests {
     fn pick_kinds_map_to_picker_modes() {
         assert_eq!(
             picker_mode(tessera_ipc::PickKind::Region),
-            tessera_shell::PickerMode::Region
+            tessera_chrome::PickerMode::Region
         );
         assert_eq!(
             picker_mode(tessera_ipc::PickKind::Pixel),
-            tessera_shell::PickerMode::Pixel
+            tessera_chrome::PickerMode::Pixel
         );
         assert_eq!(
             picker_mode(tessera_ipc::PickKind::Window),
-            tessera_shell::PickerMode::Window
+            tessera_chrome::PickerMode::Window
         );
         assert_eq!(
             picker_mode(tessera_ipc::PickKind::Output),
-            tessera_shell::PickerMode::Output
+            tessera_chrome::PickerMode::Output
         );
     }
 }
