@@ -1,4 +1,7 @@
 [toolchain]
-channel = "stable"
+# Pinned so local and CI (dtolnay/rust-toolchain) resolve the exact same
+# rustfmt/clippy behavior; a floating "stable" re-red CI on every rustfmt
+# style change (the v0.0.56/0.0.57 format-check failures).
+channel = "1.97.1"
 components = ["rustfmt", "clippy"]
 profile = "minimal"
