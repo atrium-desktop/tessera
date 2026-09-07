@@ -13,12 +13,12 @@ mod runtime;
 use std::ffi::{CStr, CString, c_void};
 use std::ptr;
 
+use ash::vk::Handle;
 use tessera_model::Size;
 use tessera_model::input::{
     InputEvent, PointerAxis, PointerAxisFrame, PointerAxisRelativeDirection, PointerAxisSource,
     PointerGestureEvent, TextInputEvent, TextInputState,
 };
-use ash::vk::Handle;
 
 use crate::Backend;
 

@@ -1,7 +1,7 @@
 //! Concentric geometric shapes, discs, rings, and dots.
 
-use tessera_design::materials;
 use lens::{Color, Frame, LayoutOpts, Rect};
+use tessera_design::materials;
 
 /// Place a filled circular disc centered at `(center.0, center.1)`.
 pub fn render_disc(frame: &mut Frame, id: &str, center: (f32, f32), diameter: f32, color: Color) {

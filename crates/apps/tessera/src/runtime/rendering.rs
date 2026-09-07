@@ -5,9 +5,8 @@ use super::*;
 // chrome-typed mappings, the DAG planner (core types), and every GPU-owned
 // executor.
 pub(super) use tessera_presentation::{
-    backdrop_refresh_regions, blur_regions_in_capture, intersect_blur_regions,
-    refresh_regions_covering_material_change, slot_material_changed, BackdropCaptureRegion,
-    BACKDROP_DOWNSAMPLE,
+    BACKDROP_DOWNSAMPLE, BackdropCaptureRegion, backdrop_refresh_regions, blur_regions_in_capture,
+    intersect_blur_regions, refresh_regions_covering_material_change, slot_material_changed,
 };
 
 /// Convert output damage to the single physical-pixel rectangle accepted by
@@ -1844,7 +1843,8 @@ pub(super) fn draw_overview_scene(
         .interaction_domains
         .iter()
         .any(|interaction_domain| {
-            interaction_domain.kind == tessera_model::interaction_domain::InteractionDomainKind::Agent
+            interaction_domain.kind
+                == tessera_model::interaction_domain::InteractionDomainKind::Agent
                 && interaction_domain.state
                     != tessera_model::interaction_domain::InteractionDomainState::Revoked
         });
@@ -1882,13 +1882,18 @@ pub(super) fn draw_overview_scene(
     // Closest-slot assignment pairs each window with the slot nearest its
     // real position, in input order; the chrome's hit-testing pairs the same
     // list the same way, so cells agree.
-    let slots: Vec<tessera_model::Rect> = tessera_model::overview::assign_slots(area, &window_rects)
-        .into_iter()
-        .map(|(_, slot)| slot)
-        .collect();
+    let slots: Vec<tessera_model::Rect> =
+        tessera_model::overview::assign_slots(area, &window_rects)
+            .into_iter()
+            .map(|(_, slot)| slot)
+            .collect();
     let cells: std::collections::HashMap<
         tessera_model::window::WindowId,
-        (tessera_model::Rect, tessera_model::Point, tessera_model::Size),
+        (
+            tessera_model::Rect,
+            tessera_model::Point,
+            tessera_model::Size,
+        ),
     > = windows
         .iter()
         .zip(slots.iter())
@@ -1906,7 +1911,8 @@ pub(super) fn draw_overview_scene(
             (w.id, (cell, w.position, w.size))
         })
         .collect();
-    let map = move |window: Option<tessera_model::window::WindowId>, natural: tessera_model::Rect| {
+    let map = move |window: Option<tessera_model::window::WindowId>,
+                    natural: tessera_model::Rect| {
         let Some((cell, base, win_size)) = window.and_then(|id| cells.get(&id)) else {
             return natural;
         };
@@ -1974,7 +1980,11 @@ fn draw_workspace_rail_tiles(
         );
         let cells: std::collections::HashMap<
             tessera_model::window::WindowId,
-            (tessera_model::Rect, tessera_model::Point, tessera_model::Size),
+            (
+                tessera_model::Rect,
+                tessera_model::Point,
+                tessera_model::Size,
+            ),
         > = tile_windows
             .iter()
             .zip(slots.iter())
@@ -1989,7 +1999,8 @@ fn draw_workspace_rail_tiles(
                 )
             })
             .collect();
-        let map = move |wid: Option<tessera_model::window::WindowId>, natural: tessera_model::Rect| {
+        let map = move |wid: Option<tessera_model::window::WindowId>,
+                        natural: tessera_model::Rect| {
             let Some((cell, base, win_size)) = wid.and_then(|id| cells.get(&id)) else {
                 return natural;
             };

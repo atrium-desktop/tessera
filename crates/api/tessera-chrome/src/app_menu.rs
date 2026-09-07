@@ -1,5 +1,6 @@
 //! Shared application context menu used by the launcher and dock.
 
+use lens::{Frame, Input, LayoutOpts, Rect};
 use tessera_design::{Design, GlassRole, materials, themes};
 use tessera_model::app::Entry;
 use tessera_model::window::{Window, WindowId};
@@ -7,7 +8,6 @@ use tessera_ui::{
     DEFAULT_MENU_HEADER_HEIGHT, DEFAULT_MENU_PAD, DEFAULT_MENU_ROW_HEIGHT,
     DEFAULT_MENU_SECTION_HEIGHT, DEFAULT_MENU_WIDTH, contains,
 };
-use lens::{Frame, Input, LayoutOpts, Rect};
 
 use crate::{
     BackdropRegion, ChromeEvents, ChromeUpdate, LiquidGlassRegion, Localizer, Message, PinAction,

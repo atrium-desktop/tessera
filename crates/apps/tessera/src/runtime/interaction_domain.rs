@@ -268,7 +268,8 @@ pub(super) fn begin_interaction_domain_capture(
         .find(|record| record.id == interaction_domain)
         .ok_or_else(|| format!("unknown interaction_domain {}", interaction_domain.0))?
         .state;
-    if interaction_domain_state != tessera_model::interaction_domain::InteractionDomainState::Active {
+    if interaction_domain_state != tessera_model::interaction_domain::InteractionDomainState::Active
+    {
         return Err(format!(
             "interaction_domain {} is not active ({interaction_domain_state:?})",
             interaction_domain.0

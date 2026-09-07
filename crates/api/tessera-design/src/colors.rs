@@ -12,8 +12,8 @@
 //! consume these roles through [`crate::Design`] instead of constructing
 //! literal colors or selecting an appearance themselves.
 
-use tessera_model::settings::ColorScheme;
 use lens::Color;
+use tessera_model::settings::ColorScheme;
 
 /// Semantic color roles shared across Tessera-owned surfaces.
 #[derive(Debug, Clone, Copy, PartialEq)]

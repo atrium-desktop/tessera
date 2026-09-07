@@ -317,7 +317,8 @@ pub(super) fn audit_resource_grant_refusal<H: Handler>(
             principal: subject
                 .and_then(|value| tessera_security::authority::ActorPrincipal::new(value).ok()),
             action,
-            capability: resource.map(tessera_security::authority::ActorResource::required_capability),
+            capability: resource
+                .map(tessera_security::authority::ActorResource::required_capability),
             resource_kind: resource.map(crate::journal::ResourceKind::from),
         },
         reason.to_owned(),

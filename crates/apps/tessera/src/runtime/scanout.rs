@@ -59,12 +59,10 @@ impl CompositorRuntime {
         let candidate = (candidate_matches_scene && dmabuf_surface_count == 1)
             .then(|| toplevel_dmabufs.pop())
             .flatten();
-        let plane_supported = candidate
-            .as_ref()
-            .is_some_and(|candidate| {
-                self.host
-                    .supports_scanout(candidate.drm_format, candidate.modifier)
-            });
+        let plane_supported = candidate.as_ref().is_some_and(|candidate| {
+            self.host
+                .supports_scanout(candidate.drm_format, candidate.modifier)
+        });
         tessera_presentation::plan_scanout(facts, physical_size, candidate, plane_supported)
     }
 }

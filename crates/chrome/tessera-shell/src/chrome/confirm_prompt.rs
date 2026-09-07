@@ -11,7 +11,11 @@
 
 use lens::{Frame, Input, Rect};
 
-use tessera_chrome::{BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, ConfirmAnswer, ConfirmPickParams, ConfirmPickStyle, CursorShape, LiquidGlassRegion, Localizer, Reserved, ellipsize, modal_scrim_backdrop};
+use tessera_chrome::{
+    BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, ConfirmAnswer,
+    ConfirmPickParams, ConfirmPickStyle, CursorShape, LiquidGlassRegion, Localizer, Reserved,
+    ellipsize, modal_scrim_backdrop,
+};
 use tessera_design::{Design, GlassRole, materials, themes};
 use tessera_model::input::{KeyAction, KeyChar, key_action};
 use tessera_model::window::Window;
@@ -34,9 +38,6 @@ const GRANT_ANSWERS: [ConfirmAnswer; 4] = [
     ConfirmAnswer::AllowSession,
     ConfirmAnswer::AllowAlways,
 ];
-
-
-
 
 /// The resolved geometry of the panel for one frame.
 #[derive(Debug, Clone, Copy)]

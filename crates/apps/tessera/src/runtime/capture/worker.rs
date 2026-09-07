@@ -1,7 +1,7 @@
-use tessera_capture::{CapturedPixels, PendingReadback, StreamPixels, encode_capture};
 use crate::runtime::commands::journal_effect_and_broadcast;
 use crate::runtime::interaction_domain::InteractionDomainCaptureContext;
 use crate::runtime::window_capture::WindowCaptureContext;
+use tessera_capture::{CapturedPixels, PendingReadback, StreamPixels, encode_capture};
 
 /// Pollable completion wakeup shared by the capture worker and the compositor
 /// event loop. The backend currently accepts one auxiliary wakeup fd, so an
@@ -143,7 +143,8 @@ pub(in crate::runtime) enum CaptureTarget {
     },
     InteractionDomainReply {
         context: InteractionDomainCaptureContext,
-        reply: std::sync::mpsc::Sender<Result<tessera_ipc::CaptureInteractionDomainPayload, String>>,
+        reply:
+            std::sync::mpsc::Sender<Result<tessera_ipc::CaptureInteractionDomainPayload, String>>,
     },
     /// One per-window content readback answered through the IPC with the
     /// window's real pixels, wherever the window lives.
@@ -187,7 +188,8 @@ enum CaptureJob {
     InteractionDomainReply {
         capture: CapturedPixels,
         context: InteractionDomainCaptureContext,
-        reply: std::sync::mpsc::Sender<Result<tessera_ipc::CaptureInteractionDomainPayload, String>>,
+        reply:
+            std::sync::mpsc::Sender<Result<tessera_ipc::CaptureInteractionDomainPayload, String>>,
     },
     WindowReply {
         capture: CapturedPixels,
@@ -238,7 +240,8 @@ pub(in crate::runtime) enum CaptureCompletion {
         encoded: Result<tessera_ipc::CaptureOutputPayload, String>,
     },
     InteractionDomainReply {
-        reply: std::sync::mpsc::Sender<Result<tessera_ipc::CaptureInteractionDomainPayload, String>>,
+        reply:
+            std::sync::mpsc::Sender<Result<tessera_ipc::CaptureInteractionDomainPayload, String>>,
         security_generation: u64,
         observation_token: tessera_ipc::ObservationToken,
         encoded: Result<tessera_ipc::CaptureInteractionDomainPayload, String>,

@@ -24,7 +24,8 @@ fn probe_binary(tag: &str) -> Option<std::path::PathBuf> {
         eprintln!("skipping: tests/popup_probe.c missing");
         return None;
     }
-    let out = std::env::temp_dir().join(format!("tessera-popup-probe-{}-{tag}", std::process::id()));
+    let out =
+        std::env::temp_dir().join(format!("tessera-popup-probe-{}-{tag}", std::process::id()));
     std::fs::create_dir_all(&out).ok()?;
     let xdg_xml = "/usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml";
     let header = out.join("xdg-shell-client.h");
@@ -955,7 +956,8 @@ fn qt_context_menu_click_round(scale: f32, tag: &str) {
         .live_surfaces()
         .find(|surface| unsafe { !(**surface).xdg_popup.is_null() && (**surface).mapped });
     let Some(popup) = popup else {
-        let dump = std::env::temp_dir().join(format!("tessera-qt-probe-{}.log", std::process::id()));
+        let dump =
+            std::env::temp_dir().join(format!("tessera-qt-probe-{}.log", std::process::id()));
         std::fs::write(&dump, qt.log().join("\n")).expect("write qt log");
         qt.kill();
         panic!("Qt context menu popup never mapped (full log: {dump:?})");

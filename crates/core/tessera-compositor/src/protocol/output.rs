@@ -245,7 +245,9 @@ pub(crate) unsafe fn output_info_for_resource(
 
 /// Compute the (mode, integer-scale, transform) tuple from the state's
 /// output record, with a sane default before the first backend update.
-unsafe fn output_params(global: *mut OutputGlobal) -> (tessera_model::output::OutputMode, i32, i32) {
+unsafe fn output_params(
+    global: *mut OutputGlobal,
+) -> (tessera_model::output::OutputMode, i32, i32) {
     unsafe {
         let mut mode = tessera_model::output::OutputMode {
             width: 1280,

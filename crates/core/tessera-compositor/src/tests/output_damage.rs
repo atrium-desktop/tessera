@@ -386,7 +386,8 @@ fn xdg_unmap_requires_a_fresh_initial_configure() {
 
 #[test]
 fn test_persist_app_geometry_saves_state() {
-    let temp_dir = std::env::temp_dir().join(format!("tessera_test_persist_{}", std::process::id()));
+    let temp_dir =
+        std::env::temp_dir().join(format!("tessera_test_persist_{}", std::process::id()));
     let state_file = temp_dir.join("window_state.json");
     let mut state = State::new(std::ptr::null_mut());
     state.window_state_path = state_file.clone();
@@ -462,7 +463,8 @@ fn wl_region_accumulator_is_bounded_and_conservative() {
     assert_eq!(rects.len(), 1);
     // rects span x=0..((N-1)*3+1); the bbox must cover that whole strip.
     assert!(
-        tessera_model::Rect::new(0, 0, (MAX_REGION_RECTS * 3 - 2) as i32, 1).fully_covered_by(&rects)
+        tessera_model::Rect::new(0, 0, (MAX_REGION_RECTS * 3 - 2) as i32, 1)
+            .fully_covered_by(&rects)
     );
     assert!(rects[0].contains(tessera_model::Point { x: 1, y: 7 }));
 }

@@ -30,17 +30,20 @@ mod exec;
 mod locale;
 mod scan;
 
-/// Re-export of the shared entry model. Built here, read by `tessera-shell` and
-/// `tessera-launch` without them taking a dependency on this crate's parser.
-pub use tessera_model::app::Entry;
 pub use exec::{expand_exec, expand_exec_tokens};
 pub use locale::current_locale;
 pub use scan::{
     enumerate_in, enumerate_in_with_theme, enumerate_in_with_theme_and_scale, parse_str,
 };
+/// Re-export of the shared entry model. Built here, read by `tessera-shell` and
+/// `tessera-launch` without them taking a dependency on this crate's parser.
+pub use tessera_model::app::Entry;
 // Icon lookup is owned by `tessera-icons`; re-exported so existing
 // `tessera_desktop_entries::resolve_icon*` callers keep one import site.
-pub use tessera_icons::{DEFAULT_ICON_SIZE, DEFAULT_ICON_THEME, icon_search_bases, resolve_icon, resolve_icon_scaled, xdg_data_dirs};
+pub use tessera_icons::{
+    DEFAULT_ICON_SIZE, DEFAULT_ICON_THEME, icon_search_bases, resolve_icon, resolve_icon_scaled,
+    xdg_data_dirs,
+};
 
 /// Errors returned by application discovery.
 #[derive(Debug, thiserror::Error)]

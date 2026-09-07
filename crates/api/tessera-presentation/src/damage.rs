@@ -179,7 +179,10 @@ pub fn record_composite_present(slots: &mut Vec<FrameDamage>, slot: usize, curre
             // Fold `current` into the other slots. Clone it for each: ring
             // depth is small (2–3 images) and this runs once per presented
             // frame, not per draw.
-            *pending = union_frame_damage(std::mem::replace(pending, FrameDamage::None), current.clone());
+            *pending = union_frame_damage(
+                std::mem::replace(pending, FrameDamage::None),
+                current.clone(),
+            );
         }
     }
 }
@@ -492,7 +495,12 @@ fn accumulate_surface(
     let logical_height = (lh as f32 / scale).round().max(1.0) as i32;
     // Preserve each dirty rect individually rather than unioning, so disjoint
     // regions stay disjoint for the KMS FB_DAMAGE_CLIPS hint.
-    rects.extend(surface_damage_logical(geometry.position, logical_width, logical_height, damage));
+    rects.extend(surface_damage_logical(
+        geometry.position,
+        logical_width,
+        logical_height,
+        damage,
+    ));
     false
 }
 
@@ -591,13 +599,15 @@ mod tests {
         assert_eq!(partial_negative, vec![Rect::new(10, 30, 10, 20)]);
         // A report wholly outside the surface contributes no invented edge
         // damage.
-        assert!(surface_damage_logical(
-            tessera_model::Point { x: 0, y: 0 },
-            800,
-            600,
-            &[Rect::new(-50, 10, 20, 20)],
-        )
-        .is_empty());
+        assert!(
+            surface_damage_logical(
+                tessera_model::Point { x: 0, y: 0 },
+                800,
+                600,
+                &[Rect::new(-50, 10, 20, 20)],
+            )
+            .is_empty()
+        );
         // No damage information damages the whole surface.
         let whole = surface_damage_logical(tessera_model::Point { x: 5, y: 6 }, 800, 600, &[]);
         assert_eq!(whole, vec![Rect::new(5, 6, 800, 600)]);
@@ -637,8 +647,14 @@ mod tests {
         // Lists concatenate; the union is recoverable via area_union.
         let joined = union_frame_damage(a, b);
         assert_eq!(joined.area_union(), Some(Rect::new(0, 20, 40, 50)));
-        assert_eq!(union_frame_damage(FrameDamage::None, joined.clone()), joined);
-        assert_eq!(union_frame_damage(FrameDamage::Full, joined), FrameDamage::Full);
+        assert_eq!(
+            union_frame_damage(FrameDamage::None, joined.clone()),
+            joined
+        );
+        assert_eq!(
+            union_frame_damage(FrameDamage::Full, joined),
+            FrameDamage::Full
+        );
     }
 
     #[test]
@@ -676,7 +692,10 @@ mod tests {
             logical_to_physical(Rect::new(-500, 0, 100, 100), 1.0, (1920, 1080)),
             None
         );
-        assert_eq!(logical_to_physical(Rect::new(0, 0, 10, 10), 0.0, (1920, 1080)), None);
+        assert_eq!(
+            logical_to_physical(Rect::new(0, 0, 10, 10), 0.0, (1920, 1080)),
+            None
+        );
     }
 
     #[test]
@@ -716,12 +735,15 @@ mod tests {
             FrameDamage::Area(vec![Rect::new(0, 0, 5, 5), Rect::new(10, 10, 5, 5)])
         );
         // One unmappable rect degrades the whole frame to Full.
+        assert_eq!(damage.into_frame_damage(0.0, (100, 100)), FrameDamage::Full);
         assert_eq!(
-            damage.into_frame_damage(0.0, (100, 100)),
+            ClientDamage::None.into_frame_damage(1.0, (100, 100)),
+            FrameDamage::None
+        );
+        assert_eq!(
+            ClientDamage::Full.into_frame_damage(1.0, (100, 100)),
             FrameDamage::Full
         );
-        assert_eq!(ClientDamage::None.into_frame_damage(1.0, (100, 100)), FrameDamage::None);
-        assert_eq!(ClientDamage::Full.into_frame_damage(1.0, (100, 100)), FrameDamage::Full);
     }
 
     #[test]

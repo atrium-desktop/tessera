@@ -2,8 +2,8 @@
 
 #![forbid(unsafe_code)]
 
-use tessera_model::power::{IdleStageSelector, PowerMode};
 use std::time::Duration;
+use tessera_model::power::{IdleStageSelector, PowerMode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IdlePolicy {

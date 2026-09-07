@@ -168,9 +168,11 @@ mod tests {
                 extent: (1920, 80),
             },
         ];
-        let video_above_dock = FrameDamage::Area(vec![tessera_model::Rect::new(100, 100, 800, 450)]);
+        let video_above_dock =
+            FrameDamage::Area(vec![tessera_model::Rect::new(100, 100, 800, 450)]);
         assert!(backdrop_refresh_regions(true, false, &video_above_dock, &input).is_empty());
-        let video_under_dock = FrameDamage::Area(vec![tessera_model::Rect::new(100, 1020, 800, 60)]);
+        let video_under_dock =
+            FrameDamage::Area(vec![tessera_model::Rect::new(100, 1020, 800, 60)]);
         assert_eq!(
             backdrop_refresh_regions(true, false, &video_under_dock, &input),
             vec![input[1]]

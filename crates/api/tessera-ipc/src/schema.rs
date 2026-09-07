@@ -436,7 +436,8 @@ impl InteractionDomainAction {
                     matches!(
                         mutation,
                         InteractionDomainMutation::SetState {
-                            state: tessera_model::interaction_domain::InteractionDomainState::Revoked,
+                            state:
+                                tessera_model::interaction_domain::InteractionDomainState::Revoked,
                             ..
                         }
                     )

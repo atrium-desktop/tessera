@@ -20,6 +20,8 @@
 
 use std::os::raw::c_void;
 
+#[cfg(test)]
+use lens::Frame;
 use lens::Ui;
 use tessera_chrome::{
     AgentActivity, AppCatalog, AppPickParams, BackdropLayer, BackdropLayerId, BackdropLayerSource,
@@ -29,15 +31,12 @@ use tessera_chrome::{
     LivePreviewPresentation, Localizer, MirrorMove, PickerMode, PinAction, Reserved, ResourceStats,
     SecretPromptParams, SystemAction, SystemStatus, WindowAction, WindowSwitcherPresentation,
 };
-#[cfg(test)]
-use lens::Frame;
 
 pub mod chrome;
 pub mod system;
 pub use chrome::{
-    AgentFeedback, AppPicker, BatteryAlert, CapabilityPrompt, ConfirmPrompt,
-    ControlledWindowGuard, Launcher, Overview, ScreenshotSelector, SecretPrompt, Toast,
-    WindowSwitcher,
+    AgentFeedback, AppPicker, BatteryAlert, CapabilityPrompt, ConfirmPrompt, ControlledWindowGuard,
+    Launcher, Overview, ScreenshotSelector, SecretPrompt, Toast, WindowSwitcher,
 };
 pub use system::{
     BatteryStatus, ChassisKind, DisplaySettings, DisplayStatus, NetworkState, ResourceProbe,
@@ -151,8 +150,8 @@ impl Shell {
                 system_status: SystemStatus::default(),
                 settings: None,
                 resource_stats: ResourceStats::default(),
-                interaction_domains: tessera_model::interaction_domain::InteractionDomainModel::new()
-                    .snapshot(),
+                interaction_domains:
+                    tessera_model::interaction_domain::InteractionDomainModel::new().snapshot(),
                 catalog: AppCatalog::default(),
                 events: ChromeEvents::default(),
                 components: Vec::new(),

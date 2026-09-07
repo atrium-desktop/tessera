@@ -1,7 +1,7 @@
-use tessera_design::Design;
-use tessera_model::settings::SettingsSnapshot;
-use tessera_i18n::{Localizer, Message};
 use lens::{Align, Frame, Icon, LayoutOpts};
+use tessera_design::Design;
+use tessera_i18n::{Localizer, Message};
+use tessera_model::settings::SettingsSnapshot;
 
 use crate::module::{ModuleEvents, ModuleMetadata, SettingsModule};
 use crate::ui::settings_card_layout;

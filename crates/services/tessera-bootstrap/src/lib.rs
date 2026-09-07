@@ -66,7 +66,9 @@ pub fn runtime_dir() -> Result<PathBuf, RuntimeDirError> {
     let raw = env::var_os("XDG_RUNTIME_DIR").ok_or(RuntimeDirError::Unset)?;
     let path = PathBuf::from(&raw);
     if !path.is_absolute() {
-        return Err(RuntimeDirError::Relative(raw.to_string_lossy().into_owned()));
+        return Err(RuntimeDirError::Relative(
+            raw.to_string_lossy().into_owned(),
+        ));
     }
     Ok(path)
 }
@@ -235,10 +237,7 @@ mod tests {
 
         // SAFETY: test-only, single-threaded within this binary.
         unsafe { env::set_var("XDG_RUNTIME_DIR", "relative/path") };
-        assert!(matches!(
-            runtime_dir(),
-            Err(RuntimeDirError::Relative(_))
-        ));
+        assert!(matches!(runtime_dir(), Err(RuntimeDirError::Relative(_))));
 
         // SAFETY: test-only, single-threaded within this binary.
         unsafe { env::remove_var("XDG_RUNTIME_DIR") };
@@ -251,8 +250,8 @@ mod tests {
 
     #[test]
     fn fixtures_run_in_reverse_order_on_panic() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
         struct Probe(Arc<AtomicUsize>, usize);
         impl CleanupFixture for Probe {

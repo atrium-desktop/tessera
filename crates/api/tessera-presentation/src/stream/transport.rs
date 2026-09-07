@@ -5,7 +5,7 @@ use std::os::fd::{AsRawFd, OwnedFd};
 
 use tessera_model::{Point, Size};
 
-use super::ring::{SlotRing, STREAM_SLOT_COUNT};
+use super::ring::{STREAM_SLOT_COUNT, SlotRing};
 
 /// DRM fourcc announced for dmabuf stream frames: the capture surfaces hold
 /// opaque BGRA8 pixels, which is XRGB8888 on the wire.
@@ -175,12 +175,13 @@ pub struct WindowShmTarget {
 
 impl WindowShmTarget {
     pub fn new(device: &flux::Device, width: u32, height: u32) -> Result<Self, String> {
-        let surface = flux::Surface::offscreen_readback(device, width, height).map_err(|error| {
-            format!(
-                "allocate window stream target: {error}{}",
-                crate::flux_last_error_detail()
-            )
-        })?;
+        let surface =
+            flux::Surface::offscreen_readback(device, width, height).map_err(|error| {
+                format!(
+                    "allocate window stream target: {error}{}",
+                    crate::flux_last_error_detail()
+                )
+            })?;
         surface.prepare_readback().map_err(|error| {
             format!(
                 "prepare window stream readback: {error}{}",
@@ -259,8 +260,13 @@ pub fn enumerate_slot_ring(
     width: u32,
     height: u32,
 ) -> Result<DmabufCapture, String> {
-    let surface = flux::Surface::offscreen_dmabuf(device, width, height, &[modifier])
-        .map_err(|error| format!("capture surface: {error}{}", crate::flux_last_error_detail()))?;
+    let surface =
+        flux::Surface::offscreen_dmabuf(device, width, height, &[modifier]).map_err(|error| {
+            format!(
+                "capture surface: {error}{}",
+                crate::flux_last_error_detail()
+            )
+        })?;
     let canvas = flux::Canvas::new(&surface)
         .map_err(|error| format!("capture canvas: {error}{}", crate::flux_last_error_detail()))?;
     let mut fds: Vec<Option<OwnedFd>> = (0..STREAM_SLOT_COUNT).map(|_| None).collect();
@@ -283,7 +289,10 @@ pub fn enumerate_slot_ring(
         // Blocking export: start-up latency is acceptable, and the ring
         // order is the slot order.
         let export = surface.export_dmabuf().map_err(|error| {
-            format!("capture slot export: {error}{}", crate::flux_last_error_detail())
+            format!(
+                "capture slot export: {error}{}",
+                crate::flux_last_error_detail()
+            )
         })?;
         if export.slot as usize != expected_slot {
             return Err(format!(

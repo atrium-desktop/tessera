@@ -1,11 +1,11 @@
 //! The `cinematic` composition: full-bleed artwork, peripheral clock, and
 //! a lower-right typographic credential rail.
 
+use flux::{Canvas, GradientStop};
+use lens::{Align, Color, Rect};
 use tessera_config::LockScreenStyle;
 use tessera_design::materials::chrome_place;
 use tessera_lock::lock_layout_for;
-use flux::{Canvas, GradientStop};
-use lens::{Align, Color, Rect};
 
 use crate::profile::Profile;
 use crate::render::{LockBackground, LockVisual};
@@ -44,7 +44,8 @@ impl StylePainter for CinematicPainter {
             frame.logical.1 as f32,
         );
         let progress = frame.progress.clamp(0.0, 1.0);
-        if frame.state.presentation() == tessera_lock::PresentationMode::Ambient && progress <= 0.02 {
+        if frame.state.presentation() == tessera_lock::PresentationMode::Ambient && progress <= 0.02
+        {
             return;
         }
         let field_x = (layout.field_x + frame.feedback_offset) * frame.scale;

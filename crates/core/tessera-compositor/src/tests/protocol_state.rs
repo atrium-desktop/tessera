@@ -1690,7 +1690,10 @@ fn placement_nudge_folds_back_only_while_resting_at_the_nudged_origin() {
     };
 
     // Resting exactly at the nudged origin: persistence records the base.
-    let resting = fold_nudged_origin(&with_nudge(nudge), tessera_model::Rect::new(92, 92, 800, 600));
+    let resting = fold_nudged_origin(
+        &with_nudge(nudge),
+        tessera_model::Rect::new(92, 92, 800, 600),
+    );
     assert_eq!(resting.origin, tessera_model::Point { x: 60, y: 60 });
     assert_eq!(resting.size, tessera_model::Size { w: 800, h: 600 });
 
@@ -1850,8 +1853,14 @@ fn shifting_parent_toplevel_moves_transient_children_synchronously() {
     }
 
     assert_eq!(root.position, tessera_model::Point { x: 200, y: 250 });
-    assert_eq!(root.window.position, tessera_model::Point { x: 200, y: 250 });
+    assert_eq!(
+        root.window.position,
+        tessera_model::Point { x: 200, y: 250 }
+    );
     // Child moved with the exact delta (+100, +150)
     assert_eq!(child.position, tessera_model::Point { x: 250, y: 300 });
-    assert_eq!(child.window.position, tessera_model::Point { x: 250, y: 300 });
+    assert_eq!(
+        child.window.position,
+        tessera_model::Point { x: 250, y: 300 }
+    );
 }

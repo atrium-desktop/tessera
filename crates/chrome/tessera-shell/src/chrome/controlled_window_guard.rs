@@ -9,6 +9,7 @@
 //! presentation state; the human still cannot focus, resize, close, or
 //! deliver content input to it).
 
+use lens::{Frame, Input, LayoutOpts, Rect};
 use tessera_design::Design;
 use tessera_design::materials::{chrome_place, surface_layout};
 use tessera_model::interaction_domain::{
@@ -16,9 +17,10 @@ use tessera_model::interaction_domain::{
 };
 use tessera_model::window::{Window, WindowId};
 use tessera_model::workspace::WorkspaceSnapshot;
-use lens::{Frame, Input, LayoutOpts, Rect};
 
-use tessera_chrome::{Chrome, ChromeEvents, ChromeUpdate, CursorShape, Localizer, Message, MirrorMove, ellipsize};
+use tessera_chrome::{
+    Chrome, ChromeEvents, ChromeUpdate, CursorShape, Localizer, Message, MirrorMove, ellipsize,
+};
 
 const WASH_ALPHA: u8 = 92;
 const BADGE_HEIGHT: f32 = 28.0;

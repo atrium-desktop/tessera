@@ -102,10 +102,7 @@ impl PresentationScheduler {
         }
     }
 
-    pub fn set_availability(
-        &mut self,
-        availability: PresentationAvailability,
-    ) -> ActivationChange {
+    pub fn set_availability(&mut self, availability: PresentationAvailability) -> ActivationChange {
         if availability == PresentationAvailability::Available {
             if matches!(self.state, PresentationState::Suspended(_)) {
                 self.state = PresentationState::Queued;

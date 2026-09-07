@@ -565,7 +565,9 @@ pub(super) fn output_geometry_from_host(
 
 /// Build the active keymap from the config file's `[[keybind]]` entries,
 /// layered over the built-in defaults.
-pub(super) fn build_keymap(config: Option<&tessera_config::Config>) -> tessera_model::keybind::Keymap {
+pub(super) fn build_keymap(
+    config: Option<&tessera_config::Config>,
+) -> tessera_model::keybind::Keymap {
     let mut overrides: Vec<tessera_model::keybind::Keybind> = Vec::new();
 
     if let Some(cfg) = config {
@@ -753,10 +755,12 @@ pub(super) fn builtin_ipc_scopes() -> std::collections::HashMap<String, tessera_
 pub(super) fn builtin_scope_executables(name: &str) -> Option<Vec<std::path::PathBuf>> {
     let executable = |dir: &str, file: &str| std::path::PathBuf::from(dir).join(file);
     let paths: Vec<std::path::PathBuf> = match name {
-        tessera_ipc::LOCAL_PORTAL_SCOPE => ["/usr/bin", "/usr/libexec", "/usr/lib", "/usr/local/bin"]
-            .into_iter()
-            .map(|dir| executable(dir, "xdg-desktop-portal-atrium"))
-            .collect(),
+        tessera_ipc::LOCAL_PORTAL_SCOPE => {
+            ["/usr/bin", "/usr/libexec", "/usr/lib", "/usr/local/bin"]
+                .into_iter()
+                .map(|dir| executable(dir, "xdg-desktop-portal-atrium"))
+                .collect()
+        }
         tessera_ipc::LOCAL_OWNER_ADMIN_SCOPE
         | tessera_ipc::LOCAL_AGENT_ADMIN_SCOPE
         | tessera_ipc::LOCAL_INTERACTION_DOMAIN_ADMIN_SCOPE => ["/usr/bin", "/usr/local/bin"]

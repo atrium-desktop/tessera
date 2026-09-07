@@ -1606,8 +1606,8 @@ pub(crate) struct State {
     next_window_id: u64,
 }
 
-mod state;
 pub mod dock_state;
+mod state;
 pub use dock_state::DockStateStore;
 mod window_state;
 

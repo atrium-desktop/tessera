@@ -10,7 +10,6 @@ use std::os::fd::{FromRawFd, OwnedFd};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use tessera_lock::{AuthResult, LockAction, LockState, PresentationMode};
 use profile::Profile;
 use render::{Graphics, LockRenderSurface};
 use smithay_client_toolkit::{
@@ -35,6 +34,7 @@ use smithay_client_toolkit::{
         SessionLockSurfaceConfigure,
     },
 };
+use tessera_lock::{AuthResult, LockAction, LockState, PresentationMode};
 use wayland_client::{
     Connection, Dispatch, Proxy, QueueHandle,
     globals::registry_queue_init,

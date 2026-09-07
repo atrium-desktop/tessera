@@ -668,7 +668,10 @@ impl Server {
         {
             keymap
                 .and_then(|keymap| {
-                    keymap.match_key(tessera_model::input::Mods(outcome.depressed), outcome.keysym)
+                    keymap.match_key(
+                        tessera_model::input::Mods(outcome.depressed),
+                        outcome.keysym,
+                    )
                 })
                 .filter(|action| !locked || matches!(action, tessera_model::keybind::Action::Quit))
         } else {

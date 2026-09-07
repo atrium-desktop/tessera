@@ -336,7 +336,8 @@ pub(crate) unsafe fn idle_user_activity(state: *mut State) {
                 continue;
             }
             let record = ffi::wl_resource_get_user_data(*resource) as *mut IdleNotificationRec;
-            if !record.is_null() && (*record).seat == tessera_model::interaction_domain::HUMAN_SEAT {
+            if !record.is_null() && (*record).seat == tessera_model::interaction_domain::HUMAN_SEAT
+            {
                 (*record).activity_at = now;
                 if (*record).idle {
                     (*record).idle = false;

@@ -48,6 +48,8 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::{Arc, Mutex};
 
+use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
+use tessera_avatar::persona::{Portrait, PortraitConfig, PortraitWatcher, Profile};
 use tessera_design::tokens::TypeScale;
 use tessera_design::{AvatarRole, CommandPanelColors, Design, materials, themes};
 use tessera_model::input::KeyChar;
@@ -59,9 +61,7 @@ use tessera_model::window::{SpaceUse, Window};
 use tessera_model::workspace::WorkspaceSnapshot;
 use tessera_settings::builtin_settings_modules;
 use tessera_settings::module::{ModuleAvailability, ModuleEvents, ModuleId, ModuleRegistry};
-use tessera_avatar::persona::{Portrait, PortraitConfig, PortraitWatcher, Profile};
 use tessera_ui::Spring;
-use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 
 use tessera_chrome::{
     Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, IconSet, Localizer, Message,
@@ -362,7 +362,8 @@ impl CommandPanel {
             }
         };
         let open_on_start = cfg!(debug_assertions)
-            && std::env::var_os("TESSERA_COMMAND_PANEL_OPEN").is_some_and(|value| !value.is_empty());
+            && std::env::var_os("TESSERA_COMMAND_PANEL_OPEN")
+                .is_some_and(|value| !value.is_empty());
         // Debug builds seed a few demo notifications so the panel's stream
         // has content to lay out without a bus.
         if cfg!(debug_assertions)
@@ -1076,9 +1077,7 @@ impl Chrome for CommandPanel {
                     }
                 }
             }
-            ChromeCommand::CloseCommandPanel | ChromeCommand::DismissModal
-                if self.open =>
-            {
+            ChromeCommand::CloseCommandPanel | ChromeCommand::DismissModal if self.open => {
                 self.close();
             }
             _ => {}

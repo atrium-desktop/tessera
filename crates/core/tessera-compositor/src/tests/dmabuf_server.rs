@@ -492,7 +492,10 @@ fn prepared_keyboard_edges_keep_physical_order_across_route_boundary() {
     assert!(!super_up.mods.has(tessera_model::input::Mods::SUPER));
     assert!(alt_down.mods.has(tessera_model::input::Mods::ALT));
     assert!(!alt_down.mods.has(tessera_model::input::Mods::SUPER));
-    assert_eq!(server.depressed_modifiers(), tessera_model::input::Mods::ALT);
+    assert_eq!(
+        server.depressed_modifiers(),
+        tessera_model::input::Mods::ALT
+    );
 }
 
 /// Registry absence is the intentional capability signal for Primary

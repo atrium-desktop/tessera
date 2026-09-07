@@ -577,8 +577,8 @@ enum OrderedSurfaceSource {
     Dmabuf(usize),
 }
 
-type WindowMap<'a> =
-    dyn Fn(Option<tessera_model::window::WindowId>, tessera_model::Rect) -> tessera_model::Rect + 'a;
+type WindowMap<'a> = dyn Fn(Option<tessera_model::window::WindowId>, tessera_model::Rect) -> tessera_model::Rect
+    + 'a;
 
 /// Appearance applied to every image in one mapped surface subtree.
 ///
@@ -971,7 +971,10 @@ impl Renderer {
         device: &flux::Device,
         canvas: &flux::Canvas,
         frames: &[SurfacePixels<'_>],
-        map: &dyn Fn(Option<tessera_model::window::WindowId>, tessera_model::Rect) -> tessera_model::Rect,
+        map: &dyn Fn(
+            Option<tessera_model::window::WindowId>,
+            tessera_model::Rect,
+        ) -> tessera_model::Rect,
     ) {
         self.draw_toplevels_impl(device, canvas, frames, Some(map), None);
     }
@@ -1066,7 +1069,10 @@ impl Renderer {
         order: &[usize],
         shm: &[SurfacePixels<'_>],
         dmabuf: &[SurfaceDmabuf],
-        map: &dyn Fn(Option<tessera_model::window::WindowId>, tessera_model::Rect) -> tessera_model::Rect,
+        map: &dyn Fn(
+            Option<tessera_model::window::WindowId>,
+            tessera_model::Rect,
+        ) -> tessera_model::Rect,
     ) {
         self.draw_surfaces_ordered_impl(
             device,
@@ -1092,7 +1098,10 @@ impl Renderer {
         order: &[usize],
         shm: &[SurfacePixels<'_>],
         dmabuf: &[SurfaceDmabuf],
-        map: &dyn Fn(Option<tessera_model::window::WindowId>, tessera_model::Rect) -> tessera_model::Rect,
+        map: &dyn Fn(
+            Option<tessera_model::window::WindowId>,
+            tessera_model::Rect,
+        ) -> tessera_model::Rect,
         style: MappedSurfaceStyle,
     ) {
         self.draw_surfaces_ordered_impl(
@@ -1131,7 +1140,10 @@ impl Renderer {
         order: &[usize],
         shm: &[SurfacePixels<'_>],
         dmabuf: &[SurfaceDmabuf],
-        map: &dyn Fn(Option<tessera_model::window::WindowId>, tessera_model::Rect) -> tessera_model::Rect,
+        map: &dyn Fn(
+            Option<tessera_model::window::WindowId>,
+            tessera_model::Rect,
+        ) -> tessera_model::Rect,
     ) {
         self.draw_surfaces_ordered_mapped(device, canvas, order, shm, dmabuf, map);
     }
@@ -1370,7 +1382,10 @@ impl Renderer {
         canvas: &flux::Canvas,
         frames: &[SurfacePixels<'_>],
         map: Option<
-            &dyn Fn(Option<tessera_model::window::WindowId>, tessera_model::Rect) -> tessera_model::Rect,
+            &dyn Fn(
+                Option<tessera_model::window::WindowId>,
+                tessera_model::Rect,
+            ) -> tessera_model::Rect,
         >,
         mapped_style: Option<MappedSurfaceStyle>,
     ) {
@@ -1750,7 +1765,10 @@ impl Renderer {
         device: &flux::Device,
         canvas: &flux::Canvas,
         frames: &[SurfaceDmabuf],
-        map: &dyn Fn(Option<tessera_model::window::WindowId>, tessera_model::Rect) -> tessera_model::Rect,
+        map: &dyn Fn(
+            Option<tessera_model::window::WindowId>,
+            tessera_model::Rect,
+        ) -> tessera_model::Rect,
     ) {
         self.draw_dmabuf_toplevels_impl(device, canvas, frames, Some(map), None);
     }
@@ -1761,7 +1779,10 @@ impl Renderer {
         canvas: &flux::Canvas,
         frames: &[SurfaceDmabuf],
         map: Option<
-            &dyn Fn(Option<tessera_model::window::WindowId>, tessera_model::Rect) -> tessera_model::Rect,
+            &dyn Fn(
+                Option<tessera_model::window::WindowId>,
+                tessera_model::Rect,
+            ) -> tessera_model::Rect,
         >,
         mapped_style: Option<MappedSurfaceStyle>,
     ) {
@@ -2071,7 +2092,8 @@ impl Renderer {
                             // destination readback) and only the translucent remainder
                             // pays the source-over merge. Opaque-region mapping is only
                             // well-defined without a buffer transform.
-                            let can_split = f.geometry.transform == tessera_model::Transform::Normal;
+                            let can_split =
+                                f.geometry.transform == tessera_model::Transform::Normal;
                             let (opaque, blended) = split_opaque_blit(
                                 (x, y, dst_w, dst_h),
                                 surface_logical,
@@ -2126,7 +2148,10 @@ impl Renderer {
         device: &flux::Device,
         canvas: &flux::Canvas,
         frames: &[SurfacePixels<'_>],
-        map: &dyn Fn(Option<tessera_model::window::WindowId>, tessera_model::Rect) -> tessera_model::Rect,
+        map: &dyn Fn(
+            Option<tessera_model::window::WindowId>,
+            tessera_model::Rect,
+        ) -> tessera_model::Rect,
     ) {
         self.draw_toplevels_mapped(device, canvas, frames, map);
     }
@@ -2149,7 +2174,10 @@ impl Renderer {
         device: &flux::Device,
         canvas: &flux::Canvas,
         frames: &[SurfaceDmabuf],
-        map: &dyn Fn(Option<tessera_model::window::WindowId>, tessera_model::Rect) -> tessera_model::Rect,
+        map: &dyn Fn(
+            Option<tessera_model::window::WindowId>,
+            tessera_model::Rect,
+        ) -> tessera_model::Rect,
     ) {
         self.draw_dmabuf_toplevels_mapped(device, canvas, frames, map);
     }
@@ -2455,7 +2483,12 @@ mod tests {
     /// far-edge addition or disturbing the full blended fallback.
     #[test]
     fn opaque_split_saturates_extreme_client_rect_edges() {
-        let region = [tessera_model::Rect::new(i32::MAX - 4, i32::MAX - 4, 100, 100)];
+        let region = [tessera_model::Rect::new(
+            i32::MAX - 4,
+            i32::MAX - 4,
+            100,
+            100,
+        )];
         let (opaque, blended) =
             split_opaque_blit((0.0, 0.0, 128.0, 64.0), (128.0, 64.0), Some(&region), true);
 

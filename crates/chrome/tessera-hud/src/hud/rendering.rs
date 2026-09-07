@@ -1,6 +1,6 @@
 use super::*;
-use tessera_design::materials::{chrome_place, surface_layout};
 use std::ffi::c_void;
+use tessera_design::materials::{chrome_place, surface_layout};
 
 /// The current local time as `HH:MM` — the same string `date +%H:%M`
 /// produced, but resolved in-process so the render thread never forks.

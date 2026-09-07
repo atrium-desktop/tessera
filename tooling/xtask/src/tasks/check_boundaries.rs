@@ -58,8 +58,7 @@ fn discover_crates() -> Result<Vec<Crate>> {
     let mut crates = Vec::new();
     for tier in TIERS {
         let dir = Path::new("crates").join(tier);
-        let entries = fs::read_dir(&dir)
-            .with_context(|| format!("reading {}/", dir.display()))?;
+        let entries = fs::read_dir(&dir).with_context(|| format!("reading {}/", dir.display()))?;
         for entry in entries {
             let manifest = entry?.path().join("Cargo.toml");
             if !manifest.exists() {
@@ -98,10 +97,7 @@ pub fn run_check_boundaries(_args: CheckBoundariesArgs) -> Result<()> {
         bail!("Must run from workspace root");
     }
     let crates = discover_crates()?;
-    let tier_of: BTreeMap<&str, &str> = crates
-        .iter()
-        .map(|c| (c.name.as_str(), c.tier))
-        .collect();
+    let tier_of: BTreeMap<&str, &str> = crates.iter().map(|c| (c.name.as_str(), c.tier)).collect();
 
     let mut violations: Vec<String> = Vec::new();
 

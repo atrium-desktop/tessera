@@ -194,7 +194,11 @@ impl Chrome for Toast {
         !self.presentable().is_empty()
     }
 
-    fn damage_region(&self, _windows: &[Window], display: (f32, f32)) -> Option<tessera_model::Rect> {
+    fn damage_region(
+        &self,
+        _windows: &[Window],
+        display: (f32, f32),
+    ) -> Option<tessera_model::Rect> {
         let count = self.presentable().len();
         (count > 0).then(|| {
             // The stacked strip in the top-right corner: every slot a toast
@@ -224,8 +228,14 @@ mod tests {
 
     #[test]
     fn toast_copy_is_unicode_safe_and_bounded() {
-        assert_eq!(tessera_chrome::truncate("Fuji connected", 20), "Fuji connected");
-        assert_eq!(tessera_chrome::truncate("真实通知已经联通", 6), "真实通知已…");
+        assert_eq!(
+            tessera_chrome::truncate("Fuji connected", 20),
+            "Fuji connected"
+        );
+        assert_eq!(
+            tessera_chrome::truncate("真实通知已经联通", 6),
+            "真实通知已…"
+        );
     }
 
     #[test]

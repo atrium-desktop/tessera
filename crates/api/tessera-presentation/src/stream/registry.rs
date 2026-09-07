@@ -6,10 +6,10 @@ use std::time::{Duration, Instant};
 
 use tessera_ipc::{StreamCursorMode, StreamInfo, StreamTarget};
 
-use crate::damage::{union_frame_damage, FrameDamage};
+use crate::damage::{FrameDamage, union_frame_damage};
 
-use super::transport::{DmabufCapture, DmabufStream, WindowShmTarget, DRM_FORMAT_XRGB8888};
 use super::ring::SlotRing;
+use super::transport::{DRM_FORMAT_XRGB8888, DmabufCapture, DmabufStream, WindowShmTarget};
 
 /// Default frame-rate cap when the client leaves `max_fps` unset.
 pub const DEFAULT_MAX_FPS: u32 = 30;
@@ -484,10 +484,7 @@ impl OutputStreams {
     }
 
     /// The crop target and start-time physical size of one live stream.
-    pub fn target_of(
-        &self,
-        stream_id: u64,
-    ) -> Option<(StreamTarget, (u32, u32))> {
+    pub fn target_of(&self, stream_id: u64) -> Option<(StreamTarget, (u32, u32))> {
         self.streams
             .get(&stream_id)
             .map(|stream| (stream.target.clone(), stream.size))
@@ -607,9 +604,9 @@ impl OutputStreams {
                             Some(rect) => {
                                 GeometryAction::Freeze(rect.size.w as u32, rect.size.h as u32)
                             }
-                            None => GeometryAction::End(format!(
-                                "output '{connector}' disconnected"
-                            )),
+                            None => {
+                                GeometryAction::End(format!("output '{connector}' disconnected"))
+                            }
                         }
                     }
                     // Window streams keep their lazy delivery-time detection.
@@ -644,8 +641,8 @@ pub fn window_stream_render_due(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::stream::transport::{CaptureCursorState, window_stream_cursor};
     use tessera_model::window::WindowId;
-    use crate::stream::transport::{window_stream_cursor, CaptureCursorState};
 
     /// Start a plain whole-desktop SHM stream with a hidden cursor.
     fn start(streams: &mut OutputStreams, conn: u64, fps: Option<u32>, size: (u32, u32)) -> u64 {
@@ -694,7 +691,10 @@ mod tests {
         streams.record_frame(fast, t0, true);
         streams.record_frame(slow, t0, true);
         // 20ms later: only the 60fps stream is due again.
-        assert_eq!(streams.due_shm_ids(t0 + Duration::from_millis(20)), vec![fast]);
+        assert_eq!(
+            streams.due_shm_ids(t0 + Duration::from_millis(20)),
+            vec![fast]
+        );
         // 1.1s later: both.
         assert_eq!(
             streams.due_shm_ids(t0 + Duration::from_millis(1100)),
@@ -827,7 +827,9 @@ mod tests {
     #[test]
     fn window_stream_remembers_target_and_start_size() {
         let mut streams = OutputStreams::new();
-        let target = StreamTarget::Window { window: WindowId(9) };
+        let target = StreamTarget::Window {
+            window: WindowId(9),
+        };
         let id = streams
             .start(
                 1,
@@ -1106,8 +1108,12 @@ mod tests {
         streams.streams.get_mut(&id).unwrap().note_delivered();
 
         // Two presented frames accumulate; the sample carries both rects.
-        streams.accumulate_damage(&FrameDamage::Area(vec![tessera_model::Rect::new(1, 2, 3, 4)]));
-        streams.accumulate_damage(&FrameDamage::Area(vec![tessera_model::Rect::new(5, 6, 7, 8)]));
+        streams.accumulate_damage(&FrameDamage::Area(vec![tessera_model::Rect::new(
+            1, 2, 3, 4,
+        )]));
+        streams.accumulate_damage(&FrameDamage::Area(vec![tessera_model::Rect::new(
+            5, 6, 7, 8,
+        )]));
         let sampled = streams.sample_damage(id, origin);
         assert_eq!(
             sampled.damage,
@@ -1125,7 +1131,9 @@ mod tests {
         assert!(matches!(after.damage, FrameDamage::None));
 
         // A dropped frame folds its damage back: nothing is lost.
-        streams.accumulate_damage(&FrameDamage::Area(vec![tessera_model::Rect::new(9, 9, 1, 1)]));
+        streams.accumulate_damage(&FrameDamage::Area(vec![tessera_model::Rect::new(
+            9, 9, 1, 1,
+        )]));
         let sampled = streams.sample_damage(id, origin);
         streams.streams.get_mut(&id).unwrap().note_delivered();
         streams
@@ -1144,7 +1152,9 @@ mod tests {
     fn damage_sample_reports_full_after_an_origin_move() {
         let mut streams = OutputStreams::new();
         let id = start(&mut streams, 1, Some(30), (100, 100));
-        streams.accumulate_damage(&FrameDamage::Area(vec![tessera_model::Rect::new(1, 1, 5, 5)]));
+        streams.accumulate_damage(&FrameDamage::Area(vec![tessera_model::Rect::new(
+            1, 1, 5, 5,
+        )]));
         let moved = streams.sample_damage(id, tessera_model::Point { x: 50, y: 50 });
         // The origin moved (stream starts with no recorded origin): the old
         // accumulation belongs to another coordinate space.
@@ -1152,7 +1162,9 @@ mod tests {
         // Same origin next time: back to the accumulated (still full, the
         // accumulator was never cleared).
         streams.streams.get_mut(&id).unwrap().note_delivered();
-        streams.accumulate_damage(&FrameDamage::Area(vec![tessera_model::Rect::new(2, 2, 5, 5)]));
+        streams.accumulate_damage(&FrameDamage::Area(vec![tessera_model::Rect::new(
+            2, 2, 5, 5,
+        )]));
         let steady = streams.sample_damage(id, tessera_model::Point { x: 50, y: 50 });
         assert_eq!(
             steady.damage,

@@ -29,11 +29,14 @@
 
 use std::ffi::c_void;
 
+use lens::{Align, Color, Frame, Icon, Input, LayoutOpts, Rect};
 use tessera_design::Design;
 use tessera_design::materials::{chrome_place, glass_panel, sized, sized_fill, surface_layout};
-use lens::{Align, Color, Frame, Icon, Input, LayoutOpts, Rect};
 
-use tessera_chrome::{BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, IconSet, LiquidGlassRegion, Localizer, Message, Reserved, WindowAction, ellipsize};
+use tessera_chrome::{
+    BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, IconSet,
+    LiquidGlassRegion, Localizer, Message, Reserved, WindowAction, ellipsize,
+};
 use tessera_model::app::Entry;
 use tessera_model::input::{KeyAction, KeyChar, key_action};
 use tessera_model::launcher::{Launch, Launcher as Brain};
@@ -1840,7 +1843,10 @@ mod tests {
         let catalog = AppCatalog {
             apps: vec![app.clone()],
             pinned: vec![],
-            icons: IconSet::from_raw_with_default(std::collections::HashMap::new(), Some(dummy_ptr)),
+            icons: IconSet::from_raw_with_default(
+                std::collections::HashMap::new(),
+                Some(dummy_ptr),
+            ),
             position: tessera_model::dock::DockPosition::Bottom,
         };
         launcher.update(ChromeUpdate::AppCatalog(&catalog));

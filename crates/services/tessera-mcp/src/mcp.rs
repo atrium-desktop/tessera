@@ -4,7 +4,7 @@ use base64::Engine;
 use serde_json::{Value, json};
 
 use crate::BridgeConfig;
-use crate::tools::{TesseraPlatform, PlatformError, ToolCallResult, ToolDefinition};
+use crate::tools::{PlatformError, TesseraPlatform, ToolCallResult, ToolDefinition};
 
 const MCP_PROTOCOL_VERSION: &str = "2026-07-28";
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;

@@ -1345,7 +1345,9 @@ impl Config {
     /// could not resolve (bad finger count, unknown axis, or unknown
     /// action). Good entries are kept so a file with one typo still yields
     /// the rest.
-    pub fn resolve_gestures(&self) -> (Vec<tessera_model::gesture::GestureBinding>, Vec<Diagnostic>) {
+    pub fn resolve_gestures(
+        &self,
+    ) -> (Vec<tessera_model::gesture::GestureBinding>, Vec<Diagnostic>) {
         let mut binds = Vec::new();
         let mut errs = Vec::new();
         for (i, entry) in self.gestures.iter().enumerate() {
@@ -1367,7 +1369,8 @@ impl Config {
                 ));
                 continue;
             };
-            let Some(action) = tessera_model::gesture::gesture_action_from_name(&entry.action) else {
+            let Some(action) = tessera_model::gesture::gesture_action_from_name(&entry.action)
+            else {
                 errs.push(Diagnostic::new(
                     Some(field.clone()),
                     format!("unknown action '{}'", entry.action),

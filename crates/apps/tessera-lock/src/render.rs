@@ -5,14 +5,14 @@ use std::os::raw::c_void;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use ash::vk::{self, Handle};
+use flux::Image;
+use lens::{Color, Input, Ui};
 use tessera_config::{
     ColorScheme, LockScreenBackgroundConfig, LockScreenBackgroundMode, LockScreenStyle,
 };
 use tessera_design::{Design, themes};
 use tessera_lock::LockState;
-use ash::vk::{self, Handle};
-use flux::Image;
-use lens::{Color, Input, Ui};
 use thiserror::Error;
 use wayland_client::{Connection, Proxy, protocol::wl_surface};
 
@@ -640,7 +640,9 @@ fn load_background(
                     );
                     Ok(LockBackground::Wallpaper(Box::new(
                         tessera_wallpaper::Wallpaper::from_static_image_bytes(
-                            include_bytes!("../../../../assets/wallpapers/procedural-generation.png"),
+                            include_bytes!(
+                                "../../../../assets/wallpapers/procedural-generation.png"
+                            ),
                             "bundled lock background",
                         )?,
                     )))

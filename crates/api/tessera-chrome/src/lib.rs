@@ -28,7 +28,7 @@ pub mod preview;
 mod text;
 
 pub use app_menu::AppMenu;
-pub use popup::{place_popup, place_popup_side, PopupSide, POPUP_GAP, POPUP_MARGIN};
+pub use popup::{POPUP_GAP, POPUP_MARGIN, PopupSide, place_popup, place_popup_side};
 pub use preview::{LivePreviewPresentation, PreviewCard, WindowSwitcherPresentation};
 pub use text::{ellipsize, truncate};
 
@@ -156,7 +156,10 @@ pub fn backdrop_wash(color: lens::Color) -> BackdropWash {
 /// `Chrome::backdrop_regions` instead of calling a painted scrim placement
 /// from `render`.
 #[must_use]
-pub fn modal_scrim_backdrop(display: (f32, f32), design: &tessera_design::Design) -> BackdropRegion {
+pub fn modal_scrim_backdrop(
+    display: (f32, f32),
+    design: &tessera_design::Design,
+) -> BackdropRegion {
     BackdropRegion {
         x: 0.0,
         y: 0.0,
@@ -1295,4 +1298,3 @@ pub struct CompositionRequirements {
     /// Visible chrome samples the client scene through a backdrop effect.
     pub live_backdrop_effect: bool,
 }
-

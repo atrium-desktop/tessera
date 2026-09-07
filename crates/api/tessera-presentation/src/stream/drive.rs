@@ -8,16 +8,16 @@ use std::time::Instant;
 use tessera_ipc::StreamFramePayload;
 use tessera_model::window::WindowId;
 
-use crate::damage::{union_frame_damage, FrameDamage};
+use crate::damage::{FrameDamage, union_frame_damage};
 
 use super::registry::{
-    damage_in_target, window_stream_render_due, OutputStreams, WindowStreamStage,
+    OutputStreams, WindowStreamStage, damage_in_target, window_stream_render_due,
 };
-use super::transport::window_stream_cursor;
 use super::ring::SLOT_FENCE_TIMEOUT;
+use super::transport::window_stream_cursor;
 use super::transport::{
-    fence_signaled, render_window_stream_dmabuf, render_window_stream_shm, BlitFailure,
-    CaptureCursorState, DRM_FORMAT_XRGB8888, PendingSlotFrame, StreamPainter, WindowTreeGeometry,
+    BlitFailure, CaptureCursorState, DRM_FORMAT_XRGB8888, PendingSlotFrame, StreamPainter,
+    WindowTreeGeometry, fence_signaled, render_window_stream_dmabuf, render_window_stream_shm,
 };
 
 /// One window-stream drive invocation: the clock, the observations, and the
@@ -165,7 +165,9 @@ impl OutputStreams {
             let cursor_draw = (stream.cursor == tessera_ipc::StreamCursorMode::Embedded)
                 .then_some(cursor_state.as_ref())
                 .flatten()
-                .and_then(|state| window_stream_cursor(state, geometry.origin, geometry.logical_size));
+                .and_then(|state| {
+                    window_stream_cursor(state, geometry.origin, geometry.logical_size)
+                });
             let sampled = self.sample_damage(stream_id, damage_origin);
             let Some(stream) = self.streams.get_mut(&stream_id) else {
                 continue;

@@ -8,9 +8,9 @@
 //! A hand-rolled QR module (see [`qr`]) carries the easter egg where the
 //! classic page shows its support code.
 
-use tessera_lock::{LockState, bsod_layout};
 use flux::Canvas;
 use lens::{Align, Color, Rect};
+use tessera_lock::{LockState, bsod_layout};
 
 use crate::profile::clock_strings;
 use crate::render::{LockBackground, LockVisual};
@@ -314,8 +314,8 @@ fn paint_qr(canvas: &Canvas, layout: &tessera_lock::BsodLayout, scale: f32, alph
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tessera_lock::{AuthResult, LockAction, LockState};
     use std::time::Instant;
+    use tessera_lock::{AuthResult, LockAction, LockState};
 
     #[test]
     fn counter_tracks_typed_character_count() {

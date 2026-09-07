@@ -5,11 +5,11 @@
 //! configuration, and IPC surfaces, then runs the compositor loop. Resource
 //! subcommands dispatch to a running session without entering that runtime.
 
+use std::os::fd::AsRawFd;
+use std::process::ExitCode;
 use tessera_backend::Backend;
 use tessera_backend::drm::DrmError;
 use tessera_backend::host::{BackendKind, HardwareCursor, Host, HostError};
-use std::os::fd::AsRawFd;
-use std::process::ExitCode;
 
 mod cursor;
 mod runtime;

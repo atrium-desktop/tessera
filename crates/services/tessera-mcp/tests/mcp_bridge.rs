@@ -6,13 +6,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use serde_json::{Value, json};
 use tessera_ipc::{
     ActorCapability, ConnectionCapabilities, Effect, Handler, InteractionDomainAction,
     InteractionDomainActionResult, Journal, JournalMutation, Origin, Server,
 };
 use tessera_model::interaction_domain::{HUMAN_INTERACTION_DOMAIN, InteractionDomainModel};
 use tessera_model::window::{Window, WindowId};
-use serde_json::{Value, json};
 
 fn scratch() -> PathBuf {
     static COUNTER: AtomicU64 = AtomicU64::new(0);

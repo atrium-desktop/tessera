@@ -1,9 +1,9 @@
+use lens::{Align, Frame, Icon, LayoutOpts, TextBuf};
 use tessera_design::Design;
+use tessera_i18n::{Localizer, Message};
 use tessera_model::Point;
 use tessera_model::output::{ModeSpec, OutputInfo, OutputMode};
 use tessera_model::settings::{DisplaySettings, DisplayStatus, SettingsAction, SettingsSnapshot};
-use tessera_i18n::{Localizer, Message};
-use lens::{Align, Frame, Icon, LayoutOpts, TextBuf};
 
 use crate::module::{
     ApplyPolicy, ModuleAvailability, ModuleCategory, ModuleEvents, ModuleId, ModuleMetadata,

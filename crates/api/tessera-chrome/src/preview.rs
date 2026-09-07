@@ -5,9 +5,9 @@
 //! compositor scene rendering, shell chrome, hit-testing, and Liquid Glass
 //! focus.
 
+use lens::LayoutOpts;
 use tessera_design::{Design, PreviewSelectionStyle, materials};
 use tessera_model::window::WindowId;
-use lens::LayoutOpts;
 
 use crate::{BackdropRegion, LiquidGlassFocus};
 

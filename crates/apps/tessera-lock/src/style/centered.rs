@@ -4,12 +4,12 @@
 //! avatar (image, 3D model, or initial fallback) above a rounded credential
 //! field.
 
+use flux::{Canvas, GradientStop};
+use lens::{Align, LayoutOpts, Rect};
 use tessera_config::LockScreenStyle;
 use tessera_design::AvatarRole;
 use tessera_design::materials::chrome_place;
 use tessera_lock::lock_layout_for;
-use flux::{Canvas, GradientStop};
-use lens::{Align, LayoutOpts, Rect};
 
 use crate::profile::Profile;
 use crate::render::{LockBackground, LockVisual};
@@ -48,7 +48,8 @@ impl StylePainter for CenteredPainter {
             frame.logical.1 as f32,
         );
         let progress = frame.progress.clamp(0.0, 1.0);
-        if frame.state.presentation() == tessera_lock::PresentationMode::Ambient && progress <= 0.02 {
+        if frame.state.presentation() == tessera_lock::PresentationMode::Ambient && progress <= 0.02
+        {
             return;
         }
         let avatar_style = self.visual.design.avatars.for_role(AvatarRole::LockHero);

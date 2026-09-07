@@ -33,7 +33,11 @@ impl PortraitConfig {
     /// canonical VRM. An explicitly enabled debug VRM precedes all user
     /// candidates so source-tree previewing is deterministic.
     pub fn current() -> Self {
-        Self::from_roots(tessera_portrait_dir(), home_dir(), enabled_debug_asset_dir())
+        Self::from_roots(
+            tessera_portrait_dir(),
+            home_dir(),
+            enabled_debug_asset_dir(),
+        )
     }
 
     pub fn candidates(&self) -> &[PortraitCandidate] {

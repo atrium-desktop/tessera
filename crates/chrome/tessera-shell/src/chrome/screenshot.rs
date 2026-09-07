@@ -27,10 +27,13 @@
 //! [`ChromeEvents::pick_cancelled`]; the compositor closes the loop by
 //! answering the IPC request.
 
-use tessera_design::{Design, GlassRole, materials};
 use lens::{Align, Color, Frame, Input, LayoutOpts, Rect as LensRect, Style};
+use tessera_design::{Design, GlassRole, materials};
 
-use tessera_chrome::{BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, LiquidGlassRegion, Localizer, Message, PickerMode, ellipsize};
+use tessera_chrome::{
+    BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
+    LiquidGlassRegion, Localizer, Message, PickerMode, ellipsize,
+};
 use tessera_model::app::BuiltInApplication;
 use tessera_model::input::{KeyAction, KeyChar, key_action};
 use tessera_model::window::{Window, WindowId};
@@ -53,7 +56,6 @@ const STATUS_MARGIN: f32 = 12.0;
 /// Sub-logical-pixel bands keep the inverse rounded-corner mask smooth on
 /// both 1× and HiDPI outputs without creating extra floating Lens layers.
 const SCRIM_CORNER_BAND_HEIGHT: f32 = 0.5;
-
 
 #[derive(Debug, Clone, Copy, Default)]
 struct Point {
@@ -1078,7 +1080,10 @@ mod tests {
 
         s.update_pointer(Point { x: 200.0, y: 200.0 }, true, false);
         assert!(s.confirmed.is_none());
-        assert_eq!(s.drag_rect(), Some(tessera_model::Rect::new(200, 200, 0, 0)));
+        assert_eq!(
+            s.drag_rect(),
+            Some(tessera_model::Rect::new(200, 200, 0, 0))
+        );
     }
 
     #[test]

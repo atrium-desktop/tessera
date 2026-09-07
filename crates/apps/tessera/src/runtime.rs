@@ -31,7 +31,6 @@ mod stream;
 mod system;
 mod window_capture;
 
-use tessera_agent_broker::*;
 use app_pick::*;
 use apps::*;
 use capability_pick::*;
@@ -48,7 +47,6 @@ use ipc::*;
 use iteration::*;
 use pick::*;
 use presentation::*;
-use tessera_presentation::{ActivationChange, PresentationAvailability, PresentationScheduler};
 use rendering::*;
 use scanout::*;
 use scheme::*;
@@ -56,6 +54,8 @@ use secret_prompt::*;
 use state::*;
 use stream::*;
 use system::*;
+use tessera_agent_broker::*;
+use tessera_presentation::{ActivationChange, PresentationAvailability, PresentationScheduler};
 use window_capture::*;
 
 const DEFAULT_WALLPAPER: &[u8] =
@@ -657,7 +657,9 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
     // the probe reads only /proc and /sys plus one statvfs, so it never
     // mtime-based reload watcher, polled each frame. `None` when there is no
     // default config path on this host.
-    let reload = config_path.as_deref().map(tessera_config::ReloadWatcher::at);
+    let reload = config_path
+        .as_deref()
+        .map(tessera_config::ReloadWatcher::at);
     let quit_requested = false;
 
     // Config-file persistence: every TOML rewrite (dock pins, touchpad
@@ -902,31 +904,30 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
     live.set_settings(settings_snapshot.clone());
     shell.set_settings(settings_snapshot);
     live.set_system_status(system_status.clone());
-    let ipc: Option<tessera_ipc::Server> =
-        match tessera_bootstrap::runtime_dir().map(|dir| {
-            tessera_ipc::socket_paths::default_socket_path(&dir)
-        }) {
-            Ok(path) => {
-                match tessera_ipc::Server::start_with_journal_broadcaster(
-                    &path,
-                    std::sync::Arc::clone(&live),
-                    journal_broadcaster,
-                ) {
-                    Ok(s) => {
-                        log::info!("ipc: listening on {}", path.display());
-                        Some(s)
-                    }
-                    Err(e) => {
-                        log::warn!("ipc: failed to bind {}: {e}", path.display());
-                        None
-                    }
+    let ipc: Option<tessera_ipc::Server> = match tessera_bootstrap::runtime_dir()
+        .map(|dir| tessera_ipc::socket_paths::default_socket_path(&dir))
+    {
+        Ok(path) => {
+            match tessera_ipc::Server::start_with_journal_broadcaster(
+                &path,
+                std::sync::Arc::clone(&live),
+                journal_broadcaster,
+            ) {
+                Ok(s) => {
+                    log::info!("ipc: listening on {}", path.display());
+                    Some(s)
+                }
+                Err(e) => {
+                    log::warn!("ipc: failed to bind {}: {e}", path.display());
+                    None
                 }
             }
-            Err(error) => {
-                log::warn!("ipc: {error}; no IPC socket");
-                None
-            }
-        };
+        }
+        Err(error) => {
+            log::warn!("ipc: {error}; no IPC socket");
+            None
+        }
+    };
     // Start the policy client only after both the Wayland and IPC sockets are
     // published. It is supervised for the lifetime of this runtime and
     // inherits the exact session environment advertised above.

@@ -15,6 +15,6 @@ mod tools;
 pub use config::{BridgeConfig, ConfigError};
 pub use mcp::{McpError, serve, serve_config};
 pub use tools::{
-    TesseraPlatform, PlatformError, SmokeInteractionDomainReport, SmokeNotificationReport,
-    SmokeReport, SmokeVisualReport, ToolGrant,
+    PlatformError, SmokeInteractionDomainReport, SmokeNotificationReport, SmokeReport,
+    SmokeVisualReport, TesseraPlatform, ToolGrant,
 };

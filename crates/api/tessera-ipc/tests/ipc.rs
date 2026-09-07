@@ -147,7 +147,9 @@ impl TestHandler {
             grant_infos: Mutex::new(Vec::new()),
             management_log: Mutex::new(Vec::new()),
             register_result: Mutex::new(Err("no register".into())),
-            resource_grants: Mutex::new(tessera_security::authority::ResourceGrantRegistry::default()),
+            resource_grants: Mutex::new(
+                tessera_security::authority::ResourceGrantRegistry::default(),
+            ),
             transact_seq: AtomicU64::new(0),
         }
     }
@@ -211,7 +213,9 @@ impl TestHandler {
             grant_infos: Mutex::new(Vec::new()),
             management_log: Mutex::new(Vec::new()),
             register_result: Mutex::new(Err("no register".into())),
-            resource_grants: Mutex::new(tessera_security::authority::ResourceGrantRegistry::default()),
+            resource_grants: Mutex::new(
+                tessera_security::authority::ResourceGrantRegistry::default(),
+            ),
             transact_seq: AtomicU64::new(0),
         }
     }
@@ -442,11 +446,12 @@ impl Handler for TestHandler {
             }),
             InteractionDomainAction::Transact { .. } => {
                 Ok(InteractionDomainActionResult::TransactionCommitted {
-                    receipt: tessera_model::interaction_domain::InteractionDomainTransactionReceipt {
-                        before_revision: 1,
-                        after_revision: 2,
-                        results: Vec::new(),
-                    },
+                    receipt:
+                        tessera_model::interaction_domain::InteractionDomainTransactionReceipt {
+                            before_revision: 1,
+                            after_revision: 2,
+                            results: Vec::new(),
+                        },
                 })
             }
             InteractionDomainAction::Revoke {

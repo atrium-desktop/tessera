@@ -34,20 +34,20 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::hash::Hasher;
 
+use lens::{Align, Color, Frame, Icon, Input, LayoutOpts, Rect};
 use tessera_design::materials::{chrome_place, surface_layout};
 use tessera_design::{Design, GlassRole, materials};
-use lens::{Align, Color, Frame, Icon, Input, LayoutOpts, Rect};
 
-use tessera_model::app::Entry;
-use tessera_model::dock::DockPosition;
-use tessera_model::input::{KeyAction, KeyChar, key_action};
-use tessera_model::window::{SpaceUse, Window};
-use tessera_model::workspace::WorkspaceSnapshot;
 use tessera_chrome::{
     AppCatalog, AppMenu, BackdropRegion, Chrome, ChromeEvents, ChromeUpdate, CursorShape, IconSet,
     LiquidGlassRegion, LivePreviewPresentation, Localizer, Message, PinAction, PopupSide,
     PreviewCard, Reserved, ellipsize, liquid_glass_region_id, preview,
 };
+use tessera_model::app::Entry;
+use tessera_model::dock::DockPosition;
+use tessera_model::input::{KeyAction, KeyChar, key_action};
+use tessera_model::window::{SpaceUse, Window};
+use tessera_model::workspace::WorkspaceSnapshot;
 
 /// Visual height of the dock bar. Tiles rest inside it; magnified tiles pop
 /// above its top edge (they are drawn as their own placed subtrees, unclipped). On a

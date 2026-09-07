@@ -6,11 +6,14 @@
 //! and dismissal. It is a view mode over the same snapshots every other
 //! component reads — it never mutates the window model itself.
 
+use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 use tessera_design::Design;
 use tessera_design::materials::{chrome_place, surface_layout};
-use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 
-use tessera_chrome::{Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, InteractionDomainIntent, Localizer, Message};
+use tessera_chrome::{
+    Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, InteractionDomainIntent,
+    Localizer, Message,
+};
 use tessera_model::input::{KeyAction, KeyChar, key_action};
 use tessera_model::interaction_domain::{
     InteractionDomain, InteractionDomainId, InteractionDomainKind, InteractionDomainSnapshot,

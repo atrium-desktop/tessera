@@ -524,10 +524,14 @@ pub enum ResourceKind {
 impl From<&tessera_security::authority::ActorResource> for ResourceKind {
     fn from(resource: &tessera_security::authority::ActorResource) -> Self {
         match resource {
-            tessera_security::authority::ActorResource::FilesystemPath { .. } => Self::FilesystemPath,
+            tessera_security::authority::ActorResource::FilesystemPath { .. } => {
+                Self::FilesystemPath
+            }
             tessera_security::authority::ActorResource::NetworkOrigin { .. } => Self::NetworkOrigin,
             tessera_security::authority::ActorResource::SecretPrompt { .. } => Self::SecretPrompt,
-            tessera_security::authority::ActorResource::PaymentRequest { .. } => Self::PaymentRequest,
+            tessera_security::authority::ActorResource::PaymentRequest { .. } => {
+                Self::PaymentRequest
+            }
         }
     }
 }
@@ -755,7 +759,9 @@ mod tests {
     fn resource_grant_refusal_shape_excludes_bearers_and_exact_resources() {
         let mutation = JournalMutation::ResourceGrantAttempt {
             session: tessera_security::authority::ActorSessionId(7),
-            principal: Some(tessera_security::authority::ActorPrincipal::new("prin_actor").unwrap()),
+            principal: Some(
+                tessera_security::authority::ActorPrincipal::new("prin_actor").unwrap(),
+            ),
             action: ResourceGrantAttemptAction::Consume,
             capability: Some(ActorCapability::ReadFile),
             resource_kind: Some(ResourceKind::FilesystemPath),
@@ -787,7 +793,9 @@ mod tests {
     fn capability_use_round_trips_without_endpoint_payload() {
         let mutation = JournalMutation::CapabilityUse {
             session: tessera_security::authority::ActorSessionId(9),
-            principal: Some(tessera_security::authority::ActorPrincipal::new("prin_actor").unwrap()),
+            principal: Some(
+                tessera_security::authority::ActorPrincipal::new("prin_actor").unwrap(),
+            ),
             capability: ActorCapability::PromptSecret,
             action: CapabilityUseAction::Prompt,
         };

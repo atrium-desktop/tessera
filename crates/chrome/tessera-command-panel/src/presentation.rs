@@ -1,7 +1,7 @@
 use super::*;
 
-use tessera_design::materials::{chrome_place, sized, transparent};
 use lens::Icon;
+use tessera_design::materials::{chrome_place, sized, transparent};
 
 // ---- rendering -----------------------------------------------------------
 
@@ -843,151 +843,157 @@ impl CommandPanel {
         let auto_lock = mode.locks_automatically();
 
         f.set_theme(themes::hud(&hud));
-        f.place("tessera-hud-quick", &chrome_place(area, transparent()), |f| {
-            f.column_ex(&sized(area.w, area.h), |f| {
-                f.flex(1.0);
-                f.spacer(0.0);
-                f.row_ex(
-                    &LayoutOpts {
-                        width: area.w,
-                        height: grid_h,
-                        gap,
-                        cross: Align::Stretch,
-                        ..Default::default()
-                    },
-                    |f| {
-                        f.column_ex(
-                            &LayoutOpts {
-                                width: tile_cluster_w,
-                                height: grid_h,
-                                gap: tile_gap,
-                                cross: Align::Stretch,
-                                ..Default::default()
-                            },
-                            |f| {
-                                f.row_ex(
-                                    &LayoutOpts {
-                                        width: tile_cluster_w,
-                                        height: tile_h,
-                                        gap: tile_gap,
-                                        cross: Align::Stretch,
-                                        ..Default::default()
-                                    },
-                                    |f| {
-                                        if render_control_tile(
-                                            f,
-                                            "tessera-hud-control-mute",
-                                            i18n.text(Message::Muted),
-                                            volume_icon(&status),
-                                            status.muted,
-                                            status.volume.is_some(),
-                                            (tile_w, tile_h),
-                                            hud,
-                                            type_scale,
-                                        ) {
-                                            out.system_actions.push(SystemAction::ToggleMute);
-                                        }
-                                        if render_control_tile(
-                                            f,
-                                            "tessera-hud-control-dnd",
-                                            i18n.text(Message::DoNotDisturb),
-                                            Icon::Bell,
-                                            status.do_not_disturb,
-                                            true,
-                                            (tile_w, tile_h),
-                                            hud,
-                                            type_scale,
-                                        ) {
-                                            out.system_actions.push(
-                                                SystemAction::SetDoNotDisturb {
-                                                    enabled: !status.do_not_disturb,
-                                                },
-                                            );
-                                        }
-                                    },
-                                );
-                                f.row_ex(
-                                    &LayoutOpts {
-                                        width: tile_cluster_w,
-                                        height: tile_h,
-                                        gap: tile_gap,
-                                        cross: Align::Stretch,
-                                        ..Default::default()
-                                    },
-                                    |f| {
-                                        if render_control_tile(
-                                            f,
-                                            "tessera-hud-control-awake",
-                                            i18n.text(Message::KeepAwake),
-                                            Icon::Zap,
-                                            keep_awake,
-                                            true,
-                                            (tile_w, tile_h),
-                                            hud,
-                                            type_scale,
-                                        ) {
-                                            let next = power_mode_for(
-                                                !keep_awake,
-                                                mode.locks_automatically(),
-                                            );
-                                            out.system_actions
-                                                .push(SystemAction::SetPowerMode { mode: next });
-                                        }
-                                        if render_control_tile(
-                                            f,
-                                            "tessera-hud-control-lock",
-                                            i18n.text(Message::AutoLock),
-                                            Icon::Shield,
-                                            auto_lock,
-                                            true,
-                                            (tile_w, tile_h),
-                                            hud,
-                                            type_scale,
-                                        ) {
-                                            let next = power_mode_for(keep_awake, !auto_lock);
-                                            out.system_actions
-                                                .push(SystemAction::SetPowerMode { mode: next });
-                                        }
-                                    },
-                                );
-                            },
-                        );
+        f.place(
+            "tessera-hud-quick",
+            &chrome_place(area, transparent()),
+            |f| {
+                f.column_ex(&sized(area.w, area.h), |f| {
+                    f.flex(1.0);
+                    f.spacer(0.0);
+                    f.row_ex(
+                        &LayoutOpts {
+                            width: area.w,
+                            height: grid_h,
+                            gap,
+                            cross: Align::Stretch,
+                            ..Default::default()
+                        },
+                        |f| {
+                            f.column_ex(
+                                &LayoutOpts {
+                                    width: tile_cluster_w,
+                                    height: grid_h,
+                                    gap: tile_gap,
+                                    cross: Align::Stretch,
+                                    ..Default::default()
+                                },
+                                |f| {
+                                    f.row_ex(
+                                        &LayoutOpts {
+                                            width: tile_cluster_w,
+                                            height: tile_h,
+                                            gap: tile_gap,
+                                            cross: Align::Stretch,
+                                            ..Default::default()
+                                        },
+                                        |f| {
+                                            if render_control_tile(
+                                                f,
+                                                "tessera-hud-control-mute",
+                                                i18n.text(Message::Muted),
+                                                volume_icon(&status),
+                                                status.muted,
+                                                status.volume.is_some(),
+                                                (tile_w, tile_h),
+                                                hud,
+                                                type_scale,
+                                            ) {
+                                                out.system_actions.push(SystemAction::ToggleMute);
+                                            }
+                                            if render_control_tile(
+                                                f,
+                                                "tessera-hud-control-dnd",
+                                                i18n.text(Message::DoNotDisturb),
+                                                Icon::Bell,
+                                                status.do_not_disturb,
+                                                true,
+                                                (tile_w, tile_h),
+                                                hud,
+                                                type_scale,
+                                            ) {
+                                                out.system_actions.push(
+                                                    SystemAction::SetDoNotDisturb {
+                                                        enabled: !status.do_not_disturb,
+                                                    },
+                                                );
+                                            }
+                                        },
+                                    );
+                                    f.row_ex(
+                                        &LayoutOpts {
+                                            width: tile_cluster_w,
+                                            height: tile_h,
+                                            gap: tile_gap,
+                                            cross: Align::Stretch,
+                                            ..Default::default()
+                                        },
+                                        |f| {
+                                            if render_control_tile(
+                                                f,
+                                                "tessera-hud-control-awake",
+                                                i18n.text(Message::KeepAwake),
+                                                Icon::Zap,
+                                                keep_awake,
+                                                true,
+                                                (tile_w, tile_h),
+                                                hud,
+                                                type_scale,
+                                            ) {
+                                                let next = power_mode_for(
+                                                    !keep_awake,
+                                                    mode.locks_automatically(),
+                                                );
+                                                out.system_actions.push(
+                                                    SystemAction::SetPowerMode { mode: next },
+                                                );
+                                            }
+                                            if render_control_tile(
+                                                f,
+                                                "tessera-hud-control-lock",
+                                                i18n.text(Message::AutoLock),
+                                                Icon::Shield,
+                                                auto_lock,
+                                                true,
+                                                (tile_w, tile_h),
+                                                hud,
+                                                type_scale,
+                                            ) {
+                                                let next = power_mode_for(keep_awake, !auto_lock);
+                                                out.system_actions.push(
+                                                    SystemAction::SetPowerMode { mode: next },
+                                                );
+                                            }
+                                        },
+                                    );
+                                },
+                            );
 
-                        if let Some(level) = render_control_fader(
-                            f,
-                            "tessera-hud-quick-volume",
-                            i18n.text(Message::Sound),
-                            volume_icon(&status),
-                            status.volume,
-                            (0, 100),
-                            (fader_w, grid_h),
-                            hud.accent,
-                            hud,
-                            type_scale,
-                        ) {
-                            out.system_actions.push(SystemAction::SetVolume { level });
-                        }
-                        if let Some(level) = render_control_fader(
-                            f,
-                            "tessera-hud-quick-brightness",
-                            i18n.text(Message::Brightness),
-                            Icon::Zap,
-                            status.brightness,
-                            (1, 100),
-                            (fader_w, grid_h),
-                            hud.text,
-                            hud,
-                            type_scale,
-                        ) {
-                            out.system_actions
-                                .push(SystemAction::SetBrightness { level });
-                        }
-                    },
-                );
-                f.flex(1.0);
-                f.spacer(0.0);
-            });
-        });
+                            if let Some(level) = render_control_fader(
+                                f,
+                                "tessera-hud-quick-volume",
+                                i18n.text(Message::Sound),
+                                volume_icon(&status),
+                                status.volume,
+                                (0, 100),
+                                (fader_w, grid_h),
+                                hud.accent,
+                                hud,
+                                type_scale,
+                            ) {
+                                out.system_actions.push(SystemAction::SetVolume { level });
+                            }
+                            if let Some(level) = render_control_fader(
+                                f,
+                                "tessera-hud-quick-brightness",
+                                i18n.text(Message::Brightness),
+                                Icon::Zap,
+                                status.brightness,
+                                (1, 100),
+                                (fader_w, grid_h),
+                                hud.text,
+                                hud,
+                                type_scale,
+                            ) {
+                                out.system_actions
+                                    .push(SystemAction::SetBrightness { level });
+                            }
+                        },
+                    );
+                    f.flex(1.0);
+                    f.spacer(0.0);
+                });
+            },
+        );
         f.set_theme(original);
     }
 

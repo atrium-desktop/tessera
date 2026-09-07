@@ -9,6 +9,11 @@
 use std::ffi::c_void;
 use std::ops::Range;
 
+use lens::{Align, Color, Frame, Icon, Input, LayoutOpts, Rect};
+use tessera_chrome::{
+    AppCatalog, BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
+    IconSet, LiquidGlassRegion, Localizer, Message, ellipsize,
+};
 use tessera_design::materials::{chrome_place, surface_layout};
 use tessera_design::{Design, GlassRole, materials};
 use tessera_model::app::Entry;
@@ -16,12 +21,7 @@ use tessera_model::input::{KeyChar, key_action};
 use tessera_model::launcher::{Launch, Launcher as SearchBrain};
 use tessera_model::window::Window;
 use tessera_model::workspace::WorkspaceSnapshot;
-use tessera_chrome::{
-    AppCatalog, BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
-    IconSet, LiquidGlassRegion, Localizer, Message, ellipsize,
-};
 use tessera_ui::{DEFAULT_BACKDROP_BLUR_SIGMA, contains};
-use lens::{Align, Color, Frame, Icon, Input, LayoutOpts, Rect};
 
 const PANEL_MAX_WIDTH: f32 = 680.0;
 const PANEL_SIDE_MARGIN: f32 = 20.0;
@@ -561,7 +561,9 @@ impl Chrome for Prism {
             y: 0.0,
             w: display.0,
             h: display.1,
-            wash: Some(tessera_chrome::backdrop_wash(lens::Color::rgba(4, 6, 14, 54))),
+            wash: Some(tessera_chrome::backdrop_wash(lens::Color::rgba(
+                4, 6, 14, 54,
+            ))),
         }]
     }
 

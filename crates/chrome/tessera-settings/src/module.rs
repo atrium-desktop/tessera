@@ -6,10 +6,10 @@
 //! future process-isolated loader can preserve the same metadata and state
 //! model without changing the System Settings navigation contract.
 
-use tessera_design::Design;
-use tessera_model::settings::{SettingsAction, SettingsSnapshot};
-use tessera_i18n::{Localizer, Message};
 use lens::{Frame, Icon};
+use tessera_design::Design;
+use tessera_i18n::{Localizer, Message};
+use tessera_model::settings::{SettingsAction, SettingsSnapshot};
 
 /// Stable identifier for a settings module and for deep-link routing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

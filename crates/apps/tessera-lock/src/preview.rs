@@ -6,7 +6,6 @@ use std::os::fd::{FromRawFd, OwnedFd};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use tessera_lock::{AuthResult, LockAction, LockScreenStyle, LockState, PresentationMode};
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
     output::{OutputHandler, OutputState},
@@ -32,6 +31,7 @@ use smithay_client_toolkit::{
         },
     },
 };
+use tessera_lock::{AuthResult, LockAction, LockScreenStyle, LockState, PresentationMode};
 use wayland_client::{
     Connection, QueueHandle,
     globals::registry_queue_init,

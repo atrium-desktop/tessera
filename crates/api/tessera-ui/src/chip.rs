@@ -1,7 +1,7 @@
 //! Status chips, pills, and badges for HUD and chrome surfaces.
 
-use tessera_design::{Design, materials};
 use lens::{Align, Color, Frame, LayoutOpts, Rect, Style};
+use tessera_design::{Design, materials};
 
 /// Standard diameter for workspace indicator dots on HUD and panel surfaces.
 pub const DEFAULT_WORKSPACE_DOT_DIAMETER: f32 = 6.0;

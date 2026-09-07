@@ -1,7 +1,7 @@
 //! Context menus, popup action lists, and menu item scaffolding.
 
-use tessera_design::{Design, materials};
 use lens::{Align, LayoutOpts};
+use tessera_design::{Design, materials};
 
 /// Standard width for popup context menus.
 pub const DEFAULT_MENU_WIDTH: f32 = 236.0;

@@ -12,7 +12,7 @@ fn agent_seat_lifecycle_is_fail_closed() {
     let runtime_dir = std::env::var_os("XDG_RUNTIME_DIR")
         .map(std::path::PathBuf::from)
         .expect("XDG_RUNTIME_DIR");
-    server.set_runtime_dir(runtime_dir.clone());
+    server.set_runtime_dir(runtime_dir);
     let bundle = server
         .create_agent_interaction_domain("test-agent", SeatCapabilities::POINTER_KEYBOARD)
         .expect("create agent interaction_domain");

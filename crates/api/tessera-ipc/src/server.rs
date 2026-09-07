@@ -606,7 +606,8 @@ mod connection;
 use connection::accept_loop;
 mod authorization;
 use authorization::*;
-mod dispatch;use dispatch::drive_read_loop;
+mod dispatch;
+use dispatch::drive_read_loop;
 mod writer;
 use writer::{
     write_interaction_domain_capture, write_output_capture, write_stream_frame,

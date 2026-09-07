@@ -24,16 +24,6 @@ mod output;
 use device::PresentedComposite;
 use output::*;
 
-use tessera_model::Size;
-use tessera_model::input::{
-    ButtonState, InputEvent, InputStatus, MouseCapabilities, MouseConfig, MouseStatus, PointerAxis,
-    PointerAxisFrame, PointerAxisRelativeDirection, PointerAxisSource, PointerGestureEvent,
-    TabletEvent, TabletToolInfo, TouchpadCapabilities, TouchpadConfig, TouchpadScrollMethod,
-    TouchpadStatus,
-};
-use tessera_model::output::{
-    ColorPolicy, ModeSpec, OutputKind, OutputMode, Scale, automatic_scale, physical_ppi,
-};
 use drm::buffer::{Buffer, DrmFourcc, DrmModifier, Handle as BufferHandle, PlanarBuffer};
 use drm::control::{
     self, AtomicCommitFlags, Device as ControlDevice, FbCmd2Flags, Mode, ModeTypeFlags,
@@ -60,6 +50,16 @@ use input::event::touch::{TouchEvent, TouchEventPosition, TouchEventSlot};
 use input::{
     Device, DeviceCapability, DeviceConfigResult, DragLockState, Event, Libinput,
     LibinputInterface, ScrollMethod,
+};
+use tessera_model::Size;
+use tessera_model::input::{
+    ButtonState, InputEvent, InputStatus, MouseCapabilities, MouseConfig, MouseStatus, PointerAxis,
+    PointerAxisFrame, PointerAxisRelativeDirection, PointerAxisSource, PointerGestureEvent,
+    TabletEvent, TabletToolInfo, TouchpadCapabilities, TouchpadConfig, TouchpadScrollMethod,
+    TouchpadStatus,
+};
+use tessera_model::output::{
+    ColorPolicy, ModeSpec, OutputKind, OutputMode, Scale, automatic_scale, physical_ppi,
 };
 
 use crate::Backend;

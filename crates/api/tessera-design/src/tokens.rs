@@ -1,7 +1,7 @@
 //! Semantic visual tokens for the built-in dark and light appearances.
 
-use tessera_model::settings::ColorScheme;
 use lens::Color;
+use tessera_model::settings::ColorScheme;
 
 use crate::colors::{DockColors, ProductColors, SceneColors};
 
@@ -517,7 +517,7 @@ mod tests {
     fn parent_modal_scrim_and_attention_pulse_tokens_are_valid() {
         for design in [Design::dark(), Design::light()] {
             let (_, _, _, scrim_alpha) = design.colors.parent_modal_scrim.components();
-            assert!(scrim_alpha >= 100 && scrim_alpha <= 160);
+            assert!((100..=160).contains(&scrim_alpha));
             let (_, _, _, pulse_alpha) = design.colors.attention_pulse_border.components();
             assert!(pulse_alpha >= 200);
         }

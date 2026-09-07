@@ -2,9 +2,9 @@
 //!
 //! Skips automatically when that directory is absent (CI sandboxes).
 
-use tessera_desktop_entries::{Entry, xdg_data_dirs};
 use std::collections::HashSet;
 use std::path::PathBuf;
+use tessera_desktop_entries::{Entry, xdg_data_dirs};
 
 fn have_system_apps() -> bool {
     xdg_data_dirs().contains(&PathBuf::from("/usr/share"))

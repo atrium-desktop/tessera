@@ -13,7 +13,10 @@
 
 use lens::{Align, Frame, Input, LayoutOpts, Rect};
 
-use tessera_chrome::{BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, LiquidGlassRegion, Localizer, Reserved, SecretPromptParams, ellipsize, modal_scrim_backdrop};
+use tessera_chrome::{
+    BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
+    LiquidGlassRegion, Localizer, Reserved, SecretPromptParams, ellipsize, modal_scrim_backdrop,
+};
 use tessera_design::{Design, GlassRole, materials, themes};
 use tessera_model::input::{KeyAction, KeyChar, key_action};
 use tessera_model::window::Window;
@@ -33,7 +36,6 @@ const BUTTON_W: f32 = 88.0;
 const BACKDROP_BLUR_SIGMA: f32 = DEFAULT_BACKDROP_BLUR_SIGMA;
 /// The mask glyph drawn per typed character.
 const MASK: &str = "•";
-
 
 /// The resolved geometry of the panel for one frame.
 #[derive(Debug, Clone, Copy)]

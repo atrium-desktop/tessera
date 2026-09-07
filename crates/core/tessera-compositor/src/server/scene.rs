@@ -699,7 +699,10 @@ impl Server {
 
     /// Paint order for the window-capture frames: the target toplevel's
     /// surface tree plus its popup trees, with no presentation filtering.
-    pub fn window_capture_frame_order(&self, window: tessera_model::window::WindowId) -> Vec<usize> {
+    pub fn window_capture_frame_order(
+        &self,
+        window: tessera_model::window::WindowId,
+    ) -> Vec<usize> {
         let roots = self
             .state
             .live_surfaces()

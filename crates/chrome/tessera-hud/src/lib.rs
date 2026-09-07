@@ -25,5 +25,5 @@
 
 mod hud;
 
-pub use tessera_tray as tray;
 pub use hud::Hud;
+pub use tessera_tray as tray;

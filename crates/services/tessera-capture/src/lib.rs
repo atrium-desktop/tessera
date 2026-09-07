@@ -22,9 +22,11 @@ mod encoding;
 mod output;
 
 pub use encoding::{
-    CapturedPixels, CapturedPixelsSource, CaptureCursor, PendingReadback, encode_capture,
-    encode_rgba_capture, read_captured_pixels, read_captured_pixels_owned, read_picked_pixel,
-    request_frame_readback, stream_pixels, StreamPixels,
+    CaptureCursor, CapturedPixels, CapturedPixelsSource, PendingReadback, StreamPixels,
+    encode_capture, encode_rgba_capture, read_captured_pixels, read_captured_pixels_owned,
+    read_picked_pixel, request_frame_readback, stream_pixels,
 };
 pub use output::{atomic_write_capture, screenshot_uri_list};
-pub use tessera_presentation::{clamp_logical_region, crop_rgba, flux_last_error_detail, logical_rect_to_physical};
+pub use tessera_presentation::{
+    clamp_logical_region, crop_rgba, flux_last_error_detail, logical_rect_to_physical,
+};

@@ -4,12 +4,12 @@ use std::collections::HashSet;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use tessera_model::app::{ApplicationTarget, Entry};
 use ini::Ini;
+use tessera_model::app::{ApplicationTarget, Entry};
 
-use tessera_icons::{DEFAULT_ICON_SIZE, icon_search_bases, resolve_icon_scaled};
 use crate::locale::{Locale, current_locale};
 use crate::{AppsError, DEFAULT_ICON_THEME};
+use tessera_icons::{DEFAULT_ICON_SIZE, icon_search_bases, resolve_icon_scaled};
 
 struct ParseContext<'a> {
     locale: &'a Locale,

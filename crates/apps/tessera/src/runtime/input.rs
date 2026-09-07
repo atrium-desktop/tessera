@@ -678,9 +678,12 @@ impl CompositorRuntime {
         let pointer_before = self.input_acc.cursor;
         let mut events = self.host.take_input();
         let pointer_motion_only = !events.is_empty()
-            && events
-                .iter()
-                .all(|event| matches!(event, tessera_model::input::InputEvent::PointerMotion { .. }));
+            && events.iter().all(|event| {
+                matches!(
+                    event,
+                    tessera_model::input::InputEvent::PointerMotion { .. }
+                )
+            });
         if !events.is_empty() {
             had_input = true;
             non_cursor_input |= !pointer_motion_only;

@@ -326,7 +326,9 @@ fn interaction_domain_scope_expands_atomic_groups_before_authorizing() {
         workspaces: None,
         outputs: None,
         interaction_domains: Some(vec![agent.interaction_domain]),
-        ops: Some(vec![tessera_ipc::ActorCapability::TransactInteractionDomain]),
+        ops: Some(vec![
+            tessera_ipc::ActorCapability::TransactInteractionDomain,
+        ]),
         ask_ops: None,
     };
     assert!(one_window.permits_interaction_domain_action(&action));

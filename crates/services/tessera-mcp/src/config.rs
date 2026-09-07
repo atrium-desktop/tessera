@@ -91,9 +91,7 @@ impl BridgeConfig {
         let runtime_dir = PathBuf::from(required_os(&mut get, "XDG_RUNTIME_DIR")?);
         let socket_path = get("TESSERA_MCP_SOCKET")
             .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                tessera_ipc::socket_paths::default_socket_path(&runtime_dir)
-            });
+            .unwrap_or_else(|| tessera_ipc::socket_paths::default_socket_path(&runtime_dir));
         let interaction_domain_label =
             optional_string(&mut get, "TESSERA_MCP_INTERACTION_DOMAIN_LABEL")?
                 .unwrap_or_else(|| DEFAULT_INTERACTION_DOMAIN_LABEL.to_string());
@@ -366,7 +364,10 @@ mod tests {
                 "XDG_RUNTIME_DIR".to_string(),
                 OsString::from("/tmp/runtime"),
             ),
-            ("TESSERA_MCP_INSTANCE_ID".to_string(), OsString::from("test")),
+            (
+                "TESSERA_MCP_INSTANCE_ID".to_string(),
+                OsString::from("test"),
+            ),
             ("TESSERA_MCP_LABEL".to_string(), OsString::from(long)),
         ]);
         let error =

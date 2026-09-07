@@ -494,7 +494,9 @@ impl Client {
             interaction_domain,
             target,
             observation,
-            actions: vec![tessera_model::semantic::SemanticActionIntent::SyntheticInput { actions }],
+            actions: vec![
+                tessera_model::semantic::SemanticActionIntent::SyntheticInput { actions },
+            ],
         })
     }
 

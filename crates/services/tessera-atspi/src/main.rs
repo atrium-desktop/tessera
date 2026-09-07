@@ -3,11 +3,6 @@ use std::io;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use tessera_ipc::{ActorCapability, ConnectionCapabilities};
-use tessera_model::semantic::{SemanticAction, SemanticActionIntent, SemanticRole, SemanticState};
-use tessera_model::window::{Window, WindowId};
-use tessera_model::{Rect, Size};
-use tessera_semantic::{AccessibilityNode, AccessibilityTreeUpdate, AccessibilityWindowBinding};
 use atspi::connection::P2P as _;
 use atspi::proxy::action::ActionProxy;
 use atspi::proxy::component::ComponentProxy;
@@ -17,6 +12,11 @@ use atspi::proxy::text::TextProxy;
 use atspi::proxy::value::ValueProxy;
 use atspi::{CoordType, Interface, ObjectRefOwned, Role, State};
 use sha2::{Digest as _, Sha256};
+use tessera_ipc::{ActorCapability, ConnectionCapabilities};
+use tessera_model::semantic::{SemanticAction, SemanticActionIntent, SemanticRole, SemanticState};
+use tessera_model::window::{Window, WindowId};
+use tessera_model::{Rect, Size};
+use tessera_semantic::{AccessibilityNode, AccessibilityTreeUpdate, AccessibilityWindowBinding};
 
 const SCAN_INTERVAL: Duration = Duration::from_millis(750);
 const ACTION_POLL: Duration = Duration::from_millis(100);

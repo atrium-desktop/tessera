@@ -4,11 +4,7 @@ use tessera_model::Rect;
 
 /// Extract one target region's rows out of a shared full-frame readback.
 /// `rect` is in physical pixels and already clamped to the frame.
-pub fn crop_stream_frame(
-    width: u32,
-    bgra: &[u8],
-    rect: Rect,
-) -> (u32, u32, std::sync::Arc<[u8]>) {
+pub fn crop_stream_frame(width: u32, bgra: &[u8], rect: Rect) -> (u32, u32, std::sync::Arc<[u8]>) {
     let crop_width = rect.size.w.max(0) as u32;
     let crop_height = rect.size.h.max(0) as u32;
     let x = rect.origin.x as usize;
@@ -101,7 +97,10 @@ mod tests {
             Some(Rect::new(3840, 0, 5120, 2880))
         );
         // Unknown connectors resolve to None (an error at stream start).
-        assert_eq!(resolve_output_rect(&outputs, "USB-C-1", 1.0, 4480, 1440), None);
+        assert_eq!(
+            resolve_output_rect(&outputs, "USB-C-1", 1.0, 4480, 1440),
+            None
+        );
     }
 
     #[test]

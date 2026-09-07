@@ -1,8 +1,8 @@
 use std::process::ExitCode;
 use std::time::Duration;
 
-use tessera_mcp::{TesseraPlatform, BridgeConfig};
 use clap::{Parser, Subcommand};
+use tessera_mcp::{BridgeConfig, TesseraPlatform};
 
 #[derive(Debug, Parser)]
 #[command(

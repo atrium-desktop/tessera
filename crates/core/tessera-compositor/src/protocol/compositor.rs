@@ -1913,7 +1913,10 @@ unsafe extern "C" fn surface_damage(
 /// Map normal-orientation buffer damage to the surface-local coordinate space
 /// shared with `wl_surface.damage`. Rounding outward preserves every touched
 /// logical pixel when a HiDPI buffer rectangle is not scale-aligned.
-pub(crate) fn buffer_damage_to_surface(damage: tessera_model::Rect, scale: i32) -> tessera_model::Rect {
+pub(crate) fn buffer_damage_to_surface(
+    damage: tessera_model::Rect,
+    scale: i32,
+) -> tessera_model::Rect {
     if scale <= 1 {
         return damage;
     }

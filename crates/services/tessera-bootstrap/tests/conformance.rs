@@ -133,16 +133,6 @@ impl CleanupFixture for OrderProbe {
     }
 }
 
-struct PanickingFixture;
-
-impl CleanupFixture for PanickingFixture {
-    fn cleanup(&self) {
-        // Deliberately panic: the fixture contract says best-effort, and
-        // the runner must contain this rather than abort the process.
-        panic!("fixture panicked during cleanup");
-    }
-}
-
 struct CountingFixture(Arc<AtomicUsize>);
 
 impl CleanupFixture for CountingFixture {
@@ -208,9 +198,8 @@ fn every_binary_entry_point_declares_a_bootstrap_dependency() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     for manifest in binaries_requiring_seam {
         let manifest_path = workspace_root.join(manifest);
-        let text = std::fs::read_to_string(&manifest_path).unwrap_or_else(|error| {
-            panic!("reading {}: {error}", manifest_path.display())
-        });
+        let text = std::fs::read_to_string(&manifest_path)
+            .unwrap_or_else(|error| panic!("reading {}: {error}", manifest_path.display()));
         assert!(
             text.contains("tessera-bootstrap.workspace = true"),
             "{manifest} declares a process entry point but does not depend on tessera-bootstrap"

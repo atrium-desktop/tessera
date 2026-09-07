@@ -6,10 +6,12 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use tessera_ipc::{Command, Handler, InteractionDomainAction, InteractionDomainActionResult, Server};
+use clap::Parser;
+use tessera_ipc::{
+    Command, Handler, InteractionDomainAction, InteractionDomainActionResult, Server,
+};
 use tessera_model::window::{Window, WindowId, WindowState};
 use tessera_model::workspace::{OutputSnapshot, WorkspaceEntry, WorkspaceId, WorkspaceSnapshot};
-use clap::Parser;
 
 static N: AtomicU64 = AtomicU64::new(0);
 

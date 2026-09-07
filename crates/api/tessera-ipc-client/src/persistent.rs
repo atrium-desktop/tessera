@@ -255,7 +255,10 @@ mod tests {
     fn scratch() -> std::path::PathBuf {
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        std::env::temp_dir().join(format!("tessera-ipc-client-{}-{n}.sock", std::process::id()))
+        std::env::temp_dir().join(format!(
+            "tessera-ipc-client-{}-{n}.sock",
+            std::process::id()
+        ))
     }
 
     fn params(socket: std::path::PathBuf) -> ConnectParams {

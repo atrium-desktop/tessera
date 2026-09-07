@@ -180,10 +180,10 @@ fn monitor(events: &Sender<SleepEvent>) -> Result<bool, zbus::Error> {
             }
             (Some(SESSION_INTERFACE), Some("Lock")) => {
                 let path = header.path().map(|p| p.as_str());
-                if let Some(ref own_path) = own_session_path {
-                    if path != Some(own_path.as_str()) {
-                        continue;
-                    }
+                if let Some(ref own_path) = own_session_path
+                    && path != Some(own_path.as_str())
+                {
+                    continue;
                 }
                 if events.send(SleepEvent::Lock).is_err() {
                     return Ok(false);

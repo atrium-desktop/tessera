@@ -357,7 +357,9 @@ impl Server {
     /// Process-bound window identities for the first-party AT-SPI adapter.
     /// Keeping this separate from `windows()` prevents kernel process
     /// credentials from leaking into ordinary observation responses.
-    pub fn accessibility_window_bindings(&self) -> Vec<tessera_semantic::AccessibilityWindowBinding> {
+    pub fn accessibility_window_bindings(
+        &self,
+    ) -> Vec<tessera_semantic::AccessibilityWindowBinding> {
         let visible = self.visible();
         self.state
             .live_surfaces()

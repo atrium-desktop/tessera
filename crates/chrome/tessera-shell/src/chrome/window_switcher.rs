@@ -7,12 +7,15 @@
 
 use std::collections::{HashMap, HashSet};
 
+use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 use tessera_design::materials::{chrome_place, surface_layout};
 use tessera_design::{Design, GlassRole, PreviewSelectionStyle};
-use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 
-use tessera_chrome::{BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, IconSet, LiquidGlassRegion, Localizer, Message, PreviewCard, WindowSwitcherPresentation, ellipsize};
 use tessera_chrome::preview;
+use tessera_chrome::{
+    BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, IconSet,
+    LiquidGlassRegion, Localizer, Message, PreviewCard, WindowSwitcherPresentation, ellipsize,
+};
 use tessera_model::input::{KeyAction, KeyChar, key_action};
 use tessera_model::window::{Window, WindowId};
 use tessera_model::workspace::WorkspaceSnapshot;
@@ -594,7 +597,11 @@ fn lerp_i32(from: i32, to: i32, blend: f32) -> i32 {
     }
 }
 
-fn lerp_rect(from: tessera_model::Rect, to: tessera_model::Rect, blend: f32) -> tessera_model::Rect {
+fn lerp_rect(
+    from: tessera_model::Rect,
+    to: tessera_model::Rect,
+    blend: f32,
+) -> tessera_model::Rect {
     tessera_model::Rect::new(
         lerp_i32(from.origin.x, to.origin.x, blend),
         lerp_i32(from.origin.y, to.origin.y, blend),

@@ -61,7 +61,9 @@ impl WindowStateStore {
         if let Ok(path) = std::env::var("XDG_STATE_HOME")
             && !path.trim().is_empty()
         {
-            return PathBuf::from(path).join("tessera").join("window_state.json");
+            return PathBuf::from(path)
+                .join("tessera")
+                .join("window_state.json");
         }
         if let Ok(home) = std::env::var("HOME")
             && !home.trim().is_empty()
@@ -144,7 +146,10 @@ mod tests {
             retrieved.position,
             Some(tessera_model::Point { x: 100, y: 200 })
         );
-        assert_eq!(retrieved.size, Some(tessera_model::Size { w: 1024, h: 768 }));
+        assert_eq!(
+            retrieved.size,
+            Some(tessera_model::Size { w: 1024, h: 768 })
+        );
         assert_eq!(retrieved.workspace, Some(2));
     }
 

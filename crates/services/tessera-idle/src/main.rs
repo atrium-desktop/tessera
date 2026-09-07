@@ -4,17 +4,17 @@ mod logind;
 use std::ffi::OsString;
 use std::io;
 use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
-use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
+use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::UnixDatagram;
-use tessera_ipc::socket_paths::SocketGuard;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
+use tessera_ipc::socket_paths::SocketGuard;
 
-use tessera_idle::{IdlePolicy, IdleStage};
 use dimmer::Dimmer;
 use logind::SleepEvent;
+use tessera_idle::{IdlePolicy, IdleStage};
 use wayland_client::{
     Connection, Dispatch, QueueHandle, delegate_noop,
     protocol::{wl_registry, wl_seat},
@@ -202,12 +202,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let policy = options.policy.validate()?;
     let control = bind_control_socket(&options.control_socket)?;
     let mut socket_guard = SocketGuard::bind(options.control_socket.clone())?;
-    socket_guard
-        .observe_bound()
-        .or_else(|error| {
-            drop(socket_guard);
-            Err(error)
-        })?;
+    let bound = socket_guard.observe_bound();
+    if bound.is_err() {
+        drop(socket_guard);
+    }
+    bound?;
     let (sleep_tx, sleep_rx) = mpsc::channel();
     if options.logind {
         logind::spawn_signal_monitor(sleep_tx);
@@ -492,7 +491,9 @@ impl Daemon {
                     self.sleep_inhibitor.resumed(Instant::now());
                 }
                 SleepEvent::Lock => {
-                    log::info!("idle: system requested session lock via logind; requiring secure lock");
+                    log::info!(
+                        "idle: system requested session lock via logind; requiring secure lock"
+                    );
                     self.require_lock();
                     self.apply_secure_actions();
                 }
@@ -711,7 +712,6 @@ impl Dispatch<ext_idle_notification_v1::ExtIdleNotificationV1, IdleStage> for Da
 
 delegate_noop!(Daemon: ignore wl_seat::WlSeat);
 delegate_noop!(Daemon: ignore ext_idle_notifier_v1::ExtIdleNotifierV1);
-
 
 fn bind_control_socket(path: &Path) -> io::Result<UnixDatagram> {
     if let Ok(metadata) = path.symlink_metadata() {

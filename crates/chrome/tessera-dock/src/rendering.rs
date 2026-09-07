@@ -378,7 +378,8 @@ impl Chrome for Dock {
                     (disp.x, disp.y),
                     dt,
                 );
-                if self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold {
+                if self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold
+                {
                     self.anim_active = true;
                 }
                 confirmed
@@ -1261,7 +1262,11 @@ impl Chrome for Dock {
             || (effective_autohide && (target - self.autohide_reveal).abs() > 0.002)
     }
 
-    fn damage_region(&self, _windows: &[Window], display: (f32, f32)) -> Option<tessera_model::Rect> {
+    fn damage_region(
+        &self,
+        _windows: &[Window],
+        display: (f32, f32),
+    ) -> Option<tessera_model::Rect> {
         if self.fullscreen_locked() {
             return None;
         }
@@ -1297,7 +1302,12 @@ impl Chrome for Dock {
                 DockPosition::Right => {
                     let x0 =
                         (display.0 - DOCK_EDGE_MARGIN - DOCK_PANEL_HEIGHT - TOOLTIP_BAND).max(0.0);
-                    tessera_model::Rect::new(x0 as i32, 0, (display.0 - x0) as i32, display.1 as i32)
+                    tessera_model::Rect::new(
+                        x0 as i32,
+                        0,
+                        (display.0 - x0) as i32,
+                        display.1 as i32,
+                    )
                 }
             };
             region = region.union(band);

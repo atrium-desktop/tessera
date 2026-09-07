@@ -31,7 +31,10 @@ fn toggle_opens_and_closes_the_panel() {
     assert!(panel.exclusive_presentation_active());
     assert!(panel.requires_composition());
     assert!(!panel.anim_pending());
-    assert_eq!(panel.backdrop_blur_sigma(), tessera_chrome::BackdropCover::BLUR_SIGMA);
+    assert_eq!(
+        panel.backdrop_blur_sigma(),
+        tessera_chrome::BackdropCover::BLUR_SIGMA
+    );
 
     panel.toggle_command_panel(&mut out);
     assert!(!panel.open);

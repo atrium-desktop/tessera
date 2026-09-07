@@ -22,7 +22,8 @@ struct SemanticProviderLane {
 
 #[derive(Default)]
 struct SemanticDispatchBroker {
-    providers: std::collections::HashMap<tessera_semantic::SemanticProviderId, SemanticProviderLane>,
+    providers:
+        std::collections::HashMap<tessera_semantic::SemanticProviderId, SemanticProviderLane>,
     pending: std::collections::HashMap<SemanticPendingKey, SemanticPendingAction>,
 }
 
@@ -133,7 +134,8 @@ pub(super) struct LiveState {
     actor_actions:
         std::sync::Mutex<std::sync::mpsc::SyncSender<InteractionDomainActorActionRequest>>,
     semantic_tree_updates: std::sync::Mutex<std::sync::mpsc::SyncSender<SemanticTreeUpdateRequest>>,
-    semantic_provider_revocations: std::sync::mpsc::SyncSender<tessera_semantic::SemanticProviderId>,
+    semantic_provider_revocations:
+        std::sync::mpsc::SyncSender<tessera_semantic::SemanticProviderId>,
     observation_discards: std::sync::mpsc::SyncSender<ObservationDiscardRequest>,
     actor_disconnects: std::sync::mpsc::Sender<u64>,
     stream_controls: std::sync::Mutex<std::sync::mpsc::Sender<StreamControlRequest>>,
@@ -991,7 +993,8 @@ impl tessera_ipc::Handler for LiveState {
         principal: &str,
         update: tessera_semantic::AccessibilityTreeUpdate,
     ) -> Result<(), String> {
-        let provider = tessera_semantic::SemanticProviderId::new(principal).map_err(str::to_owned)?;
+        let provider =
+            tessera_semantic::SemanticProviderId::new(principal).map_err(str::to_owned)?;
         let (reply, response) = std::sync::mpsc::channel();
         self.semantic_tree_updates
             .lock()
@@ -1013,7 +1016,8 @@ impl tessera_ipc::Handler for LiveState {
         principal: &str,
         timeout: std::time::Duration,
     ) -> Result<Option<tessera_semantic::SemanticActionRequest>, String> {
-        let provider = tessera_semantic::SemanticProviderId::new(principal).map_err(str::to_owned)?;
+        let provider =
+            tessera_semantic::SemanticProviderId::new(principal).map_err(str::to_owned)?;
         let session_snapshot = self.actor_sessions.lock().unwrap().authorize(session)?;
         if session_snapshot.principal.as_deref() != Some(principal) {
             return Err("semantic provider principal does not own the Actor session".into());
@@ -1058,7 +1062,8 @@ impl tessera_ipc::Handler for LiveState {
         request_id: u64,
         result: Result<(), String>,
     ) -> Result<(), String> {
-        let provider = tessera_semantic::SemanticProviderId::new(principal).map_err(str::to_owned)?;
+        let provider =
+            tessera_semantic::SemanticProviderId::new(principal).map_err(str::to_owned)?;
         let session_snapshot = self.actor_sessions.lock().unwrap().authorize(session)?;
         if session_snapshot.principal.as_deref() != Some(principal) {
             return Err("semantic provider principal does not own the Actor session".into());
@@ -1380,7 +1385,11 @@ impl tessera_ipc::Handler for LiveState {
             pregranted.to_vec(),
             gated.to_vec(),
         )?;
-        self.auth_event(None, principal, tessera_ipc::AgentAuthAction::CeilingChanged);
+        self.auth_event(
+            None,
+            principal,
+            tessera_ipc::AgentAuthAction::CeilingChanged,
+        );
         Ok(())
     }
 

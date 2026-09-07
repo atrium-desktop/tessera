@@ -23,7 +23,6 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-
 #[derive(Parser, Debug)]
 pub struct CheckBootstrapAdmissionArgs {}
 
@@ -98,9 +97,7 @@ fn declared_bin_paths(pkg: &str, crate_dir: &Path) -> Vec<PathBuf> {
             in_bin = false;
             continue;
         }
-        if in_bin
-            && let Some(rest) = line.trim().strip_prefix("path = ")
-        {
+        if in_bin && let Some(rest) = line.trim().strip_prefix("path = ") {
             let rel = rest.trim_matches('"');
             paths.push(crate_dir.join(rel));
         }
@@ -121,12 +118,16 @@ fn bootstrap_items(root: &Path) -> Result<BTreeSet<String>> {
         if !seen.insert(path.clone()) {
             continue;
         }
-        let text = fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        let text =
+            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         let dir = path.parent().unwrap_or(Path::new("."));
         for line in text.lines() {
             // Declaration following: `mod <name>;` pulls in a sibling file.
             let trimmed = line.trim();
-            if let Some(name) = trimmed.strip_prefix("mod ").and_then(|s| s.strip_suffix(';')) {
+            if let Some(name) = trimmed
+                .strip_prefix("mod ")
+                .and_then(|s| s.strip_suffix(';'))
+            {
                 if !trimmed.starts_with("pub") || trimmed.starts_with("pub mod") {
                     // Both `mod x;` and `pub mod x;` declare a file.
                 }

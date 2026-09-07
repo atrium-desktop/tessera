@@ -278,7 +278,10 @@ fn enumerate_outputs_returns_the_lean_capture_addressing_form() {
     assert_eq!(outputs[0].rect, tessera_model::Rect::new(0, 0, 1920, 1080));
     assert_eq!(outputs[1].connector, "DP-1");
     assert!(!outputs[1].primary);
-    assert_eq!(outputs[1].rect, tessera_model::Rect::new(1920, 0, 2560, 1440));
+    assert_eq!(
+        outputs[1].rect,
+        tessera_model::Rect::new(1920, 0, 2560, 1440)
+    );
 
     // GetOutputs keeps answering with the rich geometry/mode form.
     let rich = client.outputs().expect("get outputs");

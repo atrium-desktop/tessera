@@ -8,9 +8,9 @@ use super::*;
 // the server, shell, notifications, and wallpaper, and deciding what the
 // frame's output and backdrop damage are.
 pub(super) use tessera_presentation::{
-    composite_repaint_for_slot, logical_rects_to_frame, record_composite_present,
-    union_frame_damage, AssessedFrameDamage, ClientDamage, ClientDamageTracker, DamageAssessment,
-    FrameDamage, SurfaceDamageFrame,
+    AssessedFrameDamage, ClientDamage, ClientDamageTracker, DamageAssessment, FrameDamage,
+    SurfaceDamageFrame, composite_repaint_for_slot, logical_rects_to_frame,
+    record_composite_present, union_frame_damage,
 };
 
 /// Wall-clock minute, used to keep the status-bar clock honest: chrome draws

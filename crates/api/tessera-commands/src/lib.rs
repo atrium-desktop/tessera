@@ -17,6 +17,8 @@ pub use error::CliError;
 
 use std::path::{Path, PathBuf};
 
+use clap::{CommandFactory, Parser};
+use serde::Serialize;
 use tessera_ipc::{
     Client, ConnectionCapabilities, Event, InteractionDomainAction, InteractionDomainActionResult,
 };
@@ -24,8 +26,6 @@ use tessera_model::interaction_domain::{
     InteractionDomainId, InteractionDomainMutation, InteractionDomainSnapshot,
     InteractionDomainState, SeatCapabilities, VirtualOutput,
 };
-use clap::{CommandFactory, Parser};
-use serde::Serialize;
 
 use self::cli::Command as Cmd;
 
@@ -682,9 +682,12 @@ fn dispatch_permissions(
             }))
         }
         PermissionsCmd::Revoke { principal, op } => {
-            let mut client =
-                Client::connect_scoped(socket, control_caps(), tessera_ipc::LOCAL_AGENT_ADMIN_SCOPE)
-                    .map_err(connect_err)?;
+            let mut client = Client::connect_scoped(
+                socket,
+                control_caps(),
+                tessera_ipc::LOCAL_AGENT_ADMIN_SCOPE,
+            )
+            .map_err(connect_err)?;
             client.revoke_agent_grant(&principal, op).map_err(io_err)?;
             Ok(receipt(
                 format!("revoked the {op:?} grant for {principal}"),
@@ -692,16 +695,22 @@ fn dispatch_permissions(
             ))
         }
         PermissionsCmd::Forget { principal } => {
-            let mut client =
-                Client::connect_scoped(socket, control_caps(), tessera_ipc::LOCAL_AGENT_ADMIN_SCOPE)
-                    .map_err(connect_err)?;
+            let mut client = Client::connect_scoped(
+                socket,
+                control_caps(),
+                tessera_ipc::LOCAL_AGENT_ADMIN_SCOPE,
+            )
+            .map_err(connect_err)?;
             client.forget_agent_principal(&principal).map_err(io_err)?;
             Ok(receipt(format!("forgot principal {principal}"), json))
         }
         PermissionsCmd::Rename { principal, label } => {
-            let mut client =
-                Client::connect_scoped(socket, control_caps(), tessera_ipc::LOCAL_AGENT_ADMIN_SCOPE)
-                    .map_err(connect_err)?;
+            let mut client = Client::connect_scoped(
+                socket,
+                control_caps(),
+                tessera_ipc::LOCAL_AGENT_ADMIN_SCOPE,
+            )
+            .map_err(connect_err)?;
             client
                 .rename_agent_principal(&principal, label.as_deref())
                 .map_err(io_err)?;
@@ -716,9 +725,12 @@ fn dispatch_permissions(
             pregrant,
             gated,
         } => {
-            let mut client =
-                Client::connect_scoped(socket, control_caps(), tessera_ipc::LOCAL_AGENT_ADMIN_SCOPE)
-                    .map_err(connect_err)?;
+            let mut client = Client::connect_scoped(
+                socket,
+                control_caps(),
+                tessera_ipc::LOCAL_AGENT_ADMIN_SCOPE,
+            )
+            .map_err(connect_err)?;
             client
                 .set_agent_ceiling(&principal, pregrant, gated)
                 .map_err(io_err)?;
@@ -732,9 +744,12 @@ fn dispatch_permissions(
             pregrant,
             gated,
         } => {
-            let mut client =
-                Client::connect_scoped(socket, control_caps(), tessera_ipc::LOCAL_AGENT_ADMIN_SCOPE)
-                    .map_err(connect_err)?;
+            let mut client = Client::connect_scoped(
+                socket,
+                control_caps(),
+                tessera_ipc::LOCAL_AGENT_ADMIN_SCOPE,
+            )
+            .map_err(connect_err)?;
             let (principal, credential) = client
                 .register_agent(label.as_deref(), pregrant, gated)
                 .map_err(io_err)?;
@@ -1477,8 +1492,8 @@ pub fn format_event(ev: &Event) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tessera_model::notify::Notification;
     use std::str::FromStr;
+    use tessera_model::notify::Notification;
 
     #[test]
     fn format_event_windows_and_workspace() {

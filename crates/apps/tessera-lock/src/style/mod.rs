@@ -12,8 +12,8 @@ pub mod cinematic;
 pub mod common;
 pub(crate) mod qr;
 
-use tessera_config::LockScreenStyle;
 use flux::{Canvas, GradientStop};
+use tessera_config::LockScreenStyle;
 
 pub use common::FramePresentation;
 pub(crate) use common::painter_for;

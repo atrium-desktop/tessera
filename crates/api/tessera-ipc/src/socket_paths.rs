@@ -61,7 +61,9 @@ impl SocketIdentity {
 
     fn matches(&self, path: &Path) -> bool {
         path.symlink_metadata().is_ok_and(|metadata| {
-            metadata.file_type().is_socket() && metadata.dev() == self.dev && metadata.ino() == self.ino
+            metadata.file_type().is_socket()
+                && metadata.dev() == self.dev
+                && metadata.ino() == self.ino
         })
     }
 }
@@ -240,7 +242,7 @@ mod tests {
     fn unobserved_guard_never_unlinks() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("s.sock");
-        let mut guard = SocketGuard::bind(path.clone()).unwrap();
+        let guard = SocketGuard::bind(path.clone()).unwrap();
         let _listener = bind_real_socket(&path);
         // No observe_bound(): the guard never claimed this socket.
         drop(guard);

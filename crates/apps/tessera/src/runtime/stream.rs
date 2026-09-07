@@ -39,10 +39,10 @@ use super::*;
 // Stream value layer re-exports: every bin module reaches these through the
 // runtime's glob chain, exactly as when they lived here.
 pub(super) use tessera_presentation::{
-    blit_presented_frame, crop_stream_frame, damage_in_target, enumerate_slot_ring,
-    full_target_damage, output_cursor_blit, resolve_output_rect, CaptureCursorState,
-    DmabufCapture, OutputStreams, PresentedFrameRef, StreamCursorBlit, StreamPainter,
-    WindowShmTarget, WindowStream, WindowStreamDrive, WindowStreamStage, WindowTreeGeometry,
+    CaptureCursorState, DmabufCapture, OutputStreams, PresentedFrameRef, StreamCursorBlit,
+    StreamPainter, WindowShmTarget, WindowStream, WindowStreamDrive, WindowStreamStage,
+    WindowTreeGeometry, blit_presented_frame, crop_stream_frame, damage_in_target,
+    enumerate_slot_ring, full_target_damage, output_cursor_blit, resolve_output_rect,
 };
 
 /// One control message from an IPC connection thread, applied on the main
@@ -554,9 +554,7 @@ impl CompositorRuntime {
         let frame_size = self.surface.size();
         let scale = output_render_scale(&self.server, &self.host);
         let outputs = self.server.output_infos();
-        let actions = self
-            .streams
-            .reconcile_geometry(frame_size, scale, &outputs);
+        let actions = self.streams.reconcile_geometry(frame_size, scale, &outputs);
         if actions.is_empty() {
             return;
         }
@@ -623,8 +621,7 @@ impl CompositorRuntime {
             server,
             cursor_cache,
         };
-        let mut resolve_geometry =
-            |window| window_tree_geometry(server, window);
+        let mut resolve_geometry = |window| window_tree_geometry(server, window);
         let mut tree_generations = |window| window_tree_generations(server, window);
         let effects = self.streams.drive_window_streams(WindowStreamDrive {
             now,
@@ -641,9 +638,7 @@ impl CompositorRuntime {
             return;
         };
         for (stream_id, width, height) in &effects.frozen {
-            log::info!(
-                "stream {stream_id}: target geometry changed to {width}x{height}; freezing"
-            );
+            log::info!("stream {stream_id}: target geometry changed to {width}x{height}; freezing");
             ipc.stream_geometry_changed(*stream_id, *width, *height);
             self.streams.freeze(*stream_id);
         }
@@ -811,17 +806,18 @@ impl CompositorRuntime {
                 let Some((_, size)) = self.streams.target_of(stream_id) else {
                     return;
                 };
-                let payload = tessera_ipc::StreamFramePayload::Pixels(tessera_ipc::StreamPixelFrame {
-                    stream_id,
-                    sequence,
-                    width: frame.width,
-                    height: frame.height,
-                    stride: frame.width * 4,
-                    format: tessera_ipc::StreamPixelFormat::Bgra8,
-                    damage: damage_in_target(&damage, size),
-                    dropped,
-                    pixels: frame.bgra,
-                });
+                let payload =
+                    tessera_ipc::StreamFramePayload::Pixels(tessera_ipc::StreamPixelFrame {
+                        stream_id,
+                        sequence,
+                        width: frame.width,
+                        height: frame.height,
+                        stride: frame.width * 4,
+                        format: tessera_ipc::StreamPixelFormat::Bgra8,
+                        damage: damage_in_target(&damage, size),
+                        dropped,
+                        pixels: frame.bgra,
+                    });
                 let delivered = ipc.push_stream_frame(payload);
                 self.streams.record_frame(stream_id, now, delivered);
                 if let Some(stream) = self.streams.streams.get_mut(&stream_id) {
@@ -848,8 +844,8 @@ mod dmabuf_tests {
     use super::*;
     use std::os::fd::AsRawFd;
     use tessera_presentation::{
-        render_window_stream_dmabuf, render_window_stream_shm, DmabufStream, LIVENESS_INTERVAL,
-        SlotRing, STREAM_SLOT_COUNT,
+        DmabufStream, STREAM_SLOT_COUNT, SlotRing, render_window_stream_dmabuf,
+        render_window_stream_shm,
     };
 
     /// End-to-end window-stream render exercise (ADR-0127): the SHM target
@@ -877,7 +873,6 @@ mod dmabuf_tests {
             return;
         };
         let mut renderer = tessera_render::Renderer::new();
-        let mut cursor_cache = cursor::CursorCache::default();
         let scheme = tessera_model::settings::ColorScheme::Dark;
         let geometry = WindowTreeGeometry {
             window: tessera_model::window::WindowId(1),
@@ -923,7 +918,10 @@ mod dmabuf_tests {
             if target.surface.read_pixels_ready().unwrap_or(false) {
                 break;
             }
-            assert!(std::time::Instant::now() < deadline, "window readback never completed");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "window readback never completed"
+            );
             std::thread::sleep(Duration::from_millis(5));
         }
         let capture = read_captured_pixels_owned(

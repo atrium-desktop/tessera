@@ -9,12 +9,14 @@
 mod worker;
 
 pub use tessera_capture::{
-    CapturedPixels, CaptureCursor, PendingReadback, StreamPixels, clamp_logical_region,
-    encode_rgba_capture, flux_last_error_detail, logical_rect_to_physical,
-    read_captured_pixels, read_captured_pixels_owned, request_frame_readback,
-    screenshot_uri_list, stream_pixels,
+    CaptureCursor, PendingReadback, StreamPixels, clamp_logical_region, flux_last_error_detail,
+    logical_rect_to_physical, read_captured_pixels, read_captured_pixels_owned,
+    request_frame_readback, screenshot_uri_list,
 };
+// Test-only capture helpers (BGRA conversion and PNG encoding assertions).
+#[cfg(test)]
+pub(crate) use tessera_capture::{encode_rgba_capture, stream_pixels};
 pub(super) use worker::{
-    CaptureCompletion, CaptureTarget, CaptureWorker, PendingCapture,
-    queue_captured_pixels, refuse_capture_target,
+    CaptureCompletion, CaptureTarget, CaptureWorker, PendingCapture, queue_captured_pixels,
+    refuse_capture_target,
 };

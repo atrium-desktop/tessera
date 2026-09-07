@@ -8,12 +8,12 @@
 //! Both implement [`Backend`], so the server, renderer, and shell are written
 //! once against the abstraction.
 
+use std::time::Duration;
 use tessera_model::Size;
 use tessera_model::input::{
     InputEvent, InputStatus, PointerGestureEvent, TextInputEvent, TextInputState,
 };
 use tessera_model::output::{OutputGeometry, OutputInfo, OutputMode, Scale};
-use std::time::Duration;
 
 /// A presentation + input target the compositor drives each frame.
 pub trait Backend {

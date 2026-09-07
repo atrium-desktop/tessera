@@ -1,8 +1,8 @@
 //! Modal dialog scaffolding, standard action buttons, and keyboard traps.
 
+use lens::{Frame, LayoutOpts, Rect};
 use tessera_design::{Design, materials};
 use tessera_model::input::KeyAction;
-use lens::{Frame, LayoutOpts, Rect};
 
 use crate::geom::contains;
 

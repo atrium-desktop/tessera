@@ -390,9 +390,7 @@ pub struct StreamPixels {
 /// cursor modes make a shared pre-blend incorrect, and one extra frame copy
 /// here keeps the blend off the frame thread. Delivery serves each stream
 /// the variant its mode negotiated.
-pub fn stream_pixels(
-    capture: CapturedPixels,
-) -> Result<StreamPixels, String> {
+pub fn stream_pixels(capture: CapturedPixels) -> Result<StreamPixels, String> {
     let CapturedPixels {
         width,
         height,

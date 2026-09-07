@@ -14,8 +14,8 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-use tessera_model::interaction_domain::InteractionDomainId;
 use serde::{Deserialize, Serialize};
+use tessera_model::interaction_domain::InteractionDomainId;
 
 const STATE_SCHEMA: u32 = 2;
 

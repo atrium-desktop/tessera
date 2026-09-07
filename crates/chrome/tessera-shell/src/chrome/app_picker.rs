@@ -14,7 +14,11 @@ use std::time::{Duration, Instant};
 
 use lens::{Color, Frame, Input, LayoutOpts, Rect};
 
-use tessera_chrome::{AppCatalog, AppPickParams, BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, LiquidGlassFocus, LiquidGlassRegion, Localizer, Reserved, ellipsize, modal_scrim_backdrop};
+use tessera_chrome::{
+    AppCatalog, AppPickParams, BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate,
+    CursorShape, LiquidGlassFocus, LiquidGlassRegion, Localizer, Reserved, ellipsize,
+    modal_scrim_backdrop,
+};
 use tessera_design::{Design, GlassRole, materials, themes};
 use tessera_model::input::{KeyAction, KeyChar, key_action};
 use tessera_model::window::Window;
@@ -39,7 +43,6 @@ const BACKDROP_BLUR_SIGMA: f32 = DEFAULT_BACKDROP_BLUR_SIGMA;
 const DOUBLE_CLICK: Duration = DEFAULT_DOUBLE_CLICK_TIMEOUT;
 /// Rows scrolled per wheel detent over the list.
 const WHEEL_ROWS: f32 = DEFAULT_WHEEL_SCROLL_ROWS;
-
 
 /// One candidate row: the requested id plus its catalog-resolved display
 /// name (the id stem when the catalog has no entry for it).

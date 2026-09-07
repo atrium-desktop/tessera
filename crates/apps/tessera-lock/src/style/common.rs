@@ -15,9 +15,9 @@
 
 use std::time::Instant;
 
+use lens::{Align, Color, LayoutOpts, Theme};
 use tessera_config::LockScreenStyle;
 use tessera_lock::LockState;
-use lens::{Align, Color, LayoutOpts, Theme};
 
 use crate::profile::Profile;
 use crate::render::{AvatarStatus, LockBackground, LockPalette, LockVisual};

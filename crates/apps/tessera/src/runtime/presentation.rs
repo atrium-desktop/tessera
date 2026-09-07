@@ -692,18 +692,19 @@ impl CompositorRuntime {
                 // renderer. The images stay valid for this frame: the filter
                 // slot is not applied again until the next rotation, after
                 // this frame submits (ADR-0074 lifetime).
-                let soft_shadow_entries: Vec<tessera_render::SoftShadowEntry<'_>> = rendered_shadows
-                    .iter()
-                    .map(|shadow| tessera_render::SoftShadowEntry {
-                        window: shadow.window,
-                        raw: shadow.raw,
-                        _borrow: std::marker::PhantomData,
-                        x: shadow.x,
-                        y: shadow.y,
-                        w: shadow.w,
-                        h: shadow.h,
-                    })
-                    .collect();
+                let soft_shadow_entries: Vec<tessera_render::SoftShadowEntry<'_>> =
+                    rendered_shadows
+                        .iter()
+                        .map(|shadow| tessera_render::SoftShadowEntry {
+                            window: shadow.window,
+                            raw: shadow.raw,
+                            _borrow: std::marker::PhantomData,
+                            x: shadow.x,
+                            y: shadow.y,
+                            w: shadow.w,
+                            h: shadow.h,
+                        })
+                        .collect();
                 let soft_shadow_layer =
                     (!soft_shadow_entries.is_empty()).then_some(tessera_render::SoftShadowLayer {
                         entries: soft_shadow_entries.as_slice(),
@@ -1186,7 +1187,11 @@ impl CompositorRuntime {
                                 &mut self.renderer,
                                 &self.server,
                                 render_geometry,
-                                if in_freeze_target { None } else { output_render_area },
+                                if in_freeze_target {
+                                    None
+                                } else {
+                                    output_render_area
+                                },
                                 overview_active,
                                 overview_progress,
                                 window_switcher.as_ref(),
@@ -1255,7 +1260,11 @@ impl CompositorRuntime {
                                 &mut self.renderer,
                                 &self.server,
                                 render_geometry,
-                                if in_freeze_target { None } else { output_render_area },
+                                if in_freeze_target {
+                                    None
+                                } else {
+                                    output_render_area
+                                },
                                 overview_active,
                                 overview_progress,
                                 window_switcher.as_ref(),
@@ -1883,7 +1892,9 @@ impl CompositorRuntime {
                     && !self.shell.confirm_pick_active()
                     && let Some(pick) = self.pending_confirm_pick.take()
                 {
-                    let _ = pick.reply.send(Ok(tessera_chrome::ConfirmAnswer::Cancelled));
+                    let _ = pick
+                        .reply
+                        .send(Ok(tessera_chrome::ConfirmAnswer::Cancelled));
                 }
 
                 // Destructive system actions parked behind the same consent
@@ -2024,7 +2035,9 @@ impl CompositorRuntime {
                         tessera_chrome::WindowAction::SetAlwaysOnTop(id, on_top) => {
                             tessera_ipc::Command::SetAlwaysOnTop { id, on_top }
                         }
-                        tessera_chrome::WindowAction::Close(id) => tessera_ipc::Command::Close { id },
+                        tessera_chrome::WindowAction::Close(id) => {
+                            tessera_ipc::Command::Close { id }
+                        }
                     };
                     apply_chrome_window_command(
                         &mut self.server,

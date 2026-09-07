@@ -2,8 +2,8 @@
 
 use std::time::Duration;
 
-use tessera_design::{Design, materials};
 use lens::{Align, Color, LayoutOpts};
+use tessera_design::{Design, materials};
 
 /// Standard duration threshold for classifying consecutive presses as a double-click.
 pub const DEFAULT_DOUBLE_CLICK_TIMEOUT: Duration = Duration::from_millis(400);

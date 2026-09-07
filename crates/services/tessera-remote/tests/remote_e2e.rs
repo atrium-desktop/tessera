@@ -1,9 +1,9 @@
 //! End-to-end integration tests for UIP remote sessions, client SDK, and dead-man drain.
 
+use std::time::Duration;
 use tessera_model::interaction_domain::{InteractionDomainId, InteractionPrincipalId, SeatId};
 use tessera_model::uip::*;
 use tessera_remote::{AuthToken, RemoteSession, SessionError, SessionLifecycle, UipClient};
-use std::time::Duration;
 
 #[test]
 fn test_remote_session_lifecycle_and_drain() {

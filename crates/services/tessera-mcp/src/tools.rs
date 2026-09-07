@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use serde::Deserialize;
+use serde::de::DeserializeOwned;
+use serde_json::{Value, json};
 use tessera_ipc::{
     ActorCapability, Client, Command, ConnectionCapabilities, Effect, InteractionDomainAction,
     InteractionDomainActionResult, JournalMutation, ObservationToken, Scope,
@@ -14,9 +17,6 @@ use tessera_model::semantic::{SemanticActionIntent, SemanticObjectId};
 use tessera_model::window::WindowId;
 use tessera_model::workspace::{LaunchPlacement, Switch, WorkspaceId};
 use tessera_model::{Point, Rect};
-use serde::Deserialize;
-use serde::de::DeserializeOwned;
-use serde_json::{Value, json};
 
 use crate::BridgeConfig;
 use tessera_ipc_client::{InteractionDomainSession, ManagedInteractionDomain};
@@ -944,7 +944,9 @@ impl tessera_ipc_client::ClassifyError for PlatformError {
     fn is_transport_failure(&self) -> bool {
         match self {
             PlatformError::Ipc(error) => tessera_ipc_client::is_transport_failure(error),
-            PlatformError::Connect { source, .. } => tessera_ipc_client::is_transport_failure(source),
+            PlatformError::Connect { source, .. } => {
+                tessera_ipc_client::is_transport_failure(source)
+            }
             PlatformError::InteractionDomain(tessera_ipc_client::SessionError::Io(error)) => {
                 tessera_ipc_client::is_transport_failure(error)
             }

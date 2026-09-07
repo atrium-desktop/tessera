@@ -1,7 +1,7 @@
 //! Settings, control panels, and form scaffolding.
 
-use tessera_design::{Design, materials};
 use lens::{Align, Frame, LayoutOpts};
+use tessera_design::{Design, materials};
 
 /// Returns standard layout options for a settings card surface.
 pub fn settings_card_layout(design: &Design) -> LayoutOpts {

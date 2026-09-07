@@ -20,16 +20,16 @@ use std::ffi::c_void;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use lens::{Align, Color, Frame, Icon, Input, LayoutOpts, Rect};
 use tessera_design::materials::{chrome_place, sized, sized_fill};
 use tessera_design::{Design, GlassRole};
 use tessera_model::notify::{Notification, NotificationQueue};
 use tessera_model::window::{SpaceUse, Window};
 use tessera_model::workspace::WorkspaceSnapshot;
-use lens::{Align, Color, Frame, Icon, Input, LayoutOpts, Rect};
 
 use tessera_chrome::{
-    BackdropRegion, Chrome, ChromeEvents, ChromeUpdate, HUD_HEIGHT, IconSet,
-    LiquidGlassRegion, Localizer, Message, SystemStatus, ellipsize,
+    BackdropRegion, Chrome, ChromeEvents, ChromeUpdate, HUD_HEIGHT, IconSet, LiquidGlassRegion,
+    Localizer, Message, SystemStatus, ellipsize,
 };
 use tessera_model::system::{BatteryStatus, NetworkState};
 
@@ -935,7 +935,11 @@ impl Chrome for Hud {
             || (self.workspace_position - self.workspace_target).abs() > 0.002
     }
 
-    fn damage_region(&self, _windows: &[Window], display: (f32, f32)) -> Option<tessera_model::Rect> {
+    fn damage_region(
+        &self,
+        _windows: &[Window],
+        display: (f32, f32),
+    ) -> Option<tessera_model::Rect> {
         // Every animated HUD element (chip fades, the workspace pager
         // slide) lives inside the top status band; one chip tall is the
         // whole band regardless of how many chips are visible.

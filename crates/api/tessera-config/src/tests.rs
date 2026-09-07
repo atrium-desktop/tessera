@@ -784,7 +784,11 @@ fn ipc_scope_executables_parse_as_a_per_scope_replacement() {
     );
     // Scopes absent from the table are not in the overlay; they keep the
     // compiled-in defaults instead of being refused.
-    assert!(!cfg.ipc.scope_executables.contains_key("tessera-agent-admin"));
+    assert!(
+        !cfg.ipc
+            .scope_executables
+            .contains_key("tessera-agent-admin")
+    );
 }
 
 #[test]
@@ -975,7 +979,10 @@ fn gesture_entry_resolves_to_gesture_binding() {
     assert!(errs.is_empty(), "{errs:?}");
     assert_eq!(binds.len(), 1);
     assert_eq!(binds[0].fingers, 4);
-    assert_eq!(binds[0].axis, tessera_model::gesture::GestureAxis::Horizontal);
+    assert_eq!(
+        binds[0].axis,
+        tessera_model::gesture::GestureAxis::Horizontal
+    );
     assert_eq!(
         binds[0].action,
         tessera_model::gesture::GestureAction::WorkspaceSwitch
@@ -1530,7 +1537,10 @@ fn config_store_persists_output_atomically_and_keeps_unrelated_fields() {
     let policy = config.output_policies()["HDMI-A-1"];
     assert_eq!(policy.scale, Some(1.5));
     assert_eq!(policy.mode.unwrap().refresh_hz, Some(144));
-    assert_eq!(policy.position, Some(tessera_model::Point { x: 120, y: -40 }));
+    assert_eq!(
+        policy.position,
+        Some(tessera_model::Point { x: 120, y: -40 })
+    );
     assert!(policy.primary);
     assert_eq!(policy.transform, Some(tessera_model::Transform::Rotate180));
     assert!(

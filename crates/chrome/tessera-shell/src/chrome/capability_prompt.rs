@@ -16,7 +16,11 @@ use std::collections::BTreeSet;
 
 use lens::{Color, Frame, Input, LayoutOpts, Rect};
 
-use tessera_chrome::{BackdropRegion, CapabilityFamily, CapabilityPickParams, CapabilityPickResult, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, LiquidGlassRegion, Localizer, Reserved, ellipsize, modal_scrim_backdrop};
+use tessera_chrome::{
+    BackdropRegion, CapabilityFamily, CapabilityPickParams, CapabilityPickResult, Chrome,
+    ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, LiquidGlassRegion, Localizer, Reserved,
+    ellipsize, modal_scrim_backdrop,
+};
 use tessera_design::{Design, GlassRole, materials, themes};
 use tessera_model::input::{KeyAction, KeyChar, key_action};
 use tessera_model::window::Window;
@@ -46,10 +50,6 @@ const WHEEL_ROWS: f32 = 3.0;
 /// (ADR-0088); the row shows the dagger, the legend explains it once.
 const GATED_MARK: &str = "†";
 const GATED_LEGEND: &str = "† confirmed again on first use";
-
-
-
-
 
 /// The resolved geometry of the panel for one frame.
 #[derive(Debug, Clone)]

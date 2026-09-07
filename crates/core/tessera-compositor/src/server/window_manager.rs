@@ -1038,8 +1038,8 @@ mod window_switcher_tests {
 
     #[test]
     fn closing_the_selection_chooses_the_neighbour_in_the_last_direction() {
-        use tessera_model::window::WindowId;
         use std::collections::HashSet;
+        use tessera_model::window::WindowId;
 
         let eligible = HashSet::from([WindowId(1), WindowId(3), WindowId(4)]);
         let mut forward = WindowSwitcherSession {
@@ -1061,8 +1061,8 @@ mod window_switcher_tests {
 
     #[test]
     fn refreshing_a_session_never_inserts_new_windows() {
-        use tessera_model::window::WindowId;
         use std::collections::HashSet;
+        use tessera_model::window::WindowId;
 
         let mut session = WindowSwitcherSession {
             order: vec![WindowId(1), WindowId(2)],

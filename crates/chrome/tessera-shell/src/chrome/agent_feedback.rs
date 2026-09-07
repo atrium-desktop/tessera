@@ -21,6 +21,7 @@
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
+use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 use tessera_design::Design;
 use tessera_design::materials::{chrome_place, surface_layout};
 use tessera_model::Point;
@@ -29,10 +30,12 @@ use tessera_model::interaction_domain::{
 };
 use tessera_model::window::{Window, WindowId};
 use tessera_model::workspace::WorkspaceSnapshot;
-use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 
-use crate::{HUD_HEIGHT};
-use tessera_chrome::{AgentActivity, AgentInputKind, Chrome, ChromeEvents, ChromeUpdate, Localizer, Message, ellipsize};
+use crate::HUD_HEIGHT;
+use tessera_chrome::{
+    AgentActivity, AgentInputKind, Chrome, ChromeEvents, ChromeUpdate, Localizer, Message,
+    ellipsize,
+};
 
 const HOLD_FOR: Duration = Duration::from_secs(4);
 const FADE_FOR: Duration = Duration::from_secs(2);
@@ -345,7 +348,11 @@ impl Chrome for AgentFeedback {
         })
     }
 
-    fn damage_region(&self, windows: &[Window], display: (f32, f32)) -> Option<tessera_model::Rect> {
+    fn damage_region(
+        &self,
+        windows: &[Window],
+        display: (f32, f32),
+    ) -> Option<tessera_model::Rect> {
         let now = Instant::now();
         let display = (display.0.max(1.0), display.1.max(1.0));
         // The fade animates the whole feedback overlay (mask, sprites, label,

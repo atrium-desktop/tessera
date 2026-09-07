@@ -1,9 +1,9 @@
 //! Remote actor session management and dead-man fail-safe pipeline.
 
 use crate::crypto::AuthToken;
+use std::time::Duration;
 use tessera_model::interaction_domain::{InteractionDomainId, InteractionPrincipalId, SeatId};
 use tessera_model::uip::{InteractionFrame, MonotonicTimestampUs, RemoteSeatTracker};
-use std::time::Duration;
 use thiserror::Error;
 
 #[derive(Debug, Error)]

@@ -262,7 +262,9 @@ fn pick_target_requires_control_and_an_explicit_scope_op() {
         .capture_security_active
         .store(false, Ordering::Release);
     let mut scoped = Client::connect_scoped(&path, requested, "pick").expect("scoped connect");
-    let err = scoped.pick_target(tessera_ipc::PickKind::Region).unwrap_err();
+    let err = scoped
+        .pick_target(tessera_ipc::PickKind::Region)
+        .unwrap_err();
     assert!(err.to_string().contains("locked or inactive"), "{err}");
 }
 
