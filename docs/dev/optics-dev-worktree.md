@@ -251,7 +251,7 @@ in `projects/tessera/Cargo.toml` to the new tag `vX.Y.Z`:
 
 ```bash
 # In projects/tessera/ (primary worktree, branch main):
-scripts/optics-release-ref.sh
+cargo run -p xtask -- optics
 ```
 
 Regenerate the canonical `Cargo.lock` directly in the primary worktree.

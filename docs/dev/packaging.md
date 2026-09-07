@@ -9,7 +9,7 @@ not install Tessera; see [Setup](setup.md) instead.
 Tessera has two separate Optics dependency surfaces:
 
 - `Cargo.lock` pins the Rust bindings to the Optics tag reported by
-  `scripts/optics-release-ref.sh`.
+  `cargo run -p xtask -- optics --tag-only`.
 - The native `flux`, `flux-scene-graph`, `lens`, and `iris` libraries are
   system build and runtime dependencies discovered through `pkg-config` and
   the dynamic loader.
