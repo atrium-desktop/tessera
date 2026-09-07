@@ -2010,7 +2010,11 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "tessera-agent-broker",
  "tessera-backend",
+ "tessera-bootstrap",
+ "tessera-capture",
+ "tessera-chrome",
  "tessera-command-panel",
  "tessera-commands",
  "tessera-compositor",
@@ -2019,10 +2023,11 @@ dependencies = [
  "tessera-desktop-entries",
  "tessera-dock",
  "tessera-hud",
+ "tessera-i18n",
  "tessera-ipc",
  "tessera-launcher",
- "tessera-logging",
  "tessera-model",
+ "tessera-presentation",
  "tessera-prism",
  "tessera-render",
  "tessera-security",
@@ -2037,6 +2042,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "tessera-agent-broker"
+version = "0.0.57"
+dependencies = [
+ "libc",
+ "log",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tessera-ipc",
+ "tessera-security",
+ "thiserror 2.0.20",
+ "zeroize",
+]
+
+[[package]]
 name = "tessera-atspi"
 version = "0.0.57"
 dependencies = [
@@ -2045,12 +2066,32 @@ dependencies = [
  "log",
  "serde_json",
  "sha2",
+ "tessera-bootstrap",
  "tessera-ipc",
  "tessera-ipc-client",
- "tessera-logging",
  "tessera-model",
  "tessera-semantic",
  "zbus",
+]
+
+[[package]]
+name = "tessera-avatar"
+version = "0.0.57"
+dependencies = [
+ "fastrand",
+ "flux",
+ "flux-scene-graph",
+ "flux-scene-graph-sys",
+ "flux-sys",
+ "image",
+ "lens",
+ "libc",
+ "log",
+ "notify",
+ "tempfile",
+ "tessera-icons",
+ "tessera-model",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -2073,6 +2114,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "tessera-bootstrap"
+version = "0.0.57"
+dependencies = [
+ "log",
+ "tessera-ipc",
+ "thiserror 2.0.20",
+ "tracing-log",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "tessera-capture"
+version = "0.0.57"
+dependencies = [
+ "flux",
+ "flux-sys",
+ "image",
+ "log",
+ "tessera-model",
+ "tessera-presentation",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "tessera-chrome"
+version = "0.0.57"
+dependencies = [
+ "lens",
+ "log",
+ "tessera-design",
+ "tessera-i18n",
+ "tessera-model",
+ "tessera-ui",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "tessera-command-panel"
 version = "0.0.57"
 dependencies = [
@@ -2082,10 +2160,11 @@ dependencies = [
  "lens-sys",
  "libc",
  "log",
+ "tessera-avatar",
+ "tessera-chrome",
  "tessera-design",
  "tessera-model",
  "tessera-settings",
- "tessera-shell",
  "tessera-tray",
  "tessera-ui",
  "zbus",
@@ -2118,6 +2197,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tessera-ipc",
  "tessera-model",
  "tessera-semantic",
  "tessera-wayland-protocols",
@@ -2152,10 +2232,10 @@ dependencies = [
 name = "tessera-desktop-entries"
 version = "0.0.57"
 dependencies = [
- "dirs",
  "log",
  "rust-ini",
  "tempfile",
+ "tessera-icons",
  "tessera-model",
  "thiserror 2.0.20",
 ]
@@ -2166,9 +2246,10 @@ version = "0.0.57"
 dependencies = [
  "lens",
  "lens-sys",
+ "tessera-chrome",
  "tessera-design",
+ "tessera-i18n",
  "tessera-model",
- "tessera-shell",
  "tessera-ui",
 ]
 
@@ -2181,11 +2262,29 @@ dependencies = [
  "lens-sys",
  "libc",
  "log",
+ "tessera-chrome",
  "tessera-design",
+ "tessera-i18n",
  "tessera-model",
- "tessera-shell",
  "tessera-tray",
  "tessera-ui",
+]
+
+[[package]]
+name = "tessera-i18n"
+version = "0.0.57"
+dependencies = [
+ "serde",
+ "toml",
+]
+
+[[package]]
+name = "tessera-icons"
+version = "0.0.57"
+dependencies = [
+ "dirs",
+ "rust-ini",
+ "tempfile",
 ]
 
 [[package]]
@@ -2194,8 +2293,8 @@ version = "0.0.57"
 dependencies = [
  "libc",
  "log",
+ "tessera-bootstrap",
  "tessera-ipc",
- "tessera-logging",
  "tessera-model",
  "wayland-client",
  "wayland-protocols",
@@ -2209,6 +2308,7 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+ "tempfile",
  "tessera-model",
  "tessera-security",
  "tessera-semantic",
@@ -2254,24 +2354,16 @@ dependencies = [
  "log",
  "pkg-config",
  "smithay-client-toolkit",
+ "tessera-avatar",
+ "tessera-bootstrap",
  "tessera-config",
  "tessera-design",
- "tessera-logging",
- "tessera-shell",
  "tessera-wallpaper",
  "thiserror 2.0.20",
  "wayland-client",
  "wayland-protocols",
  "xkbcommon 0.9.0",
  "zeroize",
-]
-
-[[package]]
-name = "tessera-logging"
-version = "0.0.57"
-dependencies = [
- "tracing-log",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -2283,6 +2375,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tessera-bootstrap",
  "tessera-desktop-entries",
  "tessera-ipc",
  "tessera-ipc-client",
@@ -2299,14 +2392,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "tessera-presentation"
+version = "0.0.57"
+dependencies = [
+ "flux",
+ "flux-sys",
+ "libc",
+ "log",
+ "tessera-ipc",
+ "tessera-model",
+]
+
+[[package]]
 name = "tessera-prism"
 version = "0.0.57"
 dependencies = [
  "lens",
  "lens-sys",
+ "tessera-chrome",
  "tessera-design",
+ "tessera-i18n",
  "tessera-model",
- "tessera-shell",
  "tessera-ui",
 ]
 
@@ -2371,8 +2477,8 @@ dependencies = [
  "lens",
  "lens-sys",
  "tessera-design",
+ "tessera-i18n",
  "tessera-model",
- "tessera-shell",
  "tessera-ui",
 ]
 
@@ -2394,8 +2500,10 @@ dependencies = [
  "resvg",
  "serde",
  "tempfile",
+ "tessera-chrome",
  "tessera-design",
  "tessera-desktop-entries",
+ "tessera-i18n",
  "tessera-model",
  "tessera-ui",
  "thiserror 2.0.20",
@@ -2411,7 +2519,7 @@ version = "0.0.57"
 dependencies = [
  "image",
  "log",
- "tessera-desktop-entries",
+ "tessera-icons",
  "zbus",
 ]
 
@@ -3152,6 +3260,7 @@ dependencies = [
  "anyhow",
  "clap",
  "serde",
+ "tempfile",
  "toml",
  "walkdir",
 ]
