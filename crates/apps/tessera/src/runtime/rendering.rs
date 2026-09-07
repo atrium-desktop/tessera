@@ -1,27 +1,18 @@
 use super::*;
 
-/// Backdrop effects are evaluated at full physical resolution. Liquid-glass
-/// lensing samples the sharp capture directly, so a downsampled capture would
-/// read as a low-resolution smear behind every glass body. The capture is
-/// still clamped to the union of the declared regions (plus blur footprint),
-/// and the blur itself stays cheap through the fixed-cost dual-Kawase
-/// pyramid, so the full-resolution target only costs the region render.
-pub(super) const BACKDROP_DOWNSAMPLE: u32 = 1;
+// Backdrop effect-cache region algebra and the slot-fingerprint policy live
+// in `tessera-presentation` (api tier); the composition root keeps the
+// chrome-typed mappings, the DAG planner (core types), and every GPU-owned
+// executor.
+pub(super) use tessera_presentation::{
+    backdrop_refresh_regions, blur_regions_in_capture, intersect_blur_regions,
+    refresh_regions_covering_material_change, slot_material_changed, BackdropCaptureRegion,
+    BACKDROP_DOWNSAMPLE,
+};
 
 /// Convert output damage to the single physical-pixel rectangle accepted by
-/// Vulkan dynamic rendering. `None` deliberately means a full-destination
-/// pass: both `FrameDamage::Full` and the conservative empty-area fallback
-/// must leave scissoring disabled.
-pub(super) fn frame_damage_render_area(repaint: &FrameDamage) -> Option<flux::CanvasRenderArea> {
-    repaint.area_union().and_then(|rect| {
-        (!rect.is_empty()).then_some(flux::CanvasRenderArea {
-            x: rect.origin.x,
-            y: rect.origin.y,
-            width: rect.size.w as u32,
-            height: rect.size.h as u32,
-        })
-    })
-}
+/// Vulkan dynamic rendering. Re-exported from the api value layer.
+pub(super) use tessera_presentation::frame_damage_render_area;
 
 /// Resume the output after the no-stencil client/image pass for arbitrary
 /// compositor UI. Lens may emit path fills whose correct winding semantics
@@ -155,13 +146,6 @@ pub(super) fn begin_opaque_target(
             skip_stencil: true,
         },
     )
-}
-
-/// One connected backdrop capture/compute region in physical pixels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct BackdropCaptureRegion {
-    pub(super) origin: (u32, u32),
-    pub(super) extent: (u32, u32),
 }
 
 /// Connected groups of declared backdrop regions in physical pixels,
@@ -511,46 +495,6 @@ fn merge_physical_regions(
         .collect()
 }
 
-/// Map physical-output capture regions into the reusable capture image.
-/// Origins round down and far edges round up so downsampling never drops a
-/// source pixel required by the blur footprint.
-pub(super) fn blur_regions_in_capture(
-    regions: &[BackdropCaptureRegion],
-    capture_origin: (u32, u32),
-    capture_extent: (u32, u32),
-    capture_size: (u32, u32),
-) -> Vec<flux::BlurRegion> {
-    let scale_x = capture_size.0 as f32 / capture_extent.0.max(1) as f32;
-    let scale_y = capture_size.1 as f32 / capture_extent.1.max(1) as f32;
-    regions
-        .iter()
-        .filter_map(|region| {
-            let rel_x0 = region.origin.0.saturating_sub(capture_origin.0);
-            let rel_y0 = region.origin.1.saturating_sub(capture_origin.1);
-            let rel_x1 = region
-                .origin
-                .0
-                .saturating_add(region.extent.0)
-                .saturating_sub(capture_origin.0);
-            let rel_y1 = region
-                .origin
-                .1
-                .saturating_add(region.extent.1)
-                .saturating_sub(capture_origin.1);
-            let x0 = ((rel_x0 as f32 * scale_x).floor() as u32).min(capture_size.0);
-            let y0 = ((rel_y0 as f32 * scale_y).floor() as u32).min(capture_size.1);
-            let x1 = ((rel_x1 as f32 * scale_x).ceil() as u32).min(capture_size.0);
-            let y1 = ((rel_y1 as f32 * scale_y).ceil() as u32).min(capture_size.1);
-            (x1 > x0 && y1 > y0).then_some(flux::BlurRegion {
-                x: x0,
-                y: y0,
-                width: x1 - x0,
-                height: y1 - y0,
-            })
-        })
-        .collect()
-}
-
 /// Map logical backdrop bodies into capture-target pixels. These rectangles
 /// are used only as Canvas clips while material output is persisted in the
 /// per-slot transparent composite cache.
@@ -883,36 +827,6 @@ pub(super) struct BackdropLayerWork {
     pub(super) glass: Vec<prism::LiquidGlassGroup>,
 }
 
-fn intersect_blur_regions(
-    left: &[flux::BlurRegion],
-    right: &[flux::BlurRegion],
-) -> Vec<flux::BlurRegion> {
-    let mut intersections = Vec::new();
-    for left in left {
-        for right in right {
-            let x0 = left.x.max(right.x);
-            let y0 = left.y.max(right.y);
-            let x1 = left
-                .x
-                .saturating_add(left.width)
-                .min(right.x.saturating_add(right.width));
-            let y1 = left
-                .y
-                .saturating_add(left.height)
-                .min(right.y.saturating_add(right.height));
-            if x1 > x0 && y1 > y0 {
-                intersections.push(flux::BlurRegion {
-                    x: x0,
-                    y: y0,
-                    width: x1 - x0,
-                    height: y1 - y0,
-                });
-            }
-        }
-    }
-    intersections
-}
-
 struct BackdropOperator {
     id: tessera_chrome::BackdropLayerId,
     blur: flux::BlurFilter,
@@ -958,73 +872,6 @@ pub(super) enum BackdropPlan {
     Recompute,
     /// Reuse the already-composited effect image for this frame slot.
     Cached,
-}
-
-fn backdrop_refresh_regions(
-    valid: bool,
-    model_active: bool,
-    source_damage: &FrameDamage,
-    input_regions: &[BackdropCaptureRegion],
-) -> Vec<BackdropCaptureRegion> {
-    if model_active || !valid || matches!(source_damage, FrameDamage::Full) {
-        return input_regions.to_vec();
-    }
-    let FrameDamage::Area(damage) = source_damage else {
-        return Vec::new();
-    };
-    input_regions
-        .iter()
-        .copied()
-        .filter(|region| {
-            let input = tessera_model::Rect::new(
-                region.origin.0 as i32,
-                region.origin.1 as i32,
-                region.extent.0 as i32,
-                region.extent.1 as i32,
-            );
-            damage.iter().any(|dirty| dirty.intersect(input).is_some())
-        })
-        .collect()
-}
-
-/// Record `material` as the fingerprint this slot's composite will be built
-/// with, returning whether the slot was previously serving a different one.
-///
-/// The fingerprint lifetime matches the composite image it describes — one
-/// per frame slot — so a material change seen by one slot stays pending for
-/// the other in-flight slots until each rebuilds its own composite. A single
-/// shared fingerprint would mark the change consumed after the first slot
-/// rebuilt, leaving the rest presenting a stale composite on their next
-/// `Cached` frame — visible as the effect (notably the glass drop shadow)
-/// flickering between two versions while the slots rotate.
-pub(super) fn slot_material_changed<T: Clone + PartialEq>(
-    slots: &mut Vec<Option<T>>,
-    slot: usize,
-    material: &T,
-) -> bool {
-    if slots.len() <= slot {
-        slots.resize_with(slot + 1, || None);
-    }
-    let changed = slots[slot].as_ref() != Some(material);
-    slots[slot] = Some(material.clone());
-    changed
-}
-
-/// A material change must rewrite the *entire* effect composite, not only the
-/// source-damaged subset: undamaged regions would otherwise keep the previous
-/// shadow/glass material indefinitely. The empty case passes through so the
-/// planner can still emit `Recompute` (which already covers every capture
-/// region).
-pub(super) fn refresh_regions_covering_material_change(
-    material_changed: bool,
-    refresh_regions: Vec<BackdropCaptureRegion>,
-    capture_regions: &[BackdropCaptureRegion],
-) -> Vec<BackdropCaptureRegion> {
-    if material_changed && !refresh_regions.is_empty() && refresh_regions != capture_regions {
-        capture_regions.to_vec()
-    } else {
-        refresh_regions
-    }
 }
 
 impl BackdropGraphExecutor {

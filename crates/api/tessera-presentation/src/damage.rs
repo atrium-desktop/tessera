@@ -402,6 +402,21 @@ pub fn logical_rects_to_frame(
     FrameDamage::from_rects(physical)
 }
 
+/// Convert output damage to the single physical-pixel rectangle accepted by
+/// Vulkan dynamic rendering. `None` deliberately means a full-destination
+/// pass: both [`FrameDamage::Full`] and the conservative empty-area fallback
+/// must leave scissoring disabled.
+pub fn frame_damage_render_area(repaint: &FrameDamage) -> Option<flux::CanvasRenderArea> {
+    repaint.area_union().and_then(|rect| {
+        (!rect.is_empty()).then_some(flux::CanvasRenderArea {
+            x: rect.origin.x,
+            y: rect.origin.y,
+            width: rect.size.w as u32,
+            height: rect.size.h as u32,
+        })
+    })
+}
+
 /// Record one visible surface into the generation diff. Returns `true` when
 /// this surface alone forces full damage: it appeared since the last
 /// assessment, or its contents changed in a way that cannot be mapped to a

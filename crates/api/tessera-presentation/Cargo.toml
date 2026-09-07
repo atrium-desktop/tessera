@@ -9,6 +9,9 @@ rust-version.workspace = true
 
 [dependencies]
 tessera-model = { workspace = true }
+# Region descriptors for the backdrop effect-cache algebra (BlurRegion,
+# CanvasRenderArea); no device or surface handles are touched.
+flux = { workspace = true }
 
 [lints]
 workspace = true

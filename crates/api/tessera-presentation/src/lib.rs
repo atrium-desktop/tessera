@@ -3,10 +3,11 @@
 //!
 //! This crate is the presentation pipeline's **value layer**: frame damage
 //! verdicts, the per-consumer damage assessment split, swapchain slot-ring
-//! repaint history, surface damage baselines, and the logical→physical
-//! damage mapping. Everything here is a pure function or value over
-//! `tessera-model` geometry types — no compositor state, no IPC, no engine
-//! handles, no side effects.
+//! repaint history, surface damage baselines, the logical→physical
+//! damage mapping, and the backdrop effect-cache region algebra. Everything
+//! here is a pure function or value over `tessera-model` geometry types and
+//! flux region descriptors — no compositor state, no IPC, no GPU handles,
+//! no side effects.
 //!
 //! # Boundary
 //!
@@ -19,10 +20,16 @@
 //! `tessera-capture`: facts live in a shared crate, decisions live with the
 //! process that owns them.
 
+mod backdrop;
 mod damage;
 
+pub use backdrop::{
+    backdrop_refresh_regions, blur_regions_in_capture, intersect_blur_regions,
+    refresh_regions_covering_material_change, slot_material_changed, BackdropCaptureRegion,
+    BACKDROP_DOWNSAMPLE,
+};
 pub use damage::{
-    composite_repaint_for_slot, logical_rects_to_frame, logical_to_physical,
-    record_composite_present, union_frame_damage, AssessedFrameDamage, ClientDamage,
-    ClientDamageTracker, DamageAssessment, FrameDamage, SurfaceDamageFrame,
+    composite_repaint_for_slot, frame_damage_render_area, logical_rects_to_frame,
+    logical_to_physical, record_composite_present, union_frame_damage, AssessedFrameDamage,
+    ClientDamage, ClientDamageTracker, DamageAssessment, FrameDamage, SurfaceDamageFrame,
 };
