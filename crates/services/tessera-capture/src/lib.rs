@@ -2,10 +2,12 @@
 //! ADR-0037/0052/0055 pipeline).
 //!
 //! This crate is the compositor capture pipeline's **value layer**:
-//! GPU readback staging, RGBA/BGRA encoding, cursor compositing, capture
-//! geometry, and screenshot naming. Everything here is a pure function
+//! GPU readback staging, RGBA/BGRA encoding, cursor compositing, and
+//! screenshot naming. Everything here is a pure function
 //! over pixel buffers and rectangles plus the GPU readback handle — no
 //! compositor state, no IPC, no filesystem writes beyond naming.
+//! Capture geometry and the flux error-detail helper are shared value
+//! facts owned by `tessera-presentation` and re-exported here.
 //!
 //! # Boundary
 //!
@@ -17,13 +19,12 @@
 //! the process that owns them.
 
 mod encoding;
-mod geometry;
 mod output;
 
 pub use encoding::{
     CapturedPixels, CapturedPixelsSource, CaptureCursor, PendingReadback, encode_capture,
-    encode_rgba_capture, flux_last_error_detail, read_captured_pixels, read_captured_pixels_owned,
-    read_picked_pixel, request_frame_readback, stream_pixels, StreamPixels,
+    encode_rgba_capture, read_captured_pixels, read_captured_pixels_owned, read_picked_pixel,
+    request_frame_readback, stream_pixels, StreamPixels,
 };
-pub use geometry::{clamp_logical_region, crop_rgba, logical_rect_to_physical};
 pub use output::{atomic_write_capture, screenshot_uri_list};
+pub use tessera_presentation::{clamp_logical_region, crop_rgba, flux_last_error_detail, logical_rect_to_physical};

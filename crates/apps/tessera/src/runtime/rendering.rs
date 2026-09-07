@@ -58,34 +58,9 @@ pub(super) fn begin_stencil_target_overlay(
     )
 }
 
-/// Begin a compositor canvas pass without Flux's clear-triggered 4x MSAA.
-///
-/// Legacy Flux selects its multisample render-and-resolve path whenever a
-/// clear colour is supplied. That is useful for arbitrary vector artwork, but
-/// disproportionately expensive for a compositor pass whose dominant work is
-/// opaque image quads: at 3072x1920 it turns one output pixel into four colour
-/// samples plus a full-frame resolve. Tessera chrome already uses analytic
-/// rounded-rectangle coverage and coverage-texture glyphs, so request the
-/// explicit one-sample attachment-clear path.
-///
-/// `clear` must be opaque because the compositor output does not preserve
-/// destination alpha between layers.
-pub(super) fn begin_opaque_frame(
-    canvas: &flux::Canvas,
-    frame: &flux::Frame<'_>,
-    clear: u32,
-) -> Result<(), flux::Error> {
-    debug_assert_eq!(clear >> 24, 0xff, "compositor pass clear must be opaque");
-    canvas.begin_pass(
-        frame,
-        flux::CanvasPassOptions {
-            clear: Some(clear),
-            antialias: flux::CanvasAntialias::None,
-            render_area: None,
-            skip_stencil: true,
-        },
-    )
-}
+/// Begin a compositor canvas pass without Flux's clear-triggered 4x MSAA —
+/// a canvas pass-configuration fact owned by `tessera-presentation`.
+pub(super) use tessera_presentation::begin_opaque_frame;
 
 /// Begin an opaque output pass clipped to the accumulated damage for this
 /// ring slot. The full scene may still be submitted, but rasterization,
@@ -1465,18 +1440,9 @@ impl BackdropGraphExecutor {
 /// of the snapshot), then the compositor opens the selector over the
 /// frozen image. `ScreenshotFreeze::should_disarm` ends the session
 /// once the selector closes.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct CaptureCursorState {
-    /// Logical output coordinates sampled when the screenshot was triggered.
-    pub(super) position: (f32, f32),
-    /// Effective compositor/theme cursor shape at the trigger instant.
-    pub(super) shape: u32,
-    /// Whether the compositor-owned theme cursor was hidden at the trigger
-    /// instant. A client surface may still be the visible cursor.
-    pub(super) hidden: bool,
-    /// Whether the visible cursor came from a client-provided cursor surface.
-    pub(super) client_surface: bool,
-}
+/// Cursor state sampled at a capture trigger instant — a pure value owned
+/// by `tessera-presentation` (shared by one-shot captures and streams).
+pub(super) use tessera_presentation::CaptureCursorState;
 
 pub(super) struct ScreenshotFreeze {
     captures: Vec<Option<ScreenshotCapture>>,

@@ -1,4 +1,4 @@
-use super::geometry::crop_rgba;
+use tessera_presentation::{crop_rgba, flux_last_error_detail};
 
 /// Immutable GPU readback staging detached from the presentation surface and
 /// handed to the capture worker. Region captures already contain only their
@@ -430,16 +430,6 @@ pub fn stream_pixels(
 
 /// flux's thread-local diagnostic for the most recent error, formatted for
 /// logs; empty when the call carried no detail.
-pub fn flux_last_error_detail() -> String {
-    let mut info: flux_sys::flux_error_info = unsafe { std::mem::zeroed() };
-    unsafe { flux_sys::flux_get_last_error(&mut info) };
-    if info.message.is_null() {
-        return String::new();
-    }
-    let message = unsafe { std::ffi::CStr::from_ptr(info.message) };
-    format!(" ({})", message.to_string_lossy())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

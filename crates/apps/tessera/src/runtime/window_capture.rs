@@ -36,18 +36,8 @@ pub(super) struct PreparedWindowCapture {
 /// capture scale, the physical-pixel target extent it implies, and the
 /// toplevel's logical placement at query time. Shared by the one-shot
 /// `CaptureWindow` path and the per-window stream render targets
-/// (ADR-0127).
-pub(super) struct WindowTreeGeometry {
-    pub(super) window: tessera_model::window::WindowId,
-    pub(super) scale_milli: u32,
-    pub(super) physical_width: u32,
-    pub(super) physical_height: u32,
-    /// Toplevel logical origin when the geometry was resolved; the render
-    /// maps it to (0, 0), so a pure position move never changes the target.
-    pub(super) origin: tessera_model::Point,
-    /// Toplevel logical extent when the geometry was resolved.
-    pub(super) logical_size: tessera_model::Size,
-}
+/// (ADR-0127). A pure value owned by `tessera-presentation`.
+pub(super) use tessera_presentation::WindowTreeGeometry;
 
 /// Resolve one window's offscreen-capture geometry from the live model. The
 /// window is looked up across every workspace (`all_windows`): occluded,

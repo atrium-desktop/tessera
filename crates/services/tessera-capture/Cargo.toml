@@ -9,6 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 tessera-model = { workspace = true }
+tessera-presentation = { workspace = true }
 # Readback staging detached from the presentation surface.
 flux = { workspace = true }
 flux-sys = { workspace = true }
