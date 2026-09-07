@@ -1,0 +1,24 @@
+[package]
+name = "tessera-desktop-entries"
+description = "freedesktop.org desktop-entry enumeration and icon-theme lookup"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tessera-model = { workspace = true }
+# Scale-aware icon-theme lookup lives in its own crate so the SNI tray and
+# other non-entry consumers can resolve icons without desktop-entry parsing.
+tessera-icons = { workspace = true }
+# INI parsing for .desktop entries and theme index.theme Inherits lines.
+ini.workspace = true
+log.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

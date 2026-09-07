@@ -1,0 +1,24 @@
+[package]
+name = "tessera-presentation"
+description = "Pure presentation-domain value layer: frame damage verdicts, damage assessment inputs, slot-ring repaint history, and logical-to-physical damage mapping for the tessera compositor"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tessera-model = { workspace = true }
+tessera-ipc = { workspace = true }
+# Region descriptors and capture-surface value handles (BlurRegion,
+# CanvasRenderArea, offscreen surfaces); no device lifecycle is owned here.
+flux = { workspace = true }
+flux-sys = { workspace = true }
+log.workspace = true
+libc.workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["flux-sys"]
+
+[lints]
+workspace = true

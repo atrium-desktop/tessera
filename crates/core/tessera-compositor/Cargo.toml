@@ -1,0 +1,35 @@
+[package]
+name = "tessera-compositor"
+description = "Hand-rolled Wayland server: socket, globals, and protocol object lifecycle"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+build = "build.rs"
+
+[dependencies]
+tessera-model = { workspace = true, features = ["serde"] }
+tessera-semantic.workspace = true
+tessera-wayland-protocols = { workspace = true }
+# Portal socket tree naming comes from the IPC contract (ADR-0147 D3);
+# the runtime directory itself is injected by the composition root.
+tessera-ipc.workspace = true
+log.workspace = true
+getrandom.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+xkbcommon = "0.9"
+
+[build-dependencies]
+pkg-config = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
+
+[package.metadata.cargo-machete]
+ignored = ["pkg-config"]
+
+[lints]
+workspace = true

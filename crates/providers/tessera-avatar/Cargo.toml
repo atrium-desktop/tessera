@@ -1,0 +1,48 @@
+[package]
+name = "tessera-avatar"
+description = "Personalized profile and portrait runtime: local account defaults, still/VRM portrait pipeline, motion playback, and hot reload"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tessera-model = { workspace = true }
+# XDG portrait asset discovery.
+tessera-icons = { workspace = true }
+# POSIX account lookups (getpwuid) for the local profile defaults.
+libc = { workspace = true }
+# GPU texture upload path shared with the compositor.
+flux = { workspace = true }
+flux-sys = { workspace = true, optional = true }
+flux-scene-graph = { workspace = true, optional = true }
+flux-scene-graph-sys = { workspace = true, optional = true }
+image = { workspace = true, optional = true }
+notify = { workspace = true, optional = true }
+fastrand = { workspace = true, optional = true }
+lens = { workspace = true }
+log.workspace = true
+thiserror.workspace = true
+
+[features]
+default = []
+# Full portrait runtime. The lightweight `persona::Profile` contract remains
+# available without this feature.
+persona = [
+    "dep:fastrand",
+    "dep:flux-sys",
+    "dep:flux-scene-graph",
+    "dep:flux-scene-graph-sys",
+    "dep:image",
+    "dep:notify",
+]
+
+[package.metadata.cargo-machete]
+ignored = ["flux-scene-graph-sys", "flux-sys"]
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

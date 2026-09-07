@@ -8,29 +8,48 @@ Where code lives and where new files belong. For the conceptual design, see
 ```text
 tessera/
   Cargo.toml            workspace
-  crates/
-    tessera-model/        shared effect-free state and deterministic model rules
-    tessera-security/      Actor authority and integrity-checked audit modules
-    tessera-semantic/      validated application accessibility trees and semantic action routing
-    tessera-wayland-protocols/     shared generated Wayland protocol interface tables
-    tessera-compositor/        Wayland server: socket, globals, object lifecycle
-    tessera-backend/       presentation + input targets (nested, DRM/KMS + libinput + libseat)
-    tessera-render/        compositing through flux
-    tessera-shell/         chrome host plus feature-gated persona domain
-    tessera-dock/          bottom-center dock chrome component
-    tessera-prism/         compact application-search chrome component
-    tessera-settings/       settings module library: contract, registry, and built-in pages
-    tessera-atspi/          supervised out-of-process AT-SPI semantic adapter
-    tessera-hud/           display-only HUD status chips (system status, workspace dots, clock, SNI tray)
-    tessera-command-panel/ full-screen modal command panel (quick settings, settings modules, tray, notifications)
-    tessera-wallpaper/     image, video, 3D, and parallax background layer
-    tessera-config/        TOML schema, typed atomic persistence, loader, live reload
-    tessera-ipc/           Actor capability broker and introspection over a unix socket
-    tessera-commands/    domain command parser and IPC dispatcher (lib-only)
-
-    tessera-desktop-entries/          freedesktop.org desktop-entry enumeration + icon lookup
-    tessera-launcher/        detached, XDG-environment-aware app launching
-    tessera/             the binary: wiring and event loop
+  crates/               tiered layout; each tier carries a hard dependency rule
+    api/                  pure types & policy; no side effects; forbid(unsafe_code)
+      tessera-model/        shared effect-free state and deterministic model rules
+      tessera-security/      Actor authority and integrity-checked audit modules
+      tessera-semantic/     validated application accessibility trees and semantic action routing
+      tessera-design/       product design tokens, themes, and materials
+      tessera-ui/           composite UI patterns and chrome widgets over lens
+      tessera-i18n/         locale negotiation and the typed translated message catalog
+      tessera-chrome/       the Chrome contract: trait, snapshot/event types, backdrop declarations (ADR-0021)
+      tessera-config/       TOML schema, typed atomic persistence, loader, live reload
+      tessera-ipc/          Actor capability broker and introspection over a unix socket
+      tessera-ipc-client/   rich client library for the capability broker
+      tessera-commands/     domain command parser and IPC dispatcher (lib-only)
+      tessera-icons/        freedesktop.org icon-theme lookup: scale-aware resolution
+      tessera-desktop-entries/       freedesktop.org desktop-entry enumeration
+    core/                 platform engines; the only unsafe-allowed tier
+      tessera-wayland-protocols/     shared generated Wayland protocol interface tables
+      tessera-compositor/        Wayland server: socket, globals, object lifecycle
+      tessera-backend/       presentation + input targets (nested, DRM/KMS + libinput + libseat)
+      tessera-render/        compositing through flux
+    providers/            shared runtimes consumed by chrome surfaces; no UI of their own
+      tessera-tray/          SNI system tray service
+      tessera-avatar/        persona profile + feature-gated still/VRM portrait runtime
+    chrome/               user-visible surfaces; depend on api + providers, never on each other
+      tessera-shell/         the Chrome host: lens context, component registry, built-in surfaces
+      tessera-dock/          bottom-center dock chrome component
+      tessera-prism/         compact application-search chrome component
+      tessera-hud/           display-only HUD status chips (system status, workspace dots, clock, SNI tray)
+      tessera-command-panel/ full-screen modal command panel (quick settings, settings modules, tray, notifications)
+      tessera-settings/       settings module library: contract, registry, and built-in pages
+      tessera-wallpaper/     image, video, 3D, and parallax background layer
+    services/             out-of-process daemons and bridges; depend on api (+ core)
+      tessera-atspi/          supervised out-of-process AT-SPI semantic adapter
+      tessera-idle/           idle / session-lock sidecar
+      tessera-launcher/        detached, XDG-environment-aware app launching
+      tessera-bootstrap/       shared process bootstrap: observability init and friends
+      tessera-agent-broker/    agent principal registry and durable runtime-grant store
+      tessera-mcp/            scoped platform bridge over MCP
+      tessera-remote/         UIP network gateway and remote seat manager
+    apps/                 composition roots; wiring only
+      tessera-lock/          session lock host and headless-testable lock logic
+      tessera/             the binary: wiring and event loop
   docs/                 documentation (see docs/index.md)
 ```
 
@@ -45,7 +64,7 @@ The optional
 [xdg-desktop-portal-atrium repository](https://github.com/aegis-shell/xdg-desktop-portal-atrium)
 owns the private backend, its encrypted Secret implementation, PipeWire
 bridge, PAM helper, D-Bus activation files, and portal metadata. It depends
-on `tessera-model`, `tessera-ipc`, and `tessera-logging` from its declared
+on `tessera-model`, `tessera-ipc`, and `tessera-bootstrap` from its declared
 compatible Tessera tag; none of its crates are workspace members here. See
 [ADR-0095](../adr/0095-independent-portal-repository-and-component-workspace.md).
 
@@ -53,28 +72,28 @@ compatible Tessera tag; none of its crates are workspace members here. See
 
 | Crate | Purpose | Design reference |
 |-------|---------|------------------|
-| [`tessera-model`](../../crates/tessera-model/README.md) | Shared effect-free state, identities, geometry, and deterministic model rules | [ADR-0110](../adr/0110-shared-model-crate-naming-and-placement.md), [ADR-0001](../adr/0001-scope-and-responsibility-boundary.md) |
-| [`tessera-security`](../../crates/tessera-security/README.md) | Transport-neutral Actor authority and integrity-checked audit mechanisms | [ADR-0109](../adr/0109-module-first-security-and-presentation-identity-boundaries.md) |
-| [`tessera-semantic`](../../crates/tessera-semantic/README.md) | Bounded accessibility-tree validation, window-local identity namespacing, provider ownership, and semantic action routing | [ADR-0104](../adr/0104-actor-sessions-resource-grants-and-accessibility-adapter.md) |
-| [`tessera-wayland-protocols`](../../crates/tessera-wayland-protocols/README.md) | Shared generated Wayland protocol tables for client and server | [ADR-0002](../adr/0002-hand-rolled-wayland-server.md) |
-| [`tessera-compositor`](../../crates/tessera-compositor/README.md) | Wayland server socket, globals, and object lifecycle | [ADR-0002](../adr/0002-hand-rolled-wayland-server.md) |
-| [`tessera-backend`](../../crates/tessera-backend/README.md) | The `Backend` trait and its implementations | [ADR-0002](../adr/0002-hand-rolled-wayland-server.md), [ADR-0003](../adr/0003-nested-first-bring-up.md) |
-| [`tessera-render`](../../crates/tessera-render/README.md) | Client buffers to flux textures, scene to output | [ADR-0004](../adr/0004-client-buffers-via-flux-dmabuf-import.md) |
-| [`tessera-shell`](../../crates/tessera-shell/README.md) | Chrome host, `Chrome` contract, shared components, and the feature-gated `persona` profile/portrait domain | [ADR-0021](../adr/0021-chrome-component-trait.md), [ADR-0111](../adr/0111-persona-as-shell-domain-with-feature-gated-portrait-runtime.md) |
-| [`tessera-dock`](../../crates/tessera-dock/README.md) | Bottom-center dock chrome component | [ADR-0019](../adr/0019-dock-as-bottom-center-overlay.md), [ADR-0021](../adr/0021-chrome-component-trait.md) |
-| [`tessera-prism`](../../crates/tessera-prism/README.md) | Compact Spotlight-style application search component | [ADR-0021](../adr/0021-chrome-component-trait.md), [ADR-0044](../adr/0044-dock-and-control-center-crates.md) |
-| [`tessera-settings`](../../crates/tessera-settings/README.md) | Settings module library: the `SettingsModule` contract, registry, and built-in pages hosted by the command panel | [ADR-0114](../adr/0114-panel-hosted-settings-and-hud-command-panel.md) |
-| [`tessera-atspi`](../../crates/tessera-atspi/README.md) | Supervised out-of-process AT-SPI semantic observation and action adapter | [ADR-0104](../adr/0104-actor-sessions-resource-grants-and-accessibility-adapter.md) |
-| [`tessera-hud`](../../crates/tessera-hud/README.md) | Display-only HUD status chips with the StatusNotifierItem tray row | [ADR-0081](../adr/0081-hud-and-command-panel-naming.md), [ADR-0083](../adr/0083-frameless-transient-toasts-and-hud-consolidation.md) |
-| [`tessera-command-panel`](../../crates/tessera-command-panel/README.md) | Full-screen modal command panel: quick settings, hosted settings modules, tray activation, and notifications | [ADR-0081](../adr/0081-hud-and-command-panel-naming.md), [ADR-0114](../adr/0114-panel-hosted-settings-and-hud-command-panel.md) |
-| [`tessera-wallpaper`](../../crates/tessera-wallpaper/README.md) | Image, video, 3D, and parallax background layer | [ADR-0018](../adr/0018-wallpaper-crate.md), [ADR-0092](../adr/0092-explicit-wallpaper-modes-and-continuous-parallax.md) |
-| [`tessera-config`](../../crates/tessera-config/README.md) | Versioned TOML schema, typed atomic persistence, loader, and mtime-based live reload | [ADR-0026](../adr/0026-configuration-system.md) |
-| [`tessera-ipc`](../../crates/tessera-ipc/README.md) | Versioned Actor identity, capability, semantic observation, action, and audit protocol over a unix socket | [ADR-0027](../adr/0027-ipc-and-introspection.md), [ADR-0102](../adr/0102-actor-scoped-semantic-observation-and-transactional-actions.md) |
-| [`tessera-commands`](../../crates/tessera-commands/README.md) | Domain command parser, IPC dispatcher, and output formatter; no installed binary | [ADR-0093](../adr/0093-unified-domain-oriented-tessera-command-surface.md) |
-| [`tessera-mcp`](../../crates/tessera-mcp/README.md) | The platform's scoped MCP bridge for any agent (`tessera-mcp`) | [ADR-0047](../adr/0047-neenee-agent-realm-platform-bridge.md), [ADR-0087](../adr/0087-tessera-mcp-standalone-platform-bridge-crate.md) |
+| [`tessera-model`](../../crates/api/tessera-model/README.md) | Shared effect-free state, identities, geometry, and deterministic model rules | [ADR-0110](../adr/0110-shared-model-crate-naming-and-placement.md), [ADR-0001](../adr/0001-scope-and-responsibility-boundary.md) |
+| [`tessera-security`](../../crates/api/tessera-security/README.md) | Transport-neutral Actor authority and integrity-checked audit mechanisms | [ADR-0109](../adr/0109-module-first-security-and-presentation-identity-boundaries.md) |
+| [`tessera-semantic`](../../crates/api/tessera-semantic/README.md) | Bounded accessibility-tree validation, window-local identity namespacing, provider ownership, and semantic action routing | [ADR-0104](../adr/0104-actor-sessions-resource-grants-and-accessibility-adapter.md) |
+| [`tessera-wayland-protocols`](../../crates/core/tessera-wayland-protocols/README.md) | Shared generated Wayland protocol tables for client and server | [ADR-0002](../adr/0002-hand-rolled-wayland-server.md) |
+| [`tessera-compositor`](../../crates/core/tessera-compositor/README.md) | Wayland server socket, globals, and object lifecycle | [ADR-0002](../adr/0002-hand-rolled-wayland-server.md) |
+| [`tessera-backend`](../../crates/core/tessera-backend/README.md) | The `Backend` trait and its implementations | [ADR-0002](../adr/0002-hand-rolled-wayland-server.md), [ADR-0003](../adr/0003-nested-first-bring-up.md) |
+| [`tessera-render`](../../crates/core/tessera-render/README.md) | Client buffers to flux textures, scene to output | [ADR-0004](../adr/0004-client-buffers-via-flux-dmabuf-import.md) |
+| [`tessera-shell`](../../crates/chrome/tessera-shell/README.md) | Chrome host, `Chrome` contract, shared components, and the feature-gated `persona` profile/portrait domain | [ADR-0021](../adr/0021-chrome-component-trait.md), [ADR-0111](../adr/0111-persona-as-shell-domain-with-feature-gated-portrait-runtime.md) |
+| [`tessera-dock`](../../crates/chrome/tessera-dock/README.md) | Bottom-center dock chrome component | [ADR-0019](../adr/0019-dock-as-bottom-center-overlay.md), [ADR-0021](../adr/0021-chrome-component-trait.md) |
+| [`tessera-prism`](../../crates/chrome/tessera-prism/README.md) | Compact Spotlight-style application search component | [ADR-0021](../adr/0021-chrome-component-trait.md), [ADR-0044](../adr/0044-dock-and-control-center-crates.md) |
+| [`tessera-settings`](../../crates/chrome/tessera-settings/README.md) | Settings module library: the `SettingsModule` contract, registry, and built-in pages hosted by the command panel | [ADR-0114](../adr/0114-panel-hosted-settings-and-hud-command-panel.md) |
+| [`tessera-atspi`](../../crates/services/tessera-atspi/README.md) | Supervised out-of-process AT-SPI semantic observation and action adapter | [ADR-0104](../adr/0104-actor-sessions-resource-grants-and-accessibility-adapter.md) |
+| [`tessera-hud`](../../crates/chrome/tessera-hud/README.md) | Display-only HUD status chips with the StatusNotifierItem tray row | [ADR-0081](../adr/0081-hud-and-command-panel-naming.md), [ADR-0083](../adr/0083-frameless-transient-toasts-and-hud-consolidation.md) |
+| [`tessera-command-panel`](../../crates/chrome/tessera-command-panel/README.md) | Full-screen modal command panel: quick settings, hosted settings modules, tray activation, and notifications | [ADR-0081](../adr/0081-hud-and-command-panel-naming.md), [ADR-0114](../adr/0114-panel-hosted-settings-and-hud-command-panel.md) |
+| [`tessera-wallpaper`](../../crates/chrome/tessera-wallpaper/README.md) | Image, video, 3D, and parallax background layer | [ADR-0018](../adr/0018-wallpaper-crate.md), [ADR-0092](../adr/0092-explicit-wallpaper-modes-and-continuous-parallax.md) |
+| [`tessera-config`](../../crates/api/tessera-config/README.md) | Versioned TOML schema, typed atomic persistence, loader, and mtime-based live reload | [ADR-0026](../adr/0026-configuration-system.md) |
+| [`tessera-ipc`](../../crates/api/tessera-ipc/README.md) | Versioned Actor identity, capability, semantic observation, action, and audit protocol over a unix socket | [ADR-0027](../adr/0027-ipc-and-introspection.md), [ADR-0102](../adr/0102-actor-scoped-semantic-observation-and-transactional-actions.md) |
+| [`tessera-commands`](../../crates/api/tessera-commands/README.md) | Domain command parser, IPC dispatcher, and output formatter; no installed binary | [ADR-0093](../adr/0093-unified-domain-oriented-tessera-command-surface.md) |
+| [`tessera-mcp`](../../crates/services/tessera-mcp/README.md) | The platform's scoped MCP bridge for any agent (`tessera-mcp`) | [ADR-0047](../adr/0047-neenee-agent-realm-platform-bridge.md), [ADR-0087](../adr/0087-tessera-mcp-standalone-platform-bridge-crate.md) |
 
-| [`tessera-desktop-entries`](../../crates/tessera-desktop-entries/README.md) | freedesktop.org desktop-entry enumeration and icon-theme lookup | [ADR-0022](../adr/0022-application-launcher.md) |
-| [`tessera-launcher`](../../crates/tessera-launcher/README.md) | Detached, XDG-environment-aware launching of desktop applications | [ADR-0022](../adr/0022-application-launcher.md) |
+| [`tessera-desktop-entries`](../../crates/api/tessera-desktop-entries/README.md) | freedesktop.org desktop-entry enumeration and icon-theme lookup | [ADR-0022](../adr/0022-application-launcher.md) |
+| [`tessera-launcher`](../../crates/services/tessera-launcher/README.md) | Detached, XDG-environment-aware launching of desktop applications | [ADR-0022](../adr/0022-application-launcher.md) |
 | [`tessera`](../../crates/tessera/README.md) | Unified process entry point, native command entry, and compositor frame loop | [Architecture](../explanation/architecture.md) |
 
 ## Placement Rules
