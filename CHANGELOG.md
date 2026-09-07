@@ -12,6 +12,15 @@ project cuts a tagged release.
 > `atrium-desktop/tessera`. Environment variables use the `TESSERA_*` prefix
 > (previously `AEGIS_*`). The bundled cursor theme uses the `Tessera` name.
 
+## [0.0.58] - 2026-09-07
+
+### Changed
+- Extracted the presentation-domain value layer — damage assessment, the capture-stream registry and GPU transport, backdrop region algebra, the redraw scheduler, and direct-scanout policy — into the new api-tier crate `tessera-presentation`, behind the `SurfaceDamageFrame` and `StreamPainter` ports; the compositor binary shrinks by roughly 2.4k lines.
+- Pinned the workspace toolchain to 1.97.1, reformatted the workspace with rustfmt 1.9, and cleared the clippy debt the floating toolchain had accumulated.
+
+### Removed
+- `scripts/optics-release-ref.sh`; the xtask `optics` task is the single Optics-tag checker.
+
 ## [0.0.57] - 2026-09-06
 
 ### Added

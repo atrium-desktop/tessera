@@ -1992,7 +1992,7 @@ dependencies = [
 
 [[package]]
 name = "tessera"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "flux",
  "flux-scene-graph-sys",
@@ -2043,7 +2043,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-agent-broker"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "libc",
  "log",
@@ -2059,7 +2059,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-atspi"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "async-io",
  "atspi",
@@ -2076,7 +2076,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-avatar"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "fastrand",
  "flux",
@@ -2096,7 +2096,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-backend"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "ash",
  "drm",
@@ -2115,7 +2115,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-bootstrap"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "log",
  "tessera-ipc",
@@ -2126,7 +2126,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-capture"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "flux",
  "flux-sys",
@@ -2139,7 +2139,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-chrome"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "lens",
  "log",
@@ -2152,7 +2152,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-command-panel"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "flux",
  "flux-scene-graph-sys",
@@ -2172,7 +2172,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-commands"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "clap",
  "clap_complete",
@@ -2189,7 +2189,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-compositor"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "getrandom 0.4.3",
  "log",
@@ -2207,7 +2207,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-config"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "dirs",
  "libc",
@@ -2221,7 +2221,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-design"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "lens",
  "lens-sys",
@@ -2230,7 +2230,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-desktop-entries"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "log",
  "rust-ini",
@@ -2242,7 +2242,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-dock"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "lens",
  "lens-sys",
@@ -2255,7 +2255,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-hud"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "flux",
  "lens",
@@ -2272,7 +2272,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-i18n"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "serde",
  "toml",
@@ -2280,7 +2280,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-icons"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "dirs",
  "rust-ini",
@@ -2289,7 +2289,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-idle"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "libc",
  "log",
@@ -2303,7 +2303,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-ipc"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "libc",
  "serde",
@@ -2317,7 +2317,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-ipc-client"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "libc",
  "serde",
@@ -2330,7 +2330,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-launcher"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "libc",
  "log",
@@ -2342,7 +2342,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-lock"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "ash",
  "flux",
@@ -2368,7 +2368,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-mcp"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "base64",
  "clap",
@@ -2385,7 +2385,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-model"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "serde",
  "serde_json",
@@ -2393,7 +2393,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-presentation"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "flux",
  "flux-sys",
@@ -2405,7 +2405,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-prism"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "lens",
  "lens-sys",
@@ -2418,7 +2418,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-remote"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "fastrand",
  "hmac",
@@ -2434,7 +2434,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-render"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "flux",
  "flux-composition-graph",
@@ -2446,7 +2446,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-security"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "flate2",
  "getrandom 0.4.3",
@@ -2463,7 +2463,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-semantic"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "serde",
  "serde_json",
@@ -2472,7 +2472,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-settings"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "lens",
  "lens-sys",
@@ -2484,7 +2484,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-shell"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "fastrand",
  "flux",
@@ -2515,7 +2515,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-tray"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "image",
  "log",
@@ -2525,7 +2525,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-ui"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "lens",
  "lens-sys",
@@ -2535,7 +2535,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-wallpaper"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "flux",
  "flux-scene-graph",
@@ -2548,7 +2548,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-wayland-protocols"
-version = "0.0.57"
+version = "0.0.58"
 dependencies = [
  "cc",
 ]

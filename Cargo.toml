@@ -18,7 +18,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.0.57"
+version = "0.0.58"
 edition = "2024"
 # Workspace crates contain MIT-licensed source, including the bundled cursor
 # art under assets/cursors/Tessera (original, generated in-tree).
