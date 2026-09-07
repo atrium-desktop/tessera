@@ -1,10 +1,10 @@
 use super::*;
 
-pub(super) enum PresentationOutcome {
-    Submitted,
-    NoDamage { callbacks_sent: bool },
-    Retry,
-}
+// The render transaction outcome is a scheduler-domain value owned by
+// `tessera-presentation`; the transaction itself stays here because it is
+// the composition root's synchronous orchestration of renderer, server,
+// host, and shell.
+pub(super) use tessera_presentation::PresentationOutcome;
 
 mod capture;
 use capture::FrameCapture;

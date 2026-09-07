@@ -36,6 +36,8 @@
 mod backdrop;
 mod damage;
 mod geometry;
+mod scanout;
+mod scheduler;
 mod stream;
 
 pub use backdrop::{
@@ -49,6 +51,13 @@ pub use damage::{
     ClientDamage, ClientDamageTracker, DamageAssessment, FrameDamage, SurfaceDamageFrame,
 };
 pub use geometry::{clamp_logical_region, crop_rgba, logical_rect_to_physical};
+pub use scanout::{
+    evaluate_scene, evaluate_surface, plan_scanout, PrimaryPlanePlan, PrimaryPlaneState,
+    ScanoutRejection, ScanoutRejectReason, ScanoutSceneFacts, ScanoutTelemetry,
+};
+pub use scheduler::{
+    ActivationChange, PresentationAvailability, PresentationOutcome, PresentationScheduler,
+};
 pub use stream::{
     begin_opaque_frame, blit_presented_frame, crop_stream_frame, damage_in_target,
     enumerate_slot_ring, fence_signaled, full_target_damage, output_cursor_blit,

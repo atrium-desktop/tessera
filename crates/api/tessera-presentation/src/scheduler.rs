@@ -1,14 +1,28 @@
+//! The redraw/presentation lifecycle state machine for one presentation
+//! domain (ADR-0077/0101).
+//!
+//! Tessera submits one atomic KMS batch spanning every active CRTC, so the
+//! domain is the host rather than an individual connector. Owning this
+//! machine here makes the ownership rule explicit: input and Wayland
+//! traffic may continue while a commit is in flight, but a second render
+//! cannot start until the backend retires that batch. The composition root
+//! drives the transitions; the state, the watchdogs, and the wait-timeout
+//! policy live here.
+
 use std::time::{Duration, Instant};
 
 const PRESENTATION_WATCHDOG: Duration = Duration::from_secs(1);
 
+/// The outcome of one render transaction, as reported back to the
+/// composition root's iteration loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PresentationOutcome {
+    Submitted,
+    NoDamage { callbacks_sent: bool },
+    Retry,
+}
+
 /// Redraw lifecycle for one presentation domain.
-///
-/// Tessera currently submits one atomic KMS batch spanning every active CRTC,
-/// so the domain is the host rather than an individual connector. Keeping
-/// this state in the runtime makes the ownership rule explicit: input and
-/// Wayland traffic may continue while a commit is in flight, but a second
-/// render cannot start until the backend retires that batch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PresentationState {
     /// No visible work is known.
@@ -44,12 +58,13 @@ enum PresentationState {
 }
 
 /// State-machine facade used by the compositor loop.
-pub(super) struct PresentationScheduler {
+#[derive(Debug)]
+pub struct PresentationScheduler {
     state: PresentationState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum PresentationAvailability {
+pub enum PresentationAvailability {
     Available,
     /// Scanout is deliberately dark, but the active input epoch remains valid
     /// so physical activity can wake a locked session.
@@ -63,7 +78,7 @@ pub(super) enum PresentationAvailability {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ActivationChange {
+pub enum ActivationChange {
     None,
     Suspended(PresentationAvailability),
     /// The backend epoch changed after presentation was already suspended for
@@ -72,8 +87,14 @@ pub(super) enum ActivationChange {
     Resumed,
 }
 
+impl Default for PresentationScheduler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PresentationScheduler {
-    pub(super) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             // The first frame is compositor-owned work and must not wait for
             // an input event to make the desktop visible.
@@ -81,7 +102,7 @@ impl PresentationScheduler {
         }
     }
 
-    pub(super) fn set_availability(
+    pub fn set_availability(
         &mut self,
         availability: PresentationAvailability,
     ) -> ActivationChange {
@@ -107,7 +128,7 @@ impl PresentationScheduler {
         ActivationChange::Suspended(availability)
     }
 
-    pub(super) fn reconcile_backend(&mut self, presentation_pending: bool) {
+    pub fn reconcile_backend(&mut self, presentation_pending: bool) {
         if presentation_pending {
             return;
         }
@@ -125,7 +146,7 @@ impl PresentationScheduler {
     /// Returns `true` only when the boundary elapsed without a redraw waiting.
     /// The runtime can then complete callbacks directly instead of performing
     /// a no-damage render assessment solely to reopen the callback cycle.
-    pub(super) fn tick(&mut self, now: Instant) -> bool {
+    pub fn tick(&mut self, now: Instant) -> bool {
         if let PresentationState::Retrying { not_before } = self.state
             && now >= not_before
         {
@@ -150,7 +171,7 @@ impl PresentationScheduler {
         false
     }
 
-    pub(super) fn queue_redraw(&mut self) {
+    pub fn queue_redraw(&mut self) {
         self.state = match self.state {
             PresentationState::Idle => PresentationState::Queued,
             PresentationState::Queued => PresentationState::Queued,
@@ -183,7 +204,7 @@ impl PresentationScheduler {
         };
     }
 
-    pub(super) fn can_redraw(&self) -> bool {
+    pub fn can_redraw(&self) -> bool {
         matches!(
             self.state,
             PresentationState::Queued
@@ -195,7 +216,7 @@ impl PresentationScheduler {
     }
 
     /// No-damage callbacks are allowed once per estimated refresh cycle.
-    pub(super) fn frame_callbacks_allowed(&self) -> bool {
+    pub fn frame_callbacks_allowed(&self) -> bool {
         !matches!(
             self.state,
             PresentationState::WaitingForEstimatedVblank { .. }
@@ -206,7 +227,7 @@ impl PresentationScheduler {
     }
 
     /// Consume the queued edge and enter the synchronous render transaction.
-    pub(super) fn begin_redraw(&mut self) {
+    pub fn begin_redraw(&mut self) {
         self.state = match self.state {
             PresentationState::Queued => PresentationState::Rendering {
                 estimated_deadline: None,
@@ -221,7 +242,7 @@ impl PresentationScheduler {
         };
     }
 
-    pub(super) fn submitted(
+    pub fn submitted(
         &mut self,
         presentation_pending: bool,
         redraw_after_present: bool,
@@ -245,7 +266,7 @@ impl PresentationScheduler {
         };
     }
 
-    pub(super) fn no_damage(
+    pub fn no_damage(
         &mut self,
         callbacks_sent: bool,
         redraw_after_cycle: bool,
@@ -272,7 +293,7 @@ impl PresentationScheduler {
 
     /// Close a callback cycle that was completed directly at an estimated
     /// boundary, without entering the renderer.
-    pub(super) fn callbacks_sent_at_estimated_vblank(
+    pub fn callbacks_sent_at_estimated_vblank(
         &mut self,
         callbacks_sent: bool,
         now: Instant,
@@ -291,7 +312,7 @@ impl PresentationScheduler {
     /// event is declared lost and scanout ownership is reclaimed.
     const RECOVERY_TIMEOUT: Duration = Duration::from_secs(3);
 
-    pub(super) fn retry_at(&mut self, not_before: Instant) {
+    pub fn retry_at(&mut self, not_before: Instant) {
         assert!(
             matches!(self.state, PresentationState::Rendering { .. }),
             "retry completed outside a render transaction"
@@ -304,7 +325,7 @@ impl PresentationScheduler {
     /// not permission to reuse a scanout buffer that KMS may still own.
     /// `take_recovery_due` provides the second tier for a flip whose event
     /// never arrives at all.
-    pub(super) fn take_stall_warning(&mut self, now: Instant) -> Option<Duration> {
+    pub fn take_stall_warning(&mut self, now: Instant) -> Option<Duration> {
         let PresentationState::WaitingForVblank {
             submitted_at,
             stall_reported,
@@ -328,7 +349,7 @@ impl PresentationScheduler {
     /// backend ownership and forces a full redraw. If KMS genuinely still
     /// owns the batch, the next commit comes back EBUSY and the paced retry
     /// keeps the loop alive instead. Fires once per submission.
-    pub(super) fn take_recovery_due(&mut self, now: Instant) -> bool {
+    pub fn take_recovery_due(&mut self, now: Instant) -> bool {
         let due = matches!(
             self.state,
             PresentationState::WaitingForVblank {
@@ -343,7 +364,7 @@ impl PresentationScheduler {
         due
     }
 
-    pub(super) fn wait_timeout(&self, idle_timeout: Duration, now: Instant) -> Duration {
+    pub fn wait_timeout(&self, idle_timeout: Duration, now: Instant) -> Duration {
         match self.state {
             PresentationState::Queued
             | PresentationState::WaitingForEstimatedVblank {
