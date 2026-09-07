@@ -3393,7 +3393,7 @@ which the locked Git dependency now points.)
 - Fixed a use-after-free in `Server::drop`: surface boxes were reclaimed
   *before* `wl_display_destroy`, leaving each `wl_resource`'s `user_data`
   dangling for the destroy-notify fired during display teardown to
-  dereference. The display is now destroyed first (its notifys free the boxes
+  dereference. The display is now destroyed first (its notifies free the boxes
   and null the slots); the reclaim loop then handles only orphaned slots.
   Manifested as a flaky shutdown segfault once any client had connected.
 

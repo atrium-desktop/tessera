@@ -46,7 +46,7 @@ rather than by vigilance.
    `wl_buffer.release` on any held dma-buf-backed buffer, and reclaims the
    box with `Box::from_raw`. Iterators filter null slots. `Server::drop`
    reclaims any orphaned boxes left after `wl_display_destroy` has fired its
-   own destroy notifys. No surface allocation outlives its resource.
+   own destroy notifies. No surface allocation outlives its resource.
 
 3. **Stub device handlers allocate their new-id.** Even with advertised
    capabilities of zero, the `wl_seat.get_pointer`, `get_keyboard`, and

@@ -386,7 +386,7 @@ impl Drop for Server {
             // `surface_resource_destroy` frees each surface's box and nulls its
             // slot. This MUST run before the orphan-reclaim loop below — the
             // opposite order frees the boxes while the wl_resources still hold
-            // dangling user_data pointers, so the notifys fired here would
+            // dangling user_data pointers, so the notifies fired here would
             // dereference freed memory (use-after-free, observed as a flaky
             // shutdown segfault roughly one run in three).
             ffi::wl_display_destroy(self.state.display);

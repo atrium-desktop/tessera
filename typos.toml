@@ -8,6 +8,14 @@ extend-ignore-identifiers-re = [
 ]
 
 [default.extend-words]
+# Technical identifiers and units the dictionary cannot know
+controllen = "controllen"
+numer = "numer"
+PN = "PN"
+ths = "ths"
+unparented = "unparented"
+cll = "cll"
+PNGs = "PNGs"
 # Project-specific terms, acronyms and abbreviations
 tessera = "tessera"
 optics = "optics"

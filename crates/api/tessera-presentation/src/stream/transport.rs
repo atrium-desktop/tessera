@@ -59,7 +59,7 @@ pub struct CaptureCursorState {
 /// A GPU cursor draw into a capture-surface pass (ADR-0127): the theme
 /// cursor's shape, its logical position relative to the capture target's
 /// origin, and the target's render scale. Drawn after the frame content so
-/// the sprite composits above it, clipped by the target extent.
+/// the sprite composites above it, clipped by the target extent.
 #[derive(Debug, Clone, Copy)]
 pub struct StreamCursorBlit {
     pub shape: u32,
@@ -467,7 +467,7 @@ pub fn blit_presented_frame(
             presented.height as f32,
         ),
     }
-    // Embedded cursor mode (ADR-0127): the theme cursor composits above the
+    // Embedded cursor mode (ADR-0127): the theme cursor composites above the
     // captured frame, translated into the target's coordinate space.
     if let Some(cursor) = cursor {
         draw_cursor(&dmabuf.canvas, &cursor);
