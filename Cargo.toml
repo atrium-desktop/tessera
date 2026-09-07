@@ -114,6 +114,9 @@ tessera-icons = { path = "crates/api/tessera-icons" }
 
 # Shared, effect-free Tessera state and deterministic model rules.
 tessera-model = { path = "crates/api/tessera-model" }
+# Pure presentation-domain value layer: frame damage verdicts, slot-ring
+# repaint history, and the client-damage generation diff seam.
+tessera-presentation = { path = "crates/api/tessera-presentation" }
 # Transport-neutral Actor authority plus hash-chained audit persistence.
 tessera-security = { path = "crates/api/tessera-security" }
 # Validated application accessibility trees and semantic dispatch routing.

@@ -1,0 +1,14 @@
+[package]
+name = "tessera-presentation"
+description = "Pure presentation-domain value layer: frame damage verdicts, damage assessment inputs, slot-ring repaint history, and logical-to-physical damage mapping for the tessera compositor"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tessera-model = { workspace = true }
+
+[lints]
+workspace = true

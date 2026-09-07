@@ -47,13 +47,11 @@ pub(super) struct SwipeState {
 /// boundary instead of a set of unrelated flags on the composition root.
 #[derive(Default)]
 pub(super) struct DamageTracking {
-    /// Per-surface content generations at the last damage assessment; a
-    /// mismatch marks that surface's region damaged.
-    pub(super) last_surface_gens: std::collections::HashMap<usize, SurfaceDamageBaseline>,
-    /// Scratch double-buffer for [`Self::last_surface_gens`]: `client_damage`
-    /// swaps the two in place and clears the now-old one, so the per-frame
-    /// generation map is never freshly heap-allocated.
-    pub(super) surface_gens_scratch: std::collections::HashMap<usize, SurfaceDamageBaseline>,
+    /// Double-buffered per-surface generation baseline for the client-damage
+    /// pass, owned by `tessera_presentation::ClientDamageTracker` behind the
+    /// `SurfaceDamageFrame` seam. The maps swap in place per frame so the
+    /// generation diff never freshly heap-allocates.
+    pub(super) client_damage: ClientDamageTracker,
     pub(super) last_notif_revision: Option<u64>,
     /// (overview, window switcher, keyboard capture, screenshot selector) at
     /// the last assessment — modal chrome changes outside signed paths.

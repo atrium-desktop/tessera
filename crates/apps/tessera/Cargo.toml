@@ -35,6 +35,7 @@ chrome-command-panel = ["dep:tessera-command-panel", "dep:tessera-tray"]
 tessera-security.workspace = true
 tessera-semantic.workspace = true
 tessera-model = { workspace = true }
+tessera-presentation = { workspace = true }
 # Design tokens: scene colors and glass material policy (single source).
 tessera-design = { workspace = true }
 tessera-compositor = { workspace = true }
