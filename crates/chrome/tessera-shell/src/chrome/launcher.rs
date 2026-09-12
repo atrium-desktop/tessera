@@ -618,11 +618,9 @@ impl Chrome for Launcher {
         // Frosted-glass search field: the shared glass-panel material carries
         // the layout defaults while the painted layer keeps the launcher's
         // own scheme-following field tone over the compositor's backdrop
-        // blur — dark translucent glass in the dark appearance (the shared
-        // popover/menu tokens are white in both and would read as an opaque
-        // bright bar here), white glass in the light one. No glass_focus
-        // token carries the focused edge, so the border alpha and widths
-        // stay numeric overrides.
+        // blur — dark translucent glass in the dark appearance, white glass
+        // in the light one. No glass_focus token carries the focused edge,
+        // so the border alpha and widths stay numeric overrides.
         let surface = self.design.colors.launcher_field_surface;
         let edge = self.design.colors.launcher_field_border;
         let (_, _, _, surface_alpha) = surface.components();
@@ -920,6 +918,7 @@ impl Chrome for Launcher {
         }
         let action_start = out.window_actions.len();
         let had_activation = out.spawn.is_some() || out.open_builtin.is_some();
+        self.app_menu.set_design(self.design);
         self.app_menu.render(frame, input, windows, i18n, out);
         let activated = out.window_actions[action_start..]
             .iter()
@@ -1069,8 +1068,9 @@ impl Chrome for Launcher {
     /// frame where that rebuild did not deliver fell back to drawing the
     /// sharp, unblurred desktop under the thinning scrim — the visible
     /// "bright flash on close". A constant radius keeps the exit on the
-    /// zero-rebuild `Cached` path; the veil itself fades via the component
-    /// opacity, so the session still eases away visually.
+    /// material-only `Recompute`/`Cached` path; the veil itself fades
+    /// through the region's declared `opacity` and the lens opacity switch,
+    /// so the session still eases away visually.
     fn backdrop_blur_sigma(&self) -> f32 {
         if self.active() {
             BACKDROP_BLUR_SIGMA
@@ -1086,7 +1086,15 @@ impl Chrome for Launcher {
         _workspaces: &crate::WorkspaceSnapshot,
     ) -> Vec<BackdropRegion> {
         if self.active() {
-            vec![tessera_chrome::BackdropCover::region(display, &self.design)]
+            // The full-screen cover carries the exit fade (same choreography
+            // as the lens opacity switch: `surface_progress` shapes it), so
+            // the scrim drains ahead of teardown instead of holding full
+            // strength and vanishing in one frame.
+            vec![tessera_chrome::BackdropCover::region(
+                display,
+                &self.design,
+                surface_progress(self.visibility.value.clamp(0.0, 1.0)),
+            )]
         } else {
             Vec::new()
         }
@@ -1322,6 +1330,9 @@ mod tests {
         assert_eq!(regions.len(), 0, "closed launcher declares no backdrop");
 
         launcher.command(&ChromeCommand::ToggleLauncher, &mut ChromeEvents::default());
+        // The veil's weight rides the reveal spring, so the settled state is
+        // what carries the full wash (a just-toggled launcher is still at 0).
+        launcher.visibility.value = 1.0;
         let regions = launcher.backdrop_regions(
             (1024.0, 768.0),
             &[],
@@ -1333,6 +1344,19 @@ mod tests {
         let wash = region.wash.expect("the veil is a wash into the frost");
         assert!(wash.strength > 0.0);
         assert!(wash.strength < 1.0, "the veil stays translucent");
+        assert_eq!(region.opacity, 1.0, "a settled veil frosts at full body");
+
+        // Mid-fade both channels drain together: no gray plate left at full
+        // strength while the content has already faded out.
+        launcher.visibility.value = 0.5;
+        let mid = launcher.backdrop_regions(
+            (1024.0, 768.0),
+            &[],
+            &crate::WorkspaceSnapshot { outputs: vec![] },
+        );
+        let mid = mid.first().expect("the cover survives the fade");
+        assert!(mid.opacity > 0.0 && mid.opacity < 1.0, "{}", mid.opacity);
+        assert!(mid.wash.expect("still a wash").strength < wash.strength);
     }
 
     #[test]
@@ -1781,10 +1805,20 @@ mod tests {
         // Mid-fade the blur radius stays at full strength: easing the
         // radius keyed the compositor's capture cache on every frame and any
         // failed rebuild fell through to the sharp desktop — the flash.
-        // The veil fades via component opacity; the blur hands over only
-        // once, when the spring has fully settled.
+        // The veil fades via the region's `opacity` channel instead; the
+        // blur hands over only once, when the spring has fully settled.
         launcher.advance_visibility(0.0, 1.0 / 60.0);
         assert_eq!(launcher.backdrop_blur_sigma(), BACKDROP_BLUR_SIGMA);
+        let mid_fade = &launcher.backdrop_regions(
+            (1280.0, 720.0),
+            &[],
+            &crate::WorkspaceSnapshot { outputs: vec![] },
+        )[0];
+        assert!(
+            mid_fade.opacity < 1.0 && mid_fade.opacity > 0.0,
+            "the cover drains with the fade, not at full strength: {}",
+            mid_fade.opacity
+        );
         assert!(launcher.active(), "the fade is still running");
         assert!(launcher.launcher_active());
 

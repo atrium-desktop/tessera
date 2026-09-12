@@ -52,7 +52,7 @@ backend, renderer, and shell behind clear seams so the
 | | `tessera-dock` | Bottom-center dock chrome component: pinned and running apps, magnification, pin actions |
 | | `tessera-settings` | Settings module library: module contract, registry, and built-in pages hosted by the command panel |
 | | `tessera-hud` | Display-only HUD status chips: system status, workspace dots, clock, notification count, and the StatusNotifierItem tray row |
-| | `tessera-command-panel` | Full-screen modal command panel: the display-and-control surface for desktop-computer behavior (quick settings, hosted settings modules, tray activation, notification dismissal) — scoped by [ADR-0115](../adr/0115-command-panel-desktop-behavior-scope.md) |
+| | `tessera-control-center` | Full-screen modal control center: the display-and-control surface for desktop-computer behavior (quick settings, hosted settings modules, tray activation, notification dismissal) — scoped by [ADR-0115](../adr/0115-command-panel-desktop-behavior-scope.md) |
 | | `tessera-wallpaper` | Background layer: image, video, 3D, and multi-plane parallax wallpaper |
 | | `tessera-config` | Declarative configuration: versioned TOML schema, loader, live reload |
 | **Session services** | `tessera-lock` | Multi-output session-lock presentation and PAM authentication |
@@ -129,9 +129,9 @@ hard to read at a glance. For the most common "I want to change what the
 user sees or can do" tasks:
 
 - **"Manage windows"** (focus, close, move, tile, workspace) → `tessera-compositor`.
-- **"Change the chrome / interactions"** (dock, launcher, HUD, panel) → `tessera-shell`
-  for the host and contract; the HUD and command panel live in the
-  `tessera-hud` and `tessera-command-panel` component crates. The command panel
+- **"Change the chrome / interactions"** (dock, launcher, HUD, control center) → `tessera-shell`
+  for the host and contract; the HUD and control center live in the
+  `tessera-hud` and `tessera-control-center` component crates. The control center
   is scoped to desktop-computer behavior — the user's computer, not
   compositor internals
   ([ADR-0115](../adr/0115-command-panel-desktop-behavior-scope.md)) — and

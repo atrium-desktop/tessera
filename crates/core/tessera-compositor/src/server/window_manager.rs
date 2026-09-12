@@ -1,5 +1,25 @@
 use crate::*;
 
+/// Whether `rec` is an independent window-switcher candidate (ADR-0148): a
+/// mapped, unminimized toplevel that the seat controls and that is not a
+/// cross-client dialog. The switcher enumerates trees, not toplevels: a
+/// prompter imported over `zxdg_importer_v2` rides the requesting app's
+/// card, and the modal-landing rule carries focus to it when that card is
+/// chosen. In-app dialogs stay candidates — they are stackable windows of
+/// the application itself.
+fn switcher_candidate(
+    s: &SurfaceRec,
+    visible: &std::collections::HashSet<tessera_model::window::WindowId>,
+    seat_controls: bool,
+) -> bool {
+    !s.xdg_toplevel.is_null()
+        && s.mapped
+        && !s.window.minimized
+        && visible.contains(&s.window.id)
+        && seat_controls
+        && !unsafe { is_cross_client_dialog(s as *const SurfaceRec as *mut SurfaceRec) }
+}
+
 impl Server {
     fn switcher_candidates(&self) -> Vec<tessera_model::window::WindowId> {
         let visible = self.visible();
@@ -8,14 +28,13 @@ impl Server {
             .live_surfaces()
             .map(|p| unsafe { &*p })
             .filter(|s| {
-                !s.xdg_toplevel.is_null()
-                    && s.mapped
-                    && !s.window.minimized
-                    && visible.contains(&s.window.id)
-                    && self
-                        .state
+                switcher_candidate(
+                    s,
+                    &visible,
+                    self.state
                         .authority
-                        .seat_controls_window(self.state.active_seat, s.window.id)
+                        .seat_controls_window(self.state.active_seat, s.window.id),
+                )
             })
             .map(|s| s.window.id)
             .collect();
@@ -1017,6 +1036,51 @@ mod window_switcher_tests {
         assert_eq!(stepped_index(3, 4, true), 0);
         assert_eq!(stepped_index(0, 4, false), 3);
         assert_eq!(stepped_index(2, 4, false), 1);
+    }
+
+    #[test]
+    fn cross_client_prompters_are_not_independent_switcher_candidates() {
+        let mut state = State::new(std::ptr::null_mut());
+        let mut app = Box::new(SurfaceRec::new(0x100usize as *mut ffi::wl_resource));
+        app.state = &mut state;
+        app.xdg_toplevel = 0x101usize as *mut ffi::wl_resource;
+        app.window.id = tessera_model::window::WindowId(1);
+        app.mapped = true;
+
+        // The portal prompter riding the app's tree over zxdg_importer_v2.
+        let mut prompter = Box::new(SurfaceRec::new(0x200usize as *mut ffi::wl_resource));
+        prompter.state = &mut state;
+        prompter.xdg_toplevel = 0x201usize as *mut ffi::wl_resource;
+        prompter.window.id = tessera_model::window::WindowId(2);
+        prompter.window.parent = Some(app.as_mut() as *mut SurfaceRec as usize);
+        prompter.foreign_parent_owner = 0x900usize as *mut ffi::wl_resource;
+        prompter.mapped = true;
+
+        // An in-app dialog parented the ordinary way: a real candidate.
+        let mut dialog = Box::new(SurfaceRec::new(0x300usize as *mut ffi::wl_resource));
+        dialog.state = &mut state;
+        dialog.xdg_toplevel = 0x301usize as *mut ffi::wl_resource;
+        dialog.window.id = tessera_model::window::WindowId(3);
+        dialog.window.parent = Some(app.as_mut() as *mut SurfaceRec as usize);
+        dialog.mapped = true;
+
+        state.surfaces = vec![app.as_mut(), prompter.as_mut(), dialog.as_mut()];
+        let visible: std::collections::HashSet<_> =
+            (1..=3).map(tessera_model::window::WindowId).collect();
+
+        assert!(switcher_candidate(&app, &visible, true));
+        assert!(
+            !switcher_candidate(&prompter, &visible, true),
+            "the prompter rides the app's card; the landing rule reaches it"
+        );
+        assert!(
+            switcher_candidate(&dialog, &visible, true),
+            "in-app dialogs remain switchable windows"
+        );
+        assert!(
+            !switcher_candidate(&app, &visible, false),
+            "a window the seat does not control is never a candidate"
+        );
     }
 
     #[test]

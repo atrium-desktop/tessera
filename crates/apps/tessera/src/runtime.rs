@@ -318,8 +318,8 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
     // The optional SNI tray service is spawned once when at least one compiled
     // consumer is active. The cloneable handle keeps the snapshot and command
     // side together across HUD-only, panel-only, and combined builds.
-    #[cfg(any(feature = "chrome-hud", feature = "chrome-command-panel"))]
-    let tray = if cfg!(feature = "chrome-command-panel")
+    #[cfg(any(feature = "chrome-hud", feature = "chrome-control-center", feature = "chrome-command-panel"))]
+    let tray = if cfg!(any(feature = "chrome-control-center", feature = "chrome-command-panel"))
         || config.as_ref().map(|c| c.hud.enabled).unwrap_or(true)
     {
         tessera_tray::spawn()
@@ -352,12 +352,12 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
     // The overview (M9): a modal window/workspace picker over the same live
     // scene; registered with the modal chrome so it covers ordinary overlays.
     shell.add(Box::new(tessera_shell::Overview::new()));
-    // The command panel (ADR-0080): the interactive counterpart of the
+    // The control center (ADR-0080): the interactive counterpart of the
     // display-only HUD — quick settings, tray activation with dbusmenu
     // popovers, and notification dismissal in one modal surface, toggled by
     // the Super+S binding or a four-finger touchpad swipe.
-    #[cfg(feature = "chrome-command-panel")]
-    shell.add(Box::new(tessera_command_panel::CommandPanel::new(
+    #[cfg(any(feature = "chrome-control-center", feature = "chrome-command-panel"))]
+    shell.add(Box::new(tessera_control_center::ControlCenter::new(
         &device,
         tray,
         std::sync::Arc::clone(&notif_queue),
@@ -488,7 +488,21 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
     // + the borrowed icon cache, which outlives the shell) before registering
     // the dock: `Shell::add` seeds new components with the current catalog.
     // The dock stays last so it stacks above the other chrome.
-    let dock_state_path = tessera_compositor::DockStateStore::default_path();
+    let is_preview = std::env::var_os("TESSERA_COMMAND_PANEL").is_some()
+        || std::env::var_os("TESSERA_COMMAND_PANEL_OPEN").is_some()
+        || std::env::var_os("TESSERA_PREVIEW").is_some();
+    let preview_sandbox = if is_preview {
+        let path = std::env::temp_dir().join(format!("tessera-preview-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&path);
+        Some(state::PreviewSandbox(path))
+    } else {
+        None
+    };
+    let dock_state_path = if let Some(sandbox) = &preview_sandbox {
+        sandbox.0.join("dock-state.json")
+    } else {
+        tessera_compositor::DockStateStore::default_path()
+    };
     let (seed_pinned, seed_autopopulate, seed_position) = config
         .as_ref()
         .map(|c| (c.dock.pinned.clone(), c.dock.autopopulate, c.dock.position))
@@ -534,6 +548,17 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Register the held-Super switcher last so its selection chrome stacks
     // above the Dock while the renderer supplies live window previews below.
     shell.add(Box::new(tessera_shell::WindowSwitcher::new()));
+
+    if let Ok(preview) = std::env::var("TESSERA_PREVIEW") {
+        match preview.trim().to_ascii_lowercase().as_str() {
+            "overview" => shell.toggle_overview(),
+            "control-center" | "control_center" | "command-panel" | "command_panel" | "panel" => {
+                shell.toggle_control_center()
+            }
+            "switcher" => shell.start_window_switcher(),
+            _ => {}
+        }
+    }
 
     // One normalized status snapshot feeds compositor chrome and IPC. Host
     // probes (wpctl/nmcli fork+exec) run on a helper thread so the compositor
@@ -728,94 +753,113 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
         std::sync::mpsc::channel::<ConfirmPickControlRequest>();
     let (capability_pick_control_tx, capability_pick_control_rx) =
         std::sync::mpsc::channel::<CapabilityPickControlRequest>();
-    let state_home = std::env::var_os("XDG_STATE_HOME")
-        .map(std::path::PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".local/state"))
-        })
-        .ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "XDG_STATE_HOME/HOME is required for durable audit state",
-            )
-        })?;
-    let journal_path = state_home.join("tessera/audit/events-v2.jsonl");
-    let data_home = std::env::var_os("XDG_DATA_HOME")
-        .map(std::path::PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".local/share"))
-        })
-        .ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "XDG_DATA_HOME/HOME is required for durable Actor identity state",
-            )
-        })?;
-    let audit_policy = config
-        .as_ref()
-        .map(|config| config.audit)
-        .unwrap_or_default();
-    const MIB: u64 = 1024 * 1024;
-    let audit_options = tessera_security::audit::AuditStoreOptions {
-        max_store_bytes: audit_policy.max_store_mib * MIB,
-        min_free_bytes: audit_policy.min_free_mib * MIB,
-        checkpoint_interval_bytes: audit_policy.checkpoint_interval_mib * MIB,
-        checkpoint_interval_events: tessera_security::audit::DEFAULT_CHECKPOINT_INTERVAL_EVENTS,
-        segment_max_bytes: audit_policy.segment_max_mib * MIB,
-        retain_segments: audit_policy.retain_segments,
+    let state_home = if let Some(sandbox) = &preview_sandbox {
+        sandbox.0.join("state")
+    } else {
+        std::env::var_os("XDG_STATE_HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".local/state"))
+            })
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "XDG_STATE_HOME/HOME is required for durable audit state",
+                )
+            })?
     };
-    let audit_open_started = std::time::Instant::now();
-    let journal = tessera_ipc::Journal::open_persistent_with_options(
-        tessera_ipc::DEFAULT_CAPACITY,
-        &journal_path,
-        audit_options,
-    )
-    .map_err(|error| match error {
-        locked @ tessera_security::audit::AuditError::Locked(_) => {
-            std::io::Error::other(format!("{locked}; is another tessera instance running?"))
-        }
-        capacity @ (tessera_security::audit::AuditError::QuotaExceeded { .. }
-        | tessera_security::audit::AuditError::LowSpace { .. }
-        | tessera_security::audit::AuditError::InvalidOptions(_)) => {
-            std::io::Error::other(capacity.to_string())
-        }
-        checkpoint @ (tessera_security::audit::AuditError::CheckpointAuthentication
-        | tessera_security::audit::AuditError::CheckpointDecode(_)
-        | tessera_security::audit::AuditError::CheckpointState(_)) => std::io::Error::other(format!(
-            "{checkpoint}; preserve {} and quarantine its .checkpoint and .key sidecars together; \
-             the next start will completely verify the durable history and rebuild them",
-            journal_path.display()
-        )),
-        io @ (tessera_security::audit::AuditError::Io { .. }
-        | tessera_security::audit::AuditError::Entropy(_)) => std::io::Error::other(io.to_string()),
-        error => std::io::Error::other(format!(
-            "{} failed verification: {error}; quarantine the file (rename it aside, e.g. \
-                 with a .corrupt-<date>.bak suffix) to start a fresh chain",
-            journal_path.display()
-        )),
-    })?;
-    log::info!(
-        "audit: restored {} live event(s), latest sequence {}, {:.1} MiB durable, {} in {:?}",
-        journal.len(),
-        journal.latest_seq(),
-        journal.persistent_bytes().unwrap_or(0) as f64 / MIB as f64,
-        if journal.historical_verification_pending() {
-            "authenticated checkpoint replay; complete history verification continues in background"
-        } else if journal.checkpoint_accelerated() {
-            "authenticated checkpoint replay; complete history already covered by the bounded replay"
-        } else {
-            "complete initial verification"
-        },
-        audit_open_started.elapsed(),
-    );
-    {
-        // Sealed-segment integrity gates the session the same way the active
-        // stream does: a manifest that does not match its compressed segments
-        // is a corrupted authority history (ADR-0137).
-        journal.verify_sealed_segments().map_err(|error| {
+    let journal_path = state_home.join("tessera/audit/events-v2.jsonl");
+    let data_home = if let Some(sandbox) = &preview_sandbox {
+        sandbox.0.join("share")
+    } else {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".local/share"))
+            })
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "XDG_DATA_HOME/HOME is required for durable Actor identity state",
+                )
+            })?
+    };
+    let journal = if is_preview {
+        log::info!("audit: running preview session; using ephemeral in-memory journal");
+        tessera_ipc::Journal::new(tessera_ipc::DEFAULT_CAPACITY)
+    } else {
+        let audit_policy = config
+            .as_ref()
+            .map(|config| config.audit)
+            .unwrap_or_default();
+        const MIB: u64 = 1024 * 1024;
+        let audit_options = tessera_security::audit::AuditStoreOptions {
+            max_store_bytes: audit_policy.max_store_mib * MIB,
+            min_free_bytes: audit_policy.min_free_mib * MIB,
+            checkpoint_interval_bytes: audit_policy.checkpoint_interval_mib * MIB,
+            checkpoint_interval_events: tessera_security::audit::DEFAULT_CHECKPOINT_INTERVAL_EVENTS,
+            segment_max_bytes: audit_policy.segment_max_mib * MIB,
+            retain_segments: audit_policy.retain_segments,
+        };
+        let audit_open_started = std::time::Instant::now();
+        let j = match tessera_ipc::Journal::open_persistent_with_options(
+            tessera_ipc::DEFAULT_CAPACITY,
+            &journal_path,
+            audit_options,
+        ) {
+            Ok(journal) => journal,
+            Err(tessera_security::audit::AuditError::Locked(_)) if host.name() == "nested" => {
+                log::warn!(
+                    "audit: store at {} is locked by host session; using ephemeral in-memory journal for nested run",
+                    journal_path.display()
+                );
+                tessera_ipc::Journal::new(tessera_ipc::DEFAULT_CAPACITY)
+            }
+            Err(error) => {
+                return Err(match error {
+                    locked @ tessera_security::audit::AuditError::Locked(_) => {
+                        std::io::Error::other(format!("{locked}; is another tessera instance running?"))
+                    }
+                    capacity @ (tessera_security::audit::AuditError::QuotaExceeded { .. }
+                    | tessera_security::audit::AuditError::LowSpace { .. }
+                    | tessera_security::audit::AuditError::InvalidOptions(_)) => {
+                        std::io::Error::other(capacity.to_string())
+                    }
+                    checkpoint @ (tessera_security::audit::AuditError::CheckpointAuthentication
+                    | tessera_security::audit::AuditError::CheckpointDecode(_)
+                    | tessera_security::audit::AuditError::CheckpointState(_)) => std::io::Error::other(format!(
+                        "{checkpoint}; preserve {} and quarantine its .checkpoint and .key sidecars together; \
+                         the next start will completely verify the durable history and rebuild them",
+                        journal_path.display()
+                    )),
+                    io @ (tessera_security::audit::AuditError::Io { .. }
+                    | tessera_security::audit::AuditError::Entropy(_)) => std::io::Error::other(io.to_string()),
+                    error => std::io::Error::other(format!(
+                        "{} failed verification: {error}; quarantine the file (rename it aside, e.g. \
+                             with a .corrupt-<date>.bak suffix) to start a fresh chain",
+                        journal_path.display()
+                    )),
+                }.into());
+            }
+        };
+        log::info!(
+            "audit: restored {} live event(s), latest sequence {}, {:.1} MiB durable, {} in {:?}",
+            j.len(),
+            j.latest_seq(),
+            j.persistent_bytes().unwrap_or(0) as f64 / MIB as f64,
+            if j.historical_verification_pending() {
+                "authenticated checkpoint replay; complete history verification continues in background"
+            } else if j.checkpoint_accelerated() {
+                "authenticated checkpoint replay; complete history already covered by the bounded replay"
+            } else {
+                "complete initial verification"
+            },
+            audit_open_started.elapsed(),
+        );
+        j.verify_sealed_segments().map_err(|error| {
             std::io::Error::other(format!("audit segment verification: {error}"))
         })?;
-        if let Some(status) = journal.audit_status() {
+        if let Some(status) = j.audit_status() {
             log::info!(
                 "audit: {} sealed segment(s) verified, {:.1} MiB compressed, {:.1} MiB active, {} pruned segment(s) on record",
                 status.sealed_segments,
@@ -824,7 +868,8 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
                 status.pruned_segments,
             );
         }
-    }
+        j
+    };
     let journal = std::sync::Arc::new(std::sync::Mutex::new(journal));
     let mut agent_registry = PrincipalRegistry::load(data_home.join("tessera/principals.json"));
     let grant_store = GrantStore::load(data_home.join("tessera/grants.json"));
@@ -1139,6 +1184,7 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
         night_light: tessera_model::night_light::NightLight::default(),
         night_light_last_eval: std::time::Instant::now() - std::time::Duration::from_secs(2),
         input_status_last_probe: std::time::Instant::now() - std::time::Duration::from_secs(3),
+        _preview_sandbox: preview_sandbox,
     }
     .run_loop()
 }

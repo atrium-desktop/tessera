@@ -32,7 +32,7 @@ impl CompositorRuntime {
             || self.pending_confirm_pick.is_some()
             || self.pending_capability_pick.is_some()
             || self.shell.screenshot_active()
-            || self.shell.command_panel_active()
+            || self.shell.control_center_active()
             || self.shell.window_switcher_active()
         {
             return;

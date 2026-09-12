@@ -18,7 +18,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.0.58"
+version = "0.0.59"
 edition = "2024"
 # Workspace crates contain MIT-licensed source, including the bundled cursor
 # art under assets/cursors/Tessera (original, generated in-tree).
@@ -33,19 +33,19 @@ repository = "https://github.com/atrium-desktop/tessera"
 # development worktree can patch these sources through
 # .cargo/optics-local.toml without making a sibling checkout mandatory for CI
 # or downstream packagers.
-flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.34" }
-flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.34" }
-flux-scene-graph = { git = "https://github.com/ming2k/optics", tag = "v0.0.34" }
-flux-scene-graph-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.34" }
+flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
+flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
+flux-scene-graph = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
+flux-scene-graph-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
 # Renderer-neutral offscreen DAG planning above Flux image operators.
-flux-composition-graph = { git = "https://github.com/ming2k/optics", tag = "v0.0.34" }
-lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.34" }
-lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.34" }
-iris = { git = "https://github.com/ming2k/optics", tag = "v0.0.34" }
+flux-composition-graph = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
+lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
+lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
+iris = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
 # prism (material library; ADR-0063) carries the liquid-glass compositor.
 # Canonical resolution needs an optics tag containing prism-rs.
-prism = { git = "https://github.com/ming2k/optics", tag = "v0.0.34" }
-prism-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.34" }
+prism = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
+prism-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
 
 # Observability: crates emit through the `log` facade; each binary installs a
 # `tracing`-based subscriber through the shared `tessera-bootstrap` crate, which
@@ -77,7 +77,7 @@ atspi = { version = "0.30", features = ["zbus"] }
 async-io = "2"
 
 # Session D-Bus for the StatusNotifierItem system tray (tessera-tray, shared by
-# tessera-hud and tessera-command-panel).
+# tessera-hud and tessera-control-center).
 # Pure-Rust zbus (no libdbus system dep) with the blocking API so the tray
 # worker stays a plain `std::thread`; `async-io` is zbus's smol-based
 # internal executor — tokio stays out of the dependency graph.
@@ -152,8 +152,8 @@ tessera-prism = { path = "crates/chrome/tessera-prism" }
 tessera-hud = { path = "crates/chrome/tessera-hud" }
 # SNI system tray service shared by shell chrome (ADR-0080).
 tessera-tray = { path = "crates/providers/tessera-tray" }
-# Modal command panel (ADR-0080).
-tessera-command-panel = { path = "crates/chrome/tessera-command-panel" }
+# Modal control center (ADR-0080).
+tessera-control-center = { path = "crates/chrome/tessera-control-center" }
 tessera-wallpaper = { path = "crates/chrome/tessera-wallpaper" }
 # First-party session products. The compositor retains the protocol and
 # fail-closed authority; these packages are ordinary Wayland clients.

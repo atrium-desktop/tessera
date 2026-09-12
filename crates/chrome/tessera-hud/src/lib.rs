@@ -6,12 +6,12 @@
 //! StatusNotifierItem tray row, the clock, and the notification count on
 //! the left; workspace position markers in the center. The top-right
 //! belongs to the frameless notification toast strip, and the Agent
-//! Workspaces status lives in the command panel (ADR-0083). The chips
+//! Workspaces status lives in the control center (ADR-0083). The chips
 //! reserve no space, accept no pointer input, and fade out when the cursor
 //! approaches; window, workspace, notification, and system snapshots arrive
 //! through the shell each frame. Every interaction the old status bar
 //! hosted (quick settings, tray activation, notification dismissal) lives
-//! in the command panel (`tessera-command-panel`).
+//! in the control center (`tessera-control-center`).
 //!
 //! Like the dock (`tessera-dock`) and the modal compositor applications,
 //! the HUD graduated out of `tessera-shell` into its own crate on top of

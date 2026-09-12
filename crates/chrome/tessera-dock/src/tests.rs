@@ -1773,3 +1773,93 @@ fn cursor_navigating_toward_dock_tiles_does_not_abort_reveal() {
         "moving outside rest_bounds toward client window is retreat"
     );
 }
+
+#[test]
+fn preview_hover_locks_magnification_axis_to_owner_tile_centre() {
+    let display = (1920.0, 1080.0);
+    let n = 5;
+    let pinned_count = 3;
+    let owner_idx = 2;
+    let owner_centre = Dock::rest_centre_estimate(owner_idx, n, pinned_count, display.0);
+    let neighbour_idx = 1;
+    let neighbour_centre = Dock::rest_centre_estimate(neighbour_idx, n, pinned_count, display.0);
+
+    // 1. Hovering directly on the dock bar: axis tracks the cursor coordinate.
+    let cursor_on_bar = owner_centre + 8.0;
+    let axis_on_bar = Dock::magnification_axis(false, true, Some(owner_centre), cursor_on_bar);
+    assert_eq!(axis_on_bar, cursor_on_bar);
+
+    // 2. Hovering inside the preview card / bridge above the dock:
+    // over_rest_bounds is false, over_hover_surface is true.
+    // The axis locks onto the owner tile's centre.
+    let cursor_in_preview_card_a = owner_centre - 45.0;
+    let axis_preview_a =
+        Dock::magnification_axis(true, false, Some(owner_centre), cursor_in_preview_card_a);
+    assert_eq!(
+        axis_preview_a, owner_centre,
+        "magnification axis must lock to owner tile centre when hovering preview"
+    );
+
+    // Moving horizontally across preview cards must not wobble or shift the dock.
+    let cursor_in_preview_card_b = owner_centre + 60.0;
+    let axis_preview_b =
+        Dock::magnification_axis(true, false, Some(owner_centre), cursor_in_preview_card_b);
+    assert_eq!(
+        axis_preview_b, owner_centre,
+        "magnification axis stays locked as cursor traverses preview cards"
+    );
+
+    // 3. Peak magnification is preserved on the owner tile while hovering its preview.
+    let owner_target = Dock::magnification_target(true, axis_preview_a, owner_centre);
+    assert_eq!(
+        owner_target, DOCK_TILE_MAX,
+        "owner tile must stay at maximum magnification while preview is hovered"
+    );
+
+    // 4. Neighbouring tiles receive smooth cosine-bell attenuation centered at the owner tile.
+    let neighbour_target = Dock::magnification_target(true, axis_preview_a, neighbour_centre);
+    assert!(
+        neighbour_target > DOCK_TILE && neighbour_target < DOCK_TILE_MAX,
+        "neighbour tiles stay smoothly curved around the owner tile"
+    );
+
+    // 5. When the cursor leaves the preview into open desktop space:
+    // over_hover_surface and over_rest_bounds both become false, in_band drops to false.
+    let dismissed_owner_target = Dock::magnification_target(false, axis_preview_a, owner_centre);
+    assert_eq!(
+        dismissed_owner_target, DOCK_TILE,
+        "tiles must smoothly return to resting size when preview is dismissed"
+    );
+}
+
+#[test]
+fn app_menu_follows_dock_dark_and_light_theme() {
+    let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
+    let display = (1920.0, 1080.0);
+    let owner = lens::Rect {
+        x: 900.0,
+        y: 970.0,
+        w: 84.0,
+        h: 84.0,
+    };
+    dock.app_menu
+        .open("Editor", None, [tessera_model::window::WindowId(7)], owner, None);
+    assert!(dock.app_menu.is_open());
+
+    // Initially dark
+    let glass_dark = dock.liquid_glass_regions(display, &[], &workspace_snapshot());
+    let menu_glass_dark = glass_dark
+        .iter()
+        .find(|g| g.id == tessera_chrome::liquid_glass_region_id("tessera-dock-context-menu"))
+        .expect("menu glass exists in dark appearance");
+    assert_eq!(menu_glass_dark.plate_polarity, 0.0);
+
+    // Switch to light theme
+    dock.update(ChromeUpdate::Appearance(&Design::light()));
+    let glass_light = dock.liquid_glass_regions(display, &[], &workspace_snapshot());
+    let menu_glass_light = glass_light
+        .iter()
+        .find(|g| g.id == tessera_chrome::liquid_glass_region_id("tessera-dock-context-menu"))
+        .expect("menu glass exists in light appearance");
+    assert_eq!(menu_glass_light.plate_polarity, 1.0);
+}

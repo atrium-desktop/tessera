@@ -78,7 +78,7 @@ pub(super) fn render_control_tile(
     active: bool,
     enabled: bool,
     size: (f32, f32),
-    hud: CommandPanelColors,
+    hud: ControlCenterColors,
     type_scale: TypeScale,
 ) -> bool {
     let original = f.theme();
@@ -152,7 +152,7 @@ pub(super) fn render_control_fader(
     range: (u8, u8),
     size: (f32, f32),
     fill: Color,
-    hud: CommandPanelColors,
+    hud: ControlCenterColors,
     type_scale: TypeScale,
 ) -> Option<u8> {
     let original = f.theme();
@@ -246,6 +246,7 @@ pub(super) fn menu_row_label(row: &MenuNode) -> String {
 /// Compute the visible popover bounds from the owner cell rect, the visible
 /// rows (already truncated to the current `menu_path`), and the display. The
 /// height counts every visible row + separator and the optional Back header.
+/// The popover opens directly to the right of the tray owner.
 pub(super) fn menu_bounds(owner: Rect, visible: &[MenuNode], display: (f32, f32)) -> Rect {
     let separator_count = visible
         .iter()
@@ -260,8 +261,8 @@ pub(super) fn menu_bounds(owner: Rect, visible: &[MenuNode], display: (f32, f32)
     let height = MENU_PAD * 2.0
         + MENU_HEADER_HEIGHT
         + row_count as f32 * MENU_ROW_HEIGHT
-        + separator_count as f32 * MENU_SECTION_HEIGHT;
-    place_popup(owner, (MENU_WIDTH, height), display)
+        + separator_count as f32 * MENU_SEPARATOR_HEIGHT;
+    place_popup_side(owner, (MENU_WIDTH, height), display, PopupSide::Right)
 }
 
 // ---- display typography (ADR-0080 refresh) -------------------------------

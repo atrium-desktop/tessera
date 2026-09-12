@@ -505,20 +505,24 @@ impl Server {
         // keyboard focus even while owner-events deliver the click to another
         // surface of the same client. A non-grabbing popup must not receive
         // keyboard focus at all.
+        //
+        // A suspended tree redirects to its modal leaf (ADR-0148): clicking
+        // the blocked parent activates the dialog that is blocking it.
         if state.is_pressed() && !self.state.pointer_focus.is_null() {
             let pointer_surface = unsafe {
                 ffi::wl_resource_get_user_data(self.state.pointer_focus) as *mut SurfaceRec
             };
             let root = unsafe { surface_root_toplevel(pointer_surface) };
-            if !root.is_null()
-                && let Some(leaf) = unsafe { topmost_modal_descendant(root, &self.state) }
-            {
-                let leaf_res = unsafe { (*leaf).resource };
-                let leaf_id = unsafe { (*leaf).window.id };
-                self.change_keyboard_focus(leaf_res);
-                self.change_pointer_focus(leaf_res);
-                self.trigger_attention_pulse(leaf_id);
-                return;
+            if !root.is_null() {
+                let leaf = unsafe { activation_modal_target(root, &self.state) };
+                if leaf != root {
+                    let leaf_res = unsafe { (*leaf).resource };
+                    let leaf_id = unsafe { (*leaf).window.id };
+                    self.change_keyboard_focus(leaf_res);
+                    self.change_pointer_focus(leaf_res);
+                    self.trigger_attention_pulse(leaf_id);
+                    return;
+                }
             }
             let keyboard_target = unsafe {
                 xdg_role_aware_keyboard_target(
@@ -1170,15 +1174,18 @@ impl Server {
         let focus = self.state.pointer_focus;
         let rec = unsafe { ffi::wl_resource_get_user_data(focus) as *mut SurfaceRec };
         let root = unsafe { surface_root_toplevel(rec) };
-        if !root.is_null()
-            && let Some(leaf) = unsafe { topmost_modal_descendant(root, &self.state) }
-        {
-            let leaf_res = unsafe { (*leaf).resource };
-            let leaf_id = unsafe { (*leaf).window.id };
-            self.change_keyboard_focus(leaf_res);
-            self.change_pointer_focus(leaf_res);
-            self.trigger_attention_pulse(leaf_id);
-            return;
+        // A suspended tree redirects to its modal leaf (ADR-0148), same as
+        // the pointer press path.
+        if !root.is_null() {
+            let leaf = unsafe { activation_modal_target(root, &self.state) };
+            if leaf != root {
+                let leaf_res = unsafe { (*leaf).resource };
+                let leaf_id = unsafe { (*leaf).window.id };
+                self.change_keyboard_focus(leaf_res);
+                self.change_pointer_focus(leaf_res);
+                self.trigger_attention_pulse(leaf_id);
+                return;
+            }
         }
         let serial = unsafe { ffi::wl_display_next_serial(self.state.display) };
         let client = unsafe { ffi::wl_resource_get_client(focus) };

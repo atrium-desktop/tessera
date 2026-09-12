@@ -4,7 +4,7 @@ Task-oriented instructions for operating an tessera session.
 
 ## Guides
 
-- [How to Use the HUD and the Command Panel](hud-and-command-panel.md)
+- [How to Use the HUD and the Control Center](hud-and-control-center.md)
 - [How to Use the Dock, Launcher, and Prism](dock-and-launcher.md)
 - [How to Manage Borderless Windows](window-management.md)
 - [How to Manage Audit History](manage-audit-history.md)

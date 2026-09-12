@@ -1127,6 +1127,110 @@ fn toplevel_has_live_parent_detects_cross_client_dialogs() {
 }
 
 #[test]
+fn cross_client_dialogs_are_recognized_by_foreign_import_owner() {
+    let mut state = State::new(std::ptr::null_mut());
+    let mut parent = Box::new(SurfaceRec::new(0x100usize as *mut ffi::wl_resource));
+    parent.state = &mut state;
+    parent.xdg_toplevel = 0x101usize as *mut ffi::wl_resource;
+    parent.mapped = true;
+
+    // The portal prompter: a *different* client's toplevel parented over
+    // zxdg_importer_v2 (ADR-0099). The import owns the parent link.
+    let mut prompter = Box::new(SurfaceRec::new(0x200usize as *mut ffi::wl_resource));
+    prompter.state = &mut state;
+    prompter.xdg_toplevel = 0x201usize as *mut ffi::wl_resource;
+    prompter.window.parent = Some(parent.as_mut() as *mut SurfaceRec as usize);
+    prompter.foreign_parent_owner = 0x900usize as *mut ffi::wl_resource;
+    prompter.mapped = true;
+    prompter.index = 1;
+
+    // An in-app dialog: parented through xdg_toplevel.set_parent, no import
+    // owner.
+    let mut dialog = Box::new(SurfaceRec::new(0x300usize as *mut ffi::wl_resource));
+    dialog.state = &mut state;
+    dialog.xdg_toplevel = 0x301usize as *mut ffi::wl_resource;
+    dialog.window.parent = Some(parent.as_mut() as *mut SurfaceRec as usize);
+    dialog.mapped = true;
+    dialog.index = 2;
+
+    state.surfaces = vec![parent.as_mut(), prompter.as_mut(), dialog.as_mut()];
+
+    assert!(
+        unsafe { is_cross_client_dialog(prompter.as_mut()) },
+        "a prompter whose parent link is import-owned is cross-client"
+    );
+    assert!(
+        !unsafe { is_cross_client_dialog(dialog.as_mut()) },
+        "an in-app dialog has no foreign import owner"
+    );
+    assert!(
+        !unsafe { is_cross_client_dialog(parent.as_mut()) },
+        "a root toplevel is never a cross-client dialog"
+    );
+
+    // Unmapping the parent dissolves the relationship either way.
+    parent.mapped = false;
+    assert!(!unsafe { is_cross_client_dialog(prompter.as_mut()) });
+}
+
+#[test]
+fn activation_modal_target_lands_on_the_topmost_modal_leaf() {
+    let mut state = State::new(std::ptr::null_mut());
+    let mut root = Box::new(SurfaceRec::new(0x100usize as *mut ffi::wl_resource));
+    root.state = &mut state;
+    root.xdg_toplevel = 0x101usize as *mut ffi::wl_resource;
+    root.mapped = true;
+
+    let mut dialog = Box::new(SurfaceRec::new(0x200usize as *mut ffi::wl_resource));
+    dialog.state = &mut state;
+    dialog.xdg_toplevel = 0x201usize as *mut ffi::wl_resource;
+    dialog.window.parent = Some(root.as_mut() as *mut SurfaceRec as usize);
+    dialog.mapped = true;
+    dialog.index = 1;
+
+    let mut leaf = Box::new(SurfaceRec::new(0x300usize as *mut ffi::wl_resource));
+    leaf.state = &mut state;
+    leaf.xdg_toplevel = 0x301usize as *mut ffi::wl_resource;
+    leaf.window.parent = Some(dialog.as_mut() as *mut SurfaceRec as usize);
+    leaf.mapped = true;
+    leaf.index = 2;
+
+    state.surfaces = vec![root.as_mut(), dialog.as_mut(), leaf.as_mut()];
+
+    // Asking for any member of the tree lands on the topmost modal leaf.
+    assert_eq!(
+        unsafe { activation_modal_target(root.as_mut(), &state) },
+        leaf.as_mut() as *mut SurfaceRec
+    );
+    assert_eq!(
+        unsafe { activation_modal_target(dialog.as_mut(), &state) },
+        leaf.as_mut() as *mut SurfaceRec
+    );
+    // The leaf activates itself.
+    assert_eq!(
+        unsafe { activation_modal_target(leaf.as_mut(), &state) },
+        leaf.as_mut() as *mut SurfaceRec
+    );
+
+    // The leaf unmapping demotes the landing to the next-highest live modal
+    // descendant — the dialog — which is the correct activation target for
+    // the still-suspended tree. (The tree is never suspended once *no* live
+    // descendant remains; see the assertion after that below.)
+    leaf.mapped = false;
+    assert_eq!(
+        unsafe { activation_modal_target(root.as_mut(), &state) },
+        dialog.as_mut() as *mut SurfaceRec
+    );
+
+    // Without any live modal descendant the target is the window itself.
+    dialog.mapped = false;
+    assert_eq!(
+        unsafe { activation_modal_target(root.as_mut(), &state) },
+        root.as_mut() as *mut SurfaceRec
+    );
+}
+
+#[test]
 fn first_toplevel_of_app_is_detected_by_app_id_only() {
     let mut state = State::new(std::ptr::null_mut());
     let mut first = Box::new(SurfaceRec::new(0x100usize as *mut ffi::wl_resource));

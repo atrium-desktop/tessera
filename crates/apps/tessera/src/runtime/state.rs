@@ -284,4 +284,12 @@ pub(super) struct CompositorRuntime {
     /// device set only moves on hotplug, which the same event iteration
     /// observes anyway. Probed at `TOUCHPAD_PROBE_INTERVAL` instead.
     pub(super) input_status_last_probe: std::time::Instant,
+    pub(super) _preview_sandbox: Option<PreviewSandbox>,
+}
+
+pub(super) struct PreviewSandbox(pub(super) std::path::PathBuf);
+impl Drop for PreviewSandbox {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }

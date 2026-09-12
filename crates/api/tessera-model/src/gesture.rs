@@ -26,12 +26,17 @@ pub enum GestureAction {
     /// down the previous one, through the window switcher held open for the
     /// gesture's duration.
     WindowCycle,
-    /// Vertical swipe: down opens the command panel, up closes it
+    /// Vertical swipe: down opens the control center, up closes it
     /// (ADR-0080). Fires at most once per gesture.
-    CommandPanel,
+    ControlCenter,
     /// Vertical swipe: up opens the window/workspace overview, down closes
     /// it (M9, ADR-0116). Fires at most once per gesture.
     Overview,
+}
+
+impl GestureAction {
+    #[allow(non_upper_case_globals)]
+    pub const CommandPanel: GestureAction = GestureAction::ControlCenter;
 }
 
 /// The axis a swipe binding listens on.
@@ -63,7 +68,7 @@ impl GestureMap {
             binds: vec![
                 gb(3, GestureAxis::Horizontal, GestureAction::WorkspaceSwitch),
                 gb(3, GestureAxis::Vertical, GestureAction::WindowCycle),
-                gb(4, GestureAxis::Vertical, GestureAction::CommandPanel),
+                gb(4, GestureAxis::Vertical, GestureAction::ControlCenter),
             ],
         }
     }
@@ -134,7 +139,9 @@ pub fn gesture_action_from_name(s: &str) -> Option<GestureAction> {
         "none" | "unbind" | "disabled" => GestureAction::None,
         "workspace_switch" | "workspaces" | "workspace" => GestureAction::WorkspaceSwitch,
         "window_cycle" | "cycle_windows" | "windows" | "switcher" => GestureAction::WindowCycle,
-        "command_panel" | "commandpanel" | "panel" => GestureAction::CommandPanel,
+        "control_center" | "controlcenter" | "command_panel" | "commandpanel" | "panel" => {
+            GestureAction::ControlCenter
+        }
         "overview" | "window_overview" | "picker" => GestureAction::Overview,
         _ => return None,
     })

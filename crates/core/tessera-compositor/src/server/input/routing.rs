@@ -1068,6 +1068,11 @@ impl Server {
     /// within its own workspace's z-order and unminimized — it does NOT receive
     /// keyboard focus (the physical seat must never type into an invisible
     /// window). A window on the current workspace is focused normally.
+    ///
+    /// The landing honors ADR-0148: a suspended tree activates its modal
+    /// leaf, so switcher commit, dock, overview, and shell window-list
+    /// clicks land in the dialog that is blocking the requested window
+    /// rather than in the suspended window itself.
     pub fn focus_surface_by_id_reveal(
         &mut self,
         surface_id: tessera_model::window::WindowId,
@@ -1077,6 +1082,7 @@ impl Server {
         if rec.is_null() {
             return;
         }
+        let rec = unsafe { activation_modal_target(rec, &self.state) };
         let off_workspace = self
             .state
             .workspaces
@@ -1113,6 +1119,32 @@ impl Server {
                 unsafe { ffi::wl_display_flush_clients(self.state.display) };
                 return;
             }
+        }
+        unsafe {
+            if (*rec).xdg_toplevel.is_null() || !(*rec).mapped {
+                return;
+            }
+            self.unminimize_toplevel(rec);
+        }
+        let resource = unsafe { (*rec).resource };
+        self.change_keyboard_focus(resource);
+        unsafe { ffi::wl_display_flush_clients(self.state.display) };
+    }
+
+    /// Focus exactly the named window with no ADR-0148 modal redirect. This
+    /// is the synthetic-input path: an authorized batch addresses exactly the
+    /// granted window (ADR-0103), so its keyboard focus must land there even
+    /// when a modal descendant suspends the tree — silently retargeting
+    /// across clients would deliver the agent's keystrokes to a process it
+    /// was never granted. User-facing activation (switcher, dock, overview,
+    /// pointer press) keeps using [`Self::focus_surface_by_id_reveal`].
+    pub fn focus_surface_exact_for_synthetic_input(
+        &mut self,
+        surface_id: tessera_model::window::WindowId,
+    ) {
+        let rec = self.find_surface_by_window_id(surface_id);
+        if rec.is_null() {
+            return;
         }
         unsafe {
             if (*rec).xdg_toplevel.is_null() || !(*rec).mapped {

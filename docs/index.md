@@ -14,6 +14,7 @@ tessera is a Wayland compositor for Linux, written in Rust on
 | [Explanation](explanation/index.md) | Architecture and conceptual background |
 | [Reference](reference/index.md) | Configuration, schemas, runtime contracts, and option tables |
 | [Architecture Decision Records](adr/index.md) | Durable technical decisions |
+| [Governance](governance/index.md) | Repository governance charters and documentation standard |
 | [Contributor docs](dev/index.md) | Setup, layout, and project maintenance |
 
 ## Orientation

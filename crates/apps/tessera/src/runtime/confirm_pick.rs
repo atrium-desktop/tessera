@@ -140,8 +140,8 @@ impl CompositorRuntime {
         if requests.is_empty() {
             return;
         }
-        if self.shell.command_panel_active() {
-            self.shell.toggle_command_panel();
+        if self.shell.control_center_active() {
+            self.shell.toggle_control_center();
         }
         for action in requests {
             if self.pending_system_action.is_none() {

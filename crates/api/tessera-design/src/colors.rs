@@ -5,7 +5,7 @@
 //! `[scope_]role[_variant][_state]`: `menu_text_disabled`,
 //! `application_surface_hover`, and `launcher_selection_surface`. The type
 //! supplies the scope when a palette is already component-specific, as with
-//! [`CommandPanelColors::surface_recessed`].
+//! [`ControlCenterColors::surface_recessed`].
 //!
 //! Names describe product meaning, never pigments, numbered intensity,
 //! opacity, an inspiration source, or a temporary visual treatment. Callers
@@ -65,11 +65,11 @@ impl ProductColors {
             menu_text: Color::rgba(238, 240, 248, 255),
             menu_text_heading: Color::rgba(183, 188, 207, 255),
             menu_text_disabled: Color::rgba(160, 168, 188, 255),
-            menu_border: Color::rgba(255, 255, 255, 78),
+            menu_border: Color::rgba(255, 255, 255, 36),
             menu_surface_hover: Color::rgba(255, 255, 255, 22),
             menu_surface_active: Color::rgba(255, 255, 255, 36),
-            popover_surface: Color::rgba(255, 255, 255, 110),
-            popover_border: Color::rgba(255, 255, 255, 72),
+            popover_surface: Color::rgba(24, 28, 40, 220),
+            popover_border: Color::rgba(255, 255, 255, 42),
             glass_surface: Color::rgba(18, 22, 34, 32),
             glass_border: Color::rgba(255, 255, 255, 0),
             application_surface: Color::rgba(25, 28, 40, 255),
@@ -134,7 +134,7 @@ impl ProductColors {
 /// Scheme-adaptive colors for the command panel's solid-surface hierarchy.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
-pub struct CommandPanelColors {
+pub struct ControlCenterColors {
     pub scheme: ColorScheme,
     pub background: Color,
     pub surface: Color,
@@ -150,8 +150,10 @@ pub struct CommandPanelColors {
     pub control_knob: Color,
 }
 
-impl CommandPanelColors {
-    /// The canonical dark command-panel colors.
+pub type CommandPanelColors = ControlCenterColors;
+
+impl ControlCenterColors {
+    /// The canonical dark control-center colors.
     #[must_use]
     pub fn dark() -> Self {
         Self {
@@ -206,7 +208,7 @@ impl CommandPanelColors {
     }
 }
 
-impl Default for CommandPanelColors {
+impl Default for ControlCenterColors {
     fn default() -> Self {
         Self::dark()
     }

@@ -1,6 +1,6 @@
 [package]
-name = "tessera-command-panel"
-description = "Modal command panel for the tessera compositor: quick settings, hosted settings modules, tray interaction, and notifications in dark glass VR/AR HUD panels (ADR-0080)"
+name = "tessera-control-center"
+description = "Modal control center for the tessera compositor: quick settings, hosted settings modules, tray interaction, and notifications in dark glass VR/AR HUD panels (ADR-0080)"
 readme = "README.md"
 version.workspace = true
 edition.workspace = true

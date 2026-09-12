@@ -14,8 +14,8 @@
 //!
 //! Larger components have graduated to their own crates on top of the same
 //! contract (ADR-0021): the dock lives in `tessera-dock`, Prism in
-//! `tessera-prism`, the HUD in `tessera-hud`, and the command panel in
-//! `tessera-command-panel`.
+//! `tessera-prism`, the HUD in `tessera-hud`, and the control center in
+//! `tessera-control-center`.
 
 mod agent_feedback;
 mod app_picker;

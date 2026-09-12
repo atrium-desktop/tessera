@@ -7,6 +7,7 @@ fn region(x: f32, y: f32, w: f32, h: f32) -> tessera_chrome::BackdropRegion {
         w,
         h,
         wash: None,
+        opacity: 1.0,
     }
 }
 
@@ -531,6 +532,159 @@ fn damaged_base_and_stencil_overlay_preserve_pixels_outside_the_scissor() {
     assert_eq!(pixel(9, 7), [10, 80, 220, 255]);
     assert_eq!(pixel(17, 14), [10, 80, 220, 255]);
     assert_eq!(pixel(18, 15), [200, 30, 20, 255]);
+}
+
+#[test]
+fn backdrop_frost_mapping_carries_opacity_and_wash_into_capture_pixels() {
+    // Logical 2x-scale output, capture downsample 1/2, physical capture
+    // origin (100, 50): capture coords are logical*2 - origin, then halved.
+    let washed = tessera_chrome::BackdropRegion {
+        x: 10.0,
+        y: 20.0,
+        w: 40.0,
+        h: 30.0,
+        wash: Some(tessera_chrome::backdrop_wash(lens::Color::rgba(
+            8, 10, 18, 126,
+        ))),
+        opacity: 0.25,
+    };
+    let plain = region(0.0, 0.0, 8.0, 8.0);
+    let frost = backdrop_frost_in_capture(&[washed, plain], (100, 50), (200, 100), (100, 50), 2.0);
+    assert_eq!(frost.len(), 2);
+    // (10*2 - 100) / 2 = -40, (20*2 - 50) / 2 = -5: the rect starts off-capture
+    // and is mapped verbatim (the dispatch clips to the region).
+    assert_eq!((frost[0].x, frost[0].y), (-40.0, -5.0));
+    assert_eq!((frost[0].width, frost[0].height), (40.0, 30.0));
+    assert_eq!(frost[0].opacity, 0.25, "the fade channel reaches prism");
+    assert_eq!(frost[0].tint_color, [8, 10, 18], "wash tint rides along");
+    assert!((frost[0].tint_strength - 126.0 / 255.0).abs() < 0.01);
+    assert_eq!(frost[1].opacity, 1.0, "an unfaded region stays opaque");
+    assert_eq!(frost[1].tint_strength, 0.0, "no wash means plain frost");
+}
+
+/// The frost body's `opacity` is the channel chrome exit fades ride. This runs
+/// the real layered-backdrop material (not just the descriptor mapping): at
+/// `0.0` the cover must leave the sharp backdrop untouched, at `1.0` it must
+/// show the blurred body, and mid-fade it must land between the two rather
+/// than snapping to either end.
+#[test]
+fn frost_opacity_drains_the_cover_between_sharp_and_blurred() {
+    let Ok(device) = flux::Device::new(true, &[], &[], 0) else {
+        return;
+    };
+    const W: u32 = 64;
+    const H: u32 = 64;
+    let format = flux::Format::Rgba8Unorm;
+
+    // A hard checkerboard: blur is unmistakable, and the sharp input is
+    // exactly reproducible for comparison.
+    let mut sharp = vec![0u8; (W * H * 4) as usize];
+    for y in 0..H {
+        for x in 0..W {
+            let on = ((x / 8) + (y / 8)) % 2 == 0;
+            let value = if on { 255 } else { 0 };
+            let index = ((y * W + x) * 4) as usize;
+            sharp[index..index + 4].copy_from_slice(&[value, value, value, 255]);
+        }
+    }
+    let input = flux::Image::from_bytes(&device, W, H, format, &sharp).unwrap();
+    let surface = flux::Surface::offscreen(&device, W, H).unwrap();
+    let canvas = flux::Canvas::new(&surface).unwrap();
+    let mut blur = flux::BlurFilter::new(&device).unwrap();
+    let mut filter = prism::BackdropLayerFilter::new(&device).unwrap();
+    let regions = [flux::BlurRegion {
+        x: 0,
+        y: 0,
+        width: W,
+        height: H,
+    }];
+
+    let mut render = |opacity: f32| -> Vec<u8> {
+        let frame = surface.begin_frame().unwrap();
+        let blurred = blur
+            .apply_regions(&frame, &input, 6.0, &regions)
+            .expect("blur applies");
+        let frost = [prism::BackdropFrost {
+            x: 0.0,
+            y: 0.0,
+            width: W as f32,
+            height: H as f32,
+            corner_radius: 0.0,
+            opacity,
+            tint_color: [255, 255, 255],
+            tint_strength: 0.0,
+        }];
+        let material = filter
+            .apply(
+                &frame,
+                &input,
+                &blurred,
+                &frost,
+                &[],
+                prism::LiquidGlassParams::default(),
+            )
+            .expect("layered backdrop applies");
+        canvas
+            .begin_frame(Some(&frame), Some(flux::rgba(0, 0, 0, 255)))
+            .unwrap();
+        material.draw(&canvas, 0.0, 0.0, W as f32, H as f32);
+        canvas.end_frame_checked().unwrap();
+        frame.submit().unwrap().present().unwrap();
+        let mut pixels = vec![0; (W * H * 4) as usize];
+        surface.read_pixels(&mut pixels).unwrap();
+        pixels
+    };
+
+    let drained = render(0.0);
+    let frosted = render(1.0);
+    let mid = render(0.5);
+
+    let channel =
+        |pixels: &[u8], x: u32, y: u32, c: usize| pixels[((y * W + x) * 4) as usize + c] as i32;
+    // Opacity 0 restores the sharp backdrop exactly (the output transform
+    // dithers ±1 LSB, hence the tolerance).
+    for y in 0..H {
+        for x in 0..W {
+            for c in 0..3 {
+                assert!(
+                    (channel(&drained, x, y, c) - channel(&sharp, x, y, c)).abs() <= 1,
+                    "a fully drained cover must be the sharp backdrop at ({x},{y})"
+                );
+            }
+        }
+    }
+    // Opacity 1 shows the blurred body: somewhere the frost differs strongly
+    // from the sharp input.
+    let strongest = (1..H - 1)
+        .flat_map(|y| (1..W - 1).map(move |x| (x, y)))
+        .max_by_key(|(x, y)| {
+            (0..3)
+                .map(|c| (channel(&frosted, *x, *y, c) - channel(&sharp, *x, *y, c)).abs())
+                .max()
+                .unwrap_or(0)
+        })
+        .expect("the image has interior pixels");
+    let (sx, sy) = strongest;
+    let full_delta = (channel(&frosted, sx, sy, 0) - channel(&sharp, sx, sy, 0)).abs();
+    assert!(
+        full_delta > 32,
+        "an opaque frost must visibly blur: delta {full_delta}"
+    );
+    // Mid-fade lands between the two endpoints, near the arithmetic mean —
+    // the cover drains with the animation instead of popping.
+    let sharp_value = channel(&sharp, sx, sy, 0);
+    let full_value = channel(&frosted, sx, sy, 0);
+    let mid_value = channel(&mid, sx, sy, 0);
+    let (low, high) = (sharp_value.min(full_value), sharp_value.max(full_value));
+    assert!(
+        mid_value > low + 1 && mid_value < high - 1,
+        "a half-faded cover must sit between sharp ({sharp_value}) and frosted \
+         ({full_value}), got {mid_value}"
+    );
+    assert!(
+        (mid_value - (low + high) / 2).abs() <= 16,
+        "a half-faded cover tracks the blend, got {mid_value} for [{low}, {high}]"
+    );
 }
 
 #[test]

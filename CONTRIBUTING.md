@@ -7,7 +7,7 @@ Thank you for your interest in contributing to **tessera** (*autonomous surface 
 - **Developer Setup**: Read [Development Setup](docs/dev/setup.md) for build prerequisites, system dependencies, and compiling sibling projects.
 - **Distribution Packaging**: Read [Distribution Packaging](docs/dev/packaging.md) for reproducible source preparation, artifact ownership, and system integration.
 - **Architecture**: Review [Architecture Explanation](docs/explanation/architecture.md) and [Architecture Decision Records (ADRs)](docs/adr/index.md) before proposing structural changes.
-- **Documentation Rules**: Read [Documentation Governance](docs/dev/documentation/index.md) before writing or modifying documentation.
+- **Documentation Rules**: Read [Documentation Governance](docs/governance/documentation/core/index.md) before writing or modifying documentation.
 
 ## Workflow & Guidelines
 
@@ -23,4 +23,4 @@ Thank you for your interest in contributing to **tessera** (*autonomous surface 
 
 ## Governance Policy Note
 
-The `docs/dev/documentation/` directory contains documentation governance policy. AI assistants and contributors may read it, but updates to governance policy files are reserved for project maintainers.
+The `docs/governance/documentation/` directory contains documentation governance policy. AI assistants and contributors may read it, but updates to governance policy files are reserved for project maintainers.

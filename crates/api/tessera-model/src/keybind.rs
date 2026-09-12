@@ -26,8 +26,8 @@ pub enum Action {
     TogglePrism,
     /// Open or close the window/workspace overview (M9).
     ToggleOverview,
-    /// Open or close the modal command panel (ADR-0080).
-    ToggleCommandPanel,
+    /// Open or close the modal control center (ADR-0080).
+    ToggleControlCenter,
     /// Close the currently focused toplevel.
     CloseFocused,
     /// Move keyboard focus to the next mapped toplevel (forward).
@@ -56,12 +56,15 @@ pub enum Action {
 }
 
 impl Action {
+    #[allow(non_upper_case_globals)]
+    pub const ToggleCommandPanel: Action = Action::ToggleControlCenter;
+
     /// Whether this compositor action remains available while trusted shell
     /// chrome owns the keyboard.
     ///
     /// Modal chrome still receives ordinary navigation and text input, and
     /// actions that mutate obscured desktop state stay suppressed. The
-    /// launcher, Prism, and command-panel toggles, the screenshot selector, and
+    /// launcher, Prism, and control-center toggles, the screenshot selector, and
     /// the emergency quit path are compositor-level controls that must
     /// remain reachable.
     const fn allowed_during_keyboard_capture(self) -> bool {
@@ -69,7 +72,7 @@ impl Action {
             self,
             Action::ToggleLauncher
                 | Action::TogglePrism
-                | Action::ToggleCommandPanel
+                | Action::ToggleControlCenter
                 | Action::Screenshot
                 | Action::Lock
                 | Action::Quit
@@ -105,7 +108,7 @@ impl Keymap {
                 kb(Mods::SUPER, b'a' as u32, Action::ToggleLauncher),
                 kb(Mods::SUPER, b' ' as u32, Action::TogglePrism),
                 kb(Mods::SUPER, 0x6f, Action::ToggleOverview), /* 'o' */
-                kb(Mods::SUPER, 0x73, Action::ToggleCommandPanel), /* 's' */
+                kb(Mods::SUPER, 0x73, Action::ToggleControlCenter), /* 's' */
                 kb(Mods::SUPER, 0x71, Action::CloseFocused),   /* 'q' */
                 kb(Mods::SUPER, 0xff53, Action::WorkspaceNext), /* Right */
                 kb(Mods::SUPER, 0xff51, Action::WorkspacePrev), /* Left */
@@ -195,7 +198,9 @@ pub fn action_from_name(s: &str) -> Option<Action> {
         "launcher" | "togglelauncher" | "apps" => Action::ToggleLauncher,
         "prism" | "toggleprism" | "spotlight" => Action::TogglePrism,
         "overview" | "toggleoverview" => Action::ToggleOverview,
-        "command_panel" | "commandpanel" | "panel" => Action::ToggleCommandPanel,
+        "control_center" | "controlcenter" | "command_panel" | "commandpanel" | "panel" => {
+            Action::ToggleControlCenter
+        }
         "close" | "closefocused" => Action::CloseFocused,
         "cycle" | "next" => Action::CycleFocus,
         "prev" | "previous" | "cycleback" => Action::CycleFocusBack,
@@ -431,16 +436,24 @@ mod tests {
     }
 
     #[test]
-    fn command_panel_action_accepts_documented_names() {
+    fn control_center_action_accepts_documented_names() {
+        assert_eq!(
+            action_from_name("control_center"),
+            Some(Action::ToggleControlCenter)
+        );
+        assert_eq!(
+            action_from_name("controlcenter"),
+            Some(Action::ToggleControlCenter)
+        );
         assert_eq!(
             action_from_name("command_panel"),
-            Some(Action::ToggleCommandPanel)
+            Some(Action::ToggleControlCenter)
         );
         assert_eq!(
             action_from_name("commandpanel"),
-            Some(Action::ToggleCommandPanel)
+            Some(Action::ToggleControlCenter)
         );
-        assert_eq!(action_from_name("panel"), Some(Action::ToggleCommandPanel));
+        assert_eq!(action_from_name("panel"), Some(Action::ToggleControlCenter));
     }
 
     #[test]

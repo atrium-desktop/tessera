@@ -131,6 +131,11 @@ impl AppMenu {
         self.side = side;
     }
 
+    /// Explicitly synchronize the active design snapshot.
+    pub fn set_design(&mut self, design: Design) {
+        self.design = design;
+    }
+
     pub fn dismiss(&mut self) {
         self.target = None;
         self.just_opened = false;
@@ -425,6 +430,11 @@ impl AppMenu {
                                     (bounds.w - MENU_PAD * 2.0 - frame.theme().padding() * 2.0)
                                         .max(0.0),
                                 );
+                                if matches!(row.action, MenuAction::None) {
+                                    frame.set_theme(themes::menu_disabled(menu_theme, &design));
+                                } else {
+                                    frame.set_theme(menu_theme);
+                                }
                                 if frame.selectable(&label, false) {
                                     selected = Some(row.action);
                                 }
@@ -557,9 +567,29 @@ mod tests {
     fn appearance_update_replaces_the_design_snapshot() {
         let mut menu = AppMenu::new("test-menu", true);
         assert!(!menu.design.is_light());
+        let owner = Rect {
+            x: 700.0,
+            y: 520.0,
+            w: 72.0,
+            h: 72.0,
+        };
+        menu.open("App", None, [WindowId(1)], owner, None);
+        let dark_region = menu
+            .liquid_glass_region((800.0, 600.0))
+            .expect("dark region exists");
+        assert_eq!(dark_region.plate_polarity, 0.0);
+
         let light = Design::light();
         menu.update(ChromeUpdate::Appearance(&light));
         assert!(menu.design.is_light());
+        let light_region = menu
+            .liquid_glass_region((800.0, 600.0))
+            .expect("light region exists");
+        assert_eq!(light_region.plate_polarity, 1.0);
+
+        // set_design also updates directly
+        menu.set_design(Design::dark());
+        assert!(!menu.design.is_light());
     }
 
     #[test]

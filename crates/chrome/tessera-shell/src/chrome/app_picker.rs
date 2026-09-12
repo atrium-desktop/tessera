@@ -785,6 +785,7 @@ mod tests {
                 w: layout.list.w,
                 h: ROW_H,
                 wash: None,
+                opacity: 1.0,
             }
         );
         assert_eq!(focus.corner_radius, Design::dark().radii.menu_item);

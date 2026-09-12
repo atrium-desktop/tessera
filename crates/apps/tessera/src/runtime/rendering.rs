@@ -507,7 +507,10 @@ pub(super) fn backdrop_regions_in_capture(
 /// Map logical frost declarations into capture-image pixels for the layered
 /// backdrop compositor. Frost rects keep their (rounded) shape in the layer
 /// image rather than becoming rectangular canvas clips — the glass bodies
-/// above them sample exactly these pixels.
+/// above them sample exactly these pixels. Region `opacity` (the chrome
+/// exit-fade channel) and the declared wash ride along: the frost shader
+/// blends `mix(sharp, frosted, coverage * opacity)` and tints the body, so a
+/// cover drains toward the sharp desktop instead of popping out.
 pub(super) fn backdrop_frost_in_capture(
     regions: &[tessera_chrome::BackdropRegion],
     capture_origin: (u32, u32),
@@ -527,15 +530,16 @@ pub(super) fn backdrop_frost_in_capture(
             if w <= 0.0 || h <= 0.0 || x >= capture_size.0 as f32 || y >= capture_size.1 as f32 {
                 return None;
             }
+            let wash = region.wash.unwrap_or_default();
             Some(prism::BackdropFrost {
                 x,
                 y,
                 width: w,
                 height: h,
                 corner_radius: 0.0,
-                opacity: 1.0,
-                tint_color: [255, 255, 255],
-                tint_strength: 0.0,
+                opacity: region.opacity.clamp(0.0, 1.0),
+                tint_color: wash.tint,
+                tint_strength: wash.strength.clamp(0.0, 1.0),
             })
         })
         .collect()
@@ -588,6 +592,7 @@ pub(super) fn liquid_glass_groups(
             backdrop_energy: region
                 .adaptation
                 .map(|adaptation| adaptation.backdrop_energy),
+            curvature: Some(region.curvature),
             focus: region.focus.map(|focus| prism::LiquidGlassFocus {
                 shape: prism::LiquidGlassShape {
                     x: focus.bounds.x * capture_scale - capture_origin.0 as f32 * capture_ratio,
@@ -649,7 +654,11 @@ pub(super) struct BackdropCacheKey {
 /// so an animated tooltip fade or an adaptation step never churns clients.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct BackdropMaterialKey {
-    frost_regions: Vec<[u32; 4]>,
+    /// Geometry (x, y, w, h), frost opacity (the chrome exit-fade channel),
+    /// and the wash tint+strength, packed as bit patterns. Opacity and wash
+    /// are material, not capture: animating them re-runs the effect composite
+    /// over the still-valid scene capture without re-rendering clients.
+    frost_regions: Vec<[u32; 6]>,
     liquid_regions: Vec<[u32; 23]>,
     glass_tint: [u8; 3],
 }
@@ -678,11 +687,19 @@ impl BackdropMaterialKey {
             frost_regions: frost_regions
                 .iter()
                 .map(|region| {
+                    let wash = region.wash.unwrap_or_default();
                     [
                         region.x.to_bits(),
                         region.y.to_bits(),
                         region.w.to_bits(),
                         region.h.to_bits(),
+                        region.opacity.to_bits(),
+                        u32::from_le_bytes([
+                            wash.tint[0],
+                            wash.tint[1],
+                            wash.tint[2],
+                            (wash.strength * 255.0).round().clamp(0.0, 255.0) as u8,
+                        ]),
                     ]
                 })
                 .collect(),

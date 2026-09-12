@@ -7,7 +7,8 @@ use crate::Design;
 /// Apply the shared compact menu appearance to an existing lens theme.
 #[must_use]
 pub fn menu(base: Theme, design: &Design) -> Theme {
-    base.with_fg(design.colors.menu_text)
+    base.with_bg(design.colors.popover_surface)
+        .with_fg(design.colors.menu_text)
         .with_border(design.colors.menu_border)
         .with_hover(design.colors.menu_surface_hover)
         .with_active(design.colors.menu_surface_active)
@@ -73,9 +74,9 @@ pub fn application_base(design: &Design) -> Theme {
     base.with_fg(design.colors.application_text)
 }
 
-/// The scheme-correct widget theme inside the command panel's solid surfaces.
+/// The scheme-correct widget theme inside the control center's solid surfaces.
 #[must_use]
-pub fn hud(colors: &crate::CommandPanelColors) -> Theme {
+pub fn hud(colors: &crate::ControlCenterColors) -> Theme {
     let base = if colors.is_light() {
         Theme::light()
     } else {
@@ -104,7 +105,7 @@ pub fn hud(colors: &crate::CommandPanelColors) -> Theme {
 
 /// Derive the subdued HUD caption theme without changing other tokens.
 #[must_use]
-pub fn hud_muted(theme: Theme, colors: &crate::CommandPanelColors) -> Theme {
+pub fn hud_muted(theme: Theme, colors: &crate::ControlCenterColors) -> Theme {
     theme.with_fg(colors.text_muted)
 }
 

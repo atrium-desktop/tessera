@@ -833,7 +833,7 @@ Letters (`a`–`z`, lowercased), digits (`0`–`9`), and the common controls:
 | `launcher` | `togglelauncher`, `apps` | Open or close the application launcher |
 | `prism` | `toggleprism`, `spotlight` | Open or close Prism application search |
 | `overview` | `toggleoverview` | Open or close the window and workspace overview |
-| `command_panel` | `commandpanel`, `panel` | Open or close the command panel (quick settings, settings modules, tray, notifications) |
+| `control_center` | `controlcenter`, `command_panel`, `commandpanel`, `panel` | Open or close the control center (quick settings, settings modules, tray, notifications) |
 | `close` | `closefocused` | Close the focused toplevel |
 | `cycle` | `next` | Move focus to the next toplevel; while `Super` remains held, show the live preview strip |
 | `prev` | `previous`, `cycleback` | Move focus to the previous toplevel; while `Super` remains held, show the live preview strip |
@@ -859,7 +859,7 @@ configured:
 | `Super+A` | `launcher` |
 | `Super+Space` | `prism` |
 | `Super+O` | `overview` |
-| `Super+S` | `command_panel` |
+| `Super+S` | `control_center` |
 | `Super+Q` | `close` |
 | `Super+Right` | `workspace_next` |
 | `Super+Left` | `workspace_prev` |
@@ -901,7 +901,7 @@ swipe's dominant direction selects the direction inside the action.
 |------|---------|--------|
 | `workspace_switch` | `workspaces`, `workspace` | Horizontal: swipe left switches to the next workspace, right to the previous one |
 | `window_cycle` | `cycle_windows`, `windows`, `switcher` | Vertical: swipe up focuses the next toplevel on the current workspace, down the previous one; the live switcher stays open until the gesture ends |
-| `command_panel` | `commandpanel`, `panel` | Vertical: swipe down opens the command panel, up closes it; fires once per gesture |
+| `control_center` | `controlcenter`, `command_panel`, `commandpanel`, `panel` | Vertical: swipe down opens the control center, up closes it; fires once per gesture |
 | `overview` | `window_overview`, `picker` | Vertical: swipe up opens the window/workspace overview, down closes it; fires once per gesture |
 | `none` | `unbind`, `disabled` | Consume the swipe without acting; shadows the built-in default on this axis |
 
@@ -914,7 +914,7 @@ configured:
 |---------|------|--------|
 | 3 | horizontal | `workspace_switch` |
 | 3 | vertical | `window_cycle` |
-| 4 | vertical | `command_panel` |
+| 4 | vertical | `control_center` |
 
 The four-finger vertical swipe opened the overview between ADR-0116 and
 ADR-0119. Re-add that binding (shadowing the command panel default) with:

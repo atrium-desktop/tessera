@@ -23,13 +23,14 @@ full-chrome = [
     "chrome-dock",
     "chrome-prism",
     "chrome-hud",
-    "chrome-command-panel",
+    "chrome-control-center",
 ]
 chrome-dock = ["dep:tessera-dock"]
 chrome-prism = ["dep:tessera-prism"]
 # The composition root owns the single tray service used by either surface.
 chrome-hud = ["dep:tessera-hud", "dep:tessera-tray"]
-chrome-command-panel = ["dep:tessera-command-panel", "dep:tessera-tray"]
+chrome-control-center = ["dep:tessera-control-center", "dep:tessera-tray"]
+chrome-command-panel = ["chrome-control-center"]
 
 [dependencies]
 tessera-security.workspace = true
@@ -50,10 +51,10 @@ tessera-i18n = { workspace = true }
 tessera-dock = { workspace = true, optional = true }
 tessera-prism = { workspace = true, optional = true }
 tessera-hud = { workspace = true, optional = true }
-# SNI tray service shared by the HUD and the command panel (ADR-0080).
+# SNI tray service shared by the HUD and the control center (ADR-0080).
 tessera-tray = { workspace = true, optional = true }
-# Modal command panel (ADR-0080).
-tessera-command-panel = { workspace = true, optional = true }
+# Modal control center (ADR-0080).
+tessera-control-center = { workspace = true, optional = true }
 tessera-wallpaper = { workspace = true }
 # Declarative configuration: TOML schema + live reload (ADR-0026).
 tessera-config = { workspace = true }

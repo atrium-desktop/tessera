@@ -19,4 +19,4 @@ the other `docs/` sections; see the [documentation index](../index.md).
 | [Observability](observability.md) | The tracing-based logging seam, log levels, and `RUST_LOG` workflow |
 | [Development Environment Variables](environment-variables.md) | Contributor environment overrides for backend selection, nested UI debugging, asset dumps, and XDG isolation |
 | [Issue Triage](triage/index.md) | Case-based bug-attribution know-how: invariants, diagnostic recipes, and fix ownership |
-| [Documentation Governance](documentation/index.md) | Rules for writing and routing docs |
+| [Documentation Governance](../governance/documentation/core/index.md) | Rules for writing and routing docs |

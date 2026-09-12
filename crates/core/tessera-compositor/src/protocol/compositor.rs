@@ -478,6 +478,24 @@ pub(crate) unsafe fn toplevel_has_live_parent(rec: *mut SurfaceRec) -> bool {
     unsafe { live_transient_parent(rec).is_some() }
 }
 
+/// Whether this mapped toplevel currently belongs to another client's tree:
+/// its live parent link was established through an xdg-foreign import. In
+/// practice this is the portal prompter wired over `zxdg_importer_v2`
+/// (ADR-0099). Such a surface is part of the requesting app's activation
+/// unit (ADR-0148), not an independent switchable window: the switcher
+/// reaches it through the app's card and the modal-landing rule. In-app
+/// dialogs parented through `xdg_toplevel.set_parent` have no foreign owner
+/// and stay switchable. A dead parent link dissolves the relationship —
+/// the production lifecycle clears both the link and its owner, and the
+/// liveness check here keeps the predicate honest against racing states.
+pub(crate) unsafe fn is_cross_client_dialog(rec: *mut SurfaceRec) -> bool {
+    unsafe {
+        !rec.is_null()
+            && !(*rec).foreign_parent_owner.is_null()
+            && live_transient_parent(rec).is_some()
+    }
+}
+
 /// Checks if `child` is a transient descendant of `parent` in the surface tree.
 pub(crate) unsafe fn is_transient_descendant_of(
     child: *mut SurfaceRec,
@@ -537,6 +555,25 @@ pub(crate) unsafe fn topmost_modal_descendant(
         }
         live_descendants.into_iter().max_by_key(|&s| (*s).index)
     }
+}
+
+/// The window user activation lands on when `rec` is asked for focus
+/// (ADR-0148). A suspended tree — the root has a live modal descendant —
+/// activates its modal leaf, so the user is never delivered to a window they
+/// cannot operate and a portal prompter can never be left buried behind its
+/// parent after a switch away and back. A tree without a live modal leaf
+/// activates `rec` itself.
+///
+/// This is the single landing rule behind pointer press, touch press, and
+/// `focus_surface_by_id` (switcher commit, dock, overview, shell window
+/// list). Agent seats bypass it on purpose: `forward_agent_input_to`
+/// addresses exactly the granted window (ADR-0103) and must not be silently
+/// retargeted to another client's prompter.
+pub(crate) unsafe fn activation_modal_target(
+    rec: *mut SurfaceRec,
+    state: &State,
+) -> *mut SurfaceRec {
+    unsafe { topmost_modal_descendant(rec, state).unwrap_or(rec) }
 }
 
 /// Move a toplevel to `new_origin`, carrying its whole popup subtree with

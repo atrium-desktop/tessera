@@ -1,6 +1,6 @@
-# tessera-command-panel
+# tessera-control-center
 
-Modal command panel for the tessera compositor (ADR-0080).
+Modal control center for the tessera compositor (ADR-0080).
 
 ## Scope
 
@@ -49,10 +49,11 @@ Surfaces:
 - **Clock (top-center)** — locale wall-clock time at hero scale plus the
   weekday and date, frameless.
 - **Tray (left-middle)** — the shared `tessera-tray` StatusNotifierItem
-  snapshot as a vertical icon column of compact 22px glyphs: hover raises a
+  snapshot as a vertical icon capsule with a recessed surface: hover raises a
   rounded accent plate *behind* the icon (the glyph itself never dims or
-  disappears — only its backing becomes prominent), left-click `Activate`,
-  right-click host-rendered dbusmenu popover (or `SecondaryActivate`), and
+  disappears — only its backing becomes prominent), active indicator highlights
+  the open menu item, left-click `Activate`, right-click host-rendered dbusmenu
+  popover opened directly to the right (or `SecondaryActivate`), and
   vertical scrolling when icons overflow the column.
 - **Work Mode segmented control (right-bottom)** — beside the power knob,
   filling the corner band: a frameless segmented control over the session

@@ -53,12 +53,24 @@ impl Design {
                 scrollbar: 5.0,
             },
             glass: GlassStyles {
-                chip: GlassStyle::new(0.16, 4.0, 2.0).with_material(1.0, 1.0, 1.05, -1.0),
-                tooltip: GlassStyle::new(0.14, 10.0, 5.0).with_material(3.0, 3.0, 0.85, 0.0),
-                menu: GlassStyle::new(0.18, 16.0, 8.0).with_material(5.0, 3.6, 0.7, 0.0),
-                floating_panel: GlassStyle::new(0.18, 16.0, 8.0).with_material(3.5, 3.0, 0.85, 0.0),
-                prominent_panel: GlassStyle::new(0.20, 18.0, 9.0).with_material(4.0, 3.2, 0.8, 0.0),
-                dock: GlassStyle::new(0.20, 12.0, 6.0).with_material(1.0, 1.0, 1.08, -1.0),
+                chip: GlassStyle::new(0.16, 4.0, 2.0)
+                    .with_material(3.0, 2.4, 0.85, 0.0)
+                    .with_curvature(0.65),
+                tooltip: GlassStyle::new(0.14, 10.0, 5.0)
+                    .with_material(3.0, 3.0, 0.85, 0.0)
+                    .with_curvature(0.55),
+                menu: GlassStyle::new(0.18, 16.0, 8.0)
+                    .with_material(5.0, 3.6, 0.7, 0.0)
+                    .with_curvature(0.50),
+                floating_panel: GlassStyle::new(0.18, 16.0, 8.0)
+                    .with_material(3.5, 3.0, 0.85, 0.0)
+                    .with_curvature(0.60),
+                prominent_panel: GlassStyle::new(0.20, 18.0, 9.0)
+                    .with_material(4.0, 3.2, 0.8, 0.0)
+                    .with_curvature(0.60),
+                dock: GlassStyle::new(0.20, 12.0, 6.0)
+                    .with_material(3.5, 2.4, 0.85, 0.0)
+                    .with_curvature(0.65),
             },
             glass_focus: GlassFocus {
                 hover_tint: colors.glass_focus.surface_hover,
@@ -127,13 +139,24 @@ impl Design {
             scheme: ColorScheme::Light,
             colors: colors.product,
             glass: GlassStyles {
-                chip: GlassStyle::new(0.18, 4.0, 2.0).with_material(1.0, 1.0, 1.05, -1.0),
-                tooltip: GlassStyle::new(0.16, 10.0, 5.0).with_material(3.0, 3.5, 0.9, 1.0),
-                menu: GlassStyle::new(0.20, 16.0, 8.0).with_material(5.0, 4.5, 0.8, 1.0),
-                floating_panel: GlassStyle::new(0.20, 16.0, 8.0).with_material(3.5, 3.5, 0.9, 1.0),
+                chip: GlassStyle::new(0.18, 4.0, 2.0)
+                    .with_material(3.0, 2.6, 0.9, 1.0)
+                    .with_curvature(0.65),
+                tooltip: GlassStyle::new(0.16, 10.0, 5.0)
+                    .with_material(3.0, 3.5, 0.9, 1.0)
+                    .with_curvature(0.55),
+                menu: GlassStyle::new(0.20, 16.0, 8.0)
+                    .with_material(5.0, 4.5, 0.8, 1.0)
+                    .with_curvature(0.50),
+                floating_panel: GlassStyle::new(0.20, 16.0, 8.0)
+                    .with_material(3.5, 3.5, 0.9, 1.0)
+                    .with_curvature(0.60),
                 prominent_panel: GlassStyle::new(0.22, 18.0, 9.0)
-                    .with_material(4.0, 4.0, 0.85, 1.0),
-                dock: GlassStyle::new(0.22, 12.0, 6.0).with_material(1.0, 1.0, 1.08, -1.0),
+                    .with_material(4.0, 4.0, 0.85, 1.0)
+                    .with_curvature(0.60),
+                dock: GlassStyle::new(0.22, 12.0, 6.0)
+                    .with_material(3.5, 2.6, 0.9, 1.0)
+                    .with_curvature(0.65),
             },
             glass_focus: GlassFocus {
                 hover_tint: colors.glass_focus.surface_hover,
@@ -287,6 +310,7 @@ pub struct GlassStyle {
     pub tint_strength: f32,
     pub saturation: f32,
     pub plate_polarity: f32,
+    pub curvature: f32,
 }
 
 impl GlassStyle {
@@ -299,6 +323,7 @@ impl GlassStyle {
             tint_strength: 1.0,
             saturation: 1.0,
             plate_polarity: -1.0,
+            curvature: 0.0,
         }
     }
 
@@ -315,6 +340,13 @@ impl GlassStyle {
         self.tint_strength = tint;
         self.saturation = saturation;
         self.plate_polarity = polarity;
+        self
+    }
+
+    /// Continuous curvature (squircle) blend factor: 0.0 = Euclidean L2 rounded rect,
+    /// 1.0 = G2 superellipse (p = 4 norm).
+    pub const fn with_curvature(mut self, curvature: f32) -> Self {
+        self.curvature = curvature;
         self
     }
 }
@@ -536,10 +568,8 @@ mod tests {
 
     #[test]
     fn launcher_field_glass_follows_the_scheme() {
-        // Dark appearance: translucent dark glass, not the popover white —
-        // over the blurred desktop veil a translucent-white bar reads as an
-        // opaque bright bar. (Colors store premultiplied bytes, so the
-        // assertions divide back out the alpha.)
+        // Dark appearance: translucent dark glass following the scheme.
+        // (Colors store premultiplied bytes, so the assertions divide back out the alpha.)
         let dark = Design::dark().colors;
         let (r, g, b, a) = dark.launcher_field_surface.components();
         let unmul = |c: u8| u32::from(c) * 255 / u32::from(a.max(1));
@@ -577,6 +607,45 @@ mod tests {
     }
 
     #[test]
+    fn popover_surface_and_menu_contrast_follow_scheme() {
+        // Dark appearance: translucent dark glass with bright, high-contrast text.
+        let dark = Design::dark();
+        let (dr, dg, db, da) = dark.colors.popover_surface.components();
+        let dunmul = |c: u8| u32::from(c) * 255 / u32::from(da.max(1));
+        assert!(
+            dunmul(dr) < 50 && dunmul(dg) < 50 && dunmul(db) < 60,
+            "dark popover is dark glass: ({}, {}, {})",
+            dunmul(dr),
+            dunmul(dg),
+            dunmul(db)
+        );
+        assert!(da > 200, "popover surface has solid legibility opacity: {da}");
+        let (mr, mg, mb, ma) = dark.colors.menu_text.components();
+        assert!(mr > 220 && mg > 220 && mb > 220 && ma == 255);
+        let (hr, hg, hb, ha) = dark.colors.menu_text_heading.components();
+        assert!(hr > 150 && hg > 150 && hb > 180 && ha == 255);
+        assert_eq!(dark.glass.for_role(GlassRole::Menu).plate_polarity, 0.0);
+
+        // Light appearance: translucent white glass with dark, high-contrast ink.
+        let light = Design::light();
+        let (lr, lg, lb, la) = light.colors.popover_surface.components();
+        let lunmul = |c: u8| u32::from(c) * 255 / u32::from(la.max(1));
+        assert!(
+            lunmul(lr) > 240 && lunmul(lg) > 240 && lunmul(lb) > 240,
+            "light popover is white glass: ({}, {}, {})",
+            lunmul(lr),
+            lunmul(lg),
+            lunmul(lb)
+        );
+        assert!(la > 200, "light popover surface has solid legibility opacity: {la}");
+        let (mr, mg, mb, ma) = light.colors.menu_text.components();
+        assert!(mr < 50 && mg < 50 && mb < 60 && ma == 255);
+        let (hr, hg, hb, ha) = light.colors.menu_text_heading.components();
+        assert!(hr < 120 && hg < 120 && hb < 140 && ha == 255);
+        assert_eq!(light.glass.for_role(GlassRole::Menu).plate_polarity, 1.0);
+    }
+
+    #[test]
     fn hud_foreground_uses_one_restrained_contour_family() {
         let hud = Design::dark().hud_foreground;
         let colors = crate::colors::dark_appearance().hud_foreground;
@@ -603,7 +672,9 @@ mod tests {
         let glass = Design::dark().glass;
         assert_eq!(
             glass.for_role(GlassRole::FloatingPanel),
-            GlassStyle::new(0.18, 16.0, 8.0).with_material(3.5, 3.0, 0.85, 0.0)
+            GlassStyle::new(0.18, 16.0, 8.0)
+                .with_material(3.5, 3.0, 0.85, 0.0)
+                .with_curvature(0.60)
         );
         assert!(glass.chip.shadow_blur < glass.floating_panel.shadow_blur);
         assert!(glass.floating_panel.shadow_blur < glass.prominent_panel.shadow_blur);
@@ -618,7 +689,9 @@ mod tests {
         let menu = glass.for_role(GlassRole::Menu);
         assert_eq!(
             menu,
-            GlassStyle::new(0.18, 16.0, 8.0).with_material(5.0, 3.6, 0.7, 0.0)
+            GlassStyle::new(0.18, 16.0, 8.0)
+                .with_material(5.0, 3.6, 0.7, 0.0)
+                .with_curvature(0.50)
         );
         assert!(menu.frost_strength > glass.floating_panel.frost_strength);
         assert!(menu.tint_strength > glass.floating_panel.tint_strength);
@@ -636,19 +709,22 @@ mod tests {
             GlassRole::Menu,
             GlassRole::FloatingPanel,
             GlassRole::ProminentPanel,
+            GlassRole::Chip,
+            GlassRole::Dock,
         ] {
             let style = glass.for_role(role);
             assert_eq!(style.plate_polarity, 0.0);
         }
-        // Decorative bodies (Chip, Dock) keep per-pixel adaptive polarity
-        assert_eq!(glass.chip.plate_polarity, -1.0);
-        assert_eq!(glass.dock.plate_polarity, -1.0);
+        assert_eq!(glass.chip.plate_polarity, 0.0);
+        assert_eq!(glass.dock.plate_polarity, 0.0);
         // Light appearance pins the opposite polarity (pearl plate under dark
         // text) with strengths of its own.
         let light = Design::light().glass;
         assert_eq!(light.menu.plate_polarity, 1.0);
         assert_eq!(light.for_role(GlassRole::Tooltip).plate_polarity, 1.0);
         assert_eq!(light.for_role(GlassRole::FloatingPanel).plate_polarity, 1.0);
+        assert_eq!(light.for_role(GlassRole::Chip).plate_polarity, 1.0);
+        assert_eq!(light.for_role(GlassRole::Dock).plate_polarity, 1.0);
         assert!(light.menu.tint_strength > menu.tint_strength);
     }
 

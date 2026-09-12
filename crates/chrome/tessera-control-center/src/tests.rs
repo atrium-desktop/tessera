@@ -244,8 +244,8 @@ fn stagger_delays_the_content_panel_behind_the_menu() {
 }
 
 #[test]
-fn command_panel_requests_unified_backdrop_cover() {
-    let mut panel = CommandPanel::without_sources();
+fn control_center_requests_unified_backdrop_cover() {
+    let mut panel = ControlCenter::without_sources();
     let display = (1920.0, 1080.0);
     let workspaces = WorkspaceSnapshot {
         outputs: Vec::new(),
@@ -261,7 +261,8 @@ fn command_panel_requests_unified_backdrop_cover() {
     assert!(panel.backdrop_regions(display, &[], &workspaces).is_empty());
     assert_eq!(panel.backdrop_blur_sigma(), 0.0);
 
-    // Opening activates the unified BackdropCover depth-of-field blur and wash.
+    // Opening activates the unified BackdropCover depth-of-field blur and
+    // wash at full strength.
     panel.toggle_command_panel(&mut out);
     panel.reveal = 1.0;
     assert_eq!(
@@ -273,11 +274,35 @@ fn command_panel_requests_unified_backdrop_cover() {
     assert_eq!(regions[0].w, display.0);
     assert_eq!(regions[0].h, display.1);
     assert!(regions[0].wash.is_some());
+    assert_eq!(regions[0].opacity, 1.0);
+
+    // The exit fade drains the cover with the reveal: the scrim wash and
+    // the frost body both ease out, so the close animation no longer holds
+    // a gray plate at full strength and then vanishes in one frame.
+    panel.toggle_command_panel(&mut out);
+    panel.reveal = 0.5;
+    let mid = panel.backdrop_regions(display, &[], &workspaces);
+    assert_eq!(mid.len(), 1, "the cover stays declared mid-fade");
+    assert!(
+        mid[0].opacity > 0.0 && mid[0].opacity < 1.0,
+        "the frost body is mid-fade: {}",
+        mid[0].opacity
+    );
+    assert!(mid[0].wash.is_some());
+    assert!(
+        mid[0].wash.unwrap().strength < regions[0].wash.unwrap().strength,
+        "the wash drains with the fade"
+    );
+    assert_eq!(
+        panel.backdrop_blur_sigma(),
+        tessera_chrome::BackdropCover::BLUR_SIGMA,
+        "the radius stays constant mid-fade (no capture teardown)"
+    );
 }
 
 #[test]
-fn command_panel_palette_tracks_the_live_appearance() {
-    let mut panel = CommandPanel::without_sources();
+fn control_center_palette_tracks_the_live_appearance() {
+    let mut panel = ControlCenter::without_sources();
     let dark = panel.panel_colors();
     assert!(!dark.is_light());
 
@@ -386,4 +411,70 @@ fn scrollbar_reveals_fade_out_after_wheel_activity_stops() {
     assert_eq!(panel.tray_scrollbar_reveal, 0.0);
     // And with nothing moving, no interaction animation stays pending.
     assert!(!panel.interaction_anim_pending());
+}
+
+#[test]
+fn tray_menu_opens_to_the_right_of_owner_and_equalizes_separator_height() {
+    let owner = Rect {
+        x: 48.0,
+        y: 300.0,
+        w: 56.0,
+        h: 40.0,
+    };
+    let display = (1920.0, 1080.0);
+    let items = vec![
+        MenuNode {
+            id: 1,
+            kind: tessera_tray::MenuEntryKind::Standard,
+            label: "Open".to_string(),
+            enabled: true,
+            visible: true,
+            toggle: tessera_tray::MenuToggle::None,
+            has_submenu: false,
+            children: vec![],
+        },
+        MenuNode {
+            id: 2,
+            kind: tessera_tray::MenuEntryKind::Separator,
+            label: String::new(),
+            enabled: true,
+            visible: true,
+            toggle: tessera_tray::MenuToggle::None,
+            has_submenu: false,
+            children: vec![],
+        },
+        MenuNode {
+            id: 3,
+            kind: tessera_tray::MenuEntryKind::Standard,
+            label: "Quit".to_string(),
+            enabled: true,
+            visible: true,
+            toggle: tessera_tray::MenuToggle::None,
+            has_submenu: false,
+            children: vec![],
+        },
+    ];
+    let bounds = menu_bounds(owner, &items, display);
+    // Menu opens directly to the right of the tray column owner.
+    assert!(
+        bounds.x >= owner.x + owner.w,
+        "popover x ({}) must be to the right of owner right edge ({})",
+        bounds.x,
+        owner.x + owner.w
+    );
+    // Separator contributes symmetric height (MENU_SEP_GAP * 2.0 + 1.0).
+    let expected_h = MENU_PAD * 2.0
+        + MENU_HEADER_HEIGHT
+        + 2.0 * MENU_ROW_HEIGHT
+        + MENU_SEPARATOR_HEIGHT;
+    assert_eq!(bounds.h, expected_h);
+}
+
+#[test]
+fn demo_menu_state_is_provided_for_demo_keys() {
+    let mut panel = CommandPanel::without_sources();
+    panel.menu_open_for = Some("demo.agent".to_string());
+    let menu = panel.menu_snapshot().expect("demo menu present");
+    assert_eq!(menu.key, "demo.agent");
+    assert!(!menu.root.children.is_empty());
 }

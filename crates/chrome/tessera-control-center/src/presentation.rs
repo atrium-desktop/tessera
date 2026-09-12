@@ -5,7 +5,7 @@ use tessera_design::materials::{chrome_place, sized, transparent};
 
 // ---- rendering -----------------------------------------------------------
 
-impl CommandPanel {
+impl ControlCenter {
     /// Bounds of the currently open dbusmenu popover, if any.
     pub(super) fn open_popover_bounds(&mut self, display: (f32, f32)) -> Option<Rect> {
         let key = self.menu_open_for.clone()?;
@@ -1050,8 +1050,21 @@ impl CommandPanel {
             })
             .collect();
 
-        let cell_w = TRAY_CELL.min(rect.w).max(24.0);
-        let column_x = rect.x + (rect.w - cell_w) * 0.5;
+        let cell_w = TRAY_CELL.min(rect.w - TRAY_PAD * 2.0).max(24.0);
+        let panel_w = (cell_w + TRAY_PAD * 2.0).min(rect.w);
+        let panel_x = rect.x + (rect.w - panel_w) * 0.5;
+        let column_x = panel_x + (panel_w - cell_w) * 0.5;
+
+        let content_h = cells.len() as f32 * TRAY_CELL
+            + (cells.len().saturating_sub(1) as f32) * TRAY_GAP;
+        let needed_h = (content_h + TRAY_PAD * 2.0).min(rect.h);
+        let panel_y = rect.y + (rect.h - needed_h) * 0.5;
+        let panel_rect = Rect {
+            x: panel_x,
+            y: panel_y,
+            w: panel_w,
+            h: needed_h,
+        };
 
         let original = f.theme();
         let base_theme = themes::hud(&hud);
@@ -1063,7 +1076,8 @@ impl CommandPanel {
         let mut resolved: Vec<(String, Rect)> = Vec::new();
 
         let scroll_id = "tessera-hud-tray-column-scroll";
-        let needs_scroll = cells.len() as f32 * (TRAY_CELL + TRAY_GAP) > rect.h;
+        let scroll_viewport_h = (needed_h - TRAY_PAD * 2.0).max(1.0);
+        let needs_scroll = content_h > scroll_viewport_h;
         let scrollbar_theme = if needs_scroll && self.tray_scrollbar_reveal > 0.01 {
             base_theme
                 .with_scrollbar_width(4.0)
@@ -1076,113 +1090,158 @@ impl CommandPanel {
             base_theme.with_scrollbar_width(0.0)
         };
 
+        // Tray background surface: sleek capsule container matching other HUD panels
+        f.place(
+            "tessera-hud-tray-surface",
+            &chrome_place(
+                panel_rect,
+                LayoutOpts {
+                    radius: panel_w * 0.5,
+                    bg: hud.surface_recessed,
+                    border: hud.border,
+                    border_width: 1.0,
+                    ..Default::default()
+                },
+            ),
+            |f| {
+                f.row_ex(&sized(panel_rect.w, panel_rect.h), |_| {});
+            },
+        );
+
         f.set_theme(scrollbar_theme);
         f.place(
             "tessera-hud-tray-column",
             &chrome_place(
-                Rect {
-                    x: column_x - 10.0,
-                    y: rect.y,
-                    w: cell_w + 20.0,
-                    h: rect.h,
-                },
+                panel_rect,
                 transparent(),
             ),
             |f| {
-                f.column_ex(&sized(cell_w + 20.0, rect.h), |f| {
-                    f.flex(1.0);
-                    f.scroll(scroll_id, |f| {
-                        f.column_ex(
-                            &LayoutOpts {
-                                width: cell_w,
-                                gap: TRAY_GAP,
-                                cross: Align::Center,
-                                ..Default::default()
-                            },
-                            |f| {
-                                for (index, cell) in cells.iter().enumerate() {
-                                    // Hover raises a rounded-square plate BEHIND
-                                    // the icon: the plate is drawn first and
-                                    // sized larger than the glyph, so the icon
-                                    // itself never disappears or dims — only its
-                                    // backing becomes prominent.
-                                    let est_y = rect.y + index as f32 * (TRAY_CELL + TRAY_GAP);
-                                    let est_rect = Rect {
-                                        x: column_x,
-                                        y: est_y,
-                                        w: cell_w,
-                                        h: TRAY_CELL,
-                                    };
-                                    let hover = contains(est_rect, cursor.0, cursor.1);
-                                    if hover {
-                                        f.place(
-                                            &format!("tessera-hud-tray-plate-{}", cell.key),
-                                            &chrome_place(
-                                                Rect {
-                                                    x: column_x,
-                                                    y: est_y,
-                                                    w: cell_w,
-                                                    h: TRAY_CELL,
-                                                },
-                                                LayoutOpts {
-                                                    radius: cell_w * 0.32,
-                                                    bg: hud.accent_surface_hover,
-                                                    border: hud.accent.with_alpha(60),
-                                                    border_width: 1.0,
-                                                    ..Default::default()
-                                                },
-                                            ),
-                                            |f| {
-                                                f.row_ex(
-                                                    &LayoutOpts {
-                                                        width: cell_w,
-                                                        height: TRAY_CELL,
+                f.column_ex(
+                    &LayoutOpts {
+                        width: panel_rect.w,
+                        height: panel_rect.h,
+                        pad: TRAY_PAD,
+                        cross: Align::Center,
+                        ..Default::default()
+                    },
+                    |f| {
+                        f.flex(1.0);
+                        f.scroll(scroll_id, |f| {
+                            f.column_ex(
+                                &LayoutOpts {
+                                    width: cell_w,
+                                    gap: TRAY_GAP,
+                                    cross: Align::Center,
+                                    ..Default::default()
+                                },
+                                |f| {
+                                    for (index, cell) in cells.iter().enumerate() {
+                                        // Hover or active menu-open state raises a plate
+                                        // BEHIND the icon.
+                                        let est_y = panel_y + TRAY_PAD
+                                            + index as f32 * (TRAY_CELL + TRAY_GAP);
+                                        let est_rect = Rect {
+                                            x: column_x,
+                                            y: est_y,
+                                            w: cell_w,
+                                            h: TRAY_CELL,
+                                        };
+                                        let hover = contains(est_rect, cursor.0, cursor.1);
+                                        let is_open =
+                                            self.menu_open_for.as_deref() == Some(&cell.key);
+                                        let plate_radius = cell_w * 0.32;
+                                        if is_open {
+                                            f.place(
+                                                &format!("tessera-hud-tray-active-{}", cell.key),
+                                                &chrome_place(
+                                                    est_rect,
+                                                    LayoutOpts {
+                                                        radius: plate_radius,
+                                                        bg: hud.selection_surface,
+                                                        border: hud.accent.with_alpha(80),
+                                                        border_width: 1.0,
                                                         ..Default::default()
                                                     },
-                                                    |_| {},
-                                                );
+                                                ),
+                                                |f| {
+                                                    f.row_ex(
+                                                        &LayoutOpts {
+                                                            width: cell_w,
+                                                            height: TRAY_CELL,
+                                                            ..Default::default()
+                                                        },
+                                                        |_| {},
+                                                    );
+                                                },
+                                            );
+                                        } else if hover {
+                                            f.place(
+                                                &format!("tessera-hud-tray-plate-{}", cell.key),
+                                                &chrome_place(
+                                                    est_rect,
+                                                    LayoutOpts {
+                                                        radius: plate_radius,
+                                                        bg: hud.accent_surface_hover,
+                                                        border: hud.accent.with_alpha(60),
+                                                        border_width: 1.0,
+                                                        ..Default::default()
+                                                    },
+                                                ),
+                                                |f| {
+                                                    f.row_ex(
+                                                        &LayoutOpts {
+                                                            width: cell_w,
+                                                            height: TRAY_CELL,
+                                                            ..Default::default()
+                                                        },
+                                                        |_| {},
+                                                    );
+                                                },
+                                            );
+                                        }
+                                        let texture = cell.texture;
+                                        let fallback = cell.fallback;
+                                        let title = cell.title.clone();
+                                        let key = cell.key.clone();
+                                        let has_menu = cell.has_menu;
+                                        let (response, _) = f.pressable_row(
+                                            &format!("tessera-hud-tray-item-{key}"),
+                                            &title,
+                                            &LayoutOpts {
+                                                width: cell_w,
+                                                height: TRAY_CELL,
+                                                cross: Align::Center,
+                                                radius: plate_radius,
+                                                bg: Color(0),
+                                                ..Default::default()
+                                            },
+                                            |f, _| {
+                                                f.centered(cell_w, TRAY_CELL, |f| match texture {
+                                                    Some(texture) => unsafe {
+                                                        f.image(texture, TRAY_ICON, TRAY_ICON)
+                                                    },
+                                                    None => match fallback {
+                                                        Some(icon) => unsafe {
+                                                            f.image(icon, TRAY_ICON, TRAY_ICON)
+                                                        },
+                                                        None => f.icon(Icon::FileText, TRAY_ICON),
+                                                    },
+                                                });
                                             },
                                         );
+                                        resolved.push((key.clone(), response.rect));
+                                        if response.clicked {
+                                            activations.push(key.clone());
+                                        } else if response.right_clicked {
+                                            secondary.push((key.clone(), has_menu));
+                                        }
                                     }
-                                    let texture = cell.texture;
-                                    let fallback = cell.fallback;
-                                    let title = cell.title.clone();
-                                    let key = cell.key.clone();
-                                    let has_menu = cell.has_menu;
-                                    let (response, _) = f.pressable_row(
-                                        &format!("tessera-hud-tray-item-{key}"),
-                                        &title,
-                                        &LayoutOpts {
-                                            width: cell_w,
-                                            height: TRAY_CELL,
-                                            cross: Align::Center,
-                                            bg: Color(0),
-                                            ..Default::default()
-                                        },
-                                        |f, _| match texture {
-                                            Some(texture) => unsafe {
-                                                f.image(texture, TRAY_ICON, TRAY_ICON)
-                                            },
-                                            None => match fallback {
-                                                Some(icon) => unsafe {
-                                                    f.image(icon, TRAY_ICON, TRAY_ICON)
-                                                },
-                                                None => f.icon(Icon::FileText, TRAY_ICON),
-                                            },
-                                        },
-                                    );
-                                    resolved.push((key.clone(), response.rect));
-                                    if response.clicked {
-                                        activations.push(key.clone());
-                                    } else if response.right_clicked {
-                                        secondary.push((key.clone(), has_menu));
-                                    }
-                                }
-                            },
-                        );
-                    });
-                    f.spacer(0.0);
-                });
+                                },
+                            );
+                        });
+                        f.spacer(0.0);
+                    },
+                );
             },
         );
 
@@ -1195,16 +1254,22 @@ impl CommandPanel {
             // Items that expose a Menu object path get the host-rendered
             // popover; everything else keeps the SNI `SecondaryActivate`.
             if has_menu {
-                self.menu_owner = resolved
+                let cell_rect = resolved
                     .iter()
                     .find(|(k, _)| k == &key)
                     .map(|(_, rect)| *rect)
                     .unwrap_or(Rect {
-                        x: 0.0,
-                        y: 0.0,
-                        w: 0.0,
-                        h: 0.0,
+                        x: column_x,
+                        y: panel_y + TRAY_PAD,
+                        w: cell_w,
+                        h: TRAY_CELL,
                     });
+                self.menu_owner = Rect {
+                    x: panel_x,
+                    y: cell_rect.y,
+                    w: panel_w,
+                    h: cell_rect.h,
+                };
                 self.menu_open_for = Some(key.clone());
                 self.menu_path.clear();
                 self.menu_just_opened = true;
@@ -1217,7 +1282,12 @@ impl CommandPanel {
         // Keep the owner rect fresh against relayout or item movement.
         if let Some(key) = self.menu_open_for.clone() {
             if let Some((_, rect)) = resolved.iter().find(|(k, _)| k == &key) {
-                self.menu_owner = *rect;
+                self.menu_owner = Rect {
+                    x: panel_x,
+                    y: rect.y,
+                    w: panel_w,
+                    h: rect.h,
+                };
             } else {
                 self.menu_open_for = None;
                 self.menu_path.clear();
@@ -1295,8 +1365,10 @@ impl CommandPanel {
                                 continue;
                             }
                             if row.kind == tessera_tray::MenuEntryKind::Separator {
-                                f.size_next(inner_w, MENU_SECTION_HEIGHT);
+                                f.spacer(MENU_SEP_GAP);
+                                f.size_next(inner_w, 1.0);
                                 f.separator();
+                                f.spacer(MENU_SEP_GAP);
                                 continue;
                             }
                             f.size_next(inner_w, MENU_ROW_HEIGHT);
@@ -1376,24 +1448,28 @@ impl CommandPanel {
         let base_theme = themes::hud(&hud);
         let muted_theme = themes::hud_muted(base_theme, &hud);
         let mut command = None;
-        let identity_label = if snapshot.available {
-            truncate(
-                if snapshot.identity.is_empty() {
-                    i18n.text(Message::NowPlaying)
-                } else {
-                    &snapshot.identity
-                },
-                ((rect.w - 58.0) / 6.5).max(8.0) as usize,
-            )
+        let card_pad = 12.0;
+        let icon_w = 18.0;
+        let icon_gap = 10.0;
+        // Text area occupies the width of the card minus padding, play icon, and gap.
+        // Safety margin ensures wide CJK characters and bold display text stay within bounds.
+        let text_max_w = (rect.w - card_pad * 2.0 - icon_w - icon_gap - 8.0).max(20.0);
+
+        let identity_raw = if snapshot.available && !snapshot.identity.is_empty() {
+            &snapshot.identity
         } else {
-            i18n.text(Message::NowPlaying).to_owned()
+            i18n.text(Message::NowPlaying)
         };
-        let title_label = if snapshot.available && !snapshot.title.is_empty() {
-            truncate(&snapshot.title, ((rect.w - 58.0) / 7.0).max(8.0) as usize)
+        let identity_label = ellipsize(f, identity_raw, type_scale.footnote, text_max_w);
+
+        let title_raw = if snapshot.available && !snapshot.title.is_empty() {
+            &snapshot.title
         } else {
-            i18n.text(Message::NotPlaying).to_owned()
+            i18n.text(Message::NotPlaying)
         };
-        let artist_label = truncate(&snapshot.artist, ((rect.w - 58.0) / 6.5).max(8.0) as usize);
+        let title_label = ellipsize(f, title_raw, type_scale.body, text_max_w);
+
+        let artist_label = ellipsize(f, &snapshot.artist, type_scale.footnote, text_max_w);
 
         f.set_theme(base_theme);
         f.place(
@@ -1438,6 +1514,7 @@ impl CommandPanel {
                                 f.column_ex(
                                     &LayoutOpts {
                                         flex: 1.0,
+                                        max_width: text_max_w,
                                         gap: 2.0,
                                         ..Default::default()
                                     },
@@ -1688,6 +1765,7 @@ impl CommandPanel {
                             width: seg_rect.w,
                             height: seg_rect.h,
                             cross: Align::Center,
+                            radius: inner.h * 0.5,
                             bg: Color::TRANSPARENT,
                             ..Default::default()
                         },
@@ -1798,6 +1876,7 @@ impl CommandPanel {
                         width: lock_rect.w,
                         height: lock_rect.h,
                         cross: Align::Center,
+                        radius: 14.0,
                         bg: Color::TRANSPARENT,
                         ..Default::default()
                     },
@@ -1836,6 +1915,7 @@ impl CommandPanel {
                         width: power_rect.w,
                         height: power_rect.h,
                         cross: Align::Center,
+                        radius: 14.0,
                         bg: Color::TRANSPARENT,
                         ..Default::default()
                     },
@@ -1914,7 +1994,7 @@ fn render_tooltip(
     id: &str,
     anchor: Rect,
     text: &str,
-    hud: CommandPanelColors,
+    hud: ControlCenterColors,
     type_scale: TypeScale,
     reveal: f32,
 ) {

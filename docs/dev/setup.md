@@ -190,6 +190,54 @@ RUST_LOG=debug cargo run --locked -p tessera
 RUST_LOG=warn cargo run --locked -p tessera
 ```
 
+## Screenshot PNG benchmark
+
+Run the privacy-safe generated-scene comparison in an optimized build:
+
+```bash
+cargo run --locked -p tessera-capture --example png_profiles --profile release-fast
+```
+
+The example prints CSV for RGB and RGBA with Fast+Up, Fast+Adaptive,
+Default+Adaptive, and Fast+Paeth at 1920×1080 and 3840×2160. Scenes contain
+pseudo-text/UI panels, smooth gradients, and deterministic textured
+photo-like colors; these are synthetic workloads, not real desktop captures
+or photographs. No screen access, input files, or new dependencies are needed.
+Every combination is decoded and checked against its original RGBA pixels.
+
+Each case has one warm-up and five measured encodes (median/min/max in
+milliseconds). Timing includes opacity scanning and in-place RGB compaction
+for RGB cases, plus PNG encoding and output allocation; it excludes scene
+generation, input cloning, decode validation, GPU readback, unpremultiplication,
+publication, and disk I/O. The RGB preparation mirrors the encoder's owned
+buffer path. Run on an otherwise idle machine and retain the CSV with CPU,
+Rust/image versions, and build profile when comparing changes.
+
+A sample run on an Intel Core Ultra 9 285H, Rust 1.97.1, image 0.25.8,
+png 0.18.1, `release-fast` produced these 3840×2160 results. Cells contain
+encoded bytes / median milliseconds; RGB timings include compaction.
+
+| Scene / channels | Fast+Up | Fast+Adaptive | Default+Adaptive | Fast+Paeth |
+|---|---:|---:|---:|---:|
+| UI / RGBA | 6,121,533 / 6.60 | 945,857 / 18.33 | 89,466 / 50.21 | 1,245,039 / 7.76 |
+| UI / RGB | 5,798,097 / 13.17 | 879,030 / 21.66 | 73,537 / 45.91 | 1,179,408 / 13.44 |
+| Gradient / RGBA | 1,563,109 / 6.52 | 511,808 / 36.47 | 203,180 / 79.20 | 511,808 / 8.51 |
+| Gradient / RGB | 1,317,502 / 12.83 | 511,424 / 35.22 | 186,893 / 80.42 | 511,424 / 13.10 |
+| Photo-like / RGBA | 23,380,914 / 41.57 | 22,680,728 / 73.26 | 10,828,634 / 1,656.39 | 23,571,535 / 47.75 |
+| Photo-like / RGB | 21,311,118 / 46.64 | 20,608,186 / 66.26 | 10,563,750 / 1,104.61 | 21,502,061 / 45.09 |
+
+Fast+Paeth is the fixed screenshot default: it substantially reduces
+UI/gradient size compared with Fast+Up without Adaptive's filter-search
+cost or Default's texture compression latency. It is not universally
+smallest or fastest. RGB further reduces bytes but its scan/compaction can
+increase CPU time; it reuses the owned RGBA allocation rather than allocating
+another full frame. Against the former RGBA Fast+Up baseline, RGB Fast+Paeth
+reduced these 4K samples by about 81%, 67%, and 8%, respectively, with
+median times increasing by about 7, 7, and 4 ms. At 1080p the same comparison
+was 1,512,389→292,676, 744,217→244,719, and 5,846,577→5,374,365 bytes.
+These measurements justify a size/interactive-latency tradeoff on this
+corpus, not a performance guarantee for real desktops or other CPUs.
+
 ## Tests
 
 ```bash

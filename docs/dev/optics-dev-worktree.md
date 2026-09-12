@@ -167,7 +167,7 @@ When modifying Optics and Tessera simultaneously:
    ```bash
    # In projects/tessera-dev/ (branch dev):
    cargo check -p tessera
-   cargo test -p tessera
+   cargo nextest run -p tessera
    ```
 
 Do not run concurrent Meson or Ninja builds against `../optics/build` from
@@ -200,10 +200,18 @@ than accumulating a monolithic, unreviewable multi-month release dump.
 The commit history on `dev` and `main` is **deliberately distinct**:
 
 - **`dev` history**: Contains rapid, exploratory, and fine-grained iteration
-  commits created during co-development with local Optics.
+  commits created during co-development with local Optics. These commits were
+  built against the local path-patched lockfile, so they are **not**
+  individually buildable in canonical mode.
 - **`main` history**: Contains curated, atomic feature commits that are
   guaranteed to build independently with `cargo check --locked --workspace`,
   pinned to canonical remote Git tags.
+
+Because intermediate `dev` commits cannot build canonically, they must never
+be merged onto `main` verbatim. Promotion is always a **squash merge**: the
+entire feature becomes one atomic commit on `main`, and `dev` is then reset
+onto the promoted `main`. The fine-grained history survives through dated
+archive tags (Step 5), not through `main`'s graph.
 
 Do not treat this process as a bidirectional "sync". It is a strict
 **one-way promotion and merge** of completed feature milestones from `dev`
@@ -228,21 +236,27 @@ git push origin vX.Y.Z
 meson compile -C build
 ```
 
-### Step 2: Merge Feature Commits into Main Worktree
+### Step 2: Squash Merge the Feature into Main Worktree
 
 Switch to the primary `tessera/` worktree (`branch main`). Because `main`
 deliberately lacks `.cargo/config.toml`, it operates natively in canonical
 mode without disabling or toggling any local configurations.
 
-Merge the completed feature commits from `dev`:
+Squash merge the feature so `main` receives exactly one atomic, buildable
+commit:
 
 ```bash
 # In projects/tessera/ (primary worktree, branch main):
 cd ../tessera
 git switch main
 git pull --ff-only
-git merge dev
+git merge --squash dev
+git commit -m "feat(dock): improve intent dwell hit testing"
 ```
+
+Collect `Co-authored-by:` trailers for any co-authors of the squashed
+iteration commits in the summary message; the squash merge discards their
+original authorship otherwise.
 
 ### Step 3: Update Manifests and Canonical Lockfile on Main
 
@@ -273,7 +287,7 @@ Verify that the canonical tree compiles cleanly under `--locked`:
 ```bash
 # In projects/tessera/ (primary worktree, branch main):
 cargo check --locked --workspace
-cargo test --locked --workspace
+cargo nextest run --locked --workspace
 cargo build --locked -p tessera
 ```
 
@@ -286,19 +300,50 @@ git commit -m "build: adopt Optics vX.Y.Z"
 git push origin main
 ```
 
-### Step 5: Continue in Dev Worktree Without Interruption
+### Step 5: Archive the Dev History, Reset Dev, and Continue
 
 Notice that **`tessera-dev` never touched or disabled its `.cargo/config.toml`**.
 Your local development environment remained active throughout the merge.
 
-To bring `dev` up to date with the newly adopted Optics tag:
+Before moving the `dev` pointer, preserve the fine-grained iteration history
+with a dated archive tag. `git reset --hard` only moves the branch pointer—
+the commit objects remain reachable through the tag and through
+`dev@{1}` reflog (~90 days) and are free of extra disk cost (both worktrees
+share one object store)—but the tag makes them permanently findable for
+bisecting, archaeology, and cherry-picking:
 
 ```bash
 # In projects/tessera-dev/ (development worktree, branch dev):
-cd ../tessera-dev
-git restore Cargo.lock
-git rebase main
+git tag archive/dev-YYYYMMDD-<feature-slug> dev
+git push origin archive/dev-YYYYMMDD-<feature-slug>   # optional, offsite backup
+```
+
+Then reset `dev` onto the freshly promoted `main`. Do **not** rebase here:
+the dev content already lives inside the squash commit, so rebasing yields
+empty commits and conflicts—`reset --hard main` is the only correct
+operation:
+
+```bash
+# In projects/tessera-dev/ (development worktree, branch dev):
+git reset --hard main
+```
+
+Cargo.lock now holds the canonical git-tag state. Simply run any Cargo
+command to rewrite it into the local path-patched form; no manual
+`git restore Cargo.lock` is needed:
+
+```bash
+# In projects/tessera-dev/ (development worktree, branch dev):
 cargo check -p tessera
+cargo tree -i flux   # confirm ../optics/bindings/ paths reappear
+```
+
+If `dev` was previously pushed, force-update the remote branch after the
+reset (never with bare `--force`; the lease protects concurrent updates):
+
+```bash
+# In projects/tessera-dev/ (development worktree, branch dev):
+git push --force-with-lease origin dev
 ```
 
 ## Automated Git Hook Guards (.githooks/pre-commit)
@@ -356,7 +401,9 @@ cargo check --locked --workspace
 ### Rebasing dev when Main Advances
 
 If `main` advances independently through peer pull requests or hotfixes, rebase
-`dev` onto the updated `main`:
+`dev` onto the updated `main`. This applies only to **unpromoted WIP commits**;
+after a feature has been squash-merged and promoted, use the
+`git reset --hard main` flow in Step 5 instead of rebasing:
 
 ```bash
 # 1. Pull the primary worktree (in projects/tessera/, branch main):

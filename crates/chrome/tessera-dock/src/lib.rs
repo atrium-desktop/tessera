@@ -839,6 +839,35 @@ impl Dock {
         }
     }
 
+    /// Magnification axis coordinate along the strip's long axis.
+    ///
+    /// When the pointer enters the popover preview or bridge above the dock,
+    /// the axis locks onto the owner tile's centre to keep its magnified
+    /// geometry steady; otherwise, it tracks the live pointer coordinate.
+    pub(crate) fn magnification_axis(
+        over_hover_surface: bool,
+        over_rest_bounds: bool,
+        owner_rest_centre: Option<f32>,
+        cursor_axis: f32,
+    ) -> f32 {
+        if over_hover_surface && !over_rest_bounds {
+            owner_rest_centre.unwrap_or(cursor_axis)
+        } else {
+            cursor_axis
+        }
+    }
+
+    /// Magnification target size for a tile given its centre and the active
+    /// magnification axis.
+    pub(crate) fn magnification_target(in_band: bool, magnify_axis: f32, tile_centre: f32) -> f32 {
+        let factor = if in_band {
+            Self::magnify_factor(magnify_axis - tile_centre)
+        } else {
+            0.0
+        };
+        DOCK_TILE + (DOCK_TILE_MAX - DOCK_TILE) * factor
+    }
+
     /// Cosine-bell magnification factor in `[0, 1]` for a tile whose rest
     /// centre is `dx` pixels from the cursor. Returns 0 outside
     /// `MAGNIFY_RADIUS_TILES * DOCK_TILE`.

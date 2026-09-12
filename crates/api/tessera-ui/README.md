@@ -16,7 +16,7 @@
 lens (low-level UI engine)
   └── tessera-design (data-only design tokens & materials)
         └── tessera-ui (composite UI patterns & widgets)
-              └── tessera-shell / tessera-command-panel / tessera-settings / tessera-hud / tessera-lock
+              └── tessera-shell / tessera-control-center / tessera-settings / tessera-hud / tessera-lock
 ```
 
 `tessera-ui` depends only on `lens`, `tessera-design`, and `tessera-model`. It contains no compositor-specific server state (`Window`, `InteractionDomain`, `Server`) and does not depend on `tessera-shell` or `tessera-compositor`.

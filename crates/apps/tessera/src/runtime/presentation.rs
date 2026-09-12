@@ -1064,6 +1064,7 @@ impl CompositorRuntime {
                                     refraction: 8.0 * capture_pixel_scale,
                                     chromatic_aberration: 1.25 * capture_pixel_scale,
                                     edge_width: 18.0 * capture_pixel_scale,
+                                    size_reference: 72.0 * capture_pixel_scale,
                                     ..Default::default()
                                 },
                             )
@@ -1078,6 +1079,7 @@ impl CompositorRuntime {
                                         refraction: 8.0 * capture_pixel_scale,
                                         chromatic_aberration: 1.25 * capture_pixel_scale,
                                         edge_width: 18.0 * capture_pixel_scale,
+                                        size_reference: 72.0 * capture_pixel_scale,
                                         ..Default::default()
                                     },
                                 )

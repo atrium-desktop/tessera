@@ -1,7 +1,7 @@
-# How to Use the HUD and the Command Panel
+# How to Use the HUD and the Control Center
 
 Tessera presents system status as a minimal HUD and keeps every related
-interaction in one modal panel, the command panel (ADR-0080, ADR-0081,
+interaction in one modal panel, the control center (ADR-0080, ADR-0081,
 ADR-0083, ADR-0114). The panel is the display-and-control surface for
 desktop-computer behavior (ADR-0115): the state and controls of the
 daily-use domains — sound, displays, network and Bluetooth, power, the
@@ -38,28 +38,28 @@ notifications list (and counts toward the HUD bell) for up to an hour,
 where you can dismiss it. Do Not Disturb suppresses popups while the list
 keeps accumulating.
 
-## Open the Command Panel
+## Open the Control Center
 
 Press `Super+S`, or swipe down on the touchpad with four fingers. The
-panel opens as a boundless floating HUD layout over an opaque background.
+control center opens as a boundless floating HUD layout over an opaque background.
 The background and elevated surfaces follow the desktop's light or dark
 appearance, while system blue marks active controls. The main control panel
 sits in the center, with a compact profile chip at the top-left,
 notifications at the top-right, and the machine telemetry and tray column at
-the right. The HUD and Dock hide while the panel owns the screen and return
+the right. The HUD and Dock hide while the control center owns the screen and return
 after it has fully closed.
 
 Close it with `Super+S` again, `Escape`, a click on the scrim, the close
 button at the right end of the tab bar, or a four-finger swipe up.
 
 Bind a different key with a `[[keybind]]` entry whose action is
-`command_panel`:
+`control_center`:
 
 ```toml
 [[keybind]]
 mods = ["super"]
 key = "d"
-action = "command_panel"
+action = "control_center"
 ```
 
 ## Read the Profile and Machine Monitors

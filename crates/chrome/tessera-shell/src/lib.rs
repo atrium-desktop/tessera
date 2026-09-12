@@ -8,7 +8,7 @@
 //! [`Shell::add`], and renders itself each frame from the shared snapshot
 //! and input. Larger components live in their own crates on top of the same
 //! contract (the dock in `tessera-dock`, Prism in `tessera-prism`, the HUD in
-//! `tessera-hud`, and the command panel in `tessera-command-panel`). Adding
+//! `tessera-hud`, and the control center in `tessera-control-center`). Adding
 //! or removing a chrome surface is a component change, not a core change.
 //! [`persona`] owns the lightweight personalized-profile convention; its
 //! optional `persona` feature adds shared still/VRM portrait and motion
@@ -433,7 +433,7 @@ impl Shell {
         if opening {
             self.broadcast_command(ChromeCommand::CloseLauncher);
             self.broadcast_command(ChromeCommand::ClosePrism);
-            self.broadcast_command(ChromeCommand::CloseCommandPanel);
+            self.broadcast_command(ChromeCommand::CloseControlCenter);
         }
         self.broadcast_command(ChromeCommand::ToggleOverview);
     }
@@ -454,22 +454,34 @@ impl Shell {
             .fold(0.0_f32, f32::max)
     }
 
-    /// Toggle the command panel on the component that owns it
+    /// Toggle the control center on the component that owns it
     /// (ADR-0080). Mirrors [`Shell::toggle_overview`]: fanned out to every
     /// component; static components ignore it.
-    pub fn toggle_command_panel(&mut self) {
-        let opening = !self.command_panel_active();
+    pub fn toggle_control_center(&mut self) {
+        let opening = !self.control_center_active();
         if opening {
             self.broadcast_command(ChromeCommand::CloseLauncher);
             self.broadcast_command(ChromeCommand::ClosePrism);
             self.broadcast_command(ChromeCommand::CloseOverview);
         }
-        self.broadcast_command(ChromeCommand::ToggleCommandPanel);
+        self.broadcast_command(ChromeCommand::ToggleControlCenter);
     }
 
-    /// Whether the command panel is currently open.
+    /// Backwards-compatible alias for [`Shell::toggle_control_center`].
+    pub fn toggle_command_panel(&mut self) {
+        self.toggle_control_center();
+    }
+
+    /// Whether the control center is currently open.
+    pub fn control_center_active(&self) -> bool {
+        self.components
+            .iter()
+            .any(|c| c.control_center_active() || c.command_panel_active())
+    }
+
+    /// Backwards-compatible alias for [`Shell::control_center_active`].
     pub fn command_panel_active(&self) -> bool {
-        self.components.iter().any(|c| c.command_panel_active())
+        self.control_center_active()
     }
 
     /// Open the compositor-owned Super+Tab preview strip.
@@ -864,7 +876,7 @@ impl Shell {
             .any(|component| component.launcher_active());
         if opening {
             self.broadcast_command(ChromeCommand::ClosePrism);
-            self.broadcast_command(ChromeCommand::CloseCommandPanel);
+            self.broadcast_command(ChromeCommand::CloseControlCenter);
             self.broadcast_command(ChromeCommand::CloseOverview);
         }
         self.broadcast_command(ChromeCommand::ToggleLauncher);
@@ -879,7 +891,7 @@ impl Shell {
             .any(|component| component.prism_active());
         if opening {
             self.broadcast_command(ChromeCommand::CloseLauncher);
-            self.broadcast_command(ChromeCommand::CloseCommandPanel);
+            self.broadcast_command(ChromeCommand::CloseControlCenter);
             self.broadcast_command(ChromeCommand::CloseOverview);
         }
         self.broadcast_command(ChromeCommand::TogglePrism);
@@ -1259,6 +1271,7 @@ impl Shell {
             // persistent decorations (HUD status chips) floating inside the blurred field hide.
             let immersive_active = components.iter().any(|component| {
                 component.launcher_active()
+                    || component.control_center_active()
                     || component.command_panel_active()
                     || component.overview_active()
             });

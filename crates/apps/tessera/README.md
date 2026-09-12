@@ -32,7 +32,7 @@ components:
 | `chrome-dock` | Persistent application Dock | None |
 | `chrome-prism` | Compact application search | None |
 | `chrome-hud` | Display-only status HUD | StatusNotifierItem tray |
-| `chrome-command-panel` | Modal system command panel | StatusNotifierItem tray |
+| `chrome-control-center` | Modal system control center | StatusNotifierItem tray |
 
 For example, build only the Dock and Prism on top of the shared shell:
 

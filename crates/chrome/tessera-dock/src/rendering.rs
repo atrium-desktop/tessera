@@ -343,8 +343,8 @@ impl Chrome for Dock {
         }
 
         // Pointer activation band for magnification. A visible hover surface
-        // independently keeps autohide revealed while the pointer travels
-        // from the icon into a live preview card.
+        // independently keeps autohide revealed and preserves magnification
+        // while the pointer travels from the icon into a live preview card.
         let over_rest_bounds = cursor.x >= rest_bounds.x
             && cursor.y >= rest_bounds.y
             && cursor.x < rest_bounds.x + rest_bounds.w
@@ -355,7 +355,7 @@ impl Chrome for Dock {
         // magnification spring would fight over the same slots.
         let in_band = !self.collapse_pending
             && !drag_active
-            && over_rest_bounds
+            && (over_rest_bounds || over_hover_surface)
             && (!effective_autohide || self.autohide_reveal >= 0.2);
 
         let capsule_entry =
@@ -473,15 +473,35 @@ impl Chrome for Dock {
         // Track per-tile (target, velocity) so the anim-pending check below can
         // tell when every spring has fully rested.
         let mut unsettled = false;
+
+        // When the pointer is within the hover surface (popover preview, tooltip,
+        // or the air-gap bridge leading to it), lock the magnification axis to the
+        // owner tile's resting centre instead of following the live cursor. This
+        // keeps the originating app icon at peak magnification as a prominent
+        // provenance anchor and prevents the Dock underneath from wiggling or
+        // reflowing as the pointer moves across preview cards.
+        let owner_centre = if over_hover_surface && !over_rest_bounds {
+            self.tooltip_tile
+                .as_ref()
+                .or(self.hovered_tile.as_ref())
+                .and_then(|key| tiles.iter().position(|t| &t.key == key))
+                .map(|owner_idx| Self::rest_centre_estimate(owner_idx, n, pinned_count, axis_disp))
+        } else {
+            None
+        };
+        let magnify_axis = Self::magnification_axis(
+            over_hover_surface,
+            over_rest_bounds,
+            owner_centre,
+            cursor_axis,
+        );
+
         for (i, t) in tiles.iter().enumerate() {
-            let factor = if in_band {
-                Self::magnify_factor(
-                    cursor_axis - Self::rest_centre_estimate(i, n, pinned_count, axis_disp),
-                )
-            } else {
-                0.0
-            };
-            let target = DOCK_TILE + (DOCK_TILE_MAX - DOCK_TILE) * factor;
+            let target = Self::magnification_target(
+                in_band,
+                magnify_axis,
+                Self::rest_centre_estimate(i, n, pinned_count, axis_disp),
+            );
             // Look up before inserting so an existing tile does not pay a
             // key clone every frame.
             let state = match self.sizes.get_mut(&t.key) {
@@ -1095,6 +1115,7 @@ impl Chrome for Dock {
             self.hover_owner_bounds = None;
             self.hovered_preview = None;
         }
+        self.app_menu.set_design(self.design);
         self.app_menu.render(f, input, &self.all_windows, i18n, out);
         if !self.app_menu.is_open() {
             self.menu_tile = None;

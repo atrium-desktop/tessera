@@ -51,7 +51,7 @@ use std::sync::{Arc, Mutex};
 use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 use tessera_avatar::persona::{Portrait, PortraitConfig, PortraitWatcher, Profile};
 use tessera_design::tokens::TypeScale;
-use tessera_design::{AvatarRole, CommandPanelColors, Design, materials, themes};
+use tessera_design::{AvatarRole, ControlCenterColors, Design, materials, themes};
 use tessera_model::input::KeyChar;
 use tessera_model::interaction_domain::InteractionDomainSnapshot;
 use tessera_model::notify::{Notification, NotificationQueue};
@@ -65,7 +65,7 @@ use tessera_ui::Spring;
 
 use tessera_chrome::{
     Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, IconSet, Localizer, Message,
-    SystemAction, SystemStatus, place_popup, truncate,
+    PopupSide, SystemAction, SystemStatus, ellipsize, place_popup_side, truncate,
 };
 use tessera_tray::{MenuNode, MenuState, TrayCommand, TrayHandle, TrayIcon};
 
@@ -104,6 +104,8 @@ const TRAY_ICON: f32 = 22.0;
 /// Vertical rhythm between tray cells; the column scrolls past this many
 /// icons on small displays.
 const TRAY_GAP: f32 = 10.0;
+/// Inset between the tray surface boundary and its contained icons.
+const TRAY_PAD: f32 = 8.0;
 /// MPRIS now-playing card at the left-bottom anchor. Its width contracts to
 /// preserve a gap from the centered main panel on compact outputs.
 const MEDIA_W: f32 = 260.0;
@@ -140,7 +142,8 @@ const MENU_WIDTH: f32 = 236.0;
 const MENU_PAD: f32 = 7.0;
 const MENU_ROW_HEIGHT: f32 = 28.0;
 const MENU_HEADER_HEIGHT: f32 = 23.0;
-const MENU_SECTION_HEIGHT: f32 = 7.0;
+const MENU_SEP_GAP: f32 = 4.0;
+const MENU_SEPARATOR_HEIGHT: f32 = MENU_SEP_GAP * 2.0 + 1.0;
 
 fn presentation_anim_pending(
     reveal: f32,
@@ -212,8 +215,8 @@ struct MenuSnapshotCache {
     menu: Option<Arc<MenuState>>,
 }
 
-/// The modal command panel.
-pub struct CommandPanel {
+/// The modal control center.
+pub struct ControlCenter {
     open: bool,
     /// Eased reveal amount; kept while closing so the surfaces fade and
     /// slide out instead of vanishing in one frame.
@@ -301,10 +304,17 @@ pub struct CommandPanel {
     cursor_hint: (f32, f32),
 }
 
-impl CommandPanel {
+pub type CommandPanel = ControlCenter;
+
+impl ControlCenter {
+    #[cfg(test)]
+    fn toggle_control_center(&mut self, out: &mut ChromeEvents) {
+        <Self as Chrome>::command(self, &ChromeCommand::ToggleControlCenter, out);
+    }
+
     #[cfg(test)]
     fn toggle_command_panel(&mut self, out: &mut ChromeEvents) {
-        <Self as Chrome>::command(self, &ChromeCommand::ToggleCommandPanel, out);
+        self.toggle_control_center(out);
     }
 
     #[cfg(test)]
@@ -317,7 +327,7 @@ impl CommandPanel {
         <Self as Chrome>::update(self, ChromeUpdate::Windows(windows));
     }
 
-    /// Construct the panel. The flux device is borrowed (non-owning, like
+    /// Construct the control center. The flux device is borrowed (non-owning, like
     /// [`tessera_chrome::Shell::new`]) to upload SNI tray pixmaps to the GPU;
     /// the caller must keep it alive past the panel. The tray handle comes
     /// from the composition root's single `tessera_tray::spawn()` shared with
@@ -326,7 +336,7 @@ impl CommandPanel {
         device: &flux::Device,
         tray: Option<TrayHandle>,
         notifications: Arc<Mutex<NotificationQueue>>,
-    ) -> CommandPanel {
+    ) -> ControlCenter {
         let tray = tray.map(|handle| {
             // SAFETY: the composition root declares its flux device before
             // the shell (and thus this panel) and drops it after, and the
@@ -346,7 +356,7 @@ impl CommandPanel {
         let avatar = match Portrait::load_transactional(device, &portrait_config, AVATAR_CAMERA) {
             Ok(loaded) => loaded,
             Err(error) => {
-                log::warn!("command-panel: avatar load failed, using initials: {error}");
+                log::warn!("control-center: avatar load failed, using initials: {error}");
                 None
             }
         };
@@ -357,16 +367,50 @@ impl CommandPanel {
         let avatar_watcher = match PortraitWatcher::new(&portrait_config) {
             Ok(watcher) => Some(watcher),
             Err(error) => {
-                log::warn!("command-panel: avatar hot reload disabled: {error}");
+                log::warn!("control-center: avatar hot reload disabled: {error}");
                 None
             }
         };
-        let open_on_start = cfg!(debug_assertions)
-            && std::env::var_os("TESSERA_COMMAND_PANEL_OPEN")
-                .is_some_and(|value| !value.is_empty());
-        // Debug builds seed a few demo notifications so the panel's stream
+        let env_open = std::env::var("TESSERA_COMMAND_PANEL")
+            .or_else(|_| std::env::var("TESSERA_COMMAND_PANEL_OPEN"))
+            .or_else(|_| {
+                std::env::var("TESSERA_PREVIEW").and_then(|val| {
+                    let v = val.trim();
+                    if v.eq_ignore_ascii_case("command-panel")
+                        || v.eq_ignore_ascii_case("command_panel")
+                        || v.eq_ignore_ascii_case("panel")
+                        || v == "1"
+                    {
+                        Ok("quick".to_string())
+                    } else {
+                        Err(std::env::VarError::NotPresent)
+                    }
+                })
+            })
+            .ok()
+            .filter(|val| !val.trim().is_empty() && val != "0" && !val.eq_ignore_ascii_case("false"));
+        let open_on_start = env_open.is_some();
+        let initial_tab = match env_open.as_deref() {
+            Some(val)
+                if val.eq_ignore_ascii_case("quick")
+                    || val == "1"
+                    || val.eq_ignore_ascii_case("true") =>
+            {
+                Tab::QuickControls
+            }
+            Some(module_name) => {
+                let modules = builtin_settings_modules();
+                modules
+                    .metadata()
+                    .find(|m| m.id.as_str().eq_ignore_ascii_case(module_name))
+                    .map(|m| Tab::Settings(m.id))
+                    .unwrap_or(Tab::QuickControls)
+            }
+            None => Tab::QuickControls,
+        };
+        // Debug builds or preview runs seed demo notifications so the panel's stream
         // has content to lay out without a bus.
-        if cfg!(debug_assertions)
+        if (cfg!(debug_assertions) || open_on_start)
             && let Ok(mut queue) = notifications.lock()
             && queue.snapshot().is_empty()
         {
@@ -395,10 +439,10 @@ impl CommandPanel {
                 4000,
             );
         }
-        CommandPanel {
+        ControlCenter {
             open: open_on_start,
             reveal: if open_on_start { 1.0 } else { 0.0 },
-            tab: Tab::QuickControls,
+            tab: initial_tab,
             modules: builtin_settings_modules(),
             settings: None,
             design: Design::dark(),
@@ -443,9 +487,9 @@ impl CommandPanel {
     /// Test/preview constructor without a GPU device, tray, or notification
     /// source.
     #[cfg(test)]
-    fn without_sources() -> CommandPanel {
+    fn without_sources() -> ControlCenter {
         let (notifications, _) = (Arc::new(Mutex::new(NotificationQueue::new(3_600_000))), ());
-        CommandPanel {
+        ControlCenter {
             open: false,
             reveal: 0.0,
             tab: Tab::QuickControls,
@@ -497,8 +541,8 @@ impl CommandPanel {
     }
 
     /// Resolve the panel-local semantic palette from the live appearance.
-    fn panel_colors(&self) -> CommandPanelColors {
-        CommandPanelColors::for_scheme(self.design.scheme)
+    fn panel_colors(&self) -> ControlCenterColors {
+        ControlCenterColors::for_scheme(self.design.scheme)
     }
 
     fn avatar_reload_pending(&self) -> bool {
@@ -521,7 +565,7 @@ impl CommandPanel {
         if let Some(watcher) = &mut self.avatar_watcher
             && let Err(error) = watcher.refresh()
         {
-            log::warn!("command-panel: could not refresh avatar watches: {error}");
+            log::warn!("control-center: could not refresh avatar watches: {error}");
         }
         let Some(device) = &self.avatar_device else {
             return;
@@ -541,15 +585,15 @@ impl CommandPanel {
                 }
                 self.avatar = Some(replacement);
                 self.avatar_warned = false;
-                log::info!("command-panel: avatar hot reloaded");
+                log::info!("control-center: avatar hot reloaded");
             }
             Ok(None) => {
                 self.avatar = None;
                 self.avatar_warned = false;
-                log::info!("command-panel: avatar removed, using initials");
+                log::info!("control-center: avatar removed, using initials");
             }
             Err(error) => {
-                log::warn!("command-panel: avatar hot reload failed, keeping current: {error}");
+                log::warn!("control-center: avatar hot reload failed, keeping current: {error}");
                 if let Some(watcher) = &mut self.avatar_watcher {
                     watcher.retry();
                 }
@@ -832,6 +876,75 @@ impl CommandPanel {
     /// contended snapshot lock (the worker publishing a large tree) serves
     /// the cached menu rather than blocking the frame.
     fn menu_snapshot(&mut self) -> Option<Arc<MenuState>> {
+        if let Some(key) = self.menu_open_for.as_deref()
+            && key.starts_with("demo.")
+        {
+            return Some(Arc::new(MenuState {
+                key: key.to_string(),
+                revision: 1,
+                root: MenuNode {
+                    id: 0,
+                    kind: tessera_tray::MenuEntryKind::Standard,
+                    label: "Root".into(),
+                    enabled: true,
+                    visible: true,
+                    toggle: tessera_tray::MenuToggle::None,
+                    has_submenu: false,
+                    children: vec![
+                        MenuNode {
+                            id: 1,
+                            kind: tessera_tray::MenuEntryKind::Standard,
+                            label: "Status: Active".into(),
+                            enabled: true,
+                            visible: true,
+                            toggle: tessera_tray::MenuToggle::Checkmark(1),
+                            has_submenu: false,
+                            children: vec![],
+                        },
+                        MenuNode {
+                            id: 2,
+                            kind: tessera_tray::MenuEntryKind::Separator,
+                            label: String::new(),
+                            enabled: true,
+                            visible: true,
+                            toggle: tessera_tray::MenuToggle::None,
+                            has_submenu: false,
+                            children: vec![],
+                        },
+                        MenuNode {
+                            id: 3,
+                            kind: tessera_tray::MenuEntryKind::Standard,
+                            label: "Open Dashboard".into(),
+                            enabled: true,
+                            visible: true,
+                            toggle: tessera_tray::MenuToggle::None,
+                            has_submenu: false,
+                            children: vec![],
+                        },
+                        MenuNode {
+                            id: 4,
+                            kind: tessera_tray::MenuEntryKind::Separator,
+                            label: String::new(),
+                            enabled: true,
+                            visible: true,
+                            toggle: tessera_tray::MenuToggle::None,
+                            has_submenu: false,
+                            children: vec![],
+                        },
+                        MenuNode {
+                            id: 5,
+                            kind: tessera_tray::MenuEntryKind::Standard,
+                            label: "Preferences...".into(),
+                            enabled: true,
+                            visible: true,
+                            toggle: tessera_tray::MenuToggle::None,
+                            has_submenu: false,
+                            children: vec![],
+                        },
+                    ],
+                },
+            }));
+        }
         let tray = self.tray.as_ref()?;
         if let Ok(snapshot) = tray.handle.snapshot().try_lock() {
             let stale = self
@@ -855,54 +968,103 @@ impl CommandPanel {
     /// holds the snapshot lock the previous frame's cells are reused.
     #[allow(dead_code)]
     fn sni_cells(&mut self) -> Vec<SniCell> {
-        let Some(tray) = &mut self.tray else {
-            return Vec::new();
-        };
-        let Ok(snapshot) = tray.handle.snapshot().try_lock() else {
-            return tray.cached_cells.clone();
-        };
-        tray.textures
-            .retain(|key, _| snapshot.items.iter().any(|item| &item.key == key));
         let mut cells = Vec::new();
-        for item in &snapshot.items {
-            if !item.is_visible() {
-                continue;
-            }
-            let stale = tray
-                .textures
-                .get(&item.key)
-                .map(|(generation, _)| *generation != item.icon_generation)
-                .unwrap_or(true);
-            if let TrayIcon::Pixmap(pixmap) = &item.icon {
-                if stale {
-                    match flux::Image::from_bytes(
-                        &tray.device,
-                        pixmap.width,
-                        pixmap.height,
-                        flux::Format::Bgra8Unorm,
-                        &pixmap.bgra,
-                    ) {
-                        Ok(image) => {
-                            tray.textures
-                                .insert(item.key.clone(), (item.icon_generation, image));
-                        }
-                        Err(error) => {
-                            log::warn!("tray: icon upload for {} failed: {error}", item.key);
-                            tray.textures.remove(&item.key);
-                        }
+        if let Some(tray) = &mut self.tray {
+            if let Ok(snapshot) = tray.handle.snapshot().try_lock() {
+                tray.textures
+                    .retain(|key, _| snapshot.items.iter().any(|item| &item.key == key));
+                for item in &snapshot.items {
+                    if !item.is_visible() {
+                        continue;
                     }
+                    let stale = tray
+                        .textures
+                        .get(&item.key)
+                        .map(|(generation, _)| *generation != item.icon_generation)
+                        .unwrap_or(true);
+                    if let TrayIcon::Pixmap(pixmap) = &item.icon {
+                        if stale {
+                            match flux::Image::from_bytes(
+                                &tray.device,
+                                pixmap.width,
+                                pixmap.height,
+                                flux::Format::Bgra8Unorm,
+                                &pixmap.bgra,
+                            ) {
+                                Ok(image) => {
+                                    tray.textures
+                                        .insert(item.key.clone(), (item.icon_generation, image));
+                                }
+                                Err(error) => {
+                                    log::warn!("tray: icon upload for {} failed: {error}", item.key);
+                                    tray.textures.remove(&item.key);
+                                }
+                            }
+                        }
+                    } else {
+                        // `None` ships no icon; a `Name` left in the snapshot means
+                        // the worker's theme resolution failed. Either way the item
+                        // must not keep rendering the previous texture.
+                        tray.textures.remove(&item.key);
+                    }
+                    cells.push(SniCell {
+                        key: item.key.clone(),
+                        title: item.title.clone(),
+                        has_menu: item.has_menu,
+                        textured: tray.textures.contains_key(&item.key),
+                        rect: Rect {
+                            x: 0.0,
+                            y: 0.0,
+                            w: 0.0,
+                            h: 0.0,
+                        },
+                    });
                 }
+                tray.cached_cells = cells.clone();
             } else {
-                // `None` ships no icon; a `Name` left in the snapshot means
-                // the worker's theme resolution failed. Either way the item
-                // must not keep rendering the previous texture.
-                tray.textures.remove(&item.key);
+                cells = tray.cached_cells.clone();
             }
+        }
+        if cells.is_empty()
+            && (std::env::var_os("TESSERA_COMMAND_PANEL").is_some()
+                || std::env::var_os("TESSERA_COMMAND_PANEL_OPEN").is_some()
+                || std::env::var("TESSERA_PREVIEW").is_ok_and(|val| {
+                    let v = val.trim();
+                    v.eq_ignore_ascii_case("command-panel")
+                        || v.eq_ignore_ascii_case("command_panel")
+                        || v.eq_ignore_ascii_case("panel")
+                        || v == "1"
+                }))
+        {
             cells.push(SniCell {
-                key: item.key.clone(),
-                title: item.title.clone(),
-                has_menu: item.has_menu,
-                textured: tray.textures.contains_key(&item.key),
+                key: "demo.agent".into(),
+                title: "Agent Service".into(),
+                has_menu: true,
+                textured: false,
+                rect: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    w: 0.0,
+                    h: 0.0,
+                },
+            });
+            cells.push(SniCell {
+                key: "demo.network".into(),
+                title: "Network Link".into(),
+                has_menu: true,
+                textured: false,
+                rect: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    w: 0.0,
+                    h: 0.0,
+                },
+            });
+            cells.push(SniCell {
+                key: "demo.power".into(),
+                title: "Power Profile".into(),
+                has_menu: true,
+                textured: false,
                 rect: Rect {
                     x: 0.0,
                     y: 0.0,
@@ -911,7 +1073,6 @@ impl CommandPanel {
                 },
             });
         }
-        tray.cached_cells = cells.clone();
         cells
     }
 
@@ -924,7 +1085,7 @@ impl CommandPanel {
 }
 
 mod presentation;
-impl Chrome for CommandPanel {
+impl Chrome for ControlCenter {
     fn render(
         &mut self,
         f: &mut Frame,
@@ -955,7 +1116,7 @@ impl Chrome for CommandPanel {
             && let Err(error) = avatar.advance(dt)
             && !self.avatar_warned
         {
-            log::warn!("command-panel: avatar advance failed: {error}");
+            log::warn!("control-center: avatar advance failed: {error}");
             self.avatar_warned = true;
         }
         let reveal = self.reveal.clamp(0.0, 1.0);
@@ -1063,7 +1224,7 @@ impl Chrome for CommandPanel {
 
     fn command(&mut self, command: &ChromeCommand<'_>, _out: &mut ChromeEvents) {
         match command {
-            ChromeCommand::ToggleCommandPanel => {
+            ChromeCommand::ToggleControlCenter | ChromeCommand::ToggleCommandPanel => {
                 if self.open {
                     self.close();
                 } else {
@@ -1073,11 +1234,15 @@ impl Chrome for CommandPanel {
                         .as_mut()
                         .and_then(|avatar| avatar.play_random_action().map(str::to_owned))
                     {
-                        log::debug!("command-panel: playing avatar action {name:?}");
+                        log::debug!("control-center: playing avatar action {name:?}");
                     }
                 }
             }
-            ChromeCommand::CloseCommandPanel | ChromeCommand::DismissModal if self.open => {
+            ChromeCommand::CloseControlCenter
+            | ChromeCommand::CloseCommandPanel
+            | ChromeCommand::DismissModal
+                if self.open =>
+            {
                 self.close();
             }
             _ => {}
@@ -1085,6 +1250,10 @@ impl Chrome for CommandPanel {
     }
 
     fn backdrop_blur_sigma(&self) -> f32 {
+        // Constant for the whole session, including the exit fade: easing the
+        // radius per frame forces a capture teardown + effect rebuild on every
+        // frame of the fade (the launcher's documented "bright flash" failure
+        // mode). The frost body itself fades through the region's `opacity`.
         if self.active() {
             tessera_chrome::BackdropCover::BLUR_SIGMA
         } else {
@@ -1099,10 +1268,23 @@ impl Chrome for CommandPanel {
         _workspaces: &WorkspaceSnapshot,
     ) -> Vec<tessera_chrome::BackdropRegion> {
         if self.active() {
-            vec![tessera_chrome::BackdropCover::region(display, &self.design)]
+            // The full-screen cover carries the panel's exit fade: the scrim
+            // wash and the frosted body drain with the same eased reveal the
+            // lens content fades by. Without this the cover held full strength
+            // until `active()` flipped, then vanished in one frame — a gray
+            // pop at the tail of the close animation.
+            vec![tessera_chrome::BackdropCover::region(
+                display,
+                &self.design,
+                ease_out_cubic(self.reveal.clamp(0.0, 1.0)),
+            )]
         } else {
             Vec::new()
         }
+    }
+
+    fn control_center_active(&self) -> bool {
+        self.active()
     }
 
     fn command_panel_active(&self) -> bool {

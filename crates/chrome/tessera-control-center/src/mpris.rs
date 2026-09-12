@@ -66,7 +66,7 @@ pub(super) fn spawn() -> Option<MediaHandle> {
     let (commands, receiver) = mpsc::channel();
     let worker_snapshot = Arc::clone(&snapshot);
     let spawned = thread::Builder::new()
-        .name("mpris-command-panel".to_string())
+        .name("mpris-control-center".to_string())
         .spawn(move || worker_loop(connection, worker_snapshot, receiver));
     if let Err(error) = spawned {
         log::warn!("mpris: could not spawn worker ({error})");

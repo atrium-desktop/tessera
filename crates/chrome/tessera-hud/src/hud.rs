@@ -8,12 +8,12 @@
 //! and the notification count on the left; workspace markers in the center.
 //! The top-right belongs to the frameless notification toast strip
 //! (ADR-0083), and the Agent Workspaces status moved to the command panel
-//! (`tessera-command-panel`). The chips reserve no space (tiled and maximized
+//! (`tessera-control-center`). The chips reserve no space (tiled and maximized
 //! windows run underneath), accept no pointer input (clicks fall
 //! through to windows), and fade out when the cursor approaches. A visible
 //! fullscreen window owns the output presentation, so the HUD contributes no
 //! pixels or backdrop work in that immersive state. Every
-//! interaction the bar once hosted moved to the command panel.
+//! interaction the bar once hosted moved to the control center.
 
 use std::collections::HashMap;
 use std::ffi::c_void;

@@ -12,6 +12,23 @@ project cuts a tagged release.
 > `atrium-desktop/tessera`. Environment variables use the `TESSERA_*` prefix
 > (previously `AEGIS_*`). The bundled cursor theme uses the `Tessera` name.
 
+## [Unreleased]
+
+## [0.0.59] - 2026-09-12
+
+### Fixed
+- Right-click application context menus and popovers now follow the active dark/light appearance. Previously `popover_surface` was fixed to a translucent white wash in both themes, washing out white text in the dark appearance and creating poor contrast. `popover_surface` and `popover_border` now dynamically follow the scheme — deep translucent slate with crisp white font in dark mode and light frosted glass with dark ink in light mode. Dock magnification also stays anchored to the originating tile while hovering its live window previews.
+- Immersive modal chrome no longer leaves a gray plate behind at the end of its close animation. The full-screen frost cover had no fade channel: while the command panel, launcher, or prism spotlight faded its painted content out through the lens opacity switch, the frosted backdrop sheet underneath stayed at full strength and then vanished in a single frame at teardown. `BackdropRegion` now carries an `opacity` that rides the surface's reveal, and the compositor passes it — with the declared scrim wash — into prism's layered-backdrop material, which already supported it. The cover therefore drains toward the live desktop in step with the content, and because the fade is material rather than capture geometry, it recomposites over the still-valid scene capture without re-rendering clients or re-blurring the desktop; the blur radius stays constant for the whole fade.
+- Refined liquid glass presentation across shell surfaces: HUD status chips and the Dock now pin plate polarity (smoke in dark appearance, pearl in light appearance) and carry calibrated interior frost diffusion and G2 continuous squircle curvature, eliminating transparent hole artifacts, zebra striping, and harsh boundary splits.
+
+### Changed
+- Screenshots use lossless PNG Fast+Paeth filtering and omit the alpha channel
+  only when every pixel is fully opaque. Physical resolution and transparent
+  pixel colors are preserved; clipboard and saved files share the same PNG.
+- Activation now operates on transient trees (ADR-0148): selecting a suspended window in the switcher, dock, overview, or shell window list lands keyboard focus on the modal that is blocking it (with an attention pulse) instead of a window whose input is suspended, and the cross-client portal prompter (FileChooser and friends, wired over `zxdg_importer_v2`) no longer appears as its own switcher card — it is reached through the requesting app's card, so a picker can no longer be left hidden behind its parent after switching away and back. Pointer and touch press paths now share one landing predicate with the keyboard entry points. Agent synthetic input deliberately keeps addressing exactly its granted window.
+- Renamed the modal command panel crate to `tessera-control-center` and updated documentation and configuration references.
+- Upgraded Optics dependencies to `v0.0.41`.
+
 ## [0.0.58] - 2026-09-07
 
 ### Changed

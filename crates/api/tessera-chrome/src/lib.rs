@@ -166,6 +166,7 @@ pub fn modal_scrim_backdrop(
         w: display.0,
         h: display.1,
         wash: Some(backdrop_wash(design.colors.modal_scrim)),
+        opacity: 1.0,
     }
 }
 
@@ -180,15 +181,37 @@ impl BackdropCover {
     /// Canonical backdrop blur sigma for full-screen immersive modals (16.0).
     pub const BLUR_SIGMA: f32 = 16.0;
 
+    /// The cover veil's resting alpha. This is the weight of the painted
+    /// scrim the cover replaced (`Design::colors.modal_scrim` painted with
+    /// `with_alpha(126)`), preserved verbatim through the migration to a
+    /// declared wash so the resting appearance is pixel-identical; only the
+    /// fade path scales it.
+    const SCRIM_ALPHA: f32 = 126.0;
+
     /// Full-screen frosted backdrop region with the canonical modal scrim wash.
+    ///
+    /// `fade` is the surface's enter/exit progress (`1.0` = fully presented):
+    /// the scrim wash strength and the frost body both scale with it, so an
+    /// exit animation drains the cover instead of popping it out at teardown.
     #[must_use]
-    pub fn region(display: (f32, f32), design: &tessera_design::Design) -> BackdropRegion {
+    pub fn region(
+        display: (f32, f32),
+        design: &tessera_design::Design,
+        fade: f32,
+    ) -> BackdropRegion {
+        let fade = fade.clamp(0.0, 1.0);
         BackdropRegion {
             x: 0.0,
             y: 0.0,
             w: display.0,
             h: display.1,
-            wash: Some(backdrop_wash(design.colors.modal_scrim.with_alpha(126))),
+            wash: Some(backdrop_wash(
+                design
+                    .colors
+                    .modal_scrim
+                    .with_alpha((Self::SCRIM_ALPHA * fade).round() as u8),
+            )),
+            opacity: fade,
         }
     }
 }
@@ -207,6 +230,16 @@ pub struct BackdropRegion {
     pub h: f32,
     /// Optional wash baked into this region's frost, beneath the glass.
     pub wash: Option<BackdropWash>,
+    /// Frost opacity, `[0, 1]`: the blend between the frosted body and the
+    /// sharp desktop inside the rect's SDF coverage (`1.0` keeps the plain
+    /// frost). This is the exit-fade channel for chrome that covers its own
+    /// backdrop (the command panel, the launcher): the painted content drains
+    /// through the lens opacity switch while the frosted sheet eases out here,
+    /// so the cover no longer holds the desktop hostage at full strength and
+    /// then vanishes in one frame. Blur sigma stays constant for the whole
+    /// fade (a per-frame radius forces capture teardowns mid-fade); only this
+    /// material value animates.
+    pub opacity: f32,
 }
 
 /// Stable identity of one offscreen backdrop layer.
@@ -280,6 +313,7 @@ impl From<tessera_model::Rect> for BackdropRegion {
             w: rect.size.w as f32,
             h: rect.size.h as f32,
             wash: None,
+            opacity: 1.0,
         }
     }
 }
@@ -292,6 +326,7 @@ impl From<lens::Rect> for BackdropRegion {
             w: rect.w,
             h: rect.h,
             wash: None,
+            opacity: 1.0,
         }
     }
 }
@@ -317,6 +352,9 @@ pub struct LiquidGlassRegion {
     /// Role-pinned plate polarity: 0 pins the whole body to the smoke plate,
     /// 1 to pearl; negative keeps the shader's per-pixel adaptive polarity.
     pub plate_polarity: f32,
+    /// Continuous curvature (squircle) blend factor: 0 = Euclidean L2 rounded rect,
+    /// 1 = G2 superellipse (p = 4 norm).
+    pub curvature: f32,
     /// Stable cross-frame identity. A component that opts into backdrop
     /// adaptation declares a unique non-zero id (see
     /// [`liquid_glass_region_id`]); the compositor keys temporal smoothing
@@ -390,6 +428,7 @@ impl Default for LiquidGlassRegion {
             tint_strength: 1.0,
             saturation: 1.0,
             plate_polarity: -1.0,
+            curvature: 0.0,
             id: 0,
             adaptation: None,
             focus: None,
@@ -420,6 +459,7 @@ impl LiquidGlassRegion {
             tint_strength: style.tint_strength,
             saturation: style.saturation,
             plate_polarity: style.plate_polarity,
+            curvature: style.curvature,
             id: 0,
             adaptation: None,
             focus: None,
@@ -886,6 +926,8 @@ pub enum ChromeCommand<'a> {
     OpenBuiltIn(BuiltInApplication),
     ToggleOverview,
     CloseOverview,
+    ToggleControlCenter,
+    CloseControlCenter,
     ToggleCommandPanel,
     CloseCommandPanel,
     StartWindowSwitcher,
@@ -1080,6 +1122,12 @@ pub trait Chrome {
         _workspaces: &WorkspaceSnapshot,
     ) -> Option<CursorShape> {
         None
+    }
+
+    /// Whether the component's control center is currently open.
+    /// Default `false`.
+    fn control_center_active(&self) -> bool {
+        self.command_panel_active()
     }
 
     /// Whether the component's command panel is currently open.
@@ -1297,4 +1345,66 @@ pub struct CompositionRequirements {
     pub visible_pixels: bool,
     /// Visible chrome samples the client scene through a backdrop effect.
     pub live_backdrop_effect: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The cover is the full-screen frost every immersive modal sits on. Its
+    /// `fade` argument is the surface's enter/exit progress, and it must scale
+    /// BOTH the declared wash and the frost body: an exit animation that left
+    /// either at full strength held a gray plate over the desktop while the
+    /// chrome faded out, then popped it away in one frame at teardown.
+    #[test]
+    fn backdrop_cover_region_scales_wash_and_frost_with_fade() {
+        let display = (1280.0, 720.0);
+        let design = tessera_design::Design::dark();
+
+        let full = BackdropCover::region(display, &design, 1.0);
+        assert_eq!((full.x, full.y, full.w, full.h), (0.0, 0.0, 1280.0, 720.0));
+        assert_eq!(full.opacity, 1.0, "settled cover frosts at full body");
+        let full_wash = full.wash.expect("the cover declares its scrim wash");
+
+        let half = BackdropCover::region(display, &design, 0.5);
+        assert!(
+            (half.opacity - 0.5).abs() < f32::EPSILON,
+            "the frost body rides the fade: {}",
+            half.opacity
+        );
+        let half_wash = half.wash.expect("the wash is declared throughout");
+        assert!(
+            half_wash.strength < full_wash.strength,
+            "the wash drains with the fade: {} vs {}",
+            half_wash.strength,
+            full_wash.strength
+        );
+        assert_eq!(
+            half_wash.tint, full_wash.tint,
+            "fading changes weight, not hue"
+        );
+
+        let gone = BackdropCover::region(display, &design, 0.0);
+        assert_eq!(gone.opacity, 0.0, "a drained cover frosts nothing");
+        assert_eq!(gone.wash.expect("still declared").strength, 0.0);
+    }
+
+    /// The resting weight is the painted scrim's historical alpha (126), not
+    /// the raw `modal_scrim` token: the wash migration preserved the cover's
+    /// appearance verbatim, and the fade path must not silently re-tune it.
+    #[test]
+    fn backdrop_cover_keeps_the_historical_resting_scrim_weight() {
+        for design in [
+            tessera_design::Design::dark(),
+            tessera_design::Design::light(),
+        ] {
+            let region = BackdropCover::region((1920.0, 1080.0), &design, 1.0);
+            let wash = region.wash.expect("the cover declares its scrim wash");
+            assert!(
+                (wash.strength - 126.0 / 255.0).abs() < 0.01,
+                "resting veil weight stays at the painted scrim's alpha: {}",
+                wash.strength
+            );
+        }
+    }
 }

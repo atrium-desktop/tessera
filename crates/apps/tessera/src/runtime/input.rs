@@ -356,14 +356,14 @@ impl CompositorRuntime {
                             );
                         }
                     }
-                    GestureAction::CommandPanel => {
+                    GestureAction::ControlCenter => {
                         // Down opens the panel, up closes it; fires at most
                         // once per gesture so a long swipe cannot oscillate
                         // the panel (ADR-0080).
                         if !swipe.panel_fired {
-                            let open = self.shell.command_panel_active();
+                            let open = self.shell.control_center_active();
                             if (!open && swipe.dy > STEP_PX) || (open && swipe.dy < -STEP_PX) {
-                                self.shell.toggle_command_panel();
+                                self.shell.toggle_control_center();
                                 swipe.panel_fired = true;
                             }
                         }
@@ -411,7 +411,7 @@ impl CompositorRuntime {
             Action::ToggleLauncher => self.shell.toggle(),
             Action::TogglePrism => self.shell.toggle_prism(),
             Action::ToggleOverview => self.shell.toggle_overview(),
-            Action::ToggleCommandPanel => self.shell.toggle_command_panel(),
+            Action::ToggleControlCenter => self.shell.toggle_control_center(),
             Action::CloseFocused => {
                 if let Some(id) = self.server.focused_toplevel_id() {
                     let cmd = tessera_ipc::Command::Close { id };
@@ -1124,7 +1124,12 @@ impl CompositorRuntime {
                                 reason: "target is covered by compositor chrome".into(),
                             }
                         } else {
-                            self.server.focus_surface_by_id(*id);
+                            // Synthetic input addresses exactly the granted
+                            // window (ADR-0103); the ADR-0148 modal redirect
+                            // is user-activation only and must never deliver
+                            // an agent's keystrokes to another client's
+                            // prompter.
+                            self.server.focus_surface_exact_for_synthetic_input(*id);
                             let no_bindings = tessera_model::keybind::Keymap::default();
                             let actions = self.server.forward_input(&events, &no_bindings);
                             debug_assert!(actions.is_empty());

@@ -4,8 +4,8 @@
 (ADR-0080, ADR-0083), built on the `Chrome` contract from `tessera-shell` and
 shared materials from `tessera-design`. What used to be the interactive top
 status bar is now two floating frosted chips in minimal FPS-HUD style;
-every interaction the bar once hosted moved to the command panel
-(`tessera-command-panel`).
+every interaction the bar once hosted moved to the control center
+(`tessera-control-center`).
 
 ## Responsibilities
 

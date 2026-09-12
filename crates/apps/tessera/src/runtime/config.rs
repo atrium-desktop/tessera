@@ -602,10 +602,10 @@ const fn unavailable_key_action_feature(
         tessera_model::keybind::Action::TogglePrism if !cfg!(feature = "chrome-prism") => {
             Some("chrome-prism")
         }
-        tessera_model::keybind::Action::ToggleCommandPanel
-            if !cfg!(feature = "chrome-command-panel") =>
+        tessera_model::keybind::Action::ToggleControlCenter
+            if !cfg!(any(feature = "chrome-control-center", feature = "chrome-command-panel")) =>
         {
-            Some("chrome-command-panel")
+            Some("chrome-control-center")
         }
         _ => None,
     }
@@ -647,10 +647,10 @@ const fn unavailable_gesture_action_feature(
     action: tessera_model::gesture::GestureAction,
 ) -> Option<&'static str> {
     match action {
-        tessera_model::gesture::GestureAction::CommandPanel
-            if !cfg!(feature = "chrome-command-panel") =>
+        tessera_model::gesture::GestureAction::ControlCenter
+            if !cfg!(any(feature = "chrome-control-center", feature = "chrome-command-panel")) =>
         {
-            Some("chrome-command-panel")
+            Some("chrome-control-center")
         }
         _ => None,
     }

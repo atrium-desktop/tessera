@@ -10,8 +10,8 @@ as typed intents to the compositor loop.
 - Own the shared chrome contract — `Chrome`, `ChromeCommand`, `ChromeUpdate`,
   `ChromeEvents`, and the `AppCatalog` snapshot — consumed by in-crate
   components and by the separate `tessera-dock`, `tessera-prism`, `tessera-hud`,
-  and `tessera-command-panel` component crates. Persistent settings modules
-  live in the `tessera-settings` library crate, hosted by the command panel.
+  and `tessera-control-center` component crates. Persistent settings modules
+  live in the `tessera-settings` library crate, hosted by the control center.
 - Provide the shared live-preview card model, hit-testing, optical focus,
   brightness hierarchy, and foreground materials used by Dock previews and
   the window switcher.

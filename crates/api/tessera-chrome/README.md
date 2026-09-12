@@ -11,7 +11,7 @@ fitting, the application context menu).
 - **Components depend on this crate, never on the host.** `tessera-shell`
   is the host implementation that binds the contract to the compositor's
   lens context; component crates (`tessera-dock`, `tessera-hud`,
-  `tessera-prism`, `tessera-command-panel`, `tessera-settings`) implement
+  `tessera-prism`, `tessera-control-center`, `tessera-settings`) implement
   `Chrome` against this crate alone. Adding or removing a chrome surface
   is a component change, not a host change.
 - **The contract is safe code.** The host's FFI (binding lens to the flux

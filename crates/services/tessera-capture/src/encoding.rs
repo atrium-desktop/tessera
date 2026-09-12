@@ -276,7 +276,7 @@ pub fn encode_rgba_capture(
         None => (full_width, full_height, full_rgba),
     };
     unpremultiply(&mut rgba);
-    let png = encode_png(width, height, &rgba)?;
+    let png = encode_png(width, height, rgba)?;
     Ok((width, height, png))
 }
 
@@ -330,7 +330,7 @@ pub fn read_picked_pixel(capture: CapturedPixels) -> Result<[u8; 3], String> {
     Ok([full_rgba[at], full_rgba[at + 1], full_rgba[at + 2]])
 }
 
-fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
+fn encode_png(width: u32, height: u32, mut rgba: Vec<u8>) -> Result<Vec<u8>, String> {
     use image::ImageEncoder;
 
     let expected = usize::try_from(width)
@@ -342,6 +342,9 @@ fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
         })
         .and_then(|pixels| pixels.checked_mul(4))
         .ok_or_else(|| format!("png dimensions {width}x{height} overflow address space"))?;
+    if width == 0 || height == 0 {
+        return Err("png dimensions must be nonzero".into());
+    }
     if rgba.len() != expected {
         return Err(format!(
             "png RGBA length mismatch: {width}x{height} needs {expected} bytes, received {}",
@@ -349,21 +352,34 @@ fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
         ));
     }
 
+    let color = compact_opaque_rgba(&mut rgba);
     let mut out = Vec::new();
-    // Interactive screenshots prefer predictable latency over the last few
-    // percent of file-size reduction. `Up` is a cheap, lossless scanline
-    // filter that performs well on vertically coherent desktop pixels; unlike
-    // `NoFilter`, it also keeps the deflate input compact enough that Fast
-    // compression does less work overall. File persistence still happens on
-    // the background worker and consumes this exact byte stream.
+    // Fast+Paeth substantially reduces generated UI/gradient size versus Up
+    // without Adaptive's per-row search or Default's texture latency. The
+    // png_profiles example compares filters and RGB/RGBA on generated scenes.
+    // File persistence and clipboard publication still share this byte stream.
     image::codecs::png::PngEncoder::new_with_quality(
         &mut out,
         image::codecs::png::CompressionType::Fast,
-        image::codecs::png::FilterType::Up,
+        image::codecs::png::FilterType::Paeth,
     )
-    .write_image(rgba, width, height, image::ExtendedColorType::Rgba8)
+    .write_image(&rgba, width, height, color)
     .map_err(|error| format!("png encode: {error}"))?;
     Ok(out)
+}
+
+// Only call after validating tightly packed RGBA dimensions. Inspect every
+// alpha before changing any bytes: transparent pixels may contain hidden RGB.
+fn compact_opaque_rgba(rgba: &mut Vec<u8>) -> image::ExtendedColorType {
+    if !rgba.chunks_exact(4).all(|pixel| pixel[3] == 255) {
+        return image::ExtendedColorType::Rgba8;
+    }
+    let pixels = rgba.len() / 4;
+    for i in 0..pixels {
+        rgba.copy_within(i * 4..i * 4 + 3, i * 3);
+    }
+    rgba.truncate(pixels * 3);
+    image::ExtendedColorType::Rgb8
 }
 
 /// Convert a readback to one raw stream frame (ADR-0052): the flux/Wayland
@@ -504,13 +520,68 @@ mod tests {
             0, 1, 2, 255, 10, 20, 30, 128, 255, 200, 100, 0, 7, 8, 9, 255, 11, 22, 33, 44, 99, 88,
             77, 66,
         ];
-        let png = encode_png(3, 2, &rgba).expect("encode low-latency PNG");
+        let png = encode_png(3, 2, rgba.to_vec()).expect("encode low-latency PNG");
         let decoded = image::load_from_memory_with_format(&png, image::ImageFormat::Png)
             .expect("decode PNG")
             .into_rgba8();
         assert_eq!(decoded.dimensions(), (3, 2));
         assert_eq!(decoded.as_raw(), &rgba);
 
-        assert!(encode_png(3, 2, &rgba[..rgba.len() - 1]).is_err());
+        assert_eq!(png[25], 6); // PNG IHDR: RGBA, including hidden RGB.
+        assert!(encode_png(3, 2, rgba[..rgba.len() - 1].to_vec()).is_err());
+        assert!(encode_png(3, 2, vec![255; 25]).is_err());
+        assert!(encode_png(0, 1, vec![]).is_err());
+        assert!(encode_png(1, 0, vec![]).is_err());
+        assert!(encode_png(u32::MAX, u32::MAX, vec![]).is_err());
+    }
+
+    #[test]
+    fn opaque_png_compacts_without_reallocating_and_round_trips() {
+        for (width, height) in [(1, 1), (7, 3), (256, 2)] {
+            let rgba: Vec<u8> = (0..width * height)
+                .flat_map(|i| [i as u8, (i / 3) as u8, (255 - i % 256) as u8, 255])
+                .collect();
+            let mut compact = rgba.clone();
+            let pointer = compact.as_ptr();
+            let capacity = compact.capacity();
+            assert_eq!(
+                compact_opaque_rgba(&mut compact),
+                image::ExtendedColorType::Rgb8
+            );
+            assert_eq!(pointer, compact.as_ptr());
+            assert_eq!(capacity, compact.capacity());
+            assert_eq!(compact.len(), rgba.len() / 4 * 3);
+            let png = encode_png(width, height, rgba.clone()).unwrap();
+            assert_eq!(png[25], 2); // PNG IHDR: RGB.
+            let decoded = image::load_from_memory(&png).unwrap().into_rgba8();
+            assert_eq!(decoded.dimensions(), (width, height));
+            assert_eq!(decoded.as_raw(), &rgba);
+        }
+    }
+
+    #[test]
+    fn any_nonopaque_alpha_preserves_entire_buffer() {
+        for index in 0..6 {
+            for alpha in 0..255 {
+                let mut rgba = [19, 83, 201, 255].repeat(6);
+                rgba[index * 4 + 3] = alpha;
+                let original = rgba.clone();
+                assert_eq!(
+                    compact_opaque_rgba(&mut rgba),
+                    image::ExtendedColorType::Rgba8
+                );
+                assert_eq!(rgba, original);
+            }
+        }
+    }
+
+    #[test]
+    fn capture_keeps_unpremultiply_and_physical_crop_semantics() {
+        let rgba = vec![9, 8, 7, 255, 32, 64, 128, 128, 77, 88, 99, 0];
+        let (w, h, png) =
+            encode_rgba_capture(3, 1, rgba, Some(tessera_model::Rect::new(1, 0, 2, 1))).unwrap();
+        assert_eq!((w, h), (2, 1));
+        let decoded = image::load_from_memory(&png).unwrap().into_rgba8();
+        assert_eq!(decoded.as_raw(), &[64, 128, 255, 128, 77, 88, 99, 0]);
     }
 }

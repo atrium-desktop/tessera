@@ -103,9 +103,9 @@ pub fn card(design: &Design) -> LayoutOpts {
     }
 }
 
-/// The opaque elevated surface of the command panel (ADR-0080).
+/// The opaque elevated surface of the control center (ADR-0080).
 #[must_use]
-pub fn hud_panel(colors: &crate::CommandPanelColors) -> LayoutOpts {
+pub fn hud_panel(colors: &crate::ControlCenterColors) -> LayoutOpts {
     LayoutOpts {
         bg: colors.surface,
         border: colors.border,

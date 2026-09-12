@@ -556,14 +556,21 @@ impl Chrome for Prism {
         // beneath the panel's glass body — it used to be painted by
         // `render` above the glass, hiding the lens's refraction. The veil
         // is fullscreen and dims the whole desktop behind the spotlight.
+        // The wash strength and frost opacity both ride the reveal, so the
+        // veil eases out with the panel instead of popping at teardown.
+        let fade = self.visibility.clamp(0.0, 1.0);
         vec![BackdropRegion {
             x: 0.0,
             y: 0.0,
             w: display.0,
             h: display.1,
             wash: Some(tessera_chrome::backdrop_wash(lens::Color::rgba(
-                4, 6, 14, 54,
+                4,
+                6,
+                14,
+                (54.0 * fade).round() as u8,
             ))),
+            opacity: fade,
         }]
     }
 

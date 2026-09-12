@@ -11,7 +11,7 @@ application does not also receive the shortcut.
 | `Super+A` | Open or close the full application launcher |
 | `Super+Space` | Open or close Prism application search |
 | `Super+O` | Open or close the window and workspace overview (`Escape` also closes it) |
-| `Super+S` | Open or close the command panel (quick settings, settings modules, tray, notifications) |
+| `Super+S` | Open or close the control center (quick settings, settings modules, tray, notifications) |
 | `Super+Q` | Close the focused toplevel |
 | `Super+Tab` | Focus the next toplevel and show the live switcher while `Super` remains held |
 | `Super+Shift+Tab` | Focus the previous toplevel and show the live switcher while `Super` remains held |
@@ -38,7 +38,7 @@ edges, so it stays reachable even when a modal dialog owns the keyboard and
 a stuck dialog cannot hold the session hostage. Like the VT-switch chords it
 is compositor-owned and not a configurable `[[keybind]]` entry.
 
-The launcher, Prism, and command-panel toggles, `Super+L`, `Print`, and the quit
+The launcher, Prism, and control-center toggles, `Super+L`, `Print`, and the quit
 shortcuts
 remain available while trusted Tessera chrome owns the keyboard. No global
 shortcut runs while the session is locked or while the focused client has
@@ -77,8 +77,8 @@ does not perform VT switching.
 | Three-finger swipe right | Switch to the previous workspace |
 | Three-finger swipe up | Focus the next toplevel on the current workspace, showing the live switcher until the gesture ends |
 | Three-finger swipe down | Focus the previous toplevel on the current workspace, showing the live switcher until the gesture ends |
-| Four-finger swipe down | Open the command panel |
-| Four-finger swipe up (panel open) | Close the command panel |
+| Four-finger swipe down | Open the control center |
+| Four-finger swipe up (panel open) | Close the control center |
 
 Three- and four-finger swipes are compositor-owned (ADR-0080, ADR-0082,
 ADR-0119):

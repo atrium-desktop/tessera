@@ -13,18 +13,20 @@ fn compiled_chrome_controls_default_input_ownership() {
     );
     assert_eq!(
         keymap.match_key(Mods::SUPER, b's' as u32),
-        cfg!(feature = "chrome-command-panel").then_some(Action::ToggleCommandPanel)
+        cfg!(any(feature = "chrome-control-center", feature = "chrome-command-panel"))
+            .then_some(Action::ToggleControlCenter)
     );
 
     let gestures = build_gesture_map(None);
     assert_eq!(
         gestures.lookup(4, GestureAxis::Vertical),
-        cfg!(feature = "chrome-command-panel").then_some(GestureAction::CommandPanel)
+        cfg!(any(feature = "chrome-control-center", feature = "chrome-command-panel"))
+            .then_some(GestureAction::ControlCenter)
     );
     assert_eq!(
         gestures.claims(4),
-        cfg!(feature = "chrome-command-panel"),
-        "the four-finger command panel gesture is compositor-owned exactly when the panel is built"
+        cfg!(any(feature = "chrome-control-center", feature = "chrome-command-panel")),
+        "the four-finger control center gesture is compositor-owned exactly when the component is built"
     );
 }
 
