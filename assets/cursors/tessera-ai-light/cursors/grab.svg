@@ -1,0 +1,3 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" data-hotspot-x="128" data-hotspot-y="128">
+<path d="M85 130V79Q85 62 99 62Q112 62 112 79V117V62Q112 46 126 46Q140 46 140 62V116V69Q140 53 154 53Q168 53 168 69V121V85Q168 71 181 71Q195 71 195 85V158Q195 187 173 211H112L61 150Q50 136 61 126Q71 116 85 130Z" fill="#F5F7FA" stroke="#202630" stroke-width="10" stroke-linejoin="round"/><path d="M126 75V105" stroke="#202630" stroke-width="8" stroke-linecap="round"/>
+</svg>

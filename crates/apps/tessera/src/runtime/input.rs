@@ -153,6 +153,7 @@ pub(super) fn agent_activities_from_applied_input(
     actions: &[tessera_model::input::SyntheticInputAction],
     events: &[tessera_model::input::InputEvent],
     sequence: &mut u64,
+    cursor_shape: Option<u32>,
 ) -> Vec<tessera_chrome::AgentActivity> {
     use tessera_model::input::{InputEvent, SyntheticInputAction};
 
@@ -183,11 +184,27 @@ pub(super) fn agent_activities_from_applied_input(
                     Some(pointer_positions.next()?),
                     tessera_chrome::AgentInputKind::Scroll { dx, dy },
                 ),
-                // Do not copy the key code into presentation state: the
-                // feedback says only that keyboard input occurred.
-                SyntheticInputAction::KeyPress { .. } => {
-                    (None, tessera_chrome::AgentInputKind::Keyboard)
-                }
+                SyntheticInputAction::KeyPress { code } => (
+                    None,
+                    tessera_chrome::AgentInputKind::Keyboard {
+                        key_name: Some(tessera_model::input::evdev_key_name(code).to_owned()),
+                    },
+                ),
+                SyntheticInputAction::PointerButton {
+                    position,
+                    button,
+                    state,
+                } => (
+                    position.and_then(|_| pointer_positions.next()),
+                    tessera_chrome::AgentInputKind::PointerButton { button, state },
+                ),
+                SyntheticInputAction::Key { code, state } => (
+                    None,
+                    tessera_chrome::AgentInputKind::Key {
+                        key_name: tessera_model::input::evdev_key_name(code).to_owned(),
+                        state,
+                    },
+                ),
             };
             *sequence = sequence.saturating_add(1);
             Some(tessera_chrome::AgentActivity {
@@ -197,6 +214,7 @@ pub(super) fn agent_activities_from_applied_input(
                 window,
                 position,
                 kind,
+                cursor_shape,
             })
         })
         .collect()
@@ -408,8 +426,7 @@ impl CompositorRuntime {
         let ts = self.start.elapsed().as_millis() as u64;
         let origin = tessera_ipc::Origin::Keybinding;
         match action {
-            Action::ToggleLauncher => self.shell.toggle(),
-            Action::TogglePrism => self.shell.toggle_prism(),
+            Action::TogglePivot => self.shell.toggle_pivot(),
             Action::ToggleOverview => self.shell.toggle_overview(),
             Action::ToggleControlCenter => self.shell.toggle_control_center(),
             Action::CloseFocused => {
@@ -1595,19 +1612,27 @@ mod tests {
             &actions,
             &events,
             &mut sequence,
+            Some(1),
         );
 
         assert_eq!(feedback.len(), 3);
         assert_eq!(feedback[0].sequence, 41);
         assert_eq!(feedback[0].position, Some(Point { x: 104, y: 205 }));
+        assert_eq!(feedback[0].cursor_shape, Some(1));
         assert_eq!(feedback[1].position, Some(Point { x: 108, y: 209 }));
+        assert_eq!(feedback[1].cursor_shape, Some(1));
         assert_eq!(
             feedback[1].kind,
             tessera_chrome::AgentInputKind::Click { button: 0x110 }
         );
         assert_eq!(feedback[2].sequence, 43);
         assert_eq!(feedback[2].position, None);
-        assert_eq!(feedback[2].kind, tessera_chrome::AgentInputKind::Keyboard);
+        assert_eq!(
+            feedback[2].kind,
+            tessera_chrome::AgentInputKind::Keyboard {
+                key_name: Some("A".into())
+            }
+        );
         assert_eq!(sequence, 43);
     }
 
@@ -1625,6 +1650,7 @@ mod tests {
             &actions,
             &[],
             &mut sequence,
+            None,
         );
         assert!(feedback.is_empty());
         assert_eq!(sequence, 3);

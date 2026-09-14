@@ -1,50 +1,28 @@
 #!/usr/bin/env python3
-"""Generate the bundled ``Tessera`` SVG cursor theme — original MIT-licensed art.
+"""Generate Tessera's four original MIT-licensed vector cursor groups.
 
-Every cursor in this theme is authored programmatically in this file from
-explicit geometry (polygons, capsules, rounded rects). Nothing is copied,
-traced, or derived from any existing cursor theme, so the generated art is
-covered by the project's MIT license like any other first-party source.
+User light/dark and AI light/dark are complete SVG themes with standard aliases.
+User themes use solid geometric silhouettes; AI themes use open-fork directional
+tips and negative-space counterforms to visually identify Agent operations.
 
-Conventions match the runtime contract in ``crates/tessera/src/cursor.rs``:
-
-- one 256x256 ``viewBox`` SVG per cursor under ``cursors/<name>.svg``;
-- white fill, black outline, round joins — legible on light and dark
-  content at any scale;
-- each cursor's hotspot is stamped on the ``<svg>`` root as
-  ``data-hotspot-x`` / ``data-hotspot-y`` in viewBox coordinates;
-- alias names are emitted as byte-identical copies of their canonical
-  cursor, mirroring X11 symlink semantics for filesystem installs.
-
-Compound shapes (hands, magnifiers) are unions of primitives. To keep the
-outline clean, unions are painted in two passes: first every primitive
-solidly in the ink colour with a double-width stroke (a silhouette that
-extends ``OUTLINE`` units past the geometry), then every primitive again in
-the fill colour with no stroke, which covers the inner half of the
-silhouette. The visible result is a uniform ``OUTLINE``-wide band with no
-interior seams where primitives overlap.
-
-Usage::
-
-    scripts/prepare-tessera-cursors.py [--out DIR]
-
-``--out`` defaults to ``assets/cursors/Tessera`` relative to the repository
-root. Regenerating rewrites the output directory from scratch.
+Run scripts/prepare-tessera-cursors.py [--out DIR]. The output defaults to
+assets/cursors; only known generated files are overwritten. Light/dark name
+the fill polarity, not the background. Hotspots use a 256-unit viewBox.
 """
 
 from __future__ import annotations
 
 import argparse
 import math
-import shutil
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-DEFAULT_OUT = REPO / "assets" / "cursors" / "Tessera"
+DEFAULT_OUT = REPO / "assets" / "cursors"
 
 FILL = "#FFFFFF"
 INK = "#000000"
-OUTLINE = 16  # visible ink band width, in viewBox units
+OUTLINE = 10  # visible ink band width, in viewBox units
 CENTER = 128.0
 
 
@@ -157,23 +135,35 @@ def union(prims: list[Prim], out: float = OUTLINE) -> str:
 # Shape geometry
 # ---------------------------------------------------------------------------
 
-# The primary pointer: a single concave polygon (tip, head-right corner,
-# notch, tail bottom-right, tail bottom-left, left edge base). ~44° head
-# opening, a deep notch, and a thick tail keep it reading as a pointer —
-# not a paper plane — at 24px.
-ARROW = [(64, 28), (198, 106), (136, 124), (170, 206), (118, 218), (90, 118)]
+# User pointer: upright leading edge, compact shoulder and narrow stem.
+# Rounded joins soften the silhouette without blunting the pointing tip.
+ARROW = [(64, 28), (192, 142), (134, 146), (164, 210), (137, 223), (106, 157), (64, 198)]
 ARROW_HOTSPOT = (64, 28)
 
 # Badge position for arrow+badge compound cursors (bottom-right of the arrow).
 BADGE = (190.0, 184.0, 38.0)  # cx, cy, r
 
 
-def arrow() -> str:
-    return poly(ARROW)
+def ai_pointer() -> str:
+    # Open fork: a directional tip with two separated tails. Negative space
+    # distinguishes the observer from the user's solid stem without color.
+    return outlined_path("M64 28L202 174L140 158L110 222Z") + (
+        f'<path d="M83 68L137 154L113 197Z" fill="{INK}"/>'
+    )
 
 
-def right_ptr() -> str:
-    return poly([(256 - x, y) for x, y in ARROW])
+def ai_right_ptr() -> str:
+    return outlined_path("M192 28L54 174L116 158L146 222Z") + (
+        f'<path d="M173 68L119 154L143 197Z" fill="{INK}"/>'
+    )
+
+
+def arrow(role: str = "user") -> str:
+    return ai_pointer() if role == "ai" else poly(ARROW)
+
+
+def right_ptr(role: str = "user") -> str:
+    return ai_right_ptr() if role == "ai" else poly([(256 - x, y) for x, y in ARROW])
 
 
 # I-beam: vertical bar with straight serifs.
@@ -181,23 +171,27 @@ _XTERM_PTS = [
     (88, 40),
     (168, 40),
     (168, 54),
-    (135, 54),
-    (135, 202),
+    (140, 54),
+    (140, 202),
     (168, 202),
     (168, 216),
     (88, 216),
     (88, 202),
-    (121, 202),
-    (121, 54),
+    (116, 202),
+    (116, 54),
     (88, 54),
 ]
 
 
-def xterm() -> str:
-    return poly(_XTERM_PTS)
+def ai_xterm() -> str:
+    return poly(_XTERM_PTS) + f'<path d="M110 128H146" stroke="{INK}" stroke-width="8" stroke-linecap="round"/>'
 
 
-def vertical_text() -> str:
+def xterm(role: str = "user") -> str:
+    return ai_xterm() if role == "ai" else poly(_XTERM_PTS)
+
+
+def vertical_text(role: str = "user") -> str:
     return poly(rotate(_XTERM_PTS, 90))
 
 
@@ -220,7 +214,7 @@ def _plus(half_arm: float, half_span: float) -> list[tuple[float, float]]:
 
 
 def crosshair() -> str:
-    return poly(_plus(7, 80))
+    return poly(_plus(12, 80))
 
 
 def cell() -> str:
@@ -232,26 +226,18 @@ def cell() -> str:
     )
 
 
-def hourglass_pts(cx: float, cy: float, scale: float = 1.0) -> list[tuple[float, float]]:
-    base = [
-        (-52, -84),
-        (52, -84),
-        (52, -66),
-        (12, -10),
-        (12, 10),
-        (52, 66),
-        (52, 84),
-        (-52, 84),
-        (-52, 66),
-        (-12, 10),
-        (-12, -10),
-        (-52, -66),
-    ]
-    return [(cx + x * scale, cy + y * scale) for x, y in base]
+def ring(cx: float, cy: float, radius: float, width: float) -> str:
+    # A filled annulus keeps an opposing outline on BOTH edges; a lone
+    # monochrome stroke disappears over content of the same luminance.
+    def loop(r: float) -> str:
+        return (f"M{cx-r} {cy}a{r} {r} 0 1 0 {2*r} 0"
+                f"a{r} {r} 0 1 0 {-2*r} 0Z")
+    return (f'<path d="{loop(radius)}{loop(radius-width)}" fill="{FILL}" '
+            f'stroke="{INK}" stroke-width="8" fill-rule="evenodd"/>')
 
 
 def watch() -> str:
-    return poly(hourglass_pts(CENTER, CENTER))
+    return ring(128, 128, 70, 20) + poly([(128, 44), (158, 65), (128, 85)], sw=8)
 
 
 def _badge(symbol: str) -> str:
@@ -295,29 +281,29 @@ def _badge_slash() -> str:
     return _badge(line(cx - 17, cy + 17, cx + 17, cy - 17, 11))
 
 
-def question_arrow() -> str:
-    return arrow() + _badge_q()
+def question_arrow(role: str = "user") -> str:
+    return arrow(role) + _badge_q()
 
 
-def context_menu() -> str:
-    return arrow() + _badge_menu()
+def context_menu(role: str = "user") -> str:
+    return arrow(role) + _badge_menu()
 
 
-def alias_cursor() -> str:
-    return arrow() + _badge_shortcut()
+def alias_cursor(role: str = "user") -> str:
+    return arrow(role) + _badge_shortcut()
 
 
-def copy_cursor() -> str:
-    return arrow() + _badge_plus()
+def copy_cursor(role: str = "user") -> str:
+    return arrow(role) + _badge_plus()
 
 
-def no_drop() -> str:
-    return arrow() + _badge_slash()
+def no_drop(role: str = "user") -> str:
+    return arrow(role) + _badge_slash()
 
 
-def left_ptr_watch() -> str:
+def left_ptr_watch(role: str = "user") -> str:
     cx, cy, _ = BADGE
-    return arrow() + poly(hourglass_pts(cx, cy - 2, 0.5), sw=13)
+    return arrow(role) + ring(cx, cy, 32, 14) + dot(cx, cy - 32, 9)
 
 
 def not_allowed() -> str:
@@ -413,46 +399,56 @@ def row_resize() -> str:
 
 
 def hand2() -> str:
-    # Pointing hand: extended index finger, curled knuckles, thumb out.
-    return union(
-        [
-            ("capsule", 118, 60, 118, 124, 30),  # index finger
-            ("rect", 88, 104, 92, 96, 20),  # palm
-            ("circle", 148, 100, 17),  # middle knuckle
-            ("circle", 172, 106, 15),  # ring knuckle
-            ("circle", 192, 120, 13),  # pinky knuckle
-            ("capsule", 100, 150, 72, 114, 26),  # thumb
-            ("rect", 100, 184, 68, 28, 10),  # wrist
-        ]
-    )
+    return outlined_path("M104 122V57Q104 43 118 43Q132 43 132 57V104"
+                         "Q148 91 160 107Q179 100 187 119Q206 118 206 139"
+                         "V161Q206 188 181 211H116L69 150Q60 136 71 127"
+                         "Q82 119 95 135L104 146Z")
 
 
 def hand1() -> str:
-    # Open grab hand: four fingers together, thumb out.
-    return union(
-        [
-            ("capsule", 100, 74, 100, 124, 21),
-            ("capsule", 122, 66, 122, 124, 21),
-            ("capsule", 144, 66, 144, 124, 21),
-            ("capsule", 166, 76, 166, 124, 21),
-            ("rect", 88, 116, 90, 88, 20),  # palm
-            ("capsule", 96, 152, 66, 120, 24),  # thumb
-        ]
-    )
+    return outlined_path("M85 130V79Q85 62 99 62Q112 62 112 79V117"
+                         "V62Q112 46 126 46Q140 46 140 62V116"
+                         "V69Q140 53 154 53Q168 53 168 69V121"
+                         "V85Q168 71 181 71Q195 71 195 85V158"
+                         "Q195 187 173 211H112L61 150Q50 136 61 126"
+                         "Q71 116 85 130Z")
 
 
 def closedhand() -> str:
-    # Fist: rounded block with knuckle bumps and a thumb ridge across the front.
-    return union(
-        [
-            ("rect", 78, 92, 108, 104, 24),
-            ("circle", 102, 92, 14),
-            ("circle", 126, 86, 15),
-            ("circle", 150, 86, 15),
-            ("circle", 174, 94, 13),
-            ("capsule", 92, 150, 148, 166, 24),
-        ]
-    )
+    return outlined_path("M77 133V107Q77 91 93 91Q105 91 110 102"
+                         "Q113 82 129 84Q143 84 145 99Q153 85 166 91"
+                         "Q177 95 178 108Q194 99 202 114V164"
+                         "Q202 190 177 208H109Q87 190 77 170"
+                         "L61 146Q55 133 66 126Q72 123 77 133Z")
+
+
+def ai_hand2() -> str:
+    return hand2() + f'<path d="M118 70V100" stroke="{INK}" stroke-width="8" stroke-linecap="round"/>'
+
+
+def ai_hand1() -> str:
+    return hand1() + f'<path d="M126 75V105" stroke="{INK}" stroke-width="8" stroke-linecap="round"/>'
+
+
+def ai_closedhand() -> str:
+    return closedhand() + f'<path d="M129 110V135" stroke="{INK}" stroke-width="8" stroke-linecap="round"/>'
+
+
+def hand2_cursor(role: str = "user") -> str:
+    return ai_hand2() if role == "ai" else hand2()
+
+
+def hand1_cursor(role: str = "user") -> str:
+    return ai_hand1() if role == "ai" else hand1()
+
+
+def closedhand_cursor(role: str = "user") -> str:
+    return ai_closedhand() if role == "ai" else closedhand()
+
+
+def outlined_path(d: str) -> str:
+    return (f'<path d="{d}" fill="{FILL}" stroke="{INK}" '
+            f'stroke-width="{OUTLINE}" stroke-linejoin="round"/>')
 
 
 # ---------------------------------------------------------------------------
@@ -477,9 +473,9 @@ THEME: list[tuple[str, object, tuple[float, float], list[str]]] = [
     ("zoom-in", zoom_in, (108, 108), ["zoom_in"]),
     ("zoom-out", zoom_out, (108, 108), ["zoom_out"]),
     ("fleur", fleur, (128, 128), ["move", "all-scroll", "all-resize", "size_all", "dnd-move"]),
-    ("hand2", hand2, (118, 46), ["pointer", "pointing_hand", "hand"]),
-    ("hand1", hand1, (128, 128), ["grab", "openhand"]),
-    ("closedhand", closedhand, (128, 128), ["grabbing"]),
+    ("hand2", hand2_cursor, (118, 46), ["pointer", "pointing_hand", "hand"]),
+    ("hand1", hand1_cursor, (128, 128), ["grab", "openhand"]),
+    ("closedhand", closedhand_cursor, (128, 128), ["grabbing"]),
     ("right_side", lambda: single(0), (128, 128), ["e-resize", "sb_right_arrow", "right-arrow"]),
     ("bottom_right_corner", lambda: single(45), (128, 128), ["se-resize", "lr_angle"]),
     ("bottom_side", lambda: single(90), (128, 128), ["s-resize", "sb_down_arrow", "down-arrow"]),
@@ -502,44 +498,75 @@ SVG_HEAD = (
 )
 
 
-def render_svg(builder, hotspot: tuple[float, float]) -> str:
-    return SVG_HEAD.format(hx=n(hotspot[0]), hy=n(hotspot[1])) + "\n" + builder() + "\n</svg>\n"
+def render_svg(content: str, hotspot: tuple[float, float]) -> str:
+    return SVG_HEAD.format(hx=n(hotspot[0]), hy=n(hotspot[1])) + "\n" + content + "\n</svg>\n"
+
+
+PALETTES = {
+    "light": ("#F5F7FA", "#202630"),
+    "dark": ("#202630", "#F5F7FA"),
+}
+
+
+def palette(svg: str, polarity: str) -> str:
+    fill, ink = PALETTES[polarity]
+    return svg.replace(FILL, fill).replace(INK, ink)
+
+
+def write_preview(root: Path, destination: Path) -> None:
+    """Contact sheet from the actual assets, at enlarged and native sizes."""
+    parts = [
+        '<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="700" viewBox="0 0 1120 700">',
+        '<rect width="1120" height="700" fill="#e7e9ee"/>',
+        '<text x="32" y="42" font-family="sans-serif" font-size="24" fill="#202630">Tessera / cursor families</text>',
+    ]
+    groups = [(role, tone) for role in ("user", "ai") for tone in PALETTES]
+    names = ["default", "pointer", "text", "grab", "grabbing", "ew-resize", "nwse-resize", "wait", "copy", "not-allowed"]
+    for row, (role, tone) in enumerate(groups):
+        y = 65 + row * 152
+        parts.append(f'<text x="32" y="{y+22}" font-family="sans-serif" font-size="15" fill="#202630">tessera-{role}-{tone}</text>')
+        for panel, background in enumerate(["#ffffff", "#202630"]):
+            x = 32 + panel * 540
+            parts.append(f'<rect x="{x}" y="{y+34}" width="524" height="98" rx="12" fill="{background}"/>')
+            for column, name in enumerate(names):
+                folder = root / f"tessera-{role}-{tone}" / "cursors"
+                svg = ET.fromstring((folder / f"{name}.svg").read_text())
+                for size, offset in [(40, 45), (24, 96)]:
+                    svg.attrib.update(x=str(x+12+column*50), y=str(y+offset), width=str(size), height=str(size))
+                    parts.append(ET.tostring(svg, encoding="unicode"))
+    parts.append("</svg>\n")
+    destination.write_text("".join(parts))
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--out", type=Path, default=DEFAULT_OUT, help="output theme directory")
+    ap.add_argument("--out", type=Path, default=DEFAULT_OUT, help="output groups root")
+    ap.add_argument("--preview", type=Path, help="write an SVG contact sheet")
     args = ap.parse_args()
-
-    out = args.out
-    if out.exists():
-        shutil.rmtree(out)
-    cursors_dir = out / "cursors"
-    cursors_dir.mkdir(parents=True)
-
-    written = 0
-    aliases = 0
-    for name, builder, hotspot, names in THEME:
-        svg = render_svg(builder, hotspot)
-        (cursors_dir / f"{name}.svg").write_text(svg)
-        written += 1
-        for alias_name in names:
-            (cursors_dir / f"{alias_name}.svg").write_text(svg)
-            aliases += 1
-
-    (out / "index.theme").write_text(
-        "[Icon Theme]\n"
-        "Name=Tessera\n"
-        "Comment=Tessera default cursor theme (white fill, black outline) — original MIT-licensed art.\n"
-        "Directories=cursors\n\n"
-        "[cursors]\n"
-        "Size=24\n"
-        "MinSize=8\n"
-        "MaxSize=512\n"
-        "Type=Fixed\n"
-    )
-
-    print(f"wrote {written} cursors ({aliases} aliases) to {out}")
+    for polarity in PALETTES:
+        for role in ("user", "ai"):
+            name = f"tessera-{role}-{polarity}"
+            out = args.out / name
+            cursors = out / "cursors"
+            cursors.mkdir(parents=True, exist_ok=True)
+            for canonical, builder, hotspot, aliases in THEME:
+                try:
+                    content = builder(role=role)
+                except TypeError:
+                    content = builder()
+                svg = palette(render_svg(content, hotspot), polarity)
+                for key in [canonical, *aliases]:
+                    (cursors / f"{key}.svg").write_text(svg)
+            inherits = f"Inherits=tessera-user-{polarity}\n" if role == "ai" else ""
+            (out / "index.theme").write_text(
+                f"[Icon Theme]\nName=Tessera {'AI' if role == 'ai' else 'User'} {polarity.title()}\n"
+                f"Comment=Original MIT-licensed {role} cursor art.\n"
+                f"Directories=cursors\n{inherits}\n"
+                f"[cursors]\nSize=24\nMinSize=8\nMaxSize=512\nType=Fixed\n"
+            )
+            print(f"wrote {name}")
+    if args.preview:
+        write_preview(args.out, args.preview)
 
 
 if __name__ == "__main__":

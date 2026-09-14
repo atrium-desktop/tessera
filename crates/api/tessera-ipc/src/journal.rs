@@ -183,10 +183,14 @@ impl From<&Command> for AuditedCommand {
                         tessera_model::input::SyntheticInputAction::PointerMove { .. } => {
                             pointer_moves += 1;
                         }
-                        tessera_model::input::SyntheticInputAction::Click { .. } => clicks += 1,
+                        tessera_model::input::SyntheticInputAction::Click { .. }
+                        | tessera_model::input::SyntheticInputAction::PointerButton { .. } => {
+                            clicks += 1;
+                        }
                         tessera_model::input::SyntheticInputAction::Scroll { .. } => scrolls += 1,
-                        tessera_model::input::SyntheticInputAction::KeyPress { .. } => {
-                            key_presses += 1
+                        tessera_model::input::SyntheticInputAction::KeyPress { .. }
+                        | tessera_model::input::SyntheticInputAction::Key { .. } => {
+                            key_presses += 1;
                         }
                     }
                 }
@@ -271,13 +275,15 @@ impl From<&SemanticActionIntent> for AuditedSemanticAction {
                         tessera_model::input::SyntheticInputAction::PointerMove { .. } => {
                             pointer_moves = pointer_moves.saturating_add(1);
                         }
-                        tessera_model::input::SyntheticInputAction::Click { .. } => {
+                        tessera_model::input::SyntheticInputAction::Click { .. }
+                        | tessera_model::input::SyntheticInputAction::PointerButton { .. } => {
                             clicks = clicks.saturating_add(1);
                         }
                         tessera_model::input::SyntheticInputAction::Scroll { .. } => {
                             scrolls = scrolls.saturating_add(1);
                         }
-                        tessera_model::input::SyntheticInputAction::KeyPress { .. } => {
+                        tessera_model::input::SyntheticInputAction::KeyPress { .. }
+                        | tessera_model::input::SyntheticInputAction::Key { .. } => {
                             key_presses = key_presses.saturating_add(1);
                         }
                     }

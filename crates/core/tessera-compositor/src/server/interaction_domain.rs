@@ -985,6 +985,8 @@ impl Server {
                 unsafe { cancel_drag(self.state.as_mut(), true) };
             }
             self.state.implicit_grab_active = false;
+            self.state.implicit_grab_surface = std::ptr::null_mut();
+            self.state.client_pressed_buttons.clear();
         }
     }
 
@@ -1104,6 +1106,8 @@ impl Server {
         runtime.keyboard_focus = std::ptr::null_mut();
         runtime.tablet_focus = std::ptr::null_mut();
         runtime.implicit_grab_active = false;
+        runtime.implicit_grab_surface = std::ptr::null_mut();
+        runtime.client_pressed_buttons.clear();
         runtime.interactive = None;
         runtime.compositor_pointer_grab = false;
         runtime.drag = None;

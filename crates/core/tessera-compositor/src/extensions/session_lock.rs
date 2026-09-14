@@ -133,6 +133,8 @@ unsafe extern "C" fn session_lock_manager_lock(
         (*state).interactive = None;
         (*state).compositor_pointer_grab = false;
         (*state).implicit_grab_active = false;
+        (*state).implicit_grab_surface = std::ptr::null_mut();
+        (*state).client_pressed_buttons.clear();
         if (*state).drag.is_some() {
             crate::cancel_drag(state, true);
         }

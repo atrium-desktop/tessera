@@ -9,12 +9,10 @@
 //!
 //! - [`AgentFeedback`] — trusted, non-interactive visual feedback for input
 //!   applied by an Agent Interaction Domain's independent seat.
-//! - [`Launcher`] — a top-center toggle that expands into a centered list of
-//!   every enumerated `.desktop` entry; click a row to launch it (ADR-0022).
 //!
 //! Larger components have graduated to their own crates on top of the same
-//! contract (ADR-0021): the dock lives in `tessera-dock`, Prism in
-//! `tessera-prism`, the HUD in `tessera-hud`, and the control center in
+//! contract (ADR-0021): the dock lives in `tessera-dock`, Pivot in
+//! `tessera-pivot`, the HUD in `tessera-hud`, and the control center in
 //! `tessera-control-center`.
 
 mod agent_feedback;
@@ -23,7 +21,6 @@ mod battery_alert;
 mod capability_prompt;
 mod confirm_prompt;
 mod controlled_window_guard;
-mod launcher;
 mod overview;
 mod screenshot;
 mod secret_prompt;
@@ -36,7 +33,6 @@ pub use battery_alert::BatteryAlert;
 pub use capability_prompt::CapabilityPrompt;
 pub use confirm_prompt::ConfirmPrompt;
 pub use controlled_window_guard::ControlledWindowGuard;
-pub use launcher::Launcher;
 pub use overview::Overview;
 pub use screenshot::ScreenshotSelector;
 pub use secret_prompt::SecretPrompt;

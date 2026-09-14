@@ -18,10 +18,10 @@ members = [
 ]
 
 [workspace.package]
-version = "0.0.59"
+version = "0.0.60"
 edition = "2024"
 # Workspace crates contain MIT-licensed source, including the bundled cursor
-# art under assets/cursors/Tessera (original, generated in-tree).
+# art under assets/cursors (original, generated in-tree).
 license = "MIT"
 rust-version = "1.88"
 repository = "https://github.com/atrium-desktop/tessera"
@@ -33,19 +33,19 @@ repository = "https://github.com/atrium-desktop/tessera"
 # development worktree can patch these sources through
 # .cargo/optics-local.toml without making a sibling checkout mandatory for CI
 # or downstream packagers.
-flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
-flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
-flux-scene-graph = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
-flux-scene-graph-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
+flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.42" }
+flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.42" }
+flux-scene-graph = { git = "https://github.com/ming2k/optics", tag = "v0.0.42" }
+flux-scene-graph-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.42" }
 # Renderer-neutral offscreen DAG planning above Flux image operators.
-flux-composition-graph = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
-lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
-lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
-iris = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
+flux-composition-graph = { git = "https://github.com/ming2k/optics", tag = "v0.0.42" }
+lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.42" }
+lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.42" }
+iris = { git = "https://github.com/ming2k/optics", tag = "v0.0.42" }
 # prism (material library; ADR-0063) carries the liquid-glass compositor.
 # Canonical resolution needs an optics tag containing prism-rs.
-prism = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
-prism-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
+prism = { git = "https://github.com/ming2k/optics", tag = "v0.0.42" }
+prism-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.42" }
 
 # Observability: crates emit through the `log` facade; each binary installs a
 # `tracing`-based subscriber through the shared `tessera-bootstrap` crate, which
@@ -147,7 +147,7 @@ tessera-dock = { path = "crates/chrome/tessera-dock" }
 # Persona/avatar runtime: profile contract plus the feature-gated still/VRM
 # portrait, motion, and hot-reload pipeline (ADR-0080, ADR-0096).
 tessera-avatar = { path = "crates/providers/tessera-avatar" }
-tessera-prism = { path = "crates/chrome/tessera-prism" }
+tessera-pivot = { path = "crates/chrome/tessera-pivot" }
 # Display-only floating HUD status chips (ADR-0080).
 tessera-hud = { path = "crates/chrome/tessera-hud" }
 # SNI system tray service shared by shell chrome (ADR-0080).

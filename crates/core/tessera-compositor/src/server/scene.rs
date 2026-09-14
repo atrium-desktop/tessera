@@ -377,7 +377,18 @@ impl Server {
                 // the interpolated size also drives an opacity multiplier.
                 // Subsurfaces inherit it from their root through the shared
                 // root delta path; popups below reuse their root's fade.
-                let transition_opacity = if root.is_null() {
+                let is_attached_to_drag = if root.is_null() {
+                    false
+                } else if let Some(drag) = self.state.drag
+                    && !drag.attached_toplevel.is_null()
+                {
+                    unsafe { (*root).xdg_toplevel == drag.attached_toplevel }
+                } else {
+                    false
+                };
+                let transition_opacity = if is_attached_to_drag {
+                    Some(0.92)
+                } else if root.is_null() {
                     None
                 } else {
                     unsafe { &*root }
@@ -480,7 +491,18 @@ impl Server {
                 origin.x += delta.0;
                 origin.y += delta.1;
                 // ADR-0029 open/close fade (see the shm path).
-                let transition_opacity = if root.is_null() {
+                let is_attached_to_drag = if root.is_null() {
+                    false
+                } else if let Some(drag) = self.state.drag
+                    && !drag.attached_toplevel.is_null()
+                {
+                    unsafe { (*root).xdg_toplevel == drag.attached_toplevel }
+                } else {
+                    false
+                };
+                let transition_opacity = if is_attached_to_drag {
+                    Some(0.92)
+                } else if root.is_null() {
                     None
                 } else {
                     unsafe { &*root }

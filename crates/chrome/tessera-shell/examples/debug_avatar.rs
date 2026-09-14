@@ -7,16 +7,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let device = flux::Device::new(true, &[], &[], 1)?;
     let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("persona-debug-assets");
     let motion = directory.join("avatar.vrma");
-    let config = tessera_shell::persona::PortraitConfig::new(vec![
-        tessera_shell::persona::PortraitCandidate::Vrm {
+    let config = tessera_avatar::persona::PortraitConfig::new(vec![
+        tessera_avatar::persona::PortraitCandidate::Vrm {
             model: directory.join("avatar.vrm"),
             legacy_motion: motion,
         },
     ]);
-    let mut portrait = tessera_shell::persona::Portrait::load(
+    let mut portrait = tessera_avatar::persona::Portrait::load(
         &device,
         &config,
-        tessera_shell::persona::VrmCamera::new(28.0, 0.25, 0.48, 0.0),
+        tessera_avatar::persona::VrmCamera::new(28.0, 0.25, 0.48, 0.0),
     )?
     .ok_or("debug avatar is missing")?;
     if let Ok(name) = std::env::var("TESSERA_AVATAR_DEBUG_MOTION")

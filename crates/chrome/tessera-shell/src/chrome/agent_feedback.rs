@@ -3,24 +3,28 @@
 //! The physical user's XDG cursor remains untouched. This component projects
 //! each applied operation onto the human's read-only mirror as a
 //! semi-transparent mask plus a text label naming the external operation, so
-//! the observer still sees the window content underneath. An arrow-cursor
-//! sprite marks the applied pointer position and a simplified mouse sprite
-//! with the pressed button highlighted marks clicks and scrolls; both sprites
-//! render below the mask and label. If the target is not visible, a compact
-//! background-operation pill is drawn instead. Colors come from the shared
-//! design tokens — operations are identified by the mask, sprite shape, and
-//! text, never by per-domain hues. Because this is Shell chrome, directed
-//! Interaction Domain capture never includes it and an Agent cannot steer from
-//! its own feedback layer.
+//! the observer still sees the window content underneath.
 //!
-//! The projection is window-scoped today: the feedback region is the mirror
-//! window's rectangle. The [`OperationRegion`] seam keeps a future
-//! workspace-scoped domain (an entire workspace handed to an Interaction
-//! Domain) open without changing the mask, sprite, or label drawing.
+//! Pursuant to ADR-0150 and ADR-0152:
+//! - The pointer sprite dynamically reflects the `wp_cursor_shape_device_v1`
+//!   cursor shape requested on the Agent's seat from the dedicated `tessera-ai`
+//!   XDG cursor theme, rendered with its distinct open-fork silhouette.
+//! - Click operations display a lightweight geometric ripple pulse at the click
+//!   coordinate.
+//! - Keyboard operations display a transient Keycast HUD anchored to the
+//!   bottom-right corner of the window mirror, rendering keycap badges for
+//!   recent keystrokes with smooth fade-in and fade-out animations.
+//! - If the target is not visible, a compact background-operation pill is drawn
+//!   at the screen top edge instead.
+//!
+//! Directed Interaction Domain capture renders client surfaces directly and
+//! therefore never includes this layer, preventing an Agent from steering
+//! from its own feedback layer.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant};
 
+use include_dir::{Dir, include_dir};
 use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 use tessera_design::Design;
 use tessera_design::materials::{chrome_place, surface_layout};
@@ -40,90 +44,198 @@ use tessera_chrome::{
 const HOLD_FOR: Duration = Duration::from_secs(4);
 const FADE_FOR: Duration = Duration::from_secs(2);
 const VISIBLE_FOR: Duration = Duration::from_secs(6);
-const CLICK_GLYPH_FOR: Duration = Duration::from_millis(650);
-const SCROLL_GLYPH_FOR: Duration = Duration::from_millis(450);
+const CLICK_PULSE_FOR: Duration = Duration::from_millis(450);
+const KEYCAST_HOLD_FOR: Duration = Duration::from_millis(1200);
+const KEYCAST_FADE_FOR: Duration = Duration::from_millis(400);
+const KEYCAST_VISIBLE_FOR: Duration = Duration::from_millis(1600);
+const KEYCAST_HEIGHT: f32 = 28.0;
+const MAX_KEYCAST_ITEMS: usize = 4;
 const LABEL_HEIGHT: f32 = 28.0;
 const BACKGROUND_HEIGHT: f32 = 34.0;
-const CURSOR_SIZE: f32 = 22.0;
-/// Tessera `left_ptr` hotspot (64, 28) in its 256-unit view box.
-const CURSOR_HOTSPOT: (f32, f32) = (64.0 / 256.0, 28.0 / 256.0);
-const CLICK_SIZE: (f32, f32) = (21.0, 30.0);
-/// The click point lands between the mouse buttons, not the body center.
-const CLICK_ANCHOR: (f32, f32) = (0.5, 0.175);
+const CURSOR_SIZE: f32 = 24.0;
 
-// Arrow cursor: the Tessera theme's `left_ptr` (MIT, original art), the same
-// theme the compositor's software cursor embeds under `assets/cursors/`. The
-// Agent pointer is an ordinary arrow by design — the mask and text carry the
-// operation signal, not an exotic marker shape.
-const CURSOR_SVG: &str = include_str!("../../assets/agent/cursor.svg");
-// Simplified mouse glyphs authored for this component: one shared body with
-// the left, right, or middle (wheel) button highlighted.
-const MOUSE_LEFT_SVG: &str = include_str!("../../assets/agent/mouse-left.svg");
-const MOUSE_RIGHT_SVG: &str = include_str!("../../assets/agent/mouse-right.svg");
-const MOUSE_MIDDLE_SVG: &str = include_str!("../../assets/agent/mouse-middle.svg");
+static AI_THEME_LIGHT: Dir<'static> =
+    include_dir!("$CARGO_MANIFEST_DIR/../../../assets/cursors/tessera-ai-light");
+
+static AI_THEME_DARK: Dir<'static> =
+    include_dir!("$CARGO_MANIFEST_DIR/../../../assets/cursors/tessera-ai-dark");
+
+/// `wp_cursor_shape_device_v1.shape` value with its XDG candidate names,
+/// protocol/CSS name first and legacy cursor aliases afterwards.
+fn shape_candidates(shape: u32) -> &'static [&'static str] {
+    match shape {
+        1 => &["default", "left_ptr", "arrow"],
+        2 => &["context-menu", "left_ptr"],
+        3 => &["help", "question_arrow", "left_ptr_help", "left_ptr"],
+        4 => &["pointer", "hand2", "pointing_hand", "left_ptr"],
+        5 => &["progress", "left_ptr_watch", "watch"],
+        6 => &["wait", "watch", "left_ptr"],
+        7 => &["cell", "crosshair"],
+        8 => &["crosshair", "cross"],
+        9 => &["text", "xterm", "ibeam"],
+        10 => &["vertical-text", "xterm"],
+        11 => &["alias", "dnd-link", "left_ptr"],
+        12 => &["copy", "dnd-copy", "left_ptr"],
+        13 => &["move", "dnd-move", "fleur", "all-scroll"],
+        14 => &["no-drop", "not-allowed"],
+        15 => &["not-allowed", "forbidden", "crossed_circle"],
+        16 => &["grab", "hand1", "openhand", "left_ptr"],
+        17 => &["grabbing", "closedhand", "hand1"],
+        18 => &["e-resize", "right_side", "sb_h_double_arrow"],
+        19 => &["n-resize", "top_side", "sb_v_double_arrow"],
+        20 => &["ne-resize", "top_right_corner", "sb_h_double_arrow"],
+        21 => &["nw-resize", "top_left_corner", "sb_h_double_arrow"],
+        22 => &["s-resize", "bottom_side", "sb_v_double_arrow"],
+        23 => &["se-resize", "bottom_right_corner", "sb_h_double_arrow"],
+        24 => &["sw-resize", "bottom_left_corner", "sb_h_double_arrow"],
+        25 => &["w-resize", "left_side", "sb_h_double_arrow"],
+        26 => &["ew-resize", "sb_h_double_arrow", "h_double_arrow"],
+        27 => &["ns-resize", "sb_v_double_arrow", "v_double_arrow"],
+        28 => &["nesw-resize", "bd_double_arrow", "size_bdiag"],
+        29 => &["nwse-resize", "fd_double_arrow", "size_fdiag"],
+        30 => &["col-resize", "sb_h_double_arrow", "h_double_arrow"],
+        31 => &["row-resize", "sb_v_double_arrow", "v_double_arrow"],
+        32 => &["all-scroll", "fleur", "move"],
+        33 => &["zoom-in", "zoom_in"],
+        34 => &["zoom-out", "zoom_out"],
+        35 => &["dnd-ask", "question_arrow", "help"],
+        36 => &["all-resize", "all-scroll", "fleur", "move"],
+        _ => &["default", "left_ptr", "arrow"],
+    }
+}
+
+struct SvgMeta {
+    hotspot: (f32, f32),
+    native: (f32, f32),
+}
+
+fn svg_meta(svg: &[u8]) -> SvgMeta {
+    let text = std::str::from_utf8(svg).unwrap_or("");
+    let tag = svg_open_tag(text).unwrap_or("");
+    let hotspot = (
+        attr(tag, "data-hotspot-x").and_then(num).unwrap_or(64.0),
+        attr(tag, "data-hotspot-y").and_then(num).unwrap_or(28.0),
+    );
+    let native = viewbox(tag).unwrap_or((256.0, 256.0));
+    SvgMeta { hotspot, native }
+}
+
+fn svg_open_tag(text: &str) -> Option<&str> {
+    let start = text.find("<svg")?;
+    let end = text[start..].find('>').map(|p| start + p + 1)?;
+    Some(&text[start..end])
+}
+
+fn attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
+    let nb = name.as_bytes();
+    let mut from = 0;
+    while let Some(rel) = tag[from..].find(name) {
+        let start = from + rel;
+        let rest = &tag[start + nb.len()..];
+        let rest_trimmed = rest.trim_start();
+        if rest_trimmed.starts_with('=') {
+            let after_eq = rest_trimmed[1..].trim_start();
+            if let Some(quote) = after_eq.chars().next()
+                && (quote == '"' || quote == '\'')
+            {
+                let content = &after_eq[1..];
+                if let Some(end) = content.find(quote) {
+                    return Some(&content[..end]);
+                }
+            }
+        }
+        from = start + nb.len();
+    }
+    None
+}
+
+fn num(v: &str) -> Option<f32> {
+    v.trim().parse().ok()
+}
+
+fn viewbox(tag: &str) -> Option<(f32, f32)> {
+    let raw = attr(tag, "viewBox")?;
+    let mut nums = raw
+        .split(|c: char| c.is_ascii_whitespace() || c == ',')
+        .filter(|s| !s.is_empty())
+        .filter_map(num);
+    let _min_x = nums.next()?;
+    let _min_y = nums.next()?;
+    let width = nums.next()?;
+    let height = nums.next()?;
+    Some((width, height))
+}
 
 /// Where an applied Agent operation is projected for the human observer.
-///
-/// Window-scoped today: the region is the visible rectangle of the read-only
-/// mirror of the Agent-controlled window. A future workspace-scoped domain
-/// would resolve to a whole-output rectangle here; the mask, sprite, and
-/// label rendering below is region-agnostic.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum OperationRegion {
-    /// Mirror-window rectangle clipped to the display, with the corner
-    /// radius that matches the window's presentation state.
     Window { rect: Rect, radius: f32 },
 }
 
-/// Raster sprites uploaded once from the embedded SVGs. `None` only when the
-/// GPU upload fails (or in tests); the feedback then falls back to a plain
-/// neutral dot so the applied position is still visible.
-struct AgentSprites {
-    cursor: flux::Image,
-    click_left: flux::Image,
-    click_right: flux::Image,
-    click_middle: flux::Image,
+#[derive(Clone)]
+struct LoadedCursor {
+    image: std::sync::Arc<flux::Image>,
+    hotspot: (f32, f32),
 }
 
-impl AgentSprites {
-    fn upload(device: &flux::Device) -> Option<Self> {
+struct AgentCursorSet {
+    cursors: HashMap<u32, LoadedCursor>,
+    default_cursor: LoadedCursor,
+}
+
+impl AgentCursorSet {
+    fn upload(device: &flux::Device, theme: &Dir<'static>) -> Option<Self> {
+        let load_cursor = |shape: u32| -> Option<LoadedCursor> {
+            for candidate in shape_candidates(shape) {
+                if let Some(file) = theme.get_file(format!("cursors/{candidate}.svg")) {
+                    let bytes = file.contents();
+                    let meta = svg_meta(bytes);
+                    let text = std::str::from_utf8(bytes).ok()?;
+                    let image = upload_sprite(device, text, 96, 96)?;
+                    let hx = (meta.hotspot.0 / meta.native.0).clamp(0.0, 1.0);
+                    let hy = (meta.hotspot.1 / meta.native.1).clamp(0.0, 1.0);
+                    return Some(LoadedCursor {
+                        image: std::sync::Arc::new(image),
+                        hotspot: (hx, hy),
+                    });
+                }
+            }
+            None
+        };
+
+        let default_cursor = load_cursor(1)?;
+        let mut cursors = HashMap::new();
+        cursors.insert(1, default_cursor.clone());
+
+        for shape in 2..=36 {
+            if let Some(loaded) = load_cursor(shape) {
+                cursors.insert(shape, loaded);
+            }
+        }
+
         Some(Self {
-            cursor: upload_sprite(device, CURSOR_SVG, 96, 96)?,
-            click_left: upload_sprite(device, MOUSE_LEFT_SVG, 84, 120)?,
-            click_right: upload_sprite(device, MOUSE_RIGHT_SVG, 84, 120)?,
-            click_middle: upload_sprite(device, MOUSE_MIDDLE_SVG, 84, 120)?,
+            cursors,
+            default_cursor,
         })
     }
 
-    fn glyph(&self, glyph: PointerGlyph) -> &flux::Image {
-        match glyph {
-            PointerGlyph::Cursor => &self.cursor,
-            PointerGlyph::ClickLeft => &self.click_left,
-            PointerGlyph::ClickRight => &self.click_right,
-            PointerGlyph::ClickMiddle => &self.click_middle,
-        }
+    fn get(&self, shape: u32) -> &LoadedCursor {
+        self.cursors.get(&shape).unwrap_or(&self.default_cursor)
     }
-}
-
-/// Which pointer sprite an applied operation shows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PointerGlyph {
-    Cursor,
-    ClickLeft,
-    ClickRight,
-    ClickMiddle,
 }
 
 /// Non-interactive, compositor-owned projection of Agent input activity.
 pub struct AgentFeedback {
     interaction_domains: InteractionDomainSnapshot,
     activity: BTreeMap<InteractionDomainId, VisualActivity>,
-    /// The design snapshot the feedback layer paints from, from
-    /// [`ChromeUpdate::Appearance`]. Seeded on registration by
-    /// [`crate::Shell::add`] and refreshed when the desktop color scheme
-    /// changes; defaults to the dark appearance until the first update arrives.
     design: Design,
-    sprites: Option<AgentSprites>,
+    cursor_sets: Option<[AgentCursorSet; 2]>,
+}
+
+#[derive(Debug, Clone)]
+struct KeycastEntry {
+    label: String,
+    at: Instant,
 }
 
 #[derive(Debug, Clone)]
@@ -132,38 +244,42 @@ struct VisualActivity {
     latest_at: Instant,
     pointer_window: Option<WindowId>,
     pointer_position: Option<Point>,
+    cursor_shape: Option<u32>,
     click_pulse: Option<ClickPulse>,
+    keycast: Vec<KeycastEntry>,
 }
 
 #[derive(Debug, Clone, Copy)]
 struct ClickPulse {
     position: Point,
-    button: u32,
     at: Instant,
 }
 
 impl AgentFeedback {
     /// Construct the feedback layer, uploading the pointer sprites through
-    /// the composition root's flux device. The device is borrowed for the
-    /// upload only; the root declares it before the shell and drops it after.
+    /// the composition root's flux device.
     #[must_use]
     pub fn new(device: &flux::Device) -> Self {
-        Self::with_sprites(AgentSprites::upload(device))
+        Self::with_cursor_sets(
+            AgentCursorSet::upload(device, &AI_THEME_LIGHT)
+                .zip(AgentCursorSet::upload(device, &AI_THEME_DARK))
+                .map(|(light, dark)| [light, dark]),
+        )
     }
 
-    fn with_sprites(sprites: Option<AgentSprites>) -> Self {
+    fn with_cursor_sets(cursor_sets: Option<[AgentCursorSet; 2]>) -> Self {
         Self {
             interaction_domains: tessera_model::interaction_domain::InteractionDomainModel::new()
                 .snapshot(),
             activity: BTreeMap::new(),
             design: Design::dark(),
-            sprites,
+            cursor_sets,
         }
     }
 
     #[cfg(test)]
     fn without_sprites() -> Self {
-        Self::with_sprites(None)
+        Self::with_cursor_sets(None)
     }
 
     #[cfg(test)]
@@ -201,9 +317,13 @@ impl Chrome for AgentFeedback {
         let display = (raw.display_size.x.max(1.0), raw.display_size.y.max(1.0));
         let interaction_domains = &self.interaction_domains;
         let design = &self.design;
-        let sprites = self.sprites.as_ref();
+        // Contrast polarity follows shell foreground: light on dark chrome,
+        // dark on light chrome.
+        let cursor_set = self.cursor_sets.as_ref().map(|variants| {
+            &variants[usize::from(design.scheme == tessera_model::settings::ColorScheme::Light)]
+        });
         let mut background = Vec::new();
-        for (interaction_domain, activity) in &self.activity {
+        for (interaction_domain, activity) in &mut self.activity {
             let interaction_domain_state = interaction_domains
                 .interaction_domains
                 .iter()
@@ -212,13 +332,25 @@ impl Chrome for AgentFeedback {
                 .unwrap_or(InteractionDomainState::Revoked);
             let age = now.saturating_duration_since(activity.latest_at);
             let alpha = activity_alpha(age, interaction_domain_state);
+
+            // Clean expired keycast items
+            activity
+                .keycast
+                .retain(|k| now.saturating_duration_since(k.at) < KEYCAST_VISIBLE_FOR);
+
             let projected = activity
                 .pointer_window
                 .zip(activity.pointer_position)
                 .filter(|(_, position)| point_in_display(*position, display))
                 .and_then(|(window, position)| {
                     operation_region(windows, window, position, display)
-                        .map(|region| (region, position))
+                        .map(|region| (region, Some(position)))
+                })
+                .or_else(|| {
+                    activity
+                        .pointer_window
+                        .and_then(|window| window_mirror_region(windows, window, display))
+                        .map(|region| (region, None))
                 });
 
             if let Some((region, position)) = projected {
@@ -234,12 +366,12 @@ impl Chrome for AgentFeedback {
                     now,
                     i18n,
                     design,
-                    sprites,
+                    cursor_set,
                 );
             } else {
                 background.push((
                     *interaction_domain,
-                    activity,
+                    activity.clone(),
                     interaction_domain_state,
                     alpha,
                 ));
@@ -252,7 +384,7 @@ impl Chrome for AgentFeedback {
             render_background_activity(
                 f,
                 interaction_domain,
-                activity,
+                &activity,
                 interaction_domain_state,
                 alpha,
                 display,
@@ -300,39 +432,91 @@ impl Chrome for AgentFeedback {
                         if let Some(position) = activity.position {
                             state.pointer_window = Some(activity.window);
                             state.pointer_position = Some(position);
-                            if let AgentInputKind::Click { button } = activity.kind {
-                                state.click_pulse = Some(ClickPulse {
-                                    position,
-                                    button,
-                                    at: now,
-                                });
+                            if matches!(activity.kind, AgentInputKind::Click { .. })
+                                || matches!(
+                                    activity.kind,
+                                    AgentInputKind::PointerButton {
+                                        state: tessera_model::input::ButtonState::Pressed,
+                                        ..
+                                    }
+                                )
+                            {
+                                state.click_pulse = Some(ClickPulse { position, at: now });
                             }
                         } else if state.pointer_window != Some(activity.window) {
-                            state.pointer_window = None;
-                            state.pointer_position = None;
+                            state.pointer_window = Some(activity.window);
+                        }
+                        if let AgentInputKind::Keyboard {
+                            key_name: Some(ref key),
+                        } = activity.kind
+                        {
+                            state.keycast.push(KeycastEntry {
+                                label: key.clone(),
+                                at: now,
+                            });
+                            if state.keycast.len() > MAX_KEYCAST_ITEMS {
+                                state.keycast.remove(0);
+                            }
+                        } else if let AgentInputKind::Key {
+                            ref key_name,
+                            state: tessera_model::input::ButtonState::Pressed,
+                        } = activity.kind
+                        {
+                            state.keycast.push(KeycastEntry {
+                                label: key_name.clone(),
+                                at: now,
+                            });
+                            if state.keycast.len() > MAX_KEYCAST_ITEMS {
+                                state.keycast.remove(0);
+                            }
+                        }
+                        if activity.cursor_shape.is_some() {
+                            state.cursor_shape = activity.cursor_shape;
                         }
                         state.latest = activity.clone();
                         state.latest_at = now;
                     }
                     None => {
+                        let keycast = match activity.kind {
+                            AgentInputKind::Keyboard {
+                                key_name: Some(ref key),
+                            } => vec![KeycastEntry {
+                                label: key.clone(),
+                                at: now,
+                            }],
+                            AgentInputKind::Key {
+                                ref key_name,
+                                state: tessera_model::input::ButtonState::Pressed,
+                            } => vec![KeycastEntry {
+                                label: key_name.clone(),
+                                at: now,
+                            }],
+                            _ => Vec::new(),
+                        };
+                        let is_click = matches!(activity.kind, AgentInputKind::Click { .. })
+                            || matches!(
+                                activity.kind,
+                                AgentInputKind::PointerButton {
+                                    state: tessera_model::input::ButtonState::Pressed,
+                                    ..
+                                }
+                            );
                         self.activity.insert(
                             activity.interaction_domain,
                             VisualActivity {
                                 latest: activity.clone(),
                                 latest_at: now,
-                                pointer_window: activity.position.map(|_| activity.window),
+                                pointer_window: Some(activity.window),
                                 pointer_position: activity.position,
+                                cursor_shape: activity.cursor_shape,
                                 click_pulse: activity.position.and_then(|position| {
-                                    if let AgentInputKind::Click { button } = activity.kind {
-                                        Some(ClickPulse {
-                                            position,
-                                            button,
-                                            at: now,
-                                        })
+                                    if is_click {
+                                        Some(ClickPulse { position, at: now })
                                     } else {
                                         None
                                     }
                                 }),
+                                keycast,
                             },
                         );
                     }
@@ -343,8 +527,16 @@ impl Chrome for AgentFeedback {
     }
 
     fn anim_pending(&self) -> bool {
+        let now = Instant::now();
         self.activity.values().any(|activity| {
-            Instant::now().saturating_duration_since(activity.latest_at) < VISIBLE_FOR
+            now.saturating_duration_since(activity.latest_at) < VISIBLE_FOR
+                || activity
+                    .click_pulse
+                    .is_some_and(|p| now.saturating_duration_since(p.at) < CLICK_PULSE_FOR)
+                || activity
+                    .keycast
+                    .iter()
+                    .any(|k| now.saturating_duration_since(k.at) < KEYCAST_VISIBLE_FOR)
         })
     }
 
@@ -355,10 +547,6 @@ impl Chrome for AgentFeedback {
     ) -> Option<tessera_model::Rect> {
         let now = Instant::now();
         let display = (display.0.max(1.0), display.1.max(1.0));
-        // The fade animates the whole feedback overlay (mask, sprites, label,
-        // background pill) from opaque to gone, and a pointer trail moves
-        // between frames: every pixel that showed feedback last frame or can
-        // show it this frame must repaint.
         let mut region: Option<tessera_model::Rect> = None;
         let mut background_count = 0usize;
         for (id, activity) in &self.activity {
@@ -373,19 +561,23 @@ impl Chrome for AgentFeedback {
             if expired || revoked {
                 continue;
             }
-            match activity
+            let projected_window = activity
                 .pointer_window
                 .zip(activity.pointer_position)
                 .filter(|(_, position)| point_in_display(*position, display))
                 .and_then(|(window, position)| {
                     operation_region(windows, window, position, display)
-                        .map(|operation| (operation, position))
-                }) {
+                        .map(|operation| (operation, Some(position)))
+                })
+                .or_else(|| {
+                    activity
+                        .pointer_window
+                        .and_then(|window| window_mirror_region(windows, window, display))
+                        .map(|operation| (operation, None))
+                });
+
+            match projected_window {
                 Some((operation, position)) => {
-                    // Window mask + pointer sprite + label. The label is
-                    // anchored to the pointer and clamped to the display; a
-                    // generous union keeps the pill-shaped label fully inside
-                    // the damaged area.
                     let OperationRegion::Window { rect, .. } = operation;
                     let mask = tessera_model::Rect::new(
                         rect.x as i32,
@@ -393,16 +585,42 @@ impl Chrome for AgentFeedback {
                         rect.w as i32,
                         rect.h as i32,
                     );
-                    let label = pointer_label_footprint(position, display);
+                    let label = match position {
+                        Some(pos) => pointer_label_footprint(pos, display),
+                        None => tessera_model::Rect::new(
+                            rect.x as i32,
+                            rect.y as i32,
+                            rect.w as i32,
+                            (LABEL_HEIGHT + 24.0) as i32,
+                        ),
+                    };
+                    let ripple = match position {
+                        Some(pos) => tessera_model::Rect::new(
+                            (pos.x - 24).max(0),
+                            (pos.y - 24).max(0),
+                            48,
+                            48,
+                        ),
+                        None => tessera_model::Rect::new(0, 0, 0, 0),
+                    };
+                    let keycast_rect = tessera_model::Rect::new(
+                        (rect.x + rect.w - 240.0).max(0.0) as i32,
+                        (rect.y + rect.h - 50.0).max(0.0) as i32,
+                        240,
+                        50,
+                    );
                     region = Some(match region {
-                        Some(existing) => existing.union(mask).union(label),
-                        None => mask.union(label),
+                        Some(existing) => existing
+                            .union(mask)
+                            .union(label)
+                            .union(ripple)
+                            .union(keycast_rect),
+                        None => mask.union(label).union(ripple).union(keycast_rect),
                     });
                 }
                 None => background_count += 1,
             }
         }
-        // Background-operation pills stack at the top edge, one per activity.
         if background_count > 0 {
             let band = tessera_model::Rect::new(
                 0,
@@ -419,8 +637,29 @@ impl Chrome for AgentFeedback {
     }
 }
 
-/// Resolve the feedback region for an applied pointer position: the visible
-/// rectangle of the read-only mirror the position landed in.
+fn window_mirror_region(
+    windows: &[Window],
+    window: WindowId,
+    display: (f32, f32),
+) -> Option<OperationRegion> {
+    let window = windows
+        .iter()
+        .find(|candidate| candidate.id == window && candidate.read_only && !candidate.minimized)?;
+    let left = (window.position.x as f32).max(0.0);
+    let top = (window.position.y as f32).max(0.0);
+    let right = (window.position.x as f32 + window.size.w as f32).min(display.0);
+    let bottom = (window.position.y as f32 + window.size.h as f32).min(display.1);
+    (right > left && bottom > top).then_some(OperationRegion::Window {
+        rect: Rect {
+            x: left,
+            y: top,
+            w: right - left,
+            h: bottom - top,
+        },
+        radius: if window.state.fullscreen { 0.0 } else { 7.0 },
+    })
+}
+
 fn operation_region(
     windows: &[Window],
     window: WindowId,
@@ -454,22 +693,35 @@ fn render_pointer_feedback(
     interaction_domain: InteractionDomainId,
     activity: &VisualActivity,
     region: OperationRegion,
-    position: Point,
+    position: Option<Point>,
     display: (f32, f32),
     interaction_domain_state: InteractionDomainState,
     alpha: u8,
     now: Instant,
     i18n: &Localizer,
     design: &Design,
-    sprites: Option<&AgentSprites>,
+    cursor_set: Option<&AgentCursorSet>,
 ) {
-    // Pointer sprite first: it stays below the mask and label so the
-    // semi-transparent overlay never hides where the operation landed.
-    let glyph = pointer_glyph(activity, position, now);
-    render_glyph(f, interaction_domain, glyph, position, alpha, sprites);
+    if let Some(pos) = position {
+        let shape = activity.cursor_shape.unwrap_or(1);
+        let cursor = cursor_set.map(|set| set.get(shape));
+        render_cursor(f, interaction_domain, cursor, pos, alpha);
 
-    // The mask marks the operated window as externally driven while keeping
-    // its content readable.
+        if let Some(pulse) = activity.click_pulse
+            && now.saturating_duration_since(pulse.at) < CLICK_PULSE_FOR
+        {
+            render_click_ripple(
+                f,
+                interaction_domain,
+                pulse.position,
+                pulse.at,
+                now,
+                alpha,
+                design,
+            );
+        }
+    }
+
     let OperationRegion::Window { rect, radius } = region;
     render_shape(
         f,
@@ -487,12 +739,38 @@ fn render_pointer_feedback(
         radius,
     );
 
-    let label = activity_label(&activity.latest, interaction_domain_state, i18n, true);
+    // Render Keycast HUD at the bottom-right of the operated window
+    if !activity.keycast.is_empty() {
+        render_keycast_hud(
+            f,
+            interaction_domain,
+            rect,
+            &activity.keycast,
+            now,
+            alpha,
+            design,
+        );
+    }
+
+    let label = activity_label(
+        &activity.latest,
+        interaction_domain_state,
+        i18n,
+        position.is_some(),
+    );
     let measured = f.measure_text(&label, design.typography.footnote).width;
     let width = (measured + 20.0)
         .clamp(128.0, 290.0)
         .min((display.0 - 16.0).max(1.0));
-    let label_rect = pointer_label_rect(position, width, display);
+    let label_rect = match position {
+        Some(pos) => pointer_label_rect(pos, width, display),
+        None => Rect {
+            x: ((rect.x + rect.w * 0.5) - width * 0.5).max(rect.x + 8.0),
+            y: (rect.y + 12.0).max(HUD_HEIGHT + 4.0),
+            w: width,
+            h: LABEL_HEIGHT,
+        },
+    };
     let label = ellipsize(
         f,
         &label,
@@ -525,27 +803,105 @@ fn render_pointer_feedback(
     );
 }
 
-fn render_glyph(
+fn render_keycast_hud(
     f: &mut Frame,
     interaction_domain: InteractionDomainId,
-    glyph: PointerGlyph,
+    window_rect: Rect,
+    keycast: &[KeycastEntry],
+    now: Instant,
+    alpha: u8,
+    design: &Design,
+) {
+    let live_keys: Vec<_> = keycast
+        .iter()
+        .filter(|k| now.saturating_duration_since(k.at) < KEYCAST_VISIBLE_FOR)
+        .collect();
+    if live_keys.is_empty() {
+        return;
+    }
+
+    let mut badge_widths = Vec::with_capacity(live_keys.len());
+    let mut total_width = 0.0;
+    for key in &live_keys {
+        let measured = f.measure_text(&key.label, design.typography.footnote).width;
+        let w = (measured + 18.0).max(28.0);
+        badge_widths.push(w);
+        total_width += w;
+    }
+    let gap = 6.0;
+    total_width += gap * (live_keys.len().saturating_sub(1) as f32);
+
+    let max_start_x = window_rect.x + window_rect.w - 16.0 - total_width;
+    let mut cur_x = max_start_x.max(window_rect.x + 8.0);
+    let y = (window_rect.y + window_rect.h - 16.0 - KEYCAST_HEIGHT).max(window_rect.y + 8.0);
+
+    for (index, (key, &width)) in live_keys.iter().zip(&badge_widths).enumerate() {
+        let age = now.saturating_duration_since(key.at);
+        let key_alpha = if age <= KEYCAST_HOLD_FOR {
+            alpha
+        } else {
+            let fade = age.saturating_sub(KEYCAST_HOLD_FOR).as_secs_f32()
+                / KEYCAST_FADE_FOR.as_secs_f32();
+            ((alpha as f32) * (1.0 - fade.clamp(0.0, 1.0))).round() as u8
+        };
+
+        let badge_rect = Rect {
+            x: cur_x,
+            y,
+            w: width,
+            h: KEYCAST_HEIGHT,
+        };
+        cur_x += width + gap;
+
+        f.place(
+            &format!("tessera-agent-keycast-{}-{index}", interaction_domain.0),
+            &chrome_place(
+                badge_rect,
+                LayoutOpts {
+                    bg: design
+                        .colors
+                        .application_surface
+                        .with_alpha(scaled_alpha(key_alpha, 9, 10)),
+                    border: design
+                        .colors
+                        .application_border
+                        .with_alpha(scaled_alpha(key_alpha, 4, 5)),
+                    border_width: 1.0,
+                    radius: 6.0,
+                    ..surface_layout()
+                },
+            ),
+            |f| {
+                f.centered(badge_rect.w, badge_rect.h, |f| {
+                    f.label_compact_sized(&key.label, design.typography.footnote)
+                });
+            },
+        );
+    }
+}
+
+fn render_cursor(
+    f: &mut Frame,
+    interaction_domain: InteractionDomainId,
+    cursor: Option<&LoadedCursor>,
     position: Point,
     alpha: u8,
-    sprites: Option<&AgentSprites>,
 ) {
     let id = format!("tessera-agent-glyph-{}", interaction_domain.0);
-    let rect = glyph_rect(glyph, position);
-    match sprites {
-        Some(sprites) => {
-            let image = sprites.glyph(glyph);
+    match cursor {
+        Some(cursor) => {
+            let rect = Rect {
+                x: position.x as f32 - CURSOR_SIZE * cursor.hotspot.0,
+                y: position.y as f32 - CURSOR_SIZE * cursor.hotspot.1,
+                w: CURSOR_SIZE,
+                h: CURSOR_SIZE,
+            };
             f.place(
                 &id,
                 &chrome_place(rect, LayoutOpts::default()),
                 |f| unsafe {
-                    // SAFETY: the sprite textures are owned by this component and
-                    // outlive the frame's `Ui::render`.
                     f.image_tinted(
-                        image.as_raw(),
+                        cursor.image.as_raw(),
                         rect.w,
                         rect.h,
                         Color::rgba(255, 255, 255, alpha),
@@ -565,6 +921,40 @@ fn render_glyph(
             );
         }
     }
+}
+
+fn render_click_ripple(
+    f: &mut Frame,
+    interaction_domain: InteractionDomainId,
+    position: Point,
+    pulse_at: Instant,
+    now: Instant,
+    alpha: u8,
+    design: &Design,
+) {
+    let elapsed = now.saturating_duration_since(pulse_at).as_secs_f32();
+    let total = CLICK_PULSE_FOR.as_secs_f32();
+    let t = (elapsed / total).clamp(0.0, 1.0);
+    let radius = 6.0 + 16.0 * t;
+    let ripple_alpha = ((1.0 - t) * (alpha as f32 / 255.0) * 200.0) as u8;
+    let rect = Rect {
+        x: position.x as f32 - radius,
+        y: position.y as f32 - radius,
+        w: radius * 2.0,
+        h: radius * 2.0,
+    };
+    render_shape(
+        f,
+        &format!("tessera-agent-click-ripple-{}", interaction_domain.0),
+        rect,
+        Color::TRANSPARENT,
+        design
+            .colors
+            .application_accent
+            .with_alpha(ripple_alpha),
+        1.5,
+        radius,
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -643,45 +1033,6 @@ fn render_background_activity(
     );
 }
 
-/// Which pointer sprite to show at the applied position: a brief mouse glyph
-/// with the pressed button highlighted for clicks, the wheel for fresh
-/// scrolls, and the plain arrow cursor otherwise.
-fn pointer_glyph(activity: &VisualActivity, position: Point, now: Instant) -> PointerGlyph {
-    if let Some(pulse) = activity.click_pulse
-        && pulse.position == position
-        && now.saturating_duration_since(pulse.at) < CLICK_GLYPH_FOR
-    {
-        return match pulse.button {
-            0x111 => PointerGlyph::ClickRight,
-            0x112 => PointerGlyph::ClickMiddle,
-            _ => PointerGlyph::ClickLeft,
-        };
-    }
-    if matches!(activity.latest.kind, AgentInputKind::Scroll { .. })
-        && now.saturating_duration_since(activity.latest_at) < SCROLL_GLYPH_FOR
-    {
-        return PointerGlyph::ClickMiddle;
-    }
-    PointerGlyph::Cursor
-}
-
-fn glyph_rect(glyph: PointerGlyph, position: Point) -> Rect {
-    match glyph {
-        PointerGlyph::Cursor => Rect {
-            x: position.x as f32 - CURSOR_SIZE * CURSOR_HOTSPOT.0,
-            y: position.y as f32 - CURSOR_SIZE * CURSOR_HOTSPOT.1,
-            w: CURSOR_SIZE,
-            h: CURSOR_SIZE,
-        },
-        PointerGlyph::ClickLeft | PointerGlyph::ClickRight | PointerGlyph::ClickMiddle => Rect {
-            x: position.x as f32 - CLICK_SIZE.0 * CLICK_ANCHOR.0,
-            y: position.y as f32 - CLICK_SIZE.1 * CLICK_ANCHOR.1,
-            w: CLICK_SIZE.0,
-            h: CLICK_SIZE.1,
-        },
-    }
-}
-
 fn activity_label(
     activity: &AgentActivity,
     state: InteractionDomainState,
@@ -689,7 +1040,7 @@ fn activity_label(
     pointer_visible: bool,
 ) -> String {
     let interaction_domain = &activity.interaction_domain_label;
-    let operation = operation_label(activity.kind, i18n);
+    let operation = operation_label(&activity.kind, i18n);
     let state_suffix = if state == InteractionDomainState::Paused {
         format!(" · {}", i18n.text(Message::InteractionDomainPaused))
     } else {
@@ -708,21 +1059,36 @@ fn activity_label(
     }
 }
 
-fn operation_label(kind: AgentInputKind, i18n: &Localizer) -> &'static str {
+fn operation_label(kind: &AgentInputKind, i18n: &Localizer) -> String {
     match kind {
-        AgentInputKind::PointerMove => i18n.text(Message::AgentPointerMove),
-        AgentInputKind::Click { button: 0x111 } => i18n.text(Message::AgentRightClick),
-        AgentInputKind::Click { button: 0x112 } => i18n.text(Message::AgentMiddleClick),
-        AgentInputKind::Click { .. } => i18n.text(Message::AgentClick),
-        AgentInputKind::Scroll { dx, dy } if dy.abs() >= dx.abs() && dy < 0.0 => {
-            i18n.text(Message::AgentScrollUp)
+        AgentInputKind::PointerMove => i18n.text(Message::AgentPointerMove).to_owned(),
+        AgentInputKind::Click { button: 0x111 } => i18n.text(Message::AgentRightClick).to_owned(),
+        AgentInputKind::Click { button: 0x112 } => i18n.text(Message::AgentMiddleClick).to_owned(),
+        AgentInputKind::Click { .. } => i18n.text(Message::AgentClick).to_owned(),
+        AgentInputKind::Scroll { dx, dy } if dy.abs() >= dx.abs() && *dy < 0.0 => {
+            i18n.text(Message::AgentScrollUp).to_owned()
         }
         AgentInputKind::Scroll { dx, dy } if dy.abs() >= dx.abs() => {
-            i18n.text(Message::AgentScrollDown)
+            i18n.text(Message::AgentScrollDown).to_owned()
         }
-        AgentInputKind::Scroll { dx, .. } if dx < 0.0 => i18n.text(Message::AgentScrollLeft),
-        AgentInputKind::Scroll { .. } => i18n.text(Message::AgentScrollRight),
-        AgentInputKind::Keyboard => i18n.text(Message::AgentKeyboard),
+        AgentInputKind::Scroll { dx, .. } if *dx < 0.0 => {
+            i18n.text(Message::AgentScrollLeft).to_owned()
+        }
+        AgentInputKind::Scroll { .. } => i18n.text(Message::AgentScrollRight).to_owned(),
+        AgentInputKind::Keyboard {
+            key_name: Some(key),
+        } => format!("{}: {key}", i18n.text(Message::AgentKeyboard)),
+        AgentInputKind::Keyboard { key_name: None } => i18n.text(Message::AgentKeyboard).to_owned(),
+        AgentInputKind::PointerButton { button: 0x111, .. } => {
+            i18n.text(Message::AgentRightClick).to_owned()
+        }
+        AgentInputKind::PointerButton { button: 0x112, .. } => {
+            i18n.text(Message::AgentMiddleClick).to_owned()
+        }
+        AgentInputKind::PointerButton { .. } => i18n.text(Message::AgentClick).to_owned(),
+        AgentInputKind::Key { key_name, .. } => {
+            format!("{}: {key_name}", i18n.text(Message::AgentKeyboard))
+        }
     }
 }
 
@@ -744,10 +1110,6 @@ fn scaled_alpha(alpha: u8, numerator: u16, denominator: u16) -> u8 {
     u8::try_from(scaled.min(255)).unwrap_or(255)
 }
 
-/// Rasterize an embedded SVG to premultiplied BGRA8 and upload it as one
-/// sprite texture. Same path-only pipeline as the compositor's software
-/// cursor: tiny-skia emits premultiplied RGBA8, flux samples premultiplied
-/// BGRA8, so the red and blue channels swap on upload.
 fn upload_sprite(device: &flux::Device, svg: &str, width: u32, height: u32) -> Option<flux::Image> {
     let tree = usvg::Tree::from_data(svg.as_bytes(), &usvg::Options::default()).ok()?;
     let mut pixmap = tiny_skia::Pixmap::new(width, height)?;
@@ -810,10 +1172,6 @@ fn pointer_label_rect(position: Point, width: f32, display: (f32, f32)) -> Rect 
     }
 }
 
-/// Damage footprint of a pointer-anchored label: the label can sit on either
-/// side of (and above/below) the pointer and its measured width is only known
-/// at render time, so cover the widest clamp on both axes plus the pointer
-/// sprite's own square.
 fn pointer_label_footprint(position: Point, display: (f32, f32)) -> tessera_model::Rect {
     let max_width = 290.0f32.min((display.0 - 16.0).max(1.0));
     let x0 = (position.x as f32 - max_width - 20.0)
@@ -870,7 +1228,48 @@ fn render_shape(
 mod tests {
     use super::*;
 
-    fn activity(sequence: u64, kind: AgentInputKind, position: Option<Point>) -> AgentActivity {
+    #[test]
+    fn ai_polarities_rasterize_with_identical_coverage() {
+        let shapes = ["default", "pointer", "text", "crosshair", "wait"];
+        for shape in shapes {
+            let light_file = AI_THEME_LIGHT
+                .get_file(format!("cursors/{shape}.svg"))
+                .expect("light shape exists");
+            let dark_file = AI_THEME_DARK
+                .get_file(format!("cursors/{shape}.svg"))
+                .expect("dark shape exists");
+
+            let render = |svg: &[u8]| {
+                let tree = usvg::Tree::from_data(svg, &usvg::Options::default()).unwrap();
+                let mut pixels = tiny_skia::Pixmap::new(24, 24).unwrap();
+                resvg::render(
+                    &tree,
+                    tiny_skia::Transform::from_scale(
+                        24.0 / tree.size().width(),
+                        24.0 / tree.size().height(),
+                    ),
+                    &mut pixels.as_mut(),
+                );
+                pixels.take()
+            };
+            let a = render(light_file.contents());
+            let b = render(dark_file.contents());
+            assert_ne!(a, b);
+            assert!(a.chunks_exact(4).any(|pixel| pixel[3] > 0));
+            assert!(
+                a.chunks_exact(4)
+                    .zip(b.chunks_exact(4))
+                    .all(|(a, b)| a[3] == b[3])
+            );
+        }
+    }
+
+    fn activity(
+        sequence: u64,
+        kind: AgentInputKind,
+        position: Option<Point>,
+        cursor_shape: Option<u32>,
+    ) -> AgentActivity {
         AgentActivity {
             sequence,
             interaction_domain: InteractionDomainId(7),
@@ -878,60 +1277,64 @@ mod tests {
             window: WindowId(42),
             position,
             kind,
-        }
-    }
-
-    fn visual_of(activity: AgentActivity) -> VisualActivity {
-        let now = Instant::now();
-        VisualActivity {
-            click_pulse: activity.position.and_then(|position| {
-                if let AgentInputKind::Click { button } = activity.kind {
-                    Some(ClickPulse {
-                        position,
-                        button,
-                        at: now,
-                    })
-                } else {
-                    None
-                }
-            }),
-            latest_at: now,
-            latest: activity,
-            pointer_window: None,
-            pointer_position: None,
+            cursor_shape,
         }
     }
 
     #[test]
-    fn keyboard_activity_keeps_same_window_pointer_without_exposing_a_key() {
+    fn keyboard_activity_manifests_key_label() {
         let mut feedback = AgentFeedback::without_sprites();
         feedback.update_agent_activity(&activity(
             1,
             AgentInputKind::PointerMove,
             Some(Point { x: 120, y: 80 }),
+            Some(1),
         ));
-        feedback.update_agent_activity(&activity(2, AgentInputKind::Keyboard, None));
+        feedback.update_agent_activity(&activity(
+            2,
+            AgentInputKind::Keyboard {
+                key_name: Some("↵ Enter".into()),
+            },
+            None,
+            None,
+        ));
 
         let visual = feedback
             .activity
             .get(&InteractionDomainId(7))
             .expect("activity");
         assert_eq!(visual.pointer_position, Some(Point { x: 120, y: 80 }));
-        assert_eq!(visual.latest.kind, AgentInputKind::Keyboard);
+        assert_eq!(visual.cursor_shape, Some(1));
         assert_eq!(
-            operation_label(visual.latest.kind, &Localizer::new("en-US")),
-            "Keyboard"
+            visual.latest.kind,
+            AgentInputKind::Keyboard {
+                key_name: Some("↵ Enter".into())
+            }
+        );
+        assert_eq!(visual.keycast.len(), 1);
+        assert_eq!(visual.keycast[0].label, "↵ Enter");
+        assert_eq!(
+            operation_label(&visual.latest.kind, &Localizer::new("en-US")),
+            "Keyboard: ↵ Enter"
         );
     }
 
     #[test]
     fn stale_activity_cannot_rewind_visual_state() {
         let mut feedback = AgentFeedback::without_sprites();
-        feedback.update_agent_activity(&activity(2, AgentInputKind::Keyboard, None));
+        feedback.update_agent_activity(&activity(
+            2,
+            AgentInputKind::Keyboard {
+                key_name: Some("Esc".into()),
+            },
+            None,
+            None,
+        ));
         feedback.update_agent_activity(&activity(
             1,
             AgentInputKind::Click { button: 0x110 },
             Some(Point { x: 1, y: 2 }),
+            Some(4),
         ));
         let visual = feedback
             .activity
@@ -954,75 +1357,117 @@ mod tests {
     }
 
     #[test]
-    fn click_glyphs_highlight_the_pressed_button() {
+    fn click_pulse_is_recorded() {
         let position = Point { x: 50, y: 50 };
-        let now = Instant::now();
-        for (button, glyph) in [
-            (0x110, PointerGlyph::ClickLeft),
-            (0x111, PointerGlyph::ClickRight),
-            (0x112, PointerGlyph::ClickMiddle),
-        ] {
-            let visual = visual_of(activity(
-                1,
-                AgentInputKind::Click { button },
-                Some(position),
-            ));
-            assert_eq!(pointer_glyph(&visual, position, now), glyph);
-        }
-        // The glyph is transient: it falls back to the arrow cursor.
-        let mut visual = visual_of(activity(
+        let act = activity(
             1,
             AgentInputKind::Click { button: 0x110 },
             Some(position),
-        ));
-        visual.click_pulse = visual.click_pulse.map(|pulse| ClickPulse {
-            at: pulse.at - CLICK_GLYPH_FOR,
-            ..pulse
-        });
-        assert_eq!(
-            pointer_glyph(&visual, position, Instant::now()),
-            PointerGlyph::Cursor
+            Some(1),
         );
-        // A click somewhere else is not where the pointer is now.
-        let visual = visual_of(activity(
-            2,
-            AgentInputKind::Click { button: 0x110 },
-            Some(Point { x: 10, y: 10 }),
-        ));
-        assert_eq!(pointer_glyph(&visual, position, now), PointerGlyph::Cursor);
+        let mut feedback = AgentFeedback::without_sprites();
+        feedback.update_agent_activity(&act);
+        let visual = feedback.activity.get(&InteractionDomainId(7)).unwrap();
+        assert!(visual.click_pulse.is_some());
+        assert_eq!(visual.click_pulse.unwrap().position, position);
     }
 
     #[test]
-    fn fresh_scrolls_show_the_wheel_glyph() {
-        let position = Point { x: 50, y: 50 };
-        let visual = visual_of(activity(
+    fn cursor_shape_updates_dynamically() {
+        let mut feedback = AgentFeedback::without_sprites();
+        feedback.update_agent_activity(&activity(
             1,
-            AgentInputKind::Scroll { dx: 0.0, dy: -1.0 },
-            Some(position),
+            AgentInputKind::PointerMove,
+            Some(Point { x: 10, y: 10 }),
+            Some(1),
         ));
         assert_eq!(
-            pointer_glyph(&visual, position, Instant::now()),
-            PointerGlyph::ClickMiddle
+            feedback
+                .activity
+                .get(&InteractionDomainId(7))
+                .unwrap()
+                .cursor_shape,
+            Some(1)
         );
-        let mut stale = visual;
-        stale.latest_at -= SCROLL_GLYPH_FOR;
+        feedback.update_agent_activity(&activity(
+            2,
+            AgentInputKind::PointerMove,
+            Some(Point { x: 20, y: 20 }),
+            Some(9), // text / ibeam
+        ));
         assert_eq!(
-            pointer_glyph(&stale, position, Instant::now()),
-            PointerGlyph::Cursor
+            feedback
+                .activity
+                .get(&InteractionDomainId(7))
+                .unwrap()
+                .cursor_shape,
+            Some(9)
         );
-        let movement = visual_of(activity(2, AgentInputKind::PointerMove, Some(position)));
-        assert_eq!(
-            pointer_glyph(&movement, position, Instant::now()),
-            PointerGlyph::Cursor
-        );
+    }
+
+    #[test]
+    fn keycast_hud_accumulates_and_bounds_items() {
+        let mut feedback = AgentFeedback::without_sprites();
+        for i in 1..=6 {
+            feedback.update_agent_activity(&activity(
+                i,
+                AgentInputKind::Keyboard {
+                    key_name: Some(format!("Key{i}")),
+                },
+                None,
+                None,
+            ));
+        }
+        let visual = feedback.activity.get(&InteractionDomainId(7)).unwrap();
+        assert_eq!(visual.keycast.len(), MAX_KEYCAST_ITEMS);
+        assert_eq!(visual.keycast.last().unwrap().label, "Key6");
+    }
+
+    #[test]
+    fn pointer_button_and_key_states_manifest_in_feedback() {
+        let mut feedback = AgentFeedback::without_sprites();
+        // Drag press down
+        feedback.update_agent_activity(&activity(
+            1,
+            AgentInputKind::PointerButton {
+                button: 0x110,
+                state: tessera_model::input::ButtonState::Pressed,
+            },
+            Some(Point { x: 40, y: 50 }),
+            Some(1),
+        ));
+        let visual = feedback.activity.get(&InteractionDomainId(7)).unwrap();
+        assert!(visual.click_pulse.is_some());
+        assert_eq!(visual.click_pulse.unwrap().position, Point { x: 40, y: 50 });
+
+        // Key down
+        feedback.update_agent_activity(&activity(
+            2,
+            AgentInputKind::Key {
+                key_name: "Ctrl".into(),
+                state: tessera_model::input::ButtonState::Pressed,
+            },
+            None,
+            None,
+        ));
+        let visual = feedback.activity.get(&InteractionDomainId(7)).unwrap();
+        assert_eq!(visual.keycast.last().unwrap().label, "Ctrl");
     }
 
     #[test]
     fn labels_are_localized_and_unicode_safe() {
         let zh = Localizer::new("zh-CN");
-        assert_eq!(operation_label(AgentInputKind::Keyboard, &zh), "键盘输入");
         assert_eq!(
-            operation_label(AgentInputKind::Click { button: 0x111 }, &zh),
+            operation_label(
+                &AgentInputKind::Keyboard {
+                    key_name: Some("↵ 回车".into())
+                },
+                &zh
+            ),
+            "键盘输入: ↵ 回车"
+        );
+        assert_eq!(
+            operation_label(&AgentInputKind::Click { button: 0x111 }, &zh),
             "右键点击"
         );
         assert_eq!(tessera_chrome::truncate("智能体正在操作", 5), "智能体正…");

@@ -599,8 +599,8 @@ const fn unavailable_key_action_feature(
     action: tessera_model::keybind::Action,
 ) -> Option<&'static str> {
     match action {
-        tessera_model::keybind::Action::TogglePrism if !cfg!(feature = "chrome-prism") => {
-            Some("chrome-prism")
+        tessera_model::keybind::Action::TogglePivot if !cfg!(feature = "chrome-pivot") => {
+            Some("chrome-pivot")
         }
         tessera_model::keybind::Action::ToggleControlCenter
             if !cfg!(any(feature = "chrome-control-center", feature = "chrome-command-panel")) =>

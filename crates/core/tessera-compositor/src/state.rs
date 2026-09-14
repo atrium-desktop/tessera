@@ -789,6 +789,30 @@ impl State {
     pub(crate) fn live_surfaces_pub(&self) -> impl Iterator<Item = *mut SurfaceRec> + '_ {
         self.surfaces.iter().copied().filter(|p| !p.is_null())
     }
+
+    /// Look up a surface record by its underlying `wl_surface` resource.
+    pub(crate) fn surface_by_resource(&self, resource: *mut ffi::wl_resource) -> *mut SurfaceRec {
+        if resource.is_null() {
+            return std::ptr::null_mut();
+        }
+        self.surfaces
+            .iter()
+            .copied()
+            .find(|p| !p.is_null() && unsafe { (**p).resource == resource })
+            .unwrap_or(std::ptr::null_mut())
+    }
+
+    /// Look up a surface record by its `xdg_toplevel` resource.
+    pub(crate) fn surface_by_toplevel(&self, toplevel: *mut ffi::wl_resource) -> *mut SurfaceRec {
+        if toplevel.is_null() {
+            return std::ptr::null_mut();
+        }
+        self.surfaces
+            .iter()
+            .copied()
+            .find(|p| !p.is_null() && unsafe { (**p).xdg_toplevel == toplevel })
+            .unwrap_or(std::ptr::null_mut())
+    }
 }
 
 /// Ceiling on remembered per-`app_id` floating geometries. Matches the

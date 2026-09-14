@@ -2125,6 +2125,11 @@ unsafe extern "C" fn surface_resource_destroy(resource: *mut ffi::wl_resource) {
                 {
                     drag.icon = std::ptr::null_mut();
                 }
+                if runtime.implicit_grab_surface == resource {
+                    runtime.implicit_grab_surface = std::ptr::null_mut();
+                    runtime.implicit_grab_active = false;
+                    runtime.client_pressed_buttons.clear();
+                }
                 if runtime.pointer_focus == resource {
                     runtime.pointer_focus = std::ptr::null_mut();
                 }

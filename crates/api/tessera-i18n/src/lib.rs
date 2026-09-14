@@ -72,6 +72,14 @@ pub enum Message {
     UntitledWindow,
     SearchApplications,
     NoApplicationsFound,
+    CategoryAll,
+    CategoryDevelopment,
+    CategoryOffice,
+    CategoryGraphics,
+    CategoryMedia,
+    CategoryNetwork,
+    CategorySystem,
+    CategoryUtilities,
     TryAnotherSearch,
     PreviousWindows,
     MoreWindows,
@@ -312,6 +320,14 @@ impl Localizer {
             Message::UntitledWindow => &catalog.untitled_window,
             Message::SearchApplications => &catalog.search_applications,
             Message::NoApplicationsFound => &catalog.no_applications_found,
+            Message::CategoryAll => &catalog.category_all,
+            Message::CategoryDevelopment => &catalog.category_development,
+            Message::CategoryOffice => &catalog.category_office,
+            Message::CategoryGraphics => &catalog.category_graphics,
+            Message::CategoryMedia => &catalog.category_media,
+            Message::CategoryNetwork => &catalog.category_network,
+            Message::CategorySystem => &catalog.category_system,
+            Message::CategoryUtilities => &catalog.category_utilities,
             Message::TryAnotherSearch => &catalog.try_another_search,
             Message::PreviousWindows => &catalog.previous_windows,
             Message::MoreWindows => &catalog.more_windows,
@@ -575,6 +591,14 @@ struct Catalog {
     untitled_window: String,
     search_applications: String,
     no_applications_found: String,
+    category_all: String,
+    category_development: String,
+    category_office: String,
+    category_graphics: String,
+    category_media: String,
+    category_network: String,
+    category_system: String,
+    category_utilities: String,
     one_application: String,
     many_applications: String,
     try_another_search: String,
@@ -832,6 +856,8 @@ mod tests {
         let zh = Localizer::new("zh-CN");
         assert_eq!(en.text(Message::SearchApplications), "Search applications");
         assert_eq!(zh.text(Message::SearchApplications), "搜索应用");
+        assert_eq!(en.text(Message::CategoryDevelopment), "Dev");
+        assert_eq!(zh.text(Message::CategoryDevelopment), "开发");
         assert_eq!(en.application_count(2), "2 applications");
         assert_eq!(zh.application_count(2), "2 个应用");
         assert_eq!(en.recent_notification_count(1), "1 recent notification");

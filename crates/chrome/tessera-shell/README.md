@@ -9,7 +9,7 @@ as typed intents to the compositor loop.
 - Host pluggable `Chrome` components in a defined render order.
 - Own the shared chrome contract — `Chrome`, `ChromeCommand`, `ChromeUpdate`,
   `ChromeEvents`, and the `AppCatalog` snapshot — consumed by in-crate
-  components and by the separate `tessera-dock`, `tessera-prism`, `tessera-hud`,
+  components and by the separate `tessera-dock`, `tessera-pivot`, `tessera-hud`,
   and `tessera-control-center` component crates. Persistent settings modules
   live in the `tessera-settings` library crate, hosted by the control center.
 - Provide the shared live-preview card model, hit-testing, optical focus,

@@ -962,6 +962,7 @@ impl Chrome for Dock {
             if pressed_this_tile {
                 let t = &tiles[i];
                 if t.launchpad {
+                    out.toggle_pivot = true;
                     out.toggle_launcher = true;
                 } else if let Some(id) = t.focus {
                     out.clicked = Some(id);
@@ -1552,7 +1553,11 @@ impl Dock {
         );
         region.shadow_blur *= shadow_factor;
         region.shadow_offset_y *= shadow_factor;
-        Some(region.with_capture_bounds(BackdropRegion::from(self.capture_footprint(display))))
+        Some(
+            region
+                .with_capture_bounds(BackdropRegion::from(self.capture_footprint(display)))
+                .with_id(liquid_glass_region_id("tessera-dock-bar")),
+        )
     }
 
     fn hover_liquid_glass_region(&self) -> Option<LiquidGlassRegion> {

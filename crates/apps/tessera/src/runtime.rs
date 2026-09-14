@@ -337,18 +337,11 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
     shell.add(Box::new(tessera_shell::Toast::new(std::sync::Arc::clone(
         &notif_queue,
     ))));
-    // Only the binary wires discovery to chrome (ADR-0022); the shell stays
-    // free of `tessera-apps`. Register the launcher after ordinary overlays so its
-    // full-screen surface covers workspace/toast chrome, while the dock (added
-    // last below) remains available like macOS Launchpad. Components start
-    // empty; the application catalog is pushed below and fanned out to every
-    // registered component.
-    shell.add(Box::new(tessera_shell::Launcher::new()));
-    // Prism is the compact application-search surface. It shares the
-    // launcher's catalog and launch/focus event path while keeping its own
-    // Spotlight-style presentation and input state in a standalone crate.
-    #[cfg(feature = "chrome-prism")]
-    shell.add(Box::new(tessera_prism::Prism::new()));
+    // Pivot is the unified system intent and action surface (ADR-0151).
+    // It consolidates application discovery, directed search, window switching,
+    // and system dispatch into a single progressive-disclosure interaction surface.
+    #[cfg(feature = "chrome-pivot")]
+    shell.add(Box::new(tessera_pivot::Pivot::new()));
     // The overview (M9): a modal window/workspace picker over the same live
     // scene; registered with the modal chrome so it covers ordinary overlays.
     shell.add(Box::new(tessera_shell::Overview::new()));

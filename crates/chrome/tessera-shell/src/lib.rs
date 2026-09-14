@@ -4,10 +4,10 @@
 //! The core ([`Shell`]) owns the lens context, the per-frame snapshot of
 //! live toplevels, and the interaction sink ([`ChromeEvents`]); it knows
 //! nothing about what the chrome looks like. Each piece of chrome — the
-//! launcher, the overview — is a [`Chrome`] implementation registered with
+//! overview, dialogs, toasts — is a [`Chrome`] implementation registered with
 //! [`Shell::add`], and renders itself each frame from the shared snapshot
 //! and input. Larger components live in their own crates on top of the same
-//! contract (the dock in `tessera-dock`, Prism in `tessera-prism`, the HUD in
+//! contract (the dock in `tessera-dock`, Pivot in `tessera-pivot`, the HUD in
 //! `tessera-hud`, and the control center in `tessera-control-center`). Adding
 //! or removing a chrome surface is a component change, not a core change.
 //! [`persona`] owns the lightweight personalized-profile convention; its
@@ -36,7 +36,7 @@ pub mod chrome;
 pub mod system;
 pub use chrome::{
     AgentFeedback, AppPicker, BatteryAlert, CapabilityPrompt, ConfirmPrompt, ControlledWindowGuard,
-    Launcher, Overview, ScreenshotSelector, SecretPrompt, Toast, WindowSwitcher,
+    Overview, ScreenshotSelector, SecretPrompt, Toast, WindowSwitcher,
 };
 pub use system::{
     BatteryStatus, ChassisKind, DisplaySettings, DisplayStatus, NetworkState, ResourceProbe,
@@ -419,10 +419,25 @@ impl Shell {
         self.events.dismissed_notification.take()
     }
 
-    /// Whether the chrome asked to toggle the launcher this frame (the dock's
-    /// Launchpad tile). The main loop calls [`Shell::toggle`] when set.
+    /// Whether the chrome asked to toggle Pivot this frame (e.g. clicking the
+    /// dock's Pivot tile).
+    pub fn take_toggle_pivot(&mut self) -> bool {
+        std::mem::take(&mut self.events.toggle_pivot) || std::mem::take(&mut self.events.toggle_launcher)
+    }
+
+    /// Compatibility hook mapping to `take_toggle_pivot()`.
     pub fn take_toggle_launcher(&mut self) -> bool {
-        std::mem::take(&mut self.events.toggle_launcher)
+        self.take_toggle_pivot()
+    }
+
+    /// Drain a pending clipboard copy request from chrome.
+    pub fn take_clipboard_copy(&mut self) -> Option<String> {
+        self.events.clipboard_copy.take()
+    }
+
+    /// Drain a pending natural-language Agent prompt dispatched from Pivot.
+    pub fn take_agent_prompt(&mut self) -> Option<String> {
+        self.events.agent_prompt.take()
     }
 
     /// Toggle overview mode on the component that owns it (M9). Mirrors
@@ -431,6 +446,7 @@ impl Shell {
     pub fn toggle_overview(&mut self) {
         let opening = !self.overview_active();
         if opening {
+            self.broadcast_command(ChromeCommand::ClosePivot);
             self.broadcast_command(ChromeCommand::CloseLauncher);
             self.broadcast_command(ChromeCommand::ClosePrism);
             self.broadcast_command(ChromeCommand::CloseControlCenter);
@@ -866,35 +882,28 @@ impl Shell {
         }
     }
 
-    /// Fire the global application-launcher hotkey. Opening the launcher
-    /// closes other immersive surfaces (Prism, Command Panel, Overview) so
-    /// only one modal surface captures input and owns the screen.
-    pub fn toggle(&mut self) {
+    /// Fire the global Pivot hotkey. Opening Pivot closes other modal
+    /// surfaces so only one captures keyboard input.
+    pub fn toggle_pivot(&mut self) {
         let opening = !self
             .components
             .iter()
-            .any(|component| component.launcher_active());
+            .any(|component| component.pivot_active());
         if opening {
-            self.broadcast_command(ChromeCommand::ClosePrism);
             self.broadcast_command(ChromeCommand::CloseControlCenter);
             self.broadcast_command(ChromeCommand::CloseOverview);
         }
-        self.broadcast_command(ChromeCommand::ToggleLauncher);
+        self.broadcast_command(ChromeCommand::TogglePivot);
     }
 
-    /// Fire the global Prism hotkey. Opening Prism closes other modal
-    /// surfaces so only one catalog surface owns keyboard input.
+    /// Fire the global application-launcher hotkey (mapped to Pivot).
+    pub fn toggle(&mut self) {
+        self.toggle_pivot();
+    }
+
+    /// Fire the global Prism/Spotlight hotkey (mapped to Pivot).
     pub fn toggle_prism(&mut self) {
-        let opening = !self
-            .components
-            .iter()
-            .any(|component| component.prism_active());
-        if opening {
-            self.broadcast_command(ChromeCommand::CloseLauncher);
-            self.broadcast_command(ChromeCommand::CloseControlCenter);
-            self.broadcast_command(ChromeCommand::CloseOverview);
-        }
-        self.broadcast_command(ChromeCommand::TogglePrism);
+        self.toggle_pivot();
     }
 
     /// The union of every component's [`Chrome::reserved`] edges — the space
@@ -1267,10 +1276,10 @@ impl Shell {
                     total.right += edge.right;
                     total
                 });
-            // Immersive modal surfaces (Launcher, Command Panel, Overview) own the whole output:
+            // Immersive modal surfaces (Pivot, Command Panel, Overview) own the whole output:
             // persistent decorations (HUD status chips) floating inside the blurred field hide.
             let immersive_active = components.iter().any(|component| {
-                component.launcher_active()
+                component.pivot_active()
                     || component.control_center_active()
                     || component.command_panel_active()
                     || component.overview_active()

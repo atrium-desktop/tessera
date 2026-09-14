@@ -5,7 +5,7 @@ readme = "README.md"
 version.workspace = true
 edition.workspace = true
 # The compositor binary embeds the original MIT-licensed cursor theme under
-# assets/cursors/Tessera.
+# assets/cursors.
 license.workspace = true
 rust-version.workspace = true
 default-run = "tessera"
@@ -21,12 +21,12 @@ path = "src/main.rs"
 default = ["full-chrome"]
 full-chrome = [
     "chrome-dock",
-    "chrome-prism",
+    "chrome-pivot",
     "chrome-hud",
     "chrome-control-center",
 ]
 chrome-dock = ["dep:tessera-dock"]
-chrome-prism = ["dep:tessera-prism"]
+chrome-pivot = ["dep:tessera-pivot"]
 # The composition root owns the single tray service used by either surface.
 chrome-hud = ["dep:tessera-hud", "dep:tessera-tray"]
 chrome-control-center = ["dep:tessera-control-center", "dep:tessera-tray"]
@@ -49,7 +49,7 @@ tessera-i18n = { workspace = true }
 # Chrome components split out of tessera-shell (ADR-0044); only the binary
 # composes them into the shell.
 tessera-dock = { workspace = true, optional = true }
-tessera-prism = { workspace = true, optional = true }
+tessera-pivot = { workspace = true, optional = true }
 tessera-hud = { workspace = true, optional = true }
 # SNI tray service shared by the HUD and the control center (ADR-0080).
 tessera-tray = { workspace = true, optional = true }

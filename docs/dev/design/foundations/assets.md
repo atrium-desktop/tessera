@@ -12,7 +12,7 @@ they do not bypass the color, shape, accessibility, or platform contracts.
 |------------|------------------|
 | Application icons | Resolve through XDG desktop entries and the configured icon theme. Preserve application identity. |
 | Generic chrome icons | Prefer vector or `lens` drawing primitives that inherit a semantic foreground role. |
-| Cursors | Use the bundled Tessera SVG cursor theme with standard cursor-name aliases and configured size fallback. |
+| Cursors | Use the [cursor families](cursors.md): complete user light/dark and AI light/dark SVG themes with distinct silhouettes. |
 | Illustrations | No shared illustration family is adopted; treat current illustrations as owner-local editorial assets. |
 | Wallpapers | Treat as user content beneath chrome; never assume a friendly luminance or hue. |
 | Persona portraits | Apply role-based frame styles while keeping profile content outside the design token contract. |

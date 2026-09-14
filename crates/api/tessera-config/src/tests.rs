@@ -951,6 +951,24 @@ fn prism_keybind_action_resolves() {
 }
 
 #[test]
+fn pivot_keybind_action_resolves() {
+    let cfg = Config::parse(
+        "schema_version = 2\n\
+             [[keybind]]\n\
+             mods = [\"super\"]\n\
+             key = \"space\"\n\
+             action = \"pivot\"\n",
+    )
+    .unwrap();
+    let (binds, errs) = cfg.resolve_keybinds();
+    assert!(errs.is_empty());
+    assert_eq!(binds.len(), 1);
+    assert_eq!(binds[0].mods, M::SUPER);
+    assert_eq!(binds[0].keysym, 0x20);
+    assert_eq!(binds[0].action, Action::TogglePivot);
+}
+
+#[test]
 fn lock_keybind_action_resolves() {
     let cfg = Config::parse(
         "schema_version = 2\n\

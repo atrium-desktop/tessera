@@ -30,7 +30,7 @@ components:
 | Feature | Component | Additional service |
 |---------|-----------|--------------------|
 | `chrome-dock` | Persistent application Dock | None |
-| `chrome-prism` | Compact application search | None |
+| `chrome-pivot` | System intent and action surface (ADR-0151) | None |
 | `chrome-hud` | Display-only status HUD | StatusNotifierItem tray |
 | `chrome-control-center` | Modal system control center | StatusNotifierItem tray |
 
@@ -38,7 +38,7 @@ For example, build only the Dock and Prism on top of the shared shell:
 
 ```bash
 cargo build -p tessera --no-default-features \
-  --features chrome-dock,chrome-prism
+  --features chrome-dock,chrome-pivot
 ```
 
 Cargo features determine which component crates enter the binary. Runtime

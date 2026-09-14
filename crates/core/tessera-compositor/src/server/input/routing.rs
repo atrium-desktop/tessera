@@ -227,26 +227,33 @@ impl Server {
         use tessera_model::input::{ButtonState, InputEvent, SyntheticInputAction};
 
         let runtime = self.state.seat_runtime(seat)?;
+        let rec = self.find_surface_by_window_id(window_id);
+        if rec.is_null() {
+            return None;
+        }
+        let is_same_window_drag = runtime.drag.as_ref().is_some_and(|drag| unsafe {
+            drag.origin == (*rec).resource
+                || (!runtime.implicit_grab_surface.is_null()
+                    && runtime.implicit_grab_surface == (*rec).resource)
+        });
         if self.state.session_lock_phase.is_active()
             || actions.is_empty()
             || actions.len() > 64
             || runtime.interactive.is_some()
-            || runtime.drag.is_some()
-            || runtime.implicit_grab_active
-            || runtime.depressed_mods != tessera_model::input::Mods::NONE
+            || (runtime.drag.is_some() && !is_same_window_drag)
             || !self.state.authority.seat_controls_window(seat, window_id)
         {
             return None;
         }
-        let rec = self.find_surface_by_window_id(window_id);
-        if rec.is_null()
-            || unsafe {
-                (*rec).xdg_toplevel.is_null()
-                    || !(*rec).mapped
-                    || (*rec).window.minimized
-                    || (require_physical_visibility && !self.visible().contains(&window_id))
-            }
-        {
+        if unsafe {
+            (*rec).xdg_toplevel.is_null()
+                || !(*rec).mapped
+                || (*rec).window.minimized
+                || (require_physical_visibility && !self.visible().contains(&window_id))
+                || (runtime.implicit_grab_active
+                    && !runtime.implicit_grab_surface.is_null()
+                    && runtime.implicit_grab_surface != (*rec).resource)
+        } {
             return None;
         }
         let (origin, size) = unsafe {
@@ -283,6 +290,7 @@ impl Server {
             }
             match action {
                 SyntheticInputAction::Click { button, .. }
+                | SyntheticInputAction::PointerButton { button, .. }
                     if !(0x110..=0x117).contains(&button) =>
                 {
                     return None;
@@ -295,7 +303,12 @@ impl Server {
                 {
                     return None;
                 }
-                SyntheticInputAction::KeyPress { code } if code > 0x2ff => return None,
+                SyntheticInputAction::KeyPress { code }
+                | SyntheticInputAction::Key { code, .. }
+                    if code > 0x2ff =>
+                {
+                    return None;
+                }
                 _ => {}
             }
         }
@@ -319,6 +332,17 @@ impl Server {
                         state: ButtonState::Released,
                     });
                 }
+                SyntheticInputAction::PointerButton {
+                    position,
+                    button,
+                    state,
+                } => {
+                    if let Some(pos) = position {
+                        let (x, y) = to_global(pos)?;
+                        events.push(InputEvent::pointer_move_to(x, y));
+                    }
+                    events.push(InputEvent::PointerButton { button, state });
+                }
                 SyntheticInputAction::Scroll { position, dx, dy } => {
                     let (x, y) = to_global(position)?;
                     events.push(InputEvent::pointer_move_to(x, y));
@@ -340,6 +364,9 @@ impl Server {
                         code,
                         state: ButtonState::Released,
                     });
+                }
+                SyntheticInputAction::Key { code, state } => {
+                    events.push(InputEvent::Key { code, state });
                 }
             }
         }
@@ -1222,6 +1249,14 @@ impl Server {
     /// The renderer consults this to pick which cursor to paint.
     pub fn cursor_shape(&self) -> u32 {
         self.state.cursor_shape
+    }
+
+    /// The last cursor shape requested on a specific seat, or `None` if the
+    /// seat has no runtime allocated.
+    pub fn seat_cursor_shape(&self, seat: SeatId) -> Option<u32> {
+        self.state
+            .seat_runtime(seat)
+            .map(|runtime| runtime.cursor_shape.max(1))
     }
 
     /// Whether the outer host cursor must be hidden because the focused

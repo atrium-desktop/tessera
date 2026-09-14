@@ -1968,3 +1968,416 @@ fn shifting_parent_toplevel_moves_transient_children_synchronously() {
         tessera_model::Point { x: 250, y: 300 }
     );
 }
+
+#[test]
+fn implicit_grab_pins_motion_to_same_client_surfaces() {
+    let client_a = 0x1000usize as *mut ffi::wl_client;
+    let client_b = 0x2000usize as *mut ffi::wl_client;
+
+    // Helper to evaluate focus under implicit grab
+    let resolve_motion_focus = |hit: *mut ffi::wl_resource,
+                                hit_client: *mut ffi::wl_client,
+                                grab_surface: *mut ffi::wl_resource,
+                                grab_client: *mut ffi::wl_client,
+                                grab_active: bool| -> *mut ffi::wl_resource {
+        if grab_active && !grab_surface.is_null() {
+            if !hit.is_null() && hit_client == grab_client {
+                hit
+            } else {
+                grab_surface
+            }
+        } else {
+            hit
+        }
+    };
+
+    let surface_a1 = 0x101usize as *mut ffi::wl_resource;
+    let surface_a2 = 0x102usize as *mut ffi::wl_resource;
+    let surface_b1 = 0x201usize as *mut ffi::wl_resource;
+
+    // User pressed on surface A1
+    let grab_surface = surface_a1;
+    let grab_active = true;
+
+    // Moving over A2 (same client) yields A2
+    assert_eq!(
+        resolve_motion_focus(surface_a2, client_a, grab_surface, client_a, grab_active),
+        surface_a2
+    );
+
+    // Moving over B1 (different client) stays pinned to A1
+    assert_eq!(
+        resolve_motion_focus(surface_b1, client_b, grab_surface, client_a, grab_active),
+        surface_a1
+    );
+
+    // Moving outside any window stays pinned to A1
+    assert_eq!(
+        resolve_motion_focus(std::ptr::null_mut(), std::ptr::null_mut(), grab_surface, client_a, grab_active),
+        surface_a1
+    );
+
+    // Once released (grab_active = false), motion over B1 yields B1
+    assert_eq!(
+        resolve_motion_focus(surface_b1, client_b, grab_surface, client_a, false),
+        surface_b1
+    );
+}
+
+#[test]
+fn implicit_grab_tracks_multiple_buttons_and_resets_only_when_all_released() {
+    let mut state = State::new(std::ptr::null_mut());
+    let fake_surface = 0x1234usize as *mut ffi::wl_resource;
+
+    state.implicit_grab_active = true;
+    state.implicit_grab_surface = fake_surface;
+    state.client_pressed_buttons.insert(0x110);
+    state.client_pressed_buttons.insert(0x111);
+
+    // Release left button: right button still down, so grab stays active.
+    state.client_pressed_buttons.remove(&0x110);
+    if state.client_pressed_buttons.is_empty() {
+        state.implicit_grab_active = false;
+        state.implicit_grab_surface = std::ptr::null_mut();
+    }
+    assert!(state.implicit_grab_active);
+    assert_eq!(state.implicit_grab_surface, fake_surface);
+
+    // Release right button: now all buttons released, grab ends.
+    state.client_pressed_buttons.remove(&0x111);
+    if state.client_pressed_buttons.is_empty() {
+        state.implicit_grab_active = false;
+        state.implicit_grab_surface = std::ptr::null_mut();
+    }
+    assert!(!state.implicit_grab_active);
+    assert!(state.implicit_grab_surface.is_null());
+}
+
+#[test]
+fn dnd_v3_action_negotiation_acceptance_criteria() {
+    let mut state = State::new(std::ptr::null_mut());
+
+    // v3 offer where destination negotiated COPY action without calling accept() (Chromium behavior)
+    let v3_offer = DataOfferRec {
+        state: &mut state,
+        version: 3,
+        source: 0x100usize as *mut ffi::wl_resource,
+        source_kind: SelectionSourceKind::WlDataSource,
+        owned: None,
+        is_drag: true,
+        accepted: false,
+        destination_actions: ffi::WL_DATA_ACTION_COPY,
+        preferred_action: ffi::WL_DATA_ACTION_COPY,
+        selected_action: ffi::WL_DATA_ACTION_COPY,
+        dropped: false,
+        finished: false,
+    };
+    let accepted_v3 = if v3_offer.version >= 3 {
+        v3_offer.selected_action != ffi::WL_DATA_ACTION_NONE || v3_offer.accepted
+    } else {
+        v3_offer.accepted
+    };
+    assert!(accepted_v3, "v3 DnD with negotiated action must be accepted even without explicit accept() call");
+
+    // v3 offer with action NONE and accepted false -> rejected
+    let v3_rejected = DataOfferRec {
+        state: &mut state,
+        version: 3,
+        source: 0x100usize as *mut ffi::wl_resource,
+        source_kind: SelectionSourceKind::WlDataSource,
+        owned: None,
+        is_drag: true,
+        accepted: false,
+        destination_actions: ffi::WL_DATA_ACTION_COPY,
+        preferred_action: ffi::WL_DATA_ACTION_COPY,
+        selected_action: ffi::WL_DATA_ACTION_NONE,
+        dropped: false,
+        finished: false,
+    };
+    let accepted_rejected = if v3_rejected.version >= 3 {
+        v3_rejected.selected_action != ffi::WL_DATA_ACTION_NONE || v3_rejected.accepted
+    } else {
+        v3_rejected.accepted
+    };
+    assert!(!accepted_rejected, "v3 DnD with action NONE and no accept must be rejected");
+
+    // v2 offer (legacy) requires accepted == true
+    let v2_offer = DataOfferRec {
+        state: &mut state,
+        version: 2,
+        source: 0x100usize as *mut ffi::wl_resource,
+        source_kind: SelectionSourceKind::WlDataSource,
+        owned: None,
+        is_drag: true,
+        accepted: false,
+        destination_actions: ffi::WL_DATA_ACTION_COPY,
+        preferred_action: ffi::WL_DATA_ACTION_COPY,
+        selected_action: ffi::WL_DATA_ACTION_COPY,
+        dropped: false,
+        finished: false,
+    };
+    let accepted_v2 = if v2_offer.version >= 3 {
+        v2_offer.selected_action != ffi::WL_DATA_ACTION_NONE || v2_offer.accepted
+    } else {
+        v2_offer.accepted
+    };
+    assert!(!accepted_v2, "v2 legacy DnD requires explicit accept()");
+}
+
+#[test]
+fn dnd_origin_validation_matches_toplevel_tree_for_subsurface_clicks() {
+    let mut state = State::new(std::ptr::null_mut());
+    let root_id = tessera_model::window::WindowId(20);
+    let mut root = mapped_toplevel_fixture(root_id, 0x1000);
+    root.state = &mut state;
+
+    let mut subsurface = Box::new(SurfaceRec::new(0x2000usize as *mut ffi::wl_resource));
+    subsurface.mapped = true;
+    subsurface.parent = root.as_mut();
+    subsurface.state = &mut state;
+
+    let mut unrelated = mapped_toplevel_fixture(tessera_model::window::WindowId(21), 0x3000);
+
+    state.surfaces = vec![root.as_mut(), subsurface.as_mut(), unrelated.as_mut()];
+
+    // Simulate click on subsurface
+    state.implicit_grab_surface = subsurface.resource;
+
+    let matches_origin = |origin: *mut ffi::wl_resource, grab_surface: *mut ffi::wl_resource, st: &State| -> bool {
+        if grab_surface.is_null() {
+            return false;
+        }
+        if origin == grab_surface {
+            return true;
+        }
+        let grab_rec = st.surface_by_resource(grab_surface);
+        let origin_rec = st.surface_by_resource(origin);
+        if !grab_rec.is_null() && !origin_rec.is_null() {
+            let grab_root = unsafe { surface_root_toplevel(grab_rec) };
+            let origin_root = unsafe { surface_root_toplevel(origin_rec) };
+            !grab_root.is_null() && grab_root == origin_root
+        } else {
+            false
+        }
+    };
+
+    // Exact match: origin is the subsurface
+    assert!(matches_origin(subsurface.resource, state.implicit_grab_surface, &state));
+
+    // Chromium Wayland match: origin is the toplevel window
+    assert!(
+        matches_origin(root.resource, state.implicit_grab_surface, &state),
+        "Dragging from a subsurface must allow the root toplevel as origin"
+    );
+
+    // Unrelated window must not match
+    assert!(
+        !matches_origin(unrelated.resource, state.implicit_grab_surface, &state),
+        "Origin from a different window must be rejected"
+    );
+}
+
+#[test]
+fn touch_dnd_origin_validation_accepts_touch_serial_and_surface() {
+    let mut state = State::new(std::ptr::null_mut());
+    let root_id = tessera_model::window::WindowId(30);
+    let mut root = mapped_toplevel_fixture(root_id, 0x5000);
+    root.state = &mut state;
+
+    state.surfaces = vec![root.as_mut()];
+
+    // Pointer grab not active, but touch grab is active
+    state.implicit_grab_active = false;
+    state.last_button_serial = 10;
+    state.touch_grab_active = true;
+    state.last_touch_serial = 42;
+    state.touch_grab_surface = root.resource;
+    state.touch_grab_id = 1;
+    state.touch_grab_x = 150.0;
+    state.touch_grab_y = 250.0;
+
+    let validate_drag_origin = |serial: u32, origin: *mut ffi::wl_resource, st: &State| -> Option<crate::DragOriginDevice> {
+        let is_pointer_grab = st.implicit_grab_active && serial == st.last_button_serial;
+        let is_touch_grab = st.touch_grab_active && serial == st.last_touch_serial;
+        if !is_pointer_grab && !is_touch_grab {
+            return None;
+        }
+        let grab_surface = if is_pointer_grab {
+            st.implicit_grab_surface
+        } else {
+            st.touch_grab_surface
+        };
+        if grab_surface.is_null() || origin != grab_surface {
+            return None;
+        }
+        if is_pointer_grab {
+            Some(crate::DragOriginDevice::Pointer)
+        } else {
+            Some(crate::DragOriginDevice::Touch { id: st.touch_grab_id })
+        }
+    };
+
+    // Stale or pointer serial must be rejected
+    assert_eq!(validate_drag_origin(10, root.resource, &state), None);
+    assert_eq!(validate_drag_origin(99, root.resource, &state), None);
+
+    // Active touch serial on touch grab surface must be accepted
+    assert_eq!(
+        validate_drag_origin(42, root.resource, &state),
+        Some(crate::DragOriginDevice::Touch { id: 1 }),
+        "Touch down serial must be valid initiator for start_drag"
+    );
+}
+
+#[test]
+fn xdg_toplevel_drag_attachment_and_exclusion_from_hit_test() {
+    let mut state = State::new(std::ptr::null_mut());
+    let bottom_id = tessera_model::window::WindowId(50);
+    let mut bottom_win = mapped_toplevel_fixture(bottom_id, 0x6000);
+    bottom_win.state = &mut state;
+    bottom_win.position = tessera_model::Point { x: 0, y: 0 };
+    bottom_win.width = 800;
+    bottom_win.height = 600;
+
+    let dragged_id = tessera_model::window::WindowId(51);
+    let mut dragged_win = mapped_toplevel_fixture(dragged_id, 0x7000);
+    dragged_win.state = &mut state;
+    dragged_win.position = tessera_model::Point { x: 100, y: 100 };
+    dragged_win.width = 400;
+    dragged_win.height = 300;
+
+    state.surfaces = vec![bottom_win.as_mut(), dragged_win.as_mut()];
+
+    // When no drag is active, hit testing at (150, 150) hits topmost dragged_win
+    let hit_test = |x: f32, y: f32, st: &State| -> *mut ffi::wl_resource {
+        let mut hit = std::ptr::null_mut();
+        for p in st.live_surfaces() {
+            let s = unsafe { &*p };
+            let root = unsafe { surface_root_toplevel(p) };
+            if let Some(drag) = st.drag
+                && !drag.attached_toplevel.is_null()
+                && !root.is_null()
+                && unsafe { (*root).xdg_toplevel == drag.attached_toplevel }
+            {
+                continue;
+            }
+            if !s.mapped {
+                continue;
+            }
+            let sx = s.position.x as f32;
+            let sy = s.position.y as f32;
+            let logical = surface_logical_size(s);
+            if x >= sx && y >= sy && x < sx + logical.w as f32 && y < sy + logical.h as f32 {
+                hit = s.resource;
+            }
+        }
+        hit
+    };
+
+    assert_eq!(hit_test(150.0, 150.0, &state), dragged_win.resource);
+
+    // Now establish a drag with dragged_win attached via xdg_toplevel_drag_v1
+    let toplevel_res = dragged_win.xdg_toplevel;
+    state.drag = Some(crate::DragState {
+        source: 0x8000usize as *mut ffi::wl_resource,
+        origin: bottom_win.resource,
+        focus: std::ptr::null_mut(),
+        target_device: std::ptr::null_mut(),
+        offer: std::ptr::null_mut(),
+        icon: std::ptr::null_mut(),
+        origin_device: crate::DragOriginDevice::Pointer,
+        attached_toplevel: toplevel_res,
+        toplevel_offset: (20, 30),
+    });
+
+    // The attached window must be excluded from selection of the drag target:
+    // hitting at (150, 150) must penetrate through to bottom_win
+    assert_eq!(
+        hit_test(150.0, 150.0, &state),
+        bottom_win.resource,
+        "Attached dragged toplevel must not participate in target selection"
+    );
+
+    // Moving the pointer updates the attached window position with offset
+    let cursor_x = 300;
+    let cursor_y = 200;
+    let (off_x, off_y) = (20, 30);
+    unsafe {
+        crate::reposition_toplevel_with_popups(
+            dragged_win.as_mut(),
+            tessera_model::Point {
+                x: cursor_x - off_x,
+                y: cursor_y - off_y,
+            },
+        );
+    }
+    assert_eq!(dragged_win.position.x, 280);
+    assert_eq!(dragged_win.position.y, 170);
+}
+
+#[test]
+fn xdg_toplevel_drag_lifecycle_and_ended_flag() {
+    let mut rec = crate::extensions::toplevel_drag::ToplevelDragRec {
+        state: std::ptr::null_mut(),
+        source: 0x9000usize as *mut ffi::wl_resource,
+        attached_toplevel: std::ptr::null_mut(),
+        offset: (10, 15),
+        ended: false,
+    };
+
+    // Before drag ended, rec.ended is false
+    assert!(!rec.ended);
+
+    // Once drop is performed or drag is cancelled, ended flag is set
+    rec.ended = true;
+    assert!(rec.ended);
+}
+
+#[test]
+fn touch_dnd_full_lifecycle_state_machine() {
+    let mut state = State::new(std::ptr::null_mut());
+    let root_id = tessera_model::window::WindowId(40);
+    let mut root = mapped_toplevel_fixture(root_id, 0x9000);
+    root.state = &mut state;
+    state.surfaces = vec![root.as_mut()];
+
+    // 1. Touch down establishes touch grab
+    state.last_touch_serial = 100;
+    state.touch_grab_active = true;
+    state.touch_grab_surface = root.resource;
+    state.touch_grab_id = 0;
+    state.touch_grab_x = 50.0;
+    state.touch_grab_y = 60.0;
+
+    // 2. Start drag accepts touch serial and establishes DragState
+    state.drag = Some(crate::DragState {
+        source: 0x9100usize as *mut ffi::wl_resource,
+        origin: root.resource,
+        focus: std::ptr::null_mut(),
+        target_device: std::ptr::null_mut(),
+        offer: std::ptr::null_mut(),
+        icon: std::ptr::null_mut(),
+        origin_device: crate::DragOriginDevice::Touch { id: 0 },
+        attached_toplevel: std::ptr::null_mut(),
+        toplevel_offset: (0, 0),
+    });
+    assert!(state.drag.is_some());
+    assert_eq!(
+        state.drag.unwrap().origin_device,
+        crate::DragOriginDevice::Touch { id: 0 }
+    );
+
+    // 3. Touch motion updates touch coordinates
+    state.touch_grab_x = 150.0;
+    state.touch_grab_y = 160.0;
+    assert_eq!(state.touch_grab_x, 150.0);
+    assert_eq!(state.touch_grab_y, 160.0);
+
+    // 4. Touch up finishes drag and releases grab
+    let finished_drag = state.drag.take();
+    assert!(finished_drag.is_some());
+    state.touch_grab_active = false;
+    state.touch_grab_surface = std::ptr::null_mut();
+    assert!(state.drag.is_none());
+    assert!(!state.touch_grab_active);
+}

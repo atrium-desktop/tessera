@@ -54,7 +54,7 @@ impl Design {
             },
             glass: GlassStyles {
                 chip: GlassStyle::new(0.16, 4.0, 2.0)
-                    .with_material(3.0, 2.4, 0.85, 0.0)
+                    .with_material(1.0, 0.7, 1.05, 0.0)
                     .with_curvature(0.65),
                 tooltip: GlassStyle::new(0.14, 10.0, 5.0)
                     .with_material(3.0, 3.0, 0.85, 0.0)
@@ -69,7 +69,7 @@ impl Design {
                     .with_material(4.0, 3.2, 0.8, 0.0)
                     .with_curvature(0.60),
                 dock: GlassStyle::new(0.20, 12.0, 6.0)
-                    .with_material(3.5, 2.4, 0.85, 0.0)
+                    .with_material(1.2, 0.8, 1.05, 0.0)
                     .with_curvature(0.65),
             },
             glass_focus: GlassFocus {
@@ -140,7 +140,7 @@ impl Design {
             colors: colors.product,
             glass: GlassStyles {
                 chip: GlassStyle::new(0.18, 4.0, 2.0)
-                    .with_material(3.0, 2.6, 0.9, 1.0)
+                    .with_material(1.0, 0.8, 1.05, 1.0)
                     .with_curvature(0.65),
                 tooltip: GlassStyle::new(0.16, 10.0, 5.0)
                     .with_material(3.0, 3.5, 0.9, 1.0)
@@ -155,7 +155,7 @@ impl Design {
                     .with_material(4.0, 4.0, 0.85, 1.0)
                     .with_curvature(0.60),
                 dock: GlassStyle::new(0.22, 12.0, 6.0)
-                    .with_material(3.5, 2.6, 0.9, 1.0)
+                    .with_material(1.2, 0.85, 1.05, 1.0)
                     .with_curvature(0.65),
             },
             glass_focus: GlassFocus {

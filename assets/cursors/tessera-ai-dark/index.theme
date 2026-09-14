@@ -1,0 +1,11 @@
+[Icon Theme]
+Name=Tessera AI Dark
+Comment=Original MIT-licensed ai cursor art.
+Directories=cursors
+Inherits=tessera-user-dark
+
+[cursors]
+Size=24
+MinSize=8
+MaxSize=512
+Type=Fixed

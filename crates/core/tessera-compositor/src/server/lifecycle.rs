@@ -334,6 +334,13 @@ impl Server {
                 data,
                 extensions::xdg_activation_bind,
             );
+            ffi::wl_global_create(
+                display,
+                &ffi::xdg_toplevel_drag_manager_v1_interface,
+                1,
+                data,
+                extensions::xdg_toplevel_drag_manager_bind,
+            );
             ffi::wl_display_set_global_filter(
                 display,
                 Some(interaction_domain_global_filter),

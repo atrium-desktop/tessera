@@ -29,7 +29,7 @@ use tessera_model::workspace::WorkspaceSnapshot;
 
 use tessera_chrome::{
     BackdropRegion, Chrome, ChromeEvents, ChromeUpdate, HUD_HEIGHT, IconSet, LiquidGlassRegion,
-    Localizer, Message, SystemStatus, ellipsize,
+    Localizer, Message, SystemStatus, ellipsize, liquid_glass_region_id,
 };
 use tessera_model::system::{BatteryStatus, NetworkState};
 
@@ -996,8 +996,14 @@ impl Chrome for Hud {
             .iter()
             .zip(self.layout.visible.iter())
             .zip(self.chip_fade.iter())
-            .filter(|((_, visible), fade)| **visible && **fade > 0.01)
-            .map(|((chip, _), fade)| {
+            .enumerate()
+            .filter(|(_, ((_, visible), fade))| **visible && **fade > 0.01)
+            .map(|(index, ((chip, _), fade))| {
+                let id = if index == LEFT {
+                    liquid_glass_region_id("tessera-hud-chip-left")
+                } else {
+                    liquid_glass_region_id("tessera-hud-chip-center")
+                };
                 LiquidGlassRegion::from_role(
                     &self.design,
                     GlassRole::Chip,
@@ -1005,6 +1011,7 @@ impl Chrome for Hud {
                     self.design.radii.chip,
                     *fade,
                 )
+                .with_id(id)
             })
             .collect()
     }

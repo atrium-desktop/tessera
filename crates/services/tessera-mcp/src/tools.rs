@@ -560,8 +560,10 @@ fn input_schema() -> Value {
                         {"type":"object","properties":{"type":{"const":"collapse"}},"required":["type"],"additionalProperties":false},
                         {"type":"object","properties":{"type":{"const":"pointer_move"},"x":{"type":"integer","minimum":0},"y":{"type":"integer","minimum":0}},"required":["type","x","y"],"additionalProperties":false},
                         {"type":"object","properties":{"type":{"const":"click"},"x":{"type":"integer","minimum":0},"y":{"type":"integer","minimum":0},"button":{"type":"string","enum":["left","right","middle","side","extra"]}},"required":["type","x","y","button"],"additionalProperties":false},
+                        {"type":"object","properties":{"type":{"const":"pointer_button"},"x":{"type":"integer","minimum":0},"y":{"type":"integer","minimum":0},"button":{"type":"string","enum":["left","right","middle","side","extra"]},"state":{"type":"string","enum":["pressed","released"]}},"required":["type","button","state"],"additionalProperties":false},
                         {"type":"object","properties":{"type":{"const":"scroll"},"x":{"type":"integer","minimum":0},"y":{"type":"integer","minimum":0},"dx":{"type":"number","minimum":-1000,"maximum":1000},"dy":{"type":"number","minimum":-1000,"maximum":1000}},"required":["type","x","y","dx","dy"],"additionalProperties":false},
-                        {"type":"object","properties":{"type":{"const":"key_press"},"code":{"type":"integer","minimum":0,"maximum":767,"description":"Linux evdev key code"}},"required":["type","code"],"additionalProperties":false}
+                        {"type":"object","properties":{"type":{"const":"key_press"},"code":{"type":"integer","minimum":0,"maximum":767,"description":"Linux evdev key code"}},"required":["type","code"],"additionalProperties":false},
+                        {"type":"object","properties":{"type":{"const":"key"},"code":{"type":"integer","minimum":0,"maximum":767,"description":"Linux evdev key code"},"state":{"type":"string","enum":["pressed","released"]}},"required":["type","code","state"],"additionalProperties":false}
                     ]
                 }
             }
@@ -826,8 +828,17 @@ enum InputActionArgs {
     Collapse,
     PointerMove { x: i32, y: i32 },
     Click { x: i32, y: i32, button: String },
+    PointerButton {
+        #[serde(default)]
+        x: Option<i32>,
+        #[serde(default)]
+        y: Option<i32>,
+        button: String,
+        state: String,
+    },
     Scroll { x: i32, y: i32, dx: f32, dy: f32 },
     KeyPress { code: u32 },
+    Key { code: u32, state: String },
 }
 
 fn semantic_action(value: InputActionArgs) -> Result<SemanticActionIntent, PlatformError> {
@@ -856,26 +867,47 @@ impl TryFrom<InputActionArgs> for SyntheticInputAction {
                 Ok(Point { x, y })
             }
         };
+        let parse_button = |button: &str| match button {
+            "left" => Ok(0x110),
+            "right" => Ok(0x111),
+            "middle" => Ok(0x112),
+            "side" => Ok(0x113),
+            "extra" => Ok(0x114),
+            _ => Err(invalid("button must be left, right, middle, side, or extra")),
+        };
+        let parse_state = |state: &str| match state {
+            "pressed" => Ok(tessera_model::input::ButtonState::Pressed),
+            "released" => Ok(tessera_model::input::ButtonState::Released),
+            _ => Err(invalid("state must be pressed or released")),
+        };
         match value {
             InputActionArgs::PointerMove { x, y } => Ok(Self::PointerMove {
                 position: position(x, y)?,
             }),
             InputActionArgs::Click { x, y, button } => {
-                let button = match button.as_str() {
-                    "left" => 0x110,
-                    "right" => 0x111,
-                    "middle" => 0x112,
-                    "side" => 0x113,
-                    "extra" => 0x114,
-                    _ => {
-                        return Err(invalid(
-                            "button must be left, right, middle, side, or extra",
-                        ));
-                    }
-                };
+                let button = parse_button(&button)?;
                 Ok(Self::Click {
                     position: position(x, y)?,
                     button,
+                })
+            }
+            InputActionArgs::PointerButton {
+                x,
+                y,
+                button,
+                state,
+            } => {
+                let button = parse_button(&button)?;
+                let state = parse_state(&state)?;
+                let position = match (x, y) {
+                    (Some(x), Some(y)) => Some(position(x, y)?),
+                    (None, None) => None,
+                    _ => return Err(invalid("x and y must both be provided or both omitted")),
+                };
+                Ok(Self::PointerButton {
+                    position,
+                    button,
+                    state,
                 })
             }
             InputActionArgs::Scroll { x, y, dx, dy } => {
@@ -893,6 +925,13 @@ impl TryFrom<InputActionArgs> for SyntheticInputAction {
                     return Err(invalid("evdev key code must be at most 767"));
                 }
                 Ok(Self::KeyPress { code })
+            }
+            InputActionArgs::Key { code, state } => {
+                if code > 0x2ff {
+                    return Err(invalid("evdev key code must be at most 767"));
+                }
+                let state = parse_state(&state)?;
+                Ok(Self::Key { code, state })
             }
             _ => Err(invalid("semantic action is not a synthetic input fallback")),
         }
@@ -1030,6 +1069,45 @@ mod tests {
             SyntheticInputAction::Click {
                 position: Point { x: 10, y: 20 },
                 button: 0x110
+            }
+        );
+        let drag_start = InputActionArgs::PointerButton {
+            x: Some(15),
+            y: Some(25),
+            button: "left".into(),
+            state: "pressed".into(),
+        };
+        assert_eq!(
+            SyntheticInputAction::try_from(drag_start).expect("drag start"),
+            SyntheticInputAction::PointerButton {
+                position: Some(Point { x: 15, y: 25 }),
+                button: 0x110,
+                state: tessera_model::input::ButtonState::Pressed,
+            }
+        );
+        let drag_end = InputActionArgs::PointerButton {
+            x: None,
+            y: None,
+            button: "left".into(),
+            state: "released".into(),
+        };
+        assert_eq!(
+            SyntheticInputAction::try_from(drag_end).expect("drag end"),
+            SyntheticInputAction::PointerButton {
+                position: None,
+                button: 0x110,
+                state: tessera_model::input::ButtonState::Released,
+            }
+        );
+        let key_down = InputActionArgs::Key {
+            code: 29,
+            state: "pressed".into(),
+        };
+        assert_eq!(
+            SyntheticInputAction::try_from(key_down).expect("key down"),
+            SyntheticInputAction::Key {
+                code: 29,
+                state: tessera_model::input::ButtonState::Pressed,
             }
         );
         assert!(

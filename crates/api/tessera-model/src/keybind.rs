@@ -20,10 +20,8 @@ use crate::input::{
 /// A compositor action a key binding can trigger.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
-    /// Open or close the application launcher.
-    ToggleLauncher,
-    /// Open or close Prism application search.
-    TogglePrism,
+    /// Open or close the Pivot system intent and action surface.
+    TogglePivot,
     /// Open or close the window/workspace overview (M9).
     ToggleOverview,
     /// Open or close the modal control center (ADR-0080).
@@ -58,20 +56,23 @@ pub enum Action {
 impl Action {
     #[allow(non_upper_case_globals)]
     pub const ToggleCommandPanel: Action = Action::ToggleControlCenter;
+    #[allow(non_upper_case_globals)]
+    pub const ToggleLauncher: Action = Action::TogglePivot;
+    #[allow(non_upper_case_globals)]
+    pub const TogglePrism: Action = Action::TogglePivot;
 
     /// Whether this compositor action remains available while trusted shell
     /// chrome owns the keyboard.
     ///
     /// Modal chrome still receives ordinary navigation and text input, and
     /// actions that mutate obscured desktop state stay suppressed. The
-    /// launcher, Prism, and control-center toggles, the screenshot selector, and
+    /// Pivot intent surface, control-center toggles, the screenshot selector, and
     /// the emergency quit path are compositor-level controls that must
     /// remain reachable.
     const fn allowed_during_keyboard_capture(self) -> bool {
         matches!(
             self,
-            Action::ToggleLauncher
-                | Action::TogglePrism
+            Action::TogglePivot
                 | Action::ToggleControlCenter
                 | Action::Screenshot
                 | Action::Lock
@@ -105,8 +106,7 @@ impl Keymap {
                     XKB_KEY_Tab,
                     Action::CycleFocusBack,
                 ),
-                kb(Mods::SUPER, b'a' as u32, Action::ToggleLauncher),
-                kb(Mods::SUPER, b' ' as u32, Action::TogglePrism),
+                kb(Mods::SUPER, b' ' as u32, Action::TogglePivot),
                 kb(Mods::SUPER, 0x6f, Action::ToggleOverview), /* 'o' */
                 kb(Mods::SUPER, 0x73, Action::ToggleControlCenter), /* 's' */
                 kb(Mods::SUPER, 0x71, Action::CloseFocused),   /* 'q' */
@@ -195,8 +195,8 @@ pub fn mod_from_name(s: &str) -> Option<Mods> {
 
 pub fn action_from_name(s: &str) -> Option<Action> {
     Some(match s.to_ascii_lowercase().as_str() {
-        "launcher" | "togglelauncher" | "apps" => Action::ToggleLauncher,
-        "prism" | "toggleprism" | "spotlight" => Action::TogglePrism,
+        "pivot" | "togglepivot" | "prism" | "toggleprism" | "spotlight" | "launcher"
+        | "togglelauncher" | "apps" | "pivotbrowse" | "togglepivotbrowse" => Action::TogglePivot,
         "overview" | "toggleoverview" => Action::ToggleOverview,
         "control_center" | "controlcenter" | "command_panel" | "commandpanel" | "panel" => {
             Action::ToggleControlCenter
@@ -280,16 +280,12 @@ mod tests {
             km.match_key(Mods::SUPER | Mods::SHIFT, XKB_KEY_ISO_Left_Tab),
             Some(Action::CycleFocusBack)
         );
-        // Super+A → launcher.
-        assert_eq!(
-            km.match_key(Mods::SUPER, b'a' as u32),
-            Some(Action::ToggleLauncher)
-        );
-        // Super+Space → Prism.
+        // Super+Space → Pivot.
         assert_eq!(
             km.match_key(Mods::SUPER, b' ' as u32),
-            Some(Action::TogglePrism)
+            Some(Action::TogglePivot)
         );
+        assert_eq!(km.match_key(Mods::SUPER, b'a' as u32), None);
         // Super+S → command panel.
         assert_eq!(
             km.match_key(Mods::SUPER, b's' as u32),
@@ -342,12 +338,8 @@ mod tests {
             Some(Action::Screenshot)
         );
         assert_eq!(
-            km.match_key_during_keyboard_capture(Mods::SUPER, b'a' as u32),
-            Some(Action::ToggleLauncher)
-        );
-        assert_eq!(
             km.match_key_during_keyboard_capture(Mods::SUPER, b' ' as u32),
-            Some(Action::TogglePrism)
+            Some(Action::TogglePivot)
         );
         assert_eq!(
             km.match_key_during_keyboard_capture(Mods::SUPER, b's' as u32),
@@ -390,11 +382,11 @@ mod tests {
 
     #[test]
     fn action_filter_removes_unavailable_bindings() {
-        let km = Keymap::defaults().retain_actions(|action| action != Action::TogglePrism);
+        let km = Keymap::defaults().retain_actions(|action| action != Action::TogglePivot);
         assert_eq!(km.match_key(Mods::SUPER, b' ' as u32), None);
         assert_eq!(
-            km.match_key(Mods::SUPER, b'a' as u32),
-            Some(Action::ToggleLauncher)
+            km.match_key(Mods::SUPER, 0x6f),
+            Some(Action::ToggleOverview)
         );
     }
 
@@ -412,10 +404,14 @@ mod tests {
     }
 
     #[test]
-    fn prism_action_accepts_documented_names() {
-        assert_eq!(action_from_name("prism"), Some(Action::TogglePrism));
-        assert_eq!(action_from_name("toggleprism"), Some(Action::TogglePrism));
-        assert_eq!(action_from_name("spotlight"), Some(Action::TogglePrism));
+    fn pivot_action_accepts_documented_names() {
+        assert_eq!(action_from_name("pivot"), Some(Action::TogglePivot));
+        assert_eq!(action_from_name("togglepivot"), Some(Action::TogglePivot));
+        assert_eq!(action_from_name("prism"), Some(Action::TogglePivot));
+        assert_eq!(action_from_name("toggleprism"), Some(Action::TogglePivot));
+        assert_eq!(action_from_name("spotlight"), Some(Action::TogglePivot));
+        assert_eq!(action_from_name("launcher"), Some(Action::TogglePivot));
+        assert_eq!(action_from_name("apps"), Some(Action::TogglePivot));
     }
 
     #[test]

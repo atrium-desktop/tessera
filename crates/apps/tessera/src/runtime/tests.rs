@@ -9,8 +9,9 @@ fn compiled_chrome_controls_default_input_ownership() {
     let keymap = build_keymap(None);
     assert_eq!(
         keymap.match_key(Mods::SUPER, b' ' as u32),
-        cfg!(feature = "chrome-prism").then_some(Action::TogglePrism)
+        cfg!(feature = "chrome-pivot").then_some(Action::TogglePivot)
     );
+    assert_eq!(keymap.match_key(Mods::SUPER, b'a' as u32), None);
     assert_eq!(
         keymap.match_key(Mods::SUPER, b's' as u32),
         cfg!(any(feature = "chrome-control-center", feature = "chrome-command-panel"))

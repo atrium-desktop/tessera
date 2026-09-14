@@ -1,0 +1,10 @@
+[Icon Theme]
+Name=Tessera User Dark
+Comment=Original MIT-licensed user cursor art.
+Directories=cursors
+
+[cursors]
+Size=24
+MinSize=8
+MaxSize=512
+Type=Fixed

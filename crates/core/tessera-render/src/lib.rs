@@ -1212,12 +1212,45 @@ impl Renderer {
                                 w: entry.w,
                                 h: entry.h,
                             };
+                            let geom = flux::sys::flux_geometry {
+                                kind: flux::sys::flux_geom_kind::FLUX_GEOM_RECT,
+                                _pad: [0; 3],
+                                stroke_width: 0.0,
+                                __bindgen_anon_1: flux::sys::flux_geometry__bindgen_ty_1 {
+                                    rect: flux::sys::flux_geom_rect_data { rect: destination },
+                                },
+                            };
+                            let brush = flux::sys::flux_brush {
+                                kind: flux::sys::flux_brush_kind::FLUX_BRUSH_IMAGE_PATTERN,
+                                blend: flux::sys::flux_blend_mode::FLUX_BLEND_SRC_OVER,
+                                opacity: 1.0,
+                                __bindgen_anon_1: flux::sys::flux_brush__bindgen_ty_1 {
+                                    image: flux::sys::flux_brush_image_data {
+                                        image: entry.raw,
+                                        sampler: std::ptr::null_mut(),
+                                        src_rect: flux::sys::flux_rect {
+                                            x: 0.0,
+                                            y: 0.0,
+                                            w: 0.0,
+                                            h: 0.0,
+                                        },
+                                        opaque_only: false,
+                                        tint: 0xFFFFFFFF,
+                                        clip_rect: flux::sys::flux_rect {
+                                            x: 0.0,
+                                            y: 0.0,
+                                            w: 0.0,
+                                            h: 0.0,
+                                        },
+                                        clip_radius: 0.0,
+                                    },
+                                },
+                            };
                             unsafe {
-                                flux::sys::flux_canvas_draw_image(
+                                flux::sys::flux_canvas_draw_geometry(
                                     canvas.as_raw(),
-                                    entry.raw,
-                                    destination,
-                                    std::ptr::null(),
+                                    &geom,
+                                    &brush,
                                 )
                             };
                         }

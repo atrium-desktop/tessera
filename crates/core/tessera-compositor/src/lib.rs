@@ -322,18 +322,20 @@ impl OwnedSelection {
 /// Server-owned state attached to each `wl_data_source`. Keeping the back
 /// pointer here lets the destroy callback invalidate clipboard/drag state
 /// before freeing the MIME list.
-struct DataSourceRec {
-    state: *mut State,
-    mime_types: Vec<String>,
-    actions: u32,
-    actions_set: bool,
-    used_for_drag: bool,
+pub(crate) struct DataSourceRec {
+    pub(crate) state: *mut State,
+    pub(crate) mime_types: Vec<String>,
+    pub(crate) actions: u32,
+    pub(crate) actions_set: bool,
+    pub(crate) used_for_drag: bool,
+    pub(crate) toplevel_drag: *mut ffi::wl_resource,
 }
 
 /// One offer introduced to a destination data device. Selection offers and
 /// drag offers share the transfer path, while `is_drag` gates target feedback.
 struct DataOfferRec {
     state: *mut State,
+    version: u32,
     source: *mut ffi::wl_resource,
     /// Interface family of `source` — see [`SelectionSourceKind`]. The offer
     /// outlives the selection it was built from, so the kind is copied here
@@ -350,15 +352,24 @@ struct DataOfferRec {
     finished: bool,
 }
 
-/// Active version-1 drag-and-drop implicit grab.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DragOriginDevice {
+    Pointer,
+    Touch { id: i32 },
+}
+
+/// Active drag-and-drop implicit grab.
 #[derive(Clone, Copy)]
-struct DragState {
-    source: *mut ffi::wl_resource,
-    origin: *mut ffi::wl_resource,
-    focus: *mut ffi::wl_resource,
-    target_device: *mut ffi::wl_resource,
-    offer: *mut ffi::wl_resource,
-    icon: *mut ffi::wl_resource,
+pub(crate) struct DragState {
+    pub(crate) source: *mut ffi::wl_resource,
+    pub(crate) origin: *mut ffi::wl_resource,
+    pub(crate) focus: *mut ffi::wl_resource,
+    pub(crate) target_device: *mut ffi::wl_resource,
+    pub(crate) offer: *mut ffi::wl_resource,
+    pub(crate) icon: *mut ffi::wl_resource,
+    pub(crate) origin_device: DragOriginDevice,
+    pub(crate) attached_toplevel: *mut ffi::wl_resource,
+    pub(crate) toplevel_offset: (i32, i32),
 }
 
 /// Accumulated `xdg_positioner` state used to compute a popup's placement
@@ -925,11 +936,15 @@ unsafe fn update_overlay_positions_for_seat(state: *mut State, seat: SeatId) {
         if let Some(drag) = drag
             && !drag.icon.is_null()
         {
+            let (target_x, target_y) = match drag.origin_device {
+                DragOriginDevice::Pointer => (pointer_x, pointer_y),
+                DragOriginDevice::Touch { .. } => (runtime.touch_grab_x, runtime.touch_grab_y),
+            };
             let rec = ffi::wl_resource_get_user_data(drag.icon) as *mut SurfaceRec;
             if !rec.is_null() {
                 (*rec).position = tessera_model::Point {
-                    x: pointer_x.round() as i32 + (*rec).attach_offset.x,
-                    y: pointer_y.round() as i32 + (*rec).attach_offset.y,
+                    x: target_x.round() as i32 + (*rec).attach_offset.x,
+                    y: target_y.round() as i32 + (*rec).attach_offset.y,
                 };
             }
         }
@@ -1064,6 +1079,14 @@ pub(crate) struct SeatRuntime {
     raw_pointer_y: f32,
     last_button_serial: u32,
     implicit_grab_active: bool,
+    implicit_grab_surface: *mut ffi::wl_resource,
+    last_touch_serial: u32,
+    touch_grab_active: bool,
+    touch_grab_surface: *mut ffi::wl_resource,
+    touch_grab_id: i32,
+    touch_grab_x: f32,
+    touch_grab_y: f32,
+    client_pressed_buttons: std::collections::BTreeSet<u32>,
     depressed_mods: tessera_model::input::Mods,
     /// Presses consumed by compositor shortcuts. Their matching releases are
     /// consumed too so a newly focused client never receives a release for a
@@ -1144,6 +1167,14 @@ impl SeatRuntime {
             raw_pointer_y: 0.0,
             last_button_serial: 0,
             implicit_grab_active: false,
+            implicit_grab_surface: std::ptr::null_mut(),
+            last_touch_serial: 0,
+            touch_grab_active: false,
+            touch_grab_surface: std::ptr::null_mut(),
+            touch_grab_id: 0,
+            touch_grab_x: 0.0,
+            touch_grab_y: 0.0,
+            client_pressed_buttons: std::collections::BTreeSet::new(),
             depressed_mods: tessera_model::input::Mods::NONE,
             suppressed_shortcut_keys: std::collections::HashSet::new(),
             client_pressed_keys: std::collections::BTreeSet::new(),

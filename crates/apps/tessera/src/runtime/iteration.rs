@@ -1342,6 +1342,7 @@ impl CompositorRuntime {
                     self.server
                         .forward_agent_input_to(seat, validated.window, &events)
                         .map_err(|error| error.to_string())?;
+                    let cursor_shape = self.server.seat_cursor_shape(seat);
                     for activity in agent_activities_from_applied_input(
                         request.intent.interaction_domain,
                         &interaction_domain_label,
@@ -1349,6 +1350,7 @@ impl CompositorRuntime {
                         &synthetic_actions,
                         &events,
                         &mut self.agent_activity_sequence,
+                        cursor_shape,
                     ) {
                         self.shell.report_agent_activity(activity);
                     }

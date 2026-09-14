@@ -87,6 +87,7 @@ unsafe extern "C" fn ddm_create_data_source(
             },
             actions_set: false,
             used_for_drag: false,
+            toplevel_drag: std::ptr::null_mut(),
         }));
         ffi::wl_resource_set_implementation(
             src,
@@ -120,6 +121,14 @@ unsafe extern "C" fn data_source_resource_destroy(resource: *mut ffi::wl_resourc
                 .is_some_and(|drag| drag.source == resource)
             {
                 cancel_drag(state, false);
+            }
+            if !(*rec).toplevel_drag.is_null() {
+                let drag_rec = ffi::wl_resource_get_user_data((*rec).toplevel_drag)
+                    as *mut extensions::toplevel_drag::ToplevelDragRec;
+                if !drag_rec.is_null() {
+                    (*drag_rec).source = std::ptr::null_mut();
+                    (*drag_rec).ended = true;
+                }
             }
             // Offers are client-owned and can outlive their source. Make their
             // back-pointer inert so a late receive cannot address freed memory.
@@ -434,6 +443,7 @@ unsafe fn create_data_offer(
         }
         let rec = Box::into_raw(Box::new(DataOfferRec {
             state,
+            version: version.max(0) as u32,
             source,
             source_kind,
             owned,
@@ -507,7 +517,7 @@ unsafe extern "C" fn data_offer_resource_destroy(resource: *mut ffi::wl_resource
         }
         let state = (*rec).state;
         let _guard = ActiveSeatGuard::for_resource(state, resource, false);
-        let cancel_unfinished = (*rec).is_drag
+        let finish_unfinished = (*rec).is_drag
             && (*rec).dropped
             && !(*rec).finished
             && !(*rec).source.is_null()
@@ -523,8 +533,8 @@ unsafe extern "C" fn data_offer_resource_destroy(resource: *mut ffi::wl_resource
                 drag.offer = std::ptr::null_mut();
             }
         }
-        if cancel_unfinished {
-            ffi::wl_resource_post_event((*rec).source, ffi::WL_DATA_SOURCE_CANCELLED);
+        if finish_unfinished {
+            ffi::wl_resource_post_event((*rec).source, ffi::WL_DATA_SOURCE_DND_FINISHED);
         }
         drop(Box::from_raw(rec));
     }
@@ -635,9 +645,9 @@ unsafe extern "C" fn data_offer_finish(_client: *mut ffi::wl_client, offer: *mut
         if rec.is_null()
             || !(*rec).is_drag
             || !(*rec).dropped
-            || !(*rec).accepted
-            || (*rec).selected_action == ffi::WL_DATA_ACTION_NONE
             || (*rec).finished
+            || ((*rec).version >= 3 && (*rec).selected_action == ffi::WL_DATA_ACTION_NONE)
+            || ((*rec).version < 3 && !(*rec).accepted)
         {
             ffi::wl_resource_post_error(
                 offer,
@@ -718,14 +728,46 @@ unsafe extern "C" fn ddev_start_drag(
         let Some(_guard) = ActiveSeatGuard::for_resource(state, data_device, true) else {
             return;
         };
-        if !(*state).implicit_grab_active
-            || serial != (*state).last_button_serial
-            || origin.is_null()
+        if origin.is_null()
             || ffi::wl_resource_get_client(origin) != client
-            || origin != (*state).pointer_focus
             || (!source.is_null() && ffi::wl_resource_get_client(source) != client)
             || (!icon.is_null() && ffi::wl_resource_get_client(icon) != client)
         {
+            return;
+        }
+
+        let is_pointer_grab =
+            (*state).implicit_grab_active && serial == (*state).last_button_serial;
+        let is_touch_grab =
+            (*state).touch_grab_active && serial == (*state).last_touch_serial;
+        if !is_pointer_grab && !is_touch_grab {
+            return;
+        }
+
+        let grab_surface = if is_pointer_grab {
+            (*state).implicit_grab_surface
+        } else {
+            (*state).touch_grab_surface
+        };
+
+        let origin_matches_grab = if !grab_surface.is_null() {
+            if origin == grab_surface || origin == (*state).pointer_focus {
+                true
+            } else {
+                let grab_rec = (*state).surface_by_resource(grab_surface);
+                let origin_rec = (*state).surface_by_resource(origin);
+                if !grab_rec.is_null() && !origin_rec.is_null() {
+                    let grab_root = surface_root_toplevel(grab_rec);
+                    let origin_root = surface_root_toplevel(origin_rec);
+                    !grab_root.is_null() && grab_root == origin_root
+                } else {
+                    false
+                }
+            }
+        } else {
+            origin == (*state).pointer_focus
+        };
+        if !origin_matches_grab {
             return;
         }
         if !icon.is_null() {
@@ -765,6 +807,31 @@ unsafe extern "C" fn ddev_start_drag(
             (*source_rec).used_for_drag = true;
             (*state).track_seat_resource(source, (*state).active_seat);
         }
+        let origin_device = if is_pointer_grab {
+            DragOriginDevice::Pointer
+        } else {
+            DragOriginDevice::Touch {
+                id: (*state).touch_grab_id,
+            }
+        };
+
+        let (attached_toplevel, toplevel_offset) = if !source.is_null() {
+            let source_rec = ffi::wl_resource_get_user_data(source) as *mut DataSourceRec;
+            if !source_rec.is_null() && !(*source_rec).toplevel_drag.is_null() {
+                let drag_rec = ffi::wl_resource_get_user_data((*source_rec).toplevel_drag)
+                    as *mut extensions::toplevel_drag::ToplevelDragRec;
+                if !drag_rec.is_null() {
+                    ((*drag_rec).attached_toplevel, (*drag_rec).offset)
+                } else {
+                    (std::ptr::null_mut(), (0, 0))
+                }
+            } else {
+                (std::ptr::null_mut(), (0, 0))
+            }
+        } else {
+            (std::ptr::null_mut(), (0, 0))
+        };
+
         if (*state).drag.is_some() {
             cancel_drag(state, true);
         }
@@ -775,13 +842,32 @@ unsafe extern "C" fn ddev_start_drag(
             target_device: std::ptr::null_mut(),
             offer: std::ptr::null_mut(),
             icon,
+            origin_device,
+            attached_toplevel,
+            toplevel_offset,
         });
         update_overlay_positions(state);
+        let (init_x, init_y) = match origin_device {
+            DragOriginDevice::Pointer => ((*state).pointer_x, (*state).pointer_y),
+            DragOriginDevice::Touch { .. } => ((*state).touch_grab_x, (*state).touch_grab_y),
+        };
+        if !attached_toplevel.is_null() {
+            let toplevel_rec = (*state).surface_by_toplevel(attached_toplevel);
+            if !toplevel_rec.is_null() {
+                reposition_toplevel_with_popups(
+                    toplevel_rec,
+                    tessera_model::Point {
+                        x: init_x as i32 - toplevel_offset.0,
+                        y: init_y as i32 - toplevel_offset.1,
+                    },
+                );
+            }
+        }
         update_drag_focus(
             state,
             (*state).pointer_focus,
-            (*state).pointer_x,
-            (*state).pointer_y,
+            init_x,
+            init_y,
             0,
         );
     }
@@ -913,6 +999,16 @@ pub(crate) unsafe fn cancel_drag(state: *mut State, notify_source: bool) {
         let Some(drag) = (*state).drag.take() else {
             return;
         };
+        if !drag.source.is_null() {
+            let source_rec = ffi::wl_resource_get_user_data(drag.source) as *mut DataSourceRec;
+            if !source_rec.is_null() && !(*source_rec).toplevel_drag.is_null() {
+                let drag_rec = ffi::wl_resource_get_user_data((*source_rec).toplevel_drag)
+                    as *mut extensions::toplevel_drag::ToplevelDragRec;
+                if !drag_rec.is_null() {
+                    (*drag_rec).ended = true;
+                }
+            }
+        }
         if !drag.target_device.is_null() {
             ffi::wl_resource_post_event(drag.target_device, ffi::WL_DATA_DEVICE_LEAVE);
         }
@@ -940,24 +1036,48 @@ pub(crate) unsafe fn finish_drag(state: *mut State) {
         let Some(drag) = (*state).drag.take() else {
             return;
         };
-        let offer_rec = if drag.offer.is_null() {
-            std::ptr::null_mut()
-        } else {
-            ffi::wl_resource_get_user_data(drag.offer) as *mut DataOfferRec
-        };
-        let accepted = !offer_rec.is_null()
-            && (*offer_rec).accepted
-            && (*offer_rec).selected_action != ffi::WL_DATA_ACTION_NONE;
-        if drag.target_device.is_null() || !accepted {
+        if !drag.source.is_null() {
+            let source_rec = ffi::wl_resource_get_user_data(drag.source) as *mut DataSourceRec;
+            if !source_rec.is_null() && !(*source_rec).toplevel_drag.is_null() {
+                let drag_rec = ffi::wl_resource_get_user_data((*source_rec).toplevel_drag)
+                    as *mut extensions::toplevel_drag::ToplevelDragRec;
+                if !drag_rec.is_null() {
+                    (*drag_rec).ended = true;
+                }
+            }
+        }
+        if drag.target_device.is_null() {
             if !drag.source.is_null() {
                 ffi::wl_resource_post_event(drag.source, ffi::WL_DATA_SOURCE_CANCELLED);
             }
-        } else {
-            (*offer_rec).dropped = true;
-            if !drag.source.is_null() && ffi::wl_resource_get_version(drag.source) >= 3 {
-                ffi::wl_resource_post_event(drag.source, ffi::WL_DATA_SOURCE_DND_DROP_PERFORMED);
-            }
+        } else if drag.source.is_null() {
+            // Client-internal DnD: drop onto initiating client's surface.
             ffi::wl_resource_post_event(drag.target_device, ffi::WL_DATA_DEVICE_DROP);
+        } else {
+            let offer_rec = if drag.offer.is_null() {
+                std::ptr::null_mut()
+            } else {
+                ffi::wl_resource_get_user_data(drag.offer) as *mut DataOfferRec
+            };
+            let accepted = if offer_rec.is_null() {
+                false
+            } else if (*offer_rec).version >= 3 {
+                (*offer_rec).selected_action != ffi::WL_DATA_ACTION_NONE || (*offer_rec).accepted
+            } else {
+                (*offer_rec).accepted
+            };
+            if !accepted {
+                ffi::wl_resource_post_event(drag.source, ffi::WL_DATA_SOURCE_CANCELLED);
+            } else {
+                (*offer_rec).dropped = true;
+                if ffi::wl_resource_get_version(drag.source) >= 3 {
+                    ffi::wl_resource_post_event(
+                        drag.source,
+                        ffi::WL_DATA_SOURCE_DND_DROP_PERFORMED,
+                    );
+                }
+                ffi::wl_resource_post_event(drag.target_device, ffi::WL_DATA_DEVICE_DROP);
+            }
         }
         clear_drag_icon(drag.icon);
     }

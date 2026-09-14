@@ -39,6 +39,7 @@ mod relative_pointer;
 mod session_lock;
 mod tablet;
 mod text_input;
+pub(crate) mod toplevel_drag;
 mod xdg_foreign;
 
 pub(crate) use activation::*;
@@ -58,4 +59,5 @@ pub(crate) use relative_pointer::*;
 pub(crate) use session_lock::*;
 pub(crate) use tablet::*;
 pub(crate) use text_input::*;
+pub(crate) use toplevel_drag::*;
 pub(crate) use xdg_foreign::*;

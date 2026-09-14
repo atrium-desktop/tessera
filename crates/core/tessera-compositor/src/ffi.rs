@@ -64,6 +64,7 @@ pub use tessera_wayland_protocols::{
     zxdg_exported_v2_interface, zxdg_exporter_v2_interface, zxdg_imported_v2_interface,
     zxdg_importer_v2_interface, zxdg_output_manager_v1_interface, zxdg_output_v1_interface,
     zxdg_toplevel_decoration_v1_interface,
+    xdg_toplevel_drag_manager_v1_interface, xdg_toplevel_drag_v1_interface,
 };
 pub use tessera_wayland_protocols::{
     zwp_linux_buffer_release_v1_interface, zwp_linux_explicit_synchronization_v1_interface,
@@ -1389,6 +1390,22 @@ pub struct wp_image_description_reference_v1_interface_impl {
     pub destroy: unsafe extern "C" fn(*mut wl_client, *mut wl_resource),
 }
 
+/// `xdg_toplevel_drag_manager_v1`: destroy, get_xdg_toplevel_drag.
+#[repr(C)]
+pub struct xdg_toplevel_drag_manager_v1_interface_impl {
+    pub destroy: unsafe extern "C" fn(*mut wl_client, *mut wl_resource),
+    pub get_xdg_toplevel_drag:
+        unsafe extern "C" fn(*mut wl_client, *mut wl_resource, u32, *mut wl_resource),
+}
+
+/// `xdg_toplevel_drag_v1`: destroy, attach.
+#[repr(C)]
+pub struct xdg_toplevel_drag_v1_interface_impl {
+    pub destroy: unsafe extern "C" fn(*mut wl_client, *mut wl_resource),
+    pub attach:
+        unsafe extern "C" fn(*mut wl_client, *mut wl_resource, *mut wl_resource, i32, i32),
+}
+
 assert_impl_opcode_count!(zxdg_output_manager_v1_interface_impl, 2);
 assert_impl_opcode_count!(zxdg_output_v1_interface_impl, 1);
 assert_impl_opcode_count!(zxdg_decoration_manager_v1_interface_impl, 2);
@@ -1442,3 +1459,9 @@ assert_impl_opcode_count!(wp_image_description_creator_icc_v1_interface_impl, 2)
 assert_impl_opcode_count!(wp_image_description_creator_params_v1_interface_impl, 10);
 assert_impl_opcode_count!(wp_image_description_v1_interface_impl, 2);
 assert_impl_opcode_count!(wp_image_description_reference_v1_interface_impl, 1);
+assert_impl_opcode_count!(xdg_toplevel_drag_manager_v1_interface_impl, 2);
+assert_impl_opcode_count!(xdg_toplevel_drag_v1_interface_impl, 2);
+
+pub const XDG_TOPLEVEL_DRAG_MANAGER_V1_ERROR_INVALID_SOURCE: u32 = 0;
+pub const XDG_TOPLEVEL_DRAG_V1_ERROR_TOPLEVEL_ATTACHED: u32 = 0;
+pub const XDG_TOPLEVEL_DRAG_V1_ERROR_ONGOING_DRAG: u32 = 1;

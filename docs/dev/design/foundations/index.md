@@ -15,7 +15,7 @@ drawing capabilities remain in Optics; adopted Tessera values live in
 | 1.4 | [Elevation and Materials](elevation-and-materials.md) | Adopted | Material factories and Liquid Glass roles |
 | 1.5 | [Typography](typography.md) | Partial | `TypeScale`; typeface and text-scale propagation remain incomplete |
 | 1.6 | [Motion](motion.md) | Partial | Window transition policy and `tessera-ui::motion` |
-| 1.7 | [Assets](assets.md) | Partial | XDG icon resolution, Aegis cursors, and owner-local media |
+| 1.7 | [Assets](assets.md) | Partial | XDG icon resolution, [cursor families](cursors.md), and owner-local media |
 | 1.8 | [Multimodal Feedback](multimodal-feedback.md) | Draft | No shared sound or haptic contract exists |
 
 ## Dependency order

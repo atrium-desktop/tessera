@@ -173,4 +173,8 @@ unsafe extern "C" {
     pub static wp_image_description_v1_interface: wl_interface;
     pub static wp_image_description_info_v1_interface: wl_interface;
     pub static wp_image_description_reference_v1_interface: wl_interface;
+
+    // xdg-toplevel-drag-v1
+    pub static xdg_toplevel_drag_manager_v1_interface: wl_interface;
+    pub static xdg_toplevel_drag_v1_interface: wl_interface;
 }

@@ -208,6 +208,23 @@ impl Server {
             unsafe {
                 update_drag_focus(self.state.as_mut(), focus, x, y, time);
             }
+            if let Some(drag) = self.state.drag
+                && !drag.attached_toplevel.is_null()
+            {
+                let rec = self.state.surface_by_toplevel(drag.attached_toplevel);
+                if !rec.is_null() {
+                    let (x_off, y_off) = drag.toplevel_offset;
+                    unsafe {
+                        crate::reposition_toplevel_with_popups(
+                            rec,
+                            tessera_model::Point {
+                                x: x as i32 - x_off,
+                                y: y as i32 - y_off,
+                            },
+                        );
+                    }
+                }
+            }
             return;
         }
         let time = self.epoch.elapsed().as_millis() as u32;
@@ -243,7 +260,15 @@ impl Server {
         // The direct-resize halo is compositor-owned. Suppress client focus
         // there so a lower window cannot receive hover or button preparation
         // through the foreground window's resize affordance.
-        let focus = if self.state.active_seat == HUMAN_SEAT
+        let focus = if self.state.implicit_grab_active && !self.state.implicit_grab_surface.is_null() {
+            let hit = self.hit_test_focus(x, y);
+            let grab_client = unsafe { ffi::wl_resource_get_client(self.state.implicit_grab_surface) };
+            if !hit.is_null() && unsafe { ffi::wl_resource_get_client(hit) } == grab_client {
+                hit
+            } else {
+                self.state.implicit_grab_surface
+            }
+        } else if self.state.active_seat == HUMAN_SEAT
             && self
                 .resize_target_at(x, y, tessera_model::window::RESIZE_OUTER_MARGIN)
                 .is_some()
@@ -270,7 +295,17 @@ impl Server {
             let serial = unsafe { ffi::wl_display_next_serial(self.state.display) };
             let time = self.epoch.elapsed().as_millis() as u32;
             self.state.last_button_serial = serial;
-            self.state.implicit_grab_active = state.is_pressed();
+            if state.is_pressed() {
+                self.state.implicit_grab_active = true;
+                self.state.implicit_grab_surface = self.state.pointer_focus;
+                self.state.client_pressed_buttons.insert(button);
+            } else {
+                self.state.client_pressed_buttons.remove(&button);
+                if self.state.client_pressed_buttons.is_empty() {
+                    self.state.implicit_grab_active = false;
+                    self.state.implicit_grab_surface = std::ptr::null_mut();
+                }
+            }
             let focus_client = unsafe { ffi::wl_resource_get_client(self.state.pointer_focus) };
             for pointer in self.iter_focus_pointers(focus_client) {
                 unsafe {
@@ -291,13 +326,17 @@ impl Server {
             return;
         }
         if !state.is_pressed() {
+            self.state.client_pressed_buttons.remove(&button);
             let implicit_grab_held = self.state.implicit_grab_active;
-            self.state.implicit_grab_active = false;
+            if self.state.client_pressed_buttons.is_empty() {
+                self.state.implicit_grab_active = false;
+                self.state.implicit_grab_surface = std::ptr::null_mut();
+            }
             if self.state.drag.is_some() {
                 unsafe { finish_drag(self.state.as_mut()) };
                 return;
             }
-            if implicit_grab_held {
+            if implicit_grab_held && !self.state.implicit_grab_active {
                 // The implicit grab pinned pointer focus to the pressed
                 // surface for the whole hold. Now that the hold ended, what
                 // is under the cursor may differ — notably a popup that
@@ -544,6 +583,8 @@ impl Server {
             // wl_data_device.start_drag validate the exact triggering event.
             self.state.last_button_serial = serial;
             self.state.implicit_grab_active = true;
+            self.state.implicit_grab_surface = self.state.pointer_focus;
+            self.state.client_pressed_buttons.insert(button);
         }
         let state_u32 = if state.is_pressed() { 1u32 } else { 0u32 };
         let focus = self.state.pointer_focus;
@@ -569,6 +610,8 @@ impl Server {
     /// Synthesized leave: e.g. when the host pointer leaves the nested window.
     pub(crate) fn pointer_leave_all(&mut self) {
         self.state.implicit_grab_active = false;
+        self.state.implicit_grab_surface = std::ptr::null_mut();
+        self.state.client_pressed_buttons.clear();
         self.state.last_top_border_click = None;
         if self.state.pending_top_border_double_click.take().is_some() {
             self.state.compositor_pointer_grab = false;
@@ -774,6 +817,13 @@ impl Server {
                 continue;
             }
             let root = unsafe { surface_root_toplevel(p) };
+            if let Some(drag) = self.state.drag
+                && !drag.attached_toplevel.is_null()
+                && !root.is_null()
+                && unsafe { (*root).xdg_toplevel == drag.attached_toplevel }
+            {
+                continue;
+            }
             if !s.mapped
                 || (s.xdg_toplevel.is_null() && s.xdg_popup.is_null())
                 || root.is_null()
@@ -1188,6 +1238,12 @@ impl Server {
             }
         }
         let serial = unsafe { ffi::wl_display_next_serial(self.state.display) };
+        self.state.last_touch_serial = serial;
+        self.state.touch_grab_active = true;
+        self.state.touch_grab_surface = focus;
+        self.state.touch_grab_id = id;
+        self.state.touch_grab_x = x;
+        self.state.touch_grab_y = y;
         let client = unsafe { ffi::wl_resource_get_client(focus) };
         let origin = if rec.is_null() {
             tessera_model::Point::default()
@@ -1205,6 +1261,37 @@ impl Server {
 
     /// Post `wl_touch.motion` for an existing contact.
     pub(crate) fn touch_motion(&mut self, time: u32, id: i32, x: f32, y: f32) {
+        if self.state.touch_grab_id == id {
+            self.state.touch_grab_x = x;
+            self.state.touch_grab_y = y;
+        }
+        if self.state.active_seat == HUMAN_SEAT && self.state.drag.is_some() {
+            unsafe { update_overlay_positions(self.state.as_mut()) };
+        }
+        if self.state.drag.is_some() {
+            let focus = self.hit_test_focus(x, y);
+            unsafe {
+                update_drag_focus(self.state.as_mut(), focus, x, y, time);
+            }
+            if let Some(drag) = self.state.drag
+                && !drag.attached_toplevel.is_null()
+            {
+                let rec = self.state.surface_by_toplevel(drag.attached_toplevel);
+                if !rec.is_null() {
+                    let (x_off, y_off) = drag.toplevel_offset;
+                    unsafe {
+                        crate::reposition_toplevel_with_popups(
+                            rec,
+                            tessera_model::Point {
+                                x: x as i32 - x_off,
+                                y: y as i32 - y_off,
+                            },
+                        );
+                    }
+                }
+            }
+            return;
+        }
         if self.state.pointer_focus.is_null() {
             return;
         }
@@ -1227,6 +1314,13 @@ impl Server {
 
     /// Post `wl_touch.up`.
     pub(crate) fn touch_up(&mut self, time: u32, id: i32) {
+        if self.state.drag.is_some() {
+            unsafe { finish_drag(self.state.as_mut()) };
+        }
+        if self.state.touch_grab_id == id {
+            self.state.touch_grab_active = false;
+            self.state.touch_grab_surface = std::ptr::null_mut();
+        }
         if self.state.pointer_focus.is_null() {
             return;
         }
@@ -1251,7 +1345,12 @@ impl Server {
     }
 
     /// Post `wl_touch.cancel`: all active contacts invalidated.
-    pub(crate) fn touch_cancel(&self) {
+    pub(crate) fn touch_cancel(&mut self) {
+        if self.state.drag.is_some() {
+            unsafe { cancel_drag(self.state.as_mut(), true) };
+        }
+        self.state.touch_grab_active = false;
+        self.state.touch_grab_surface = std::ptr::null_mut();
         if self.state.pointer_focus.is_null() {
             return;
         }

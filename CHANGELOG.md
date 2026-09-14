@@ -14,6 +14,38 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.60] - 2026-09-14
+
+### Added
+- Consolidated application discovery and search into **Pivot** (`crates/chrome/tessera-pivot`), the unified system intent and action surface (ADR-0151). Pivot eliminates artificial modal splits in favor of a single progressive-disclosure interface: empty query displays categorical application pills and navigable tiles, while typing immediately collapses into a ranked dispatch list.
+- Expanded Pivot beyond applications to serve as the compositor's intent cockpit:
+  - **Live Window Switcher**: Search and bring-to-front active windows across workspaces by window title or class.
+  - **System Command Palette**: Instant execution for `lock`, `screenshot`, `suspend`, `restart`, and `poweroff`.
+  - **Inline Calculator**: Built-in zero-dependency arithmetic evaluator (`+`, `-`, `*`, `/`, `^`, `%`, `()`) with one-click clipboard copy.
+  - **AI Agent Gateway**: Seamless natural-language prompt dispatch to `tessera-agent-broker`.
+  - **Action Badges**: Selected rows display contextual return hints (`↵ Open`, `↵ Focus`, `↵ Switch`, `↵ Run`, `↵ Copy`, `↵ Ask Agent`).
+  - **Full i18n Integration**: Integrated category pills and messages with `tessera-i18n` for complete English / Simplified Chinese localization.
+- Unified interaction grab architecture and comprehensive drag subsystem (ADR-0154):
+  - **Touch Drag-and-Drop Dual-Origin Parity**: Extended `wl_data_device.start_drag` to accept matching serials from `wl_touch.down` on equal footing with pointer buttons. Touch motions, releases, and cancellations now drive the complete DnD state machine and drag icon overlays across all clients.
+  - **`xdg-toplevel-drag-v1` Protocol Support**: Implemented modern tab-detach and window-dragging protocol extension (`xdg_toplevel_drag_manager_v1`), allowing browser tabs and terminal sessions to be smoothly torn off into floating toplevel windows while excluding the dragged window from drop target hit-testing.
+
+### Removed
+- Removed the legacy 1,900-line full-screen `Launcher` (Launchpad) grid from `tessera-shell` and deprecated the `tessera-prism` crate, eliminating redundant modal chrome mutual-exclusion locks and duplicate GPU backdrop passes.
+
+### Changed
+- Redesigned bundled cursors into dual-track standard XDG vector cursor themes:
+  `tessera-user-light` / `tessera-user-dark` for physical human seats, and
+  `tessera-ai-light` / `tessera-ai-dark` for Agent Interaction Domains (ADR-0150).
+  Both families provide full 36+ standard XDG shape coverage and aliases with
+  distinct geometric silhouettes, eliminating legacy bespoke mouse sprites and
+  unifying rasterization under `CursorCache`.
+- Replaced skeuomorphic mouse feedback with minimal geometric click ripples and
+  added an observability-first Keycast HUD in the mirror window's bottom-right
+  corner for transient Agent keystroke visualization with smooth fade animations (ADR-0152).
+- Extended synthetic input with continuous `PointerButton` (for drag-and-drop,
+  text range selection, and slider manipulation) and `Key` primitives, lifting
+  residual modifier restrictions to support modifier chording like `Ctrl+Click` (ADR-0153).
+
 ## [0.0.59] - 2026-09-12
 
 ### Fixed

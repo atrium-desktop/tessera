@@ -82,7 +82,11 @@ fn main() {
         compile_protocol(&mut build, &out, &xml, base);
     }
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    for base in ["input-method-unstable-v2", "virtual-keyboard-unstable-v1"] {
+    for base in [
+        "input-method-unstable-v2",
+        "virtual-keyboard-unstable-v1",
+        "xdg-toplevel-drag-v1",
+    ] {
         let xml = manifest.join("protocols").join(format!("{base}.xml"));
         compile_protocol(&mut build, &out, &xml, base);
     }

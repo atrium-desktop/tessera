@@ -70,18 +70,19 @@ pub struct AgentActivity {
     pub position: Option<tessera_model::Point>,
     /// Privacy-preserving operation class.
     pub kind: AgentInputKind,
+    /// Active `wp_cursor_shape_device_v1` cursor shape of the Agent seat.
+    pub cursor_shape: Option<u32>,
 }
 
 /// Visual class of a successfully applied Agent input operation.
-///
-/// Keyboard feedback intentionally omits the key code so passwords and typed
-/// content cannot leak through trusted chrome or screenshots of the desktop.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AgentInputKind {
     PointerMove,
     Click { button: u32 },
+    PointerButton { button: u32, state: tessera_model::input::ButtonState },
     Scroll { dx: f32, dy: f32 },
-    Keyboard,
+    Keyboard { key_name: Option<String> },
+    Key { key_name: String, state: tessera_model::input::ButtonState },
 }
 
 /// Edge space a chrome component reserves; tiled windows avoid it. Summed
@@ -818,11 +819,15 @@ pub struct ChromeEvents {
     /// tile). Drained into `Server::switch_workspace_to` by the main loop
     /// (ADR-0025).
     pub switch_workspace: Option<tessera_model::workspace::WorkspaceId>,
-    /// The chrome asked to toggle the launcher this frame (the dock's
-    /// Launchpad tile). Drained by the main loop, which calls [`Shell::toggle`]
-    /// — the same path as the Super+A hotkey — so the launcher flips open or
-    /// closed.
+    /// The chrome asked to toggle the Pivot system intent surface this frame
+    /// (e.g. clicking the dock's Pivot tile). Drained by the main loop.
+    pub toggle_pivot: bool,
+    /// Compatibility alias for toggle_pivot.
     pub toggle_launcher: bool,
+    /// Text to copy to the system clipboard (e.g. Pivot calculation result).
+    pub clipboard_copy: Option<String>,
+    /// Natural-language prompt dispatched from Pivot to the Agent Broker.
+    pub agent_prompt: Option<String>,
     /// Notification id the toast stack asked to dismiss. Drained through the
     /// same command/journal path as an IPC dismissal.
     pub dismissed_notification: Option<u64>,
@@ -919,6 +924,8 @@ impl ChromeEvents {
 /// trait independent of every built-in application's control surface.
 #[derive(Debug)]
 pub enum ChromeCommand<'a> {
+    TogglePivot,
+    ClosePivot,
     ToggleLauncher,
     CloseLauncher,
     TogglePrism,
@@ -1033,14 +1040,20 @@ pub trait Chrome {
     /// Receive a host-owned snapshot or presentation-policy update.
     fn update(&mut self, _update: ChromeUpdate<'_>) {}
 
+    /// Whether this component is the Pivot system intent and action surface
+    /// and is currently open or animating.
+    fn pivot_active(&self) -> bool {
+        false
+    }
+
     /// Whether this component owns the application launcher state.
     fn launcher_active(&self) -> bool {
-        false
+        self.pivot_active()
     }
 
     /// Whether this component owns an open Prism surface.
     fn prism_active(&self) -> bool {
-        false
+        self.pivot_active()
     }
 
     /// Whether this component owns pointer input at the given output-space

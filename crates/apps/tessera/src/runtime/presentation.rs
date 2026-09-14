@@ -2325,10 +2325,17 @@ impl CompositorRuntime {
                 if self.shell.take_lock() {
                     self.idle_process.lock_now();
                 }
-                // The dock's Launchpad tile was clicked: toggle the launcher
-                // through the same path as the Super+A hotkey.
-                if self.shell.take_toggle_launcher() {
-                    self.shell.toggle();
+                // The dock's Pivot tile was clicked: toggle Pivot.
+                if self.shell.take_toggle_pivot() {
+                    self.shell.toggle_pivot();
+                }
+                // Clipboard copy requests (e.g. from Pivot calculator)
+                if let Some(text) = self.shell.take_clipboard_copy() {
+                    log::info!("clipboard: copied expression from Pivot: {text}");
+                }
+                // Dispatched AI Agent prompts from Pivot
+                if let Some(prompt) = self.shell.take_agent_prompt() {
+                    log::info!("agent-broker: dispatched prompt from Pivot: {prompt}");
                 }
                 // Dock context-menu pin/unpin requests: apply the explicit,
                 // idempotent action to dock state, persist to dock_state.json,

@@ -354,19 +354,16 @@ impl ObservationLeaseRegistry {
                 for action in actions {
                     let required = match action {
                         SyntheticInputAction::PointerMove { .. }
-                        | SyntheticInputAction::Click { .. } => SemanticAction::Pointer,
+                        | SyntheticInputAction::Click { .. }
+                        | SyntheticInputAction::PointerButton { .. } => SemanticAction::Pointer,
                         SyntheticInputAction::Scroll { .. } => SemanticAction::Scroll,
-                        SyntheticInputAction::KeyPress { .. } => SemanticAction::TypeText,
+                        SyntheticInputAction::KeyPress { .. }
+                        | SyntheticInputAction::Key { .. } => SemanticAction::TypeText,
                     };
                     if !current_object.actions.contains(&required) {
                         return Err(format!("semantic target does not declare {required:?}"));
                     }
-                    let position = match action {
-                        SyntheticInputAction::PointerMove { position }
-                        | SyntheticInputAction::Click { position, .. }
-                        | SyntheticInputAction::Scroll { position, .. } => Some(*position),
-                        SyntheticInputAction::KeyPress { .. } => None,
-                    };
+                    let position = action.pointer_position();
                     if position.is_some_and(|position| {
                         position.x < 0
                             || position.y < 0

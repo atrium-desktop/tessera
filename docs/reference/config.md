@@ -206,7 +206,7 @@ Applied live on reload.
 |-------|------|---------|-------------|
 | `reduced_motion` | boolean | `false` | Accessibility reduced-motion switch. When `true`, every chrome and lens transition (dock magnification, launcher reveal, fades, slides) resolves to its end state in at most one frame. |
 | `icon_theme` | string | `"hicolor"` | Freedesktop application icon theme used by the launcher, Dock, and themed shell symbols. `$TESSERA_ICON_THEME` wins when set. Changes apply live. |
-| `cursor_theme` | string | `"default"` | SVG cursor theme for the software cursor on direct display, resolved through the freedesktop cursor spec. The theme must ship `cursors/<name>.svg` files; a conventional Xcursor binary theme resolves but contributes nothing, logs a warning, and every shape falls back to the bundled art. `$XCURSOR_THEME` wins when set. When the selected theme is not installed, the bundled Tessera art is the final fallback. |
+| `cursor_theme` | string | `"default"` | SVG cursor theme for the software cursor on direct display, resolved through the freedesktop cursor spec. The theme must ship `cursors/<name>.svg` files; a conventional Xcursor binary theme resolves but contributes nothing, logs a warning, and every shape falls back to the bundled art. `$XCURSOR_THEME` wins when set. Built-in `tessera-user-light` and `tessera-user-dark` need no installation; legacy `Tessera` selects the light variant. Unresolved shapes fall back to `tessera-user-light`. AI feedback uses separate sprites whose polarity follows the shell foreground. |
 | `cursor_size` | integer | `24` | Cursor size in logical pixels, 8–128. `$XCURSOR_SIZE` wins when set. |
 | `window_decorations` | string | `"borderless"` | Decoration ownership for Wayland toplevels. `"borderless"` makes Tessera own window controls without drawing per-window title bars; `"client-side"` asks applications to draw their own frames. |
 | `window_shadow` | string | `"resize"` | Compositor drop-shadow style for floating windows (ADR-0139). `"resize"` draws the historic 4-px stroke shadow; `"soft"` renders a blurred shadow through the Optics shadow operator (rounded-rect mask, Gaussian blur, downward offset; focus raises its opacity); `"none"` disables shadows. Tiled, maximized, fullscreen, and minimized windows never cast one. |
@@ -830,8 +830,7 @@ Letters (`a`–`z`, lowercased), digits (`0`–`9`), and the common controls:
 
 | Name | Aliases | Effect |
 |------|---------|--------|
-| `launcher` | `togglelauncher`, `apps` | Open or close the application launcher |
-| `prism` | `toggleprism`, `spotlight` | Open or close Prism application search |
+| `pivot` | `togglepivot`, `prism`, `toggleprism`, `spotlight`, `launcher`, `togglelauncher`, `apps` | Open or close the Pivot system intent surface (ADR-0151) |
 | `overview` | `toggleoverview` | Open or close the window and workspace overview |
 | `control_center` | `controlcenter`, `command_panel`, `commandpanel`, `panel` | Open or close the control center (quick settings, settings modules, tray, notifications) |
 | `close` | `closefocused` | Close the focused toplevel |
@@ -856,8 +855,7 @@ configured:
 |---------|--------|
 | `Super+Tab` | `cycle` |
 | `Super+Shift+Tab` | `prev` |
-| `Super+A` | `launcher` |
-| `Super+Space` | `prism` |
+| `Super+Space` | `pivot` |
 | `Super+O` | `overview` |
 | `Super+S` | `control_center` |
 | `Super+Q` | `close` |

@@ -89,6 +89,6 @@ lifecycle.
 ## License
 
 Project source code is licensed under the [MIT License](LICENSE). The
-bundled cursor theme under `assets/cursors/Tessera/` is original art generated
+bundled cursor theme under `assets/cursors/` is original art generated
 in-tree by `scripts/prepare-tessera-cursors.py` and is MIT-licensed like the
 rest of the project.
