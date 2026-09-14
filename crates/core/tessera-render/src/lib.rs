@@ -595,7 +595,7 @@ pub struct MappedSurfaceStyle {
 #[derive(Default)]
 struct OrderedSurfaceOptions<'a> {
     map: Option<&'a WindowMap<'a>>,
-    window_shadows: Option<&'a [tessera_model::window::Window]>,
+    windows: Option<&'a [tessera_model::window::Window]>,
     window_filter: Option<&'a HashSet<tessera_model::window::WindowId>>,
     mapped_style: Option<MappedSurfaceStyle>,
     /// Per-window blurred shadow images, pre-rendered by the composition
@@ -696,6 +696,52 @@ fn ordered_surface_sources(
     // in backing-type batches would silently invent a z-order and can expose
     // a lower window above a foreground window.
     sources
+}
+
+// Attach feedback only to the last visible surface of its owning window.
+// Resolve ownership after filtering so hidden trees never emit decorations.
+fn ordered_window_surfaces(
+    sources: Vec<OrderedSurfaceSource>,
+    owner: impl Fn(OrderedSurfaceSource) -> Option<tessera_model::window::WindowId>,
+    filter: Option<&HashSet<tessera_model::window::WindowId>>,
+) -> Vec<(
+    OrderedSurfaceSource,
+    Option<tessera_model::window::WindowId>,
+    bool,
+)> {
+    let mut surfaces = sources
+        .into_iter()
+        .filter_map(|source| {
+            let window = owner(source);
+            surface_passes_window_filter(window, filter).then_some((source, window, false))
+        })
+        .collect::<Vec<_>>();
+    let mut seen = HashSet::new();
+    for (_, window, last) in surfaces.iter_mut().rev() {
+        *last = window.is_some_and(|window| seen.insert(window));
+    }
+    surfaces
+}
+
+fn draw_window_feedback(canvas: &flux::Canvas, window: &tessera_model::window::Window) {
+    if window.minimized {
+        return;
+    }
+    let x = window.position.x as f32;
+    let y = window.position.y as f32;
+    let width = window.size.w as f32;
+    let height = window.size.h as f32;
+    if window.suspended_by_modal {
+        canvas.fill_rect(x, y, width, height, flux::rgba(10, 12, 22, 130));
+    }
+    if window.attention_pulse {
+        let color = flux::rgba(120, 175, 255, 245);
+        let t = 2.5;
+        canvas.fill_rect(x, y, width, t, color);
+        canvas.fill_rect(x, y + height - t, width, t, color);
+        canvas.fill_rect(x, y + t, t, (height - 2.0 * t).max(0.0), color);
+        canvas.fill_rect(x + width - t, y + t, t, (height - 2.0 * t).max(0.0), color);
+    }
 }
 
 fn surface_passes_window_filter(
@@ -1005,6 +1051,8 @@ impl Renderer {
     /// inserted beneath each floating window tree. The first ordered surface
     /// for a window may be a below-parent subsurface, so inserting here (not
     /// in a separate global pass) preserves both subtree and window z-order.
+    /// Modal dimming and attention feedback follow the last surface of each
+    /// window tree, before any higher window is painted.
     /// The style selects between the inline stroke shadow, the pre-rendered
     /// Optics blurred shadow (`soft_shadows`), and none (ADR-0139).
     #[allow(clippy::too_many_arguments)]
@@ -1026,7 +1074,7 @@ impl Renderer {
             shm,
             dmabuf,
             OrderedSurfaceOptions {
-                window_shadows: Some(windows),
+                windows: Some(windows),
                 soft_shadows,
                 shadow_style,
                 ..Default::default()
@@ -1054,7 +1102,7 @@ impl Renderer {
             shm,
             dmabuf,
             OrderedSurfaceOptions {
-                window_shadows: Some(layer.windows),
+                windows: Some(layer.windows),
                 window_filter: Some(layer.window_filter),
                 ..Default::default()
             },
@@ -1166,26 +1214,25 @@ impl Renderer {
         let _uploads = device.uploads_begin();
         let shm_ids = shm.iter().map(|frame| frame.id).collect::<Vec<_>>();
         let dmabuf_ids = dmabuf.iter().map(|frame| frame.id).collect::<Vec<_>>();
-        let shadow_windows = options.window_shadows.map(|windows| {
+        let windows = options.windows.map(|windows| {
             windows
                 .iter()
                 .map(|window| (window.id, window))
                 .collect::<HashMap<_, _>>()
         });
         let mut shadowed = HashSet::new();
-        for source in ordered_surface_sources(order, &shm_ids, &dmabuf_ids) {
-            let window_id = match source {
+        let surfaces = ordered_window_surfaces(
+            ordered_surface_sources(order, &shm_ids, &dmabuf_ids),
+            |source| match source {
                 OrderedSurfaceSource::Shm(index) => shm[index].window,
                 OrderedSurfaceSource::Dmabuf(index) => dmabuf[index].window,
-            };
-            if !surface_passes_window_filter(window_id, options.window_filter) {
-                continue;
-            }
+            },
+            options.window_filter,
+        );
+        for (source, window_id, last) in surfaces {
             if let Some(window_id) = window_id
                 && shadowed.insert(window_id)
-                && let Some(window) = shadow_windows
-                    .as_ref()
-                    .and_then(|windows| windows.get(&window_id))
+                && let Some(window) = windows.as_ref().and_then(|windows| windows.get(&window_id))
             {
                 match options.shadow_style {
                     tessera_model::window::WindowShadowStyle::None => {}
@@ -1247,11 +1294,7 @@ impl Renderer {
                                 },
                             };
                             unsafe {
-                                flux::sys::flux_canvas_draw_geometry(
-                                    canvas.as_raw(),
-                                    &geom,
-                                    &brush,
-                                )
+                                flux::sys::flux_canvas_draw_geometry(canvas.as_raw(), &geom, &brush)
                             };
                         }
                     }
@@ -1272,6 +1315,9 @@ impl Renderer {
                     map,
                     mapped_style,
                 ),
+            }
+            if last && let Some(window) = window_id.and_then(|id| windows.as_ref()?.get(&id)) {
+                draw_window_feedback(canvas, window);
             }
         }
     }
@@ -2233,6 +2279,85 @@ pub fn create_device(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn window_feedback_follows_complete_mixed_backing_tree_before_modal() {
+        use OrderedSurfaceSource::{Dmabuf, Shm};
+        use tessera_model::window::WindowId;
+        // Below-parent subsurface, parent, above-parent subsurface, popup,
+        // then a modal dialog and a nested modal, each with its own tree.
+        let sources = ordered_surface_sources(
+            &[10, 11, 12, 13, 20, 21, 30],
+            &[10, 12, 20, 30],
+            &[11, 13, 21],
+        );
+        let surfaces = ordered_window_surfaces(
+            sources,
+            |source| {
+                Some(WindowId(match source {
+                    Shm(0 | 1) | Dmabuf(0 | 1) => 1,
+                    Shm(2) | Dmabuf(2) => 2,
+                    Shm(3) => 3,
+                    _ => unreachable!(),
+                }))
+            },
+            None,
+        );
+        assert_eq!(
+            surfaces,
+            vec![
+                (Shm(0), Some(WindowId(1)), false),
+                (Dmabuf(0), Some(WindowId(1)), false),
+                (Shm(1), Some(WindowId(1)), false),
+                (Dmabuf(1), Some(WindowId(1)), true),
+                (Shm(2), Some(WindowId(2)), false),
+                (Dmabuf(2), Some(WindowId(2)), true),
+                (Shm(3), Some(WindowId(3)), true),
+            ]
+        );
+    }
+
+    #[test]
+    fn workspace_feedback_excludes_filtered_and_unordered_windows() {
+        use OrderedSurfaceSource::Shm;
+        use tessera_model::window::WindowId;
+        let sources = ordered_surface_sources(&[10, 20, 21], &[10, 20, 21, 30], &[]);
+        let filter = HashSet::from([WindowId(2), WindowId(3)]);
+        let surfaces = ordered_window_surfaces(
+            sources,
+            |source| {
+                Some(WindowId(match source {
+                    Shm(0) => 1,
+                    Shm(1 | 2) => 2,
+                    Shm(3) => 3,
+                    _ => unreachable!(),
+                }))
+            },
+            Some(&filter),
+        );
+        assert_eq!(
+            surfaces,
+            vec![
+                (Shm(1), Some(WindowId(2)), false),
+                (Shm(2), Some(WindowId(2)), true),
+            ]
+        );
+    }
+
+    #[test]
+    fn unowned_surfaces_do_not_receive_window_feedback() {
+        use OrderedSurfaceSource::Shm;
+        use tessera_model::window::WindowId;
+        let surfaces = ordered_window_surfaces(
+            vec![Shm(0), Shm(1)],
+            |source| (source == Shm(0)).then_some(WindowId(1)),
+            None,
+        );
+        assert_eq!(
+            surfaces,
+            vec![(Shm(0), Some(WindowId(1)), true), (Shm(1), None, false),]
+        );
+    }
 
     #[test]
     fn modifier_preference_is_stable_and_keeps_linear_last() {
