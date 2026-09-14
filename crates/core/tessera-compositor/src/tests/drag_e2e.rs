@@ -2,6 +2,101 @@ use crate::*;
 
 static DRAG_E2E: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+#[test]
+fn same_client_drag_delivers_drop_before_source_completion() {
+    use std::io::Read;
+    use std::os::fd::IntoRawFd;
+    use std::os::unix::net::UnixStream;
+
+    // Both endpoints belong to one client, as when Chrome reorders bookmarks.
+    // Read actual Wayland wire events: source completion makes Chrome clear
+    // its destination, so a subsequent destination drop would be ignored.
+    let (server_socket, mut client_socket) = UnixStream::pair().unwrap();
+    client_socket.set_nonblocking(true).unwrap();
+    unsafe {
+        struct Connection {
+            display: *mut ffi::wl_display,
+            client: *mut ffi::wl_client,
+        }
+        impl Drop for Connection {
+            fn drop(&mut self) {
+                unsafe {
+                    ffi::wl_client_destroy(self.client);
+                    ffi::wl_display_destroy(self.display);
+                }
+            }
+        }
+
+        let display = ffi::wl_display_create();
+        assert!(!display.is_null());
+        let client = ffi::wl_client_create(display, server_socket.into_raw_fd());
+        assert!(!client.is_null());
+        let _connection = Connection { display, client };
+        let source = ffi::wl_resource_create(client, &ffi::wl_data_source_interface, 3, 2);
+        let device = ffi::wl_resource_create(client, &ffi::wl_data_device_interface, 3, 3);
+        let offer = ffi::wl_resource_create(client, &ffi::wl_data_offer_interface, 3, 4);
+        assert!(!source.is_null() && !device.is_null() && !offer.is_null());
+        let mut state = State::new(display);
+        let mut offer_rec = DataOfferRec {
+            state: &mut state,
+            version: 3,
+            source,
+            source_kind: SelectionSourceKind::WlDataSource,
+            owned: None,
+            is_drag: true,
+            accepted: true,
+            destination_actions: ffi::WL_DATA_ACTION_MOVE,
+            preferred_action: ffi::WL_DATA_ACTION_MOVE,
+            selected_action: ffi::WL_DATA_ACTION_MOVE,
+            dropped: false,
+            finished: false,
+        };
+        ffi::wl_resource_set_implementation(
+            offer,
+            std::ptr::null(),
+            &mut offer_rec as *mut _ as *mut c_void,
+            None,
+        );
+        state.drag = Some(DragState {
+            source,
+            origin: std::ptr::null_mut(),
+            focus: std::ptr::null_mut(),
+            target_device: device,
+            offer,
+            icon: std::ptr::null_mut(),
+            origin_device: DragOriginDevice::Pointer,
+            attached_toplevel: std::ptr::null_mut(),
+            toplevel_offset: (0, 0),
+        });
+
+        crate::protocol::finish_drag(&mut state);
+        ffi::wl_display_flush_clients(display);
+        assert!(state.drag.is_none());
+        assert!(offer_rec.dropped);
+
+        let mut wire = [0u8; 16];
+        client_socket
+            .read_exact(&mut wire)
+            .expect("two queued drag events");
+        let events: Vec<_> = wire
+            .chunks_exact(8)
+            .map(|event| {
+                let object = u32::from_ne_bytes(event[..4].try_into().unwrap());
+                let header = u32::from_ne_bytes(event[4..].try_into().unwrap());
+                assert_eq!(header >> 16, 8, "drag event has no payload");
+                (object, header & 0xffff)
+            })
+            .collect();
+        assert_eq!(
+            events,
+            vec![
+                (3, ffi::WL_DATA_DEVICE_DROP),
+                (2, ffi::WL_DATA_SOURCE_DND_DROP_PERFORMED),
+            ]
+        );
+    }
+}
+
 fn toplevel_drag_probe_binary() -> Option<std::path::PathBuf> {
     let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")

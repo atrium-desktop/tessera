@@ -1070,13 +1070,16 @@ pub(crate) unsafe fn finish_drag(state: *mut State) {
                 ffi::wl_resource_post_event(drag.source, ffi::WL_DATA_SOURCE_CANCELLED);
             } else {
                 (*offer_rec).dropped = true;
+                // Deliver the drop before ending the source's drag loop. When
+                // both endpoints are Chrome, dnd_drop_performed clears its
+                // destination and a later data-device drop would be ignored.
+                ffi::wl_resource_post_event(drag.target_device, ffi::WL_DATA_DEVICE_DROP);
                 if ffi::wl_resource_get_version(drag.source) >= 3 {
                     ffi::wl_resource_post_event(
                         drag.source,
                         ffi::WL_DATA_SOURCE_DND_DROP_PERFORMED,
                     );
                 }
-                ffi::wl_resource_post_event(drag.target_device, ffi::WL_DATA_DEVICE_DROP);
             }
         }
         clear_drag_icon(drag.icon);
