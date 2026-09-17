@@ -114,7 +114,7 @@ ownership. The nested backend remains for development. Both implement the
 
 **Status.** In progress — code complete, pending hardware verification. The
 backend abstraction ships in
-([`tessera-backend`](../../crates/core/tessera-backend)) with two implementations behind
+([`tessera-platform`](../../crates/tessera-platform)) with two implementations behind
 the `Backend` trait: nested (development) and DRM/KMS. The DRM backend does
 atomic modesetting with a TEST_ONLY preflight, scans out Flux offscreen
 dma-bufs (GBM-less) through a two-slot page-flip ring with explicit-sync
@@ -175,7 +175,7 @@ base and an optional, policy-driven tiling layer applied on top. Window
 rules from the configuration file drive placement and layout policy.
 
 **Status.** In progress. The pure workspace/output model landed in
-`tessera-model::workspace` (`WorkspaceModel`, `Workspace`, `Output`,
+`tessera-desktop::workspace` (`WorkspaceModel`, `Workspace`, `Output`,
 `WorkspaceId`/`OutputId`): dynamic per-output workspaces, the trailing-empty
 invariant, empty-workspace reaping, toplevel place/remove/move, switch and
 switch-to, and output-removal relocation — fully unit-tested in isolation.
@@ -188,7 +188,7 @@ window, and removal reaps the emptied workspace. The IPC exposes
 (HUD chrome component, hosted by the `tessera-hud` crate)
 shows one numbered tile per workspace,
 highlights the current, and switches on click. The tiling policy is
-implemented end to end: a pure `tessera-model::layout` module (`LayoutRole`,
+implemented end to end: a pure `tessera-desktop::layout` module (`LayoutRole`,
 `LayoutParams`, the `Layout` trait, a `MasterStack` policy), a `layout_role`
 field on `Window`, and server application — `Super+T` or the IPC
 `ToggleTiling` command flips the current workspace to tiled, the master-stack
@@ -221,7 +221,7 @@ with per-output mapping, and basic color management land with the libinput
 backend.
 
 **Status.** In progress. The per-output geometry model landed in
-`tessera-model::output` (`OutputMode`, `Scale`, `OutputGeometry`) — see
+`tessera-desktop::output` (`OutputMode`, `Scale`, `OutputGeometry`) — see
 [ADR-0028](../adr/0028-output-and-monitor-model.md) — and is now wired end to
 end: backends report real connectors and geometry, the server advertises
 per-connector `wl_output` (v4, with name/description) and `zxdg_output_v1`,

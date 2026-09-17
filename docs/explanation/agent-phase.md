@@ -28,11 +28,10 @@ The stack, from the rendering layer up:
 | Layer | Owner | What lives here |
 |-------|-------|-----------------|
 | Rendering and UI | flux, lens (out of tree) | Vulkan presentation; immediate-mode chrome drawing |
-| The model | `tessera-model` | Windows, workspaces, outputs, Interaction Domains, seats, semantics, and layout — the one truth |
-| Security kernel | `tessera-security` | Actor authority policy and privacy-minimized, hash-chained audit mechanisms without a transport dependency |
+| The domain | `tessera-types`, `tessera-scene`, `tessera-desktop`, `tessera-authority`, `tessera-semantic` | Stable values, scene state, desktop state, authority, and semantics |
 | Semantic trust seam | `tessera-semantic` | Bounded application accessibility trees, provider ownership, window-namespaced node identities, and action routing |
-| The compositor | `tessera-compositor`, `tessera-backend`, `tessera-render`, `tessera-shell` | Wayland, per-Interaction Domain input and output, the chrome host |
-| The seam | `tessera-ipc` | Versioned JSON and sealed descriptors over a Unix socket; transport admission, scopes, capture, and the journal |
+| The platform | `tessera-wayland`, `tessera-platform`, `tessera-render`, `tessera-shell` | Wayland, presentation, and the chrome host |
+| The seam | `tessera-protocol`, `tessera-ipc` | Versioned messages, transport, clients, and server admission |
 | Accessibility adapter | `tessera-atspi` (supervised separate process) | AT-SPI discovery, tree publication, live precondition recheck, and toolkit action dispatch |
 | IPC clients | any number, all equal | Native `tessera` commands, the agent, future bridges |
 | Platform adapter | `tessera-mcp` (separate process and crate) | Scoped Tessera tools and one bridge-managed Agent Interaction Domain over MCP |

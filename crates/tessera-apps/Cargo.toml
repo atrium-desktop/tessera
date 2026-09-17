@@ -1,0 +1,23 @@
+[package]
+name = "tessera-apps"
+description = "Desktop application discovery, icon-theme lookup, process launching, and intent search"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tessera-desktop.workspace = true
+tessera-i18n = { workspace = true }
+dirs.workspace = true
+ini.workspace = true
+libc.workspace = true
+log.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

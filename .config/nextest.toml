@@ -18,11 +18,11 @@ failure-output = "immediate-final"
 exclusive-system-tests = { max-threads = 1 }
 
 [[profile.default.overrides]]
-filter = 'package(tessera-backend) or package(tessera-ipc)'
+filter = 'package(tessera-platform) or package(tessera-ipc)'
 test-group = 'exclusive-system-tests'
 
 # Prioritize heavy/long-running compositor and renderer test suites first
 # to maximize multi-core worker pool utilization and minimize the tail latency.
 [[profile.default.overrides]]
-filter = 'package(tessera-compositor) or package(tessera-render) or package(tessera-shell)'
+filter = 'package(tessera-wayland) or package(tessera-render) or package(tessera-shell)'
 priority = 100

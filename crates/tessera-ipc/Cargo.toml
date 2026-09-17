@@ -1,0 +1,28 @@
+[package]
+name = "tessera-ipc"
+description = "Shared client base for out-of-process capability bridges: pairing, credentials, state recovery, and observation leases (ADR-0125)"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tessera-semantic.workspace = true
+tessera-authority.workspace = true
+tessera-desktop.workspace = true
+tessera-scene.workspace = true
+tessera-types.workspace = true
+tessera-protocol.workspace = true
+libc = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+zeroize = { workspace = true }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tessera-protocol = { workspace = true }
+tempfile.workspace = true

@@ -1,5 +1,6 @@
 /target
 /kimi-export-*.md
+/codex-session-*.md
 /.cargo/config.toml
 /.muta/
 

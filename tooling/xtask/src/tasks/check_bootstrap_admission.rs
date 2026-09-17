@@ -45,40 +45,30 @@ struct Finding {
 
 fn discover_entry_points() -> Result<Vec<Entry>> {
     let mut entries = Vec::new();
-    for tier in ["api", "core", "providers", "chrome", "services", "apps"] {
-        let dir = Path::new("crates").join(tier);
-        let Ok(read) = fs::read_dir(&dir) else {
+    for crate_dir in fs::read_dir("crates")?.flatten() {
+        let manifest = crate_dir.path().join("Cargo.toml");
+        if !manifest.exists() {
             continue;
-        };
-        for crate_dir in read.flatten() {
-            let manifest = crate_dir.path().join("Cargo.toml");
-            if !manifest.exists() {
-                continue;
-            }
-            let pkg = fs::read_to_string(&manifest)?;
-            let name = pkg
-                .lines()
-                .find_map(|l| l.strip_prefix("name = "))
-                .map(|s| s.trim_matches('"').to_string())
-                .with_context(|| format!("package name in {}", manifest.display()))?;
-
-            // `src/main.rs` is the canonical entry point; any declared
-            // [[bin]] path also qualifies. Parse the manifest naively:
-            // this gate only needs the paths, not the full TOML graph.
-            let src_main = crate_dir.path().join("src/main.rs");
-            if src_main.exists() {
+        }
+        let pkg = fs::read_to_string(&manifest)?;
+        let name = pkg
+            .lines()
+            .find_map(|l| l.strip_prefix("name = "))
+            .map(|s| s.trim_matches('"').to_string())
+            .with_context(|| format!("package name in {}", manifest.display()))?;
+        let src_main = crate_dir.path().join("src/main.rs");
+        if src_main.exists() {
+            entries.push(Entry {
+                owner: name.clone(),
+                path: src_main,
+            });
+        }
+        for bin_path in declared_bin_paths(&pkg, &crate_dir.path()) {
+            if bin_path.exists() {
                 entries.push(Entry {
                     owner: name.clone(),
-                    path: src_main.clone(),
+                    path: bin_path,
                 });
-            }
-            for bin_path in declared_bin_paths(&pkg, &crate_dir.path()) {
-                if bin_path.exists() && bin_path != src_main {
-                    entries.push(Entry {
-                        owner: name.clone(),
-                        path: bin_path,
-                    });
-                }
             }
         }
     }

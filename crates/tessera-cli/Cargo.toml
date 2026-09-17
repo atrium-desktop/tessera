@@ -1,0 +1,38 @@
+[package]
+name = "tessera-cli"
+description = "Domain-oriented management commands for a running Tessera session"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "tessera_cli"
+path = "src/lib.rs"
+
+[dependencies]
+tessera-ipc = { workspace = true }
+tessera-apps = { workspace = true }
+tessera-bootstrap = { workspace = true }
+tessera-i18n = { workspace = true }
+tessera-desktop.workspace = true
+tessera-types.workspace = true
+tessera-protocol.workspace = true
+tessera-audit.workspace = true
+tessera-config = { workspace = true }
+tessera-authority = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+zeroize.workspace = true
+clap = { version = "4", features = ["derive", "wrap_help", "string"] }
+clap_complete = "4"
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tessera-semantic.workspace = true
+tessera-scene.workspace = true
+tessera-ipc.workspace = true
+tempfile = "3"
+
+[lints]
+workspace = true

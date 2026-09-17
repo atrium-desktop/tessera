@@ -1,0 +1,34 @@
+[package]
+name = "tessera-platform"
+description = "Compositor hardware and host platform adaptation: DRM/KMS outputs, libinput, libseat, and nested Wayland"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+build = "build.rs"
+
+[dependencies]
+tessera-desktop.workspace = true
+tessera-scene.workspace = true
+tessera-types.workspace = true
+tessera-wayland-protocols = { workspace = true }
+flux = { workspace = true }
+flux-sys = { workspace = true }
+ash = "0.38"
+drm.workspace = true
+libseat.workspace = true
+input.workspace = true
+udev.workspace = true
+libc.workspace = true
+log.workspace = true
+thiserror.workspace = true
+
+[build-dependencies]
+pkg-config = "0.3"
+
+[package.metadata.cargo-machete]
+ignored = ["flux-sys", "pkg-config"]
+
+[lints]
+workspace = true

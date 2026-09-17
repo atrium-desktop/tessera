@@ -1,0 +1,23 @@
+[package]
+name = "tessera-remote"
+description = "Universal Interaction Protocol (UIP) network gateway and remote seat manager"
+readme = "README.md"
+version = "0.0.60"
+edition = "2024"
+license = "MIT"
+rust-version = "0.0.60"
+
+[dependencies]
+tessera-authority = { path = "../../crates/tessera-authority" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+fastrand = { workspace = true }
+sha2 = { workspace = true }
+hmac = { workspace = true }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[workspace]

@@ -1,0 +1,23 @@
+[package]
+name = "tessera-desktop"
+description = "Shared Tessera state machine: system state, identities, geometry, and deterministic rules"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tessera-scene.workspace = true
+tessera-types.workspace = true
+serde.workspace = true
+
+[features]
+default = ["serde"]
+serde = []
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

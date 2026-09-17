@@ -244,7 +244,7 @@ corpus, not a performance guarantee for real desktops or other CPUs.
 cargo test --locked --workspace
 ```
 
-`tessera-model` and `tessera-compositor` unit tests run without the flux dependency;
+`tessera-desktop` and `tessera-wayland` unit tests run without the flux dependency;
 the rest need either the sibling Optics Meson tree in the local workflow or
 the installed libraries in the canonical workflow.
 

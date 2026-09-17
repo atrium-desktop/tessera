@@ -1,428 +1,76 @@
 # Architecture
 
-tessera is a Wayland compositor for Linux, written in Rust. It composites
-client windows and draws its own shell chrome through
-[flux](https://github.com/ming2k/optics/tree/main/libs/flux), a Vulkan-first
-rendering engine, and
-[lens](https://github.com/ming2k/optics/tree/main/libs/lens), an
-immediate-mode UI engine that draws through flux.
+Tessera is a Linux Wayland compositor with a compositor-owned desktop shell.
+Flux provides GPU rendering and Lens provides immediate-mode UI primitives;
+Tessera owns protocol, policy, lifecycle, and platform integration.
 
-This page explains how the components fit together and where the project is
-headed. For the product direction, see [Vision and Scope](vision.md); for
-the milestone sequence, see [Roadmap](roadmap.md); for the decisions behind
-the structure, see the [Architecture Decision Records](../adr/index.md).
+The current architecture is recorded by [ADR-0158](../adr/0158-clean-break-workspace-boundaries.md), [ADR-0159](../adr/0159-package-boundaries-follow-capabilities.md), [ADR-0160](../adr/0160-consolidate-application-subsystem.md), and [ADR-0161](../adr/0161-rename-backend-to-platform.md).
 
-## Responsibility Boundary
+## Resource ownership
 
-tessera owns the server and platform halves of a compositor; flux and lens
-own rendering and UI. The split is fixed in
-[ADR-0001](../adr/0001-scope-and-responsibility-boundary.md).
+`tessera` (`crates/tessera`) is the composition root and main compositor binary.
+It owns the display engine lifecycle (host, device, presentation surface,
+canvas, renderer, and Wayland server) with strict teardown ordering, session
+orchestration, configuration application, shell registration, IPC handler
+implementation, security decisions, and process supervision.
 
-| Concern | Owner |
-|---------|-------|
-| Wayland server protocol, globals, object lifecycle | tessera |
-| Input, output, session and seat management | tessera |
-| Window management, surface and scene model, focus | tessera |
-| GPU rendering, client buffer import as textures | flux |
-| Compositor chrome (panels, overview, notifications) | lens |
+`tessera-shell` owns the Lens host and built-in UI chrome components (`dock`,
+`hud`, `pivot`, `control_center`, `settings`, and shared `widgets`). Components
+emit typed events. The compositor decides whether an event is authorized and
+applies the corresponding desktop mutation.
 
-flux is a client-side renderer: it presents into a caller-supplied
-`VkSurfaceKHR` and has no windowing code. lens consumes input as a data
-snapshot and emits draw calls. tessera supplies both the surface and the
-input.
+## Domain boundaries
 
-## Crate Layout
+Stable geometry, identities, and input values live in `tessera-types`.
+Renderer-independent surface and stream descriptions live in `tessera-scene`.
+Window, workspace, layout, and desktop preferences live in `tessera-desktop`.
+Application discovery, scale-aware icon-theme lookup, detached process execution,
+and headless intent search live in `tessera-apps`.
+Actor authority, credentials, grants, and interaction-domain policy live in `tessera-authority`.
+Accessibility validation and semantic routing live in `tessera-semantic`.
 
-tessera is a Cargo workspace under `crates/`. The split keeps the server,
-backend, renderer, and shell behind clear seams so the
-[AI-adaptation phase](#roadmap) can grow a semantic model from
-`tessera-model`. The crates group by responsibility:
+The external compatibility boundary is `tessera-protocol`. It contains
+versioned wire DTOs and audit vocabulary, and does not contain sockets,
+threads, filesystem persistence, or GPU types. Unix framing, socket paths,
+client connectivity, and the server dispatch loop live in `tessera-ipc`.
+Durable integrity-checked event storage lives in `tessera-audit`.
 
-| Role | Crate | Responsibility |
-|------|-------|----------------|
-| **Model** | `tessera-model` | Backend-, protocol-, and renderer-agnostic state plus deterministic model rules |
-| | `tessera-security` | Transport-neutral Actor authority plus bounded, integrity-checked audit persistence |
-| | `tessera-semantic` | Bounded accessibility-tree validation, window-local identity namespacing, provider ownership, and semantic action routing |
-| | `tessera-wayland-protocols` | Wayland extension interface tables, generated once and shared |
-| **Server / window management** | `tessera-compositor` | Hand-rolled Wayland server: globals, protocol object lifecycle, per-Interaction Domain seats and outputs, focus, authority transfer, tiling, and workspaces |
-| | `tessera-backend` | Presentation and input targets: nested (development) and DRM/KMS + libinput + libseat (bare TTY) |
-| | `tessera-render` | Compositing: client buffers to flux textures, scene to the output via flux |
-| **Shell / interaction** | `tessera-shell` | Compositor chrome host and `Chrome` contract on lens, shared components, and the feature-gated `persona` profile/portrait domain |
-| | `tessera-design` | Product design tokens, themes, and data-only surface materials shared by chrome components |
-| | `tessera-dock` | Bottom-center dock chrome component: pinned and running apps, magnification, pin actions |
-| | `tessera-settings` | Settings module library: module contract, registry, and built-in pages hosted by the command panel |
-| | `tessera-hud` | Display-only HUD status chips: system status, workspace dots, clock, notification count, and the StatusNotifierItem tray row |
-| | `tessera-control-center` | Full-screen modal control center: the display-and-control surface for desktop-computer behavior (quick settings, hosted settings modules, tray activation, notification dismissal) — scoped by [ADR-0115](../adr/0115-command-panel-desktop-behavior-scope.md) |
-| | `tessera-wallpaper` | Background layer: image, video, 3D, and multi-plane parallax wallpaper |
-| | `tessera-config` | Declarative configuration: versioned TOML schema, loader, live reload |
-| **Session services** | `tessera-lock` | Multi-output session-lock presentation and PAM authentication |
-| | `tessera-idle` | Ordered inactivity policy, lock-before-sleep coordination, and display-power requests |
-| | `tessera-atspi` | Supervised out-of-process AT-SPI tree and semantic-action adapter with a session-only system principal |
-| **Convenience channels** | `tessera-desktop-entries` | freedesktop.org desktop-entry enumeration and icon-theme lookup |
-| | `tessera-launcher` | Ordinary app detachment and fail-closed Interaction Domain namespace/cgroup launch |
-| | `tessera-ipc` | Native capability broker contract: versioned identity, scopes, leases, Interaction Domain authority, sealed capture transport, and introspection over a Unix socket |
-| | `tessera-ipc-client` | Rich client library for the capability broker: pairing discipline, credential policies, state recovery, and observation leases for out-of-process consumers (ADR-0125) |
-| | `tessera-commands` | Domain-oriented parser and IPC dispatcher behind native `tessera` management commands |
-| **AI integration** | `tessera-mcp` | Stateless MCP `2026-07-28` adapter over the native broker, with one subject-bound Agent Interaction Domain per connector instance (ADR-0090) |
+## Platform and presentation
 
-| **Binary** | `tessera` | The binary: wires the parts together and runs the event loop |
+`tessera-wayland` owns Wayland object lifecycle, while
+`tessera-wayland-protocols` contains generated protocol tables.
+`tessera-platform` owns DRM/KMS, nested display, seat, and input adapters.
+`tessera-render` owns buffer import, composition, damage, scanout, stream
+production, and GPU readback capture encoding.
 
-The optional xdg-desktop-portal backend is developed in the independent
-[xdg-desktop-portal-atrium repository](https://github.com/aegis-shell/xdg-desktop-portal-atrium).
-It remains an explicitly version-pinned Tessera companion because its scoped
-IPC mechanisms move with the compositor, while its D-Bus, PipeWire,
-encrypted-secret, and PAM dependencies evolve outside the core source
-workspace. See
-[ADR-0095](../adr/0095-independent-portal-repository-and-component-workspace.md).
+Presentation code receives delivery and security decisions through session
+callbacks. It cannot open sockets, resolve credentials, or choose which
+consumer is allowed to observe a frame.
 
-flux and lens are consumed through separately versioned Rust binding
-workspaces in the Optics monorepo, following the openssl-sys / rusqlite
-convention: `flux-rs` (`flux` / `flux-sys`) and `lens-rs`
-(`lens` / `lens-sys`). Native libraries cross the repository boundary
-through `pkg-config`; binding sources come from a locked release by default.
-See
-[ADR-0071](../adr/0071-worktree-isolated-cross-repository-development.md).
+## Dependency direction
 
-## Actor Boundary
+The dependency graph moves from stable values and domain rules toward platform,
+presentation, shell, and finally session/application composition. The protocol
+does not depend on the compositor. Shell components do not depend on Wayland or
+renderer internals. The session is the only place allowed to assemble all
+subsystems.
 
-Agent support is an authority projection across existing compositor domains,
-not an Agent runtime inside the shell:
+`cargo run -p xtask -- check-boundaries` verifies these rules from Cargo
+manifests. This makes the package name and manifest dependency graph the source
+of truth rather than a second directory taxonomy.
 
-```text
-Wayland compositor
-└── native capability broker
-    ├── human Actor context
-    └── Agent Actor context
-        ├── identity: authenticated principal + bounded Actor session
-        ├── capability: independent operations + exact resource grants
-        ├── view/input: Interaction Domain output + independent seat + authority
-        ├── observation: filtered semantic snapshot + single-use token
-        └── storage/network: isolated sandbox + grant-consuming brokers
-```
+## Actor boundary
 
-`tessera-model` owns durable semantic and Interaction Domain models;
-`tessera-security` owns Actor sessions, capabilities, resource grants,
-observation leases, transaction preconditions, and integrity-checked audit
-persistence; `tessera-semantic` validates
-untrusted application accessibility trees; `tessera-ipc` carries those
-contracts; and `tessera-compositor` derives the view and routes each independent
-seat. The binary runtime assembles and revokes the live facets, while the
-security audit module persists privacy-minimized decisions. `tessera-atspi`
-performs D-Bus/toolkit work outside the compositor and rechecks target state
-immediately before dispatch. It binds AT-SPI applications to Wayland windows
-by equal kernel/D-Bus process identity plus an exact title; ordinary observers
-never receive process ids. Reasoning, planning, and long-term memory remain in
-out-of-tree agent runtimes.
+Agent support is an authority projection over desktop capabilities. The broker
+authenticates a principal, resolves its scope, validates semantic observations,
+and dispatches authorized actions through the same session use cases that serve
+human input. Planning, model inference, and long-term agent memory remain
+outside Tessera. The MCP and accessibility adapters are independent processes.
 
-Observation and action are separate capability families. A semantic Interaction Domain
-observation is bound to the Actor, authority revision, and complete target
-state. The action consumes that observation once; state change aborts the
-batch before dispatch. Framebuffer capture is an independently authorized
-fallback and never substitutes for a semantic precondition. See
-[ADR-0102](../adr/0102-actor-scoped-semantic-observation-and-transactional-actions.md)
-and [ADR-0104](../adr/0104-actor-sessions-resource-grants-and-accessibility-adapter.md).
+## Adding a subsystem
 
-## Naming Note: Where the "User-Facing" Logic Lives
-
-The crate names are *mechanism-oriented*, which can make the product roles
-hard to read at a glance. For the most common "I want to change what the
-user sees or can do" tasks:
-
-- **"Manage windows"** (focus, close, move, tile, workspace) → `tessera-compositor`.
-- **"Change the chrome / interactions"** (dock, launcher, HUD, control center) → `tessera-shell`
-  for the host and contract; the HUD and control center live in the
-  `tessera-hud` and `tessera-control-center` component crates. The control center
-  is scoped to desktop-computer behavior — the user's computer, not
-  compositor internals
-  ([ADR-0115](../adr/0115-command-panel-desktop-behavior-scope.md)) — and
-  owns live-system controls, the display-only Agent Workspaces status row,
-  and the persistent settings pages hosted from the `tessera-settings`
-  module library
-  ([ADR-0114](../adr/0114-panel-hosted-settings-and-hud-command-panel.md),
-  [ADR-0060](../adr/0060-statusbar-system-controls-and-live-system-ipc.md),
-  [ADR-0045](../adr/0045-statusbar-crate-and-sni-tray.md)).
-- **"Add an external control path"** (CLI or scripts) → `tessera-ipc` +
-  native `tessera` resource commands; agents consume that same IPC through the
-  `tessera-mcp` bridge
-  without entering the compositor process
-  ([ADR-0047](../adr/0047-neenee-agent-realm-platform-bridge.md),
-  [ADR-0087](../adr/0087-tessera-mcp-standalone-platform-bridge-crate.md)). The
-  command panel's Agent Workspaces status row reports generic Interaction Domain
-  authority; it does not infer any external agent's process state
-  ([ADR-0074](../adr/0074-generic-agent-workspaces-status-surface.md)).
-- **"Start or discover apps"** → `tessera-desktop-entries` (discovery) + `tessera-launcher`
-  (spawn). `tessera-launcher` is intentionally narrow: process detachment and
-  environment, not window management.
-- **"Lock or handle inactivity"** → `tessera-lock` owns presentation and
-  authentication, while `tessera-idle` owns staged policy. The compositor
-  retains protocol, input, inhibitor, output-power, and fail-closed authority
-  ([ADR-0078](../adr/0078-out-of-process-idle-and-session-lock.md)).
-
-## Settings Boundary
-
-Persistent settings follow the same state-in, intent-out direction as the
-rest of the compositor. The command panel hosts the settings pages
-in-process: each module reads a coherent revisioned snapshot pushed through
-the chrome update channel and returns typed edits with the revision it
-observed, and the main loop commits them through the same path that serves
-the settings IPC. The compositor remains the authority that validates,
-persists, applies, journals, and publishes the next revision.
-
-A module owns one visible settings domain and its draft editor state. It does
-not own the configuration file or the host service. This distinction keeps
-the module catalog broad without pretending all settings belong to the
-compositor: account modules use system account and authorization services.
-The power module persists Tessera inactivity policy, while the supervised
-policy client coordinates the host's backlight and logind services.
-Compositor-owned display/input policy uses the same commit path whether the
-edit arrives from the panel or from an external IPC client.
-
-Volume, brightness, radios, Do Not Disturb, and current-workspace layout are
-immediate service or session controls rather than persistent settings. The
-command panel presents them on its System tab, external clients use the
-live-system IPC, and both paths converge on one runtime handler. Interaction
-Domain lifecycle is authority management rather than configuration and is
-managed through the `tessera interaction-domain *` CLI and the
-`interaction_domain_*` MCP tools. The command panel is the canonical
-persistent-settings UI. See
-[ADR-0114](../adr/0114-panel-hosted-settings-and-hud-command-panel.md),
-[ADR-0060](../adr/0060-statusbar-system-controls-and-live-system-ipc.md), and
-the [Settings Reference](../reference/settings.md).
-
-## Session Lock and Inactivity
-
-Session security crosses three lifetimes. The compositor has the longest
-lifetime and owns the state that must fail closed: protocol acceptance,
-exclusive input routing, idle inhibition, physical output power, and the
-opaque scene shown when a confirmed locker disappears. The lock client has a
-short authentication lifetime and owns only what the user sees and enters.
-The idle coordinator has a replaceable policy lifetime and can restart when
-settings change.
-
-This separation keeps authentication and host power services out of the
-compositor without delegating the security boundary. The idle coordinator
-may request a lock, but it cannot claim that the lock is secure. It waits for
-the lock client's readiness signal, which is emitted only after compositor
-confirmation. Display power-off, suspend, and release of the logind delay
-inhibitor occur after that boundary.
-
-Activity reverses presentation policy in the opposite order: outputs wake
-behind the secure frame, the backlight is restored, and authentication
-remains necessary. A policy failure can wake a screen but cannot unlock it.
-A lock-presentation failure can remove the client but cannot reveal normal
-desktop content.
-
-Direct sessions own the physical devices and system sleep transition. Nested
-sessions retain the complete locking model but leave brightness, output
-power, and suspend to the outer desktop. See
-[ADR-0078](../adr/0078-out-of-process-idle-and-session-lock.md) and
-[How to Configure Locking and Idle](../how-to/lock-and-idle.md).
-
-## Backend Abstraction
-
-A backend owns the presentation target and the raw input stream. The
-nested backend runs tessera as a client of an existing Wayland session and
-presents into a host window; the DRM/KMS backend drives the display
-hardware directly with libinput input and libseat session ownership. Both
-implement one `Backend` trait so the server, renderer, and shell are written
-once.
-
-In a direct session, display ownership determines renderer ownership. The
-KMS primary node granted by libseat identifies the physical GPU, and Flux
-must select a Vulkan device whose primary or render-node identity belongs to
-that GPU. A mismatch is a startup error rather than an implicit cross-GPU
-copy path. This keeps dma-buf modifiers, synchronization, power policy, and
-scanout under one explicit device boundary. See
-[ADR-0100](../adr/0100-strict-kms-vulkan-device-affinity.md).
-
-Rendering and event dispatch have separate ownership. A submitted DRM frame
-belongs to one **presentation domain** until every CRTC in its atomic batch
-reports a page flip. Client requests, input, hotplug, and session events
-continue during that interval, while visible changes coalesce into one next
-redraw. The current domain spans all active outputs because they share one
-desktop framebuffer and atomic commit. This preserves the real backend
-boundary instead of pretending the outputs can retire independently. See
-[ADR-0077](../adr/0077-presentation-domain-redraw-state-machine.md).
-
-### Presentation Plans and Plane Roles
-
-Direct sessions have two presentation paths. The normal path composites the
-desktop, live glass, shell chrome, protocol overlays, and capture work into a
-framebuffer for the primary plane. The fast path assigns one opaque,
-full-output client buffer directly to that plane when the visible scene needs
-nothing else. Eligibility follows the pixels and synchronization contract,
-not merely a window's fullscreen state.
-
-Every active output has one assigned primary plane and may have an independent
-cursor plane. Overlay planes are discovered but remain compositor-owned policy:
-arbitrary desktop layers and backdrop-dependent effects are not offloaded
-without a complete atomic capability proof. Opening the window switcher makes
-composition mandatory, so the fullscreen buffer yields the primary plane while
-its protocol state remains intact. See
-[ADR-0101](../adr/0101-dual-presentation-paths-and-conservative-kms-plane-allocation.md).
-The exact eligibility conditions, rejection labels, and diagnostic messages
-are listed in the
-[Rendering and KMS Plane Reference](../reference/rendering.md).
-
-The nested backend, and the server itself, use raw libwayland over FFI
-rather than a higher-level framework
-([ADR-0002](../adr/0002-hand-rolled-wayland-server.md),
-[ADR-0003](../adr/0003-nested-first-bring-up.md)). The nested host window
-drives libwayland-client with xdg-shell interface tables generated from the
-protocol definition, and `ash` creates the `VkSurfaceKHR` on flux's Vulkan
-instance.
-
-## Pointer Latency and the Cursor Plane
-
-The cursor plane is the one KMS plane whose contents do not depend on the
-composited scene, so pointer motion must not queue behind primary-plane
-work. Tessera issues cursor updates through a dedicated cursor-only atomic
-commit that touches no primary-plane property and requests no page-flip
-event; KMS executes commits from one file description in submission order,
-and the request restates the complete cursor-plane state, so consecutive
-motion commits supersede rather than race. Plain pointer motion is landed
-out-of-band from the render schedule — while a composite frame is being
-built or while KMS still owns the previous flip — instead of waiting for the
-next render transaction to open. Anything that makes the pointer visible
-scene content (software-cursor fallback, client cursor surfaces, chrome
-ownership, drags, session lock) returns to the ordinary composited path.
-
-## Per-Frame Data Flow
-
-Each frame follows this sequence:
-
-1. The backend dispatches host, input, session, hotplug, and client-wakeup
-   events. Dispatch remains live when a previous DRM frame is waiting for
-   vblank.
-2. The server accepts surface commits and attached `wl_shm` or dma-buf
-   buffers. Input is routed through the owning Interaction Domain seat. Events received
-   during an in-flight presentation preserve their edge information while
-   coalescing into one next redraw.
-3. A queued redraw plans primary-plane ownership from the complete visible
-   scene. One eligible client buffer takes the direct path. Every other scene
-   opens a synchronous render transaction, imports or refreshes changed client
-   content, composites the mapped surface trees, and draws wallpaper and shell
-   chrome. A no-damage result skips both rendering and presentation.
-4. A successful nested submission returns pacing to the outer compositor. A
-   successful DRM submission transfers either primary-plane source, plus the
-   cursor plane when available, as one atomic batch and waits asynchronously
-   for every CRTC page flip. Pointer motion alone never queues behind that
-   batch: the cursor plane is committed independently (see
-   [Pointer Latency and the Cursor Plane](#pointer-latency-and-the-cursor-plane)).
-   Pending client frame callbacks complete on
-   successful submission; callback-only work uses an estimated refresh
-   boundary without creating an empty atomic commit.
-5. VT loss or output recreation cancels the old presentation epoch. Resume
-   rebuilds the backend resources and presents a full frame before incremental
-   damage resumes.
-6. Client buffers release once the GPU or display engine no longer needs
-   them: against an explicit completion fence on DRM, or after enough later
-   nested frames to retire every Flux slot.
-
-The lifecycle and no-damage callback rules are recorded in
-[ADR-0077](../adr/0077-presentation-domain-redraw-state-machine.md).
-Incremental `wl_shm` refresh is recorded in
-[ADR-0039](../adr/0039-damage-driven-shm-refresh.md), and reusable dma-buf
-synchronization is recorded in
-[ADR-0076](../adr/0076-linux-dmabuf-device-feedback-and-reusable-buffer-sync.md).
-
-Client GPU buffers reach flux through a dma-buf import path added to flux
-([ADR-0004](../adr/0004-client-buffers-via-flux-dmabuf-import.md)). The
-client's graphics API is not the deciding boundary: OpenGL and Vulkan clients
-can both export dma-bufs. linux-dmabuf v4 feedback identifies the DRM device
-used by Flux's Vulkan physical device, so Mesa allocates on the same GPU;
-version 3 remains the fallback when that identity is unavailable. See
-[ADR-0076](../adr/0076-linux-dmabuf-device-feedback-and-reusable-buffer-sync.md).
-
-## Clipboard Policy
-
-Each seat has one explicit clipboard. Client selections and
-compositor-owned payloads use the standard Wayland data-device path; an
-interactive screenshot may publish PNG and file-URI representations to the
-physical seat without affecting an agent Interaction Domain.
-
-tessera deliberately does not advertise the X11-style Primary Selection. In this
-interaction model, publishing text merely because it was highlighted is an
-implicit global side effect and a duplicate clipboard channel. Capability
-absence is reported honestly through the Wayland registry rather than through
-an empty protocol object. See
-[ADR-0043](../adr/0043-explicit-clipboard-only.md).
-
-## Interaction Domain Authority
-
-One compositor owns one surface graph. An **Interaction Domain** selects which interaction
-groups it controls, which groups it observes, which seat state can send
-input, and which physical or virtual output presents the result. Moving a
-live window between Interaction Domains changes authority and scene selection; it does not
-recreate or reparent the `wl_surface`.
-
-The human desktop is Interaction Domain `1`. An agent Interaction Domain has an independent seat and
-directed virtual output. A window launched directly in an Agent Interaction Domain is
-presented to the human Interaction Domain as a read-only observer mirror by default. A
-transferred window keeps the same physical mirror unless the transfer
-explicitly removes it. Visibility does not grant control: the human seat
-remains excluded from client input and every window-control command path.
-
-The physical mirror carries a compositor-owned controlled-window guard. Its
-subdued presentation, authority label, and `not-allowed` pointer communicate
-that the window is visible for supervision rather than available for use.
-The one gesture the guard accepts is a press-and-drag that repositions the
-mirror: position is presentation state, and Agent operations stay correct
-because their coordinates are target-local. The server-side Interaction
-Domain model remains the authority boundary; the guard is a
-trusted explanation of that state and an additional physical pointer barrier.
-Successful Agent operations use a separate ephemeral mask, sprite, and label
-above the guard,
-so persistent ownership and recent activity remain distinct signals.
-
-Clients without proven native multi-seat behavior move as a complete
-interaction group, so a normal single-instance application needs no app-side
-changes. Removing the human observer hides the complete group from the
-physical scene and physical window snapshot rather than leaving inert chrome.
-
-Applications started inside an Interaction Domain additionally receive a mount-scoped
-Wayland portal and namespace/cgroup sandbox. That process boundary is
-separate from transferring an already-running surface: compositor authority
-can move immediately, while Linux namespaces cannot be applied
-retroactively. See
-[ADR-0103](../adr/0103-actor-authority-and-interaction-domain-architecture.md),
-[ADR-0040](../adr/0040-realms-seats-and-transferable-interaction-authority.md),
-[ADR-0042](../adr/0042-mount-scoped-realm-portals-and-cgroup-sandboxes.md),
-[ADR-0048](../adr/0048-compositor-owned-agent-operation-feedback.md), and
-[ADR-0091](../adr/0091-agent-controlled-window-physical-mirrors-and-guard.md).
-
-## Dependency Gaps
-
-Building the compositor surfaced capabilities missing from the
-dependencies. Each is placed by responsibility per
-[ADR-0001](../adr/0001-scope-and-responsibility-boundary.md).
-
-| Gap | Owner | Resolution |
-|-----|-------|------------|
-| Import client dmabuf as a texture | flux | dmabuf import API ([ADR-0004](../adr/0004-client-buffers-via-flux-dmabuf-import.md)) |
-| Render target not tied to `VkSurfaceKHR` presentation (for DRM/KMS) | flux | Offscreen dma-buf render path (`flux::Surface::offscreen_dmabuf` + export) |
-| Rust bindings to flux and lens | bindings | `flux-rs` / `lens-rs` crates ([ADR-0023](../adr/0023-split-flux-lens-stack.md)) |
-| Reusable-buffer acquire synchronization and release | flux and tessera | Tessera transports each commit's acquire fence; Flux waits it per frame on cached imports; direct scanout uses KMS fences ([ADR-0076](../adr/0076-linux-dmabuf-device-feedback-and-reusable-buffer-sync.md)) |
-| Wayland server, DRM/KMS, libinput, seat and session | tessera | Implemented in tessera ([ADR-0002](../adr/0002-hand-rolled-wayland-server.md)) |
-
-flux does not auto-enable `VK_KHR_swapchain`; the nested backend requests it
-explicitly, with the `VK_KHR_surface` and `VK_KHR_wayland_surface` instance
-extensions.
-
-## Roadmap
-
-The full milestone sequence — from the completed nested bring-up through the
-DRM/KMS backend, configuration and IPC, workspaces and layout, multi-output,
-polish, and the agent phase — lives in
-[Roadmap](roadmap.md). XWayland is descoped from the supported
-configuration. The product direction behind it is
-[Vision and Scope](vision.md), and the systems tessera borrows from are surveyed
-in [Comparative Survey](comparative-survey.md).
-
-The summary table has been retired: it duplicated the
-[Roadmap](roadmap.md), which is the single living status page (per-milestone
-outcomes, shipped state, and verification criteria). M0–M3 are complete; M4
-(DRM/KMS) is code-complete pending hardware verification; M5/M6 are
-complete; M7–M10 are in progress as recorded there, M9 retains only its
-screen-reader accessibility hooks, and XWayland is
-descoped.
+Use a module when code has one owner and no independent dependency or process
+boundary. Create a package when the code needs an independently evolving API,
+an independent process or feature, distinct platform resources, or a compiler-
+enforced dependency restriction. Keep the public surface narrow and make the
+owning subsystem perform all effects.

@@ -1,0 +1,21 @@
+[package]
+name = "tessera-protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tessera-desktop.workspace = true
+tessera-scene.workspace = true
+tessera-authority.workspace = true
+tessera-semantic.workspace = true
+tessera-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+zeroize.workspace = true
+[dev-dependencies]
+tessera-audit.workspace = true
+tempfile.workspace = true
+[lints]
+workspace = true

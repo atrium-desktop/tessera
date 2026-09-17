@@ -99,8 +99,8 @@ Panel presentation logic follows the unit-layer rule: pure logic, no GPU or
 live sources. Run the suite:
 
 ```bash
-cargo check --locked -p tessera-command-panel
-cargo nextest run --locked -p tessera-command-panel --lib
+cargo check --locked -p tessera-shell
+cargo nextest run --locked -p tessera-shell --lib
 ```
 
 The suite covers cluster bounds on small displays, reduced-motion reveal

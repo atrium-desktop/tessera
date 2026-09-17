@@ -33,8 +33,8 @@ A standalone application reaches Tessera through two runtime boundaries:
 - `$XDG_RUNTIME_DIR/tessera.sock` provides scoped IPC snapshots and actions.
 
 Do not add the application crate as an `tessera` Rust dependency. Shared
-schemas and models belong in library crates such as `tessera-model` and
-`tessera-ipc`. A surface that should render in-process belongs in a chrome
+schemas and models belong in library crates such as `tessera-desktop`,
+`tessera-protocol`, and `tessera-scene`. A surface that should render in-process belongs in a chrome
 component crate on the `tessera-shell` contract instead — that is where the
 settings modules live.
 
