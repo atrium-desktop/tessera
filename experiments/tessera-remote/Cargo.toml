@@ -2,10 +2,10 @@
 name = "tessera-remote"
 description = "Universal Interaction Protocol (UIP) network gateway and remote seat manager"
 readme = "README.md"
-version = "0.0.60"
+version = "0.0.61"
 edition = "2024"
 license = "MIT"
-rust-version = "0.0.60"
+rust-version = "1.88"
 
 [dependencies]
 tessera-authority = { path = "../../crates/tessera-authority" }

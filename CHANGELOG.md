@@ -14,6 +14,18 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.61] - 2026-09-17
+
+### Added
+- Upgraded Optics dependencies to `v0.0.43`.
+- Adopted clean-break workspace architecture with flat `crates/` package layout (ADR-0158..ADR-0161):
+  - Consolidated display server engine lifecycle and GPU resources directly into composition root `crates/tessera`.
+  - Partitioned workspace packages along explicit capability boundaries: `tessera-apps`, `tessera-platform`, `tessera-wayland`, `tessera-render`, `tessera-authority`, `tessera-audit`, `tessera-desktop`, `tessera-scene`, and `tessera-types`.
+
+### Fixed
+- Fixed window feedback z-ordering by interleaving modal feedback passes with the window surface tree during rendering.
+- Fixed compositor drag-and-drop drop event delivery order to send `wl_data_device.drop` before ending the drag source loop.
+
 ## [0.0.60] - 2026-09-14
 
 ### Added
