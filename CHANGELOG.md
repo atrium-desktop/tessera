@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.62] - 2026-09-18
+
 ### Added
 - Upgraded Optics dependencies to `v0.0.44`.
 

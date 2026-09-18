@@ -2,7 +2,7 @@
 name = "tessera-remote"
 description = "Universal Interaction Protocol (UIP) network gateway and remote seat manager"
 readme = "README.md"
-version = "0.0.61"
+version = "0.0.62"
 edition = "2024"
 license = "MIT"
 rust-version = "1.88"
