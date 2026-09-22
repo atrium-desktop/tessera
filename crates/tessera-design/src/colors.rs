@@ -304,7 +304,7 @@ pub(crate) fn dark_appearance() -> AppearanceColors {
             interaction_domain_clear: Color::rgba(17, 20, 27, 255),
             glass_tint: [255, 255, 255],
         },
-        dock: dock_colors(),
+        dock: dark_dock_colors(),
     }
 }
 
@@ -338,11 +338,11 @@ pub(crate) fn light_appearance() -> AppearanceColors {
             interaction_domain_clear: Color::rgba(243, 245, 249, 255),
             glass_tint: [243, 245, 249],
         },
-        dock: dock_colors(),
+        dock: light_dock_colors(),
     }
 }
 
-fn dock_colors() -> DockColors {
+fn dark_dock_colors() -> DockColors {
     DockColors {
         launchpad_tile_bg: Color::rgba(70, 78, 110, 240),
         launchpad_tile_border: Color::rgba(150, 160, 195, 180),
@@ -352,6 +352,19 @@ fn dock_colors() -> DockColors {
         section_divider: Color::rgba(255, 255, 255, 80),
         bar_surface_expanded: Color::rgba(255, 255, 255, 12),
         bar_surface_collapsed: Color::rgba(240, 243, 252, 64),
+    }
+}
+
+fn light_dock_colors() -> DockColors {
+    DockColors {
+        launchpad_tile_bg: Color::rgba(180, 192, 220, 230),
+        launchpad_tile_border: Color::rgba(130, 142, 175, 180),
+        launchpad_grid: Color::rgba(32, 36, 52, 245),
+        running_dot_active: Color::rgba(24, 28, 42, 235),
+        running_dot_inactive: Color::rgba(110, 118, 140, 160),
+        section_divider: Color::rgba(0, 0, 0, 48),
+        bar_surface_expanded: Color::rgba(255, 255, 255, 110),
+        bar_surface_collapsed: Color::rgba(255, 255, 255, 160),
     }
 }
 
@@ -376,7 +389,9 @@ mod tests {
         assert_eq!(light.product.validation, Color::rgba(30, 90, 200, 255));
         assert_eq!(dark.scene.clear_color, Color::rgba(30, 30, 46, 255));
         assert_eq!(light.scene.glass_tint, [243, 245, 249]);
-        assert_eq!(dark.dock, light.dock);
+        assert_eq!(dark.dock, dark_dock_colors());
+        assert_eq!(light.dock, light_dock_colors());
+        assert_ne!(dark.dock.running_dot_active, light.dock.running_dot_active);
     }
 
     #[test]

@@ -104,3 +104,16 @@ fn keyboard_config_bounds_match_the_documented_ranges() {
         );
     }
 }
+
+#[test]
+fn set_wallpaper_action_round_trips_with_the_expected_tag() {
+    let settings = tessera_desktop::settings::WallpaperSettings {
+        mode: "3d".into(),
+        source: Some("builtin".into()),
+    };
+    let action = SettingsAction::SetWallpaper { settings };
+    let json = serde_json::to_string(&action).unwrap();
+    assert!(json.contains("\"SetWallpaper\""), "tagged union tag: {json}");
+    let back: SettingsAction = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, action);
+}

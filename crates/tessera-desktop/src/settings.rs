@@ -288,6 +288,23 @@ pub struct DisplaySettings {
     pub primary: bool,
 }
 
+/// User-facing desktop wallpaper configuration.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WallpaperSettings {
+    pub mode: String,
+    pub source: Option<String>,
+}
+
+impl Default for WallpaperSettings {
+    fn default() -> Self {
+        Self {
+            mode: "image".into(),
+            source: None,
+        }
+    }
+}
+
 /// Coherent persistent-settings snapshot. `revision` changes after every
 /// accepted mutation and lets clients reject stale drafts.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -299,6 +316,7 @@ pub struct SettingsSnapshot {
     pub preferences: DesktopPreferences,
     pub idle: IdleSettings,
     pub dock: DockSettings,
+    pub wallpaper: WallpaperSettings,
 }
 
 /// One typed persistent-settings transaction.
@@ -321,6 +339,9 @@ pub enum SettingsAction {
     },
     SetDock {
         settings: DockSettings,
+    },
+    SetWallpaper {
+        settings: WallpaperSettings,
     },
 }
 
@@ -386,6 +407,17 @@ impl SettingsAction {
             }
             Self::SetDesktopPreferences { preferences } => preferences.validate(),
             Self::SetIdle { settings } => settings.validate(),
+            Self::SetWallpaper { settings } => {
+                if !["image", "video", "3d", "parallax"].contains(&settings.mode.as_str()) {
+                    return Err("wallpaper mode must be 'image', 'video', '3d', or 'parallax'");
+                }
+                if let Some(source) = &settings.source
+                    && (source.trim().is_empty() || source.len() > 1024)
+                {
+                    return Err("wallpaper source path is empty or too long");
+                }
+                Ok(())
+            }
             _ => Ok(()),
         }
     }

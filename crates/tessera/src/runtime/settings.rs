@@ -62,6 +62,17 @@ pub(super) fn publish_settings_parts(
                 minimize_animation: config.dock.minimize_animation,
             })
             .unwrap_or_default(),
+        wallpaper: config
+            .map(|config| tessera_desktop::settings::WallpaperSettings {
+                mode: match config.wallpaper.mode {
+                    tessera_config::WallpaperMode::Image => "image".into(),
+                    tessera_config::WallpaperMode::Video => "video".into(),
+                    tessera_config::WallpaperMode::ThreeD => "3d".into(),
+                    tessera_config::WallpaperMode::Parallax => "parallax".into(),
+                },
+                source: config.wallpaper.source.clone(),
+            })
+            .unwrap_or_default(),
     };
     live.set_settings(snapshot.clone());
     shell.set_settings(snapshot.clone());
@@ -184,6 +195,28 @@ pub(super) fn commit_settings_parts(
                 current.dock.minimize_animation = settings.minimize_animation;
             }
             server.set_minimize_animation(settings.minimize_animation);
+            Ok(())
+        }
+        tessera_protocol::SettingsAction::SetWallpaper { settings } => {
+            let mode = match settings.mode.as_str() {
+                "video" => tessera_config::WallpaperMode::Video,
+                "3d" => tessera_config::WallpaperMode::ThreeD,
+                "parallax" => tessera_config::WallpaperMode::Parallax,
+                _ => tessera_config::WallpaperMode::Image,
+            };
+            config_writer
+                .apply_and_wait(tessera_config::ConfigEdit::SetWallpaper {
+                    mode,
+                    source: settings.source.clone(),
+                })
+                .map_err(|error| format!("failed to persist wallpaper settings: {error}"))?;
+            if let Some(current) = config.as_mut() {
+                current.wallpaper.mode = mode;
+                current.wallpaper.source = settings.source;
+            }
+            if let Some(path) = config_path {
+                *reload = Some(tessera_config::ReloadWatcher::at(path));
+            }
             Ok(())
         }
     };

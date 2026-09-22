@@ -220,6 +220,13 @@ impl BackdropCover {
         fade: f32,
     ) -> BackdropRegion {
         let fade = fade.clamp(0.0, 1.0);
+        let stepped_fade = if fade <= 0.01 {
+            0.0
+        } else if fade >= 0.99 {
+            1.0
+        } else {
+            (fade * 8.0).round() / 8.0
+        };
         BackdropRegion {
             x: 0.0,
             y: 0.0,
@@ -229,9 +236,9 @@ impl BackdropCover {
                 design
                     .colors
                     .modal_scrim
-                    .with_alpha((Self::SCRIM_ALPHA * fade).round() as u8),
+                    .with_alpha((Self::SCRIM_ALPHA * stepped_fade).round() as u8),
             )),
-            opacity: fade,
+            opacity: stepped_fade,
         }
     }
 }

@@ -791,9 +791,11 @@ fn collapsed_autohide_handle_stays_an_analytic_glass_body() {
     let glass = dock.liquid_glass_regions(display, &[], &workspaces);
     assert!(backdrop.is_empty());
     assert_eq!(glass.len(), 1);
-    // At rest the footprint shrinks to the handle itself: nothing animates,
-    // so there is no envelope to cover.
-    assert_eq!(glass[0].capture_bounds, Some(glass[0].bounds));
+    // Rest uses the same capture envelope as the reveal animation.
+    assert_eq!(
+        glass[0].capture_bounds,
+        Some(dock.capture_footprint(display).into())
+    );
     assert_eq!(glass[0].bounds.w, AUTOHIDE_HANDLE_WIDTH);
     assert_eq!(glass[0].bounds.h, AUTOHIDE_HANDLE_HEIGHT);
     assert_eq!(glass[0].corner_radius, AUTOHIDE_HANDLE_HEIGHT * 0.5);
@@ -1867,4 +1869,47 @@ fn app_menu_follows_dock_dark_and_light_theme() {
         .find(|g| g.id == crate::component::liquid_glass_region_id("tessera-dock-context-menu"))
         .expect("menu glass exists in light appearance");
     assert_eq!(menu_glass_light.plate_polarity, 1.0);
+}
+
+#[test]
+fn dock_morph_keeps_capture_and_shadow_damage_stable() {
+    let display = (1919.0, 1079.0);
+    for position in [
+        DockPosition::Bottom,
+        DockPosition::Left,
+        DockPosition::Right,
+    ] {
+        let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
+        dock.set_position(position);
+        dock.set_autohide(true);
+        let footprint = dock.capture_footprint(display);
+        let damage = dock.damage_region(&[], display).unwrap();
+        for progress in [0.0, 0.001, 0.25, 0.75, 1.0] {
+            for active in [false, true] {
+                dock.autohide_reveal = progress;
+                dock.anim_active = active;
+                assert_eq!(dock.capture_footprint(display), footprint);
+                assert_eq!(dock.damage_region(&[], display), Some(damage));
+                let glass = dock.liquid_glass_regions(display, &[], &workspace_snapshot())[0];
+                assert!(footprint.x <= glass.bounds.x && footprint.y <= glass.bounds.y);
+                assert!(footprint.x + footprint.w >= glass.bounds.x + glass.bounds.w);
+                assert!(footprint.y + footprint.h >= glass.bounds.y + glass.bounds.h);
+                let fringe = glass.shadow_blur * 2.0;
+                let x0 = (glass.bounds.x - fringe).max(0.0).floor() as i32;
+                let y0 = (glass.bounds.y - fringe + glass.shadow_offset_y.min(0.0))
+                    .max(0.0)
+                    .floor() as i32;
+                let x1 = (glass.bounds.x + glass.bounds.w + fringe)
+                    .min(display.0)
+                    .ceil() as i32;
+                let y1 = (glass.bounds.y + glass.bounds.h + fringe + glass.shadow_offset_y.max(0.0))
+                    .min(display.1)
+                    .ceil() as i32;
+                assert_eq!(
+                    damage.union(tessera_types::Rect::new(x0, y0, x1 - x0, y1 - y0)),
+                    damage
+                );
+            }
+        }
+    }
 }

@@ -927,6 +927,18 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 minimize_animation: config.dock.minimize_animation,
             })
             .unwrap_or_default(),
+        wallpaper: config
+            .as_ref()
+            .map(|config| tessera_desktop::settings::WallpaperSettings {
+                mode: match config.wallpaper.mode {
+                    tessera_config::WallpaperMode::Image => "image".into(),
+                    tessera_config::WallpaperMode::Video => "video".into(),
+                    tessera_config::WallpaperMode::ThreeD => "3d".into(),
+                    tessera_config::WallpaperMode::Parallax => "parallax".into(),
+                },
+                source: config.wallpaper.source.clone(),
+            })
+            .unwrap_or_default(),
     };
     live.set_settings(settings_snapshot.clone());
     shell.set_settings(settings_snapshot);

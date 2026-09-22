@@ -627,7 +627,7 @@ pub(super) struct BackdropMaterialKey {
     /// are material, not capture: animating them re-runs the effect composite
     /// over the still-valid scene capture without re-rendering clients.
     frost_regions: Vec<[u32; 6]>,
-    liquid_regions: Vec<[u32; 23]>,
+    liquid_regions: Vec<[u32; 24]>,
     glass_tint: [u8; 3],
 }
 
@@ -700,6 +700,7 @@ impl BackdropMaterialKey {
                         region.tint_strength.to_bits(),
                         region.saturation.to_bits(),
                         region.plate_polarity.to_bits(),
+                        region.curvature.to_bits(),
                         u32::from(region.adaptation.is_some()),
                         adaptation.plate_luminance.to_bits(),
                         adaptation.backdrop_energy.to_bits(),

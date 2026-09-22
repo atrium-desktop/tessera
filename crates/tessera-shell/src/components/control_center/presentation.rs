@@ -220,8 +220,8 @@ impl ControlCenter {
 
         const SHELL_PAD: f32 = 12.0;
         const INNER_GAP: f32 = 12.0;
-        let nav_w: f32 = if rect.w < 620.0 { 132.0 } else { 184.0 };
-        let nav_w = nav_w.min((rect.w * 0.36).max(96.0));
+        let nav_w: f32 = if rect.w < 620.0 { 140.0 } else { 210.0 };
+        let nav_w = nav_w.min((rect.w * 0.36).max(100.0));
         let inner_h = (rect.h - SHELL_PAD * 2.0).max(1.0);
         let view_w = (rect.w - SHELL_PAD * 2.0 - nav_w - INNER_GAP).max(1.0);
 
@@ -310,7 +310,7 @@ impl ControlCenter {
                         ..Default::default()
                     },
                     |f| {
-                        f.icon(Self::tab_icon(self.tab), 20.0);
+                        f.icon_raw(Self::tab_icon_raw(self.tab), 20.0);
                         display_label(f, active_title, type_scale.title);
                     },
                 );
@@ -332,22 +332,23 @@ impl ControlCenter {
 
     /// The navigation list inside the main card's recessed rail.
     /// Returns the dedicated icon for a navigation tab.
-    pub(super) fn tab_icon(tab: Tab) -> Icon {
+    pub(super) fn tab_icon_raw(tab: Tab) -> lens::sys::lens_icon_id {
+        use lens::sys::lens_icon_id;
         match tab {
-            Tab::QuickControls => Icon::Sliders,
+            Tab::QuickControls => lens_icon_id::LENS_ICON_SLIDERS,
             Tab::Settings(id) => match id.as_str() {
-                "display" => Icon::Activity,
-                "appearance" => Icon::PenTool,
-                "dock" => Icon::Sidebar,
-                "power" => Icon::Zap,
-                "input" | "touchpad" | "mouse" | "keyboard" => Icon::MousePointer,
-                "keybindings" => Icon::Edit,
-                "users" | "persona" => Icon::Users,
-                "window-rules" => Icon::Grid,
-                "network" | "wifi" => Icon::Globe,
-                "sound" | "audio" => Icon::VolumeHigh,
-                "bluetooth" => Icon::Radio,
-                _ => Icon::Settings,
+                "display" => lens_icon_id::LENS_ICON_MONITOR,
+                "appearance" => lens_icon_id::LENS_ICON_IMAGE,
+                "dock" => lens_icon_id::LENS_ICON_LAYOUT,
+                "power" => lens_icon_id::LENS_ICON_BATTERY_CHARGING,
+                "input" | "touchpad" | "mouse" | "keyboard" => lens_icon_id::LENS_ICON_MOUSE_POINTER,
+                "keybindings" => lens_icon_id::LENS_ICON_EDIT,
+                "users" | "persona" => lens_icon_id::LENS_ICON_USERS,
+                "window-rules" => lens_icon_id::LENS_ICON_GRID,
+                "network" | "wifi" => lens_icon_id::LENS_ICON_WIFI,
+                "sound" | "audio" => lens_icon_id::LENS_ICON_VOLUME_2,
+                "bluetooth" => lens_icon_id::LENS_ICON_BLUETOOTH,
+                _ => lens_icon_id::LENS_ICON_SETTINGS,
             },
         }
     }
@@ -367,8 +368,8 @@ impl ControlCenter {
         let mut action: Option<TabAction> = None;
         let original = f.theme();
 
-        const ROW_H: f32 = 44.0;
-        const ROW_GAP: f32 = 6.0;
+        const ROW_H: f32 = 42.0;
+        const ROW_GAP: f32 = 4.0;
         const RAIL_PAD: f32 = 8.0;
 
         let tab_theme = themes::hud(&hud);
@@ -406,9 +407,9 @@ impl ControlCenter {
                                 )
                             };
 
-                            let icon = Self::tab_icon(*tab);
+                            let icon = Self::tab_icon_raw(*tab);
                             let label_text =
-                                truncate(label, ((rect.w - 58.0) / 7.2).max(3.0) as usize);
+                                truncate(label, ((rect.w - 54.0) / 7.0).max(3.0) as usize);
 
                             f.set_theme(tab_theme.with_fg(text_color));
                             let (response, _) = f.pressable_row(
@@ -416,8 +417,8 @@ impl ControlCenter {
                                 &label_text,
                                 &LayoutOpts {
                                     height: ROW_H,
-                                    pad: 12.0,
-                                    radius: 12.0,
+                                    pad: 10.0,
+                                    radius: 10.0,
                                     cross: Align::Center,
                                     gap: 10.0,
                                     bg,
@@ -427,7 +428,7 @@ impl ControlCenter {
                                 },
                                 |f, _| {
                                     f.set_theme(tab_theme.with_fg(icon_color));
-                                    f.icon(icon, 18.0);
+                                    f.icon_raw(icon, 18.0);
                                     f.set_theme(tab_theme.with_fg(text_color));
                                     display_label(f, &label_text, type_scale.body);
                                 },
@@ -833,165 +834,191 @@ impl ControlCenter {
         let status = self.status.clone();
         let gap = 12.0;
         let tile_gap = 10.0;
-        let grid_h = area.h.clamp(1.0, 320.0);
-        let fader_w = (area.w * 0.20).clamp(82.0, 116.0);
-        let tile_cluster_w = (area.w - fader_w * 2.0 - gap * 2.0).max(1.0);
-        let tile_w = ((tile_cluster_w - tile_gap) * 0.5).max(1.0);
-        let tile_h = ((grid_h - tile_gap) * 0.5).max(1.0);
-        let mode = status.power_mode;
-        let keep_awake = !mode.blanks_display();
-        let auto_lock = mode.locks_automatically();
+        let tile_w = ((area.w - tile_gap) * 0.5).max(1.0);
+        let tile_h = 58.0;
+        let fader_h = 68.0;
+
+        let wifi_active = status.wifi_enabled.unwrap_or(false);
+        let wifi_sub = status.wifi_ssid.as_deref().unwrap_or(if wifi_active {
+            "On"
+        } else {
+            "Off"
+        });
+
+        let bt_active = status.bluetooth_enabled.unwrap_or(false);
+        let bt_sub = if bt_active { "On" } else { "Off" };
+
+        let dnd_active = status.do_not_disturb;
+        let dnd_sub = if dnd_active { "On" } else { "Off" };
+
+        let dark_active = !self.design.is_light();
+        let dark_sub = if dark_active { "Dark" } else { "Light" };
 
         f.set_theme(themes::hud(&hud));
         f.place(
             "tessera-hud-quick",
             &chrome_place(area, transparent()),
             |f| {
-                f.column_ex(&sized(area.w, area.h), |f| {
-                    f.flex(1.0);
-                    f.spacer(0.0);
-                    f.row_ex(
-                        &LayoutOpts {
-                            width: area.w,
-                            height: grid_h,
-                            gap,
-                            cross: Align::Stretch,
-                            ..Default::default()
-                        },
-                        |f| {
-                            f.column_ex(
-                                &LayoutOpts {
-                                    width: tile_cluster_w,
-                                    height: grid_h,
-                                    gap: tile_gap,
-                                    cross: Align::Stretch,
-                                    ..Default::default()
-                                },
-                                |f| {
-                                    f.row_ex(
-                                        &LayoutOpts {
-                                            width: tile_cluster_w,
-                                            height: tile_h,
-                                            gap: tile_gap,
-                                            cross: Align::Stretch,
-                                            ..Default::default()
-                                        },
-                                        |f| {
-                                            if render_control_tile(
-                                                f,
-                                                "tessera-hud-control-mute",
-                                                i18n.text(Message::Muted),
-                                                volume_icon(&status),
-                                                status.muted,
-                                                status.volume.is_some(),
-                                                (tile_w, tile_h),
-                                                hud,
-                                                type_scale,
-                                            ) {
-                                                out.system_actions.push(SystemAction::ToggleMute);
-                                            }
-                                            if render_control_tile(
-                                                f,
-                                                "tessera-hud-control-dnd",
-                                                i18n.text(Message::DoNotDisturb),
-                                                Icon::Bell,
-                                                status.do_not_disturb,
-                                                true,
-                                                (tile_w, tile_h),
-                                                hud,
-                                                type_scale,
-                                            ) {
-                                                out.system_actions.push(
-                                                    SystemAction::SetDoNotDisturb {
-                                                        enabled: !status.do_not_disturb,
-                                                    },
-                                                );
-                                            }
-                                        },
-                                    );
-                                    f.row_ex(
-                                        &LayoutOpts {
-                                            width: tile_cluster_w,
-                                            height: tile_h,
-                                            gap: tile_gap,
-                                            cross: Align::Stretch,
-                                            ..Default::default()
-                                        },
-                                        |f| {
-                                            if render_control_tile(
-                                                f,
-                                                "tessera-hud-control-awake",
-                                                i18n.text(Message::KeepAwake),
-                                                Icon::Zap,
-                                                keep_awake,
-                                                true,
-                                                (tile_w, tile_h),
-                                                hud,
-                                                type_scale,
-                                            ) {
-                                                let next = power_mode_for(
-                                                    !keep_awake,
-                                                    mode.locks_automatically(),
-                                                );
-                                                out.system_actions.push(
-                                                    SystemAction::SetPowerMode { mode: next },
-                                                );
-                                            }
-                                            if render_control_tile(
-                                                f,
-                                                "tessera-hud-control-lock",
-                                                i18n.text(Message::AutoLock),
-                                                Icon::Shield,
-                                                auto_lock,
-                                                true,
-                                                (tile_w, tile_h),
-                                                hud,
-                                                type_scale,
-                                            ) {
-                                                let next = power_mode_for(keep_awake, !auto_lock);
-                                                out.system_actions.push(
-                                                    SystemAction::SetPowerMode { mode: next },
-                                                );
-                                            }
-                                        },
-                                    );
-                                },
-                            );
+                f.column_ex(
+                    &LayoutOpts {
+                        width: area.w,
+                        height: area.h,
+                        gap,
+                        cross: Align::Stretch,
+                        ..Default::default()
+                    },
+                    |f| {
+                        // Row 1: Wi-Fi + Bluetooth
+                        f.row_ex(
+                            &LayoutOpts {
+                                width: area.w,
+                                height: tile_h,
+                                gap: tile_gap,
+                                cross: Align::Stretch,
+                                ..Default::default()
+                            },
+                            |f| {
+                                if render_quick_toggle_tile(
+                                    f,
+                                    "tessera-hud-quick-wifi",
+                                    i18n.text(Message::Wifi),
+                                    wifi_sub,
+                                    lens::sys::lens_icon_id::LENS_ICON_WIFI,
+                                    wifi_active,
+                                    (tile_w, tile_h),
+                                    hud,
+                                    type_scale,
+                                ) {
+                                    out.system_actions.push(SystemAction::SetWifi {
+                                        enabled: !wifi_active,
+                                    });
+                                }
+                                if render_quick_toggle_tile(
+                                    f,
+                                    "tessera-hud-quick-bluetooth",
+                                    i18n.text(Message::Bluetooth),
+                                    bt_sub,
+                                    lens::sys::lens_icon_id::LENS_ICON_BLUETOOTH,
+                                    bt_active,
+                                    (tile_w, tile_h),
+                                    hud,
+                                    type_scale,
+                                ) {
+                                    out.system_actions.push(SystemAction::SetBluetooth {
+                                        enabled: !bt_active,
+                                    });
+                                }
+                            },
+                        );
 
-                            if let Some(level) = render_control_fader(
-                                f,
-                                "tessera-hud-quick-volume",
-                                i18n.text(Message::Sound),
-                                volume_icon(&status),
-                                status.volume,
-                                (0, 100),
-                                (fader_w, grid_h),
-                                hud.accent,
-                                hud,
-                                type_scale,
-                            ) {
-                                out.system_actions.push(SystemAction::SetVolume { level });
-                            }
-                            if let Some(level) = render_control_fader(
-                                f,
-                                "tessera-hud-quick-brightness",
-                                i18n.text(Message::Brightness),
-                                Icon::Zap,
-                                status.brightness,
-                                (1, 100),
-                                (fader_w, grid_h),
-                                hud.text,
-                                hud,
-                                type_scale,
-                            ) {
-                                out.system_actions
-                                    .push(SystemAction::SetBrightness { level });
-                            }
-                        },
-                    );
-                    f.flex(1.0);
-                    f.spacer(0.0);
-                });
+                        // Row 2: Do Not Disturb + Dark Mode
+                        f.row_ex(
+                            &LayoutOpts {
+                                width: area.w,
+                                height: tile_h,
+                                gap: tile_gap,
+                                cross: Align::Stretch,
+                                ..Default::default()
+                            },
+                            |f| {
+                                if render_quick_toggle_tile(
+                                    f,
+                                    "tessera-hud-quick-dnd",
+                                    i18n.text(Message::DoNotDisturb),
+                                    dnd_sub,
+                                    lens::sys::lens_icon_id::LENS_ICON_BELL,
+                                    dnd_active,
+                                    (tile_w, tile_h),
+                                    hud,
+                                    type_scale,
+                                ) {
+                                    out.system_actions.push(SystemAction::SetDoNotDisturb {
+                                        enabled: !dnd_active,
+                                    });
+                                }
+                                if render_quick_toggle_tile(
+                                    f,
+                                    "tessera-hud-quick-dark-mode",
+                                    "Dark Mode",
+                                    dark_sub,
+                                    if dark_active {
+                                        lens::sys::lens_icon_id::LENS_ICON_MOON
+                                    } else {
+                                        lens::sys::lens_icon_id::LENS_ICON_SUN
+                                    },
+                                    dark_active,
+                                    (tile_w, tile_h),
+                                    hud,
+                                    type_scale,
+                                ) {
+                                    let mut preferences = self
+                                        .settings
+                                        .as_ref()
+                                        .map(|s| s.preferences.clone())
+                                        .unwrap_or_default();
+                                    preferences.color_scheme = if dark_active {
+                                        tessera_desktop::settings::ColorScheme::Light
+                                    } else {
+                                        tessera_desktop::settings::ColorScheme::Dark
+                                    };
+                                    out.settings_actions.push((
+                                        None,
+                                        SettingsAction::SetDesktopPreferences { preferences },
+                                    ));
+                                }
+                            },
+                        );
+
+                        // Horizontal Fader 1: Display (Brightness)
+                        let (bright_level, _) = render_horizontal_fader(
+                            f,
+                            "tessera-hud-quick-brightness",
+                            i18n.text(Message::Brightness),
+                            lens::sys::lens_icon_id::LENS_ICON_SUN,
+                            false,
+                            status.brightness,
+                            (1, 100),
+                            (area.w, fader_h),
+                            hud.text,
+                            hud,
+                            type_scale,
+                        );
+                        if let Some(level) = bright_level {
+                            out.system_actions.push(SystemAction::SetBrightness { level });
+                        }
+
+                        // Horizontal Fader 2: Sound (Volume + Mute)
+                        let sound_label = if status.muted {
+                            i18n.text(Message::Muted)
+                        } else {
+                            i18n.text(Message::Sound)
+                        };
+                        let sound_fill = if status.muted {
+                            hud.text_muted
+                        } else {
+                            hud.accent
+                        };
+                        let (vol_level, mute_clicked) = render_horizontal_fader(
+                            f,
+                            "tessera-hud-quick-volume",
+                            sound_label,
+                            volume_icon_raw(&status),
+                            true,
+                            status.volume,
+                            (0, 100),
+                            (area.w, fader_h),
+                            sound_fill,
+                            hud,
+                            type_scale,
+                        );
+                        if mute_clicked {
+                            out.system_actions.push(SystemAction::ToggleMute);
+                        }
+                        if let Some(level) = vol_level {
+                            out.system_actions.push(SystemAction::SetVolume { level });
+                        }
+                    },
+                );
             },
         );
         f.set_theme(original);
@@ -2072,6 +2099,7 @@ pub(crate) fn clock_strings() -> (String, String) {
 /// the pipeline may keep. The toggles then read the mode back honestly:
 /// "keep awake" shows on (the display indeed never blanks) even though the
 /// user turned it off, telling them the security axis won the conflict.
+#[allow(dead_code)]
 pub(crate) fn power_mode_for(
     keep_awake: bool,
     auto_lock: bool,

@@ -1338,6 +1338,15 @@ impl Chrome for ControlCenter {
         self.active().then_some(CursorShape::Pointer)
     }
 
+    fn damage_region(
+        &self,
+        _windows: &[Window],
+        display: (f32, f32),
+    ) -> Option<tessera_types::Rect> {
+        self.active()
+            .then(|| tessera_types::Rect::new(0, 0, display.0 as i32, display.1 as i32))
+    }
+
     fn update(&mut self, update: ChromeUpdate<'_>) {
         match update {
             ChromeUpdate::AppCatalog(catalog) => self.icons = catalog.icons.clone(),

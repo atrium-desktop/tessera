@@ -828,10 +828,13 @@ mod tests {
     }
 
     #[test]
-    fn dock_palette_matches_the_dock_literals_and_is_scheme_invariant() {
-        let dock = Design::dark().dock;
-        assert_eq!(dock, crate::colors::dark_appearance().dock);
-        // Both schemes share the dock palette (light inherits via `..Self::dark()`).
-        assert_eq!(Design::light().dock, dock);
+    fn dock_palette_follows_the_scheme() {
+        let dark = Design::dark().dock;
+        let light = Design::light().dock;
+        assert_eq!(dark, crate::colors::dark_appearance().dock);
+        assert_eq!(light, crate::colors::light_appearance().dock);
+        // Schemes tune dock indicators and dividers to contrast with their plate polarity.
+        assert_ne!(dark.running_dot_active, light.running_dot_active);
+        assert_ne!(dark.section_divider, light.section_divider);
     }
 }

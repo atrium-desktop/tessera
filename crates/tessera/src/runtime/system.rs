@@ -52,17 +52,24 @@ pub(super) fn apply_system_action(
             status.volume = Some((current + i16::from(delta)).clamp(0, 100) as u8);
         }
         SystemAction::SetVolume { level } => {
-            let amount = format!("{level}%");
-            spawn_host_command(
-                "wpctl",
-                &["set-volume", "@DEFAULT_AUDIO_SINK@", &amount, "-l", "1.0"],
-            )?;
-            status.volume = Some(level);
+            if status.volume != Some(level) {
+                let amount = format!("{level}%");
+                spawn_host_command(
+                    "wpctl",
+                    &["set-volume", "@DEFAULT_AUDIO_SINK@", &amount, "-l", "1.0"],
+                )?;
+                status.volume = Some(level);
+                if status.muted {
+                    status.muted = false;
+                }
+            }
         }
         SystemAction::SetBrightness { level } => {
-            let amount = format!("{level}%");
-            spawn_host_command("brightnessctl", &["--class=backlight", "set", &amount])?;
-            status.brightness = Some(level);
+            if status.brightness != Some(level) {
+                let amount = format!("{level}%");
+                spawn_host_command("brightnessctl", &["--class=backlight", "set", &amount])?;
+                status.brightness = Some(level);
+            }
         }
         SystemAction::SetWifi { enabled } => {
             spawn_host_command(

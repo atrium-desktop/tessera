@@ -720,3 +720,26 @@ fn frame_damage_render_area_uses_the_exact_union() {
     assert_eq!(frame_damage_render_area(&FrameDamage::Full), None);
     assert_eq!(frame_damage_render_area(&FrameDamage::None), None);
 }
+
+#[test]
+fn glass_curvature_invalidates_material_cache() {
+    let glass = tessera_shell::component::LiquidGlassRegion {
+        bounds: region(400.0, 1000.0, 320.0, 64.0),
+        opacity: 1.0,
+        ..Default::default()
+    };
+    let original = BackdropMaterialKey::new(&[], &[glass], [255; 3]);
+    let curved = tessera_shell::component::LiquidGlassRegion {
+        curvature: 1.0,
+        ..glass
+    };
+    assert_ne!(original, BackdropMaterialKey::new(&[], &[curved], [255; 3]));
+    let groups = liquid_glass_groups(
+        &[curved],
+        (0, 0),
+        1.0,
+        1.0,
+        tessera_desktop::settings::ColorScheme::Dark,
+    );
+    assert_eq!(groups[0].curvature, Some(1.0));
+}

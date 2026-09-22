@@ -1452,11 +1452,9 @@ impl Dock {
     /// the fully magnified spring wave — instead of its live shape: a reveal
     /// or magnification wave then only rebuilds the effect from a still-valid
     /// capture instead of re-rendering the whole scene into it every frame.
-    /// The hidden-at-rest dock declares only its handle.
+    /// Keep the same envelope at rest so the first and last morph frames do
+    /// not invalidate every in-flight capture slot.
     fn capture_footprint(&self, display: (f32, f32)) -> Rect {
-        if self.effective_autohide() && self.autohide_reveal <= 0.001 && !self.anim_active {
-            return Self::collapsed_indicator_bounds(self.position, display);
-        }
         let tiles = Self::frame_tiles(
             &self.tile_cache,
             &self.apps,
@@ -1471,7 +1469,7 @@ impl Dock {
             + Self::section_extra(pinned_count, tiles.len());
         let max_len =
             tiles.len() as f32 * (DOCK_TILE_MAX * SPRING_OVERSHOOT_MARGIN) + gaps + 2.0 * DOCK_PAD;
-        Self::panel_rect_for(self.position, max_len, display)
+        Self::panel_rect_for(self.position, max_len.max(AUTOHIDE_HANDLE_WIDTH), display)
     }
 }
 

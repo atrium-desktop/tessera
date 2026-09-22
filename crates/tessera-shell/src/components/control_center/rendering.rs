@@ -1,7 +1,5 @@
 use super::*;
 
-use lens::Icon;
-
 /// A deferred row click captured during the menu frame's column closure.
 pub(super) enum MenuRowAction {
     Back,
@@ -61,79 +59,101 @@ pub(super) fn render_corner_brackets(frame: &mut Frame, id: &str, rect: Rect, co
     bar("br-v", right - THICK, bottom - THICK, THICK, ARM);
 }
 
-pub(super) fn volume_icon(status: &SystemStatus) -> Icon {
+pub(super) fn volume_icon_raw(status: &SystemStatus) -> lens::sys::lens_icon_id {
     if status.muted || status.volume.unwrap_or(0) == 0 {
-        Icon::VolumeMuted
+        lens::sys::lens_icon_id::LENS_ICON_VOLUME_X
     } else if status.volume.unwrap_or(0) < 55 {
-        Icon::VolumeLow
+        lens::sys::lens_icon_id::LENS_ICON_VOLUME_1
     } else {
-        Icon::VolumeHigh
+        lens::sys::lens_icon_id::LENS_ICON_VOLUME_2
     }
 }
 
-/// One compact Control Center tile: icon above label, with the whole rounded
-/// rectangle acting as the target. Active state is communicated by both the
-/// accent glyph and a selected surface, so colour is not the sole cue.
-pub(super) fn render_control_tile(
+pub(super) fn render_quick_toggle_tile(
     f: &mut Frame,
     id: &str,
-    label: &str,
-    icon: Icon,
+    title: &str,
+    subtitle: &str,
+    icon: lens::sys::lens_icon_id,
     active: bool,
-    enabled: bool,
     size: (f32, f32),
     hud: ControlCenterColors,
     type_scale: TypeScale,
 ) -> bool {
     let original = f.theme();
-    let fg = if !enabled {
-        hud.text_muted.with_alpha(110)
-    } else if active {
-        hud.accent
+    let (bg, border, border_width, icon_bg, icon_fg, text_fg, sub_fg) = if active {
+        (
+            hud.selection_surface,
+            hud.accent.with_alpha(80),
+            1.0,
+            hud.accent,
+            Color::rgba(255, 255, 255, 255),
+            hud.text,
+            hud.accent,
+        )
     } else {
-        hud.text
+        (
+            hud.surface_recessed,
+            hud.border,
+            1.0,
+            hud.surface,
+            hud.text_muted,
+            hud.text,
+            hud.text_muted,
+        )
     };
-    f.set_theme(themes::hud(&hud).with_fg(fg));
+
+    f.set_theme(themes::hud(&hud).with_fg(text_fg));
     let (response, _) = f.pressable_row(
         id,
-        label,
+        title,
         &LayoutOpts {
             width: size.0,
             height: size.1,
             pad: 10.0,
             radius: 16.0,
             cross: Align::Center,
-            bg: if active {
-                hud.selection_surface
-            } else {
-                hud.surface_recessed
-            },
-            border: if active {
-                hud.accent.with_alpha(70)
-            } else {
-                hud.border
-            },
-            border_width: 1.0,
+            gap: 10.0,
+            bg,
+            border,
+            border_width,
             ..Default::default()
         },
         |f, _| {
             f.column_ex(
                 &LayoutOpts {
-                    width: (size.0 - 20.0).max(1.0),
-                    height: (size.1 - 20.0).max(1.0),
-                    gap: 6.0,
+                    width: 36.0,
+                    height: 36.0,
+                    radius: 18.0,
+                    bg: icon_bg,
                     cross: Align::Center,
                     ..Default::default()
                 },
                 |f| {
                     f.flex(1.0);
                     f.spacer(0.0);
-                    f.icon(icon, 20.0);
-                    display_label(
-                        f,
-                        &truncate(label, ((size.0 - 24.0) / 6.6).max(4.0) as usize),
-                        type_scale.footnote,
-                    );
+                    f.set_theme(themes::hud(&hud).with_fg(icon_fg));
+                    f.icon_raw(icon, 18.0);
+                    f.flex(1.0);
+                    f.spacer(0.0);
+                },
+            );
+
+            f.column_ex(
+                &LayoutOpts {
+                    width: (size.0 - 20.0 - 36.0 - 10.0).max(1.0),
+                    height: 36.0,
+                    gap: 1.0,
+                    cross: Align::Start,
+                    ..Default::default()
+                },
+                |f| {
+                    f.flex(1.0);
+                    f.spacer(0.0);
+                    f.set_theme(themes::hud(&hud).with_fg(text_fg));
+                    display_label(f, title, type_scale.body);
+                    f.set_theme(themes::hud(&hud).with_fg(sub_fg));
+                    display_label(f, subtitle, type_scale.footnote);
                     f.flex(1.0);
                     f.spacer(0.0);
                 },
@@ -141,24 +161,22 @@ pub(super) fn render_control_tile(
         },
     );
     f.set_theme(original);
-    response.clicked && enabled
+    response.clicked
 }
 
-/// A tall Control Center fader. The thick vertical track exposes value as a
-/// filled capsule; its compact card keeps the value, control, and label on a
-/// single visual axis instead of spreading them over several form rows.
-pub(super) fn render_control_fader(
+pub(super) fn render_horizontal_fader(
     f: &mut Frame,
     id: &str,
     label: &str,
-    icon: Icon,
+    icon: lens::sys::lens_icon_id,
+    icon_clickable: bool,
     value: Option<u8>,
     range: (u8, u8),
     size: (f32, f32),
     fill: Color,
     hud: ControlCenterColors,
     type_scale: TypeScale,
-) -> Option<u8> {
+) -> (Option<u8>, bool) {
     let original = f.theme();
     let enabled = value.is_some();
     let mut level = value.unwrap_or(range.0) as f32;
@@ -171,59 +189,84 @@ pub(super) fn render_control_fader(
         } else {
             hud.text_muted
         })
-        .with_slider_track_thickness((size.0 * 0.42).clamp(38.0, 48.0))
-        .with_slider_knob_size(8.0);
+        .with_slider_track_thickness(10.0)
+        .with_slider_knob_size(16.0);
     f.set_theme(theme);
     let mut changed = false;
+    let mut icon_clicked = false;
+
     f.column_ex(
         &LayoutOpts {
             width: size.0,
             height: size.1,
-            gap: 5.0,
-            pad: 10.0,
-            radius: 18.0,
+            gap: 6.0,
+            pad: 12.0,
+            radius: 16.0,
             bg: hud.surface_recessed,
             border: hud.border,
             border_width: 1.0,
-            cross: Align::Center,
+            cross: Align::Stretch,
             ..Default::default()
         },
         |f| {
-            display_label(
-                f,
-                &value
-                    .map(|value| format!("{value}%"))
-                    .unwrap_or_else(|| "--".to_string()),
-                type_scale.footnote,
-            );
-            f.size_next((size.0 - 20.0).max(40.0), (size.1 - 73.0).max(80.0));
-            changed = f.slider_vertical(
-                &format!("##{id}"),
-                &mut level,
-                range.0 as f32,
-                range.1 as f32,
-                2.0,
-            );
             f.row_ex(
                 &LayoutOpts {
+                    width: (size.0 - 24.0).max(1.0),
                     height: 24.0,
-                    gap: 5.0,
                     cross: Align::Center,
+                    gap: 8.0,
                     ..Default::default()
                 },
                 |f| {
-                    f.icon(icon, 15.0);
+                    if icon_clickable {
+                        let (resp, _) = f.pressable_row(
+                            &format!("{id}-icon-btn"),
+                            label,
+                            &LayoutOpts {
+                                width: 28.0,
+                                height: 24.0,
+                                cross: Align::Center,
+                                radius: 6.0,
+                                bg: Color::TRANSPARENT,
+                                ..Default::default()
+                            },
+                            |f, _| {
+                                f.icon_raw(icon, 18.0);
+                            },
+                        );
+                        if resp.clicked {
+                            icon_clicked = true;
+                        }
+                    } else {
+                        f.icon_raw(icon, 18.0);
+                    }
+                    display_label(f, label, type_scale.body);
+                    f.flex(1.0);
+                    f.spacer(0.0);
                     display_label(
                         f,
-                        &truncate(label, ((size.0 - 38.0) / 6.4).max(4.0) as usize),
+                        &value
+                            .map(|v| format!("{v}%"))
+                            .unwrap_or_else(|| "--".to_string()),
                         type_scale.footnote,
                     );
                 },
             );
+
+            f.size_next((size.0 - 24.0).max(40.0), 20.0);
+            changed = f.slider(
+                &format!("##{id}"),
+                &mut level,
+                range.0 as f32,
+                range.1 as f32,
+            );
         },
     );
     f.set_theme(original);
-    (changed && enabled).then(|| level.round().clamp(range.0 as f32, range.1 as f32) as u8)
+    (
+        (changed && enabled).then(|| level.round().clamp(range.0 as f32, range.1 as f32) as u8),
+        icon_clicked,
+    )
 }
 
 // ---- dbusmenu popover helpers -------------------------------------------

@@ -422,6 +422,7 @@ impl Handler for TestHandler {
             }
             SettingsAction::SetIdle { settings } => snapshot.idle = settings,
             SettingsAction::SetDock { settings } => snapshot.dock = settings,
+            SettingsAction::SetWallpaper { settings } => snapshot.wallpaper = settings,
         }
         snapshot.revision += 1;
         Ok(SettingsReceipt {

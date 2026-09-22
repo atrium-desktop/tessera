@@ -1719,6 +1719,11 @@ pub enum ConfigEdit {
     SetDesktopPreferences { preferences: DesktopPreferences },
     /// Replace the complete `[idle]` staged inactivity policy.
     SetIdle { settings: IdleSettings },
+    /// Replace the desktop wallpaper presentation mode and primary source.
+    SetWallpaper {
+        mode: WallpaperMode,
+        source: Option<String>,
+    },
 }
 
 /// Path-bound access to the versioned configuration document.
@@ -1767,6 +1772,9 @@ impl ConfigStore {
                 apply_desktop_preferences(&mut document, &preferences)
             }
             ConfigEdit::SetIdle { settings } => apply_idle(&mut document, settings),
+            ConfigEdit::SetWallpaper { mode, source } => {
+                apply_wallpaper_edit(&mut document, mode, source);
+            }
         }
         let contents = document.to_string();
         Config::parse(&contents).map_err(|diagnostics| LoadError::Invalid {
@@ -1839,6 +1847,28 @@ fn apply_dock_minimize_animation(
         document["dock"] = toml_edit::Item::Table(toml_edit::Table::new());
     }
     document["dock"]["minimize_animation"] = toml_edit::value(style.name());
+}
+
+fn apply_wallpaper_edit(
+    document: &mut DocumentMut,
+    mode: WallpaperMode,
+    source: Option<String>,
+) {
+    if !document.get("wallpaper").is_some_and(toml_edit::Item::is_table) {
+        document["wallpaper"] = toml_edit::Item::Table(toml_edit::Table::new());
+    }
+    let mode_str = match mode {
+        WallpaperMode::Image => "image",
+        WallpaperMode::Video => "video",
+        WallpaperMode::ThreeD => "3d",
+        WallpaperMode::Parallax => "parallax",
+    };
+    document["wallpaper"]["mode"] = toml_edit::value(mode_str);
+    if let Some(src) = source {
+        document["wallpaper"]["source"] = toml_edit::value(src);
+    } else if let Some(table) = document["wallpaper"].as_table_mut() {
+        table.remove("source");
+    }
 }
 
 /// Replace the complete `[input]` profile (touchpad, mouse, keyboard) while

@@ -22,6 +22,9 @@ pub(crate) const APPEARANCE_MODULE_ID: ModuleId = ModuleId::new("appearance");
 pub(crate) struct AppearanceModule {
     authoritative: DesktopPreferences,
     draft: DesktopPreferences,
+    authoritative_wallpaper: tessera_desktop::settings::WallpaperSettings,
+    draft_wallpaper_mode: i32,
+    draft_wallpaper_source: TextBuf,
     accent_color: TextBuf,
     font_name: TextBuf,
     monospace_font_name: TextBuf,
@@ -34,9 +37,13 @@ pub(crate) struct AppearanceModule {
 impl AppearanceModule {
     pub(crate) fn new() -> Self {
         let preferences = DesktopPreferences::default();
+        let wallpaper = tessera_desktop::settings::WallpaperSettings::default();
         let mut module = Self {
             authoritative: preferences.clone(),
             draft: preferences,
+            authoritative_wallpaper: wallpaper,
+            draft_wallpaper_mode: 0,
+            draft_wallpaper_source: TextBuf::new(1024, ""),
             accent_color: TextBuf::new(16, ""),
             font_name: TextBuf::new(256, ""),
             monospace_font_name: TextBuf::new(256, ""),
@@ -51,6 +58,7 @@ impl AppearanceModule {
 
     fn reset_editor(&mut self) {
         self.draft = self.authoritative.clone();
+        self.reset_wallpaper();
         self.accent_color.set(
             &self
                 .authoritative
@@ -65,6 +73,17 @@ impl AppearanceModule {
         self.cursor_theme.set(&self.authoritative.cursor_theme);
         self.dirty = false;
         self.invalid = false;
+    }
+
+    fn reset_wallpaper(&mut self) {
+        self.draft_wallpaper_mode = match self.authoritative_wallpaper.mode.as_str() {
+            "3d" => 1,
+            "video" => 2,
+            "parallax" => 3,
+            _ => 0,
+        };
+        self.draft_wallpaper_source
+            .set(self.authoritative_wallpaper.source.as_deref().unwrap_or(""));
     }
 
     fn candidate(&self) -> Result<DesktopPreferences, &'static str> {
@@ -98,6 +117,8 @@ impl SettingsModule for AppearanceModule {
             keywords: &[
                 "theme",
                 "appearance",
+                "wallpaper",
+                "background",
                 "contrast",
                 "icons",
                 "fonts",
@@ -205,6 +226,62 @@ impl SettingsModule for AppearanceModule {
         });
 
         frame.column_ex(&settings_card_layout(design), |frame| {
+            frame.heading(i18n.text(Message::Wallpaper), 3);
+
+            frame.row_ex(&section_heading_layout(), |frame| {
+                frame.label_sized(i18n.text(Message::WallpaperMode), design.typography.label);
+                frame.flex(1.0);
+                frame.spacer(0.0);
+                frame.size_next(180.0, 30.0);
+                if frame.dropdown(
+                    "##settings-wallpaper-mode",
+                    &mut self.draft_wallpaper_mode,
+                    &[
+                        i18n.text(Message::WallpaperModeImage),
+                        i18n.text(Message::WallpaperMode3d),
+                        i18n.text(Message::WallpaperModeVideo),
+                        i18n.text(Message::WallpaperModeParallax),
+                    ],
+                ) {
+                    self.dirty = true;
+                }
+            });
+
+            if text_field(
+                frame,
+                i18n.text(Message::WallpaperSource),
+                "##settings-wallpaper-source",
+                &mut self.draft_wallpaper_source,
+                design,
+            ) {
+                self.dirty = true;
+                self.invalid = false;
+            }
+
+            frame.row_ex(
+                &LayoutOpts {
+                    height: 28.0,
+                    gap: 8.0,
+                    cross: Align::Center,
+                    ..Default::default()
+                },
+                |frame| {
+                    frame.size_next(90.0, 26.0);
+                    if frame.button(i18n.text(Message::WallpaperBuiltin)) {
+                        self.draft_wallpaper_source.set("builtin");
+                        self.dirty = true;
+                    }
+                    frame.size_next(90.0, 26.0);
+                    if frame.button("Default") {
+                        self.draft_wallpaper_source.set("");
+                        self.draft_wallpaper_mode = 0;
+                        self.dirty = true;
+                    }
+                },
+            );
+        });
+
+        frame.column_ex(&settings_card_layout(design), |frame| {
             frame.heading(i18n.text(Message::InterfaceFont), 3);
             if text_field(
                 frame,
@@ -306,6 +383,20 @@ impl SettingsModule for AppearanceModule {
                         Ok(preferences) => {
                             out.actions
                                 .push(SettingsAction::SetDesktopPreferences { preferences });
+                            let wallpaper_settings = tessera_desktop::settings::WallpaperSettings {
+                                mode: match self.draft_wallpaper_mode {
+                                    1 => "3d".into(),
+                                    2 => "video".into(),
+                                    3 => "parallax".into(),
+                                    _ => "image".into(),
+                                },
+                                source: match self.draft_wallpaper_source.as_str().trim() {
+                                    "" => None,
+                                    val => Some(val.to_owned()),
+                                },
+                            };
+                            out.actions
+                                .push(SettingsAction::SetWallpaper { settings: wallpaper_settings });
                             self.dirty = false;
                             self.invalid = false;
                         }
@@ -322,6 +413,7 @@ impl SettingsModule for AppearanceModule {
 
     fn update_settings(&mut self, snapshot: &SettingsSnapshot) {
         self.authoritative = snapshot.preferences.clone();
+        self.authoritative_wallpaper = snapshot.wallpaper.clone();
         if !self.dirty {
             self.reset_editor();
         }
@@ -369,5 +461,17 @@ mod tests {
         let mut module = AppearanceModule::new();
         module.accent_color.set("blue");
         assert!(module.candidate().is_err());
+    }
+
+    #[test]
+    fn wallpaper_editor_initializes_and_resets() {
+        let mut module = AppearanceModule::new();
+        assert_eq!(module.draft_wallpaper_mode, 0);
+        assert_eq!(module.draft_wallpaper_source.as_str(), "");
+        module.draft_wallpaper_mode = 1;
+        module.draft_wallpaper_source.set("builtin");
+        module.reset_editor();
+        assert_eq!(module.draft_wallpaper_mode, 0);
+        assert_eq!(module.draft_wallpaper_source.as_str(), "");
     }
 }

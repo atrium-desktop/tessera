@@ -1298,7 +1298,24 @@ impl Chrome for Dock {
         // magnification plus overshoot.
         let mut region = {
             let rect = self.capture_footprint(display);
-            tessera_types::Rect::new(rect.x as i32, rect.y as i32, rect.w as i32, rect.h as i32)
+            // Optics casts the SDF shadow up to twice its blur radius outside
+            // the body. Repaint the full shadow envelope, including the old
+            // expanded shadow while the body collapses, and round outward.
+            let style = self.design.glass.for_role(GlassRole::Dock);
+            let fringe = 2.0 * style.shadow_blur.max(0.0) + 1.0;
+            let offset = style.shadow_offset_y;
+            let x0 = (rect.x - fringe).floor().max(0.0);
+            let y0 = (rect.y - fringe + offset.min(0.0)).floor().max(0.0);
+            let x1 = (rect.x + rect.w + fringe).ceil().min(display.0);
+            let y1 = (rect.y + rect.h + fringe + offset.max(0.0))
+                .ceil()
+                .min(display.1);
+            tessera_types::Rect::new(
+                x0 as i32,
+                y0 as i32,
+                (x1 - x0).max(0.0) as i32,
+                (y1 - y0).max(0.0) as i32,
+            )
         };
         // A live-preview panel animates open above the strip (or beside it
         // for a side dock); its panel rect is computed for presentation each

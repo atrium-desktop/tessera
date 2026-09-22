@@ -14,6 +14,18 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Added
+- Upgraded Optics dependencies to `v0.0.45` (ADR-0100 pure water-droplet liquid glass optics with 3D meniscus dual-rim lighting and ADR-0101 physical sampling governor with bounded material dispatch).
+- Added desktop wallpaper configuration support in Control Center System Settings (`Appearance` module) with Image, 3D, Video, and Parallax modes, atomic configuration persistence, and live runtime reload.
+- Redesigned Control Center Quick Controls into a modern macOS-inspired layout with responsive horizontal Display and Sound faders, integrated speaker mute toggle, and quick toggles for Wi-Fi, Bluetooth, Do Not Disturb, and Dark Mode.
+- Scheme-aware Dock visual styling: separate high-contrast indicator dots, subtle dividers, and light-pearl glass accents in Light mode alongside dark smoke glass styling in Dark mode.
+
+### Fixed
+- Fixed Control Center navigation rail layout overflow where long titles (such as "Power Management") clipped past the selection capsule edge.
+- Replaced incorrect Control Center sidebar icons with dedicated high-fidelity system icons (Monitor for Display, Battery Charging for Power, Image for Appearance, and Layout for Dock).
+- Optimized Control Center animation rendering and backdrop cache behavior, eliminating frame stutter caused by continuous multi-pass full-screen blur recomputation during open/close transitions.
+- Throttled volume and brightness subprocess spawning during rapid slider dragging to prevent compositor render loop latency.
+
 ## [0.0.62] - 2026-09-18
 
 ### Added
