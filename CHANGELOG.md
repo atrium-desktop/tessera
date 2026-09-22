@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.63] - 2026-09-22
+
 ### Added
 - Upgraded Optics dependencies to `v0.0.45` (ADR-0100 pure water-droplet liquid glass optics with 3D meniscus dual-rim lighting and ADR-0101 physical sampling governor with bounded material dispatch).
 - Added desktop wallpaper configuration support in Control Center System Settings (`Appearance` module) with Image, 3D, Video, and Parallax modes, atomic configuration persistence, and live runtime reload.
