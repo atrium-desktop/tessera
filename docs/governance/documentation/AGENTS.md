@@ -1,35 +1,33 @@
 # AGENTS.md
 
-Instructions for AI coding assistants working within `docs/governance/documentation/`.
+Instructions for AI coding assistants working with Protocol v6.0.0.
 
 ---
 
 ## 1. Directory Mission & Invariant
 
-This directory is an exact mirror of the canonical `docs-governance` specification (Protocol v5.0.0).
+This specification defines the canonical `docs-governance` protocol (Protocol v6.0.0).
 
-- **Policy Status**: This directory contains normative governance policy, not application source code.
-- **AI Modification Invariant**: AI assistants may read this directory to inspect system invariants, taxonomy coordinates, and templates, but must never edit files within this directory unless explicitly instructed by a repository maintainer.
+- **Policy Status**: Normative governance policy.
+- **AI Modification Invariant**: AI assistants may read this directory to inspect system invariants, taxonomy coordinates, and templates, but must only edit files within this directory upon explicit maintainer instruction.
 
 ---
 
-## 2. Invariant Checklist for AI Assistants
+## 2. Invariant Directives for AI Assistants
 
-When authoring or modifying documentation in this repository, always verify:
+When authoring or modifying documentation in an adopting repository, always verify:
 
-1. **Spatial Tensor Compliance (`[INV-CORE-01]`, `[INV-CORE-02]`)**:
-   - Check destination against `core/taxonomy.md`.
-   - Never link from public documentation into `docs/dev/`.
-   - Never create arbitrary root Markdown files.
-2. **Archival Firewall (`[INV-TEMP-02]`)**:
-   - Default to excluding `**/archive/**` (`docs/adr/archive/`, `docs/rfc/archive/`) from routine searches and prompt contexts.
-3. **Immutability & Negative Knowledge (`[INV-ARCH-01]`, `[INV-ARCH-02]`)**:
-   - Never modify an `Accepted` ADR in place; create a superseding record.
-   - Always retain rejected options and negative rationale.
-4. **RFC Isolation (`[INV-ARCH-03]`)**:
-   - Never treat in-flight RFC proposals (`docs/rfc/`) as established architectural constraints.
-5. **Living State Synchronization (`[INV-TEMP-01]`)**:
-   - Update `docs/architecture/` and Diátaxis documentation in the same PR as related code changes.
+1. **Machine Invariants (`[INV-LINT-01]`, `[INV-LINT-02]`, `[INV-LINT-03]`)**:
+   - Never create arbitrary Markdown files at the repository root (`[INV-LINT-01]`).
+   - Never link from public documentation into `docs/dev/**` (`[INV-LINT-02]`).
+   - Ensure all records in `docs/adr/` have valid YAML frontmatter with standardized status (`[INV-LINT-03]`).
+2. **Context Routing & Chesterton's Fence (`[INV-AGENT-02]`)**:
+   - In code generation mode, never recommend solutions from `status: superseded` or `status: rejected` records.
+   - In refactoring/investigation mode, retrieve superseded/rejected records and cite their failure causes as negative constraints.
+3. **Negative Knowledge Mandate (`[INV-AGENT-01]`)**:
+   - Every new ADR must detail rejected alternatives and why they failed.
+4. **Blameless Postmortems (`[INV-AGENT-03]`)**:
+   - Focus strictly on defense-in-depth failure, detection gaps, and systemic causality. Human blame is prohibited.
 
 ---
 
@@ -37,6 +35,5 @@ When authoring or modifying documentation in this repository, always verify:
 
 Before completing tasks that modify governance or documentation, run:
 ```bash
-python3 -W error -m unittest discover -s tests -v
-./tools/verify.sh .
+docgov check
 ```

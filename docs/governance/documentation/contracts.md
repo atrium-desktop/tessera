@@ -1,14 +1,12 @@
-# Repository Contracts
+# Repository Contracts (Protocol v6.0.0)
 
-Reference data, profile declarations, and path bindings for documentation surfaces adopted by this repository.
-
-For adoption procedures, see [Workflow: Adoption](core/workflow.md#part-4-repository-adoption-workflow).
+Reference data, profile declarations, and configuration bindings for repositories adopting Protocol v6.0.0.
 
 ---
 
 ## 1. Activated Profiles
 
-Declare the domain capability profiles active in this repository. `tools/sync.sh` and `tools/verify.sh` use this declaration to assemble and verify documentation surfaces.
+Declare the domain capability profiles active in this repository. Toolchains use this declaration to assemble and verify documentation surfaces:
 
 - [x] `core` (Mandatory: 4D spatial taxonomy, system invariants, operational workflow, style)
 - [x] `architecture` (Architecture records, living blueprints, pre-decision RFCs)
@@ -17,34 +15,66 @@ Declare the domain capability profiles active in this repository. `tools/sync.sh
 
 ---
 
-## 2. Directory Layout Bindings
+## 2. Declarative Contract Schema (`/.docgov.yml`)
 
-| Surface | Path | Required | Temperature | Purpose |
-| :--- | :--- | :--- | :--- | :--- |
-| **Core Governance** | `docs/governance/documentation/` | Yes | **HOT** | Mirrored governance standard (`core/` + active profiles) |
-| **Project Governance** | `docs/governance/` | Yes | **HOT** | Repository charters, API standards, and guidelines |
-| **Contributor Firewall**| `docs/dev/` | Yes | **HOT** | Developer bootstrap, testing, and procedures |
-| **Active ADRs** | `docs/adr/` | If `architecture` | **WARM** | Immutable Architectural Decision Records |
-| **Living Blueprints** | `docs/architecture/` | If `architecture` | **HOT** | Living subsystem blueprints and compacted invariants |
-| **Archived ADRs** | `docs/adr/archive/` | If `architecture` | **COLD** | Compacted, superseded, and deprecated records |
-| **In-Flight RFCs** | `docs/rfc/` | Optional (`architecture`) | **WARM** | Active pre-decision proposals under deliberation |
-| **Archived RFCs** | `docs/rfc/archive/` | Optional (`architecture`) | **COLD** | Concluded and withdrawn RFC deliberations |
-| **Incident Reviews** | `docs/dev/postmortems/` | If `operations` | **COLD** | Archived blameless post-incident reviews |
-| **Root Entry** | `README.md` | Yes | **HOT** | Project value pitch and shortest setup |
-| **Docs Portal** | `docs/index.md` | Yes | **HOT** | Primary documentation navigation portal |
+In Protocol v6.0.0, repository contracts and profiles are configured via `/.docgov.yml` at the repository root:
+
+```yaml
+version: "6.0"
+
+# [INV-LINT-01] Root Location Sanitization
+root_sanitization:
+  enforce: true
+  allowed_markdown:
+    - "README.md"
+    - "CHANGELOG.md"
+    - "CONTRIBUTING.md"
+    - "AGENTS.md"
+    - "CLAUDE.md"
+    - "GEMINI.md"
+    - "LICENSE.md"
+    - "SECURITY.md"
+
+# [INV-LINT-02] Contributor Firewall Bindings
+firewall:
+  public_surfaces:
+    - "docs/tutorials/**"
+    - "docs/how-to/**"
+    - "docs/reference/**"
+    - "docs/explanation/**"
+  internal_surfaces:
+    - "docs/dev/**"
+
+# [INV-LINT-03] Architecture & Metadata Profile
+architecture:
+  adr_path: "docs/adr"
+  require_frontmatter:
+    status_enum: ["draft", "accepted", "superseded", "rejected", "deprecated"]
+    mandatory_fields: ["id", "title", "status", "date"]
+
+# [INV-LINT-04] Code-to-Doc Trigger Bindings
+triggers:
+  - watch: "crates/api/**"
+    require_update: "docs/reference/**"
+    message: "Public API modified; docs/reference/ must be synchronized in the same commit."
+  - watch: "crates/apps/**"
+    require_update: "docs/how-to/**"
+    message: "Application entry point modified; verify docs/how-to/ are up to date."
+```
 
 ---
 
-## 3. Optional Document Contracts
+## 3. Directory Layout Bindings
 
-| Contract Surface | Active Profile | If Present | If Absent |
-| :--- | :--- | :--- | :--- |
-| `CHANGELOG.md` | Universal | User-visible changes must update it in the same PR | Omit changelog checks from PR review |
-| `CONTRIBUTING.md` | Universal | Contributor entry point; links into `docs/dev/` | Add before accepting outside contributions |
-| `docs/dev/acceptance.md` | Profile `validation` | User journey or acceptance changes update it | Rely on internal testing guides |
-| `docs/dev/testing.md` | Profile `validation` | Test runner, command, or suite changes update it | Document testing in dev setup guide |
-| `docs/adr/index.md` | Profile `architecture` | Active and archived ADRs registered in table | Create index before authoring ADRs |
-| `docs/adr/template.md` | Profile `architecture` | New ADRs start from the template | Create a template before requiring ADRs |
-| `docs/rfc/` | Profile `architecture` | In-flight debates in `docs/rfc/`; closed RFCs to `archive/` | Omit RFCs; record decisions directly in ADRs |
-| `docs/reference/glossary.md` | Universal | Canonical project terms defined and cross-linked | Keep term definitions local to documents |
-| `docs/tutorials/01-getting-started.md` | Universal | Setup changes update it with the README | Update the closest getting-started tutorial instead |
+| Surface | Path | Required | Temperature | Purpose |
+| :--- | :--- | :--- | :--- | :--- |
+| **Top Control Plane** | `.docgov.yml` | Yes | **HOT** | Declarative governance rules & triggers |
+| **AI Directives** | `AGENTS.md` | Yes | **HOT** | Machine & cognitive invariant mapping (< 30 lines) |
+| **Public Tutorials** | `docs/tutorials/` | Optional | **HOT** | Guided learning from zero |
+| **Public How-To** | `docs/how-to/` | Optional | **HOT** | Practical recipes for real tasks |
+| **Public Reference** | `docs/reference/` | Optional | **HOT** | Authoritative technical & API specifications |
+| **Public Explanation**| `docs/explanation/`| Optional | **HOT** | Architectural context & domain concepts |
+| **Contributor Surface**| `docs/dev/` | Yes | **HOT** | Internal setup, testing, and procedures |
+| **ADR Registry** | `docs/adr/` | If Architecture | **WARM** / **COLD** | Decisions evolved in-place via Frontmatter |
+| **Incident Reviews** | `docs/dev/postmortems/`| If Operations | **COLD** | Blameless analysis of past incidents |
+| **Root Entry** | `README.md` | Yes | **HOT** | Project value pitch and shortest setup |

@@ -671,15 +671,33 @@ impl ControlCenter {
     /// indicator spring, scrollbar reveals, tooltip reveals) is still
     /// settling; keeps the frame loop ticking while open.
     fn interaction_anim_pending(&self) -> bool {
+        self.work_mode_anim_pending()
+            || self.notif_scrollbar_reveal > 0.0
+            || self.tray_scrollbar_reveal > 0.0
+            || self.work_mode_tooltip_reveal > 0.02
+            || self.session_tooltip_reveal > 0.02
+    }
+
+    /// Whether the segmented power-mode indicator spring is still settling.
+    fn work_mode_anim_pending(&self) -> bool {
         let mode_index = PowerMode::ALL
             .iter()
             .position(|mode| *mode == self.status.power_mode)
             .unwrap_or(0) as f32;
         !self.work_mode_spring.settled_on(mode_index, 0.01, 0.5)
-            || self.notif_scrollbar_reveal > 0.0
-            || self.tray_scrollbar_reveal > 0.0
-            || self.work_mode_tooltip_reveal > 0.02
-            || self.session_tooltip_reveal > 0.02
+    }
+
+    /// Whether the persona avatar is advancing its own texture this frame
+    /// (an animated VRM playing, or a hot-reload replacing the portrait).
+    fn avatar_animating(&self) -> bool {
+        (self.open && self.avatar.as_ref().is_some_and(Portrait::is_animated))
+            || self.avatar_reload_pending()
+    }
+
+    /// Whether the panel is mid reveal/close transition.
+    fn reveal_animating(&self) -> bool {
+        let target = if self.open { 1.0 } else { 0.0 };
+        (self.reveal - target).abs() > 0.002
     }
 
     /// Close the panel, also dismissing any open dbusmenu popover and
@@ -1338,15 +1356,6 @@ impl Chrome for ControlCenter {
         self.active().then_some(CursorShape::Pointer)
     }
 
-    fn damage_region(
-        &self,
-        _windows: &[Window],
-        display: (f32, f32),
-    ) -> Option<tessera_types::Rect> {
-        self.active()
-            .then(|| tessera_types::Rect::new(0, 0, display.0 as i32, display.1 as i32))
-    }
-
     fn update(&mut self, update: ChromeUpdate<'_>) {
         match update {
             ChromeUpdate::AppCatalog(catalog) => self.icons = catalog.icons.clone(),
@@ -1390,7 +1399,88 @@ impl Chrome for ControlCenter {
         ) || self.interaction_anim_pending()
     }
 
+    /// The union of the panel's animated footprints — the region a frame
+    /// driven purely by the panel's in-flight animation can touch.
+    ///
+    /// The compositor turns an animation-driven frame into a partial repaint
+    /// of exactly this rectangle instead of a full-output composite. Only the
+    /// micro-interactions are localized: the reveal/close transition slides
+    /// several whole panels (each with its own soft edges), so it stays
+    /// full-output via `None`.
+    fn damage_region(
+        &self,
+        _windows: &[Window],
+        display: (f32, f32),
+    ) -> Option<tessera_types::Rect> {
+        if !self.active() {
+            return None;
+        }
+        animated_damage_region(
+            display,
+            // The reveal/close transition slides several whole panels, and the
+            // tooltip reveals paint *above* their anchor bands (a rect wider
+            // and higher than the band it belongs to). Both are short-lived
+            // input-driven transitions, so the honest answer while either runs
+            // is the conservative full repaint.
+            self.reveal_animating()
+                || self.work_mode_tooltip_reveal > 0.02
+                || self.session_tooltip_reveal > 0.02,
+            // The always-on bands are exact single-rect footprints: the
+            // segmented indicator moves within the work-mode control, each
+            // scrollbar fades within its own scrolling surface, and the avatar
+            // re-renders its texture inside the profile block.
+            self.work_mode_anim_pending(),
+            self.notif_scrollbar_reveal > 0.0,
+            self.tray_scrollbar_reveal > 0.0,
+            self.avatar_animating(),
+        )
+    }
+
     fn requires_composition(&self) -> bool {
         self.active()
     }
+}
+
+/// The union of the panel's animated footprints, from the individual
+/// "this is still moving" signals. Pure so the mapping is unit-testable
+/// without a GPU (the avatar path needs a live flux device). `None` means the
+/// frame must be a conservative full-output repaint.
+fn animated_damage_region(
+    display: (f32, f32),
+    conservative: bool,
+    work_mode: bool,
+    notif_scrollbar: bool,
+    tray_scrollbar: bool,
+    avatar: bool,
+) -> Option<tessera_types::Rect> {
+    if conservative {
+        return None;
+    }
+    let rects = ControlCenter::cluster_bounds(display);
+    let mut region: Option<tessera_types::Rect> = None;
+    let mut merge = |rect: Rect| {
+        let as_rect = tessera_types::Rect::new(
+            rect.x.floor() as i32,
+            rect.y.floor() as i32,
+            rect.w.ceil() as i32,
+            rect.h.ceil() as i32,
+        );
+        region = Some(match region {
+            Some(existing) => existing.union(as_rect),
+            None => as_rect,
+        });
+    };
+    if work_mode {
+        merge(rects.6); // work-mode band
+    }
+    if notif_scrollbar {
+        merge(rects.2); // notification stream
+    }
+    if tray_scrollbar {
+        merge(rects.4); // tray column
+    }
+    if avatar {
+        merge(rects.0); // profile block
+    }
+    region
 }

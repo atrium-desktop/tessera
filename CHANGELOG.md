@@ -14,6 +14,26 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Fixed
+- Control Center frame pacing and per-frame CPU. With a persona VRM avatar
+  configured, the panel never idled: the animated portrait kept `anim_pending`
+  true every frame and the panel reported its entire animation footprint as the
+  whole display, so each avatar frame forced a full-output composite. The panel
+  now localizes its animated damage to the exact band it moves (profile block,
+  tray column, notification stream, work-mode control) and reports the reveal
+  and tooltip transitions — which paint outside those bands — as a
+  conservative full repaint, matching the contract the compositor's partial
+  repaint path relies on.
+- Optics world-matrix propagation for skinned scene graphs (`sg_update_worlds`)
+  recomputed every node's world matrix `node_count` times per animated frame to
+  converge a not-topologically-sorted glTF node array — O(n²) matrix multiplies
+  per frame. A 117-node VRM avatar cost ~0.11 ms of every panel frame and grew
+  quadratically with rig size (600 nodes: ~5.4 ms). The nodes are now walked in
+  one parents-before-children order computed once from the immutable parent
+  links (with an allocation-failure fallback and cycle safety), making the
+  update linear: ~0.006 ms for the 117-node avatar (≈20× faster) and a speedup
+  that scales with node count (≈65× at 600 nodes).
+
 ## [0.0.63] - 2026-09-22
 
 ### Added

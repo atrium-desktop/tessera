@@ -416,6 +416,60 @@ fn scrollbar_reveals_fade_out_after_wheel_activity_stops() {
 }
 
 #[test]
+fn animated_frames_localize_damage_to_the_moving_bands() {
+    let display = (1920.0, 1080.0);
+    let (profile, _main, notifications, _clock, tray, _media, work_mode, _power) =
+        CommandPanel::cluster_bounds(display);
+    let full = tessera_types::Rect::new(0, 0, display.0 as i32, display.1 as i32);
+
+    // Nothing animating: no footprint at all.
+    assert_eq!(
+        animated_damage_region(display, false, false, false, false, false),
+        None
+    );
+
+    // The reveal transition and the tooltip reveals paint outside the bands
+    // they belong to, so they must stay conservative (None => full repaint).
+    assert_eq!(
+        animated_damage_region(display, true, false, false, false, false),
+        None
+    );
+
+    // A ticking work-mode spring repaints only its band, never the screen.
+    let region = animated_damage_region(display, false, true, false, false, false)
+        .expect("a ticking spring states its footprint");
+    assert!(
+        region.size.w < full.size.w && region.size.h < full.size.h,
+        "the spring footprint must be a band: {region:?}"
+    );
+    assert!(region.origin.y >= work_mode.y as i32);
+
+    // The notification-scrollbar reveal covers only the notification stream.
+    let notif = animated_damage_region(display, false, false, true, false, false)
+        .expect("scrollbar reveal states its footprint");
+    assert!(notif.origin.x >= notifications.x as i32);
+    assert!(notif.origin.x + notif.size.w <= (notifications.x + notifications.w).ceil() as i32);
+
+    // The tray-scrollbar reveal covers only the tray column.
+    let tray_region = animated_damage_region(display, false, false, false, true, false)
+        .expect("tray reveal states its footprint");
+    assert!(tray_region.origin.x >= tray.x as i32);
+    assert!(tray_region.origin.x + tray_region.size.w <= (tray.x + tray.w).ceil() as i32);
+
+    // An animating avatar narrows to the profile block, never the full output.
+    let avatar = animated_damage_region(display, false, false, false, false, true)
+        .expect("an animating avatar states its footprint");
+    assert!(avatar.size.w < full.size.w && avatar.size.h < full.size.h);
+    assert!(avatar.origin.x >= profile.x as i32);
+    assert!(avatar.origin.x + avatar.size.w <= (profile.x + profile.w).ceil() as i32);
+
+    // Independent signals union, so simultaneous motion still stays bounded
+    // to the moving bands rather than the whole screen.
+    let union = animated_damage_region(display, false, true, true, true, true).unwrap();
+    assert!(union.size.w < full.size.w && union.size.h < full.size.h);
+}
+
+#[test]
 fn tray_menu_opens_to_the_right_of_owner_and_equalizes_separator_height() {
     let owner = Rect {
         x: 48.0,
