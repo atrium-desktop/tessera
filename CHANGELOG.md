@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.64] - 2026-09-23
+
 ### Fixed
 - Control Center frame pacing and per-frame CPU. With a persona VRM avatar
   configured, the panel never idled: the animated portrait kept `anim_pending`
