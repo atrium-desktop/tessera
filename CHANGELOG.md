@@ -14,6 +14,20 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.65] - 2026-09-24
+
+### Changed
+- Universal domain pruning and primitives canonization (ADR-0164):
+  - Consolidated `tessera-types` and `tessera-scene` into foundational, zero-dependency `tessera-primitives`.
+  - Renamed and elevated `tessera-apps` to `tessera-launch-services`.
+  - Completely eradicated legacy facades and migrated all 124 workspace callers natively to the canonized crates.
+- Decoupled backdrop blur cache and continuous chrome fade (ADR-0163):
+  - Added slot-level blur output borrowing (`flux_blur_filter_current`) in Optics `v0.0.48` and reused blurred scene captures across material-only recompute frames, dropping per-frame GPU time from >15ms to ~0.2ms.
+  - Eliminated discrete 8-step quantization (`stepped_fade`) from `BackdropCover`, restoring full-rate (60/120/144 FPS) continuous optical fade.
+  - Fixed 1-frame animation phase lag in Control Center by advancing animation clocks in `Chrome::prepare_backdrop`.
+  - Localized tooltip damage footprints to cluster anchor bands.
+- Bumped Optics dependencies to `v0.0.48`.
+
 ## [0.0.64] - 2026-09-23
 
 ### Fixed

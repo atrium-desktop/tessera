@@ -800,7 +800,7 @@ checksum = "98de4bbd547a563b716d8dfa9aad1cb19bfab00f4fa09a6a4ed21dbcf44ce9c4"
 [[package]]
 name = "flux"
 version = "0.1.1"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.45#0b24a7e9059e4fae9ce54cf336b3aa20f56539ff"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.48#2d9e72e24ba90953d2b5c95c3a0088b77ec00ecb"
 dependencies = [
  "flux-sys",
 ]
@@ -808,7 +808,7 @@ dependencies = [
 [[package]]
 name = "flux-scene-graph"
 version = "0.1.1"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.45#0b24a7e9059e4fae9ce54cf336b3aa20f56539ff"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.48#2d9e72e24ba90953d2b5c95c3a0088b77ec00ecb"
 dependencies = [
  "flux",
  "flux-scene-graph-sys",
@@ -819,7 +819,7 @@ dependencies = [
 [[package]]
 name = "flux-scene-graph-sys"
 version = "0.1.1"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.45#0b24a7e9059e4fae9ce54cf336b3aa20f56539ff"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.48#2d9e72e24ba90953d2b5c95c3a0088b77ec00ecb"
 dependencies = [
  "bindgen",
  "flux-sys",
@@ -829,7 +829,7 @@ dependencies = [
 [[package]]
 name = "flux-sys"
 version = "0.1.1"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.45#0b24a7e9059e4fae9ce54cf336b3aa20f56539ff"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.48#2d9e72e24ba90953d2b5c95c3a0088b77ec00ecb"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -1208,7 +1208,7 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 [[package]]
 name = "lens"
 version = "0.1.0"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.45#0b24a7e9059e4fae9ce54cf336b3aa20f56539ff"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.48#2d9e72e24ba90953d2b5c95c3a0088b77ec00ecb"
 dependencies = [
  "flux",
  "lens-sys",
@@ -1217,7 +1217,7 @@ dependencies = [
 [[package]]
 name = "lens-sys"
 version = "0.1.0"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.45#0b24a7e9059e4fae9ce54cf336b3aa20f56539ff"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.48#2d9e72e24ba90953d2b5c95c3a0088b77ec00ecb"
 dependencies = [
  "bindgen",
  "flux-sys",
@@ -1555,7 +1555,7 @@ dependencies = [
 [[package]]
 name = "prism"
 version = "0.1.0"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.45#0b24a7e9059e4fae9ce54cf336b3aa20f56539ff"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.48#2d9e72e24ba90953d2b5c95c3a0088b77ec00ecb"
 dependencies = [
  "flux",
  "flux-sys",
@@ -1565,7 +1565,7 @@ dependencies = [
 [[package]]
 name = "prism-sys"
 version = "0.1.0"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.45#0b24a7e9059e4fae9ce54cf336b3aa20f56539ff"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.48#2d9e72e24ba90953d2b5c95c3a0088b77ec00ecb"
 dependencies = [
  "bindgen",
  "flux-sys",
@@ -1998,7 +1998,7 @@ dependencies = [
 
 [[package]]
 name = "tessera"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "flux",
  "flux-scene-graph-sys",
@@ -2016,7 +2016,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
- "tessera-apps",
  "tessera-audit",
  "tessera-authority",
  "tessera-bootstrap",
@@ -2026,40 +2025,27 @@ dependencies = [
  "tessera-desktop",
  "tessera-i18n",
  "tessera-ipc",
+ "tessera-launch-services",
  "tessera-platform",
+ "tessera-primitives",
  "tessera-protocol",
  "tessera-render",
- "tessera-scene",
  "tessera-semantic",
  "tessera-shell",
  "tessera-tray",
- "tessera-types",
  "tessera-wallpaper",
  "tessera-wayland",
  "thiserror 2.0.20",
  "tiny-skia",
  "tracing",
  "usvg",
+ "zbus",
  "zeroize",
 ]
 
 [[package]]
-name = "tessera-apps"
-version = "0.0.64"
-dependencies = [
- "dirs",
- "libc",
- "log",
- "rust-ini",
- "tempfile",
- "tessera-desktop",
- "tessera-i18n",
- "thiserror 2.0.20",
-]
-
-[[package]]
 name = "tessera-atspi"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "async-io",
  "atspi",
@@ -2069,15 +2055,15 @@ dependencies = [
  "tessera-bootstrap",
  "tessera-desktop",
  "tessera-ipc",
+ "tessera-primitives",
  "tessera-protocol",
  "tessera-semantic",
- "tessera-types",
  "zbus",
 ]
 
 [[package]]
 name = "tessera-audit"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "flate2",
  "getrandom 0.4.3",
@@ -2094,7 +2080,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-authority"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -2102,15 +2088,15 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tessera-desktop",
+ "tessera-primitives",
  "tessera-semantic",
- "tessera-types",
  "thiserror 2.0.20",
  "zeroize",
 ]
 
 [[package]]
 name = "tessera-avatar"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "fastrand",
  "flux",
@@ -2123,13 +2109,13 @@ dependencies = [
  "log",
  "notify",
  "tempfile",
- "tessera-apps",
+ "tessera-launch-services",
  "thiserror 2.0.20",
 ]
 
 [[package]]
 name = "tessera-bootstrap"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "log",
  "tessera-ipc",
@@ -2140,14 +2126,13 @@ dependencies = [
 
 [[package]]
 name = "tessera-cli"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "clap",
  "clap_complete",
  "serde",
  "serde_json",
  "tempfile",
- "tessera-apps",
  "tessera-audit",
  "tessera-authority",
  "tessera-bootstrap",
@@ -2155,24 +2140,24 @@ dependencies = [
  "tessera-desktop",
  "tessera-i18n",
  "tessera-ipc",
+ "tessera-launch-services",
+ "tessera-primitives",
  "tessera-protocol",
- "tessera-scene",
  "tessera-semantic",
- "tessera-types",
  "thiserror 2.0.20",
  "zeroize",
 ]
 
 [[package]]
 name = "tessera-config"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "dirs",
  "libc",
  "serde",
  "tempfile",
  "tessera-desktop",
- "tessera-types",
+ "tessera-primitives",
  "thiserror 2.0.20",
  "toml",
  "toml_edit",
@@ -2180,7 +2165,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-design"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "lens",
  "lens-sys",
@@ -2189,17 +2174,16 @@ dependencies = [
 
 [[package]]
 name = "tessera-desktop"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "serde",
  "serde_json",
- "tessera-scene",
- "tessera-types",
+ "tessera-primitives",
 ]
 
 [[package]]
 name = "tessera-i18n"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "serde",
  "toml",
@@ -2207,7 +2191,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-idle"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "libc",
  "log",
@@ -2222,7 +2206,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-ipc"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "libc",
  "serde",
@@ -2230,17 +2214,30 @@ dependencies = [
  "tempfile",
  "tessera-authority",
  "tessera-desktop",
+ "tessera-primitives",
  "tessera-protocol",
- "tessera-scene",
  "tessera-semantic",
- "tessera-types",
  "thiserror 2.0.20",
  "zeroize",
 ]
 
 [[package]]
+name = "tessera-launch-services"
+version = "0.0.65"
+dependencies = [
+ "dirs",
+ "libc",
+ "log",
+ "rust-ini",
+ "tempfile",
+ "tessera-desktop",
+ "tessera-i18n",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "tessera-lock"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "ash",
  "flux",
@@ -2266,28 +2263,28 @@ dependencies = [
 
 [[package]]
 name = "tessera-mcp"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "base64",
  "clap",
  "serde",
  "serde_json",
  "tempfile",
- "tessera-apps",
  "tessera-audit",
  "tessera-authority",
  "tessera-bootstrap",
  "tessera-desktop",
  "tessera-ipc",
+ "tessera-launch-services",
+ "tessera-primitives",
  "tessera-protocol",
  "tessera-semantic",
- "tessera-types",
  "thiserror 2.0.20",
 ]
 
 [[package]]
 name = "tessera-platform"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "ash",
  "drm",
@@ -2299,16 +2296,23 @@ dependencies = [
  "log",
  "pkg-config",
  "tessera-desktop",
- "tessera-scene",
- "tessera-types",
+ "tessera-primitives",
  "tessera-wayland-protocols",
  "thiserror 2.0.20",
  "udev",
 ]
 
 [[package]]
+name = "tessera-primitives"
+version = "0.0.65"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "tessera-protocol"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "serde",
  "serde_json",
@@ -2316,15 +2320,14 @@ dependencies = [
  "tessera-audit",
  "tessera-authority",
  "tessera-desktop",
- "tessera-scene",
+ "tessera-primitives",
  "tessera-semantic",
- "tessera-types",
  "zeroize",
 ]
 
 [[package]]
 name = "tessera-render"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "flux",
  "flux-sys",
@@ -2332,33 +2335,23 @@ dependencies = [
  "libc",
  "log",
  "tessera-desktop",
- "tessera-scene",
- "tessera-types",
+ "tessera-primitives",
  "thiserror 2.0.20",
 ]
 
 [[package]]
-name = "tessera-scene"
-version = "0.0.64"
-dependencies = [
- "serde",
- "serde_json",
- "tessera-types",
-]
-
-[[package]]
 name = "tessera-semantic"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "serde",
  "serde_json",
  "tessera-desktop",
- "tessera-types",
+ "tessera-primitives",
 ]
 
 [[package]]
 name = "tessera-shell"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "flux",
  "flux-scene-graph-sys",
@@ -2371,15 +2364,14 @@ dependencies = [
  "resvg",
  "serde",
  "tempfile",
- "tessera-apps",
  "tessera-authority",
  "tessera-avatar",
  "tessera-design",
  "tessera-desktop",
  "tessera-i18n",
- "tessera-scene",
+ "tessera-launch-services",
+ "tessera-primitives",
  "tessera-tray",
- "tessera-types",
  "thiserror 2.0.20",
  "tiny-skia",
  "toml",
@@ -2390,24 +2382,17 @@ dependencies = [
 
 [[package]]
 name = "tessera-tray"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "image",
  "log",
- "tessera-apps",
+ "tessera-launch-services",
  "zbus",
 ]
 
 [[package]]
-name = "tessera-types"
-version = "0.0.64"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "tessera-wallpaper"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "flux",
  "flux-scene-graph",
@@ -2420,7 +2405,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-wayland"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "getrandom 0.4.3",
  "log",
@@ -2430,9 +2415,8 @@ dependencies = [
  "tempfile",
  "tessera-authority",
  "tessera-desktop",
- "tessera-scene",
+ "tessera-primitives",
  "tessera-semantic",
- "tessera-types",
  "tessera-wayland-protocols",
  "thiserror 2.0.20",
  "xkbcommon 0.9.0",
@@ -2440,7 +2424,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-wayland-protocols"
-version = "0.0.64"
+version = "0.0.65"
 dependencies = [
  "cc",
 ]
