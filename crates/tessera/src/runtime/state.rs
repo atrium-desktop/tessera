@@ -161,6 +161,7 @@ pub(super) struct CompositorRuntime<'engine> {
     pub(super) keyboard_capture: tessera_types::input::KeyboardCaptureState,
     pub(super) keymap: tessera_desktop::keybind::Keymap,
     pub(super) system_status: tessera_shell::component::SystemStatus,
+    pub(super) wireless: crate::wireless::WirelessHandle,
     pub(super) status_rx: std::sync::mpsc::Receiver<tessera_shell::component::SystemStatus>,
     /// Wakes the status poller for an out-of-cycle refresh after a system
     /// action, so the HUD reconciles optimistic values without the main loop

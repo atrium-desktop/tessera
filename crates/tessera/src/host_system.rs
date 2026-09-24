@@ -19,6 +19,13 @@ pub use tessera_desktop::system::SystemStatus;
 pub fn detect_system_status() -> SystemStatus {
     let (volume, muted, wifi_enabled, wifi_ssid) = detect_forked_status();
     let (network, network_interface) = detect_network();
+    let wifi_state = if wifi_ssid.is_some() {
+        tessera_desktop::system::WifiLinkState::Connected
+    } else if wifi_enabled == Some(false) {
+        tessera_desktop::system::WifiLinkState::Disabled
+    } else {
+        tessera_desktop::system::WifiLinkState::Disconnected
+    };
     SystemStatus {
         volume,
         muted,
@@ -27,6 +34,8 @@ pub fn detect_system_status() -> SystemStatus {
         wifi_ssid,
         battery: detect_battery(),
         wifi_enabled,
+        wifi_state,
+        wifi_networks: Vec::new(),
         bluetooth_enabled: detect_bluetooth_radio(),
         brightness: detect_brightness(),
         do_not_disturb: false,
@@ -41,16 +50,14 @@ pub fn detect_system_status() -> SystemStatus {
 }
 
 /// Probe every status field whose source is a cheap `/sys` read, deferring the
-/// fork+exec probes (`wpctl get-volume`, `nmcli radio wifi`, the SSID lookup)
-/// to a separate full pass.
+/// audio fork+exec probe (`wpctl get-volume`) to a separate full pass.
 ///
 /// The status poller wakes on a short cadence to keep the HUD (battery,
-/// brightness, charging, network link) fresh, but none of the forked
+/// brightness, charging, network link) fresh, but none of the external
 /// commands changes on that timescale — volume moves only on user action
 /// (which already triggers an out-of-cycle full probe via the refresh signal)
-/// and the Wi-Fi radio toggle is rare. Re-running them every few seconds
-/// spawned one `wpctl` and one `nmcli` per cycle purely to re-discover an
-/// unchanged answer. This light variant keeps the frequent poll off the fork
+/// and wireless link changes stream asynchronously from `crate::wireless` (ADR-0162).
+/// This light variant keeps the frequent poll off the fork
 /// path entirely; `volume`, `muted`, `wifi_enabled`, and `wifi_ssid` are
 /// filled in from the caller's last known values, so a snapshot built from
 /// it only diverges where the sysfs-backed fields actually moved.
@@ -61,6 +68,13 @@ pub fn detect_system_status_lightweight(
     last_wifi_ssid: Option<String>,
 ) -> SystemStatus {
     let (network, network_interface) = detect_network();
+    let wifi_state = if last_wifi_ssid.is_some() {
+        tessera_desktop::system::WifiLinkState::Connected
+    } else if last_wifi_enabled == Some(false) {
+        tessera_desktop::system::WifiLinkState::Disabled
+    } else {
+        tessera_desktop::system::WifiLinkState::Disconnected
+    };
     SystemStatus {
         volume: last_volume,
         muted: last_muted,
@@ -69,6 +83,8 @@ pub fn detect_system_status_lightweight(
         wifi_ssid: last_wifi_ssid,
         battery: detect_battery(),
         wifi_enabled: last_wifi_enabled,
+        wifi_state,
+        wifi_networks: Vec::new(),
         bluetooth_enabled: detect_bluetooth_radio(),
         brightness: detect_brightness(),
         do_not_disturb: false,
@@ -85,12 +101,12 @@ pub fn detect_system_status_lightweight(
 /// Run only the forked probes and return
 /// `(volume, muted, wifi_enabled, wifi_ssid)`.
 ///
-/// Called on the long-interval cadence and on out-of-cycle refresh requests,
-/// so the cheap poll stays on the `/sys` path while the expensive commands run
-/// rarely and only when their result may have changed.
+/// Wi-Fi state and SSIDs are owned by the dedicated wireless subsystem
+/// (`crate::wireless`, ADR-0162); this helper only samples volume via PipeWire
+/// and the kernel rfkill radio status.
 pub fn detect_forked_status() -> (Option<u8>, bool, Option<bool>, Option<String>) {
     let (volume, muted) = detect_volume();
-    (volume, muted, detect_wifi_radio(), detect_wifi_ssid())
+    (volume, muted, detect_wifi_radio(), None)
 }
 
 fn detect_volume() -> (Option<u8>, bool) {
@@ -138,50 +154,6 @@ fn detect_network() -> (NetworkState, String) {
     }
 }
 
-/// The associated Wi-Fi network name, daemon-neutral by construction.
-///
-/// `iwgetid -r` (wireless-tools) answers for any station because it reads
-/// the association through the generic netlink/cfg80211 path the kernel
-/// exposes, independent of whether iwd, wpa_supplicant, or NetworkManager
-/// owns the radio. Where wireless-tools is absent, `iw dev <if> link`
-/// serves the same purpose against the same kernel source. `None` when no
-/// tool, radio, or association answers — the same "unknown, keep the last
-/// value" contract as the other forked probes.
-fn detect_wifi_ssid() -> Option<String> {
-    if let Some(value) = command_output("iwgetid", &["-r"]) {
-        let ssid = value.trim();
-        if !ssid.is_empty() {
-            return Some(ssid.to_owned());
-        }
-        // An empty answer from a present tool is authoritative: no
-        // association. Do not fall through to `iw`, which would only
-        // repeat it.
-        return None;
-    }
-    let (_, interface) = detect_network();
-    if interface.is_empty() {
-        return None;
-    }
-    iw_link_ssid(&interface)
-}
-
-/// Extract the SSID from `iw dev <interface> link` output. The command
-/// prints `SSID: <name>` on its own line when associated; a non-associated
-/// link prints `Not connected.` and yields `None`.
-fn iw_link_ssid(interface: &str) -> Option<String> {
-    parse_iw_link_ssid(&command_output("iw", &["dev", interface, "link"])?)
-}
-
-/// Pure parser half of [`iw_link_ssid`], separated so the line protocol is
-/// testable without a host wireless stack.
-fn parse_iw_link_ssid(output: &str) -> Option<String> {
-    output
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("SSID:"))
-        .map(|ssid| ssid.trim().to_owned())
-        .filter(|ssid| !ssid.is_empty())
-}
-
 fn detect_battery() -> Option<BatteryStatus> {
     let entries = fs::read_dir("/sys/class/power_supply").ok()?;
     for entry in entries.flatten() {
@@ -206,11 +178,20 @@ fn detect_battery() -> Option<BatteryStatus> {
 }
 
 fn detect_wifi_radio() -> Option<bool> {
-    command_output("nmcli", &["radio", "wifi"]).and_then(|value| match value.trim() {
-        "enabled" => Some(true),
-        "disabled" => Some(false),
-        _ => None,
-    })
+    let entries = fs::read_dir("/sys/class/rfkill").ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(kind) = fs::read_to_string(path.join("type")) else {
+            continue;
+        };
+        if kind.trim() != "wlan" {
+            continue;
+        }
+        if let Some(state) = read_u64(&path.join("state")) {
+            return Some(state != 0);
+        }
+    }
+    None
 }
 
 fn detect_bluetooth_radio() -> Option<bool> {
@@ -289,30 +270,8 @@ mod tests {
     }
 
     #[test]
-    fn parses_iw_link_ssid_for_associated_stations() {
-        // Layout exactly as `iw dev wlan0 link` prints it: signal and SSID
-        // lines indented on their own rows, preceded by the joined BSS.
-        let associated = "\
-Connected to 3c:84:6a:12:34:56 (on wlan0)
-\tSSID: Homelab-5G
-\tfreq: 5240
-\tsignal: -47 dBm
-";
-        assert_eq!(
-            parse_iw_link_ssid(associated).as_deref(),
-            Some("Homelab-5G")
-        );
-
-        let unassociated = "Not connected.\n";
-        assert_eq!(parse_iw_link_ssid(unassociated), None);
-
-        let empty_ssid = "\tSSID: \n";
-        assert_eq!(parse_iw_link_ssid(empty_ssid), None);
-
-        // A hidden network reports the SSID as an octet string that can
-        // still decode as text; a trailing carriage return must not leak
-        // into the name.
-        let crlf = "Connected to aa:bb:cc:dd:ee:ff (on wlan0)\r\n\tSSID: Café 5G\r\n";
-        assert_eq!(parse_iw_link_ssid(crlf).as_deref(), Some("Café 5G"));
+    fn detect_wifi_radio_safely_evaluates() {
+        // Runs against host environment or sandbox without panicking or spawning
+        let _ = detect_wifi_radio();
     }
 }

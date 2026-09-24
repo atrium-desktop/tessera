@@ -538,19 +538,14 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // One normalized status snapshot feeds compositor chrome and IPC. Host
-    // probes (wpctl/nmcli fork+exec) run on a helper thread so the compositor
-    // never blocks a frame on a subprocess; the main loop applies the latest
-    // snapshot it finds on the channel.
+    // probes run on a helper thread so the compositor never blocks a frame;
+    // the main loop applies the latest snapshot it finds on the channel,
+    // combined with real-time events from the wireless subsystem (ADR-0162).
     //
     // The poll is split into two cadences. The cheap poll reads only `/sys`
     // (battery, brightness, charging, network link) every few seconds to keep
-    // the HUD fresh. The forked probes — `wpctl get-volume`, `nmcli radio
-    // wifi`, and the Wi-Fi SSID lookup — change far more slowly (volume only
-    // on user action, which already triggers an out-of-cycle refresh; the
-    // Wi-Fi radio is toggled rarely; the association changes on network
-    // events the link poll already observes), so they run on a longer
-    // interval instead of forking every cycle just to re-discover an
-    // unchanged answer.
+    // the HUD fresh. Audio probes (`wpctl get-volume`) run on a longer interval
+    // or on user action, while Wi-Fi radio and AP states stream from `crate::wireless`.
     const SYSTEM_STATUS_INTERVAL: std::time::Duration = std::time::Duration::from_secs(3);
     const FORKED_STATUS_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
     let mut system_status = crate::host_system::detect_system_status();
@@ -562,6 +557,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         error: None,
     };
     shell.set_system_status(system_status.clone());
+    let wireless = crate::wireless::WirelessHandle::spawn_auto();
     // Resource sampling was retired with the command panel's machine
     // monitor: no surface displays utilization anymore, and an always-on
     // CPU/GPU/RAM/network probe contradicted the panel's event-driven
@@ -1106,6 +1102,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         keyboard_capture,
         keymap,
         system_status,
+        wireless,
         status_rx,
         status_refresh_tx,
         config_writer,

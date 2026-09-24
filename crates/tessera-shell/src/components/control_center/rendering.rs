@@ -164,6 +164,133 @@ pub(super) fn render_quick_toggle_tile(
     response.clicked
 }
 
+pub(super) fn render_expandable_quick_toggle_tile(
+    f: &mut Frame,
+    id: &str,
+    title: &str,
+    subtitle: &str,
+    icon: lens::sys::lens_icon_id,
+    active: bool,
+    size: (f32, f32),
+    hud: ControlCenterColors,
+    type_scale: TypeScale,
+) -> (bool, bool) {
+    let original = f.theme();
+    let (bg, border, border_width, icon_bg, icon_fg, text_fg, sub_fg) = if active {
+        (
+            hud.selection_surface,
+            hud.accent.with_alpha(80),
+            1.0,
+            hud.accent,
+            Color::rgba(255, 255, 255, 255),
+            hud.text,
+            hud.accent,
+        )
+    } else {
+        (
+            hud.surface_recessed,
+            hud.border,
+            1.0,
+            hud.surface,
+            hud.text_muted,
+            hud.text,
+            hud.text_muted,
+        )
+    };
+
+    f.set_theme(themes::hud(&hud).with_fg(text_fg));
+    let chevron_id = format!("{id}-chevron");
+    let mut chevron_clicked = false;
+
+    let (response, _) = f.pressable_row(
+        id,
+        title,
+        &LayoutOpts {
+            width: size.0,
+            height: size.1,
+            pad: 10.0,
+            radius: 16.0,
+            cross: Align::Center,
+            gap: 8.0,
+            bg,
+            border,
+            border_width,
+            ..Default::default()
+        },
+        |f, _| {
+            // Icon
+            f.column_ex(
+                &LayoutOpts {
+                    width: 36.0,
+                    height: 36.0,
+                    radius: 18.0,
+                    bg: icon_bg,
+                    cross: Align::Center,
+                    ..Default::default()
+                },
+                |f| {
+                    f.flex(1.0);
+                    f.spacer(0.0);
+                    f.set_theme(themes::hud(&hud).with_fg(icon_fg));
+                    f.icon_raw(icon, 18.0);
+                    f.flex(1.0);
+                    f.spacer(0.0);
+                },
+            );
+
+            // Labels
+            let label_w = (size.0 - 20.0 - 36.0 - 8.0 - 28.0 - 8.0).max(1.0);
+            f.column_ex(
+                &LayoutOpts {
+                    width: label_w,
+                    height: 36.0,
+                    gap: 1.0,
+                    cross: Align::Start,
+                    ..Default::default()
+                },
+                |f| {
+                    f.flex(1.0);
+                    f.spacer(0.0);
+                    f.set_theme(themes::hud(&hud).with_fg(text_fg));
+                    display_label(f, title, type_scale.body);
+                    f.set_theme(themes::hud(&hud).with_fg(sub_fg));
+                    display_label(f, subtitle, type_scale.footnote);
+                    f.flex(1.0);
+                    f.spacer(0.0);
+                },
+            );
+
+            // Chevron expand button
+            let (chev_resp, _) = f.pressable_row(
+                &chevron_id,
+                "Expand",
+                &LayoutOpts {
+                    width: 28.0,
+                    height: 36.0,
+                    radius: 8.0,
+                    cross: Align::Center,
+                    ..Default::default()
+                },
+                |f, _| {
+                    f.flex(1.0);
+                    f.spacer(0.0);
+                    f.set_theme(themes::hud(&hud).with_fg(sub_fg));
+                    f.icon_raw(lens::sys::lens_icon_id::LENS_ICON_CHEVRON_RIGHT, 16.0);
+                    f.flex(1.0);
+                    f.spacer(0.0);
+                },
+            );
+            if chev_resp.clicked {
+                chevron_clicked = true;
+            }
+        },
+    );
+    f.set_theme(original);
+
+    let toggle_clicked = response.clicked && !chevron_clicked;
+    (toggle_clicked, chevron_clicked)
+}
+
 pub(super) fn render_horizontal_fader(
     f: &mut Frame,
     id: &str,

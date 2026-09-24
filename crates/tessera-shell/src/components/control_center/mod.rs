@@ -307,6 +307,9 @@ pub struct ControlCenter {
     /// Last frame's cursor position, cached for hover checks inside
     /// presentation helpers that do not receive the raw input.
     cursor_hint: (f32, f32),
+    pub(super) wifi_expanded: bool,
+    pub(super) wifi_input_ssid: Option<String>,
+    pub(super) wifi_input_passphrase: String,
 }
 
 pub type CommandPanel = ControlCenter;
@@ -488,6 +491,9 @@ impl ControlCenter {
             },
             menu_just_opened: false,
             menu_cache: None,
+            wifi_expanded: false,
+            wifi_input_ssid: None,
+            wifi_input_passphrase: String::new(),
         }
     }
 
@@ -538,6 +544,9 @@ impl ControlCenter {
             },
             menu_just_opened: false,
             menu_cache: None,
+            wifi_expanded: false,
+            wifi_input_ssid: None,
+            wifi_input_passphrase: String::new(),
         }
     }
 
@@ -707,6 +716,8 @@ impl ControlCenter {
     fn close(&mut self) {
         self.open = false;
         self.power_pending_confirm = None;
+        self.wifi_expanded = false;
+        self.wifi_input_ssid = None;
         if let Some(key) = self.menu_open_for.take() {
             self.menu_path.clear();
             self.menu_just_opened = false;
@@ -717,6 +728,8 @@ impl ControlCenter {
     fn select_tab(&mut self, tab: Tab) {
         if self.tab != tab {
             self.tab = tab;
+            self.wifi_expanded = false;
+            self.wifi_input_ssid = None;
             // A tab switch drops an open tray popover even though the tray
             // itself stays visible in the side column, matching the old
             // section-switch semantics.
@@ -1237,14 +1250,53 @@ impl Chrome for ControlCenter {
         self.active()
     }
 
-    fn key_char(&mut self, kc: &KeyChar, _out: &mut ChromeEvents) {
-        if kc.keysym != tessera_types::input::XKB_KEY_Escape || !self.open {
+    fn key_char(&mut self, kc: &KeyChar, out: &mut ChromeEvents) {
+        if !self.open {
+            return;
+        }
+
+        if let Some(ssid) = self.wifi_input_ssid.clone() {
+            if kc.keysym == tessera_types::input::XKB_KEY_Escape {
+                self.wifi_input_ssid = None;
+                self.wifi_input_passphrase.clear();
+                return;
+            }
+            if kc.keysym == tessera_types::input::XKB_KEY_Return {
+                let pass = if self.wifi_input_passphrase.is_empty() {
+                    None
+                } else {
+                    Some(self.wifi_input_passphrase.clone())
+                };
+                out.system_actions.push(SystemAction::ConnectWifi {
+                    ssid,
+                    passphrase: pass,
+                });
+                self.wifi_input_ssid = None;
+                self.wifi_input_passphrase.clear();
+                return;
+            }
+            if kc.keysym == tessera_types::input::XKB_KEY_BackSpace {
+                self.wifi_input_passphrase.pop();
+                return;
+            }
+            if let Some(c) = kc.ch {
+                if !c.is_control() {
+                    self.wifi_input_passphrase.push(c);
+                    return;
+                }
+            }
+        }
+
+        if kc.keysym != tessera_types::input::XKB_KEY_Escape {
             return;
         }
         // Escape peels the innermost surface first: an open tray menu, then
-        // the panel itself.
+        // an expanded Wi-Fi view, then the panel itself.
         if let Some(key) = self.menu_open_for.clone() {
             self.close_menu(key);
+        } else if self.wifi_expanded {
+            self.wifi_expanded = false;
+            self.wifi_input_ssid = None;
         } else {
             self.close();
         }

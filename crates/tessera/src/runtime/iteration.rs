@@ -595,6 +595,10 @@ impl CompositorRuntime<'_> {
             input_status.keyboard = self.system_status.input.keyboard;
             detected.input = input_status;
             detected.display = self.system_status.display.clone();
+            let wireless_snap = self.wireless.snapshot();
+            detected.wifi_state = wireless_snap.state;
+            detected.wifi_ssid = wireless_snap.active_ssid;
+            detected.wifi_networks = wireless_snap.networks;
             if detected != self.system_status {
                 self.system_status = detected;
                 publish_system_status_parts(
@@ -608,6 +612,31 @@ impl CompositorRuntime<'_> {
             // Evaluate every drained sample, not only changed ones: a warning
             // skipped behind a lock or another modal retries on the next tick.
             self.poll_battery_warning();
+        }
+
+        // Reconcile real-time asynchronous wireless state changes (ADR-0162)
+        let wireless_snap = self.wireless.snapshot();
+        let mut wireless_changed = false;
+        if self.system_status.wifi_state != wireless_snap.state {
+            self.system_status.wifi_state = wireless_snap.state;
+            wireless_changed = true;
+        }
+        if self.system_status.wifi_ssid != wireless_snap.active_ssid {
+            self.system_status.wifi_ssid = wireless_snap.active_ssid;
+            wireless_changed = true;
+        }
+        if self.system_status.wifi_networks != wireless_snap.networks {
+            self.system_status.wifi_networks = wireless_snap.networks;
+            wireless_changed = true;
+        }
+        if wireless_changed {
+            publish_system_status_parts(
+                &self.system_status,
+                &mut self.shell,
+                &self.live,
+                &self.ipc,
+            );
+            self.damage.chrome_dirty = true;
         }
         // Input device presence/config only moves on hotplug or a settings
         // write, and the probe interrogates libinput per device — throttle
@@ -1482,6 +1511,7 @@ impl CompositorRuntime<'_> {
                     &mut self.system_status,
                     &mut self.ipc_idle_inhibits,
                     &mut self.idle_process,
+                    &self.wireless,
                     action,
                 )
             };
@@ -1544,6 +1574,7 @@ impl CompositorRuntime<'_> {
                     &mut self.system_status,
                     &mut self.ipc_idle_inhibits,
                     &mut self.idle_process,
+                    &self.wireless,
                     action.clone(),
                 ) {
                     Ok(()) => {

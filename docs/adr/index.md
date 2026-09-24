@@ -166,3 +166,7 @@ background and how the decisions fit together, see
 | [0156](0156-engine-consolidation-and-zero-glue-architecture.md) | Engine consolidation and zero-glue display server architecture (amends [0002](0002-hand-rolled-wayland-server.md), [0003](0003-nested-first-bring-up.md), [0004](0004-client-buffers-via-flux-dmabuf-import.md), [0011](0011-subsurface-tree-and-z-split-rendering.md), [0015](0015-damage-tracking.md), [0061](0061-window-tree-atomic-client-surface-compositing.md)) | Proposed |
 | [0157](0157-headless-intent-subsystem-and-pivot-surface-decoupling.md) | Headless intent subsystem and Pivot surface decoupling (amends [0151](0151-pivot-unified-intent-and-action-surface.md)) | Proposed |
 | [0158](0158-clean-break-workspace-boundaries.md) | Clean-break workspace boundaries and resource ownership | Accepted |
+| [0159](0159-package-boundaries-follow-capabilities.md) | Package boundaries follow capabilities | Accepted |
+| [0160](0160-consolidate-application-subsystem.md) | Consolidate application subsystem into tessera-apps | Accepted |
+| [0161](0161-rename-backend-to-platform.md) | Rename tessera-backend to tessera-platform | Accepted |
+| [0162](0162-wireless-network-subsystem-and-iwd-bridge.md) | Wireless network subsystem abstraction and iwd bridge | Accepted |

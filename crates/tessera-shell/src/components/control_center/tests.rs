@@ -532,3 +532,85 @@ fn demo_menu_state_is_provided_for_demo_keys() {
     assert_eq!(menu.key, "demo.agent");
     assert!(!menu.root.children.is_empty());
 }
+
+#[test]
+fn wifi_collapsed_and_expanded_state_lifecycle() {
+    let mut panel = CommandPanel::without_sources();
+    let mut out = ChromeEvents::default();
+
+    panel.toggle_command_panel(&mut out);
+    assert!(panel.open);
+    assert!(!panel.wifi_expanded);
+
+    // Expand Wi-Fi
+    panel.wifi_expanded = true;
+    assert!(panel.wifi_expanded);
+
+    // Closing panel collapses Wi-Fi state
+    panel.close();
+    assert!(!panel.open);
+    assert!(!panel.wifi_expanded);
+}
+
+#[test]
+fn wifi_key_char_typing_and_connect() {
+    let mut panel = CommandPanel::without_sources();
+    let mut out = ChromeEvents::default();
+
+    panel.open = true;
+    panel.wifi_expanded = true;
+    panel.wifi_input_ssid = Some("TestNet".to_string());
+
+    let kc = |keysym, ch| KeyChar {
+        keysym,
+        ch,
+        mods: tessera_types::input::Mods(0),
+    };
+
+    // Type "abc"
+    panel.key_char(&kc('a' as u32, Some('a')), &mut out);
+    panel.key_char(&kc('b' as u32, Some('b')), &mut out);
+    panel.key_char(&kc('c' as u32, Some('c')), &mut out);
+    assert_eq!(panel.wifi_input_passphrase, "abc");
+
+    // Backspace pops 'c'
+    panel.key_char(&kc(tessera_types::input::XKB_KEY_BackSpace, None), &mut out);
+    assert_eq!(panel.wifi_input_passphrase, "ab");
+
+    // Enter submits ConnectWifi action
+    panel.key_char(&kc(tessera_types::input::XKB_KEY_Return, None), &mut out);
+    assert_eq!(panel.wifi_input_ssid, None);
+    assert!(panel.wifi_input_passphrase.is_empty());
+    assert_eq!(out.system_actions.len(), 1);
+    assert_eq!(
+        out.system_actions[0],
+        SystemAction::ConnectWifi {
+            ssid: "TestNet".to_string(),
+            passphrase: Some("ab".to_string()),
+        }
+    );
+}
+
+#[test]
+fn wifi_escape_peels_expanded_view_first() {
+    let mut panel = CommandPanel::without_sources();
+    let mut out = ChromeEvents::default();
+
+    panel.open = true;
+    panel.wifi_expanded = true;
+
+    let kc = |keysym| KeyChar {
+        keysym,
+        ch: None,
+        mods: tessera_types::input::Mods(0),
+    };
+
+    // First escape collapses Wi-Fi detail, leaves panel open
+    panel.key_char(&kc(tessera_types::input::XKB_KEY_Escape), &mut out);
+    assert!(panel.open);
+    assert!(!panel.wifi_expanded);
+
+    // Second escape closes panel
+    panel.key_char(&kc(tessera_types::input::XKB_KEY_Escape), &mut out);
+    assert!(!panel.open);
+}

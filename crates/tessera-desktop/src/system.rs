@@ -18,6 +18,40 @@ pub enum NetworkState {
     Wired,
 }
 
+/// Security requirements of a wireless network (ADR-0162).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum WifiSecurity {
+    #[default]
+    Open,
+    WpaPsk,
+    Enterprise,
+}
+
+/// Link and radio state of the wireless interface (ADR-0162).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum WifiLinkState {
+    #[default]
+    Disabled,
+    Disconnected,
+    Scanning,
+    Connecting,
+    Connected,
+}
+
+/// One observed wireless network / access point (ADR-0162).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WifiNetwork {
+    pub ssid: String,
+    /// Normalized signal strength (0..=4).
+    pub signal_bars: u8,
+    pub security: WifiSecurity,
+    pub is_connected: bool,
+    pub is_saved: bool,
+}
+
 /// Battery state read from the host power service.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,16 +112,19 @@ pub struct SystemStatus {
     #[cfg_attr(feature = "serde", serde(default))]
     pub network_interface: String,
     /// The associated Wi-Fi network name when `network` is a live wireless
-    /// link, `None` otherwise (wired, offline, or the forked probe has not
-    /// answered yet). Probed through daemon-neutral paths — `iwgetid -r`,
-    /// falling back to `iw dev <if> link` — so iwd, wpa_supplicant, and
-    /// NetworkManager stations resolve the same answer without caring
-    /// which service owns the radio.
+    /// link, `None` otherwise (wired, offline, or disconnected).
+    /// Synchronized from the wireless subsystem (ADR-0162).
     #[cfg_attr(feature = "serde", serde(default))]
     pub wifi_ssid: Option<String>,
     pub battery: Option<BatteryStatus>,
     /// `None` means the Wi-Fi radio service is unavailable.
     pub wifi_enabled: Option<bool>,
+    /// Fine-grained wireless link state (ADR-0162).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub wifi_state: WifiLinkState,
+    /// Discovered wireless networks, sorted by signal strength (ADR-0162).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub wifi_networks: Vec<WifiNetwork>,
     /// `None` means no Bluetooth radio service is available.
     pub bluetooth_enabled: Option<bool>,
     /// Backlight level in percent, or `None` without a controllable backlight.
@@ -182,6 +219,15 @@ pub enum SystemAction {
     SetWifi {
         enabled: bool,
     },
+    /// Request an active wireless network scan (ADR-0162).
+    ScanWifi,
+    /// Initiate a connection to a specified Wi-Fi network (ADR-0162).
+    ConnectWifi {
+        ssid: String,
+        passphrase: Option<String>,
+    },
+    /// Disconnect from the currently associated Wi-Fi network (ADR-0162).
+    DisconnectWifi,
     SetBluetooth {
         enabled: bool,
     },
@@ -229,6 +275,9 @@ impl SystemAction {
             Self::SetBrightness { level } if !(1..=100).contains(level) => {
                 Err("brightness is outside 1..=100")
             }
+            Self::ConnectWifi { ssid, .. } if ssid.trim().is_empty() => {
+                Err("ssid cannot be empty")
+            }
             _ => Ok(()),
         }
     }
@@ -245,7 +294,29 @@ mod tests {
         assert_eq!(status.volume, None);
         assert_eq!(status.brightness, None);
         assert_eq!(status.wifi_enabled, None);
+        assert_eq!(status.wifi_state, WifiLinkState::Disabled);
+        assert!(status.wifi_networks.is_empty());
         assert_eq!(status.bluetooth_enabled, None);
+    }
+
+    #[test]
+    fn wifi_action_validation_checks_empty_ssid() {
+        assert!(
+            SystemAction::ConnectWifi {
+                ssid: "  ".to_string(),
+                passphrase: None,
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            SystemAction::ConnectWifi {
+                ssid: "MyHome".to_string(),
+                passphrase: Some("secret123".to_string()),
+            }
+            .validate()
+            .is_ok()
+        );
     }
 
     #[test]

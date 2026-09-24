@@ -27,6 +27,7 @@ pub(super) fn apply_system_action(
     status: &mut tessera_desktop::system::SystemStatus,
     idle_inhibits: &mut super::idle::IdleInhibits,
     idle_process: &mut super::session::IdleProcess,
+    wireless: &crate::wireless::WirelessHandle,
     action: tessera_desktop::system::SystemAction,
 ) -> Result<(), String> {
     use tessera_desktop::system::SystemAction;
@@ -72,11 +73,24 @@ pub(super) fn apply_system_action(
             }
         }
         SystemAction::SetWifi { enabled } => {
-            spawn_host_command(
-                "nmcli",
-                &["radio", "wifi", if enabled { "on" } else { "off" }],
-            )?;
+            wireless.set_enabled(enabled);
             status.wifi_enabled = Some(enabled);
+            if !enabled {
+                status.wifi_state = tessera_desktop::system::WifiLinkState::Disabled;
+            }
+        }
+        SystemAction::ScanWifi => {
+            wireless.request_scan();
+            status.wifi_state = tessera_desktop::system::WifiLinkState::Scanning;
+        }
+        SystemAction::ConnectWifi { ssid, passphrase } => {
+            wireless.connect(ssid.clone(), passphrase);
+            status.wifi_state = tessera_desktop::system::WifiLinkState::Connecting;
+        }
+        SystemAction::DisconnectWifi => {
+            wireless.disconnect();
+            status.wifi_state = tessera_desktop::system::WifiLinkState::Disconnected;
+            status.wifi_ssid = None;
         }
         SystemAction::SetBluetooth { enabled } => {
             spawn_host_command(
@@ -166,14 +180,14 @@ fn apply_power_mode(
 ///
 /// `Command::spawn` returns a `Child` handle whose drop does **not** wait for
 /// the process: dropping it orphan-style leaves the kernel with no `waitpid`
-/// caller, so every `wpctl set-volume` / `brightnessctl` / `nmcli` the user
+/// caller, so every `wpctl set-volume` / `brightnessctl` the user
 /// triggers becomes a `<defunct>` entry that lingers until the compositor
 /// exits. (On a long session this leaked dozens of `wpctl` zombies.) Reaping
 /// matters even though the commands themselves are milliseconds: an unbounded
 /// zombie count eventually exhausts the per-process PID table.
 ///
 /// Blocking in `Command::status` would reclaim the child but stalls the frame
-/// loop on slow hosts (`nmcli radio` can take tens of milliseconds). Instead
+/// loop on slow hosts. Instead
 /// the `Child` is handed to a single long-lived background reaper thread that
 /// waits on each command in arrival order. The compositor returns immediately;
 /// the zombies never form. The thread is lazily spawned on first use and dies
