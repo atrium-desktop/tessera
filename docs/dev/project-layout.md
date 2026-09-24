@@ -9,7 +9,6 @@ the architectural role; directory nesting does not grant dependency rights.
 ```text
 crates/
   tessera                 composition root binary, display resource lifecycle, and session orchestration
-  tessera-apps            desktop application discovery, icon lookup, process launching, and intent search (ADR-0160)
   tessera-atspi           supervised out-of-process AT-SPI accessibility adapter
   tessera-audit           bounded, integrity-checked durable event storage
   tessera-authority       actor identity, credentials, grants, ceilings, and capabilities
@@ -23,15 +22,15 @@ crates/
   tessera-i18n            locale negotiation and translated chrome message catalog
   tessera-idle            out-of-process idle detection and inhibition sidecar
   tessera-ipc             Unix socket transport, framing, client, and server connection handling
+  tessera-launch-services desktop application discovery, icon lookup, process launching, and intent search (ADR-0164)
   tessera-lock            standalone session lock client
   tessera-mcp             Model Context Protocol adapter daemon
+  tessera-primitives      foundational physical geometry, color, buffer descriptor, identity, and input primitives (ADR-0164)
   tessera-protocol        versioned wire DTOs and audit vocabulary (zero socket/GPU dependencies)
   tessera-render          GPU composition, damage tracking, scanout, streams, and capture encoding
-  tessera-scene           renderer-independent surface and stream descriptions
   tessera-semantic        actor semantic observation tree and transactional action routing
   tessera-shell           Lens UI host and built-in chrome components (dock, hud, pivot, control-center, settings)
   tessera-tray            StatusNotifierItem system tray D-Bus service
-  tessera-types           foundational geometry, identity, and input value types
   tessera-wallpaper       desktop wallpaper and continuous parallax runtime
   tessera-wayland         Wayland protocol handlers and client state machines
   tessera-wayland-protocols generated Wayland C ABI interface tables
@@ -40,7 +39,7 @@ tooling/xtask             repository checks, boundaries verification, and automa
 
 ## Ownership rules
 
-`tessera-types` and `tessera-scene` contain stable values only. Desktop policy
+`tessera-primitives` contains foundational stable physical and geometric values only. Desktop policy
 belongs to `tessera-desktop`; authority and identity policy belongs to
 `tessera-authority`; external compatibility belongs to `tessera-protocol`.
 None of those packages may depend on sockets, Wayland, GPU bindings, or UI.
@@ -57,7 +56,7 @@ abstractions live in `tessera-ipc`. Durable event storage lives in
 `tessera-audit`.
 
 Application discovery, icon lookup, process launching, and intent search live
-in `tessera-apps`. GPU capture encoding is integrated into `tessera-render`.
+in `tessera-launch-services` (ADR-0164). GPU capture encoding is integrated into `tessera-render`.
 
 Create a new package only for an independent public API, process, feature or
 platform boundary, resource owner, or compile-time dependency restriction. A

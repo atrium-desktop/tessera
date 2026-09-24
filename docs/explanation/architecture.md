@@ -4,7 +4,42 @@ Tessera is a Linux Wayland compositor with a compositor-owned desktop shell.
 Flux provides GPU rendering and Lens provides immediate-mode UI primitives;
 Tessera owns protocol, policy, lifecycle, and platform integration.
 
-The current architecture is recorded by [ADR-0158](../adr/0158-clean-break-workspace-boundaries.md), [ADR-0159](../adr/0159-package-boundaries-follow-capabilities.md), [ADR-0160](../adr/0160-consolidate-application-subsystem.md), and [ADR-0161](../adr/0161-rename-backend-to-platform.md).
+The current architecture is recorded by [ADR-0158](../adr/0158-clean-break-workspace-boundaries.md), [ADR-0159](../adr/0159-package-boundaries-follow-capabilities.md), [ADR-0160](../adr/0160-consolidate-application-subsystem.md), [ADR-0161](../adr/0161-rename-backend-to-platform.md), [ADR-0163](../adr/0163-decoupled-backdrop-blur-cache-and-continuous-fade.md), and [ADR-0164](../adr/0164-universal-domain-pruning-and-primitives-canonization.md).
+
+## Domain Topology & Dependency Flow
+
+```text
+                    ┌──────────────────────────────┐
+                    │      tessera-shell           │  [Chrome & View Presentation]
+                    │ (Dock/HUD/Control/Pivot UI)  │
+                    └──────────────┬───────────────┘
+                                   │ (Render snapshots & actions)
+                    ┌──────────────▼───────────────┐
+                    │      tessera-desktop         │  [Spatial Desktop State]
+                    │(Window tree/Workspaces/Rules)│
+                    └──────┬───────────────┬───────┘
+                           │               │
+            (Intent & exec)│               │(Render pass scene)
+                           ▼               ▼
+      ┌───────────────────────┐         ┌─────────────────────────┐
+      │tessera-launch-services│         │     tessera-render      │  [GPU Optics & Composition]
+      │(XDG apps/icons/bwrap) │         │(Vulkan / Kawase / Prism)│
+      └───────────┬───────────┘         └────────────┬────────────┘
+                  │                                  │
+                  │ (Process leases)                 │ (KMS Framebuffer)
+                  ▼                                  ▼
+      ┌───────────────────────┐         ┌─────────────────────────┐
+      │   tessera-authority   │         │    tessera-platform     │  [Hardware Backends]
+      │(Leases / A11y / Grants)         │  (Linux DRM/KMS/evdev)  │
+      └───────────┬───────────┘         └────────────┬────────────┘
+                  │                                  │
+                  │ (Protocol serialization)         │ (Physical displays)
+                  ▼                                  ▼
+      ┌───────────────────────┐         ┌─────────────────────────┐
+      │tessera-wayland/proto  │         │   tessera-primitives    │  [Axiomatic Primitives]
+      │ (IPC & Wayland wire)  │◄────────┤(Geometry/Color/FourCC)  │
+      └───────────────────────┘         └─────────────────────────┘
+```
 
 ## Resource ownership
 
