@@ -61,7 +61,7 @@ pub(super) enum StreamControl {
         /// The negotiated cursor mode (IPC protocol 29), already defaulted
         /// to `Hidden` by the IPC dispatcher.
         cursor: tessera_protocol::StreamCursorMode,
-        reply: std::sync::mpsc::Sender<Result<tessera_scene::stream::StreamInfo, String>>,
+        reply: std::sync::mpsc::Sender<Result<tessera_primitives::stream::StreamInfo, String>>,
     },
     /// The server already unregistered the delivery lane (`StreamOutputStop`
     /// request, per-frame authorization failure, or server-side end); the
@@ -197,11 +197,11 @@ impl CompositorRuntime<'_> {
                 Some(sampled) => damage_in_target(sampled, size),
                 None => full_target_damage(size),
             };
-            let cropped = |rect: tessera_types::Rect| {
+            let cropped = |rect: tessera_primitives::Rect| {
                 let (width, height, pixels) = crop_stream_frame(frame.width, pixels, rect);
                 let damage = payload_damage((width, height));
-                tessera_scene::stream::StreamFramePayload::Pixels(
-                    tessera_scene::stream::StreamPixelFrame {
+                tessera_primitives::stream::StreamFramePayload::Pixels(
+                    tessera_primitives::stream::StreamPixelFrame {
                         stream_id,
                         sequence,
                         width,
@@ -217,8 +217,8 @@ impl CompositorRuntime<'_> {
             let payload = match &target {
                 tessera_protocol::StreamTarget::Output { output: None } => {
                     let damage = payload_damage((frame.width, frame.height));
-                    tessera_scene::stream::StreamFramePayload::Pixels(
-                        tessera_scene::stream::StreamPixelFrame {
+                    tessera_primitives::stream::StreamFramePayload::Pixels(
+                        tessera_primitives::stream::StreamPixelFrame {
                             stream_id,
                             sequence,
                             width: frame.width,
@@ -288,7 +288,7 @@ impl CompositorRuntime<'_> {
         for stream_id in self.streams.due_shm_ids(now) {
             let origin = match self.streams.target_of(stream_id) {
                 Some((tessera_protocol::StreamTarget::Output { output: None }, _)) => {
-                    tessera_types::Point { x: 0, y: 0 }
+                    tessera_primitives::Point { x: 0, y: 0 }
                 }
                 Some((
                     tessera_protocol::StreamTarget::Output {
@@ -434,7 +434,7 @@ impl CompositorRuntime<'_> {
                 }
                 Some((tessera_protocol::StreamTarget::Output { output: None }, size)) => {
                     cursor_blit = cursor_state.as_ref().and_then(|state| {
-                        let logical = tessera_types::Rect::new(
+                        let logical = tessera_primitives::Rect::new(
                             0,
                             0,
                             (size.0 as f32 / scale).round() as i32,
@@ -453,7 +453,7 @@ impl CompositorRuntime<'_> {
             let damage_origin = src_rect
                 .as_ref()
                 .map(|rect| rect.origin)
-                .unwrap_or(tessera_types::Point { x: 0, y: 0 });
+                .unwrap_or(tessera_primitives::Point { x: 0, y: 0 });
             let sampled = self.streams.sample_damage(stream_id, damage_origin);
             let Some(stream) = self.streams.streams.get_mut(&stream_id) else {
                 continue;
@@ -817,8 +817,8 @@ impl CompositorRuntime<'_> {
                 let Some((_, size)) = self.streams.target_of(stream_id) else {
                     return;
                 };
-                let payload = tessera_scene::stream::StreamFramePayload::Pixels(
-                    tessera_scene::stream::StreamPixelFrame {
+                let payload = tessera_primitives::stream::StreamFramePayload::Pixels(
+                    tessera_primitives::stream::StreamPixelFrame {
                         stream_id,
                         sequence,
                         width: frame.width,
@@ -891,8 +891,8 @@ mod dmabuf_tests {
             scale_milli: 1000,
             physical_width: 64,
             physical_height: 48,
-            origin: tessera_types::Point { x: 0, y: 0 },
-            logical_size: tessera_types::Size { w: 64, h: 48 },
+            origin: tessera_primitives::Point { x: 0, y: 0 },
+            logical_size: tessera_primitives::Size { w: 64, h: 48 },
         };
         struct EmptyPainter<'a> {
             renderer: &'a mut tessera_render::Renderer,

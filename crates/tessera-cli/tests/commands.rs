@@ -116,8 +116,8 @@ impl Handler for CtlHandler {
                     refresh_mhz: 60000,
                 },
                 scale: tessera_desktop::output::Scale::IDENTITY,
-                transform: tessera_types::Transform::Normal,
-                logical_origin: tessera_types::Point::default(),
+                transform: tessera_primitives::Transform::Normal,
+                logical_origin: tessera_primitives::Point::default(),
             },
             available_modes: vec![
                 tessera_desktop::output::OutputMode {
@@ -131,7 +131,7 @@ impl Handler for CtlHandler {
                     refresh_mhz: 60000,
                 },
             ],
-            color_caps: tessera_scene::edid::EdidColorCapabilities::default(),
+            color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
         }]
     }
     fn command(&self, _conn_id: u64, _subject: Option<&str>, cmd: Command) {
@@ -256,7 +256,7 @@ impl Handler for CtlHandler {
         _conn_id: u64,
         _subject: Option<&str>,
         interaction_domain: tessera_authority::interaction_domain::InteractionDomainId,
-        region: Option<tessera_types::Rect>,
+        region: Option<tessera_primitives::Rect>,
     ) -> Result<tessera_ipc::CaptureInteractionDomainPayload, String> {
         Ok(tessera_ipc::CaptureInteractionDomainPayload {
             capture: tessera_protocol::InteractionDomainCapture {
@@ -264,12 +264,12 @@ impl Handler for CtlHandler {
                 width: 2,
                 height: 1,
                 scale_milli: 1000,
-                region: region.unwrap_or_else(|| tessera_types::Rect::new(0, 0, 2, 1)),
+                region: region.unwrap_or_else(|| tessera_primitives::Rect::new(0, 0, 2, 1)),
                 placements: vec![
                     tessera_authority::interaction_domain::InteractionDomainWindowPlacement {
                         window: WindowId(1),
-                        output_rect: tessera_types::Rect::new(0, 0, 2, 1),
-                        surface_size: tessera_types::Size { w: 2, h: 1 },
+                        output_rect: tessera_primitives::Rect::new(0, 0, 2, 1),
+                        surface_size: tessera_primitives::Size { w: 2, h: 1 },
                     },
                 ],
                 observation: tessera_protocol::SemanticObservation {
@@ -671,7 +671,7 @@ fn window_geometry_sends_logical_rectangle() {
             .unwrap()
             .contains(&Command::SetWindowGeometry {
                 id: WindowId(1),
-                rect: tessera_types::Rect::new(-20, 30, 800, 600),
+                rect: tessera_primitives::Rect::new(-20, 30, 800, 600),
             })
     );
 }

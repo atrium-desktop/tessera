@@ -95,7 +95,7 @@ impl Server {
             return std::collections::HashSet::new();
         }
         let mut occluded = std::collections::HashSet::new();
-        let mut opaque_coverage: Vec<tessera_types::Rect> = Vec::new();
+        let mut opaque_coverage: Vec<tessera_primitives::Rect> = Vec::new();
         let output = self.output_logical_rect();
         for pointer in stacked.iter().rev() {
             let root = unsafe { &**pointer };
@@ -115,7 +115,7 @@ impl Server {
                 .filter_map(|surface| {
                     let surface = unsafe { &**surface };
                     intersect_rect(
-                        tessera_types::Rect {
+                        tessera_primitives::Rect {
                             origin: surface_draw_origin(surface),
                             size: surface_logical_size(surface),
                         },
@@ -138,20 +138,20 @@ impl Server {
             }
             for surface in tree {
                 let surface = unsafe { &*surface };
-                let surface_rect = tessera_types::Rect {
+                let surface_rect = tessera_primitives::Rect {
                     origin: surface_draw_origin(surface),
                     size: surface_logical_size(surface),
                 };
                 let alpha_free_dmabuf = surface.content_is_dmabuf
                     && surface.dmabuf.as_ref().is_some_and(|buffer| {
-                        tessera_scene::dmabuf::is_format_opaque(buffer.drm_format)
+                        tessera_primitives::dmabuf::is_format_opaque(buffer.drm_format)
                     });
                 if alpha_free_dmabuf && let Some(rect) = intersect_rect(surface_rect, output) {
                     opaque_coverage.push(rect);
                 }
                 let origin = surface_draw_origin(surface);
                 for local in surface.opaque_region.iter().flatten() {
-                    let translated = tessera_types::Rect::new(
+                    let translated = tessera_primitives::Rect::new(
                         origin.x.saturating_add(local.origin.x),
                         origin.y.saturating_add(local.origin.y),
                         local.size.w,
@@ -305,7 +305,7 @@ impl Server {
     /// transition carries the genie minimize effect (ADR-0029). Restores play
     /// the deformation in reverse; the direction comes from the minimized
     /// flag, which the restore path clears before recording its transition.
-    fn minimize_warp(&self, s: &SurfaceRec) -> Option<tessera_scene::MinimizeWarp> {
+    fn minimize_warp(&self, s: &SurfaceRec) -> Option<tessera_primitives::MinimizeWarp> {
         if s.xdg_toplevel.is_null() {
             return None;
         }
@@ -323,7 +323,7 @@ impl Server {
         }
         let t = transition.progress_at(self.state.now_ms())?;
         let progress = if s.window.minimized { t } else { 1.0 - t };
-        Some(tessera_scene::MinimizeWarp { progress, target })
+        Some(tessera_primitives::MinimizeWarp { progress, target })
     }
 
     fn toplevel_frames_with(
@@ -413,7 +413,7 @@ impl Server {
                     height: s.height,
                     generation: s.generation,
                     pixels: &s.pixels,
-                    geometry: tessera_scene::SurfaceGeometry {
+                    geometry: tessera_primitives::SurfaceGeometry {
                         position: origin,
                         transform: s.buffer_transform,
                         buffer_scale: s.buffer_scale,
@@ -534,7 +534,7 @@ impl Server {
                     offset: db.offset,
                     stride: db.stride,
                     acquire_fence: db.acquire_fence,
-                    geometry: tessera_scene::SurfaceGeometry {
+                    geometry: tessera_primitives::SurfaceGeometry {
                         position: origin,
                         transform: s.buffer_transform,
                         buffer_scale: s.buffer_scale,
@@ -785,7 +785,7 @@ impl Server {
                 height: surface.height,
                 generation: surface.generation,
                 pixels: &surface.pixels,
-                geometry: tessera_scene::SurfaceGeometry {
+                geometry: tessera_primitives::SurfaceGeometry {
                     position: surface_draw_origin(surface),
                     transform: surface.buffer_transform,
                     buffer_scale: surface.buffer_scale,
@@ -834,7 +834,7 @@ impl Server {
                     offset: dmabuf.offset,
                     stride: dmabuf.stride,
                     acquire_fence: dmabuf.acquire_fence,
-                    geometry: tessera_scene::SurfaceGeometry {
+                    geometry: tessera_primitives::SurfaceGeometry {
                         position: surface_draw_origin(surface),
                         transform: surface.buffer_transform,
                         buffer_scale: surface.buffer_scale,
@@ -1057,7 +1057,7 @@ impl Server {
         surface: &SurfaceRec,
         root: *mut SurfaceRec,
         interaction_domain: InteractionDomainId,
-    ) -> Option<tessera_scene::SurfaceGeometry> {
+    ) -> Option<tessera_primitives::SurfaceGeometry> {
         let root = unsafe { &*root };
         let placement = self
             .state
@@ -1077,8 +1077,8 @@ impl Server {
         let relative_x = source_origin.x - root.position.x;
         let relative_y = source_origin.y - root.position.y;
         let logical_size = surface_logical_size(surface);
-        Some(tessera_scene::SurfaceGeometry {
-            position: tessera_types::Point {
+        Some(tessera_primitives::SurfaceGeometry {
+            position: tessera_primitives::Point {
                 x: placement.origin.x + (relative_x as f32 * scale).round() as i32,
                 y: placement.origin.y + (relative_y as f32 * scale).round() as i32,
             },
@@ -1086,7 +1086,7 @@ impl Server {
             buffer_scale: surface.buffer_scale,
             viewport_src: surface.viewport_src,
             viewport_dst: surface.viewport_dst,
-            transition_size: Some(tessera_types::Size {
+            transition_size: Some(tessera_primitives::Size {
                 w: (logical_size.w as f32 * scale).round().max(1.0) as i32,
                 h: (logical_size.h as f32 * scale).round().max(1.0) as i32,
             }),
@@ -1117,7 +1117,7 @@ impl Server {
                 height: surface.height,
                 generation: surface.generation,
                 pixels: &surface.pixels,
-                geometry: tessera_scene::SurfaceGeometry {
+                geometry: tessera_primitives::SurfaceGeometry {
                     position: surface.position,
                     transform: surface.buffer_transform,
                     buffer_scale: surface.buffer_scale,
@@ -1150,7 +1150,7 @@ impl Server {
                         height: surface.height,
                         generation: surface.generation,
                         pixels: &surface.pixels,
-                        geometry: tessera_scene::SurfaceGeometry {
+                        geometry: tessera_primitives::SurfaceGeometry {
                             position: surface.position,
                             transform: surface.buffer_transform,
                             buffer_scale: surface.buffer_scale,
@@ -1199,7 +1199,7 @@ impl Server {
                     offset: buffer.offset,
                     stride: buffer.stride,
                     acquire_fence: buffer.acquire_fence,
-                    geometry: tessera_scene::SurfaceGeometry {
+                    geometry: tessera_primitives::SurfaceGeometry {
                         position: surface.position,
                         transform: surface.buffer_transform,
                         buffer_scale: surface.buffer_scale,
@@ -1242,7 +1242,7 @@ impl Server {
                         offset: buffer.offset,
                         stride: buffer.stride,
                         acquire_fence: buffer.acquire_fence,
-                        geometry: tessera_scene::SurfaceGeometry {
+                        geometry: tessera_primitives::SurfaceGeometry {
                             position: surface.position,
                             transform: surface.buffer_transform,
                             buffer_scale: surface.buffer_scale,
@@ -1322,7 +1322,7 @@ impl Server {
                     height: surface.height,
                     generation: surface.generation,
                     pixels: &surface.pixels,
-                    geometry: tessera_scene::SurfaceGeometry {
+                    geometry: tessera_primitives::SurfaceGeometry {
                         position,
                         transform: surface.buffer_transform,
                         buffer_scale: surface.buffer_scale,
@@ -1410,7 +1410,7 @@ impl Server {
                     offset: buffer.offset,
                     stride: buffer.stride,
                     acquire_fence: buffer.acquire_fence,
-                    geometry: tessera_scene::SurfaceGeometry {
+                    geometry: tessera_primitives::SurfaceGeometry {
                         position,
                         transform: surface.buffer_transform,
                         buffer_scale: surface.buffer_scale,
@@ -1823,8 +1823,8 @@ impl Server {
                 height: s.height,
                 generation: s.generation,
                 pixels: &s.pixels,
-                geometry: tessera_scene::SurfaceGeometry {
-                    position: tessera_types::Point {
+                geometry: tessera_primitives::SurfaceGeometry {
+                    position: tessera_primitives::Point {
                         x: origin.x + delta.0,
                         y: origin.y + delta.1,
                     },
@@ -1942,8 +1942,8 @@ impl Server {
                 offset: db.offset,
                 stride: db.stride,
                 acquire_fence: db.acquire_fence,
-                geometry: tessera_scene::SurfaceGeometry {
-                    position: tessera_types::Point {
+                geometry: tessera_primitives::SurfaceGeometry {
+                    position: tessera_primitives::Point {
                         x: origin.x + delta.0,
                         y: origin.y + delta.1,
                     },
@@ -2164,10 +2164,10 @@ unsafe fn append_surface_tree_frame_order(
 
 fn cursor_surface_position(
     pointer: (f32, f32),
-    hotspot: tessera_types::Point,
-    attach_offset: tessera_types::Point,
-) -> tessera_types::Point {
-    tessera_types::Point {
+    hotspot: tessera_primitives::Point,
+    attach_offset: tessera_primitives::Point,
+) -> tessera_primitives::Point {
+    tessera_primitives::Point {
         x: pointer.0.round() as i32 - hotspot.x + attach_offset.x,
         y: pointer.1.round() as i32 - hotspot.y + attach_offset.y,
     }
@@ -2181,7 +2181,7 @@ mod tests {
     };
     use tessera_desktop::transition::WindowTransition;
     use tessera_desktop::window::WindowId;
-    use tessera_types::Point;
+    use tessera_primitives::Point;
 
     #[test]
     fn cursor_surface_override_preserves_trigger_position_and_hotspot() {
@@ -2219,7 +2219,7 @@ mod tests {
         let occluded = std::collections::HashSet::new();
 
         surface.window.transition = Some(WindowTransition {
-            from: tessera_types::Rect::new(0, 0, 100, 100),
+            from: tessera_primitives::Rect::new(0, 0, 100, 100),
             started_ms: 10,
             duration_ms: 100,
             easing: tessera_desktop::transition::Easing::EaseOutCubic,

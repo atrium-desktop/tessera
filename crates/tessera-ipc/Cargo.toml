@@ -11,8 +11,7 @@ rust-version.workspace = true
 tessera-semantic.workspace = true
 tessera-authority.workspace = true
 tessera-desktop.workspace = true
-tessera-scene.workspace = true
-tessera-types.workspace = true
+tessera-primitives.workspace = true
 tessera-protocol.workspace = true
 libc = { workspace = true }
 serde = { workspace = true }

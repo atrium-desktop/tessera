@@ -6,7 +6,7 @@
 
 use crate::power::PowerMode;
 use crate::settings::DisplayStatus;
-use tessera_types::input::InputStatus;
+use tessera_primitives::input::InputStatus;
 
 /// Coarse connectivity state shown by desktop status surfaces.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

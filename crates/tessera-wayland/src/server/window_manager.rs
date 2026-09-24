@@ -296,7 +296,7 @@ impl Server {
     /// already-bound version-4+ keyboards receive a fresh `repeat_info`
     /// event, which the protocol explicitly allows at any time. Live grabs
     /// re-grab on the next focus change and pick the values up then.
-    pub fn set_keyboard_repeat(&mut self, config: tessera_types::input::KeyboardConfig) {
+    pub fn set_keyboard_repeat(&mut self, config: tessera_primitives::input::KeyboardConfig) {
         self.state.keyboard_repeat = config;
         for runtime in self.state.seats.values_mut() {
             for resource in &runtime.keyboard_resources {
@@ -323,7 +323,7 @@ impl Server {
     /// was pure allocation churn on the render path.
     pub fn set_minimize_targets(
         &mut self,
-        targets: Vec<(tessera_desktop::window::WindowId, tessera_types::Rect)>,
+        targets: Vec<(tessera_desktop::window::WindowId, tessera_primitives::Rect)>,
     ) {
         let unchanged = targets.len() == self.state.minimize_targets.len()
             && targets
@@ -510,13 +510,13 @@ impl Server {
     /// rendering interpolates from the current on-screen rect — the previous
     /// transition's mid-flight rect when changes come faster than the
     /// duration, else the previous model rect (ADR-0029).
-    pub(crate) fn note_transition(&self, rec: *mut SurfaceRec, old: tessera_types::Rect) {
+    pub(crate) fn note_transition(&self, rec: *mut SurfaceRec, old: tessera_primitives::Rect) {
         if self.state.reduced_motion || rec.is_null() {
             return;
         }
         let now = self.now_ms();
         unsafe {
-            let target = tessera_types::Rect {
+            let target = tessera_primitives::Rect {
                 origin: (*rec).position,
                 size: (*rec).window.size,
             };
@@ -538,7 +538,7 @@ impl Server {
     /// Ghost frames for windows that are closing (fading out) right now,
     /// snapshotted for the renderer. Each entry carries its interpolated rect
     /// and fading opacity at the current frame time.
-    pub fn closing_frame_views(&self) -> Vec<tessera_scene::ClosingGhostView<'_>> {
+    pub fn closing_frame_views(&self) -> Vec<tessera_primitives::ClosingGhostView<'_>> {
         let now = self.now_ms();
         self.state
             .closing_frames
@@ -547,7 +547,7 @@ impl Server {
                 let rect = frame.rect_at(now)?;
                 let opacity = frame.opacity_at(now).unwrap_or(0.0);
                 let dmabuf = frame.dmabuf.as_ref();
-                Some(tessera_scene::ClosingGhostView {
+                Some(tessera_primitives::ClosingGhostView {
                     id: frame.id,
                     rect,
                     buffer_width: frame.buffer_width,
@@ -567,8 +567,8 @@ impl Server {
 
     /// The rect a surface renders at this frame: `Some(interpolated)` while
     /// its transition is in flight, `None` at the model target (ADR-0029).
-    pub(crate) fn transition_render_rect(&self, s: &SurfaceRec) -> Option<tessera_types::Rect> {
-        let target = tessera_types::Rect {
+    pub(crate) fn transition_render_rect(&self, s: &SurfaceRec) -> Option<tessera_primitives::Rect> {
+        let target = tessera_primitives::Rect {
             origin: s.position,
             size: s.window.size,
         };
@@ -616,7 +616,7 @@ impl Server {
                 output.geometry.logical_origin = position;
             }
             if let Some(transform) = policy.transform
-                && transform != tessera_types::Transform::Normal
+                && transform != tessera_primitives::Transform::Normal
             {
                 log::warn!(
                     "[server] output '{}': transform configured but not yet applied \
@@ -757,7 +757,7 @@ impl Server {
 
     /// The focused output's logical rect (ADR-0028). The chrome-aware
     /// tiling work-area is this inset by the chrome's reserved edges.
-    pub fn output_logical_rect(&self) -> tessera_types::Rect {
+    pub fn output_logical_rect(&self) -> tessera_primitives::Rect {
         self.state.output_geometry.logical_rect()
     }
 
@@ -805,7 +805,7 @@ impl Server {
     /// `work_area` (the chrome-aware logical rect) and reconfigures only the
     /// windows whose target rect moved, so steady state sends no configure
     /// events. No-op when tiling is off.
-    pub fn apply_tiling(&mut self, work_area: tessera_types::Rect) {
+    pub fn apply_tiling(&mut self, work_area: tessera_primitives::Rect) {
         self.state.last_work_area = work_area;
         let screen_rect = self.state.output_geometry.logical_rect();
 
@@ -821,13 +821,13 @@ impl Server {
                 }
                 if (*rec).window.state.fullscreen {
                     if (*rec).saved_floating_rect.is_none() {
-                        (*rec).saved_floating_rect = Some(tessera_types::Rect {
+                        (*rec).saved_floating_rect = Some(tessera_primitives::Rect {
                             origin: (*rec).position,
                             size: (*rec).window.size,
                         });
                     }
                     if (*rec).layout_target != Some(screen_rect) {
-                        let old = tessera_types::Rect {
+                        let old = tessera_primitives::Rect {
                             origin: (*rec).position,
                             size: (*rec).window.size,
                         };
@@ -843,13 +843,13 @@ impl Server {
                     }
                 } else if (*rec).window.state.maximized {
                     if (*rec).saved_floating_rect.is_none() {
-                        (*rec).saved_floating_rect = Some(tessera_types::Rect {
+                        (*rec).saved_floating_rect = Some(tessera_primitives::Rect {
                             origin: (*rec).position,
                             size: (*rec).window.size,
                         });
                     }
                     if (*rec).layout_target != Some(work_area) {
-                        let old = tessera_types::Rect {
+                        let old = tessera_primitives::Rect {
                             origin: (*rec).position,
                             size: (*rec).window.size,
                         };
@@ -970,7 +970,7 @@ mod window_switcher_tests {
         use tessera_desktop::workspace::WorkspaceId;
 
         let slide = WorkspaceSlide {
-            output: tessera_types::Rect::new(0, 0, 1000, 800),
+            output: tessera_primitives::Rect::new(0, 0, 1000, 800),
             layers: vec![
                 WorkspaceSlideLayer {
                     workspace: WorkspaceId(1),

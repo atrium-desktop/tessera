@@ -12,7 +12,7 @@ build = "build.rs"
 default = ["full-chrome"]
 full-chrome = ["chrome-dock", "chrome-hud", "chrome-pivot", "chrome-control-center"]
 chrome-dock = []
-chrome-pivot = ["dep:tessera-apps"]
+chrome-pivot = ["dep:tessera-launch-services"]
 chrome-hud = ["dep:tessera-tray"]
 chrome-control-center = ["dep:tessera-tray", "dep:zbus", "persona"]
 # Full personalized portrait runtime preview example.
@@ -25,14 +25,13 @@ name = "debug_avatar"
 required-features = ["persona"]
 
 [dependencies]
-tessera-apps = { workspace = true, optional = true }
+tessera-launch-services = { workspace = true, optional = true }
 tessera-tray = { workspace = true, optional = true }
 zbus = { workspace = true, optional = true }
 flux-scene-graph-sys.workspace = true
 tessera-authority.workspace = true
 tessera-desktop.workspace = true
-tessera-scene.workspace = true
-tessera-types.workspace = true
+tessera-primitives.workspace = true
 tessera-design = { workspace = true }
 tessera-i18n = { workspace = true }
 tessera-avatar = { workspace = true, optional = true, features = ["persona"] }

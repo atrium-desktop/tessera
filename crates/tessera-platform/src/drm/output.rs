@@ -296,7 +296,7 @@ pub(super) struct OutputCandidate {
     pub(super) scale: Scale,
     pub(super) choices: Vec<OutputChoice>,
     pub(super) available_modes: Vec<OutputMode>,
-    pub(super) color_caps: tessera_scene::edid::EdidColorCapabilities,
+    pub(super) color_caps: tessera_primitives::edid::EdidColorCapabilities,
 }
 
 #[derive(Debug, Clone)]
@@ -329,7 +329,7 @@ pub(super) fn select_outputs(
     // *every* active output both opts in via config and proves support
     // (EDID ST 2084 for HDR; plane format support is checked by the
     // candidate loop below). Anything less stays at the 8-bit SDR default.
-    let color_caps: Vec<tessera_scene::edid::EdidColorCapabilities> = connectors
+    let color_caps: Vec<tessera_primitives::edid::EdidColorCapabilities> = connectors
         .iter()
         .map(|info| connector_color_caps(card, info.handle()))
         .collect();
@@ -1042,7 +1042,7 @@ fn gamma_lut_prop(
 fn connector_color_caps(
     card: &Card,
     handle: connector::Handle,
-) -> tessera_scene::edid::EdidColorCapabilities {
+) -> tessera_primitives::edid::EdidColorCapabilities {
     let read = (|| {
         let props = card.get_properties(handle).ok()?;
         for (&id, &value) in props.iter() {
@@ -1050,7 +1050,7 @@ fn connector_color_caps(
             // The raw value of a blob property is the blob id.
             if info.name() == c"EDID" {
                 let blob = card.get_property_blob(value).ok()?;
-                return Some(tessera_scene::edid::edid_color_capabilities(&blob));
+                return Some(tessera_primitives::edid::edid_color_capabilities(&blob));
             }
         }
         None

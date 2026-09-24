@@ -9,7 +9,7 @@ pub struct CapturedPixels {
     width: u32,
     height: u32,
     pixels: CapturedPixelsSource,
-    crop: Option<tessera_types::Rect>,
+    crop: Option<tessera_primitives::Rect>,
     cursor: Option<CaptureCursor>,
     pub security_generation: u64,
 }
@@ -40,7 +40,7 @@ pub struct CaptureCursor {
 pub struct PendingReadback {
     pub width: u32,
     pub height: u32,
-    pub crop: Option<tessera_types::Rect>,
+    pub crop: Option<tessera_primitives::Rect>,
     pub cursor: Option<CaptureCursor>,
     pub security_generation: u64,
 }
@@ -52,7 +52,7 @@ pub struct PendingReadback {
 pub fn request_frame_readback(
     frame: &mut flux::Frame,
     full_size: (u32, u32),
-    crop: Option<tessera_types::Rect>,
+    crop: Option<tessera_primitives::Rect>,
     mut cursor: Option<CaptureCursor>,
     security_generation: u64,
 ) -> Result<PendingReadback, String> {
@@ -92,7 +92,7 @@ pub fn request_frame_readback(
     })
 }
 
-fn translate_cursor_to_region(cursor: &mut Option<CaptureCursor>, region: tessera_types::Rect) {
+fn translate_cursor_to_region(cursor: &mut Option<CaptureCursor>, region: tessera_primitives::Rect) {
     if let Some(cursor) = cursor.as_mut() {
         cursor.x = cursor.x.saturating_sub(region.origin.x);
         cursor.y = cursor.y.saturating_sub(region.origin.y);
@@ -265,7 +265,7 @@ pub fn encode_rgba_capture(
     full_width: u32,
     full_height: u32,
     full_rgba: Vec<u8>,
-    crop: Option<tessera_types::Rect>,
+    crop: Option<tessera_primitives::Rect>,
 ) -> Result<(u32, u32, Vec<u8>), String> {
     let (width, height, mut rgba) = match crop {
         Some(crop) => (
@@ -503,7 +503,7 @@ mod tests {
             height: 1,
             bgra: std::sync::Arc::from([0, 0, 255, 255].repeat(2)),
         });
-        translate_cursor_to_region(&mut cursor, tessera_types::Rect::new(10, 20, 2, 1));
+        translate_cursor_to_region(&mut cursor, tessera_primitives::Rect::new(10, 20, 2, 1));
         let cursor = cursor.unwrap();
         assert_eq!((cursor.x, cursor.y), (-1, 0));
 
@@ -579,7 +579,7 @@ mod tests {
     fn capture_keeps_unpremultiply_and_physical_crop_semantics() {
         let rgba = vec![9, 8, 7, 255, 32, 64, 128, 128, 77, 88, 99, 0];
         let (w, h, png) =
-            encode_rgba_capture(3, 1, rgba, Some(tessera_types::Rect::new(1, 0, 2, 1))).unwrap();
+            encode_rgba_capture(3, 1, rgba, Some(tessera_primitives::Rect::new(1, 0, 2, 1))).unwrap();
         assert_eq!((w, h), (2, 1));
         let decoded = image::load_from_memory(&png).unwrap().into_rgba8();
         assert_eq!(decoded.as_raw(), &[64, 128, 255, 128, 77, 88, 99, 0]);

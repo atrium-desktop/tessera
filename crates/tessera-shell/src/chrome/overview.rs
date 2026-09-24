@@ -22,9 +22,9 @@ use tessera_authority::interaction_domain::InteractionDomainSnapshot;
 use tessera_authority::interaction_domain::InteractionDomainState;
 use tessera_desktop::window::Window;
 use tessera_desktop::workspace::WorkspaceSnapshot;
-use tessera_types::input::KeyAction;
-use tessera_types::input::KeyChar;
-use tessera_types::input::key_action;
+use tessera_primitives::input::KeyAction;
+use tessera_primitives::input::KeyChar;
+use tessera_primitives::input::key_action;
 
 /// Reveal/fade speed (per second, exponential approach).
 const FADE_RATE: f32 = 14.0;
@@ -152,7 +152,7 @@ impl Chrome for Overview {
     ) {
         let raw = input.as_raw();
         let display =
-            tessera_types::Rect::new(0, 0, raw.display_size.x as i32, raw.display_size.y as i32);
+            tessera_primitives::Rect::new(0, 0, raw.display_size.x as i32, raw.display_size.y as i32);
         let cursor = raw.cursor;
         let down = raw.mouse_down.first().copied().unwrap_or(false);
         let pressed = down && !self.prev_down;
@@ -199,19 +199,19 @@ impl Chrome for Overview {
         // Closest-slot assignment: the same pairing the compositor's
         // thumbnail pass computes, so hover and click land on the cell the
         // user actually sees under the cursor.
-        let window_rects: Vec<(tessera_desktop::window::WindowId, tessera_types::Rect)> = windows
+        let window_rects: Vec<(tessera_desktop::window::WindowId, tessera_primitives::Rect)> = windows
             .iter()
             .map(|w| {
                 (
                     w.id,
-                    tessera_types::Rect {
+                    tessera_primitives::Rect {
                         origin: w.position,
                         size: w.size,
                     },
                 )
             })
             .collect();
-        let slots: Vec<tessera_types::Rect> = geom::assign_slots(area, &window_rects)
+        let slots: Vec<tessera_primitives::Rect> = geom::assign_slots(area, &window_rects)
             .into_iter()
             .map(|(_, slot)| slot)
             .collect();
@@ -621,7 +621,7 @@ impl Chrome for Overview {
     }
 }
 
-fn contains_rect(rect: tessera_types::Rect, x: f32, y: f32) -> bool {
+fn contains_rect(rect: tessera_primitives::Rect, x: f32, y: f32) -> bool {
     x >= rect.origin.x as f32
         && y >= rect.origin.y as f32
         && x < (rect.origin.x + rect.size.w) as f32
@@ -631,10 +631,10 @@ fn contains_rect(rect: tessera_types::Rect, x: f32, y: f32) -> bool {
 /// The cell a window's thumbnail occupies this frame: the shared fly-in
 /// interpolation from the window's real geometry to its aspect-fitted grid
 /// slot, keyed on the same progress the compositor's thumbnail pass used.
-fn animated_cell(slot: tessera_types::Rect, window: &Window, t: f32) -> tessera_types::Rect {
+fn animated_cell(slot: tessera_primitives::Rect, window: &Window, t: f32) -> tessera_primitives::Rect {
     geom::animated_cell(
         slot,
-        tessera_types::Rect {
+        tessera_primitives::Rect {
             origin: window.position,
             size: window.size,
         },
@@ -642,7 +642,7 @@ fn animated_cell(slot: tessera_types::Rect, window: &Window, t: f32) -> tessera_
     )
 }
 
-fn to_lens(rect: tessera_types::Rect) -> Rect {
+fn to_lens(rect: tessera_primitives::Rect) -> Rect {
     Rect {
         x: rect.origin.x as f32,
         y: rect.origin.y as f32,

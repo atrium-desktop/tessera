@@ -6,7 +6,7 @@
 //! The renderer uses each card's preview rect for live client surfaces while
 //! shell chrome uses the same geometry for borders, labels, and hit-testing.
 
-use tessera_types::Rect;
+use tessera_primitives::Rect;
 
 const OUTER_MARGIN: i32 = 32;
 const PANEL_PAD: i32 = 22;

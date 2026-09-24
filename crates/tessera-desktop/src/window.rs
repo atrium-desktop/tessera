@@ -143,7 +143,7 @@ impl SizeHints {
     }
 }
 
-pub use tessera_types::WindowId;
+pub use tessera_primitives::WindowId;
 
 /// Per-toplevel metadata. The server owns one per mapped `xdg_toplevel`; the
 /// shell and introspection APIs read it.
@@ -194,8 +194,8 @@ pub struct Window {
     /// (from the committed buffer size) and updated by interactive move and
     /// resize. The renderer reads `position`; the shell reads `position` and
     /// `size` for hit-testing and window controls.
-    pub position: tessera_types::Point,
-    pub size: tessera_types::Size,
+    pub position: tessera_primitives::Point,
+    pub size: tessera_primitives::Size,
     /// In-flight geometry transition (ADR-0029), recorded when the window
     /// manager changes the rect non-interactively. The model above always
     /// reports the target; the server interpolates this for rendering only.
@@ -408,7 +408,7 @@ pub enum Interactive {
         origin: (f32, f32),
         /// The window's position at move start, so the new position is
         /// `start_position + (current - origin)`.
-        start_position: tessera_types::Point,
+        start_position: tessera_primitives::Point,
     },
     /// Resize the window. Edges determine which sides move.
     Resize {
@@ -418,8 +418,8 @@ pub enum Interactive {
         origin: (f32, f32),
         /// The window's geometry at resize start, used as the base for
         /// deltas along the moved edges.
-        start_position: tessera_types::Point,
-        start_size: tessera_types::Size,
+        start_position: tessera_primitives::Point,
+        start_size: tessera_primitives::Size,
     },
 }
 
@@ -546,15 +546,15 @@ mod tests {
         let mv = Interactive::Move {
             window_id: WindowId(7),
             origin: (0.0, 0.0),
-            start_position: tessera_types::Point::default(),
+            start_position: tessera_primitives::Point::default(),
         };
         assert_eq!(mv.window_id(), WindowId(7));
         let rs = Interactive::Resize {
             window_id: WindowId(9),
             edges: ResizeEdges::BOTTOM,
             origin: (0.0, 0.0),
-            start_position: tessera_types::Point::default(),
-            start_size: tessera_types::Size::default(),
+            start_position: tessera_primitives::Point::default(),
+            start_size: tessera_primitives::Size::default(),
         };
         assert_eq!(rs.window_id(), WindowId(9));
     }
@@ -562,8 +562,8 @@ mod tests {
     #[test]
     fn resize_hit_test_uses_an_outer_margin_with_extended_corners() {
         let mut w = Window::new(WindowId(1));
-        w.position = tessera_types::Point { x: 100, y: 50 };
-        w.size = tessera_types::Size { w: 400, h: 300 };
+        w.position = tessera_primitives::Point { x: 100, y: 50 };
+        w.size = tessera_primitives::Size { w: 400, h: 300 };
         let margin = RESIZE_OUTER_MARGIN;
 
         assert_eq!(w.resize_edges_at(99.0, 200.0, margin), ResizeEdges::LEFT);
@@ -585,8 +585,8 @@ mod tests {
     #[test]
     fn resize_hit_test_chooses_the_nearest_corner_on_small_windows() {
         let mut w = Window::new(WindowId(1));
-        w.position = tessera_types::Point { x: 100, y: 50 };
-        w.size = tessera_types::Size { w: 32, h: 32 };
+        w.position = tessera_primitives::Point { x: 100, y: 50 };
+        w.size = tessera_primitives::Size { w: 32, h: 32 };
         let margin = RESIZE_OUTER_MARGIN;
 
         assert_eq!(
@@ -610,8 +610,8 @@ mod tests {
     #[test]
     fn modifier_resize_selects_nearest_edges_from_any_window_point() {
         let mut w = Window::new(WindowId(1));
-        w.position = tessera_types::Point { x: 100, y: 100 };
-        w.size = tessera_types::Size { w: 300, h: 180 };
+        w.position = tessera_primitives::Point { x: 100, y: 100 };
+        w.size = tessera_primitives::Size { w: 300, h: 180 };
 
         assert_eq!(
             w.resize_edges_nearest(110.0, 110.0),

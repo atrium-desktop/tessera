@@ -20,8 +20,8 @@ use tessera_semantic::model::SemanticActionIntent;
 use tessera_semantic::model::SemanticRole;
 use tessera_semantic::model::SemanticState;
 use tessera_semantic::{AccessibilityNode, AccessibilityTreeUpdate, AccessibilityWindowBinding};
-use tessera_types::Rect;
-use tessera_types::Size;
+use tessera_primitives::Rect;
+use tessera_primitives::Size;
 
 const SCAN_INTERVAL: Duration = Duration::from_millis(750);
 const ACTION_POLL: Duration = Duration::from_millis(100);

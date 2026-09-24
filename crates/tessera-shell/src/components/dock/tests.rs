@@ -416,11 +416,11 @@ fn window_invading_rest_bounds_starts_an_animated_collapse() {
     dock.last_display = Some(display);
     let mut invading = window(7, "org.example.Game", true);
     let bounds = dock.pointer_bounds(display);
-    invading.position = tessera_types::Point {
+    invading.position = tessera_primitives::Point {
         x: bounds.x.round() as i32 + 10,
         y: bounds.y.round() as i32 - 10,
     };
-    invading.size = tessera_types::Size { w: 120, h: 40 };
+    invading.size = tessera_primitives::Size { w: 120, h: 40 };
     dock.update_windows(std::slice::from_ref(&invading));
 
     assert!(dock.dock_obscured);
@@ -451,8 +451,8 @@ fn maximized_state_forces_an_animated_collapse_without_geometric_invasion() {
     dock.last_display = Some(display);
     let mut maximized = window(7, "org.example.Game", true);
     maximized.state.maximized = true;
-    maximized.position = tessera_types::Point { x: 100, y: 100 };
-    maximized.size = tessera_types::Size { w: 1000, h: 700 };
+    maximized.position = tessera_primitives::Point { x: 100, y: 100 };
+    maximized.size = tessera_primitives::Size { w: 1000, h: 700 };
     dock.update_windows(std::slice::from_ref(&maximized));
 
     assert_eq!(dock.space_use, SpaceUse::Maximized);
@@ -497,11 +497,11 @@ fn disabling_user_autohide_does_not_override_maximized_collapse() {
 fn minimized_window_does_not_count_as_a_dock_invasion() {
     let bounds = Dock::rest_bounds(1, 1, DockPosition::Bottom, (1920.0, 1080.0));
     let mut minimized = window(7, "org.example.Game", false);
-    minimized.position = tessera_types::Point {
+    minimized.position = tessera_primitives::Point {
         x: bounds.x.round() as i32,
         y: bounds.y.round() as i32,
     };
-    minimized.size = tessera_types::Size { w: 100, h: 50 };
+    minimized.size = tessera_primitives::Size { w: 100, h: 50 };
     minimized.minimized = true;
     assert!(!Dock::window_overlaps_bounds(&minimized, bounds));
 }
@@ -1906,7 +1906,7 @@ fn dock_morph_keeps_capture_and_shadow_damage_stable() {
                     .min(display.1)
                     .ceil() as i32;
                 assert_eq!(
-                    damage.union(tessera_types::Rect::new(x0, y0, x1 - x0, y1 - y0)),
+                    damage.union(tessera_primitives::Rect::new(x0, y0, x1 - x0, y1 - y0)),
                     damage
                 );
             }

@@ -5,8 +5,8 @@
 //! of truth is the corresponding system service, not the compositor config.
 
 use crate::output::{ModeSpec, OutputInfo};
-use tessera_types::Point;
-use tessera_types::input::InputStatus;
+use tessera_primitives::Point;
+use tessera_primitives::input::InputStatus;
 
 /// Desktop-wide color-scheme preference, using the freedesktop Settings
 /// portal vocabulary.
@@ -326,7 +326,7 @@ pub struct SettingsSnapshot {
 #[allow(clippy::enum_variant_names)]
 pub enum SettingsAction {
     SetInput {
-        config: tessera_types::input::InputConfig,
+        config: tessera_primitives::input::InputConfig,
     },
     SetDisplay {
         settings: DisplaySettings,
@@ -357,7 +357,7 @@ impl SettingsAction {
                     return Err("touchpad pointer speed is outside -1.0..=1.0");
                 }
                 if !config.touchpad.scroll_speed.is_finite()
-                    || !tessera_types::input::SCROLL_SPEED_RANGE
+                    || !tessera_primitives::input::SCROLL_SPEED_RANGE
                         .contains(&config.touchpad.scroll_speed)
                 {
                     return Err("touchpad scroll speed is outside 0.1..=10.0");
@@ -368,16 +368,16 @@ impl SettingsAction {
                     return Err("mouse pointer speed is outside -1.0..=1.0");
                 }
                 if !config.mouse.scroll_speed.is_finite()
-                    || !tessera_types::input::SCROLL_SPEED_RANGE
+                    || !tessera_primitives::input::SCROLL_SPEED_RANGE
                         .contains(&config.mouse.scroll_speed)
                 {
                     return Err("mouse scroll speed is outside 0.1..=10.0");
                 }
-                if config.keyboard.repeat_rate > tessera_types::input::MAX_REPEAT_RATE {
+                if config.keyboard.repeat_rate > tessera_primitives::input::MAX_REPEAT_RATE {
                     return Err("keyboard repeat rate is above 150 repeats per second");
                 }
                 if config.keyboard.repeat_delay_ms == 0
-                    || config.keyboard.repeat_delay_ms > tessera_types::input::MAX_REPEAT_DELAY_MS
+                    || config.keyboard.repeat_delay_ms > tessera_primitives::input::MAX_REPEAT_DELAY_MS
                 {
                     return Err("keyboard repeat delay is outside 1..=2000 ms");
                 }
@@ -437,13 +437,13 @@ mod tests {
 
     #[test]
     fn action_validation_rejects_unbounded_values() {
-        let config = tessera_types::input::TouchpadConfig {
+        let config = tessera_primitives::input::TouchpadConfig {
             pointer_speed: 1.5,
             ..Default::default()
         };
         assert!(
             SettingsAction::SetInput {
-                config: tessera_types::input::InputConfig {
+                config: tessera_primitives::input::InputConfig {
                     touchpad: config,
                     ..Default::default()
                 },
@@ -453,8 +453,8 @@ mod tests {
         );
         assert!(
             SettingsAction::SetInput {
-                config: tessera_types::input::InputConfig {
-                    mouse: tessera_types::input::MouseConfig {
+                config: tessera_primitives::input::InputConfig {
+                    mouse: tessera_primitives::input::MouseConfig {
                         scroll_speed: 0.0,
                         ..Default::default()
                     },
@@ -466,8 +466,8 @@ mod tests {
         );
         assert!(
             SettingsAction::SetInput {
-                config: tessera_types::input::InputConfig {
-                    keyboard: tessera_types::input::KeyboardConfig {
+                config: tessera_primitives::input::InputConfig {
+                    keyboard: tessera_primitives::input::KeyboardConfig {
                         repeat_rate: 500,
                         repeat_delay_ms: 250,
                     },
@@ -479,7 +479,7 @@ mod tests {
         );
         assert!(
             SettingsAction::SetInput {
-                config: tessera_types::input::InputConfig::default(),
+                config: tessera_primitives::input::InputConfig::default(),
             }
             .validate()
             .is_ok()

@@ -12,8 +12,7 @@ build = "build.rs"
 thiserror.workspace = true
 image.workspace = true
 tessera-desktop.workspace = true
-tessera-scene.workspace = true
-tessera-types.workspace = true
+tessera-primitives.workspace = true
 flux = { workspace = true }
 flux-sys = { workspace = true }
 libc.workspace = true

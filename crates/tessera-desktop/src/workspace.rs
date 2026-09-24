@@ -38,7 +38,7 @@ use std::collections::HashMap;
 
 /// Stable identifier for a workspace, opaque to chrome/IPC/agent. Lives as
 /// long as the workspace does; the visible "number" is chrome presentation.
-pub use tessera_types::{OutputId, WorkspaceId};
+pub use tessera_primitives::{OutputId, WorkspaceId};
 
 /// One workspace: a stable id, the output it belongs to, and the toplevels
 /// placed on it in z-order (front-to-back). Toplevel ids are

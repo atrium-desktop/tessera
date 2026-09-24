@@ -28,7 +28,7 @@ The stack, from the rendering layer up:
 | Layer | Owner | What lives here |
 |-------|-------|-----------------|
 | Rendering and UI | flux, lens (out of tree) | Vulkan presentation; immediate-mode chrome drawing |
-| The domain | `tessera-types`, `tessera-scene`, `tessera-desktop`, `tessera-authority`, `tessera-semantic` | Stable values, scene state, desktop state, authority, and semantics |
+| The domain | `tessera-primitives`, `tessera-desktop`, `tessera-authority`, `tessera-semantic` | Foundational primitives, desktop state, authority, and semantics (ADR-0164) |
 | Semantic trust seam | `tessera-semantic` | Bounded application accessibility trees, provider ownership, window-namespaced node identities, and action routing |
 | The platform | `tessera-wayland`, `tessera-platform`, `tessera-render`, `tessera-shell` | Wayland, presentation, and the chrome host |
 | The seam | `tessera-protocol`, `tessera-ipc` | Versioned messages, transport, clients, and server admission |

@@ -5,7 +5,7 @@ fn compiled_chrome_controls_default_input_ownership() {
     use tessera_desktop::gesture::GestureAction;
     use tessera_desktop::gesture::GestureAxis;
     use tessera_desktop::keybind::Action;
-    use tessera_types::input::Mods;
+    use tessera_primitives::input::Mods;
 
     let keymap = build_keymap(None);
     assert_eq!(
@@ -49,7 +49,7 @@ fn nested_output_geometry_preserves_logical_size_at_integer_scale() {
     assert_eq!(geometry.scale, tessera_desktop::output::Scale(2.0));
     assert_eq!(
         geometry.logical_size(),
-        tessera_types::Size { w: 945, h: 924 }
+        tessera_primitives::Size { w: 945, h: 924 }
     );
 }
 
@@ -61,35 +61,35 @@ fn nested_output_geometry_preserves_logical_size_at_fractional_scale() {
     assert_eq!(geometry.scale, tessera_desktop::output::Scale(1.5));
     assert_eq!(
         geometry.logical_size(),
-        tessera_types::Size { w: 945, h: 924 }
+        tessera_primitives::Size { w: 945, h: 924 }
     );
 }
 
 #[test]
 fn logical_capture_region_scales_to_physical_pixels() {
     assert_eq!(
-        logical_rect_to_physical(tessera_types::Rect::new(10, 20, 100, 80), 2.0, 3840, 2160),
-        tessera_types::Rect::new(20, 40, 200, 160)
+        logical_rect_to_physical(tessera_primitives::Rect::new(10, 20, 100, 80), 2.0, 3840, 2160),
+        tessera_primitives::Rect::new(20, 40, 200, 160)
     );
 }
 
 #[test]
 fn interaction_domain_capture_region_is_intersected_in_logical_space() {
     assert_eq!(
-        clamp_logical_region(tessera_types::Rect::new(-10, 5, 30, 40), 100, 30),
-        Some(tessera_types::Rect::new(0, 5, 20, 25))
+        clamp_logical_region(tessera_primitives::Rect::new(-10, 5, 30, 40), 100, 30),
+        Some(tessera_primitives::Rect::new(0, 5, 20, 25))
     );
     assert_eq!(
-        clamp_logical_region(tessera_types::Rect::new(100, 0, 20, 20), 100, 100),
+        clamp_logical_region(tessera_primitives::Rect::new(100, 0, 20, 20), 100, 100),
         None
     );
     assert_eq!(
-        clamp_logical_region(tessera_types::Rect::new(0, 0, 0, 20), 100, 100),
+        clamp_logical_region(tessera_primitives::Rect::new(0, 0, 0, 20), 100, 100),
         None
     );
     assert_eq!(
         clamp_logical_region(
-            tessera_types::Rect::new(i32::MAX - 1, i32::MAX - 1, i32::MAX, i32::MAX),
+            tessera_primitives::Rect::new(i32::MAX - 1, i32::MAX - 1, i32::MAX, i32::MAX),
             16_384,
             16_384,
         ),
@@ -100,12 +100,12 @@ fn interaction_domain_capture_region_is_intersected_in_logical_space() {
 #[test]
 fn logical_capture_region_scales_endpoints_and_clamps() {
     assert_eq!(
-        logical_rect_to_physical(tessera_types::Rect::new(-10, 10, 30, 20), 1.5, 30, 40),
-        tessera_types::Rect::new(0, 15, 30, 25)
+        logical_rect_to_physical(tessera_primitives::Rect::new(-10, 10, 30, 20), 1.5, 30, 40),
+        tessera_primitives::Rect::new(0, 15, 30, 25)
     );
     assert_eq!(
-        logical_rect_to_physical(tessera_types::Rect::new(10, 20, 100, 80), 0.0, 200, 200),
-        tessera_types::Rect::new(10, 20, 100, 80)
+        logical_rect_to_physical(tessera_primitives::Rect::new(10, 20, 100, 80), 0.0, 200, 200),
+        tessera_primitives::Rect::new(10, 20, 100, 80)
     );
 }
 
@@ -115,7 +115,7 @@ fn capture_encoding_crops_and_unpremultiplies_worker_payload() {
         2,
         1,
         vec![10, 20, 30, 255, 50, 25, 0, 128],
-        Some(tessera_types::Rect::new(1, 0, 1, 1)),
+        Some(tessera_primitives::Rect::new(1, 0, 1, 1)),
     )
     .unwrap();
     assert_eq!((width, height), (1, 1));

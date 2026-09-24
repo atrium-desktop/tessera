@@ -8,7 +8,7 @@ use tessera_semantic::model::SemanticActionIntent;
 use tessera_semantic::model::SemanticObjectId;
 use tessera_semantic::model::SemanticSnapshot;
 use tessera_semantic::model::SemanticSource;
-use tessera_types::input::SyntheticInputAction;
+use tessera_primitives::input::SyntheticInputAction;
 
 use super::{ActorPrincipal, ActorSessionId};
 
@@ -424,8 +424,8 @@ mod tests {
                 description: None,
                 value: None,
                 app_id: Some("shop.example".into()),
-                bounds: tessera_types::Rect::new(0, 0, 800, 600),
-                local_size: tessera_types::Size { w: 800, h: 600 },
+                bounds: tessera_primitives::Rect::new(0, 0, 800, 600),
+                local_size: tessera_primitives::Size { w: 800, h: 600 },
                 state: SemanticState {
                     visible: true,
                     enabled: true,
@@ -444,7 +444,7 @@ mod tests {
             observation,
             actions: vec![SemanticActionIntent::SyntheticInput {
                 actions: vec![SyntheticInputAction::PointerMove {
-                    position: tessera_types::Point { x: 20, y: 30 },
+                    position: tessera_primitives::Point { x: 20, y: 30 },
                 }],
             }],
         }
@@ -526,7 +526,7 @@ mod tests {
         action.actions = vec![SemanticActionIntent::SyntheticInput {
             actions: vec![SyntheticInputAction::Click {
                 button: 0x110,
-                position: tessera_types::Point { x: 800, y: 10 },
+                position: tessera_primitives::Point { x: 800, y: 10 },
             }],
         }];
         assert!(

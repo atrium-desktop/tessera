@@ -8,7 +8,7 @@
 //! reduced-motion policy resolves every transition in at most one frame.
 
 use crate::dock::MinimizeAnimationStyle;
-use tessera_types::{Point, Rect, Size};
+use tessera_primitives::{Point, Rect, Size};
 
 /// Default transition length. Short enough to feel instant, long enough to
 /// read as motion.

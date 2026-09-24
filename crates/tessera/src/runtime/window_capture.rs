@@ -13,7 +13,7 @@ pub(super) struct WindowCaptureRequest {
 pub(super) struct WindowCaptureContext {
     pub(super) window: tessera_desktop::window::WindowId,
     pub(super) scale_milli: u32,
-    pub(super) rect: tessera_types::Rect,
+    pub(super) rect: tessera_primitives::Rect,
 }
 
 /// A window capture whose frame was submitted and whose readback is still in
@@ -89,7 +89,7 @@ fn window_capture_scale_milli(
         .windows()
         .iter()
         .any(|candidate| candidate.id == window.id);
-    let center = tessera_types::Point {
+    let center = tessera_primitives::Point {
         x: window.position.x + window.size.w / 2,
         y: window.position.y + window.size.h / 2,
     };
@@ -133,8 +133,8 @@ pub(super) fn draw_window_tree(
         canvas.scale(scale, scale);
     }
     let origin = geometry.origin;
-    let map = move |_: Option<tessera_desktop::window::WindowId>, natural: tessera_types::Rect| {
-        tessera_types::Rect::new(
+    let map = move |_: Option<tessera_desktop::window::WindowId>, natural: tessera_primitives::Rect| {
+        tessera_primitives::Rect::new(
             natural.origin.x - origin.x,
             natural.origin.y - origin.y,
             natural.size.w,
@@ -239,7 +239,7 @@ pub(super) fn begin_window_capture(
         context: WindowCaptureContext {
             window,
             scale_milli: geometry.scale_milli,
-            rect: tessera_types::Rect {
+            rect: tessera_primitives::Rect {
                 origin: geometry.origin,
                 size: geometry.logical_size,
             },

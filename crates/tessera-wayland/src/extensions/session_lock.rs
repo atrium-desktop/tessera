@@ -15,8 +15,8 @@ struct LockSurfaceRec {
     resource: *mut ffi::wl_resource,
     surface: *mut SurfaceRec,
     connector: String,
-    pending_configures: Vec<(u32, tessera_types::Size)>,
-    acked_configure: Option<(u32, tessera_types::Size)>,
+    pending_configures: Vec<(u32, tessera_primitives::Size)>,
+    acked_configure: Option<(u32, tessera_primitives::Size)>,
 }
 
 static SESSION_LOCK_MANAGER_IMPL: ffi::ext_session_lock_manager_v1_interface_impl =

@@ -1,6 +1,6 @@
 //! Capture stream negotiation and owned frame payloads, independent of transport.
 use std::sync::Arc;
-use tessera_types::WindowId;
+use crate::WindowId;
 
 /// The memory byte order of one stream frame pixel blob. Four
 /// bytes per pixel, tightly packed rows of `stride` bytes.
@@ -151,7 +151,7 @@ pub struct StreamPixelFrame {
     pub height: u32,
     pub stride: u32,
     pub format: StreamPixelFormat,
-    pub damage: Vec<tessera_types::Rect>,
+    pub damage: Vec<crate::Rect>,
     pub dropped: u64,
     pub pixels: Arc<[u8]>,
 }
@@ -167,7 +167,7 @@ pub struct StreamSlotFrame {
     pub height: u32,
     pub stride: u32,
     pub format: StreamPixelFormat,
-    pub damage: Vec<tessera_types::Rect>,
+    pub damage: Vec<crate::Rect>,
     pub dropped: u64,
     pub slot: u32,
     pub byte_len: u64,

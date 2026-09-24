@@ -101,7 +101,7 @@ static SURFACE_IMPL: ffi::wl_surface_interface_impl = ffi::wl_surface_interface_
 /// their exact disjoint damage all the way to output/effect invalidation.
 pub(crate) const MAX_COMMITTED_DAMAGE_RECTS: usize = 64;
 
-fn normalise_damage_rect(rect: tessera_types::Rect) -> Option<tessera_types::Rect> {
+fn normalise_damage_rect(rect: tessera_primitives::Rect) -> Option<tessera_primitives::Rect> {
     if rect.is_empty() {
         return None;
     }
@@ -115,7 +115,7 @@ fn normalise_damage_rect(rect: tessera_types::Rect) -> Option<tessera_types::Rec
     if x1 <= x0 || y1 <= y0 {
         return None;
     }
-    Some(tessera_types::Rect::new(
+    Some(tessera_primitives::Rect::new(
         rect.origin.x,
         rect.origin.y,
         (x1 - x0) as i32,
@@ -123,7 +123,7 @@ fn normalise_damage_rect(rect: tessera_types::Rect) -> Option<tessera_types::Rec
     ))
 }
 
-fn damage_bbox(rects: &[tessera_types::Rect]) -> Option<tessera_types::Rect> {
+fn damage_bbox(rects: &[tessera_primitives::Rect]) -> Option<tessera_primitives::Rect> {
     let first = *rects.first()?;
     let mut x0 = i64::from(first.origin.x);
     let mut y0 = i64::from(first.origin.y);
@@ -145,7 +145,7 @@ fn damage_bbox(rects: &[tessera_types::Rect]) -> Option<tessera_types::Rect> {
         // truncating one side of the region.
         return None;
     }
-    Some(tessera_types::Rect::new(
+    Some(tessera_primitives::Rect::new(
         x0.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
         y0.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
         width as i32,
@@ -156,7 +156,7 @@ fn damage_bbox(rects: &[tessera_types::Rect]) -> Option<tessera_types::Rect> {
 /// Add `rect` to an exact, disjoint damage region. Subtracting existing
 /// coverage from the new rectangle avoids both duplicate work and the false
 /// dirty pixels introduced by a bounding-box union.
-fn insert_damage_rect(region: &mut Vec<tessera_types::Rect>, rect: tessera_types::Rect) -> bool {
+fn insert_damage_rect(region: &mut Vec<tessera_primitives::Rect>, rect: tessera_primitives::Rect) -> bool {
     let Some(rect) = normalise_damage_rect(rect) else {
         return false;
     };
@@ -197,7 +197,7 @@ fn insert_damage_rect(region: &mut Vec<tessera_types::Rect>, rect: tessera_types
 /// "everything is damaged" latch.
 pub(crate) fn accumulate_committed_damage(
     rec: &mut SurfaceRec,
-    pending: Vec<tessera_types::Rect>,
+    pending: Vec<tessera_primitives::Rect>,
     unknown_full: bool,
 ) {
     if unknown_full && !rec.committed_damage_full {
@@ -240,7 +240,7 @@ unsafe extern "C" fn surface_attach(
         let rec = ffi::wl_resource_get_user_data(resource) as *mut SurfaceRec;
         (*rec).pending_buffer = buffer;
         (*rec).pending_buffer_set = true;
-        (*rec).pending_attach_offset = tessera_types::Point { x, y };
+        (*rec).pending_attach_offset = tessera_primitives::Point { x, y };
     }
 }
 
@@ -263,7 +263,7 @@ unsafe fn retire_surface_buffer(rec: *mut SurfaceRec) {
     }
 }
 
-fn valid_policy_size(size: tessera_types::Size) -> Option<tessera_types::Size> {
+fn valid_policy_size(size: tessera_primitives::Size) -> Option<tessera_primitives::Size> {
     (size.w >= 100 && size.h >= 100).then_some(size)
 }
 
@@ -274,7 +274,7 @@ fn valid_policy_size(size: tessera_types::Size) -> Option<tessera_types::Size> {
 /// main-window size: doing it from `set_app_id` races the transient
 /// relationship, while doing it after the first buffer maps visibly resizes
 /// the window.
-pub(crate) unsafe fn initial_toplevel_size(rec: *mut SurfaceRec) -> Option<tessera_types::Size> {
+pub(crate) unsafe fn initial_toplevel_size(rec: *mut SurfaceRec) -> Option<tessera_primitives::Size> {
     unsafe {
         if rec.is_null() || (*rec).state.is_null() {
             return None;
@@ -318,11 +318,11 @@ pub(crate) unsafe fn initial_toplevel_size(rec: *mut SurfaceRec) -> Option<tesse
 /// Center a transient in its parent and keep it inside the output whenever
 /// the transient fits. Both rectangles use compositor-logical coordinates.
 pub(crate) fn centered_transient_position(
-    parent: tessera_types::Rect,
-    child: tessera_types::Size,
-    output: tessera_types::Rect,
-) -> tessera_types::Point {
-    let centered = tessera_types::Point {
+    parent: tessera_primitives::Rect,
+    child: tessera_primitives::Size,
+    output: tessera_primitives::Rect,
+) -> tessera_primitives::Point {
+    let centered = tessera_primitives::Point {
         x: parent.origin.x + (parent.size.w - child.w) / 2,
         y: parent.origin.y + (parent.size.h - child.h) / 2,
     };
@@ -338,7 +338,7 @@ pub(crate) fn centered_transient_position(
         .saturating_add(output.size.h)
         .saturating_sub(child.h)
         .max(output.origin.y);
-    tessera_types::Point {
+    tessera_primitives::Point {
         x: centered.x.clamp(output.origin.x, max_x),
         y: centered.y.clamp(output.origin.y, max_y),
     }
@@ -368,10 +368,10 @@ pub(crate) const PLACEMENT_NUDGE_MAX_STEPS: i32 = 8;
 /// and a full overlap solver was rejected (see ADR-0116's rejection of
 /// relaxation layouts).
 pub(crate) fn nudged_origin_if_colliding(
-    base: tessera_types::Point,
-    occupied: &[tessera_types::Point],
-    output: tessera_types::Rect,
-) -> Option<tessera_types::Point> {
+    base: tessera_primitives::Point,
+    occupied: &[tessera_primitives::Point],
+    output: tessera_primitives::Rect,
+) -> Option<tessera_primitives::Point> {
     if !occupied.contains(&base) {
         return None;
     }
@@ -391,7 +391,7 @@ pub(crate) fn nudged_origin_if_colliding(
         .max(output.origin.y);
     let mut candidate = base;
     for _ in 0..PLACEMENT_NUDGE_MAX_STEPS {
-        candidate = tessera_types::Point {
+        candidate = tessera_primitives::Point {
             x: candidate.x.saturating_add(PLACEMENT_NUDGE_STEP).min(max_x),
             y: candidate.y.saturating_add(PLACEMENT_NUDGE_STEP).min(max_y),
         };
@@ -412,8 +412,8 @@ pub(crate) fn nudged_origin_if_colliding(
 /// unchanged.
 pub(crate) fn fold_nudged_origin(
     rec: &SurfaceRec,
-    mut rect: tessera_types::Rect,
-) -> tessera_types::Rect {
+    mut rect: tessera_primitives::Rect,
+) -> tessera_primitives::Rect {
     if let Some(nudge) = rec.placement_nudge
         && rect.origin == nudge.nudged
     {
@@ -428,7 +428,7 @@ pub(crate) fn fold_nudged_origin(
 /// persistence fold-back no longer applies. A reposition to exactly the
 /// nudged origin is a no-op and keeps the fold-back armed; policy-driven
 /// moves (tiling, maximize/fullscreen, minimize) do not call this at all.
-pub(crate) fn consume_placement_nudge(rec: &mut SurfaceRec, new_origin: tessera_types::Point) {
+pub(crate) fn consume_placement_nudge(rec: &mut SurfaceRec, new_origin: tessera_primitives::Point) {
     if let Some(nudge) = rec.placement_nudge
         && new_origin != nudge.nudged
     {
@@ -455,10 +455,10 @@ unsafe fn live_transient_parent(rec: *mut SurfaceRec) -> Option<*mut SurfaceRec>
     }
 }
 
-unsafe fn transient_parent_rect(rec: *mut SurfaceRec) -> Option<tessera_types::Rect> {
+unsafe fn transient_parent_rect(rec: *mut SurfaceRec) -> Option<tessera_primitives::Rect> {
     unsafe {
         let parent = live_transient_parent(rec)?;
-        Some(tessera_types::Rect {
+        Some(tessera_primitives::Rect {
             origin: (*parent).position,
             size: (*parent).window.size,
         })
@@ -591,7 +591,7 @@ pub(crate) unsafe fn activation_modal_target(
 /// and have not changed.
 pub(crate) unsafe fn reposition_toplevel_with_popups(
     rec: *mut SurfaceRec,
-    new_origin: tessera_types::Point,
+    new_origin: tessera_primitives::Point,
 ) {
     unsafe {
         if rec.is_null() {
@@ -601,7 +601,7 @@ pub(crate) unsafe fn reposition_toplevel_with_popups(
         if old == new_origin {
             return;
         }
-        let delta = tessera_types::Point {
+        let delta = tessera_primitives::Point {
             x: new_origin.x.saturating_sub(old.x),
             y: new_origin.y.saturating_sub(old.y),
         };
@@ -614,7 +614,7 @@ pub(crate) unsafe fn reposition_toplevel_with_popups(
 
 /// Recursively shift every live transient child anchored to `rec`, keeping
 /// dialogs and prompters centered / relative to their parent window.
-unsafe fn shift_transient_subtree(rec: *mut SurfaceRec, delta: tessera_types::Point, depth: u32) {
+unsafe fn shift_transient_subtree(rec: *mut SurfaceRec, delta: tessera_primitives::Point, depth: u32) {
     unsafe {
         if rec.is_null() || depth >= 32 || (*rec).state.is_null() {
             return;
@@ -630,7 +630,7 @@ unsafe fn shift_transient_subtree(rec: *mut SurfaceRec, delta: tessera_types::Po
             })
             .collect();
         for ptr in child_ptrs {
-            let new_child_origin = tessera_types::Point {
+            let new_child_origin = tessera_primitives::Point {
                 x: (*ptr).position.x.saturating_add(delta.x),
                 y: (*ptr).position.y.saturating_add(delta.y),
             };
@@ -646,7 +646,7 @@ unsafe fn shift_transient_subtree(rec: *mut SurfaceRec, delta: tessera_types::Po
 /// popup) to `rec`, preserving the parent-relative placement the positioner
 /// computed at `get_popup` time. The depth cap breaks reference cycles
 /// defensively; the destroy path detaches popups, so live chains are short.
-unsafe fn shift_popup_subtree(rec: *mut SurfaceRec, delta: tessera_types::Point, depth: u32) {
+unsafe fn shift_popup_subtree(rec: *mut SurfaceRec, delta: tessera_primitives::Point, depth: u32) {
     unsafe {
         if rec.is_null() || depth >= 32 || (*rec).state.is_null() {
             return;
@@ -655,7 +655,7 @@ unsafe fn shift_popup_subtree(rec: *mut SurfaceRec, delta: tessera_types::Point,
             let p = *p;
             !p.is_null() && !(*p).popup_parent.is_null() && (*p).popup_parent == rec && (*p).mapped
         }) {
-            (*ptr).position = tessera_types::Point {
+            (*ptr).position = tessera_primitives::Point {
                 x: (*ptr).position.x.saturating_add(delta.x),
                 y: (*ptr).position.y.saturating_add(delta.y),
             };
@@ -1103,7 +1103,7 @@ pub(crate) unsafe extern "C" fn surface_commit(
         if !buffer_damage_unmappable {
             let (bw, bh) = buffer_dims.unwrap_or(((*rec).width, (*rec).height));
             let transform = (*rec).buffer_transform;
-            let geometry = tessera_scene::SurfaceGeometry {
+            let geometry = tessera_primitives::SurfaceGeometry {
                 transform,
                 buffer_scale: (*rec).buffer_scale,
                 viewport_src: (*rec).viewport_src,
@@ -1210,7 +1210,7 @@ pub(crate) unsafe extern "C" fn surface_commit(
                         let incremental = (*rec).width == w
                             && (*rec).height == h
                             && (*rec).pixels.len() == needed
-                            && (*rec).buffer_transform == tessera_types::Transform::Normal
+                            && (*rec).buffer_transform == tessera_primitives::Transform::Normal
                             && !(*rec).committed_damage.is_empty();
                         if (*rec).pixels.len() != needed {
                             (*rec).pixels = vec![0u8; needed];
@@ -1239,7 +1239,7 @@ pub(crate) unsafe extern "C" fn surface_commit(
                             // alone would under-cover, stranding the far side
                             // of every alternated buffer (read: truncated
                             // Chrome tooltips).
-                            let geometry = tessera_scene::SurfaceGeometry {
+                            let geometry = tessera_primitives::SurfaceGeometry {
                                 transform: (*rec).buffer_transform,
                                 buffer_scale: (*rec).buffer_scale,
                                 viewport_src: (*rec).viewport_src,
@@ -1279,7 +1279,7 @@ pub(crate) unsafe extern "C" fn surface_commit(
                                 // full-frame commit at 2400x1600 on the
                                 // compositor's main loop, second only to the
                                 // row copies themselves.
-                                if tessera_scene::dmabuf::is_wl_shm_format_xrgb(format) {
+                                if tessera_primitives::dmabuf::is_wl_shm_format_xrgb(format) {
                                     for row in 0..ch {
                                         let base = (y + row) * tight + x * 4;
                                         let row_pixels = &mut pixels[base..base + cw * 4];
@@ -1301,7 +1301,7 @@ pub(crate) unsafe extern "C" fn surface_commit(
                             // XRGB8888 has undefined alpha; force opaque.
                             // Chunked for vector stores (see the incremental
                             // twin above for the rationale).
-                            if tessera_scene::dmabuf::is_wl_shm_format_xrgb(format) {
+                            if tessera_primitives::dmabuf::is_wl_shm_format_xrgb(format) {
                                 for quad in pixels.chunks_exact_mut(4) {
                                     quad[3] = 0xff;
                                 }
@@ -1400,7 +1400,7 @@ pub(crate) unsafe extern "C" fn surface_commit(
             let output = if !(*rec).state.is_null() {
                 (*(*rec).state).output_geometry.logical_rect()
             } else {
-                tessera_types::Rect::new(0, 0, 1920, 1080)
+                tessera_primitives::Rect::new(0, 0, 1920, 1080)
             };
             let target_pos =
                 rule_pos.or_else(|| remembered_store_entry.as_ref().and_then(|s| s.position));
@@ -1417,7 +1417,7 @@ pub(crate) unsafe extern "C" fn surface_commit(
                     .saturating_add(output.size.h)
                     .saturating_sub(100)
                     .max(output.origin.y);
-                tessera_types::Point {
+                tessera_primitives::Point {
                     x: pos.x.clamp(output.origin.x, max_x),
                     y: pos.y.clamp(output.origin.y, max_y),
                 }
@@ -1433,7 +1433,7 @@ pub(crate) unsafe extern "C" fn surface_commit(
                         .count()
                 };
                 let idx = count.min(8) as i32;
-                tessera_types::Point {
+                tessera_primitives::Point {
                     x: 60 + idx * 32,
                     y: 60 + idx * 32,
                 }
@@ -1494,7 +1494,7 @@ pub(crate) unsafe extern "C" fn surface_commit(
                 let output = if !(*rec).state.is_null() {
                     (*(*rec).state).output_geometry.logical_rect()
                 } else {
-                    tessera_types::Rect::new(0, 0, 1920, 1080)
+                    tessera_primitives::Rect::new(0, 0, 1920, 1080)
                 };
                 let centered = centered_transient_position(parent, (*rec).window.size, output);
                 (*rec).position = centered;
@@ -1855,14 +1855,14 @@ unsafe extern "C" fn surface_set_buffer_transform(
             return;
         }
         let transform = match value as u32 {
-            0 => tessera_types::Transform::Normal,
-            1 => tessera_types::Transform::Rotate90,
-            2 => tessera_types::Transform::Rotate180,
-            3 => tessera_types::Transform::Rotate270,
-            4 => tessera_types::Transform::FlipHorizontal,
-            5 => tessera_types::Transform::FlipRotate90,
-            6 => tessera_types::Transform::FlipRotate180,
-            7 => tessera_types::Transform::FlipRotate270,
+            0 => tessera_primitives::Transform::Normal,
+            1 => tessera_primitives::Transform::Rotate90,
+            2 => tessera_primitives::Transform::Rotate180,
+            3 => tessera_primitives::Transform::Rotate270,
+            4 => tessera_primitives::Transform::FlipHorizontal,
+            5 => tessera_primitives::Transform::FlipRotate90,
+            6 => tessera_primitives::Transform::FlipRotate180,
+            7 => tessera_primitives::Transform::FlipRotate270,
             _ => {
                 ffi::wl_resource_post_error(r, 1, c"invalid wl_output.transform value".as_ptr());
                 return;
@@ -1900,7 +1900,7 @@ pub(crate) const MAX_PENDING_DAMAGE_RECTS: usize = 1024;
 
 /// Append a damage rectangle to a between-commits accumulator, collapsing to
 /// the bounding box once the rectangle budget is exhausted.
-pub(crate) fn push_pending_damage(list: &mut Vec<tessera_types::Rect>, rect: tessera_types::Rect) {
+pub(crate) fn push_pending_damage(list: &mut Vec<tessera_primitives::Rect>, rect: tessera_primitives::Rect) {
     if list.len() < MAX_PENDING_DAMAGE_RECTS {
         list.push(rect);
         return;
@@ -1942,7 +1942,7 @@ unsafe extern "C" fn surface_damage(
         }
         push_pending_damage(
             &mut (*rec).pending_damage,
-            tessera_types::Rect::new(x, y, w, h),
+            tessera_primitives::Rect::new(x, y, w, h),
         );
     }
 }
@@ -1951,9 +1951,9 @@ unsafe extern "C" fn surface_damage(
 /// shared with `wl_surface.damage`. Rounding outward preserves every touched
 /// logical pixel when a HiDPI buffer rectangle is not scale-aligned.
 pub(crate) fn buffer_damage_to_surface(
-    damage: tessera_types::Rect,
+    damage: tessera_primitives::Rect,
     scale: i32,
-) -> tessera_types::Rect {
+) -> tessera_primitives::Rect {
     if scale <= 1 {
         return damage;
     }
@@ -1965,7 +1965,7 @@ pub(crate) fn buffer_damage_to_surface(
     let x1 = -(-buffer_x1).div_euclid(scale);
     let y1 = -(-buffer_y1).div_euclid(scale);
     let clamp_i32 = |value: i64| value.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
-    tessera_types::Rect::new(
+    tessera_primitives::Rect::new(
         clamp_i32(x0),
         clamp_i32(y0),
         clamp_i32(x1.saturating_sub(x0)),
@@ -2021,7 +2021,7 @@ unsafe extern "C" fn surface_damage_buffer(
         }
         push_pending_damage(
             &mut (*rec).pending_buffer_damage,
-            tessera_types::Rect::new(x, y, w, h),
+            tessera_primitives::Rect::new(x, y, w, h),
         );
     }
 }
@@ -2081,7 +2081,7 @@ unsafe extern "C" fn surface_resource_destroy(resource: *mut ffi::wl_resource) {
             {
                 let rect = fold_nudged_origin(
                     &*rec,
-                    (*rec).saved_floating_rect.unwrap_or(tessera_types::Rect {
+                    (*rec).saved_floating_rect.unwrap_or(tessera_primitives::Rect {
                         origin: (*rec).position,
                         size: (*rec).window.size,
                     }),
@@ -2238,7 +2238,7 @@ unsafe extern "C" fn region_add(
         if !region.is_null() && width > 0 && height > 0 {
             push_region_rect(
                 &mut (*region).rects,
-                tessera_types::Rect::new(x, y, width, height),
+                tessera_primitives::Rect::new(x, y, width, height),
             );
         }
     }
@@ -2254,7 +2254,7 @@ pub(crate) const MAX_REGION_RECTS: usize = 1024;
 
 /// Append a rectangle to a `wl_region`, collapsing to the bounding box once
 /// the rectangle budget is exhausted.
-pub(crate) fn push_region_rect(rects: &mut Vec<tessera_types::Rect>, rect: tessera_types::Rect) {
+pub(crate) fn push_region_rect(rects: &mut Vec<tessera_primitives::Rect>, rect: tessera_primitives::Rect) {
     if rects.len() < MAX_REGION_RECTS {
         rects.push(rect);
         return;
@@ -2268,9 +2268,9 @@ pub(crate) fn push_region_rect(rects: &mut Vec<tessera_types::Rect>, rect: tesse
 }
 
 pub(crate) fn subtract_rect(
-    source: tessera_types::Rect,
-    cut: tessera_types::Rect,
-) -> Vec<tessera_types::Rect> {
+    source: tessera_primitives::Rect,
+    cut: tessera_primitives::Rect,
+) -> Vec<tessera_primitives::Rect> {
     let sx1 = source.origin.x;
     let sy1 = source.origin.y;
     let sx2 = sx1.saturating_add(source.size.w);
@@ -2283,10 +2283,10 @@ pub(crate) fn subtract_rect(
         return vec![source];
     }
     let candidates = [
-        tessera_types::Rect::new(sx1, sy1, source.size.w, cy1 - sy1),
-        tessera_types::Rect::new(sx1, cy2, source.size.w, sy2 - cy2),
-        tessera_types::Rect::new(sx1, cy1, cx1 - sx1, cy2 - cy1),
-        tessera_types::Rect::new(cx2, cy1, sx2 - cx2, cy2 - cy1),
+        tessera_primitives::Rect::new(sx1, sy1, source.size.w, cy1 - sy1),
+        tessera_primitives::Rect::new(sx1, cy2, source.size.w, sy2 - cy2),
+        tessera_primitives::Rect::new(sx1, cy1, cx1 - sx1, cy2 - cy1),
+        tessera_primitives::Rect::new(cx2, cy1, sx2 - cx2, cy2 - cy1),
     ];
     candidates
         .into_iter()
@@ -2307,7 +2307,7 @@ unsafe extern "C" fn region_subtract(
         if region.is_null() || width <= 0 || height <= 0 {
             return;
         }
-        let cut = tessera_types::Rect::new(x, y, width, height);
+        let cut = tessera_primitives::Rect::new(x, y, width, height);
         (*region).rects = std::mem::take(&mut (*region).rects)
             .into_iter()
             .flat_map(|rect| subtract_rect(rect, cut))

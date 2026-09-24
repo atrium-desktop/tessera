@@ -308,7 +308,7 @@ fn physical_observer_mirror_blocks_click_through_without_taking_focus() {
             surface.width = 100;
             surface.height = 100;
             surface.window.id = window;
-            surface.window.size = tessera_types::Size { w: 100, h: 100 };
+            surface.window.size = tessera_primitives::Size { w: 100, h: 100 };
             surface
         };
     let mut bottom = make_surface(bottom_window, 0x100);
@@ -370,7 +370,7 @@ fn switcher_preview_does_not_restack_and_stationary_rehit_tracks_the_commit() {
             surface.width = 100;
             surface.height = 100;
             surface.window.id = window;
-            surface.window.size = tessera_types::Size { w: 100, h: 100 };
+            surface.window.size = tessera_primitives::Size { w: 100, h: 100 };
             surface
         };
     let mut selected = make_surface(selected_window, 0x100);
@@ -544,7 +544,7 @@ fn physical_window_snapshot_contains_only_controlled_or_observed_windows() {
     surface.mapped = true;
     surface.xdg_toplevel = 0x400usize as *mut ffi::wl_resource;
     surface.window.id = window;
-    surface.window.size = tessera_types::Size { w: 100, h: 100 };
+    surface.window.size = tessera_primitives::Size { w: 100, h: 100 };
     state.surfaces = vec![surface.as_mut()];
 
     let mut server = std::mem::ManuallyDrop::new(Server {

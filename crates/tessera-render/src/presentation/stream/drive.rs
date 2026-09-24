@@ -6,7 +6,7 @@
 use std::time::Instant;
 
 use tessera_desktop::window::WindowId;
-use tessera_scene::stream::StreamFramePayload;
+use tessera_primitives::stream::StreamFramePayload;
 
 use crate::presentation::damage::{FrameDamage, union_frame_damage};
 
@@ -90,7 +90,7 @@ impl OutputStreams {
                 continue;
             };
             let window_id = match stream.target {
-                tessera_scene::stream::StreamTarget::Window { window } => window,
+                tessera_primitives::stream::StreamTarget::Window { window } => window,
                 _ => continue,
             };
             let window = stream
@@ -158,11 +158,11 @@ impl OutputStreams {
             // to the window's physical rect, translated into target
             // coordinates at delivery time.
             let scale = geometry.scale_milli as f32 / 1000.0;
-            let damage_origin = tessera_types::Point {
+            let damage_origin = tessera_primitives::Point {
                 x: (geometry.origin.x as f32 * scale).floor() as i32,
                 y: (geometry.origin.y as f32 * scale).floor() as i32,
             };
-            let cursor_draw = (stream.cursor == tessera_scene::stream::StreamCursorMode::Embedded)
+            let cursor_draw = (stream.cursor == tessera_primitives::stream::StreamCursorMode::Embedded)
                 .then_some(cursor_state.as_ref())
                 .flatten()
                 .and_then(|state| {
@@ -324,13 +324,13 @@ impl OutputStreams {
                     continue;
                 }
                 let (width, height) = stream.size;
-                let payload = StreamFramePayload::Slot(tessera_scene::stream::StreamSlotFrame {
+                let payload = StreamFramePayload::Slot(tessera_primitives::stream::StreamSlotFrame {
                     stream_id,
                     sequence: pending.sequence,
                     width,
                     height,
                     stride: dmabuf.slot_stride,
-                    format: tessera_scene::stream::StreamPixelFormat::Dmabuf {
+                    format: tessera_primitives::stream::StreamPixelFormat::Dmabuf {
                         drm_format: DRM_FORMAT_XRGB8888,
                         modifier: dmabuf.modifier,
                     },

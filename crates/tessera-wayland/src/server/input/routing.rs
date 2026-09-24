@@ -10,7 +10,7 @@ impl Server {
     /// real sequence termination when translated to `wl_pointer`.
     pub fn forward_input(
         &mut self,
-        events: &[tessera_types::input::InputEvent],
+        events: &[tessera_primitives::input::InputEvent],
         keymap: &tessera_desktop::keybind::Keymap,
     ) -> Vec<tessera_desktop::keybind::Action> {
         let _guard = ActiveSeatGuard::enter(self.state.as_mut(), HUMAN_SEAT)
@@ -28,7 +28,7 @@ impl Server {
     /// routed order.
     pub fn forward_prepared_input(
         &mut self,
-        events: &[tessera_types::input::InputEvent],
+        events: &[tessera_primitives::input::InputEvent],
         prepared_keys: &[Option<PreparedKeyboardEvent>],
         keymap: &tessera_desktop::keybind::Keymap,
     ) -> Vec<tessera_desktop::keybind::Action> {
@@ -43,7 +43,7 @@ impl Server {
     pub fn forward_agent_input(
         &mut self,
         seat: SeatId,
-        events: &[tessera_types::input::InputEvent],
+        events: &[tessera_primitives::input::InputEvent],
     ) -> Result<(), InteractionDomainRuntimeError> {
         let _guard = ActiveSeatGuard::enter(self.state.as_mut(), seat)
             .ok_or(InteractionDomainRuntimeError::SeatUnavailable(seat))?;
@@ -59,7 +59,7 @@ impl Server {
         &mut self,
         seat: SeatId,
         window: tessera_desktop::window::WindowId,
-        events: &[tessera_types::input::InputEvent],
+        events: &[tessera_primitives::input::InputEvent],
     ) -> Result<(), InteractionDomainRuntimeError> {
         if !self.state.authority.seat_controls_window(seat, window) {
             return Err(InteractionDomainError::UnknownWindow(window).into());
@@ -79,7 +79,7 @@ impl Server {
 
     pub(crate) fn forward_input_active(
         &mut self,
-        events: &[tessera_types::input::InputEvent],
+        events: &[tessera_primitives::input::InputEvent],
         keymap: Option<&tessera_desktop::keybind::Keymap>,
     ) -> Vec<tessera_desktop::keybind::Action> {
         self.forward_input_active_with_prepared(events, keymap, None)
@@ -87,7 +87,7 @@ impl Server {
 
     fn forward_input_active_with_prepared(
         &mut self,
-        events: &[tessera_types::input::InputEvent],
+        events: &[tessera_primitives::input::InputEvent],
         keymap: Option<&tessera_desktop::keybind::Keymap>,
         prepared_keys: Option<&[Option<PreparedKeyboardEvent>]>,
     ) -> Vec<tessera_desktop::keybind::Action> {
@@ -95,7 +95,7 @@ impl Server {
         let time = self.epoch.elapsed().as_millis() as u32;
         let mut prepared_keys = prepared_keys.map(|keys| keys.iter().copied());
         for event in events {
-            use tessera_types::input::InputEvent::*;
+            use tessera_primitives::input::InputEvent::*;
             match *event {
                 PointerMotion {
                     x,
@@ -188,7 +188,7 @@ impl Server {
     /// Current depressed keyboard modifiers after the most recently routed
     /// key event. The composition root uses this to keep held-modifier chrome
     /// (notably Super+Tab) open until the modifier is actually released.
-    pub fn depressed_modifiers(&self) -> tessera_types::input::Mods {
+    pub fn depressed_modifiers(&self) -> tessera_primitives::input::Mods {
         self.state.depressed_mods
     }
 
@@ -200,8 +200,8 @@ impl Server {
     pub fn prepare_synthetic_input(
         &self,
         window_id: tessera_desktop::window::WindowId,
-        actions: &[tessera_types::input::SyntheticInputAction],
-    ) -> Option<Vec<tessera_types::input::InputEvent>> {
+        actions: &[tessera_primitives::input::SyntheticInputAction],
+    ) -> Option<Vec<tessera_primitives::input::InputEvent>> {
         self.prepare_synthetic_input_for_seat(HUMAN_SEAT, window_id, actions, true)
     }
 
@@ -212,8 +212,8 @@ impl Server {
         &self,
         seat: SeatId,
         window_id: tessera_desktop::window::WindowId,
-        actions: &[tessera_types::input::SyntheticInputAction],
-    ) -> Option<Vec<tessera_types::input::InputEvent>> {
+        actions: &[tessera_primitives::input::SyntheticInputAction],
+    ) -> Option<Vec<tessera_primitives::input::InputEvent>> {
         self.prepare_synthetic_input_for_seat(seat, window_id, actions, false)
     }
 
@@ -221,12 +221,12 @@ impl Server {
         &self,
         seat: SeatId,
         window_id: tessera_desktop::window::WindowId,
-        actions: &[tessera_types::input::SyntheticInputAction],
+        actions: &[tessera_primitives::input::SyntheticInputAction],
         require_physical_visibility: bool,
-    ) -> Option<Vec<tessera_types::input::InputEvent>> {
-        use tessera_types::input::ButtonState;
-        use tessera_types::input::InputEvent;
-        use tessera_types::input::SyntheticInputAction;
+    ) -> Option<Vec<tessera_primitives::input::InputEvent>> {
+        use tessera_primitives::input::ButtonState;
+        use tessera_primitives::input::InputEvent;
+        use tessera_primitives::input::SyntheticInputAction;
 
         let runtime = self.state.seat_runtime(seat)?;
         let rec = self.find_surface_by_window_id(window_id);
@@ -269,7 +269,7 @@ impl Server {
         if size.w <= 0 || size.h <= 0 {
             return None;
         }
-        let to_global = |local: tessera_types::Point| -> Option<(f32, f32)> {
+        let to_global = |local: tessera_primitives::Point| -> Option<(f32, f32)> {
             if local.x < 0 || local.y < 0 || local.x >= size.w || local.y >= size.h {
                 return None;
             }
@@ -349,9 +349,9 @@ impl Server {
                     let (x, y) = to_global(position)?;
                     events.push(InputEvent::pointer_move_to(x, y));
                     events.push(InputEvent::PointerAxis(
-                        tessera_types::input::PointerAxisFrame::from_values(
+                        tessera_primitives::input::PointerAxisFrame::from_values(
                             self.epoch.elapsed().as_millis() as u32,
-                            Some(tessera_types::input::PointerAxisSource::Continuous),
+                            Some(tessera_primitives::input::PointerAxisSource::Continuous),
                             dx,
                             dy,
                         ),
@@ -503,7 +503,7 @@ impl Server {
                 w.attention_pulse = self.attention_pulse_active(w.id);
                 // Publish only in-flight transitions; settled ones are noise
                 // to chrome and IPC consumers (ADR-0029).
-                let target = tessera_types::Rect {
+                let target = tessera_primitives::Rect {
                     origin: w.position,
                     size: w.size,
                 };
@@ -621,7 +621,7 @@ impl Server {
             self.attention_pulse_active(w.id).hash(&mut hasher);
             // Only in-flight transitions are published; settled ones read as
             // `None` in the snapshot (ADR-0029).
-            let target = tessera_types::Rect {
+            let target = tessera_primitives::Rect {
                 origin: w.position,
                 size: w.size,
             };
@@ -1015,7 +1015,7 @@ impl Server {
     pub fn set_window_geometry(
         &mut self,
         window_id: tessera_desktop::window::WindowId,
-        rect: tessera_types::Rect,
+        rect: tessera_primitives::Rect,
     ) -> bool {
         if !self.human_controls_window(window_id) || rect.size.w <= 0 || rect.size.h <= 0 {
             return false;
@@ -1041,7 +1041,7 @@ impl Server {
             if unchanged {
                 return false;
             }
-            let old = tessera_types::Rect {
+            let old = tessera_primitives::Rect {
                 origin: (*rec).position,
                 size: (*rec).window.size,
             };
@@ -1194,9 +1194,9 @@ impl Server {
             if !(*rec).window.minimized {
                 return;
             }
-            let saved = (*rec).saved_floating_rect.unwrap_or(tessera_types::Rect {
-                origin: tessera_types::Point { x: 100, y: 100 },
-                size: tessera_types::Size { w: 800, h: 600 },
+            let saved = (*rec).saved_floating_rect.unwrap_or(tessera_primitives::Rect {
+                origin: tessera_primitives::Point { x: 100, y: 100 },
+                size: tessera_primitives::Size { w: 800, h: 600 },
             });
             let window_id = (*rec).window.id;
             // The flight leaves from the same dock icon (or stub point)
@@ -1297,20 +1297,20 @@ impl Server {
 
     /// Drain text-input state committed by the focused inner client. The
     /// nested backend mirrors each state to the host compositor's IME.
-    pub fn take_text_input_states(&mut self) -> Vec<tessera_types::input::TextInputState> {
+    pub fn take_text_input_states(&mut self) -> Vec<tessera_primitives::input::TextInputState> {
         std::mem::take(&mut self.state.pending_text_input_states)
     }
 
     /// Route one host IME event to the enabled text-input object belonging to
     /// the keyboard-focused inner client.
-    pub fn text_input_event(&mut self, event: &tessera_types::input::TextInputEvent) {
+    pub fn text_input_event(&mut self, event: &tessera_primitives::input::TextInputEvent) {
         unsafe { extensions::forward_text_input_event(self.state.as_mut(), event) };
     }
 
     /// Forward a host touchpad gesture to gesture objects belonging to the
     /// client that held pointer focus when the gesture began.
-    pub fn pointer_gesture_event(&mut self, event: &tessera_types::input::PointerGestureEvent) {
-        use tessera_types::input::PointerGestureEvent::*;
+    pub fn pointer_gesture_event(&mut self, event: &tessera_primitives::input::PointerGestureEvent) {
+        use tessera_primitives::input::PointerGestureEvent::*;
         unsafe {
             match *event {
                 SwipeBegin { time, fingers } => {

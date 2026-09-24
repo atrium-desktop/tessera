@@ -13,11 +13,11 @@ use std::path::{Path, PathBuf};
 pub(crate) struct SavedWindowState {
     /// Saved position in compositor logical coordinates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) position: Option<tessera_types::Point>,
+    pub(crate) position: Option<tessera_primitives::Point>,
 
     /// Saved size in compositor logical coordinates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) size: Option<tessera_types::Size>,
+    pub(crate) size: Option<tessera_primitives::Size>,
 
     /// Saved 1-based workspace index.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -133,8 +133,8 @@ mod tests {
         store.update(
             "org.mozilla.firefox".into(),
             SavedWindowState {
-                position: Some(tessera_types::Point { x: 100, y: 200 }),
-                size: Some(tessera_types::Size { w: 1024, h: 768 }),
+                position: Some(tessera_primitives::Point { x: 100, y: 200 }),
+                size: Some(tessera_primitives::Size { w: 1024, h: 768 }),
                 workspace: Some(2),
                 layout_role: Some(tessera_desktop::layout::LayoutRole::Floating),
                 maximized: Some(false),
@@ -144,11 +144,11 @@ mod tests {
         let retrieved = store.get("org.mozilla.firefox").unwrap();
         assert_eq!(
             retrieved.position,
-            Some(tessera_types::Point { x: 100, y: 200 })
+            Some(tessera_primitives::Point { x: 100, y: 200 })
         );
         assert_eq!(
             retrieved.size,
-            Some(tessera_types::Size { w: 1024, h: 768 })
+            Some(tessera_primitives::Size { w: 1024, h: 768 })
         );
         assert_eq!(retrieved.workspace, Some(2));
     }

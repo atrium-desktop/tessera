@@ -1115,7 +1115,7 @@ impl CompositorRuntime<'_> {
                         let effect_damage: Vec<_> = effect_damage_source
                             .iter()
                             .map(|region| {
-                                tessera_types::Rect::new(
+                                tessera_primitives::Rect::new(
                                     region.origin.0 as i32,
                                     region.origin.1 as i32,
                                     region.extent.0 as i32,
@@ -1136,7 +1136,7 @@ impl CompositorRuntime<'_> {
                             let effect_damage: Vec<_> = refresh_capture_regions
                                 .iter()
                                 .map(|region| {
-                                    tessera_types::Rect::new(
+                                    tessera_primitives::Rect::new(
                                         region.origin.0 as i32,
                                         region.origin.1 as i32,
                                         region.extent.0 as i32,
@@ -1696,7 +1696,7 @@ impl CompositorRuntime<'_> {
                         && self.capture_worker.reserve()
                     {
                         frame_capture = Some(FrameCapture {
-                            crop: Some(tessera_types::Rect::new(point.x, point.y, 1, 1)),
+                            crop: Some(tessera_primitives::Rect::new(point.x, point.y, 1, 1)),
                             target: CaptureTarget::Pixel {
                                 point,
                                 reply: pick.reply,
@@ -2369,11 +2369,11 @@ impl CompositorRuntime<'_> {
                 // environment, so it connects back to this compositor and
                 // survives it exiting. See tessera-launch / ADR-0022.
                 if let Some(entry) = self.shell.take_spawn() {
-                    let opts = tessera_apps::LaunchOpts {
+                    let opts = tessera_launch_services::LaunchOpts {
                         wayland_display: Some(self.server.socket().to_owned()),
                         ..Default::default()
                     };
-                    match tessera_apps::launch(&entry, &opts) {
+                    match tessera_launch_services::launch(&entry, &opts) {
                         Ok(report) => {
                             log::info!("launcher: spawned {} (pid {})", entry.id, report.pid)
                         }

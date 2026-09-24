@@ -1,0 +1,20 @@
+[package]
+name = "tessera-primitives"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Universal foundational physical, geometric, color, identity, and buffer primitives for Tessera."
+
+[dependencies]
+serde = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["serde"]
+serde = ["dep:serde"]

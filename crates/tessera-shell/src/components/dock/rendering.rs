@@ -1304,7 +1304,7 @@ impl Chrome for Dock {
         &self,
         _windows: &[Window],
         display: (f32, f32),
-    ) -> Option<tessera_types::Rect> {
+    ) -> Option<tessera_primitives::Rect> {
         if self.fullscreen_locked() {
             return None;
         }
@@ -1326,7 +1326,7 @@ impl Chrome for Dock {
             let y1 = (rect.y + rect.h + fringe + offset.max(0.0))
                 .ceil()
                 .min(display.1);
-            tessera_types::Rect::new(
+            tessera_primitives::Rect::new(
                 x0 as i32,
                 y0 as i32,
                 (x1 - x0).max(0.0) as i32,
@@ -1348,16 +1348,16 @@ impl Chrome for Dock {
                 DockPosition::Bottom => {
                     let y1 = display.1 - DOCK_EDGE_MARGIN;
                     let y0 = (y1 - DOCK_PANEL_HEIGHT - DOCK_EDGE_MARGIN - TOOLTIP_BAND).max(0.0);
-                    tessera_types::Rect::new(0, y0 as i32, display.0 as i32, (y1 - y0) as i32)
+                    tessera_primitives::Rect::new(0, y0 as i32, display.0 as i32, (y1 - y0) as i32)
                 }
                 DockPosition::Left => {
                     let x1 = DOCK_EDGE_MARGIN + DOCK_PANEL_HEIGHT + TOOLTIP_BAND;
-                    tessera_types::Rect::new(0, 0, x1.min(display.0) as i32, display.1 as i32)
+                    tessera_primitives::Rect::new(0, 0, x1.min(display.0) as i32, display.1 as i32)
                 }
                 DockPosition::Right => {
                     let x0 =
                         (display.0 - DOCK_EDGE_MARGIN - DOCK_PANEL_HEIGHT - TOOLTIP_BAND).max(0.0);
-                    tessera_types::Rect::new(
+                    tessera_primitives::Rect::new(
                         x0 as i32,
                         0,
                         (display.0 - x0) as i32,
@@ -1437,7 +1437,7 @@ impl Chrome for Dock {
     fn minimize_targets(
         &self,
         display: (f32, f32),
-        out: &mut Vec<(tessera_desktop::window::WindowId, tessera_types::Rect)>,
+        out: &mut Vec<(tessera_desktop::window::WindowId, tessera_primitives::Rect)>,
     ) {
         out.extend(self.minimize_targets(display));
     }
@@ -2147,8 +2147,8 @@ pub(super) fn live_preview_hit(
     preview::hit_test(&presentation.cards, None, x, y)
 }
 
-fn core_rect(rect: Rect) -> tessera_types::Rect {
-    tessera_types::Rect::new(
+fn core_rect(rect: Rect) -> tessera_primitives::Rect {
+    tessera_primitives::Rect::new(
         rect.x.round() as i32,
         rect.y.round() as i32,
         rect.w.round().max(1.0) as i32,
@@ -2156,7 +2156,7 @@ fn core_rect(rect: Rect) -> tessera_types::Rect {
     )
 }
 
-fn to_lens_rect(rect: tessera_types::Rect) -> Rect {
+fn to_lens_rect(rect: tessera_primitives::Rect) -> Rect {
     Rect {
         x: rect.origin.x as f32,
         y: rect.origin.y as f32,

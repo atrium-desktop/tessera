@@ -403,13 +403,13 @@ impl Handler for TestHandler {
         self.settings_actions.lock().unwrap().push(action.clone());
         match action {
             SettingsAction::SetInput { config } => {
-                snapshot.input = tessera_types::input::InputStatus {
+                snapshot.input = tessera_primitives::input::InputStatus {
                     configurable: true,
-                    touchpad: tessera_types::input::TouchpadStatus {
+                    touchpad: tessera_primitives::input::TouchpadStatus {
                         config: config.touchpad,
                         ..Default::default()
                     },
-                    mouse: tessera_types::input::MouseStatus {
+                    mouse: tessera_primitives::input::MouseStatus {
                         config: config.mouse,
                         ..Default::default()
                     },
@@ -480,7 +480,7 @@ impl Handler for TestHandler {
     }
     fn capture_output(
         &self,
-        _region: Option<tessera_types::Rect>,
+        _region: Option<tessera_primitives::Rect>,
     ) -> Result<tessera_ipc::CaptureOutputPayload, String> {
         std::thread::sleep(std::time::Duration::from_millis(
             self.capture_delay_ms.load(Ordering::Relaxed),
@@ -649,11 +649,11 @@ impl Handler for TestHandler {
         target: tessera_protocol::StreamTarget,
         _allow_dmabuf: bool,
         cursor: tessera_protocol::StreamCursorMode,
-    ) -> Result<tessera_scene::stream::StreamInfo, String> {
+    ) -> Result<tessera_primitives::stream::StreamInfo, String> {
         self.stream_targets.lock().unwrap().push(target);
         self.stream_cursors.lock().unwrap().push(cursor);
         let stream_id = self.stream_starts.fetch_add(1, Ordering::AcqRel) + 1;
-        Ok(tessera_scene::stream::StreamInfo {
+        Ok(tessera_primitives::stream::StreamInfo {
             stream_id,
             width: 2,
             height: 2,
@@ -689,7 +689,7 @@ impl Handler for TestHandler {
     ) -> Result<tessera_protocol::PickResult, String> {
         self.picks.lock().unwrap().push((conn_id, kind));
         Ok(tessera_protocol::PickResult::Region {
-            rect: tessera_types::Rect::new(1, 2, 30, 40),
+            rect: tessera_primitives::Rect::new(1, 2, 30, 40),
         })
     }
     fn pick_app(
@@ -734,7 +734,7 @@ impl Handler for TestHandler {
         _conn_id: u64,
         _subject: Option<&str>,
         interaction_domain: tessera_authority::interaction_domain::InteractionDomainId,
-        region: Option<tessera_types::Rect>,
+        region: Option<tessera_primitives::Rect>,
     ) -> Result<tessera_ipc::CaptureInteractionDomainPayload, String> {
         std::thread::sleep(std::time::Duration::from_millis(
             self.capture_delay_ms.load(Ordering::Relaxed),
@@ -745,12 +745,12 @@ impl Handler for TestHandler {
                 width: 2,
                 height: 1,
                 scale_milli: 1250,
-                region: region.unwrap_or_else(|| tessera_types::Rect::new(0, 0, 2, 1)),
+                region: region.unwrap_or_else(|| tessera_primitives::Rect::new(0, 0, 2, 1)),
                 placements: vec![
                     tessera_authority::interaction_domain::InteractionDomainWindowPlacement {
                         window: WindowId(1),
-                        output_rect: tessera_types::Rect::new(0, 0, 2, 1),
-                        surface_size: tessera_types::Size { w: 20, h: 10 },
+                        output_rect: tessera_primitives::Rect::new(0, 0, 2, 1),
+                        surface_size: tessera_primitives::Size { w: 20, h: 10 },
                     },
                 ],
                 observation: tessera_protocol::SemanticObservation {
@@ -783,7 +783,7 @@ impl Handler for TestHandler {
                 width: 2,
                 height: 1,
                 scale_milli: 1000,
-                rect: tessera_types::Rect::new(0, 0, 2, 1),
+                rect: tessera_primitives::Rect::new(0, 0, 2, 1),
                 png_bytes: 3,
             },
             png: vec![6u8, 5, 4],
@@ -811,8 +811,8 @@ impl Handler for TestHandler {
                     description: None,
                     value: None,
                     app_id: Some("org.example.first".into()),
-                    bounds: tessera_types::Rect::new(0, 0, 20, 10),
-                    local_size: tessera_types::Size { w: 20, h: 10 },
+                    bounds: tessera_primitives::Rect::new(0, 0, 20, 10),
+                    local_size: tessera_primitives::Size { w: 20, h: 10 },
                     state: tessera_semantic::model::SemanticState {
                         visible: true,
                         enabled: true,
@@ -997,7 +997,7 @@ fn sample_outputs() -> Vec<tessera_protocol::OutputInfo> {
         tessera_protocol::OutputInfo {
             connector: "HDMI-A-1".into(),
             primary: true,
-            rect: tessera_types::Rect::new(0, 0, 1920, 1080),
+            rect: tessera_primitives::Rect::new(0, 0, 1920, 1080),
             geometry: Some(tessera_desktop::output::OutputGeometry {
                 mode: tessera_desktop::output::OutputMode {
                     width: 1920,
@@ -1015,7 +1015,7 @@ fn sample_outputs() -> Vec<tessera_protocol::OutputInfo> {
         tessera_protocol::OutputInfo {
             connector: "DP-1".into(),
             primary: false,
-            rect: tessera_types::Rect::new(1920, 0, 2560, 1440),
+            rect: tessera_primitives::Rect::new(1920, 0, 2560, 1440),
             geometry: Some(tessera_desktop::output::OutputGeometry {
                 mode: tessera_desktop::output::OutputMode {
                     width: 2560,

@@ -188,7 +188,7 @@ impl NestedHost {
                 state,
                 ash: None,
                 vk_surface: 0,
-                input_config: tessera_types::input::InputConfig::default(),
+                input_config: tessera_primitives::input::InputConfig::default(),
                 wakeup_fd: None,
             })
         }
@@ -345,37 +345,37 @@ impl Backend for NestedHost {
                     refresh_mhz: 0,
                 },
                 scale: tessera_desktop::output::Scale(self.scale()),
-                transform: tessera_types::Transform::Normal,
-                logical_origin: tessera_types::Point::default(),
+                transform: tessera_primitives::Transform::Normal,
+                logical_origin: tessera_primitives::Point::default(),
             },
             // The outer compositor owns modesetting; there is nothing to
             // enumerate here.
             available_modes: Vec::new(),
             // The outer compositor owns color management likewise.
-            color_caps: tessera_scene::edid::EdidColorCapabilities::default(),
+            color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
         }]
     }
 
     fn set_input_config(
         &mut self,
-        config: tessera_types::input::InputConfig,
-    ) -> tessera_types::input::InputStatus {
+        config: tessera_primitives::input::InputConfig,
+    ) -> tessera_primitives::input::InputStatus {
         self.input_config = config;
         self.input_status()
     }
 
-    fn input_status(&self) -> tessera_types::input::InputStatus {
-        tessera_types::input::InputStatus {
+    fn input_status(&self) -> tessera_primitives::input::InputStatus {
+        tessera_primitives::input::InputStatus {
             // The outer compositor owns the physical devices while this
             // backend is nested.
             configurable: false,
-            touchpad: tessera_types::input::TouchpadStatus {
+            touchpad: tessera_primitives::input::TouchpadStatus {
                 config: self.input_config.touchpad,
-                ..tessera_types::input::TouchpadStatus::default()
+                ..tessera_primitives::input::TouchpadStatus::default()
             },
-            mouse: tessera_types::input::MouseStatus {
+            mouse: tessera_primitives::input::MouseStatus {
                 config: self.input_config.mouse,
-                ..tessera_types::input::MouseStatus::default()
+                ..tessera_primitives::input::MouseStatus::default()
             },
             keyboard: self.input_config.keyboard,
         }
@@ -449,7 +449,7 @@ impl Backend for NestedHost {
 
     /// Drain input events buffered since the last call. Empty until the host
     /// seat advertises pointer capability and the host starts sending events.
-    fn take_input(&mut self) -> Vec<tessera_types::input::InputEvent> {
+    fn take_input(&mut self) -> Vec<tessera_primitives::input::InputEvent> {
         std::mem::take(&mut self.state.input_events)
     }
 

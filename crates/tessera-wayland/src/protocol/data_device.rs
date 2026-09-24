@@ -855,7 +855,7 @@ unsafe extern "C" fn ddev_start_drag(
             if !toplevel_rec.is_null() {
                 reposition_toplevel_with_popups(
                     toplevel_rec,
-                    tessera_types::Point {
+                    tessera_primitives::Point {
                         x: init_x as i32 - toplevel_offset.0,
                         y: init_y as i32 - toplevel_offset.1,
                     },

@@ -81,7 +81,7 @@ impl Handler for TestHandler {
             .lock()
             .expect("interaction_domain lock");
         let mut window = Window::new(WindowId(7));
-        window.size = tessera_types::Size { w: 320, h: 180 };
+        window.size = tessera_primitives::Size { w: 320, h: 180 };
         window.read_only = interaction_domains
             .interaction_group_for_window(window.id)
             .is_some_and(|group| group.control_interaction_domain != HUMAN_INTERACTION_DOMAIN);
@@ -279,7 +279,7 @@ impl Handler for TestHandler {
         conn_id: u64,
         _subject: Option<&str>,
         interaction_domain: tessera_authority::interaction_domain::InteractionDomainId,
-        _region: Option<tessera_types::Rect>,
+        _region: Option<tessera_primitives::Rect>,
     ) -> Result<tessera_ipc::CaptureInteractionDomainPayload, String> {
         let revision = self
             .interaction_domains
@@ -296,7 +296,7 @@ impl Handler for TestHandler {
                 width: 1,
                 height: 1,
                 scale_milli: 1000,
-                region: tessera_types::Rect::new(0, 0, 1, 1),
+                region: tessera_primitives::Rect::new(0, 0, 1, 1),
                 placements: vec![],
                 observation: tessera_protocol::SemanticObservation {
                     token: tessera_protocol::ObservationToken("a".repeat(64)),
@@ -328,7 +328,7 @@ impl Handler for TestHandler {
                 width: 1,
                 height: 1,
                 scale_milli: 1000,
-                rect: tessera_types::Rect::new(0, 0, 1, 1),
+                rect: tessera_primitives::Rect::new(0, 0, 1, 1),
                 png_bytes: 8,
             },
             png: b"\x89PNG\r\n\x1a\n".to_vec(),
@@ -366,8 +366,8 @@ impl Handler for TestHandler {
                     description: None,
                     value: None,
                     app_id: Some("visual-smoke.test".into()),
-                    bounds: tessera_types::Rect::new(0, 0, 320, 180),
-                    local_size: tessera_types::Size { w: 320, h: 180 },
+                    bounds: tessera_primitives::Rect::new(0, 0, 320, 180),
+                    local_size: tessera_primitives::Size { w: 320, h: 180 },
                     state: tessera_semantic::model::SemanticState {
                         visible: true,
                         enabled: true,
@@ -598,7 +598,7 @@ fn stdio_discovers_manages_captures_and_revokes_interaction_domain() {
     let input = report.visual.input_probe.expect("input probe evidence");
     assert_eq!(input.window_id, 7);
     assert_eq!(input.action, "pointer_move");
-    assert_eq!(input.local_position, tessera_types::Point { x: 160, y: 90 });
+    assert_eq!(input.local_position, tessera_primitives::Point { x: 160, y: 90 });
     assert!(input.applied);
     assert!(input.window_restored_to_human);
     assert_eq!(

@@ -100,11 +100,11 @@ fn dispatch_command(socket: &Path, cli: Cli) -> Result<String, CliError> {
     let command = command.ok_or_else(client_command_required)?;
     match command {
         Cmd::Run => Err(client_command_required()),
-        Cmd::Calc { expression } => tessera_apps::eval_math(&expression)
+        Cmd::Calc { expression } => tessera_launch_services::eval_math(&expression)
             .ok_or_else(|| CliError::Io(format!("invalid arithmetic expression: {expression}"))),
         Cmd::Query { query } => {
             let i18n = tessera_i18n::Localizer::from_env();
-            let items = tessera_apps::IntentEngine::query(&query, &[], &[], |_| false, &[], &i18n);
+            let items = tessera_launch_services::IntentEngine::query(&query, &[], &[], |_| false, &[], &i18n);
             if json {
                 let rows: Vec<_> = items.iter().map(|item| serde_json::json!({
                     "title": item.title, "subtitle": item.subtitle,
@@ -528,7 +528,7 @@ fn dispatch_window(
             height,
         } => {
             let mut client = owner_client(socket, control_caps()).map_err(connect_err)?;
-            let rect = tessera_types::Rect::new(x, y, width, height);
+            let rect = tessera_primitives::Rect::new(x, y, width, height);
             client
                 .set_window_geometry(tessera_desktop::window::WindowId(id), rect)
                 .map_err(io_err)?;
@@ -1610,7 +1610,7 @@ mod tests {
         assert!(Region::from_str("1,2,0,4").is_err());
         assert_eq!(
             Region::from_str("10,20,100,80").unwrap().0,
-            tessera_types::Rect::new(10, 20, 100, 80)
+            tessera_primitives::Rect::new(10, 20, 100, 80)
         );
     }
 

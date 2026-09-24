@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use tessera_types::Rect;
+use tessera_primitives::Rect;
 
 /// Tessera compositor and session management.
 #[derive(Debug, clap::Parser)]

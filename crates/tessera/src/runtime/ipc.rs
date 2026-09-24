@@ -1437,7 +1437,7 @@ impl tessera_ipc::Handler for LiveState {
 
     fn capture_output(
         &self,
-        region: Option<tessera_types::Rect>,
+        region: Option<tessera_primitives::Rect>,
     ) -> Result<tessera_ipc::CaptureOutputPayload, String> {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         self.capture
@@ -1521,7 +1521,7 @@ impl tessera_ipc::Handler for LiveState {
         conn_id: u64,
         subject: Option<&str>,
         interaction_domain: tessera_authority::interaction_domain::InteractionDomainId,
-        region: Option<tessera_types::Rect>,
+        region: Option<tessera_primitives::Rect>,
     ) -> Result<tessera_ipc::CaptureInteractionDomainPayload, String> {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         let (actor, session) = self.actor_binding(conn_id, subject)?;
@@ -1698,7 +1698,7 @@ impl tessera_ipc::Handler for LiveState {
         target: tessera_protocol::StreamTarget,
         allow_dmabuf: bool,
         cursor: tessera_protocol::StreamCursorMode,
-    ) -> Result<tessera_scene::stream::StreamInfo, String> {
+    ) -> Result<tessera_primitives::stream::StreamInfo, String> {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         self.stream_controls
             .lock()

@@ -48,7 +48,7 @@ pub struct Entry {
     /// Localized `Comment`, if present.
     pub comment: Option<String>,
     /// Raw `Exec` value with field codes still in place. Callers spawn through
-    /// `tessera_apps::expand_exec` / `tessera_apps::expand_exec_tokens` to strip them.
+    /// `tessera_launch_services::expand_exec` / `tessera_launch_services::expand_exec_tokens` to strip them.
     pub exec: Option<String>,
     /// Raw `Icon` value as written (a theme name or an absolute path). The
     /// resolved filesystem path, if found, is in [`Entry::icon_path`].

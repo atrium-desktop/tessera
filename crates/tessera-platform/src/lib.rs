@@ -13,12 +13,12 @@ use tessera_desktop::output::OutputGeometry;
 use tessera_desktop::output::OutputInfo;
 use tessera_desktop::output::OutputMode;
 use tessera_desktop::output::Scale;
-use tessera_types::Size;
-use tessera_types::input::InputEvent;
-use tessera_types::input::InputStatus;
-use tessera_types::input::PointerGestureEvent;
-use tessera_types::input::TextInputEvent;
-use tessera_types::input::TextInputState;
+use tessera_primitives::Size;
+use tessera_primitives::input::InputEvent;
+use tessera_primitives::input::InputStatus;
+use tessera_primitives::input::PointerGestureEvent;
+use tessera_primitives::input::TextInputEvent;
+use tessera_primitives::input::TextInputState;
 
 /// A presentation + input target the compositor drives each frame.
 pub trait Backend {
@@ -56,11 +56,11 @@ pub trait Backend {
                     refresh_mhz: 0,
                 },
                 scale: Scale(self.scale()),
-                transform: tessera_types::Transform::Normal,
-                logical_origin: tessera_types::Point::default(),
+                transform: tessera_primitives::Transform::Normal,
+                logical_origin: tessera_primitives::Point::default(),
             },
             available_modes: Vec::new(),
-            color_caps: tessera_scene::edid::EdidColorCapabilities::default(),
+            color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
         }]
     }
 
@@ -104,15 +104,15 @@ pub trait Backend {
 
     /// Install the complete input profile (touchpad, mouse, keyboard) and
     /// return the resulting live status.
-    fn set_input_config(&mut self, config: tessera_types::input::InputConfig) -> InputStatus {
+    fn set_input_config(&mut self, config: tessera_primitives::input::InputConfig) -> InputStatus {
         InputStatus {
-            touchpad: tessera_types::input::TouchpadStatus {
+            touchpad: tessera_primitives::input::TouchpadStatus {
                 config: config.touchpad,
-                ..tessera_types::input::TouchpadStatus::default()
+                ..tessera_primitives::input::TouchpadStatus::default()
             },
-            mouse: tessera_types::input::MouseStatus {
+            mouse: tessera_primitives::input::MouseStatus {
                 config: config.mouse,
-                ..tessera_types::input::MouseStatus::default()
+                ..tessera_primitives::input::MouseStatus::default()
             },
             keyboard: config.keyboard,
             ..InputStatus::default()

@@ -556,10 +556,8 @@ pub(super) fn liquid_glass_groups(
             frost_strength: (region.frost_strength != 1.0).then_some(region.frost_strength),
             tint_strength: (region.tint_strength != 1.0).then_some(region.tint_strength),
             saturation: (region.saturation != 1.0).then_some(region.saturation),
-            plate_polarity: (region.plate_polarity >= 0.0).then_some(region.plate_polarity),
-            backdrop_energy: region
-                .adaptation
-                .map(|adaptation| adaptation.backdrop_energy),
+            contact_ao: None,
+            ambient_fresnel: None,
             curvature: Some(region.curvature),
             focus: region.focus.map(|focus| prism::LiquidGlassFocus {
                 shape: prism::LiquidGlassShape {
@@ -726,7 +724,7 @@ impl BackdropCacheKey {
         layers: &[tessera_shell::component::BackdropLayer],
         window_switcher: Option<&tessera_shell::component::WindowSwitcherPresentation>,
     ) -> Self {
-        fn push_rect(out: &mut Vec<u64>, rect: tessera_types::Rect) {
+        fn push_rect(out: &mut Vec<u64>, rect: tessera_primitives::Rect) {
             out.extend([
                 rect.origin.x as u64,
                 rect.origin.y as u64,
@@ -1119,7 +1117,7 @@ impl BackdropGraphExecutor {
         if let Some(capture) = self.captures.get_mut(slot).and_then(Option::as_mut) {
             capture.valid = true;
         }
-        self.recompute_effects(canvas, frame, work_regions, layers, glass_params)
+        self.recompute_effects_internal(canvas, frame, work_regions, layers, glass_params, true)
     }
 
     /// Rebuild this frame slot's effect composite from the still-valid
@@ -1134,6 +1132,18 @@ impl BackdropGraphExecutor {
         work_regions: &[flux::BlurRegion],
         layers: &[BackdropLayerWork],
         glass_params: prism::LiquidGlassParams,
+    ) -> bool {
+        self.recompute_effects_internal(canvas, frame, work_regions, layers, glass_params, false)
+    }
+
+    fn recompute_effects_internal(
+        &mut self,
+        canvas: &mut flux::Canvas,
+        frame: &mut flux::Frame<'_>,
+        work_regions: &[flux::BlurRegion],
+        layers: &[BackdropLayerWork],
+        glass_params: prism::LiquidGlassParams,
+        force_blur: bool,
     ) -> bool {
         let slot = frame.index() as usize;
         let Some(capture) = self.captures.get(slot).and_then(Option::as_ref) else {
@@ -1169,10 +1179,15 @@ impl BackdropGraphExecutor {
                 // removes stale pixels when a body's live geometry shrinks
                 // inside its declared capture envelope.
                 if !material_regions.is_empty() {
-                    let blurred =
+                    let blurred = if !force_blur
+                        && let Ok(cached) = operator.blur.current(frame)
+                    {
+                        cached
+                    } else {
                         operator
                             .blur
-                            .apply_regions(frame, input, work.sigma, &material_regions)?;
+                            .apply_regions(frame, input, work.sigma, &material_regions)?
+                    };
                     let material = match operator.glass.apply(
                         frame,
                         input,
@@ -1815,7 +1830,7 @@ pub(super) fn draw_overview_scene(
                 && interaction_domain.state
                     != tessera_authority::interaction_domain::InteractionDomainState::Revoked
         });
-    let display = tessera_types::Rect::new(0, 0, logical_size.0 as i32, logical_size.1 as i32);
+    let display = tessera_primitives::Rect::new(0, 0, logical_size.0 as i32, logical_size.1 as i32);
 
     // Workspace rail miniatures along the top edge: every workspace on the
     // output drawn live into its tile, independent of the main grid — an
@@ -1834,12 +1849,12 @@ pub(super) fn draw_overview_scene(
         rail,
         interaction_domain_shelf,
     );
-    let window_rects: Vec<(tessera_desktop::window::WindowId, tessera_types::Rect)> = windows
+    let window_rects: Vec<(tessera_desktop::window::WindowId, tessera_primitives::Rect)> = windows
         .iter()
         .map(|w| {
             (
                 w.id,
-                tessera_types::Rect {
+                tessera_primitives::Rect {
                     origin: w.position,
                     size: w.size,
                 },
@@ -1849,7 +1864,7 @@ pub(super) fn draw_overview_scene(
     // Closest-slot assignment pairs each window with the slot nearest its
     // real position, in input order; the chrome's hit-testing pairs the same
     // list the same way, so cells agree.
-    let slots: Vec<tessera_types::Rect> =
+    let slots: Vec<tessera_primitives::Rect> =
         tessera_shell::layout::overview::assign_slots(area, &window_rects)
             .into_iter()
             .map(|(_, slot)| slot)
@@ -1857,9 +1872,9 @@ pub(super) fn draw_overview_scene(
     let cells: std::collections::HashMap<
         tessera_desktop::window::WindowId,
         (
-            tessera_types::Rect,
-            tessera_types::Point,
-            tessera_types::Size,
+            tessera_primitives::Rect,
+            tessera_primitives::Point,
+            tessera_primitives::Size,
         ),
     > = windows
         .iter()
@@ -1869,7 +1884,7 @@ pub(super) fn draw_overview_scene(
             // lands on its aspect-fitted grid slot as `t` reaches 1.
             let cell = tessera_shell::layout::overview::animated_cell(
                 *slot,
-                tessera_types::Rect {
+                tessera_primitives::Rect {
                     origin: w.position,
                     size: w.size,
                 },
@@ -1879,13 +1894,13 @@ pub(super) fn draw_overview_scene(
         })
         .collect();
     let map = move |window: Option<tessera_desktop::window::WindowId>,
-                    natural: tessera_types::Rect| {
+                    natural: tessera_primitives::Rect| {
         let Some((cell, base, win_size)) = window.and_then(|id| cells.get(&id)) else {
             return natural;
         };
         let k = cell.size.w as f32 / win_size.w.max(1) as f32;
         let remap = |v: i32, b: i32| (v - b) as f32 * k;
-        tessera_types::Rect::new(
+        tessera_primitives::Rect::new(
             cell.origin.x + remap(natural.origin.x, base.x).round() as i32,
             cell.origin.y + remap(natural.origin.y, base.y).round() as i32,
             (natural.size.w as f32 * k).round().max(1.0) as i32,
@@ -1916,7 +1931,7 @@ fn draw_workspace_rail_tiles(
     renderer: &mut tessera_render::Renderer,
     server: &tessera_wayland::Server,
     snapshot: &tessera_desktop::workspace::WorkspaceSnapshot,
-    display: tessera_types::Rect,
+    display: tessera_primitives::Rect,
     scale: f32,
     progress: f32,
 ) {
@@ -1948,9 +1963,9 @@ fn draw_workspace_rail_tiles(
         let cells: std::collections::HashMap<
             tessera_desktop::window::WindowId,
             (
-                tessera_types::Rect,
-                tessera_types::Point,
-                tessera_types::Size,
+                tessera_primitives::Rect,
+                tessera_primitives::Point,
+                tessera_primitives::Size,
             ),
         > = tile_windows
             .iter()
@@ -1967,13 +1982,13 @@ fn draw_workspace_rail_tiles(
             })
             .collect();
         let map = move |wid: Option<tessera_desktop::window::WindowId>,
-                        natural: tessera_types::Rect| {
+                        natural: tessera_primitives::Rect| {
             let Some((cell, base, win_size)) = wid.and_then(|id| cells.get(&id)) else {
                 return natural;
             };
             let k = cell.size.w as f32 / win_size.w.max(1) as f32;
             let remap = |v: i32, b: i32| (v - b) as f32 * k;
-            tessera_types::Rect::new(
+            tessera_primitives::Rect::new(
                 cell.origin.x + remap(natural.origin.x, base.x).round() as i32,
                 cell.origin.y + remap(natural.origin.y, base.y).round() as i32,
                 (natural.size.w as f32 * k).round().max(1.0) as i32,
@@ -2154,8 +2169,8 @@ fn draw_preview_card_scene(
     device: &flux::Device,
     renderer: &mut tessera_render::Renderer,
     surface_order: &[usize],
-    shm: &[tessera_scene::SurfacePixels<'_>],
-    dmabuf: &[tessera_scene::SurfaceDmabuf],
+    shm: &[tessera_primitives::SurfacePixels<'_>],
+    dmabuf: &[tessera_primitives::SurfaceDmabuf],
     window: &tessera_desktop::window::Window,
     card: &tessera_shell::component::PreviewCard,
     opacity: f32,
@@ -2165,14 +2180,14 @@ fn draw_preview_card_scene(
     let base = window.position;
     let window_size = window.size;
     let target = window.id;
-    let map = move |id: Option<tessera_desktop::window::WindowId>, natural: tessera_types::Rect| {
+    let map = move |id: Option<tessera_desktop::window::WindowId>, natural: tessera_primitives::Rect| {
         if id != Some(target) {
-            return tessera_types::Rect::new(-100_000, -100_000, 1, 1);
+            return tessera_primitives::Rect::new(-100_000, -100_000, 1, 1);
         }
         let factor = (cell.size.w as f32 / window_size.w.max(1) as f32)
             .min(cell.size.h as f32 / window_size.h.max(1) as f32);
         let remap = |value: i32, origin: i32| (value - origin) as f32 * factor;
-        tessera_types::Rect::new(
+        tessera_primitives::Rect::new(
             cell.origin.x + remap(natural.origin.x, base.x).round() as i32,
             cell.origin.y + remap(natural.origin.y, base.y).round() as i32,
             (natural.size.w as f32 * factor).round().max(1.0) as i32,

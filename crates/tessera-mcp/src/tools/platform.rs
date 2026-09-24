@@ -727,7 +727,7 @@ impl TesseraPlatform {
             )));
         }
         let query = args.query.unwrap_or_default().trim().to_ascii_lowercase();
-        let apps = tessera_apps::enumerate()
+        let apps = tessera_launch_services::enumerate()
             .into_iter()
             .filter(|entry| {
                 query.is_empty()
@@ -816,7 +816,7 @@ impl TesseraPlatform {
         if args.desktop_id.trim().is_empty() {
             return Err(invalid("desktop_id must not be empty"));
         }
-        let known = tessera_apps::enumerate()
+        let known = tessera_launch_services::enumerate()
             .iter()
             .any(|entry| entry.id == args.desktop_id);
         if !known {

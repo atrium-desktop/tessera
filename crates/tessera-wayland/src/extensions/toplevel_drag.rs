@@ -160,7 +160,7 @@ unsafe extern "C" fn toplevel_drag_attach(
             if !surface_rec.is_null() {
                 crate::reposition_toplevel_with_popups(
                     surface_rec,
-                    tessera_types::Point {
+                    tessera_primitives::Point {
                         x: cur_x as i32 - x_offset,
                         y: cur_y as i32 - y_offset,
                     },

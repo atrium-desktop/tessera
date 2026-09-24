@@ -28,10 +28,10 @@ pub struct WindowRule {
     pub role: Option<crate::layout::LayoutRole>,
     /// Explicit position override in compositor logical coordinates.
     #[cfg_attr(feature = "serde", serde(default))]
-    pub position: Option<tessera_types::Point>,
+    pub position: Option<tessera_primitives::Point>,
     /// Explicit size override in compositor logical coordinates.
     #[cfg_attr(feature = "serde", serde(default))]
-    pub size: Option<tessera_types::Size>,
+    pub size: Option<tessera_primitives::Size>,
     /// Controls whether window geometry changes are remembered for this app across restarts.
     /// `None` or `Some(true)` allows auto-remembering; `Some(false)` disables it for matching windows.
     #[cfg_attr(feature = "serde", serde(default))]

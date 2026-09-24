@@ -64,7 +64,7 @@ pub(super) fn application_catalog(
     icon_theme: &str,
     icon_scale: u32,
 ) -> Vec<tessera_desktop::app::Entry> {
-    tessera_apps::enumerate_with_theme_and_scale(icon_theme, icon_scale.max(1))
+    tessera_launch_services::enumerate_with_theme_and_scale(icon_theme, icon_scale.max(1))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -274,7 +274,7 @@ pub(super) fn decode_icons(
     let mut decoded = Vec::new();
 
     // Default application fallback icon decoded from embedded SVG.
-    let default_target = tessera_apps::DEFAULT_ICON_SIZE
+    let default_target = tessera_launch_services::DEFAULT_ICON_SIZE
         .saturating_mul(icon_scale.max(1))
         .min(512);
     if let Some(default_bgra) = rasterize_svg_bgra(DEFAULT_APP_ICON_SVG.as_bytes(), default_target)
@@ -333,7 +333,7 @@ pub(super) fn decode_icons(
     }
     for name in symbolic_names {
         let Some(path) =
-            tessera_apps::resolve_icon_scaled(&name, Some(icon_theme), &[], 24, icon_scale.max(1))
+            tessera_launch_services::resolve_icon_scaled(&name, Some(icon_theme), &[], 24, icon_scale.max(1))
         else {
             log::debug!("hud icon: '{name}' was not found in theme '{icon_theme}'");
             continue;
@@ -442,7 +442,7 @@ pub(super) fn decode_icon(
     if !SVG_ICON_EXTS.contains(&ext) {
         return None;
     }
-    let target_u32 = tessera_apps::DEFAULT_ICON_SIZE
+    let target_u32 = tessera_launch_services::DEFAULT_ICON_SIZE
         .saturating_mul(icon_scale.max(1))
         .min(512);
     let target = target_u32.to_string();

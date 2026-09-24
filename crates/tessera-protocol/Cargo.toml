@@ -7,10 +7,9 @@ rust-version.workspace = true
 
 [dependencies]
 tessera-desktop.workspace = true
-tessera-scene.workspace = true
+tessera-primitives.workspace = true
 tessera-authority.workspace = true
 tessera-semantic.workspace = true
-tessera-types.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 zeroize.workspace = true

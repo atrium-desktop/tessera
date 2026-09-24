@@ -12,7 +12,7 @@
 //! unit-tested in isolation. The server-side application (reconfigure clients
 //! when the layout changes) is a follow-up.
 
-use tessera_types::{Rect, Size};
+use tessera_primitives::{Rect, Size};
 
 /// Whether a toplevel is laid out by the floating policy (free placement,
 /// the default) or by a tiling policy. A tiled window still carries a
@@ -97,7 +97,7 @@ impl Layout for MasterStack {
         for k in 0..m {
             let y = inner.origin.y + k * (row_h + params.gaps);
             out.push(Rect {
-                origin: tessera_types::Point { x: stack_x, y },
+                origin: tessera_primitives::Point { x: stack_x, y },
                 size: Size {
                     w: stack_w,
                     h: row_h,
@@ -116,7 +116,7 @@ fn inset(r: Rect, g: i32) -> Rect {
     let w = (r.size.w - 2 * g).max(0);
     let h = (r.size.h - 2 * g).max(0);
     Rect {
-        origin: tessera_types::Point {
+        origin: tessera_primitives::Point {
             x: r.origin.x + g,
             y: r.origin.y + g,
         },
@@ -127,7 +127,7 @@ fn inset(r: Rect, g: i32) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tessera_types::Point;
+    use tessera_primitives::Point;
 
     fn area(x: i32, y: i32, w: i32, h: i32) -> Rect {
         Rect {

@@ -185,7 +185,7 @@ impl CompositorRuntime<'_> {
         // the software cursor, magnify tooltips). Any other input keeps the
         // conservative full damage: a click can press a chrome control, a
         // key can change focus, and those effects are not localized.
-        let input_damage: Option<Vec<tessera_types::Rect>> = if had_input && !base_full {
+        let input_damage: Option<Vec<tessera_primitives::Rect>> = if had_input && !base_full {
             if input_pointer_only {
                 let display = self.input_acc.display_size;
                 // The union of the previous and current cursor footprints —
@@ -197,7 +197,7 @@ impl CompositorRuntime<'_> {
                     let y0 = (position.1 - extent).max(0.0).floor() as i32;
                     let x1 = (position.0 + extent).min(display.0).ceil() as i32;
                     let y1 = (position.1 + extent).min(display.1).ceil() as i32;
-                    tessera_types::Rect::new(x0, y0, (x1 - x0).max(0), (y1 - y0).max(0))
+                    tessera_primitives::Rect::new(x0, y0, (x1 - x0).max(0), (y1 - y0).max(0))
                 };
                 let mut rect = swept(cursor_position);
                 if let Some(previous) = self.damage.last_presented_cursor_position {
@@ -263,7 +263,7 @@ impl CompositorRuntime<'_> {
             // client damage as additional physical rectangles. The chrome
             // animation region is independent damage: a ticking spring
             // advances the frame with no input and no client commit.
-            let mut extra: Vec<tessera_types::Rect> = Vec::new();
+            let mut extra: Vec<tessera_primitives::Rect> = Vec::new();
             if let Some(region) = chrome_anim_region {
                 extra.push(region);
             }

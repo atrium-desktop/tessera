@@ -38,9 +38,9 @@ use tessera_desktop::app::BuiltInApplication;
 use tessera_desktop::window::Window;
 use tessera_desktop::window::WindowId;
 use tessera_desktop::workspace::WorkspaceSnapshot;
-use tessera_types::input::KeyAction;
-use tessera_types::input::KeyChar;
-use tessera_types::input::key_action;
+use tessera_primitives::input::KeyAction;
+use tessera_primitives::input::KeyChar;
+use tessera_primitives::input::key_action;
 
 /// Minimum drag distance in logical pixels before a release is treated as a
 /// real selection rather than an accidental tap.
@@ -87,7 +87,7 @@ pub struct ScreenshotSelector {
     current: Point,
     /// Selection staged by a completed drag, waiting for explicit
     /// confirmation. Drawn like the live drag rect but persistent.
-    confirmed: Option<tessera_types::Rect>,
+    confirmed: Option<tessera_primitives::Rect>,
     /// Window under the cursor in window-pick mode (topmost first).
     hovered: Option<WindowId>,
     /// Output under the cursor in output-pick mode (its connector), hit-tested
@@ -154,24 +154,24 @@ impl ScreenshotSelector {
 
     /// Compute the dragged rectangle from anchor and current cursor, clamped
     /// to non-negative size.
-    fn drag_rect(&self) -> Option<tessera_types::Rect> {
+    fn drag_rect(&self) -> Option<tessera_primitives::Rect> {
         let anchor = self.anchor?;
         self.drag_rect_at(anchor, self.current)
     }
 
     /// Rectangle of a drag from `anchor` to `cursor`, independent of the
     /// component's live drag state.
-    fn drag_rect_at(&self, anchor: Point, cursor: Point) -> Option<tessera_types::Rect> {
+    fn drag_rect_at(&self, anchor: Point, cursor: Point) -> Option<tessera_primitives::Rect> {
         let x = anchor.x.min(cursor.x).round() as i32;
         let y = anchor.y.min(cursor.y).round() as i32;
         let w = (anchor.x.max(cursor.x) - x as f32).round() as i32;
         let h = (anchor.y.max(cursor.y) - y as f32).round() as i32;
-        Some(tessera_types::Rect::new(x, y, w.max(0), h.max(0)))
+        Some(tessera_primitives::Rect::new(x, y, w.max(0), h.max(0)))
     }
 
     /// The rectangle currently shown: the staged selection once a drag has
     /// completed, otherwise the in-progress drag.
-    fn shown_rect(&self) -> Option<tessera_types::Rect> {
+    fn shown_rect(&self) -> Option<tessera_primitives::Rect> {
         self.confirmed.or_else(|| self.drag_rect())
     }
 
@@ -610,7 +610,7 @@ impl ScreenshotSelector {
     }
 }
 
-fn to_lens(rect: tessera_types::Rect) -> LensRect {
+fn to_lens(rect: tessera_primitives::Rect) -> LensRect {
     LensRect {
         x: rect.origin.x as f32,
         y: rect.origin.y as f32,
@@ -803,7 +803,7 @@ impl Chrome for ScreenshotSelector {
             PickerMode::Pixel => {
                 self.current = cursor;
                 if pressed {
-                    out.picked_point = Some(tessera_types::Point {
+                    out.picked_point = Some(tessera_primitives::Point {
                         x: cursor.x.round() as i32,
                         y: cursor.y.round() as i32,
                     });
@@ -1045,7 +1045,7 @@ mod tests {
         s.update_pointer(Point { x: 20.0, y: 30.0 }, true, false);
         s.update_pointer(Point { x: 80.0, y: 90.0 }, false, false);
         s.update_pointer(Point { x: 110.0, y: 70.0 }, false, true);
-        assert_eq!(s.confirmed, Some(tessera_types::Rect::new(20, 30, 90, 40)));
+        assert_eq!(s.confirmed, Some(tessera_primitives::Rect::new(20, 30, 90, 40)));
         assert!(s.active(), "release must keep the selector open");
         assert!(s.anchor.is_none());
     }
@@ -1060,15 +1060,15 @@ mod tests {
         let mut out = ChromeEvents::default();
         s.key_char(
             &KeyChar {
-                keysym: tessera_types::input::XKB_KEY_Return,
+                keysym: tessera_primitives::input::XKB_KEY_Return,
                 ch: None,
-                mods: tessera_types::input::Mods::NONE,
+                mods: tessera_primitives::input::Mods::NONE,
             },
             &mut out,
         );
         assert_eq!(
             out.screenshot_region,
-            Some(tessera_types::Rect::new(20, 30, 90, 40))
+            Some(tessera_primitives::Rect::new(20, 30, 90, 40))
         );
         assert!(!s.active());
     }
@@ -1085,7 +1085,7 @@ mod tests {
         assert!(s.confirmed.is_none());
         assert_eq!(
             s.drag_rect(),
-            Some(tessera_types::Rect::new(200, 200, 0, 0))
+            Some(tessera_primitives::Rect::new(200, 200, 0, 0))
         );
     }
 
@@ -1099,9 +1099,9 @@ mod tests {
         let mut out = ChromeEvents::default();
         s.key_char(
             &KeyChar {
-                keysym: tessera_types::input::XKB_KEY_Escape,
+                keysym: tessera_primitives::input::XKB_KEY_Escape,
                 ch: None,
-                mods: tessera_types::input::Mods::NONE,
+                mods: tessera_primitives::input::Mods::NONE,
             },
             &mut out,
         );
@@ -1268,8 +1268,8 @@ mod tests {
 
     fn window(id: u64, x: i32, y: i32, w: i32, h: i32) -> Window {
         let mut window = Window::new(WindowId(id));
-        window.position = tessera_types::Point { x, y };
-        window.size = tessera_types::Size { w, h };
+        window.position = tessera_primitives::Point { x, y };
+        window.size = tessera_primitives::Size { w, h };
         window
     }
 
@@ -1299,9 +1299,9 @@ mod tests {
         let mut out = ChromeEvents::default();
         s.key_char(
             &KeyChar {
-                keysym: tessera_types::input::XKB_KEY_Escape,
+                keysym: tessera_primitives::input::XKB_KEY_Escape,
                 ch: None,
-                mods: tessera_types::input::Mods::NONE,
+                mods: tessera_primitives::input::Mods::NONE,
             },
             &mut out,
         );
@@ -1316,9 +1316,9 @@ mod tests {
         let mut out = ChromeEvents::default();
         s.key_char(
             &KeyChar {
-                keysym: tessera_types::input::XKB_KEY_Return,
+                keysym: tessera_primitives::input::XKB_KEY_Return,
                 ch: None,
-                mods: tessera_types::input::Mods::NONE,
+                mods: tessera_primitives::input::Mods::NONE,
             },
             &mut out,
         );
@@ -1347,9 +1347,9 @@ mod tests {
         let mut out = ChromeEvents::default();
         s.key_char(
             &KeyChar {
-                keysym: tessera_types::input::XKB_KEY_Return,
+                keysym: tessera_primitives::input::XKB_KEY_Return,
                 ch: None,
-                mods: tessera_types::input::Mods::NONE,
+                mods: tessera_primitives::input::Mods::NONE,
             },
             &mut out,
         );
@@ -1373,11 +1373,11 @@ mod tests {
                     refresh_mhz: 60_000,
                 },
                 scale: tessera_desktop::output::Scale(1.0),
-                transform: tessera_types::Transform::Normal,
-                logical_origin: tessera_types::Point { x, y },
+                transform: tessera_primitives::Transform::Normal,
+                logical_origin: tessera_primitives::Point { x, y },
             },
             available_modes: Vec::new(),
-            color_caps: tessera_scene::edid::EdidColorCapabilities::default(),
+            color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
         }
     }
 
@@ -1418,9 +1418,9 @@ mod tests {
         let mut out = ChromeEvents::default();
         s.key_char(
             &KeyChar {
-                keysym: tessera_types::input::XKB_KEY_Return,
+                keysym: tessera_primitives::input::XKB_KEY_Return,
                 ch: None,
-                mods: tessera_types::input::Mods::NONE,
+                mods: tessera_primitives::input::Mods::NONE,
             },
             &mut out,
         );
@@ -1436,9 +1436,9 @@ mod tests {
         let mut out = ChromeEvents::default();
         s.key_char(
             &KeyChar {
-                keysym: tessera_types::input::XKB_KEY_Return,
+                keysym: tessera_primitives::input::XKB_KEY_Return,
                 ch: None,
-                mods: tessera_types::input::Mods::NONE,
+                mods: tessera_primitives::input::Mods::NONE,
             },
             &mut out,
         );
@@ -1454,9 +1454,9 @@ mod tests {
         let mut out = ChromeEvents::default();
         s.key_char(
             &KeyChar {
-                keysym: tessera_types::input::XKB_KEY_Escape,
+                keysym: tessera_primitives::input::XKB_KEY_Escape,
                 ch: None,
-                mods: tessera_types::input::Mods::NONE,
+                mods: tessera_primitives::input::Mods::NONE,
             },
             &mut out,
         );

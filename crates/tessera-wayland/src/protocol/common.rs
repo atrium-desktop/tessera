@@ -28,11 +28,11 @@ pub(crate) unsafe extern "C" fn xdg_noop_menu(
 
 // ----- accessors for the extensions module --------------------------------
 
-/// Construct a `tessera_types::Point`.
-pub(crate) fn tessera_point(x: i32, y: i32) -> tessera_types::Point {
-    tessera_types::Point { x, y }
+/// Construct a `tessera_primitives::Point`.
+pub(crate) fn tessera_point(x: i32, y: i32) -> tessera_primitives::Point {
+    tessera_primitives::Point { x, y }
 }
 
-pub(crate) fn tessera_size(w: i32, h: i32) -> tessera_types::Size {
-    tessera_types::Size { w, h }
+pub(crate) fn tessera_size(w: i32, h: i32) -> tessera_primitives::Size {
+    tessera_primitives::Size { w, h }
 }

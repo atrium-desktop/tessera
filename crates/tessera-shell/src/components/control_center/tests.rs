@@ -2,9 +2,9 @@ use super::*;
 
 fn escape() -> KeyChar {
     KeyChar {
-        keysym: tessera_types::input::XKB_KEY_Escape,
+        keysym: tessera_primitives::input::XKB_KEY_Escape,
         ch: None,
-        mods: tessera_types::input::Mods::NONE,
+        mods: tessera_primitives::input::Mods::NONE,
     }
 }
 
@@ -418,25 +418,25 @@ fn scrollbar_reveals_fade_out_after_wheel_activity_stops() {
 #[test]
 fn animated_frames_localize_damage_to_the_moving_bands() {
     let display = (1920.0, 1080.0);
-    let (profile, _main, notifications, _clock, tray, _media, work_mode, _power) =
+    let (profile, _main, notifications, _clock, tray, _media, work_mode, power) =
         CommandPanel::cluster_bounds(display);
-    let full = tessera_types::Rect::new(0, 0, display.0 as i32, display.1 as i32);
+    let full = tessera_primitives::Rect::new(0, 0, display.0 as i32, display.1 as i32);
 
     // Nothing animating: no footprint at all.
     assert_eq!(
-        animated_damage_region(display, false, false, false, false, false),
+        animated_damage_region(display, false, false, false, false, false, false, false),
         None
     );
 
-    // The reveal transition and the tooltip reveals paint outside the bands
-    // they belong to, so they must stay conservative (None => full repaint).
+    // The reveal transition stays conservative (None => full repaint) because
+    // it animates the full-screen backdrop cover.
     assert_eq!(
-        animated_damage_region(display, true, false, false, false, false),
+        animated_damage_region(display, true, false, false, false, false, false, false),
         None
     );
 
     // A ticking work-mode spring repaints only its band, never the screen.
-    let region = animated_damage_region(display, false, true, false, false, false)
+    let region = animated_damage_region(display, false, true, false, false, false, false, false)
         .expect("a ticking spring states its footprint");
     assert!(
         region.size.w < full.size.w && region.size.h < full.size.h,
@@ -445,27 +445,37 @@ fn animated_frames_localize_damage_to_the_moving_bands() {
     assert!(region.origin.y >= work_mode.y as i32);
 
     // The notification-scrollbar reveal covers only the notification stream.
-    let notif = animated_damage_region(display, false, false, true, false, false)
+    let notif = animated_damage_region(display, false, false, true, false, false, false, false)
         .expect("scrollbar reveal states its footprint");
     assert!(notif.origin.x >= notifications.x as i32);
     assert!(notif.origin.x + notif.size.w <= (notifications.x + notifications.w).ceil() as i32);
 
     // The tray-scrollbar reveal covers only the tray column.
-    let tray_region = animated_damage_region(display, false, false, false, true, false)
+    let tray_region = animated_damage_region(display, false, false, false, true, false, false, false)
         .expect("tray reveal states its footprint");
     assert!(tray_region.origin.x >= tray.x as i32);
     assert!(tray_region.origin.x + tray_region.size.w <= (tray.x + tray.w).ceil() as i32);
 
     // An animating avatar narrows to the profile block, never the full output.
-    let avatar = animated_damage_region(display, false, false, false, false, true)
+    let avatar = animated_damage_region(display, false, false, false, false, true, false, false)
         .expect("an animating avatar states its footprint");
     assert!(avatar.size.w < full.size.w && avatar.size.h < full.size.h);
     assert!(avatar.origin.x >= profile.x as i32);
     assert!(avatar.origin.x + avatar.size.w <= (profile.x + profile.w).ceil() as i32);
 
+    // Tooltip reveals stay localized to their cluster anchor bands.
+    let tip = animated_damage_region(display, false, false, false, false, false, true, false)
+        .expect("work mode tooltip states localized footprint");
+    assert!(tip.size.w < full.size.w && tip.size.h < full.size.h);
+
+    let session_tip = animated_damage_region(display, false, false, false, false, false, false, true)
+        .expect("session tooltip states localized footprint");
+    assert!(session_tip.size.w < full.size.w && session_tip.size.h < full.size.h);
+    assert!(session_tip.origin.x >= power.x as i32);
+
     // Independent signals union, so simultaneous motion still stays bounded
     // to the moving bands rather than the whole screen.
-    let union = animated_damage_region(display, false, true, true, true, true).unwrap();
+    let union = animated_damage_region(display, false, true, true, true, true, false, false).unwrap();
     assert!(union.size.w < full.size.w && union.size.h < full.size.h);
 }
 
@@ -564,7 +574,7 @@ fn wifi_key_char_typing_and_connect() {
     let kc = |keysym, ch| KeyChar {
         keysym,
         ch,
-        mods: tessera_types::input::Mods(0),
+        mods: tessera_primitives::input::Mods(0),
     };
 
     // Type "abc"
@@ -574,11 +584,11 @@ fn wifi_key_char_typing_and_connect() {
     assert_eq!(panel.wifi_input_passphrase, "abc");
 
     // Backspace pops 'c'
-    panel.key_char(&kc(tessera_types::input::XKB_KEY_BackSpace, None), &mut out);
+    panel.key_char(&kc(tessera_primitives::input::XKB_KEY_BackSpace, None), &mut out);
     assert_eq!(panel.wifi_input_passphrase, "ab");
 
     // Enter submits ConnectWifi action
-    panel.key_char(&kc(tessera_types::input::XKB_KEY_Return, None), &mut out);
+    panel.key_char(&kc(tessera_primitives::input::XKB_KEY_Return, None), &mut out);
     assert_eq!(panel.wifi_input_ssid, None);
     assert!(panel.wifi_input_passphrase.is_empty());
     assert_eq!(out.system_actions.len(), 1);
@@ -602,15 +612,15 @@ fn wifi_escape_peels_expanded_view_first() {
     let kc = |keysym| KeyChar {
         keysym,
         ch: None,
-        mods: tessera_types::input::Mods(0),
+        mods: tessera_primitives::input::Mods(0),
     };
 
     // First escape collapses Wi-Fi detail, leaves panel open
-    panel.key_char(&kc(tessera_types::input::XKB_KEY_Escape), &mut out);
+    panel.key_char(&kc(tessera_primitives::input::XKB_KEY_Escape), &mut out);
     assert!(panel.open);
     assert!(!panel.wifi_expanded);
 
     // Second escape closes panel
-    panel.key_char(&kc(tessera_types::input::XKB_KEY_Escape), &mut out);
+    panel.key_char(&kc(tessera_primitives::input::XKB_KEY_Escape), &mut out);
     assert!(!panel.open);
 }

@@ -2,7 +2,7 @@
 //!
 //! Skips automatically when no host icon data is present (CI sandboxes).
 
-use tessera_apps::icons::{icon_search_bases, resolve_icon, xdg_data_dirs};
+use tessera_launch_services::icons::{icon_search_bases, resolve_icon, xdg_data_dirs};
 
 fn have_system_icons() -> bool {
     xdg_data_dirs()

@@ -1,7 +1,7 @@
-# tessera-apps
+# tessera-launch-services
 
-Desktop application discovery, icon-theme lookup, process launching, and
-system intent search for Tessera.
+Desktop application discovery, icon-theme lookup, sandboxed process launching,
+and system intent search for Tessera.
 
 ## Responsibilities
 
@@ -16,6 +16,7 @@ system intent search for Tessera.
 
 ## Related Documentation
 
+- [ADR-0164: Universal domain pruning and primitives canonization](../../docs/adr/0164-universal-domain-pruning-and-primitives-canonization.md)
 - [ADR-0160: Consolidate application subsystem into tessera-apps](../../docs/adr/0160-consolidate-application-subsystem.md)
 - [ADR-0157: Headless intent subsystem](../../docs/adr/0157-headless-intent-subsystem-and-pivot-surface-decoupling.md)
 - [Architecture](../../docs/explanation/architecture.md)

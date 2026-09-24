@@ -11,14 +11,14 @@
 use super::*;
 
 use tessera_desktop::output::ColorPipeline;
-use tessera_scene::color::ContentColor;
-use tessera_scene::color::ContentPrimaries;
-use tessera_scene::color::ContentTransfer;
-use tessera_scene::color::CustomPrimaries;
-use tessera_scene::color::Luminances;
-use tessera_scene::color::NamedPrimaries;
-use tessera_scene::color::NamedTransfer;
-use tessera_scene::color::ParametricColor;
+use tessera_primitives::color::ContentColor;
+use tessera_primitives::color::ContentPrimaries;
+use tessera_primitives::color::ContentTransfer;
+use tessera_primitives::color::CustomPrimaries;
+use tessera_primitives::color::Luminances;
+use tessera_primitives::color::NamedPrimaries;
+use tessera_primitives::color::NamedTransfer;
+use tessera_primitives::color::ParametricColor;
 
 // ----- protocol enum values (color-management-v1) ---------------------------
 
@@ -1483,7 +1483,7 @@ mod tests {
         let sdr = ColorPipeline::Sdr.output_color();
         assert_eq!(sdr.primaries, ContentColor::SRGB.primaries);
         assert_eq!(sdr.transfer, ContentColor::SRGB.transfer);
-        assert_eq!(sdr.luminances, Some(tessera_scene::color::Luminances::SDR));
+        assert_eq!(sdr.luminances, Some(tessera_primitives::color::Luminances::SDR));
         let deep = ColorPipeline::SdrDeepColor.output_color();
         assert_eq!(deep, sdr);
         let hdr = ColorPipeline::Hdr.output_color();
@@ -1492,6 +1492,6 @@ mod tests {
             ContentPrimaries::Named(NamedPrimaries::Bt2020)
         );
         assert_eq!(hdr.transfer, ContentTransfer::Named(NamedTransfer::Pq));
-        assert_eq!(hdr.luminances, Some(tessera_scene::color::Luminances::HDR));
+        assert_eq!(hdr.luminances, Some(tessera_primitives::color::Luminances::HDR));
     }
 }

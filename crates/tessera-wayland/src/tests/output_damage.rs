@@ -37,21 +37,21 @@ fn backend_outputs_reconcile_workspace_connectors_and_geometry() {
             refresh_mhz: 60_000,
         },
         scale: tessera_desktop::output::Scale::IDENTITY,
-        transform: tessera_types::Transform::Normal,
-        logical_origin: tessera_types::Point { x, y: 0 },
+        transform: tessera_primitives::Transform::Normal,
+        logical_origin: tessera_primitives::Point { x, y: 0 },
     };
     server.set_outputs(vec![
         tessera_desktop::output::OutputInfo {
             connector: "DP-1".into(),
             geometry: geometry(0, 1920),
             available_modes: Vec::new(),
-            color_caps: tessera_scene::edid::EdidColorCapabilities::default(),
+            color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
         },
         tessera_desktop::output::OutputInfo {
             connector: "HDMI-A-1".into(),
             geometry: geometry(1920, 2560),
             available_modes: Vec::new(),
-            color_caps: tessera_scene::edid::EdidColorCapabilities::default(),
+            color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
         },
     ]);
 
@@ -93,21 +93,21 @@ fn output_policies_apply_scale_position_and_primary() {
             refresh_mhz: 60_000,
         },
         scale: tessera_desktop::output::Scale::IDENTITY,
-        transform: tessera_types::Transform::Normal,
-        logical_origin: tessera_types::Point { x, y: 0 },
+        transform: tessera_primitives::Transform::Normal,
+        logical_origin: tessera_primitives::Point { x, y: 0 },
     };
     server.set_outputs(vec![
         tessera_desktop::output::OutputInfo {
             connector: "DP-1".into(),
             geometry: geometry(0, 1920),
             available_modes: Vec::new(),
-            color_caps: tessera_scene::edid::EdidColorCapabilities::default(),
+            color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
         },
         tessera_desktop::output::OutputInfo {
             connector: "HDMI-A-1".into(),
             geometry: geometry(1920, 2560),
             available_modes: Vec::new(),
-            color_caps: tessera_scene::edid::EdidColorCapabilities::default(),
+            color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
         },
     ]);
 
@@ -115,7 +115,7 @@ fn output_policies_apply_scale_position_and_primary() {
         "HDMI-A-1".to_owned(),
         tessera_desktop::output::OutputPolicy {
             scale: Some(2.0),
-            position: Some(tessera_types::Point { x: 1920, y: 0 }),
+            position: Some(tessera_primitives::Point { x: 1920, y: 0 }),
             primary: true,
             ..Default::default()
         },
@@ -133,18 +133,18 @@ fn output_policies_apply_scale_position_and_primary() {
     assert_eq!(infos[0].geometry.scale.as_f32(), 2.0);
     assert_eq!(
         infos[0].geometry.logical_origin,
-        tessera_types::Point { x: 1920, y: 0 }
+        tessera_primitives::Point { x: 1920, y: 0 }
     );
     assert_eq!(
         server.output_logical_rect().origin,
-        tessera_types::Point { x: 1920, y: 0 },
+        tessera_primitives::Point { x: 1920, y: 0 },
         "the focused output geometry follows the primary policy"
     );
     // The other output keeps its backend-reported geometry.
     assert_eq!(infos[1].geometry.scale.as_f32(), 1.0);
     assert_eq!(
         infos[1].geometry.logical_origin,
-        tessera_types::Point { x: 0, y: 0 }
+        tessera_primitives::Point { x: 0, y: 0 }
     );
 }
 
@@ -153,19 +153,19 @@ fn surface_damage_accumulates_until_present_and_full_is_sticky() {
     let mut surface = SurfaceRec::new(std::ptr::null_mut());
     accumulate_committed_damage(
         &mut surface,
-        vec![tessera_types::Rect::new(10, 20, 30, 40)],
+        vec![tessera_primitives::Rect::new(10, 20, 30, 40)],
         false,
     );
     accumulate_committed_damage(
         &mut surface,
-        vec![tessera_types::Rect::new(100, 5, 10, 10)],
+        vec![tessera_primitives::Rect::new(100, 5, 10, 10)],
         false,
     );
     assert_eq!(
         surface.committed_damage,
         vec![
-            tessera_types::Rect::new(10, 20, 30, 40),
-            tessera_types::Rect::new(100, 5, 10, 10),
+            tessera_primitives::Rect::new(10, 20, 30, 40),
+            tessera_primitives::Rect::new(100, 5, 10, 10),
         ]
     );
     assert!(!surface.committed_damage_full);
@@ -183,12 +183,12 @@ fn surface_damage_accumulates_until_present_and_full_is_sticky() {
     // precise commit until present, forcing whole-buffer copies).
     accumulate_committed_damage(
         &mut surface,
-        vec![tessera_types::Rect::new(1, 1, 2, 2)],
+        vec![tessera_primitives::Rect::new(1, 1, 2, 2)],
         false,
     );
     assert_eq!(
         surface.committed_damage,
-        vec![tessera_types::Rect::new(1, 1, 2, 2)]
+        vec![tessera_primitives::Rect::new(1, 1, 2, 2)]
     );
     assert!(surface.committed_damage_full);
 }
@@ -198,22 +198,22 @@ fn surface_damage_region_subtracts_overlap_without_inventing_bbox_pixels() {
     let mut surface = SurfaceRec::new(std::ptr::null_mut());
     accumulate_committed_damage(
         &mut surface,
-        vec![tessera_types::Rect::new(0, 0, 10, 10)],
+        vec![tessera_primitives::Rect::new(0, 0, 10, 10)],
         false,
     );
     accumulate_committed_damage(
         &mut surface,
-        vec![tessera_types::Rect::new(5, 5, 10, 10)],
+        vec![tessera_primitives::Rect::new(5, 5, 10, 10)],
         false,
     );
 
-    assert!(tessera_types::Rect::new(0, 0, 10, 10).fully_covered_by(&surface.committed_damage));
-    assert!(tessera_types::Rect::new(5, 5, 10, 10).fully_covered_by(&surface.committed_damage));
+    assert!(tessera_primitives::Rect::new(0, 0, 10, 10).fully_covered_by(&surface.committed_damage));
+    assert!(tessera_primitives::Rect::new(5, 5, 10, 10).fully_covered_by(&surface.committed_damage));
     assert!(
         !surface
             .committed_damage
             .iter()
-            .any(|rect| rect.contains(tessera_types::Point { x: 12, y: 2 })),
+            .any(|rect| rect.contains(tessera_primitives::Point { x: 12, y: 2 })),
         "the overlap union must not dirty the bounding-box-only corner"
     );
 }
@@ -222,14 +222,14 @@ fn surface_damage_region_subtracts_overlap_without_inventing_bbox_pixels() {
 fn surface_damage_region_caps_pathological_client_lists() {
     let mut surface = SurfaceRec::new(std::ptr::null_mut());
     let rects = (0..=MAX_COMMITTED_DAMAGE_RECTS)
-        .map(|index| tessera_types::Rect::new((index * 2) as i32, 0, 1, 1))
+        .map(|index| tessera_primitives::Rect::new((index * 2) as i32, 0, 1, 1))
         .collect();
     accumulate_committed_damage(&mut surface, rects, false);
 
     assert_eq!(surface.committed_damage.len(), 1);
     assert_eq!(
         surface.committed_damage[0],
-        tessera_types::Rect::new(0, 0, (MAX_COMMITTED_DAMAGE_RECTS * 2 + 1) as i32, 1)
+        tessera_primitives::Rect::new(0, 0, (MAX_COMMITTED_DAMAGE_RECTS * 2 + 1) as i32, 1)
     );
 }
 
@@ -237,9 +237,9 @@ fn surface_damage_region_caps_pathological_client_lists() {
 fn surface_damage_region_promotes_unrepresentable_span_to_full() {
     let mut surface = SurfaceRec::new(std::ptr::null_mut());
     let mut rects = (0..MAX_COMMITTED_DAMAGE_RECTS)
-        .map(|index| tessera_types::Rect::new(i32::MIN + (index as i32 * 2), 0, 1, 1))
+        .map(|index| tessera_primitives::Rect::new(i32::MIN + (index as i32 * 2), 0, 1, 1))
         .collect::<Vec<_>>();
-    rects.push(tessera_types::Rect::new(i32::MAX - 1, 0, 1, 1));
+    rects.push(tessera_primitives::Rect::new(i32::MAX - 1, 0, 1, 1));
     accumulate_committed_damage(&mut surface, rects, false);
 
     assert!(surface.committed_damage_full);
@@ -248,8 +248,8 @@ fn surface_damage_region_promotes_unrepresentable_span_to_full() {
 
 #[test]
 fn buffer_damage_at_hidpi_scale_rounds_outward_to_surface_coordinates() {
-    let mapped = buffer_damage_to_surface(tessera_types::Rect::new(3, 5, 8, 10), 2);
-    assert_eq!(mapped, tessera_types::Rect::new(1, 2, 5, 6));
+    let mapped = buffer_damage_to_surface(tessera_primitives::Rect::new(3, 5, 8, 10), 2);
+    assert_eq!(mapped, tessera_primitives::Rect::new(1, 2, 5, 6));
 }
 
 #[test]
@@ -301,7 +301,7 @@ fn committed_opaque_region_culls_a_fully_covered_window_tree() {
     foreground.width = output.size.w;
     foreground.height = output.size.h;
     foreground.pixels = vec![0xE0; 4];
-    foreground.opaque_region = Some(vec![tessera_types::Rect::new(
+    foreground.opaque_region = Some(vec![tessera_primitives::Rect::new(
         0,
         0,
         output.size.w - 1,
@@ -318,7 +318,7 @@ fn committed_opaque_region_culls_a_fully_covered_window_tree() {
     });
 
     assert!(!server.occluded_window_ids().contains(&background_id));
-    foreground.opaque_region = Some(vec![tessera_types::Rect::new(
+    foreground.opaque_region = Some(vec![tessera_primitives::Rect::new(
         0,
         0,
         output.size.w,
@@ -327,7 +327,7 @@ fn committed_opaque_region_culls_a_fully_covered_window_tree() {
     // An actively moving foreground cannot safely occlude the pixels it is
     // moving away from/to.
     foreground.window.transition = Some(tessera_desktop::transition::WindowTransition {
-        from: tessera_types::Rect::new(0, 0, output.size.w / 2, output.size.h / 2),
+        from: tessera_primitives::Rect::new(0, 0, output.size.w / 2, output.size.h / 2),
         started_ms: server.now_ms(),
         duration_ms: 60_000,
         easing: tessera_desktop::transition::Easing::EaseOutCubic,
@@ -339,7 +339,7 @@ fn committed_opaque_region_culls_a_fully_covered_window_tree() {
     // same opaque foreground must immediately resume contributing coverage,
     // otherwise a covered video window continues rendering indefinitely.
     foreground.window.transition = Some(tessera_desktop::transition::WindowTransition {
-        from: tessera_types::Rect::new(0, 0, output.size.w / 2, output.size.h / 2),
+        from: tessera_primitives::Rect::new(0, 0, output.size.w / 2, output.size.h / 2),
         started_ms: 0,
         duration_ms: 0,
         easing: tessera_desktop::transition::Easing::EaseOutCubic,
@@ -393,9 +393,9 @@ fn test_persist_app_geometry_saves_state() {
     state.window_state_path = state_file.clone();
 
     let app_id = "org.test.app";
-    let rect = tessera_types::Rect {
-        origin: tessera_types::Point { x: 300, y: 400 },
-        size: tessera_types::Size { w: 900, h: 600 },
+    let rect = tessera_primitives::Rect {
+        origin: tessera_primitives::Point { x: 300, y: 400 },
+        size: tessera_primitives::Size { w: 900, h: 600 },
     };
 
     state.persist_app_geometry(
@@ -428,7 +428,7 @@ fn pending_damage_accumulator_is_bounded_and_conservative() {
     for index in 0..MAX_PENDING_DAMAGE_RECTS {
         push_pending_damage(
             &mut list,
-            tessera_types::Rect::new((index * 2) as i32, 0, 1, 1),
+            tessera_primitives::Rect::new((index * 2) as i32, 0, 1, 1),
         );
     }
     assert_eq!(list.len(), MAX_PENDING_DAMAGE_RECTS);
@@ -436,14 +436,14 @@ fn pending_damage_accumulator_is_bounded_and_conservative() {
     // One past the budget: the list collapses to a single conservative
     // bounding box that still covers every previously declared rect plus
     // the new one — never a silent drop.
-    push_pending_damage(&mut list, tessera_types::Rect::new(0, 5, 4, 1));
+    push_pending_damage(&mut list, tessera_primitives::Rect::new(0, 5, 4, 1));
     assert_eq!(list.len(), 1);
     let bbox = list[0];
-    assert!(bbox.contains(tessera_types::Point { x: 0, y: 0 }));
-    assert!(bbox.contains(tessera_types::Point { x: 2, y: 5 }));
+    assert!(bbox.contains(tessera_primitives::Point { x: 0, y: 0 }));
+    assert!(bbox.contains(tessera_primitives::Point { x: 2, y: 5 }));
     // rects span x=0..((N-1)*2+1); the bbox must cover that whole strip.
     assert!(
-        tessera_types::Rect::new(0, 0, (MAX_PENDING_DAMAGE_RECTS * 2 - 1) as i32, 1)
+        tessera_primitives::Rect::new(0, 0, (MAX_PENDING_DAMAGE_RECTS * 2 - 1) as i32, 1)
             .fully_covered_by(&list)
     );
 }
@@ -454,19 +454,19 @@ fn wl_region_accumulator_is_bounded_and_conservative() {
     for index in 0..MAX_REGION_RECTS {
         push_region_rect(
             &mut rects,
-            tessera_types::Rect::new((index * 3) as i32, 0, 1, 1),
+            tessera_primitives::Rect::new((index * 3) as i32, 0, 1, 1),
         );
     }
     assert_eq!(rects.len(), MAX_REGION_RECTS);
 
-    push_region_rect(&mut rects, tessera_types::Rect::new(0, 7, 2, 1));
+    push_region_rect(&mut rects, tessera_primitives::Rect::new(0, 7, 2, 1));
     assert_eq!(rects.len(), 1);
     // rects span x=0..((N-1)*3+1); the bbox must cover that whole strip.
     assert!(
-        tessera_types::Rect::new(0, 0, (MAX_REGION_RECTS * 3 - 2) as i32, 1)
+        tessera_primitives::Rect::new(0, 0, (MAX_REGION_RECTS * 3 - 2) as i32, 1)
             .fully_covered_by(&rects)
     );
-    assert!(rects[0].contains(tessera_types::Point { x: 1, y: 7 }));
+    assert!(rects[0].contains(tessera_primitives::Point { x: 1, y: 7 }));
 }
 
 #[test]
@@ -490,7 +490,7 @@ fn app_geometry_memory_is_bounded_like_the_persisted_store() {
     for index in 0..(crate::state::MAX_APP_GEOMETRY_ENTRIES + 25) {
         state.persist_app_geometry(
             &format!("com.example.churn-{index}"),
-            tessera_types::Rect::new(index as i32, 0, 10, 10),
+            tessera_primitives::Rect::new(index as i32, 0, 10, 10),
             None,
             None,
         );

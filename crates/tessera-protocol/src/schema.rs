@@ -44,8 +44,8 @@ use tessera_semantic::model::SemanticRole;
 use tessera_semantic::model::SemanticSnapshot;
 #[cfg(test)]
 use tessera_semantic::model::SemanticState;
-use tessera_types::Rect;
-use tessera_types::input::SyntheticInputAction;
+use tessera_primitives::Rect;
+use tessera_primitives::input::SyntheticInputAction;
 
 use crate::journal::{JournalEntry, JournalSnapshot};
 pub use tessera_semantic::{
@@ -1033,11 +1033,11 @@ impl OutputInfo {
                     connector: output.connector.clone(),
                     primary: index == 0,
                     rect: Rect {
-                        origin: tessera_types::Point {
+                        origin: tessera_primitives::Point {
                             x: physical(logical.origin.x),
                             y: physical(logical.origin.y),
                         },
-                        size: tessera_types::Size {
+                        size: tessera_primitives::Size {
                             w: physical(logical.size.w),
                             h: physical(logical.size.h),
                         },
@@ -1160,7 +1160,7 @@ pub enum Event {
     },
 }
 
-pub use tessera_scene::stream::{StreamCursorMode, StreamPixelFormat, StreamTarget};
+pub use tessera_primitives::stream::{StreamCursorMode, StreamPixelFormat, StreamTarget};
 
 /// The kind of interactive pick a [`Request::PickTarget`] asks the user for
 /// (ADR-0054). The compositor freezes the screen and opens the matching
@@ -1190,7 +1190,7 @@ pub enum PickResult {
     /// A picked point in compositor logical pixels and the straight-alpha
     /// RGB of the presented frame at that point.
     Pixel {
-        point: tessera_types::Point,
+        point: tessera_primitives::Point,
         rgb: [u8; 3],
     },
     /// A picked toplevel.

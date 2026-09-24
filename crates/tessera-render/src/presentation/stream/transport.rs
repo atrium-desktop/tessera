@@ -3,8 +3,8 @@
 
 use std::os::fd::{AsRawFd, OwnedFd};
 
-use tessera_types::Point;
-use tessera_types::Size;
+use tessera_primitives::Point;
+use tessera_primitives::Size;
 
 use super::ring::{STREAM_SLOT_COUNT, SlotRing};
 
@@ -74,7 +74,7 @@ pub struct StreamCursorBlit {
 /// inside the target's logical rect. `None` keeps the capture cursor-free.
 pub fn output_cursor_blit(
     state: &CaptureCursorState,
-    target_logical: Option<tessera_types::Rect>,
+    target_logical: Option<tessera_primitives::Rect>,
     scale: f32,
 ) -> Option<StreamCursorBlit> {
     let rect = target_logical?;
@@ -246,7 +246,7 @@ pub struct DmabufCapture {
     pub surface: flux::Surface,
     pub canvas: flux::Canvas,
     pub modifier: u64,
-    pub table: tessera_scene::stream::StreamSlotTable,
+    pub table: tessera_primitives::stream::StreamSlotTable,
 }
 
 /// Create a dmabuf stream's capture surface and enumerate its slot ring
@@ -322,7 +322,7 @@ pub fn enumerate_slot_ring(
         surface,
         canvas,
         modifier,
-        table: tessera_scene::stream::StreamSlotTable {
+        table: tessera_primitives::stream::StreamSlotTable {
             stride,
             byte_len: u64::from(stride) * u64::from(height),
             fds: fds
@@ -385,7 +385,7 @@ pub fn blit_presented_frame(
     dmabuf: &mut DmabufStream,
     presented: &PresentedFrameRef<'_>,
     acquire_fence: Option<&OwnedFd>,
-    src_rect: Option<&tessera_types::Rect>,
+    src_rect: Option<&tessera_primitives::Rect>,
     cursor: Option<StreamCursorBlit>,
     draw_cursor: &mut dyn FnMut(&flux::CanvasCommands<'_>, &StreamCursorBlit),
 ) -> Result<(usize, OwnedFd, flux::Image), BlitFailure> {

@@ -1,10 +1,10 @@
 /// Intersect a logical capture request with a virtual output without relying
 /// on overflowing `i32` endpoint arithmetic.
 pub fn clamp_logical_region(
-    rect: tessera_types::Rect,
+    rect: tessera_primitives::Rect,
     width: u32,
     height: u32,
-) -> Option<tessera_types::Rect> {
+) -> Option<tessera_primitives::Rect> {
     if rect.size.w <= 0 || rect.size.h <= 0 {
         return None;
     }
@@ -15,7 +15,7 @@ pub fn clamp_logical_region(
     let x1 = right.clamp(x0, i64::from(width));
     let y1 = bottom.clamp(y0, i64::from(height));
     (x1 > x0 && y1 > y0)
-        .then(|| tessera_types::Rect::new(x0 as i32, y0 as i32, (x1 - x0) as i32, (y1 - y0) as i32))
+        .then(|| tessera_primitives::Rect::new(x0 as i32, y0 as i32, (x1 - x0) as i32, (y1 - y0) as i32))
 }
 
 /// Convert a compositor-logical crop rectangle to physical output pixels.
@@ -24,11 +24,11 @@ pub fn clamp_logical_region(
 /// or height at fractional scales. The result is clamped to the readback
 /// surface so regions partially outside the focused output remain safe.
 pub fn logical_rect_to_physical(
-    rect: tessera_types::Rect,
+    rect: tessera_primitives::Rect,
     scale: f32,
     width: u32,
     height: u32,
-) -> tessera_types::Rect {
+) -> tessera_primitives::Rect {
     let scale = if scale.is_finite() && scale > 0.0 {
         f64::from(scale)
     } else {
@@ -41,7 +41,7 @@ pub fn logical_rect_to_physical(
     let y0 = scaled(i64::from(rect.origin.y)).clamp(0, i64::from(height));
     let x1 = scaled(right).clamp(x0, i64::from(width));
     let y1 = scaled(bottom).clamp(y0, i64::from(height));
-    tessera_types::Rect::new(x0 as i32, y0 as i32, (x1 - x0) as i32, (y1 - y0) as i32)
+    tessera_primitives::Rect::new(x0 as i32, y0 as i32, (x1 - x0) as i32, (y1 - y0) as i32)
 }
 
 /// Extract a sub-rectangle from a full RGBA8 buffer.
@@ -49,7 +49,7 @@ pub fn crop_rgba(
     src: &[u8],
     src_width: u32,
     _src_height: u32,
-    rect: tessera_types::Rect,
+    rect: tessera_primitives::Rect,
 ) -> Vec<u8> {
     let src_width = src_width as usize;
     let x = rect.origin.x as usize;

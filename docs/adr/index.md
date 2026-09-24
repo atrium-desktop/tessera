@@ -170,3 +170,5 @@ background and how the decisions fit together, see
 | [0160](0160-consolidate-application-subsystem.md) | Consolidate application subsystem into tessera-apps | Accepted |
 | [0161](0161-rename-backend-to-platform.md) | Rename tessera-backend to tessera-platform | Accepted |
 | [0162](0162-wireless-network-subsystem-and-iwd-bridge.md) | Wireless network subsystem abstraction and iwd bridge | Accepted |
+| [0163](0163-decoupled-backdrop-blur-cache-and-continuous-fade.md) | Decoupled backdrop blur cache and continuous chrome fade (extends [0149](0149-backdrop-covers-fade-with-chrome.md)) | Accepted |
+| [0164](0164-universal-domain-pruning-and-primitives-canonization.md) | Universal domain pruning and primitives canonization (amends [0158](0158-clean-break-workspace-boundaries.md), [0159](0159-package-boundaries-follow-capabilities.md), [0160](0160-consolidate-application-subsystem.md)) | Accepted |

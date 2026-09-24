@@ -37,7 +37,7 @@ fn named_scope_is_reported_and_enforced() {
 
 #[test]
 fn synthetic_input_requires_a_named_scope_and_separate_capability() {
-    use tessera_types::input::SyntheticInputAction;
+    use tessera_primitives::input::SyntheticInputAction;
 
     let path = scratch();
     let handler = Arc::new(TestHandler::permissive(sample_windows()));
@@ -53,7 +53,7 @@ fn synthetic_input_requires_a_named_scope_and_separate_capability() {
     let mut unscoped = Client::connect_with(&path, requested).expect("unscoped connect");
     assert!(!unscoped.caps().input, "unscoped input must fail closed");
     let action = SyntheticInputAction::Click {
-        position: tessera_types::Point { x: 10, y: 20 },
+        position: tessera_primitives::Point { x: 10, y: 20 },
         button: 0x110,
     };
     let err = unscoped
@@ -120,15 +120,15 @@ fn capture_output_requires_control_and_an_explicit_scope_op() {
     assert!(err.to_string().contains("control capability"), "{err}");
 }
 
-fn stream_frame(stream_id: u64, sequence: u64) -> tessera_scene::stream::StreamFramePayload {
-    tessera_scene::stream::StreamFramePayload::Pixels(tessera_scene::stream::StreamPixelFrame {
+fn stream_frame(stream_id: u64, sequence: u64) -> tessera_primitives::stream::StreamFramePayload {
+    tessera_primitives::stream::StreamFramePayload::Pixels(tessera_primitives::stream::StreamPixelFrame {
         stream_id,
         sequence,
         width: 2,
         height: 2,
         stride: 8,
         format: tessera_protocol::StreamPixelFormat::Bgra8,
-        damage: vec![tessera_types::Rect::new(0, 0, 2, 2)],
+        damage: vec![tessera_primitives::Rect::new(0, 0, 2, 2)],
         dropped: 0,
         pixels: Arc::from(&[7u8; 16][..]),
     })
@@ -227,7 +227,7 @@ fn pick_target_requires_control_and_an_explicit_scope_op() {
     assert_eq!(
         result,
         tessera_protocol::PickResult::Region {
-            rect: tessera_types::Rect::new(1, 2, 30, 40)
+            rect: tessera_primitives::Rect::new(1, 2, 30, 40)
         }
     );
     assert_eq!(
@@ -528,14 +528,14 @@ fn interaction_domain_lifecycle_capture_and_lease_are_scoped_and_synchronous() {
         .expect("interaction_domain capture");
     assert_eq!((capture.width, capture.height, capture.revision), (2, 1, 4));
     assert_eq!(capture.scale_milli, 1250);
-    assert_eq!(capture.region, tessera_types::Rect::new(0, 0, 2, 1));
+    assert_eq!(capture.region, tessera_primitives::Rect::new(0, 0, 2, 1));
     assert_eq!(
         capture.placements,
         vec![
             tessera_authority::interaction_domain::InteractionDomainWindowPlacement {
                 window: WindowId(1),
-                output_rect: tessera_types::Rect::new(0, 0, 2, 1),
-                surface_size: tessera_types::Size { w: 20, h: 10 },
+                output_rect: tessera_primitives::Rect::new(0, 0, 2, 1),
+                surface_size: tessera_primitives::Size { w: 20, h: 10 },
             }
         ]
     );
@@ -572,9 +572,9 @@ fn interaction_domain_actions_require_an_observation_and_return_commit_receipts(
             interaction_domain,
             target,
             observation.token,
-            vec![tessera_types::input::SyntheticInputAction::Click {
+            vec![tessera_primitives::input::SyntheticInputAction::Click {
                 button: 0x110,
-                position: tessera_types::Point { x: 5, y: 7 },
+                position: tessera_primitives::Point { x: 5, y: 7 },
             }],
         )
         .expect("observation-bound action commits synchronously");

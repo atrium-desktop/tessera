@@ -30,8 +30,7 @@ chrome-control-center = ["tessera-shell/chrome-control-center", "dep:tessera-tra
 thiserror = { workspace = true }
 tessera-cli = { workspace = true }
 tessera-desktop.workspace = true
-tessera-scene.workspace = true
-tessera-types.workspace = true
+tessera-primitives.workspace = true
 tessera-ipc.workspace = true
 tessera-protocol.workspace = true
 tessera-audit.workspace = true
@@ -57,7 +56,7 @@ tessera-config = { workspace = true }
 # Native resource commands dispatched through the same executable.
 # Launcher: enumerate `.desktop` entries and spawn them detached (ADR-0022, ADR-0160).
 # Only the binary wires these; tessera-shell and tessera-render stay free of them.
-tessera-apps = { workspace = true }
+tessera-launch-services = { workspace = true }
 flux = { workspace = true }
 lens = { workspace = true }
 # Liquid-glass material compositor (ADR-0063 moved it out of flux).

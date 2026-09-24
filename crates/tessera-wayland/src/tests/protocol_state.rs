@@ -153,9 +153,9 @@ fn interaction_domain_registry_filter_isolates_outputs_and_physical_authority_gl
 
 #[test]
 fn finger_scroll_updates_do_not_emit_stop_or_discrete_steps() {
-    let frame = tessera_types::input::PointerAxisFrame::from_values(
+    let frame = tessera_primitives::input::PointerAxisFrame::from_values(
         42,
-        Some(tessera_types::input::PointerAxisSource::Finger),
+        Some(tessera_primitives::input::PointerAxisSource::Finger),
         0.0,
         1.25,
     );
@@ -175,14 +175,14 @@ fn finger_scroll_updates_do_not_emit_stop_or_discrete_steps() {
 
 #[test]
 fn finger_scroll_stop_is_emitted_only_for_the_terminal_frame() {
-    let frame = tessera_types::input::PointerAxisFrame {
+    let frame = tessera_primitives::input::PointerAxisFrame {
         time: 55,
-        source: Some(tessera_types::input::PointerAxisSource::Finger),
-        vertical: tessera_types::input::PointerAxis {
+        source: Some(tessera_primitives::input::PointerAxisSource::Finger),
+        vertical: tessera_primitives::input::PointerAxis {
             stop: true,
-            ..tessera_types::input::PointerAxis::default()
+            ..tessera_primitives::input::PointerAxis::default()
         },
-        ..tessera_types::input::PointerAxisFrame::default()
+        ..tessera_primitives::input::PointerAxisFrame::default()
     };
     assert_eq!(
         pointer_axis_wire_events(9, frame),
@@ -199,16 +199,16 @@ fn finger_scroll_stop_is_emitted_only_for_the_terminal_frame() {
 
 #[test]
 fn wheel_metadata_precedes_axis_and_preserves_direction() {
-    let frame = tessera_types::input::PointerAxisFrame {
+    let frame = tessera_primitives::input::PointerAxisFrame {
         time: 77,
-        source: Some(tessera_types::input::PointerAxisSource::Wheel),
-        vertical: tessera_types::input::PointerAxis {
+        source: Some(tessera_primitives::input::PointerAxisSource::Wheel),
+        vertical: tessera_primitives::input::PointerAxis {
             value: Some(-10.0),
             discrete: Some(-1),
             value120: Some(-120),
-            ..tessera_types::input::PointerAxis::default()
+            ..tessera_primitives::input::PointerAxis::default()
         },
-        ..tessera_types::input::PointerAxisFrame::default()
+        ..tessera_primitives::input::PointerAxisFrame::default()
     };
     assert_eq!(
         pointer_axis_wire_events(9, frame),
@@ -254,27 +254,27 @@ fn legacy_output_scale_rounds_fractional_values_up() {
 
 #[test]
 fn interaction_domain_damage_is_clipped_deduplicated_and_bounded() {
-    let output = tessera_types::Rect::new(0, 0, 100, 80);
+    let output = tessera_primitives::Rect::new(0, 0, 100, 80);
     let mut damage = vec![
-        tessera_types::Rect::new(-10, -10, 20, 20),
-        tessera_types::Rect::new(-10, -10, 20, 20),
-        tessera_types::Rect::new(90, 70, 30, 30),
-        tessera_types::Rect::new(150, 150, 10, 10),
+        tessera_primitives::Rect::new(-10, -10, 20, 20),
+        tessera_primitives::Rect::new(-10, -10, 20, 20),
+        tessera_primitives::Rect::new(90, 70, 30, 30),
+        tessera_primitives::Rect::new(150, 150, 10, 10),
     ];
     normalize_interaction_domain_damage(&mut damage, output);
     assert_eq!(
         damage,
         vec![
-            tessera_types::Rect::new(0, 0, 10, 10),
-            tessera_types::Rect::new(90, 70, 10, 10),
+            tessera_primitives::Rect::new(0, 0, 10, 10),
+            tessera_primitives::Rect::new(90, 70, 10, 10),
         ]
     );
 
     let mut many = (0..65)
-        .map(|x| tessera_types::Rect::new(x, 0, 1, 1))
+        .map(|x| tessera_primitives::Rect::new(x, 0, 1, 1))
         .collect::<Vec<_>>();
     normalize_interaction_domain_damage(&mut many, output);
-    assert_eq!(many, vec![tessera_types::Rect::new(0, 0, 65, 1)]);
+    assert_eq!(many, vec![tessera_primitives::Rect::new(0, 0, 65, 1)]);
 }
 
 #[test]
@@ -302,15 +302,15 @@ fn explicit_geometry_size_respects_client_hints() {
         max_h: 1080,
     };
     assert_eq!(
-        clamp_size_to_hints(tessera_types::Size { w: 100, h: 2_000 }, hints),
-        tessera_types::Size { w: 320, h: 1080 }
+        clamp_size_to_hints(tessera_primitives::Size { w: 100, h: 2_000 }, hints),
+        tessera_primitives::Size { w: 320, h: 1080 }
     );
     assert_eq!(
         clamp_size_to_hints(
-            tessera_types::Size { w: 800, h: 600 },
+            tessera_primitives::Size { w: 800, h: 600 },
             tessera_desktop::window::SizeHints::default(),
         ),
-        tessera_types::Size { w: 800, h: 600 }
+        tessera_primitives::Size { w: 800, h: 600 }
     );
 }
 
@@ -322,27 +322,27 @@ fn logical_surface_size_applies_transform_scale_and_viewport_in_order() {
     surface.buffer_scale = 2;
     assert_eq!(
         surface_logical_size(&surface),
-        tessera_types::Size { w: 200, h: 100 }
+        tessera_primitives::Size { w: 200, h: 100 }
     );
 
-    surface.buffer_transform = tessera_types::Transform::Rotate90;
+    surface.buffer_transform = tessera_primitives::Transform::Rotate90;
     assert_eq!(
         surface_logical_size(&surface),
-        tessera_types::Size { w: 100, h: 200 }
+        tessera_primitives::Size { w: 100, h: 200 }
     );
 
     // Viewport source coordinates are after transform and buffer scale,
     // so they are already surface-local and must not be divided again.
-    surface.viewport_src = Some(tessera_types::Rect::new(5, 7, 80, 60));
+    surface.viewport_src = Some(tessera_primitives::Rect::new(5, 7, 80, 60));
     assert_eq!(
         surface_logical_size(&surface),
-        tessera_types::Size { w: 80, h: 60 }
+        tessera_primitives::Size { w: 80, h: 60 }
     );
 
-    surface.viewport_dst = Some(tessera_types::Size { w: 123, h: 45 });
+    surface.viewport_dst = Some(tessera_primitives::Size { w: 123, h: 45 });
     assert_eq!(
         surface_logical_size(&surface),
-        tessera_types::Size { w: 123, h: 45 }
+        tessera_primitives::Size { w: 123, h: 45 }
     );
 }
 
@@ -357,69 +357,69 @@ fn viewport_source_unset_uses_wire_encoded_fixed_negative_one() {
 fn viewport_source_decodes_positive_fixed_coordinates() {
     assert_eq!(
         decode_viewport_source(384, 576, 2_560, 5_120),
-        Ok(Some(tessera_types::Rect::new(2, 2, 10, 20)))
+        Ok(Some(tessera_primitives::Rect::new(2, 2, 10, 20)))
     );
 }
 
 #[test]
 fn draw_origin_subtracts_window_geometry_insets() {
     let mut surface = SurfaceRec::new(std::ptr::null_mut());
-    surface.position = tessera_types::Point { x: 100, y: 60 };
+    surface.position = tessera_primitives::Point { x: 100, y: 60 };
 
     // No declared geometry: the buffer draws at the window-rect origin.
     assert_eq!(
         surface_draw_origin(&surface),
-        tessera_types::Point { x: 100, y: 60 }
+        tessera_primitives::Point { x: 100, y: 60 }
     );
 
     // CSD insets: the buffer extends up-left of the window rect.
-    surface.window_geometry = Some(tessera_types::Rect::new(20, 10, 400, 300));
+    surface.window_geometry = Some(tessera_primitives::Rect::new(20, 10, 400, 300));
     assert_eq!(
         surface_draw_origin(&surface),
-        tessera_types::Point { x: 80, y: 50 }
+        tessera_primitives::Point { x: 80, y: 50 }
     );
 }
 
 #[test]
 fn draw_origin_walks_nested_subsurface_chains() {
     let mut root = SurfaceRec::new(std::ptr::null_mut());
-    root.position = tessera_types::Point { x: 100, y: 60 };
+    root.position = tessera_primitives::Point { x: 100, y: 60 };
     // A CSD root: the chain anchors at the buffer draw origin.
-    root.window_geometry = Some(tessera_types::Rect::new(20, 10, 400, 300));
+    root.window_geometry = Some(tessera_primitives::Rect::new(20, 10, 400, 300));
 
     let mut child = SurfaceRec::new(std::ptr::null_mut());
     child.parent = &mut root;
-    child.subsurface_offset = tessera_types::Point { x: 10, y: 5 };
+    child.subsurface_offset = tessera_primitives::Point { x: 10, y: 5 };
     let mut grandchild = SurfaceRec::new(std::ptr::null_mut());
     grandchild.parent = &mut child;
-    grandchild.subsurface_offset = tessera_types::Point { x: 3, y: 2 };
+    grandchild.subsurface_offset = tessera_primitives::Point { x: 3, y: 2 };
 
     // 100-20+10+3, 60-10+5+2: offsets accumulate in each parent's
     // buffer space down to the root's draw origin.
     assert_eq!(
         surface_draw_origin(&grandchild),
-        tessera_types::Point { x: 93, y: 57 }
+        tessera_primitives::Point { x: 93, y: 57 }
     );
     assert_eq!(
         surface_draw_origin(&child),
-        tessera_types::Point { x: 90, y: 55 }
+        tessera_primitives::Point { x: 90, y: 55 }
     );
 
     // Detaching (wl_subsurface.destroy / parent destroyed) stops the walk.
     grandchild.parent = std::ptr::null_mut();
     assert_eq!(
         surface_draw_origin(&grandchild),
-        tessera_types::Point::default()
+        tessera_primitives::Point::default()
     );
 }
 
 #[test]
 fn accepts_point_uses_buffer_space_for_subsurfaces() {
     let mut root = SurfaceRec::new(std::ptr::null_mut());
-    root.position = tessera_types::Point { x: 100, y: 60 };
+    root.position = tessera_primitives::Point { x: 100, y: 60 };
     let mut child = SurfaceRec::new(std::ptr::null_mut());
     child.parent = &mut root;
-    child.subsurface_offset = tessera_types::Point { x: 10, y: 5 };
+    child.subsurface_offset = tessera_primitives::Point { x: 10, y: 5 };
     child.width = 40;
     child.height = 30;
     child.buffer_scale = 1;
@@ -432,7 +432,7 @@ fn accepts_point_uses_buffer_space_for_subsurfaces() {
 
     // An input region further restricts the accepted area, in
     // buffer-local coordinates.
-    child.input_region = Some(vec![tessera_types::Rect::new(0, 0, 20, 30)]);
+    child.input_region = Some(vec![tessera_primitives::Rect::new(0, 0, 20, 30)]);
     assert!(surface_accepts_point(&child, 115.0, 70.0));
     assert!(!surface_accepts_point(&child, 135.0, 70.0));
 }
@@ -440,8 +440,8 @@ fn accepts_point_uses_buffer_space_for_subsurfaces() {
 #[test]
 fn region_subtraction_preserves_the_uncut_area() {
     let pieces = subtract_rect(
-        tessera_types::Rect::new(0, 0, 100, 100),
-        tessera_types::Rect::new(20, 20, 60, 60),
+        tessera_primitives::Rect::new(0, 0, 100, 100),
+        tessera_primitives::Rect::new(20, 20, 60, 60),
     );
     assert_eq!(pieces.len(), 4);
     let area: i32 = pieces.iter().map(|rect| rect.size.w * rect.size.h).sum();
@@ -449,7 +449,7 @@ fn region_subtraction_preserves_the_uncut_area() {
     assert!(
         pieces
             .iter()
-            .all(|rect| !rect.contains(tessera_types::Point { x: 50, y: 50 }))
+            .all(|rect| !rect.contains(tessera_primitives::Point { x: 50, y: 50 }))
     );
 }
 
@@ -513,7 +513,7 @@ fn initial_size_restores_main_windows_but_not_same_app_transients() {
     state.window_state_store.update(
         "com.example.App".to_owned(),
         window_state::SavedWindowState {
-            size: Some(tessera_types::Size { w: 960, h: 720 }),
+            size: Some(tessera_primitives::Size { w: 960, h: 720 }),
             ..Default::default()
         },
     );
@@ -523,7 +523,7 @@ fn initial_size_restores_main_windows_but_not_same_app_transients() {
 
     assert_eq!(
         unsafe { initial_toplevel_size(&mut surface) },
-        Some(tessera_types::Size { w: 960, h: 720 })
+        Some(tessera_primitives::Size { w: 960, h: 720 })
     );
 
     surface.window.parent = Some(0x1234);
@@ -533,33 +533,33 @@ fn initial_size_restores_main_windows_but_not_same_app_transients() {
 
 #[test]
 fn transient_centering_uses_parent_geometry_and_output_origin() {
-    let parent = tessera_types::Rect::new(500, 200, 800, 600);
-    let output = tessera_types::Rect::new(320, 100, 1200, 800);
+    let parent = tessera_primitives::Rect::new(500, 200, 800, 600);
+    let output = tessera_primitives::Rect::new(320, 100, 1200, 800);
     assert_eq!(
-        centered_transient_position(parent, tessera_types::Size { w: 400, h: 200 }, output),
-        tessera_types::Point { x: 700, y: 400 }
+        centered_transient_position(parent, tessera_primitives::Size { w: 400, h: 200 }, output),
+        tessera_primitives::Point { x: 700, y: 400 }
     );
 
     // A parent partly beyond the output would center the child off-screen;
     // the compositor keeps the whole child visible instead.
     assert_eq!(
         centered_transient_position(
-            tessera_types::Rect::new(1400, 800, 400, 300),
-            tessera_types::Size { w: 300, h: 200 },
+            tessera_primitives::Rect::new(1400, 800, 400, 300),
+            tessera_primitives::Size { w: 300, h: 200 },
             output
         ),
-        tessera_types::Point { x: 1220, y: 700 }
+        tessera_primitives::Point { x: 1220, y: 700 }
     );
 }
 
 #[test]
 fn state_only_configures_preserve_a_mapped_window_size() {
     assert_eq!(
-        state_configure_dimensions(tessera_types::Size { w: 1180, h: 760 }),
+        state_configure_dimensions(tessera_primitives::Size { w: 1180, h: 760 }),
         (1180, 760)
     );
     assert_eq!(
-        state_configure_dimensions(tessera_types::Size { w: 0, h: 0 }),
+        state_configure_dimensions(tessera_primitives::Size { w: 0, h: 0 }),
         (0, 0),
         "an unmapped toplevel still lets the client choose its first size"
     );
@@ -583,8 +583,8 @@ fn fullscreen_reconfigure_covers_the_output_and_restores_the_floating_rect() {
     let mut rec = SurfaceRec::new(std::ptr::null_mut());
     rec.state = &mut state;
     rec.mapped = true;
-    rec.position = tessera_types::Point { x: 240, y: 120 };
-    rec.window.size = tessera_types::Size { w: 800, h: 600 };
+    rec.position = tessera_primitives::Point { x: 240, y: 120 };
+    rec.window.size = tessera_primitives::Size { w: 800, h: 600 };
     rec.window.state.maximized = false;
 
     // Entering fullscreen saves the floating rect and covers the whole
@@ -595,27 +595,27 @@ fn fullscreen_reconfigure_covers_the_output_and_restores_the_floating_rect() {
     assert_eq!(
         (rec.position, rec.window.size),
         (
-            tessera_types::Point { x: 0, y: 0 },
-            tessera_types::Size { w: 1920, h: 1080 }
+            tessera_primitives::Point { x: 0, y: 0 },
+            tessera_primitives::Size { w: 1920, h: 1080 }
         ),
         "fullscreen covers the entire output"
     );
     assert_eq!(
         rec.saved_floating_rect,
-        Some(tessera_types::Rect::new(240, 120, 800, 600)),
+        Some(tessera_primitives::Rect::new(240, 120, 800, 600)),
         "the floating rect is saved exactly once on entry"
     );
     assert_eq!(
         rec.layout_target,
-        Some(tessera_types::Rect::new(0, 0, 1920, 1080))
+        Some(tessera_primitives::Rect::new(0, 0, 1920, 1080))
     );
 
     // Leaving fullscreen restores the saved floating rect.
     rec.window.state.fullscreen = false;
     let restored = unsafe { apply_state_geometry(&mut rec) };
     assert_eq!(restored, (800, 600));
-    assert_eq!(rec.position, tessera_types::Point { x: 240, y: 120 });
-    assert_eq!(rec.window.size, tessera_types::Size { w: 800, h: 600 });
+    assert_eq!(rec.position, tessera_primitives::Point { x: 240, y: 120 });
+    assert_eq!(rec.window.size, tessera_primitives::Size { w: 800, h: 600 });
     assert_eq!(rec.saved_floating_rect, None);
     assert_eq!(rec.layout_target, None);
 }
@@ -639,35 +639,35 @@ fn stale_commit_during_restore_does_not_latch_the_maximized_size() {
     let mut rec = SurfaceRec::new(std::ptr::null_mut());
     rec.state = &mut state;
     rec.mapped = true;
-    rec.position = tessera_types::Point { x: 240, y: 120 };
-    rec.window.size = tessera_types::Size { w: 800, h: 600 };
+    rec.position = tessera_primitives::Point { x: 240, y: 120 };
+    rec.window.size = tessera_primitives::Size { w: 800, h: 600 };
 
     // Maximize, then restore: the compositor re-owns the floating size and
     // arms the commit guard with it.
     rec.window.state.maximized = true;
     let _ = unsafe { apply_state_geometry(&mut rec) };
-    assert_eq!(rec.window.size, tessera_types::Size { w: 1920, h: 1080 });
+    assert_eq!(rec.window.size, tessera_primitives::Size { w: 1920, h: 1080 });
     rec.window.state.maximized = false;
     let _ = unsafe { apply_state_geometry(&mut rec) };
-    assert_eq!(rec.window.size, tessera_types::Size { w: 800, h: 600 });
+    assert_eq!(rec.window.size, tessera_primitives::Size { w: 800, h: 600 });
     assert_eq!(
         rec.restore_pending_size,
-        Some(tessera_types::Size { w: 800, h: 600 }),
+        Some(tessera_primitives::Size { w: 800, h: 600 }),
         "the restore arms the commit guard with the floating size"
     );
 
     // The client acks the configure but commits its old maximized-sized
     // buffer first: the stale size must not be latched.
-    rec.window_geometry = Some(tessera_types::Rect::new(0, 0, 1920, 1080));
+    rec.window_geometry = Some(tessera_primitives::Rect::new(0, 0, 1920, 1080));
     unsafe { apply_committed_window_size(&mut rec) };
     assert_eq!(
         rec.window.size,
-        tessera_types::Size { w: 800, h: 600 },
+        tessera_primitives::Size { w: 800, h: 600 },
         "a pre-resize commit must not pull the window back to the maximized size"
     );
     assert_eq!(
         rec.restore_pending_size,
-        Some(tessera_types::Size { w: 800, h: 600 })
+        Some(tessera_primitives::Size { w: 800, h: 600 })
     );
 
     // A focus change reconfigures with the state: it must replay the floating
@@ -678,16 +678,16 @@ fn stale_commit_during_restore_does_not_latch_the_maximized_size() {
         (800, 600),
         "focus-time reconfigure must keep the restored floating size"
     );
-    assert_eq!(rec.window.size, tessera_types::Size { w: 800, h: 600 });
+    assert_eq!(rec.window.size, tessera_primitives::Size { w: 800, h: 600 });
 
     // Once the client commits the restored size the guard retires, and later
     // commits are latched as usual.
-    rec.window_geometry = Some(tessera_types::Rect::new(0, 0, 800, 600));
+    rec.window_geometry = Some(tessera_primitives::Rect::new(0, 0, 800, 600));
     unsafe { apply_committed_window_size(&mut rec) };
     assert_eq!(rec.restore_pending_size, None);
-    rec.window_geometry = Some(tessera_types::Rect::new(0, 0, 1024, 768));
+    rec.window_geometry = Some(tessera_primitives::Rect::new(0, 0, 1024, 768));
     unsafe { apply_committed_window_size(&mut rec) };
-    assert_eq!(rec.window.size, tessera_types::Size { w: 1024, h: 768 });
+    assert_eq!(rec.window.size, tessera_primitives::Size { w: 1024, h: 768 });
 }
 
 /// An explicit size configure (tiling, IPC set-geometry, interactive resize)
@@ -707,7 +707,7 @@ fn explicit_size_configure_supersedes_a_pending_restore() {
     let mut rec = SurfaceRec::new(std::ptr::null_mut());
     rec.state = &mut state;
     rec.mapped = true;
-    rec.window.size = tessera_types::Size { w: 800, h: 600 };
+    rec.window.size = tessera_primitives::Size { w: 800, h: 600 };
 
     rec.window.state.maximized = true;
     let _ = unsafe { apply_state_geometry(&mut rec) };
@@ -715,7 +715,7 @@ fn explicit_size_configure_supersedes_a_pending_restore() {
     let _ = unsafe { apply_state_geometry(&mut rec) };
     assert_eq!(
         rec.restore_pending_size,
-        Some(tessera_types::Size { w: 800, h: 600 })
+        Some(tessera_primitives::Size { w: 800, h: 600 })
     );
 
     unsafe { reconfigure_with_size(&mut rec, 1024, 768) };
@@ -725,9 +725,9 @@ fn explicit_size_configure_supersedes_a_pending_restore() {
     );
 
     // With the guard retired, commits latch normally again.
-    rec.window_geometry = Some(tessera_types::Rect::new(0, 0, 1024, 768));
+    rec.window_geometry = Some(tessera_primitives::Rect::new(0, 0, 1024, 768));
     unsafe { apply_committed_window_size(&mut rec) };
-    assert_eq!(rec.window.size, tessera_types::Size { w: 1024, h: 768 });
+    assert_eq!(rec.window.size, tessera_primitives::Size { w: 1024, h: 768 });
 }
 
 /// The IPC `set_window_geometry` path replaces the floating geometry
@@ -748,22 +748,22 @@ fn replacing_floating_geometry_consumes_the_saved_restore_rect() {
     let mut rec = SurfaceRec::new(std::ptr::null_mut());
     rec.state = &mut state;
     rec.mapped = true;
-    rec.position = tessera_types::Point { x: 240, y: 120 };
-    rec.window.size = tessera_types::Size { w: 800, h: 600 };
+    rec.position = tessera_primitives::Point { x: 240, y: 120 };
+    rec.window.size = tessera_primitives::Size { w: 800, h: 600 };
 
     // Maximize: the 800x600 floating rect is saved.
     rec.window.state.maximized = true;
     let _ = unsafe { apply_state_geometry(&mut rec) };
     assert_eq!(
         rec.saved_floating_rect,
-        Some(tessera_types::Rect::new(240, 120, 800, 600))
+        Some(tessera_primitives::Rect::new(240, 120, 800, 600))
     );
 
     // The IPC installs a new floating geometry: same bookkeeping as
     // `set_window_geometry`.
     unsafe { leave_state_floating_geometry(&mut rec) };
-    rec.position = tessera_types::Point { x: 60, y: 60 };
-    rec.window.size = tessera_types::Size { w: 1100, h: 700 };
+    rec.position = tessera_primitives::Point { x: 60, y: 60 };
+    rec.window.size = tessera_primitives::Size { w: 1100, h: 700 };
 
     // Maximize again: the capture must record the *current* geometry, not
     // resurrect the stale pre-IPC one.
@@ -771,15 +771,15 @@ fn replacing_floating_geometry_consumes_the_saved_restore_rect() {
     let _ = unsafe { apply_state_geometry(&mut rec) };
     assert_eq!(
         rec.saved_floating_rect,
-        Some(tessera_types::Rect::new(60, 60, 1100, 700)),
+        Some(tessera_primitives::Rect::new(60, 60, 1100, 700)),
         "the capture must follow the geometry the IPC installed"
     );
 
     // And the restore lands on the current floating size, too.
     rec.window.state.maximized = false;
     let _ = unsafe { apply_state_geometry(&mut rec) };
-    assert_eq!(rec.position, tessera_types::Point { x: 60, y: 60 });
-    assert_eq!(rec.window.size, tessera_types::Size { w: 1100, h: 700 });
+    assert_eq!(rec.position, tessera_primitives::Point { x: 60, y: 60 });
+    assert_eq!(rec.window.size, tessera_primitives::Size { w: 1100, h: 700 });
     assert_eq!(rec.saved_floating_rect, None);
 }
 
@@ -800,11 +800,11 @@ fn restore_of_a_zero_sized_capture_does_not_arm_the_commit_guard() {
     let mut rec = SurfaceRec::new(std::ptr::null_mut());
     rec.state = &mut state;
     rec.mapped = true;
-    rec.window.size = tessera_types::Size { w: 0, h: 0 };
+    rec.window.size = tessera_primitives::Size { w: 0, h: 0 };
 
     rec.window.state.maximized = true;
     let _ = unsafe { apply_state_geometry(&mut rec) };
-    assert_eq!(rec.window.size, tessera_types::Size { w: 1920, h: 1080 });
+    assert_eq!(rec.window.size, tessera_primitives::Size { w: 1920, h: 1080 });
 
     rec.window.state.maximized = false;
     let _ = unsafe { apply_state_geometry(&mut rec) };
@@ -814,7 +814,7 @@ fn restore_of_a_zero_sized_capture_does_not_arm_the_commit_guard() {
     );
     assert_eq!(
         rec.window.size,
-        tessera_types::Size { w: 0, h: 0 },
+        tessera_primitives::Size { w: 0, h: 0 },
         "with nothing to restore, the client decides its size"
     );
 }
@@ -833,8 +833,8 @@ fn maximized_tear_off_drag_reanchors_to_cursor() {
     let mut rec = SurfaceRec::new(std::ptr::null_mut());
     rec.state = &mut state;
     rec.mapped = true;
-    rec.position = tessera_types::Point { x: 100, y: 100 };
-    rec.window.size = tessera_types::Size { w: 800, h: 600 };
+    rec.position = tessera_primitives::Point { x: 100, y: 100 };
+    rec.window.size = tessera_primitives::Size { w: 800, h: 600 };
     rec.window.id = tessera_desktop::window::WindowId(1234);
 
     // Maximize the window
@@ -842,9 +842,9 @@ fn maximized_tear_off_drag_reanchors_to_cursor() {
     let _ = unsafe { apply_state_geometry(&mut rec) };
     assert_eq!(
         rec.saved_floating_rect,
-        Some(tessera_types::Rect::new(100, 100, 800, 600))
+        Some(tessera_primitives::Rect::new(100, 100, 800, 600))
     );
-    assert_eq!(rec.window.size, tessera_types::Size { w: 1920, h: 1080 });
+    assert_eq!(rec.window.size, tessera_primitives::Size { w: 1920, h: 1080 });
 
     // Drag from the right side of the maximized window titlebar: (1536, 25) - 80% across
     unsafe {
@@ -853,13 +853,13 @@ fn maximized_tear_off_drag_reanchors_to_cursor() {
 
     // Maximized state cleared, restored to floating size (800, 600)
     assert!(!rec.window.state.maximized);
-    assert_eq!(rec.window.size, tessera_types::Size { w: 800, h: 600 });
+    assert_eq!(rec.window.size, tessera_primitives::Size { w: 800, h: 600 });
     assert_eq!(rec.saved_floating_rect, None);
 
     // Re-anchored: ratio_x = 1536 / 1920 = 0.8.
     // New origin x = 1536 - 0.8 * 800 = 896.
     // New origin y = 25 - 25 = 0.
-    assert_eq!(rec.position, tessera_types::Point { x: 896, y: 0 });
+    assert_eq!(rec.position, tessera_primitives::Point { x: 896, y: 0 });
 
     // Interactive::Move starts with the re-anchored position and cursor origin
     assert_eq!(
@@ -867,7 +867,7 @@ fn maximized_tear_off_drag_reanchors_to_cursor() {
         Some(tessera_desktop::window::Interactive::Move {
             window_id: tessera_desktop::window::WindowId(1234),
             origin: (1536.0, 25.0),
-            start_position: tessera_types::Point { x: 896, y: 0 },
+            start_position: tessera_primitives::Point { x: 896, y: 0 },
         })
     );
 }
@@ -886,8 +886,8 @@ fn fullscreen_tear_off_drag_reanchors_to_cursor() {
     let mut rec = SurfaceRec::new(std::ptr::null_mut());
     rec.state = &mut state;
     rec.mapped = true;
-    rec.position = tessera_types::Point { x: 300, y: 200 };
-    rec.window.size = tessera_types::Size { w: 1000, h: 600 };
+    rec.position = tessera_primitives::Point { x: 300, y: 200 };
+    rec.window.size = tessera_primitives::Size { w: 1000, h: 600 };
     rec.window.id = tessera_desktop::window::WindowId(5678);
 
     // Fullscreen the window
@@ -895,7 +895,7 @@ fn fullscreen_tear_off_drag_reanchors_to_cursor() {
     let _ = unsafe { apply_state_geometry(&mut rec) };
     assert_eq!(
         rec.saved_floating_rect,
-        Some(tessera_types::Rect::new(300, 200, 1000, 600))
+        Some(tessera_primitives::Rect::new(300, 200, 1000, 600))
     );
 
     // Drag from center of the screen (960, 540) - 50% across, 50% down
@@ -904,16 +904,16 @@ fn fullscreen_tear_off_drag_reanchors_to_cursor() {
     }
 
     assert!(!rec.window.state.fullscreen);
-    assert_eq!(rec.window.size, tessera_types::Size { w: 1000, h: 600 });
+    assert_eq!(rec.window.size, tessera_primitives::Size { w: 1000, h: 600 });
     // Re-anchored: ratio_x = 0.5 -> 960 - 500 = 460.
     // delta_y = 540 < 600 -> 540 - 540 = 0.
-    assert_eq!(rec.position, tessera_types::Point { x: 460, y: 0 });
+    assert_eq!(rec.position, tessera_primitives::Point { x: 460, y: 0 });
     assert_eq!(
         state.interactive,
         Some(tessera_desktop::window::Interactive::Move {
             window_id: tessera_desktop::window::WindowId(5678),
             origin: (960.0, 540.0),
-            start_position: tessera_types::Point { x: 460, y: 0 },
+            start_position: tessera_primitives::Point { x: 460, y: 0 },
         })
     );
 }
@@ -979,20 +979,20 @@ fn set_toplevel_fullscreen_guards_follow_window_authority() {
     let mut rec = SurfaceRec::new(std::ptr::null_mut());
     rec.state = &mut state;
     rec.mapped = true;
-    rec.position = tessera_types::Point { x: 100, y: 80 };
-    rec.window.size = tessera_types::Size { w: 640, h: 480 };
+    rec.position = tessera_primitives::Point { x: 100, y: 80 };
+    rec.window.size = tessera_primitives::Size { w: 640, h: 480 };
     rec.window.state.fullscreen = true;
     let configure_size = unsafe { apply_state_geometry(&mut rec) };
     assert_eq!(configure_size, (1920, 1080));
     assert_eq!(
         rec.saved_floating_rect,
-        Some(tessera_types::Rect::new(100, 80, 640, 480))
+        Some(tessera_primitives::Rect::new(100, 80, 640, 480))
     );
     rec.window.state.fullscreen = false;
     let restored = unsafe { apply_state_geometry(&mut rec) };
     assert_eq!(restored, (640, 480));
-    assert_eq!(rec.position, tessera_types::Point { x: 100, y: 80 });
-    assert_eq!(rec.window.size, tessera_types::Size { w: 640, h: 480 });
+    assert_eq!(rec.position, tessera_primitives::Point { x: 100, y: 80 });
+    assert_eq!(rec.window.size, tessera_primitives::Size { w: 640, h: 480 });
 }
 
 #[test]
@@ -1284,7 +1284,7 @@ fn moving_a_toplevel_carries_its_popup_subtree() {
     let mut toplevel = Box::new(SurfaceRec::new(0x100usize as *mut ffi::wl_resource));
     toplevel.state = &mut state;
     toplevel.xdg_toplevel = 0x101usize as *mut ffi::wl_resource;
-    toplevel.position = tessera_types::Point { x: 100, y: 100 };
+    toplevel.position = tessera_primitives::Point { x: 100, y: 100 };
     toplevel.window.position = toplevel.position;
     toplevel.mapped = true;
 
@@ -1294,21 +1294,21 @@ fn moving_a_toplevel_carries_its_popup_subtree() {
     menu.state = &mut state;
     menu.xdg_popup = 0x201usize as *mut ffi::wl_resource;
     menu.popup_parent = toplevel.as_mut();
-    menu.position = tessera_types::Point { x: 120, y: 110 };
+    menu.position = tessera_primitives::Point { x: 120, y: 110 };
     menu.mapped = true;
 
     let mut submenu = Box::new(SurfaceRec::new(0x300usize as *mut ffi::wl_resource));
     submenu.state = &mut state;
     submenu.xdg_popup = 0x301usize as *mut ffi::wl_resource;
     submenu.popup_parent = menu.as_mut();
-    submenu.position = tessera_types::Point { x: 150, y: 115 };
+    submenu.position = tessera_primitives::Point { x: 150, y: 115 };
     submenu.mapped = true;
 
     // An unrelated window's popup must not move.
     let mut other = Box::new(SurfaceRec::new(0x400usize as *mut ffi::wl_resource));
     other.state = &mut state;
     other.xdg_toplevel = 0x401usize as *mut ffi::wl_resource;
-    other.position = tessera_types::Point { x: 900, y: 500 };
+    other.position = tessera_primitives::Point { x: 900, y: 500 };
     other.mapped = true;
 
     state.surfaces = vec![
@@ -1319,34 +1319,34 @@ fn moving_a_toplevel_carries_its_popup_subtree() {
     ];
 
     unsafe {
-        reposition_toplevel_with_popups(toplevel.as_mut(), tessera_types::Point { x: 240, y: 260 });
+        reposition_toplevel_with_popups(toplevel.as_mut(), tessera_primitives::Point { x: 240, y: 260 });
     }
 
-    assert_eq!(toplevel.position, tessera_types::Point { x: 240, y: 260 });
+    assert_eq!(toplevel.position, tessera_primitives::Point { x: 240, y: 260 });
     assert_eq!(
         menu.position,
-        tessera_types::Point { x: 260, y: 270 },
+        tessera_primitives::Point { x: 260, y: 270 },
         "the menu keeps its parent-relative offset (+140,+160 delta)"
     );
     assert_eq!(
         submenu.position,
-        tessera_types::Point { x: 290, y: 275 },
+        tessera_primitives::Point { x: 290, y: 275 },
         "the nested submenu follows through its popup parent"
     );
     assert_eq!(
         other.position,
-        tessera_types::Point { x: 900, y: 500 },
+        tessera_primitives::Point { x: 900, y: 500 },
         "an unrelated toplevel does not move"
     );
 
     // An unmapped popup is skipped: it will be re-positioned when it maps.
     menu.mapped = false;
     unsafe {
-        reposition_toplevel_with_popups(toplevel.as_mut(), tessera_types::Point { x: 0, y: 0 });
+        reposition_toplevel_with_popups(toplevel.as_mut(), tessera_primitives::Point { x: 0, y: 0 });
     }
     assert_eq!(
         menu.position,
-        tessera_types::Point { x: 260, y: 270 },
+        tessera_primitives::Point { x: 260, y: 270 },
         "an unmapped popup keeps its stale position until remap"
     );
 }
@@ -1680,9 +1680,9 @@ fn deferred_restoration_is_dropped_once_focus_moves_to_a_new_toplevel() {
 fn minimize_flight_targets_the_dock_icon_per_style() {
     let mut state = State::new(std::ptr::null_mut());
     let window = tessera_desktop::window::WindowId(9);
-    let icon = tessera_types::Rect::new(500, 1020, 56, 56);
+    let icon = tessera_primitives::Rect::new(500, 1020, 56, 56);
     state.minimize_targets.insert(window, icon);
-    let window_rect = tessera_types::Rect::new(100, 100, 800, 600);
+    let window_rect = tessera_primitives::Rect::new(100, 100, 800, 600);
 
     state.minimize_animation = tessera_desktop::dock::MinimizeAnimationStyle::Scale;
     assert_eq!(minimize_flight_target(&state, window, window_rect), icon);
@@ -1691,8 +1691,8 @@ fn minimize_flight_targets_the_dock_icon_per_style() {
 
     state.minimize_animation = tessera_desktop::dock::MinimizeAnimationStyle::Suck;
     let suck = minimize_flight_target(&state, window, window_rect);
-    assert_eq!(suck.size, tessera_types::Size { w: 2, h: 2 });
-    assert_eq!(suck.origin, tessera_types::Point { x: 527, y: 1047 });
+    assert_eq!(suck.size, tessera_primitives::Size { w: 2, h: 2 });
+    assert_eq!(suck.origin, tessera_primitives::Point { x: 527, y: 1047 });
 
     let transition = minimize_transition(&state, window, window_rect);
     assert_eq!(
@@ -1703,7 +1703,7 @@ fn minimize_flight_targets_the_dock_icon_per_style() {
         transition.effect,
         Some(tessera_desktop::transition::TransitionEffect::Minimize {
             style: tessera_desktop::dock::MinimizeAnimationStyle::Suck,
-            target: tessera_types::Point { x: 528, y: 1048 },
+            target: tessera_primitives::Point { x: 528, y: 1048 },
         })
     );
 }
@@ -1712,18 +1712,18 @@ fn minimize_flight_targets_the_dock_icon_per_style() {
 fn minimize_flight_falls_back_to_the_screen_edge_stub_without_an_icon() {
     let state = State::new(std::ptr::null_mut());
     let window = tessera_desktop::window::WindowId(9);
-    let window_rect = tessera_types::Rect::new(100, 100, 800, 600);
+    let window_rect = tessera_primitives::Rect::new(100, 100, 800, 600);
 
     let target = minimize_flight_target(&state, window, window_rect);
     let screen_h = state.output_geometry.logical_rect().size.h;
     assert_eq!(
         target.origin,
-        tessera_types::Point {
+        tessera_primitives::Point {
             x: 300,
             y: screen_h - 20
         }
     );
-    assert_eq!(target.size, tessera_types::Size { w: 400, h: 20 });
+    assert_eq!(target.size, tessera_primitives::Size { w: 400, h: 20 });
 
     let transition = minimize_transition(&state, window, window_rect);
     assert_eq!(transition.effect, None);
@@ -1731,57 +1731,57 @@ fn minimize_flight_falls_back_to_the_screen_edge_stub_without_an_icon() {
 
 #[test]
 fn nudged_origin_resolves_exact_collisions_diagonally() {
-    let output = tessera_types::Rect::new(0, 0, 1920, 1080);
+    let output = tessera_primitives::Rect::new(0, 0, 1920, 1080);
 
     // No collision: the resolved origin is kept as-is.
     assert_eq!(
         nudged_origin_if_colliding(
-            tessera_types::Point { x: 40, y: 40 },
-            &[tessera_types::Point { x: 60, y: 60 }],
+            tessera_primitives::Point { x: 40, y: 40 },
+            &[tessera_primitives::Point { x: 60, y: 60 }],
             output
         ),
         None
     );
 
     // An exact collision steps diagonally by 32 to the first free origin.
-    let occupied = [tessera_types::Point { x: 60, y: 60 }];
+    let occupied = [tessera_primitives::Point { x: 60, y: 60 }];
     assert_eq!(
-        nudged_origin_if_colliding(tessera_types::Point { x: 60, y: 60 }, &occupied, output),
-        Some(tessera_types::Point { x: 92, y: 92 })
+        nudged_origin_if_colliding(tessera_primitives::Point { x: 60, y: 60 }, &occupied, output),
+        Some(tessera_primitives::Point { x: 92, y: 92 })
     );
 
     // Two stacked windows: the third map resolves past both.
     let occupied = [
-        tessera_types::Point { x: 60, y: 60 },
-        tessera_types::Point { x: 92, y: 92 },
+        tessera_primitives::Point { x: 60, y: 60 },
+        tessera_primitives::Point { x: 92, y: 92 },
     ];
     assert_eq!(
-        nudged_origin_if_colliding(tessera_types::Point { x: 60, y: 60 }, &occupied, output),
-        Some(tessera_types::Point { x: 124, y: 124 })
+        nudged_origin_if_colliding(tessera_primitives::Point { x: 60, y: 60 }, &occupied, output),
+        Some(tessera_primitives::Point { x: 124, y: 124 })
     );
 
     // A candidate beyond the right edge is clamped back inside the output;
     // the clamped origin is free, so it wins.
-    let near_edge = tessera_types::Point { x: 1850, y: 500 };
+    let near_edge = tessera_primitives::Point { x: 1850, y: 500 };
     assert_eq!(
         nudged_origin_if_colliding(
             near_edge,
-            &[near_edge, tessera_types::Point { x: 1820, y: 470 }],
+            &[near_edge, tessera_primitives::Point { x: 1820, y: 470 }],
             output
         ),
-        Some(tessera_types::Point { x: 1820, y: 532 })
+        Some(tessera_primitives::Point { x: 1820, y: 532 })
     );
 
     // Every candidate on the diagonal collides: the base origin is kept
     // (bounded scan, never fails the map).
-    let occupied: Vec<tessera_types::Point> = (0..=8)
-        .map(|i| tessera_types::Point {
+    let occupied: Vec<tessera_primitives::Point> = (0..=8)
+        .map(|i| tessera_primitives::Point {
             x: 60 + i * 32,
             y: 60 + i * 32,
         })
         .collect();
     assert_eq!(
-        nudged_origin_if_colliding(tessera_types::Point { x: 60, y: 60 }, &occupied, output),
+        nudged_origin_if_colliding(tessera_primitives::Point { x: 60, y: 60 }, &occupied, output),
         None
     );
 }
@@ -1789,49 +1789,49 @@ fn nudged_origin_resolves_exact_collisions_diagonally() {
 #[test]
 fn placement_nudge_folds_back_only_while_resting_at_the_nudged_origin() {
     let nudge = PlacementNudge {
-        base: tessera_types::Point { x: 60, y: 60 },
-        nudged: tessera_types::Point { x: 92, y: 92 },
+        base: tessera_primitives::Point { x: 60, y: 60 },
+        nudged: tessera_primitives::Point { x: 92, y: 92 },
     };
 
     // Resting exactly at the nudged origin: persistence records the base.
     let resting = fold_nudged_origin(
         &with_nudge(nudge),
-        tessera_types::Rect::new(92, 92, 800, 600),
+        tessera_primitives::Rect::new(92, 92, 800, 600),
     );
-    assert_eq!(resting.origin, tessera_types::Point { x: 60, y: 60 });
-    assert_eq!(resting.size, tessera_types::Size { w: 800, h: 600 });
+    assert_eq!(resting.origin, tessera_primitives::Point { x: 60, y: 60 });
+    assert_eq!(resting.size, tessera_primitives::Size { w: 800, h: 600 });
 
     // The user moved the window: the actual position passes through.
     let moved = fold_nudged_origin(
         &with_nudge(nudge),
-        tessera_types::Rect::new(400, 300, 800, 600),
+        tessera_primitives::Rect::new(400, 300, 800, 600),
     );
-    assert_eq!(moved.origin, tessera_types::Point { x: 400, y: 300 });
+    assert_eq!(moved.origin, tessera_primitives::Point { x: 400, y: 300 });
 
     // Never nudged: pass through.
     let plain = SurfaceRec::new(std::ptr::null_mut());
     assert_eq!(
-        fold_nudged_origin(&plain, tessera_types::Rect::new(92, 92, 800, 600)).origin,
-        tessera_types::Point { x: 92, y: 92 }
+        fold_nudged_origin(&plain, tessera_primitives::Rect::new(92, 92, 800, 600)).origin,
+        tessera_primitives::Point { x: 92, y: 92 }
     );
 }
 
 #[test]
 fn explicit_reposition_consumes_the_placement_nudge() {
     let nudge = PlacementNudge {
-        base: tessera_types::Point { x: 60, y: 60 },
-        nudged: tessera_types::Point { x: 92, y: 92 },
+        base: tessera_primitives::Point { x: 60, y: 60 },
+        nudged: tessera_primitives::Point { x: 92, y: 92 },
     };
 
     // Moving to any other origin consumes the nudge.
     let mut moved = with_nudge(nudge);
-    consume_placement_nudge(&mut moved, tessera_types::Point { x: 400, y: 300 });
+    consume_placement_nudge(&mut moved, tessera_primitives::Point { x: 400, y: 300 });
     assert_eq!(moved.placement_nudge, None);
 
     // Repositioning to exactly the nudged origin is a no-op (a set-geometry
     // that changes nothing), so the fold-back stays armed.
     let mut returned = with_nudge(nudge);
-    consume_placement_nudge(&mut returned, tessera_types::Point { x: 92, y: 92 });
+    consume_placement_nudge(&mut returned, tessera_primitives::Point { x: 92, y: 92 });
     assert_eq!(returned.placement_nudge, Some(nudge));
 }
 
@@ -1941,31 +1941,31 @@ fn shifting_parent_toplevel_moves_transient_children_synchronously() {
 
     let mut root = mapped_toplevel_fixture(root_id, 0x100);
     root.state = &mut state;
-    root.position = tessera_types::Point { x: 100, y: 100 };
+    root.position = tessera_primitives::Point { x: 100, y: 100 };
     root.window.position = root.position;
 
     let mut child = mapped_toplevel_fixture(child_id, 0x200);
     child.state = &mut state;
     child.window.parent = Some(root.as_mut() as *mut SurfaceRec as usize);
-    child.position = tessera_types::Point { x: 150, y: 150 };
+    child.position = tessera_primitives::Point { x: 150, y: 150 };
     child.window.position = child.position;
 
     state.surfaces = vec![root.as_mut(), child.as_mut()];
 
     unsafe {
-        reposition_toplevel_with_popups(root.as_mut(), tessera_types::Point { x: 200, y: 250 });
+        reposition_toplevel_with_popups(root.as_mut(), tessera_primitives::Point { x: 200, y: 250 });
     }
 
-    assert_eq!(root.position, tessera_types::Point { x: 200, y: 250 });
+    assert_eq!(root.position, tessera_primitives::Point { x: 200, y: 250 });
     assert_eq!(
         root.window.position,
-        tessera_types::Point { x: 200, y: 250 }
+        tessera_primitives::Point { x: 200, y: 250 }
     );
     // Child moved with the exact delta (+100, +150)
-    assert_eq!(child.position, tessera_types::Point { x: 250, y: 300 });
+    assert_eq!(child.position, tessera_primitives::Point { x: 250, y: 300 });
     assert_eq!(
         child.window.position,
-        tessera_types::Point { x: 250, y: 300 }
+        tessera_primitives::Point { x: 250, y: 300 }
     );
 }
 
@@ -2258,14 +2258,14 @@ fn xdg_toplevel_drag_attachment_and_exclusion_from_hit_test() {
     let bottom_id = tessera_desktop::window::WindowId(50);
     let mut bottom_win = mapped_toplevel_fixture(bottom_id, 0x6000);
     bottom_win.state = &mut state;
-    bottom_win.position = tessera_types::Point { x: 0, y: 0 };
+    bottom_win.position = tessera_primitives::Point { x: 0, y: 0 };
     bottom_win.width = 800;
     bottom_win.height = 600;
 
     let dragged_id = tessera_desktop::window::WindowId(51);
     let mut dragged_win = mapped_toplevel_fixture(dragged_id, 0x7000);
     dragged_win.state = &mut state;
-    dragged_win.position = tessera_types::Point { x: 100, y: 100 };
+    dragged_win.position = tessera_primitives::Point { x: 100, y: 100 };
     dragged_win.width = 400;
     dragged_win.height = 300;
 
@@ -2328,7 +2328,7 @@ fn xdg_toplevel_drag_attachment_and_exclusion_from_hit_test() {
     unsafe {
         crate::reposition_toplevel_with_popups(
             dragged_win.as_mut(),
-            tessera_types::Point {
+            tessera_primitives::Point {
                 x: cursor_x - off_x,
                 y: cursor_y - off_y,
             },

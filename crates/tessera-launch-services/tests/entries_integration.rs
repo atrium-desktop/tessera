@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 use std::path::PathBuf;
-use tessera_apps::{Entry, xdg_data_dirs};
+use tessera_launch_services::{Entry, xdg_data_dirs};
 
 fn have_system_apps() -> bool {
     xdg_data_dirs().contains(&PathBuf::from("/usr/share"))
@@ -16,7 +16,7 @@ fn enumerates_real_host_applications() {
     if !have_system_apps() {
         return;
     }
-    let apps = tessera_apps::enumerate();
+    let apps = tessera_launch_services::enumerate();
     assert!(
         !apps.is_empty(),
         "expected system .desktop files on this host"
@@ -39,7 +39,7 @@ fn foot_and_btop_shape_is_correct() {
     if !have_system_apps() {
         return;
     }
-    let apps = tessera_apps::enumerate();
+    let apps = tessera_launch_services::enumerate();
     let by_id = |id: &str| -> Option<Entry> { apps.iter().find(|e| e.id == id).cloned() };
 
     if let Some(btop) = by_id("btop.desktop") {
@@ -68,7 +68,7 @@ fn desktop_id_is_case_sensitive() {
     if !have_system_apps() {
         return;
     }
-    let apps = tessera_apps::enumerate();
+    let apps = tessera_launch_services::enumerate();
     // Alacritty.desktop (capital A) is a common case-sensitive file.
     if apps.iter().any(|e| e.id == "Alacritty.desktop") {
         // Its StartupWMClass is "Alacritty" — the app_id join key.
@@ -82,9 +82,9 @@ fn icon_resolution_uses_hicolor() {
     if !have_system_apps() {
         return;
     }
-    let bases = tessera_apps::icon_search_bases();
+    let bases = tessera_launch_services::icon_search_bases();
     // "foot" is a well-known hicolor icon name on a foot-installed host.
-    if let Some(p) = tessera_apps::resolve_icon("foot", None, &bases, 48) {
+    if let Some(p) = tessera_launch_services::resolve_icon("foot", None, &bases, 48) {
         assert!(p.exists(), "{p:?} missing");
         assert!(
             p.to_string_lossy().contains("/icons/hicolor/"),
@@ -95,8 +95,8 @@ fn icon_resolution_uses_hicolor() {
 
 #[test]
 fn icon_resolution_picks_closest_size() {
-    let bases = tessera_apps::icon_search_bases();
-    if let Some(p) = tessera_apps::resolve_icon("btop", None, &bases, 48) {
+    let bases = tessera_launch_services::icon_search_bases();
+    if let Some(p) = tessera_launch_services::resolve_icon("btop", None, &bases, 48) {
         let s = p.to_string_lossy();
         // Should land on a size directory near 48 (32/48/64 acceptable).
         let near = ["48x48", "32x32", "64x64", "scalable"]
@@ -116,7 +116,7 @@ fn data_dirs_precedence_keeps_user_first() {
 
 #[test]
 fn exported_flatpak_desktop_symlinks_are_discoverable() {
-    let apps = tessera_apps::enumerate();
+    let apps = tessera_launch_services::enumerate();
     for root in xdg_data_dirs() {
         if !root.to_string_lossy().contains("flatpak/exports/share") {
             continue;
@@ -143,7 +143,7 @@ fn exported_flatpak_desktop_symlinks_are_discoverable() {
             // Visibility rules can legitimately exclude an export. The first
             // entry parse_str considers visible must also appear in the full
             // XDG scan under the symlink's exported desktop id.
-            if tessera_apps::parse_str(&text, id).ok().flatten().is_some() {
+            if tessera_launch_services::parse_str(&text, id).ok().flatten().is_some() {
                 assert!(
                     apps.iter().any(|app| app.id == id),
                     "visible Flatpak export {path:?} was not enumerated"
@@ -159,10 +159,10 @@ fn expand_exec_on_real_entries() {
     if !have_system_apps() {
         return;
     }
-    for e in tessera_apps::enumerate() {
+    for e in tessera_launch_services::enumerate() {
         let exec = e.exec.as_deref().unwrap();
         // Round-trips without panic for every entry on the host.
-        let _ = tessera_apps::expand_exec(exec, &[], e.icon.as_deref(), Some(&e.name), None);
-        let _ = tessera_apps::expand_exec_tokens(exec, &[], e.icon.as_deref(), Some(&e.name), None);
+        let _ = tessera_launch_services::expand_exec(exec, &[], e.icon.as_deref(), Some(&e.name), None);
+        let _ = tessera_launch_services::expand_exec_tokens(exec, &[], e.icon.as_deref(), Some(&e.name), None);
     }
 }

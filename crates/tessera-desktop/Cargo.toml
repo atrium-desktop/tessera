@@ -8,8 +8,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-tessera-scene.workspace = true
-tessera-types.workspace = true
+tessera-primitives.workspace = true
 serde.workspace = true
 
 [features]

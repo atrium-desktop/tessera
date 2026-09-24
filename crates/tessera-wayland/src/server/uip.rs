@@ -3,8 +3,8 @@
 use crate::*;
 use tessera_authority::interaction_domain::SeatId;
 use tessera_authority::uip::*;
-use tessera_types::input::ButtonState;
-use tessera_types::input::InputEvent;
+use tessera_primitives::input::ButtonState;
+use tessera_primitives::input::InputEvent;
 
 /// Result of dispatching one UIP interaction frame.
 #[derive(Debug, Clone, PartialEq)]
@@ -174,9 +174,9 @@ pub(crate) fn translate_continuous_manifold(manifold: ContinuousManifold) -> Vec
 
         ContinuousManifold::Scalar1D { value, .. } => {
             events.push(InputEvent::PointerAxis(
-                tessera_types::input::PointerAxisFrame::from_values(
+                tessera_primitives::input::PointerAxisFrame::from_values(
                     0,
-                    Some(tessera_types::input::PointerAxisSource::Continuous),
+                    Some(tessera_primitives::input::PointerAxisSource::Continuous),
                     0.0,
                     (value * 10.0) as f32,
                 ),

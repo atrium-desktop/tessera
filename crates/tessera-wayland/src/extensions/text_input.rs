@@ -6,8 +6,8 @@ struct TextInputRec {
     state: *mut State,
     seat: tessera_authority::interaction_domain::SeatId,
     current_surface: *mut ffi::wl_resource,
-    pending: tessera_types::input::TextInputState,
-    current: tessera_types::input::TextInputState,
+    pending: tessera_primitives::input::TextInputState,
+    current: tessera_primitives::input::TextInputState,
     commit_serial: u32,
 }
 
@@ -44,8 +44,8 @@ fn count_text_input_commit(serial: &mut u32) {
 }
 
 fn apply_pending_text_input_state(
-    pending: &mut tessera_types::input::TextInputState,
-) -> tessera_types::input::TextInputState {
+    pending: &mut tessera_primitives::input::TextInputState,
+) -> tessera_primitives::input::TextInputState {
     let current = pending.clone();
     // change_cause is applied once and returns to input_method (zero) after
     // every commit; the remaining fields persist until enable/disable.
@@ -116,8 +116,8 @@ unsafe extern "C" fn text_input_manager_get(
             state,
             seat: seat_id,
             current_surface,
-            pending: tessera_types::input::TextInputState::default(),
-            current: tessera_types::input::TextInputState::default(),
+            pending: tessera_primitives::input::TextInputState::default(),
+            current: tessera_primitives::input::TextInputState::default(),
             commit_serial: 0,
         }));
         ffi::wl_resource_set_implementation(
@@ -163,7 +163,7 @@ unsafe extern "C" fn text_input_resource_destroy(resource: *mut ffi::wl_resource
                 route_or_queue_text_input_state(
                     state,
                     (*rec).seat,
-                    tessera_types::input::TextInputState::default(),
+                    tessera_primitives::input::TextInputState::default(),
                     None,
                 );
             }
@@ -199,7 +199,7 @@ unsafe extern "C" fn text_input_enable(
         if rec.is_null() || (*rec).current_surface.is_null() {
             return;
         }
-        (*rec).pending = tessera_types::input::TextInputState {
+        (*rec).pending = tessera_primitives::input::TextInputState {
             enabled: true,
             ..Default::default()
         };
@@ -215,7 +215,7 @@ unsafe extern "C" fn text_input_disable(
         if rec.is_null() || (*rec).current_surface.is_null() {
             return;
         }
-        (*rec).pending = tessera_types::input::TextInputState::default();
+        (*rec).pending = tessera_primitives::input::TextInputState::default();
     }
 }
 
@@ -351,7 +351,7 @@ unsafe fn queue_text_input_state(rec: *mut TextInputRec) {
 unsafe fn route_or_queue_text_input_state(
     state: *mut State,
     seat: tessera_authority::interaction_domain::SeatId,
-    value: tessera_types::input::TextInputState,
+    value: tessera_primitives::input::TextInputState,
     cursor_anchor: Option<TextInputCursorAnchor>,
 ) {
     unsafe {
@@ -375,7 +375,7 @@ unsafe fn text_input_cursor_anchor(rec: *mut TextInputRec) -> Option<TextInputCu
 
 unsafe fn text_input_state_in_compositor_space(
     rec: *mut TextInputRec,
-) -> tessera_types::input::TextInputState {
+) -> tessera_primitives::input::TextInputState {
     unsafe {
         let mut value = (*rec).current.clone();
         if let Some((x, y, width, height)) = value.cursor_rect {
@@ -394,7 +394,7 @@ unsafe fn text_input_state_in_compositor_space(
 pub(crate) unsafe fn current_text_input_state(
     state: *mut State,
     seat: tessera_authority::interaction_domain::SeatId,
-) -> Option<tessera_types::input::TextInputState> {
+) -> Option<tessera_primitives::input::TextInputState> {
     unsafe { current_text_input_context(state, seat).map(|(text_state, _)| text_state) }
 }
 
@@ -402,7 +402,7 @@ pub(crate) unsafe fn current_text_input_context(
     state: *mut State,
     seat: tessera_authority::interaction_domain::SeatId,
 ) -> Option<(
-    tessera_types::input::TextInputState,
+    tessera_primitives::input::TextInputState,
     Option<TextInputCursorAnchor>,
 )> {
     unsafe {
@@ -469,7 +469,7 @@ pub(crate) unsafe fn text_input_focus_changed(
             route_or_queue_text_input_state(
                 state,
                 seat,
-                tessera_types::input::TextInputState::default(),
+                tessera_primitives::input::TextInputState::default(),
                 None,
             );
         }
@@ -496,7 +496,7 @@ pub(crate) unsafe fn text_input_focus_changed(
 
 pub(crate) unsafe fn forward_text_input_event(
     state: *mut State,
-    event: &tessera_types::input::TextInputEvent,
+    event: &tessera_primitives::input::TextInputEvent,
 ) {
     unsafe {
         if state.is_null() || (*state).keyboard_focus.is_null() {
@@ -517,7 +517,7 @@ pub(crate) unsafe fn forward_text_input_event(
         for target in targets {
             let rec = ffi::wl_resource_get_user_data(target) as *mut TextInputRec;
             match event {
-                tessera_types::input::TextInputEvent::Preedit {
+                tessera_primitives::input::TextInputEvent::Preedit {
                     text,
                     cursor_begin,
                     cursor_end,
@@ -531,7 +531,7 @@ pub(crate) unsafe fn forward_text_input_event(
                         *cursor_end,
                     );
                 }
-                tessera_types::input::TextInputEvent::Commit(text) => {
+                tessera_primitives::input::TextInputEvent::Commit(text) => {
                     let text = text.as_ref().and_then(|s| CString::new(s.as_str()).ok());
                     ffi::wl_resource_post_event(
                         target,
@@ -539,7 +539,7 @@ pub(crate) unsafe fn forward_text_input_event(
                         text.as_ref().map_or(std::ptr::null(), |s| s.as_ptr()),
                     );
                 }
-                tessera_types::input::TextInputEvent::DeleteSurrounding {
+                tessera_primitives::input::TextInputEvent::DeleteSurrounding {
                     before_length,
                     after_length,
                 } => ffi::wl_resource_post_event(
@@ -548,7 +548,7 @@ pub(crate) unsafe fn forward_text_input_event(
                     *before_length,
                     *after_length,
                 ),
-                tessera_types::input::TextInputEvent::Done => ffi::wl_resource_post_event(
+                tessera_primitives::input::TextInputEvent::Done => ffi::wl_resource_post_event(
                     target,
                     ffi::ZWP_TEXT_INPUT_V3_DONE,
                     (*rec).commit_serial,
@@ -574,7 +574,7 @@ mod tests {
 
     #[test]
     fn committed_change_cause_is_one_shot_but_context_persists() {
-        let mut pending = tessera_types::input::TextInputState {
+        let mut pending = tessera_primitives::input::TextInputState {
             enabled: true,
             surrounding_text: Some("context".to_owned()),
             cursor: 7,

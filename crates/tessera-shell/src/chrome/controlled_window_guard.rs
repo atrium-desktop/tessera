@@ -320,8 +320,8 @@ mod tests {
     fn mirror() -> Window {
         let mut window = Window::new(WindowId(7));
         window.read_only = true;
-        window.position = tessera_types::Point { x: 20, y: 30 };
-        window.size = tessera_types::Size { w: 200, h: 120 };
+        window.position = tessera_primitives::Point { x: 20, y: 30 };
+        window.size = tessera_primitives::Size { w: 200, h: 120 };
         window
     }
 

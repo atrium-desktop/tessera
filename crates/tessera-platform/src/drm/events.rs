@@ -505,7 +505,7 @@ impl DrmBackend {
             mouse: self.current_mouse_status(),
             // The DRM backend does not track keyboards as configurable
             // devices; the runtime overlays the persisted keyboard profile.
-            keyboard: tessera_types::input::KeyboardConfig::default(),
+            keyboard: tessera_primitives::input::KeyboardConfig::default(),
         }
     }
 

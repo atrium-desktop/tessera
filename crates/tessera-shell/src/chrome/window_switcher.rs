@@ -19,9 +19,9 @@ use crate::component::{
 use tessera_desktop::window::Window;
 use tessera_desktop::window::WindowId;
 use tessera_desktop::workspace::WorkspaceSnapshot;
-use tessera_types::input::KeyAction;
-use tessera_types::input::KeyChar;
-use tessera_types::input::key_action;
+use tessera_primitives::input::KeyAction;
+use tessera_primitives::input::KeyChar;
+use tessera_primitives::input::key_action;
 
 const FADE_RATE: f32 = 18.0;
 const SLIDE_RATE: f32 = 15.0;
@@ -111,7 +111,7 @@ impl WindowSwitcher {
     fn prepare(
         &mut self,
         input: &Input,
-        display: tessera_types::Rect,
+        display: tessera_primitives::Rect,
         windows: &[Window],
         session_order: &[WindowId],
         selected: Option<WindowId>,
@@ -258,7 +258,7 @@ impl Chrome for WindowSwitcher {
         i18n: &Localizer,
         out: &mut ChromeEvents,
     ) {
-        let display = tessera_types::Rect::new(
+        let display = tessera_primitives::Rect::new(
             0,
             0,
             input.as_raw().display_size.x.max(1.0) as i32,
@@ -434,7 +434,7 @@ impl Chrome for WindowSwitcher {
     fn prepare_window_switcher(
         &mut self,
         input: &Input,
-        display: tessera_types::Rect,
+        display: tessera_primitives::Rect,
         windows: &[Window],
         order: &[WindowId],
         selected: Option<WindowId>,
@@ -575,7 +575,7 @@ impl Chrome for WindowSwitcher {
     }
 }
 
-fn to_lens(rect: tessera_types::Rect) -> Rect {
+fn to_lens(rect: tessera_primitives::Rect) -> Rect {
     Rect {
         x: rect.origin.x as f32,
         y: rect.origin.y as f32,
@@ -584,7 +584,7 @@ fn to_lens(rect: tessera_types::Rect) -> Rect {
     }
 }
 
-fn intersects(a: tessera_types::Rect, b: tessera_types::Rect) -> bool {
+fn intersects(a: tessera_primitives::Rect, b: tessera_primitives::Rect) -> bool {
     a.origin.x < b.origin.x + b.size.w
         && b.origin.x < a.origin.x + a.size.w
         && a.origin.y < b.origin.y + b.size.h
@@ -601,11 +601,11 @@ fn lerp_i32(from: i32, to: i32, blend: f32) -> i32 {
 }
 
 fn lerp_rect(
-    from: tessera_types::Rect,
-    to: tessera_types::Rect,
+    from: tessera_primitives::Rect,
+    to: tessera_primitives::Rect,
     blend: f32,
-) -> tessera_types::Rect {
-    tessera_types::Rect::new(
+) -> tessera_primitives::Rect {
+    tessera_primitives::Rect::new(
         lerp_i32(from.origin.x, to.origin.x, blend),
         lerp_i32(from.origin.y, to.origin.y, blend),
         lerp_i32(from.size.w, to.size.w, blend),
@@ -751,14 +751,14 @@ mod tests {
     #[test]
     fn card_animation_converges_without_overshoot() {
         let from = crate::layout::window_switcher::Card {
-            outer: tessera_types::Rect::new(0, 10, 100, 80),
-            preview: tessera_types::Rect::new(0, 10, 100, 50),
-            label: tessera_types::Rect::new(0, 60, 100, 30),
+            outer: tessera_primitives::Rect::new(0, 10, 100, 80),
+            preview: tessera_primitives::Rect::new(0, 10, 100, 50),
+            label: tessera_primitives::Rect::new(0, 60, 100, 30),
         };
         let to = crate::layout::window_switcher::Card {
-            outer: tessera_types::Rect::new(200, 10, 100, 80),
-            preview: tessera_types::Rect::new(200, 10, 100, 50),
-            label: tessera_types::Rect::new(200, 60, 100, 30),
+            outer: tessera_primitives::Rect::new(200, 10, 100, 80),
+            preview: tessera_primitives::Rect::new(200, 10, 100, 50),
+            label: tessera_primitives::Rect::new(200, 60, 100, 30),
         };
         let card = lerp_card(from, to, 0.25);
         assert_eq!(card.outer.origin.x, 50);
@@ -771,7 +771,7 @@ mod tests {
         switcher.set_reduced_motion(true);
         switcher.start_window_switcher();
         let input = Input::default();
-        let display = tessera_types::Rect::new(0, 0, 1920, 1080);
+        let display = tessera_primitives::Rect::new(0, 0, 1920, 1080);
         let (windows, order) = windows(4);
 
         let first = switcher
@@ -826,7 +826,7 @@ mod tests {
         switcher.set_reduced_motion(true);
         switcher.start_window_switcher();
         let input = Input::default();
-        let display = tessera_types::Rect::new(0, 0, 1920, 1080);
+        let display = tessera_primitives::Rect::new(0, 0, 1920, 1080);
         let (windows, order) = windows(5);
 
         let before = switcher
@@ -865,9 +865,9 @@ mod tests {
         let mut out = ChromeEvents::default();
         switcher.key_char(
             &KeyChar {
-                keysym: tessera_types::input::XKB_KEY_Escape,
+                keysym: tessera_primitives::input::XKB_KEY_Escape,
                 ch: None,
-                mods: tessera_types::input::Mods::SUPER,
+                mods: tessera_primitives::input::Mods::SUPER,
             },
             &mut out,
         );
@@ -882,7 +882,7 @@ mod tests {
         let mut switcher = WindowSwitcher::new();
         switcher.presentation = Some(WindowSwitcherPresentation {
             mode: crate::layout::window_switcher::Mode::Fixed,
-            panel: tessera_types::Rect::new(200, 160, 640, 240),
+            panel: tessera_primitives::Rect::new(200, 160, 640, 240),
             cards: Vec::new(),
             selection_indicator: None,
             selected: None,
@@ -912,14 +912,14 @@ mod tests {
     fn selected_switcher_card_is_a_focus_field_inside_the_panel_body() {
         let selected = WindowId(7);
         let card = crate::layout::window_switcher::Card {
-            outer: tessera_types::Rect::new(240, 182, 220, 170),
-            preview: tessera_types::Rect::new(240, 182, 220, 132),
-            label: tessera_types::Rect::new(240, 314, 220, 38),
+            outer: tessera_primitives::Rect::new(240, 182, 220, 170),
+            preview: tessera_primitives::Rect::new(240, 182, 220, 132),
+            label: tessera_primitives::Rect::new(240, 314, 220, 38),
         };
         let mut switcher = WindowSwitcher::new();
         switcher.presentation = Some(WindowSwitcherPresentation {
             mode: crate::layout::window_switcher::Mode::Fixed,
-            panel: tessera_types::Rect::new(200, 160, 640, 240),
+            panel: tessera_primitives::Rect::new(200, 160, 640, 240),
             cards: vec![PreviewCard {
                 window: selected,
                 geometry: card,

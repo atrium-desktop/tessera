@@ -217,7 +217,7 @@ impl Server {
                     unsafe {
                         crate::reposition_toplevel_with_popups(
                             rec,
-                            tessera_types::Point {
+                            tessera_primitives::Point {
                                 x: x as i32 - x_off,
                                 y: y as i32 - y_off,
                             },
@@ -286,7 +286,7 @@ impl Server {
         self.post_motion_to_focus(time);
     }
 
-    pub(crate) fn pointer_button(&mut self, button: u32, state: tessera_types::input::ButtonState) {
+    pub(crate) fn pointer_button(&mut self, button: u32, state: tessera_primitives::input::ButtonState) {
         if self.state.session_lock_phase.is_active() {
             if state.is_pressed() && !self.state.pointer_focus.is_null() {
                 self.change_keyboard_focus(self.state.pointer_focus);
@@ -441,7 +441,7 @@ impl Server {
             && self
                 .state
                 .depressed_mods
-                .has(tessera_types::input::Mods::SUPER)
+                .has(tessera_primitives::input::Mods::SUPER)
             && self.state.interactive.is_none()
             && !self.state.pointer_focus.is_null()
         {
@@ -627,7 +627,7 @@ impl Server {
     pub(crate) fn keyboard_key(
         &mut self,
         evdev_code: u32,
-        state: tessera_types::input::ButtonState,
+        state: tessera_primitives::input::ButtonState,
         keymap: Option<&tessera_desktop::keybind::Keymap>,
     ) -> Option<tessera_desktop::keybind::Action> {
         let prepared = self.prepare_keyboard_event(evdev_code, state)?;
@@ -643,7 +643,7 @@ impl Server {
     pub fn prepare_keyboard_event(
         &mut self,
         evdev_code: u32,
-        state: tessera_types::input::ButtonState,
+        state: tessera_primitives::input::ButtonState,
     ) -> Option<PreparedKeyboardEvent> {
         // Always advance xkbcommon state so modifier tracking and global
         // bindings work even with no focused client (e.g. an empty desktop).
@@ -654,7 +654,7 @@ impl Server {
             let kb = self.state.keyboard.as_mut()?;
             kb.update_key(evdev_code, state.is_pressed())
         };
-        self.state.depressed_mods = tessera_types::input::Mods(outcome.depressed);
+        self.state.depressed_mods = tessera_primitives::input::Mods(outcome.depressed);
         // Console VT switch (Ctrl+Alt+Fn → XF86Switch_VT_N): libinput owns
         // evdev on a direct backend, so the kernel's built-in handling never
         // runs — the compositor performs the session switch itself through
@@ -718,7 +718,7 @@ impl Server {
             keymap
                 .and_then(|keymap| {
                     keymap.match_key(
-                        tessera_types::input::Mods(outcome.depressed),
+                        tessera_primitives::input::Mods(outcome.depressed),
                         outcome.keysym,
                     )
                 })
@@ -989,7 +989,7 @@ impl Server {
                     {
                         let rect = fold_nudged_origin(
                             &*rec,
-                            (*rec).saved_floating_rect.unwrap_or(tessera_types::Rect {
+                            (*rec).saved_floating_rect.unwrap_or(tessera_primitives::Rect {
                                 origin: (*rec).position,
                                 size: (*rec).window.size,
                             }),
@@ -1203,7 +1203,7 @@ impl Server {
     }
 
     /// Post one backend-preserved scroll frame to the focused client.
-    pub(crate) fn pointer_axis(&mut self, frame: tessera_types::input::PointerAxisFrame) {
+    pub(crate) fn pointer_axis(&mut self, frame: tessera_primitives::input::PointerAxisFrame) {
         if self.state.pointer_focus.is_null() || !frame.has_data() {
             return;
         }
@@ -1250,7 +1250,7 @@ impl Server {
         self.state.touch_grab_y = y;
         let client = unsafe { ffi::wl_resource_get_client(focus) };
         let origin = if rec.is_null() {
-            tessera_types::Point::default()
+            tessera_primitives::Point::default()
         } else {
             unsafe { surface_draw_origin(&*rec) }
         };
@@ -1286,7 +1286,7 @@ impl Server {
                     unsafe {
                         crate::reposition_toplevel_with_popups(
                             rec,
-                            tessera_types::Point {
+                            tessera_primitives::Point {
                                 x: x as i32 - x_off,
                                 y: y as i32 - y_off,
                             },
@@ -1303,7 +1303,7 @@ impl Server {
         let client = unsafe { ffi::wl_resource_get_client(focus) };
         let rec = unsafe { ffi::wl_resource_get_user_data(focus) as *mut SurfaceRec };
         let origin = if rec.is_null() {
-            tessera_types::Point::default()
+            tessera_primitives::Point::default()
         } else {
             unsafe { surface_draw_origin(&*rec) }
         };
@@ -1449,8 +1449,8 @@ mod resize_tests {
     fn window(id: u64, x: i32, y: i32, w: i32, h: i32) -> tessera_desktop::window::Window {
         let mut window =
             tessera_desktop::window::Window::new(tessera_desktop::window::WindowId(id));
-        window.position = tessera_types::Point { x, y };
-        window.size = tessera_types::Size { w, h };
+        window.position = tessera_primitives::Point { x, y };
+        window.size = tessera_primitives::Size { w, h };
         window
     }
 

@@ -38,7 +38,7 @@ impl PreviewCard {
 #[derive(Debug, Clone, PartialEq)]
 pub struct WindowSwitcherPresentation {
     pub mode: crate::layout::window_switcher::Mode,
-    pub panel: tessera_types::Rect,
+    pub panel: tessera_primitives::Rect,
     pub cards: Vec<PreviewCard>,
     /// Independently animated focus geometry. In fixed mode this moves
     /// between cards; in carousel mode it remains at the output centre.
@@ -52,7 +52,7 @@ pub struct WindowSwitcherPresentation {
 /// chrome, such as the group of running windows above a hovered Dock tile.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LivePreviewPresentation {
-    pub panel: tessera_types::Rect,
+    pub panel: tessera_primitives::Rect,
     pub cards: Vec<PreviewCard>,
     pub focused: Option<WindowId>,
     pub inactive_content_brightness: f32,
@@ -129,7 +129,7 @@ pub fn focus_field(
 /// geometry, such as the window switcher's moving indicator.
 #[must_use]
 pub fn focus_for_rect(
-    bounds: tessera_types::Rect,
+    bounds: tessera_primitives::Rect,
     corner_radius: f32,
     design: &Design,
 ) -> LiquidGlassFocus {
@@ -171,9 +171,9 @@ pub fn selected_geometry(
     let x = centre_x - width / 2;
     let y = card.outer.origin.y - (height - card.outer.size.h) / 2 - selection.lift.round() as i32;
     crate::layout::window_switcher::Card {
-        outer: tessera_types::Rect::new(x, y, width, height),
-        preview: tessera_types::Rect::new(x, y, width, preview_height),
-        label: tessera_types::Rect::new(x, y + preview_height, width, label_height),
+        outer: tessera_primitives::Rect::new(x, y, width, height),
+        preview: tessera_primitives::Rect::new(x, y, width, preview_height),
+        label: tessera_primitives::Rect::new(x, y + preview_height, width, label_height),
     }
 }
 
@@ -187,9 +187,9 @@ mod tests {
         PreviewCard {
             window: WindowId(window),
             geometry: crate::layout::window_switcher::Card {
-                outer: tessera_types::Rect::new(x, 10, 100, 70),
-                preview: tessera_types::Rect::new(x, 10, 100, 50),
-                label: tessera_types::Rect::new(x, 60, 100, 20),
+                outer: tessera_primitives::Rect::new(x, 10, 100, 70),
+                preview: tessera_primitives::Rect::new(x, 10, 100, 50),
+                label: tessera_primitives::Rect::new(x, 60, 100, 20),
             },
             corner_radius: Design::dark().radii.control,
         }

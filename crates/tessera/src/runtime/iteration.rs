@@ -884,7 +884,7 @@ impl CompositorRuntime<'_> {
                                 // the desktop frame; an unknown connector is
                                 // an error, not a fallback.
                                 let region = match output {
-                                    None => Some(tessera_types::Rect::new(
+                                    None => Some(tessera_primitives::Rect::new(
                                         0,
                                         0,
                                         width as i32,
@@ -1604,7 +1604,7 @@ impl CompositorRuntime<'_> {
                     .find(|entry| entry.id == *desktop_id)
                 {
                     Some(entry) => {
-                        let launched = (|| -> Result<tessera_apps::ManagedLaunch, String> {
+                        let launched = (|| -> Result<tessera_launch_services::ManagedLaunch, String> {
                             let portal = self
                                 .server
                                 .prepare_interaction_domain_portal(*interaction_domain)
@@ -1623,13 +1623,13 @@ impl CompositorRuntime<'_> {
                                     tessera_config::InteractionDomainSandboxConfig::default()
                                         .policy_for(&entry.id)
                                 });
-                            let opts = tessera_apps::LaunchOpts {
-                                sandbox: Some(tessera_apps::InteractionDomainSandbox {
+                            let opts = tessera_launch_services::LaunchOpts {
+                                sandbox: Some(tessera_launch_services::InteractionDomainSandbox {
                                     interaction_domain_id: interaction_domain.0,
                                     wayland_listener,
                                     wayland_socket_path,
                                     app_id: entry.id.clone(),
-                                    limits: tessera_apps::InteractionDomainResourceLimits {
+                                    limits: tessera_launch_services::InteractionDomainResourceLimits {
                                         memory_max_bytes: sandbox_policy.memory_max_bytes,
                                         pids_max: sandbox_policy.pids_max,
                                         cpu_weight: sandbox_policy.cpu_weight,
@@ -1637,7 +1637,7 @@ impl CompositorRuntime<'_> {
                                 }),
                                 ..Default::default()
                             };
-                            let launch = tessera_apps::launch_managed(entry, &opts)
+                            let launch = tessera_launch_services::launch_managed(entry, &opts)
                                 .map_err(|error| error.to_string())?;
                             self.server
                                 .activate_interaction_domain_portal(portal)
@@ -1679,11 +1679,11 @@ impl CompositorRuntime<'_> {
                     .find(|entry| entry.id == *desktop_id)
                 {
                     Some(entry) => {
-                        let opts = tessera_apps::LaunchOpts {
+                        let opts = tessera_launch_services::LaunchOpts {
                             wayland_display: Some(self.server.socket().to_owned()),
                             ..Default::default()
                         };
-                        match tessera_apps::launch(entry, &opts) {
+                        match tessera_launch_services::launch(entry, &opts) {
                             Ok(report) => {
                                 log::info!("launcher: spawned {} (pid {})", entry.id, report.pid);
                                 if let Some(placement) = placement {

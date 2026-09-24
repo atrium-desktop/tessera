@@ -12,12 +12,12 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::os::fd::BorrowedFd;
 
-use tessera_scene::SurfaceDmabuf;
-use tessera_scene::SurfacePixels;
-use tessera_scene::dmabuf as drm_fmt;
-use tessera_types::Transform;
+use tessera_primitives::SurfaceDmabuf;
+use tessera_primitives::SurfacePixels;
+use tessera_primitives::dmabuf as drm_fmt;
+use tessera_primitives::Transform;
 
-/// Convenience aliases for the shared DRM fourccs in [`tessera_scene::dmabuf`].
+/// Convenience aliases for the shared DRM fourccs in [`tessera_primitives::dmabuf`].
 const DRM_FORMAT_ARGB8888: u32 = drm_fmt::DRM_FORMAT_ARGB8888;
 const DRM_FORMAT_XRGB8888: u32 = drm_fmt::DRM_FORMAT_XRGB8888;
 const DRM_FORMAT_ABGR8888: u32 = drm_fmt::DRM_FORMAT_ABGR8888;
@@ -37,11 +37,11 @@ fn drm_format_to_flux(drm: u32) -> Option<flux::Format> {
 /// Map a `wp_color_management_v1` parametric image description onto a flux
 /// color space. `None` when the pair is not representable (flux validates:
 /// sane primaries, gamma > 0 for power curves).
-fn flux_color_space(color: &tessera_scene::color::ParametricColor) -> Option<flux::ColorSpace> {
-    use tessera_scene::color::ContentPrimaries;
-    use tessera_scene::color::ContentTransfer;
-    use tessera_scene::color::NamedPrimaries;
-    use tessera_scene::color::NamedTransfer;
+fn flux_color_space(color: &tessera_primitives::color::ParametricColor) -> Option<flux::ColorSpace> {
+    use tessera_primitives::color::ContentPrimaries;
+    use tessera_primitives::color::ContentTransfer;
+    use tessera_primitives::color::NamedPrimaries;
+    use tessera_primitives::color::NamedTransfer;
     let (transfer, gamma) = match color.transfer {
         ContentTransfer::Named(NamedTransfer::Linear) => (flux::TransferFunction::Linear, 0.0),
         ContentTransfer::Named(NamedTransfer::Gamma22) => (flux::TransferFunction::Gamma, 2.2),
@@ -234,8 +234,8 @@ fn transformed_dims(width: i32, height: i32, transform: Transform) -> (i32, i32)
 /// `SurfaceGeometry::default` sets 1, so this is defence in depth.
 fn destination_size(
     post_transform_dims: (i32, i32),
-    viewport_src: Option<tessera_types::Rect>,
-    viewport_dst: Option<tessera_types::Size>,
+    viewport_src: Option<tessera_primitives::Rect>,
+    viewport_dst: Option<tessera_primitives::Size>,
     buffer_scale: i32,
 ) -> (f32, f32) {
     let scale = buffer_scale.max(1) as f32;
@@ -250,7 +250,7 @@ fn destination_size(
 }
 
 fn viewport_uv(
-    source: tessera_types::Rect,
+    source: tessera_primitives::Rect,
     post_transform_dims: (i32, i32),
     buffer_scale: i32,
 ) -> (f32, f32, f32, f32) {
@@ -297,7 +297,7 @@ fn genie_strips(
     y: f32,
     w: f32,
     h: f32,
-    target: tessera_types::Point,
+    target: tessera_primitives::Point,
     progress: f32,
 ) -> Vec<BlitRect> {
     let n = GENIE_STRIPS as f32;
@@ -343,7 +343,7 @@ fn genie_strips(
 fn split_opaque_blit(
     dst: (f32, f32, f32, f32),
     surface_logical: (f32, f32),
-    opaque_region: Option<&[tessera_types::Rect]>,
+    opaque_region: Option<&[tessera_primitives::Rect]>,
     can_split: bool,
 ) -> (Vec<BlitRect>, Vec<BlitRect>) {
     let (dx, dy, dw, dh) = dst;
@@ -407,14 +407,14 @@ fn split_opaque_blit(
         );
     }
 
-    let whole_logical = tessera_types::Rect::new(0, 0, logical_w, logical_h);
+    let whole_logical = tessera_primitives::Rect::new(0, 0, logical_w, logical_h);
 
     // Build a non-overlapping union of the opaque region in *surface logical*
     // coordinates. This is the coordinate space used by wl_surface's
     // opaque_region. Keeping both the union and the remainder in this domain
     // is essential at buffer_scale > 1: buffer pixels and surface pixels are
     // not interchangeable.
-    let mut opaque_logical: Vec<tessera_types::Rect> = Vec::with_capacity(region.len());
+    let mut opaque_logical: Vec<tessera_primitives::Rect> = Vec::with_capacity(region.len());
     for r in region {
         let cx0 = r.origin.x.max(0).min(logical_w);
         let cy0 = r.origin.y.max(0).min(logical_h);
@@ -426,7 +426,7 @@ fn split_opaque_blit(
         if cx1 <= cx0 || cy1 <= cy0 {
             continue;
         }
-        let clipped = tessera_types::Rect::new(cx0, cy0, cx1 - cx0, cy1 - cy0);
+        let clipped = tessera_primitives::Rect::new(cx0, cy0, cx1 - cx0, cy1 - cy0);
         let mut additions = vec![clipped];
         for existing in &opaque_logical {
             let mut next = Vec::new();
@@ -464,7 +464,7 @@ fn split_opaque_blit(
         remainder = next;
     }
 
-    let map_piece = |p: tessera_types::Rect| {
+    let map_piece = |p: tessera_primitives::Rect| {
         let u = p.origin.x as f32 / sw;
         let v = p.origin.y as f32 / sh;
         let du = p.size.w as f32 / sw;
@@ -547,7 +547,7 @@ struct CachedImage {
     modifier: u64,
     width: u32,
     height: u32,
-    color: Option<tessera_scene::color::ContentColor>,
+    color: Option<tessera_primitives::color::ContentColor>,
     last_used_epoch: u64,
 }
 
@@ -583,7 +583,7 @@ enum OrderedSurfaceSource {
     Dmabuf(usize),
 }
 
-type WindowMap<'a> = dyn Fn(Option<tessera_desktop::window::WindowId>, tessera_types::Rect) -> tessera_types::Rect
+type WindowMap<'a> = dyn Fn(Option<tessera_desktop::window::WindowId>, tessera_primitives::Rect) -> tessera_primitives::Rect
     + 'a;
 
 /// Appearance applied to every image in one mapped surface subtree.
@@ -594,7 +594,7 @@ type WindowMap<'a> = dyn Fn(Option<tessera_desktop::window::WindowId>, tessera_t
 pub struct MappedSurfaceStyle {
     pub opacity: f32,
     pub brightness: f32,
-    pub rounded_clip: tessera_types::Rect,
+    pub rounded_clip: tessera_primitives::Rect,
     pub corner_radius: f32,
 }
 
@@ -843,16 +843,16 @@ impl Renderer {
     /// (sRGB for 8-bit content).
     fn image_color_tag(
         &mut self,
-        color: Option<&tessera_scene::color::ContentColor>,
+        color: Option<&tessera_primitives::color::ContentColor>,
     ) -> flux::ImageColorSpace<'_> {
         match color {
-            Some(tessera_scene::color::ContentColor::Parametric(parametric)) => {
+            Some(tessera_primitives::color::ContentColor::Parametric(parametric)) => {
                 flux::ImageColorSpace {
                     space: flux_color_space(parametric),
                     icc: None,
                 }
             }
-            Some(tessera_scene::color::ContentColor::Icc(bytes)) => flux::ImageColorSpace {
+            Some(tessera_primitives::color::ContentColor::Icc(bytes)) => flux::ImageColorSpace {
                 space: None,
                 icc: self.icc_profile_for(bytes),
             },
@@ -1031,8 +1031,8 @@ impl Renderer {
         frames: &[SurfacePixels<'_>],
         map: &dyn Fn(
             Option<tessera_desktop::window::WindowId>,
-            tessera_types::Rect,
-        ) -> tessera_types::Rect,
+            tessera_primitives::Rect,
+        ) -> tessera_primitives::Rect,
     ) {
         self.draw_toplevels_impl(device, canvas, frames, Some(map), None);
     }
@@ -1131,8 +1131,8 @@ impl Renderer {
         dmabuf: &[SurfaceDmabuf],
         map: &dyn Fn(
             Option<tessera_desktop::window::WindowId>,
-            tessera_types::Rect,
-        ) -> tessera_types::Rect,
+            tessera_primitives::Rect,
+        ) -> tessera_primitives::Rect,
     ) {
         self.draw_surfaces_ordered_impl(
             device,
@@ -1160,8 +1160,8 @@ impl Renderer {
         dmabuf: &[SurfaceDmabuf],
         map: &dyn Fn(
             Option<tessera_desktop::window::WindowId>,
-            tessera_types::Rect,
-        ) -> tessera_types::Rect,
+            tessera_primitives::Rect,
+        ) -> tessera_primitives::Rect,
         style: MappedSurfaceStyle,
     ) {
         self.draw_surfaces_ordered_impl(
@@ -1202,8 +1202,8 @@ impl Renderer {
         dmabuf: &[SurfaceDmabuf],
         map: &dyn Fn(
             Option<tessera_desktop::window::WindowId>,
-            tessera_types::Rect,
-        ) -> tessera_types::Rect,
+            tessera_primitives::Rect,
+        ) -> tessera_primitives::Rect,
     ) {
         self.draw_surfaces_ordered_mapped(device, canvas, order, shm, dmabuf, map);
     }
@@ -1346,7 +1346,7 @@ impl Renderer {
         &mut self,
         device: &flux::Device,
         canvas: &flux::CanvasCommands<'_>,
-        ghosts: &[tessera_scene::ClosingGhostView],
+        ghosts: &[tessera_primitives::ClosingGhostView],
     ) {
         // One upload batch for all ghost uploads; see
         // `draw_surfaces_ordered_impl`.
@@ -1481,8 +1481,8 @@ impl Renderer {
         map: Option<
             &dyn Fn(
                 Option<tessera_desktop::window::WindowId>,
-                tessera_types::Rect,
-            ) -> tessera_types::Rect,
+                tessera_primitives::Rect,
+            ) -> tessera_primitives::Rect,
         >,
         mapped_style: Option<MappedSurfaceStyle>,
     ) {
@@ -1737,7 +1737,7 @@ impl Renderer {
                     None
                 };
                 if let Some(map) = map {
-                    let natural = tessera_types::Rect::new(
+                    let natural = tessera_primitives::Rect::new(
                         x as i32,
                         y as i32,
                         dst_w.max(1.0) as i32,
@@ -1820,7 +1820,7 @@ impl Renderer {
                         // opaque at ingest, so SRC-replace is pixel-correct here
                         // too. Opaque-region mapping is only well-defined without
                         // a buffer transform.
-                        let can_split = f.geometry.transform == tessera_types::Transform::Normal;
+                        let can_split = f.geometry.transform == tessera_primitives::Transform::Normal;
                         let (opaque, blended) = split_opaque_blit(
                             (x, y, dst_w, dst_h),
                             surface_logical,
@@ -1868,8 +1868,8 @@ impl Renderer {
         frames: &[SurfaceDmabuf],
         map: &dyn Fn(
             Option<tessera_desktop::window::WindowId>,
-            tessera_types::Rect,
-        ) -> tessera_types::Rect,
+            tessera_primitives::Rect,
+        ) -> tessera_primitives::Rect,
     ) {
         self.draw_dmabuf_toplevels_impl(device, canvas, frames, Some(map), None);
     }
@@ -1882,8 +1882,8 @@ impl Renderer {
         map: Option<
             &dyn Fn(
                 Option<tessera_desktop::window::WindowId>,
-                tessera_types::Rect,
-            ) -> tessera_types::Rect,
+                tessera_primitives::Rect,
+            ) -> tessera_primitives::Rect,
         >,
         mapped_style: Option<MappedSurfaceStyle>,
     ) {
@@ -2096,7 +2096,7 @@ impl Renderer {
                     None
                 };
                 if let Some(map) = map {
-                    let natural = tessera_types::Rect::new(
+                    let natural = tessera_primitives::Rect::new(
                         x as i32,
                         y as i32,
                         dst_w.max(1.0) as i32,
@@ -2198,7 +2198,7 @@ impl Renderer {
                             // pays the source-over merge. Opaque-region mapping is only
                             // well-defined without a buffer transform.
                             let can_split =
-                                f.geometry.transform == tessera_types::Transform::Normal;
+                                f.geometry.transform == tessera_primitives::Transform::Normal;
                             let (opaque, blended) = split_opaque_blit(
                                 (x, y, dst_w, dst_h),
                                 surface_logical,
@@ -2255,8 +2255,8 @@ impl Renderer {
         frames: &[SurfacePixels<'_>],
         map: &dyn Fn(
             Option<tessera_desktop::window::WindowId>,
-            tessera_types::Rect,
-        ) -> tessera_types::Rect,
+            tessera_primitives::Rect,
+        ) -> tessera_primitives::Rect,
     ) {
         self.draw_toplevels_mapped(device, canvas, frames, map);
     }
@@ -2281,8 +2281,8 @@ impl Renderer {
         frames: &[SurfaceDmabuf],
         map: &dyn Fn(
             Option<tessera_desktop::window::WindowId>,
-            tessera_types::Rect,
-        ) -> tessera_types::Rect,
+            tessera_primitives::Rect,
+        ) -> tessera_primitives::Rect,
     ) {
         self.draw_dmabuf_toplevels_mapped(device, canvas, frames, map);
     }
@@ -2548,7 +2548,7 @@ mod tests {
     /// Genie strips leave the destination untouched at progress zero.
     #[test]
     fn genie_strips_are_undeformed_at_progress_zero() {
-        let target = tessera_types::Point { x: 500, y: 1000 };
+        let target = tessera_primitives::Point { x: 500, y: 1000 };
         let strips = genie_strips(100.0, 50.0, 400.0, 240.0, target, 0.0);
         assert_eq!(strips.len(), GENIE_STRIPS);
         let n = GENIE_STRIPS as f32;
@@ -2565,7 +2565,7 @@ mod tests {
     /// strip onto the icon's centre as progress completes.
     #[test]
     fn genie_strips_funnel_the_bottom_edge_into_the_icon() {
-        let target = tessera_types::Point { x: 700, y: 1000 };
+        let target = tessera_primitives::Point { x: 700, y: 1000 };
         let strips = genie_strips(100.0, 50.0, 400.0, 240.0, target, 1.0);
         let widths: Vec<f32> = strips.iter().map(|strip| strip.dst_w).collect();
         assert!(
@@ -2592,8 +2592,8 @@ mod tests {
     /// `destination_size` covers the four viewport/scale combinations.
     #[test]
     fn destination_size_handles_viewport_and_scale() {
-        use tessera_types::Rect;
-        use tessera_types::Size;
+        use tessera_primitives::Rect;
+        use tessera_primitives::Size;
 
         // No viewport, scale 1: post-transform buffer dims as-is.
         let (w, h) = destination_size((100, 50), None, None, 1);
@@ -2639,7 +2639,7 @@ mod tests {
     /// half-sized opaque piece plus a second enlarged copy of the texture.
     #[test]
     fn opaque_split_uses_surface_coordinates_at_hidpi_scale() {
-        let region = [tessera_types::Rect::new(0, 0, 1536, 960)];
+        let region = [tessera_primitives::Rect::new(0, 0, 1536, 960)];
         let (opaque, blended) = split_opaque_blit(
             (0.0, 0.0, 1536.0, 960.0),
             (1536.0, 960.0),
@@ -2668,7 +2668,7 @@ mod tests {
     /// far-edge addition or disturbing the full blended fallback.
     #[test]
     fn opaque_split_saturates_extreme_client_rect_edges() {
-        let region = [tessera_types::Rect::new(
+        let region = [tessera_primitives::Rect::new(
             i32::MAX - 4,
             i32::MAX - 4,
             100,
@@ -2697,7 +2697,7 @@ mod tests {
     /// remains normalised against the original surface logical extent.
     #[test]
     fn opaque_split_scales_destination_without_rescaling_source_uv() {
-        let region = [tessera_types::Rect::new(0, 0, 1536, 120)];
+        let region = [tessera_primitives::Rect::new(0, 0, 1536, 120)];
         let (opaque, blended) = split_opaque_blit(
             (10.0, 20.0, 3072.0, 1920.0),
             (1536.0, 960.0),
@@ -2724,7 +2724,7 @@ mod tests {
 
     #[test]
     fn viewport_source_converts_post_scale_coordinates_to_buffer_uvs() {
-        let src = tessera_types::Rect::new(10, 5, 30, 20);
+        let src = tessera_primitives::Rect::new(10, 5, 30, 20);
         assert_eq!(viewport_uv(src, (200, 100), 2), (0.1, 0.1, 0.3, 0.4));
     }
 
@@ -2785,7 +2785,7 @@ mod tests {
         let style = MappedSurfaceStyle {
             opacity: 0.5,
             brightness: 0.75,
-            rounded_clip: tessera_types::Rect::new(0, 0, 100, 80),
+            rounded_clip: tessera_primitives::Rect::new(0, 0, 100, 80),
             corner_radius: 12.0,
         };
         assert_eq!(mapped_surface_modulation(style), (191, 128));
@@ -2802,7 +2802,7 @@ mod tests {
     #[test]
     fn resize_shadow_follows_direct_resize_eligibility() {
         let mut window = tessera_desktop::window::Window::new(tessera_desktop::window::WindowId(1));
-        window.size = tessera_types::Size { w: 640, h: 480 };
+        window.size = tessera_primitives::Size { w: 640, h: 480 };
         window.layout_role = tessera_desktop::layout::LayoutRole::Floating;
         assert!(window_casts_resize_shadow(&window));
 

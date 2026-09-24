@@ -5,7 +5,7 @@ use super::*;
 pub(super) struct CaptureRequest {
     pub(super) reply: std::sync::mpsc::Sender<Result<tessera_ipc::CaptureOutputPayload, String>>,
     /// Logical-pixel region to capture, or `None` for the full output.
-    pub(super) region: Option<tessera_types::Rect>,
+    pub(super) region: Option<tessera_primitives::Rect>,
 }
 
 pub(super) struct InteractionDomainCaptureRequest {
@@ -14,7 +14,7 @@ pub(super) struct InteractionDomainCaptureRequest {
     pub(super) interaction_domain: tessera_authority::interaction_domain::InteractionDomainId,
     pub(super) reply:
         std::sync::mpsc::Sender<Result<tessera_ipc::CaptureInteractionDomainPayload, String>>,
-    pub(super) region: Option<tessera_types::Rect>,
+    pub(super) region: Option<tessera_primitives::Rect>,
 }
 
 pub(super) struct InteractionDomainObserveRequest {
@@ -108,7 +108,7 @@ pub(super) struct WallpaperControlRequest {
 pub(super) struct InteractionDomainProcesses {
     launches: std::collections::BTreeMap<
         tessera_authority::interaction_domain::InteractionDomainId,
-        Vec<tessera_apps::ManagedLaunch>,
+        Vec<tessera_launch_services::ManagedLaunch>,
     >,
 }
 
@@ -116,7 +116,7 @@ impl InteractionDomainProcesses {
     pub(super) fn insert(
         &mut self,
         interaction_domain: tessera_authority::interaction_domain::InteractionDomainId,
-        launch: tessera_apps::ManagedLaunch,
+        launch: tessera_launch_services::ManagedLaunch,
     ) {
         self.launches
             .entry(interaction_domain)
@@ -217,7 +217,7 @@ pub(super) struct InteractionDomainCaptureContext {
     pub(super) interaction_domain: tessera_authority::interaction_domain::InteractionDomainId,
     pub(super) revision: u64,
     pub(super) scale_milli: u32,
-    pub(super) region: tessera_types::Rect,
+    pub(super) region: tessera_primitives::Rect,
     pub(super) placements:
         Vec<tessera_authority::interaction_domain::InteractionDomainWindowPlacement>,
     pub(super) semantic: tessera_semantic::model::SemanticSnapshot,
@@ -262,7 +262,7 @@ pub(super) fn begin_interaction_domain_capture(
     renderer: &mut tessera_render::Renderer,
     server: &tessera_wayland::Server,
     interaction_domain: tessera_authority::interaction_domain::InteractionDomainId,
-    region: Option<tessera_types::Rect>,
+    region: Option<tessera_primitives::Rect>,
     security_generation: u64,
     scheme: tessera_desktop::settings::ColorScheme,
 ) -> Result<PreparedInteractionDomainCapture, String> {
@@ -295,7 +295,7 @@ pub(super) fn begin_interaction_domain_capture(
                 "Interaction Domain capture region does not intersect the virtual output".to_owned()
             })?
         }
-        None => tessera_types::Rect::new(0, 0, output.width as i32, output.height as i32),
+        None => tessera_primitives::Rect::new(0, 0, output.width as i32, output.height as i32),
     };
     let placements = server.interaction_domain_window_placements(interaction_domain);
     let semantic = server
@@ -393,7 +393,7 @@ pub(super) fn begin_interaction_domain_capture(
                 flux_last_error_detail()
             )
         })?;
-    let full_region = tessera_types::Rect::new(0, 0, output.width as i32, output.height as i32);
+    let full_region = tessera_primitives::Rect::new(0, 0, output.width as i32, output.height as i32);
     Ok(PreparedInteractionDomainCapture {
         readback: PendingReadback {
             width: physical_size.0,

@@ -232,7 +232,7 @@ fn transact_rejects_empty_and_invalid_batches() {
             None,
             vec![tessera_protocol::TransactOp::SetWindowGeometry {
                 id: WindowId(1),
-                rect: tessera_types::Rect::new(0, 0, 0, 10),
+                rect: tessera_primitives::Rect::new(0, 0, 0, 10),
             }],
         )
         .expect_err("an invalid op is refused");

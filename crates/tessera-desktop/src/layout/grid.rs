@@ -1,5 +1,5 @@
 //! Parameterized placement geometry without shell styling.
-use tessera_types::{Point, Rect, Size};
+use tessera_primitives::{Point, Rect, Size};
 
 pub fn grid_with_spacing(area: Rect, count: usize, margin: i32, gap: i32) -> Vec<Rect> {
     if count == 0 || area.size.w <= 0 || area.size.h <= 0 {

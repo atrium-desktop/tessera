@@ -91,13 +91,13 @@ fn settings_query_and_confirmed_transaction_round_trip() {
     assert_eq!(before.revision, 7);
     let mut config = before.input.touchpad.config;
     config.natural_scroll = !config.natural_scroll;
-    let config = tessera_types::input::InputConfig {
+    let config = tessera_primitives::input::InputConfig {
         touchpad: config,
-        mouse: tessera_types::input::MouseConfig {
+        mouse: tessera_primitives::input::MouseConfig {
             scroll_speed: 2.0,
             ..before.input.mouse.config
         },
-        keyboard: tessera_types::input::KeyboardConfig {
+        keyboard: tessera_primitives::input::KeyboardConfig {
             repeat_rate: 40,
             ..before.input.keyboard
         },
@@ -260,7 +260,7 @@ fn settings_transaction_rejects_stale_revision() {
         .apply_settings(
             Some(6),
             SettingsAction::SetInput {
-                config: tessera_types::input::InputConfig::default(),
+                config: tessera_primitives::input::InputConfig::default(),
             },
         )
         .unwrap_err();
@@ -278,7 +278,7 @@ fn settings_mutation_requires_session_capability_and_is_audited() {
         .apply_settings(
             None,
             SettingsAction::SetInput {
-                config: tessera_types::input::InputConfig::default(),
+                config: tessera_primitives::input::InputConfig::default(),
             },
         )
         .unwrap_err();

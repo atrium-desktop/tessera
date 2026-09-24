@@ -5,11 +5,11 @@
 
 use tessera_desktop::settings::SettingsAction;
 use tessera_desktop::settings::SettingsSnapshot;
-use tessera_types::input::InputConfig;
-use tessera_types::input::InputStatus;
-use tessera_types::input::KeyboardConfig;
-use tessera_types::input::MouseConfig;
-use tessera_types::input::TouchpadConfig;
+use tessera_primitives::input::InputConfig;
+use tessera_primitives::input::InputStatus;
+use tessera_primitives::input::KeyboardConfig;
+use tessera_primitives::input::MouseConfig;
+use tessera_primitives::input::TouchpadConfig;
 
 #[test]
 fn set_input_action_round_trips_with_the_expected_tag() {

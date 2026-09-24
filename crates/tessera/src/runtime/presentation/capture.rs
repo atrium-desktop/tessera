@@ -1,7 +1,7 @@
 use super::*;
 
 pub(super) struct FrameCapture {
-    pub(super) crop: Option<tessera_types::Rect>,
+    pub(super) crop: Option<tessera_primitives::Rect>,
     pub(super) target: CaptureTarget,
     /// Cursor state sampled when a saved screenshot was requested, or a
     /// theme-cursor state for stream readbacks serving embedded-mode

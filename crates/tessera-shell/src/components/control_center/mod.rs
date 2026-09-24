@@ -66,7 +66,7 @@ use tessera_desktop::settings::SettingsSnapshot;
 use tessera_desktop::window::SpaceUse;
 use tessera_desktop::window::Window;
 use tessera_desktop::workspace::WorkspaceSnapshot;
-use tessera_types::input::KeyChar;
+use tessera_primitives::input::KeyChar;
 
 use crate::component::{
     Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, IconSet, Localizer, Message,
@@ -156,7 +156,7 @@ fn presentation_anim_pending(
     avatar_playing: bool,
     avatar_reload_pending: bool,
 ) -> bool {
-    (reveal - target).abs() > 0.002 || avatar_playing || avatar_reload_pending
+    (reveal - target).abs() > 0.004 || avatar_playing || avatar_reload_pending
 }
 
 /// The main panel's tabs: the Quick Controls tab plus one tab per available
@@ -307,6 +307,7 @@ pub struct ControlCenter {
     /// Last frame's cursor position, cached for hover checks inside
     /// presentation helpers that do not receive the raw input.
     cursor_hint: (f32, f32),
+    frame_prepared: bool,
     pub(super) wifi_expanded: bool,
     pub(super) wifi_input_ssid: Option<String>,
     pub(super) wifi_input_passphrase: String,
@@ -491,6 +492,7 @@ impl ControlCenter {
             },
             menu_just_opened: false,
             menu_cache: None,
+            frame_prepared: false,
             wifi_expanded: false,
             wifi_input_ssid: None,
             wifi_input_passphrase: String::new(),
@@ -544,6 +546,7 @@ impl ControlCenter {
             },
             menu_just_opened: false,
             menu_cache: None,
+            frame_prepared: false,
             wifi_expanded: false,
             wifi_input_ssid: None,
             wifi_input_passphrase: String::new(),
@@ -553,7 +556,17 @@ impl ControlCenter {
     /// Whether the panel currently owns the chrome layer: open, or still
     /// animating closed.
     fn active(&self) -> bool {
-        self.open || self.reveal > 0.01
+        self.open || self.reveal > 0.005
+    }
+
+    /// Advance the panel's animation clocks and hot-reload watcher before
+    /// backdrop declarations and damage policy are queried for the frame.
+    fn prepare_frame(&mut self, input: &Input) {
+        let raw = input.as_raw();
+        let dt = raw.dt_seconds.max(0.0);
+        self.advance(dt);
+        self.reload_avatar_if_ready();
+        self.frame_prepared = true;
     }
 
     /// Resolve the panel-local semantic palette from the live appearance.
@@ -643,9 +656,9 @@ impl ControlCenter {
             return;
         }
         let dt = dt.clamp(0.0, 1.0 / 15.0);
-        let follow = 1.0 - (-15.0 * dt).exp();
+        let follow = 1.0 - (-18.0 * dt).exp();
         self.reveal += (target - self.reveal) * follow;
-        if (target - self.reveal).abs() < 0.002 {
+        if (target - self.reveal).abs() < 0.004 {
             self.reveal = target;
         }
         // Segmented-control indicator: an under-damped spring gives the
@@ -706,7 +719,7 @@ impl ControlCenter {
     /// Whether the panel is mid reveal/close transition.
     fn reveal_animating(&self) -> bool {
         let target = if self.open { 1.0 } else { 0.0 };
-        (self.reveal - target).abs() > 0.002
+        (self.reveal - target).abs() > 0.004
     }
 
     /// Close the panel, also dismissing any open dbusmenu popover and
@@ -1127,6 +1140,15 @@ impl ControlCenter {
 
 mod presentation;
 impl Chrome for ControlCenter {
+    fn prepare_backdrop(
+        &mut self,
+        input: &Input,
+        _windows: &[Window],
+        _workspaces: &WorkspaceSnapshot,
+    ) {
+        self.prepare_frame(input);
+    }
+
     fn render(
         &mut self,
         f: &mut Frame,
@@ -1136,10 +1158,12 @@ impl Chrome for ControlCenter {
         i18n: &Localizer,
         out: &mut ChromeEvents,
     ) {
+        if !self.frame_prepared {
+            self.prepare_frame(input);
+        }
+        self.frame_prepared = false;
         let raw = input.as_raw();
         let dt = raw.dt_seconds.max(0.0);
-        self.advance(dt);
-        self.reload_avatar_if_ready();
         let display = (raw.display_size.x, raw.display_size.y);
         let cursor = (raw.cursor.x, raw.cursor.y);
         let down = raw.mouse_down.first().copied().unwrap_or(false);
@@ -1256,12 +1280,12 @@ impl Chrome for ControlCenter {
         }
 
         if let Some(ssid) = self.wifi_input_ssid.clone() {
-            if kc.keysym == tessera_types::input::XKB_KEY_Escape {
+            if kc.keysym == tessera_primitives::input::XKB_KEY_Escape {
                 self.wifi_input_ssid = None;
                 self.wifi_input_passphrase.clear();
                 return;
             }
-            if kc.keysym == tessera_types::input::XKB_KEY_Return {
+            if kc.keysym == tessera_primitives::input::XKB_KEY_Return {
                 let pass = if self.wifi_input_passphrase.is_empty() {
                     None
                 } else {
@@ -1275,7 +1299,7 @@ impl Chrome for ControlCenter {
                 self.wifi_input_passphrase.clear();
                 return;
             }
-            if kc.keysym == tessera_types::input::XKB_KEY_BackSpace {
+            if kc.keysym == tessera_primitives::input::XKB_KEY_BackSpace {
                 self.wifi_input_passphrase.pop();
                 return;
             }
@@ -1287,7 +1311,7 @@ impl Chrome for ControlCenter {
             }
         }
 
-        if kc.keysym != tessera_types::input::XKB_KEY_Escape {
+        if kc.keysym != tessera_primitives::input::XKB_KEY_Escape {
             return;
         }
         // Escape peels the innermost surface first: an open tray menu, then
@@ -1463,20 +1487,16 @@ impl Chrome for ControlCenter {
         &self,
         _windows: &[Window],
         display: (f32, f32),
-    ) -> Option<tessera_types::Rect> {
+    ) -> Option<tessera_primitives::Rect> {
         if !self.active() {
             return None;
         }
         animated_damage_region(
             display,
-            // The reveal/close transition slides several whole panels, and the
-            // tooltip reveals paint *above* their anchor bands (a rect wider
-            // and higher than the band it belongs to). Both are short-lived
-            // input-driven transitions, so the honest answer while either runs
-            // is the conservative full repaint.
-            self.reveal_animating()
-                || self.work_mode_tooltip_reveal > 0.02
-                || self.session_tooltip_reveal > 0.02,
+            // The reveal/close transition animates the full-screen backdrop
+            // cover, so it stays full-output via `None`. Tooltip reveals are
+            // localized to their cluster anchor bands.
+            self.reveal_animating(),
             // The always-on bands are exact single-rect footprints: the
             // segmented indicator moves within the work-mode control, each
             // scrollbar fades within its own scrolling surface, and the avatar
@@ -1485,6 +1505,8 @@ impl Chrome for ControlCenter {
             self.notif_scrollbar_reveal > 0.0,
             self.tray_scrollbar_reveal > 0.0,
             self.avatar_animating(),
+            self.work_mode_tooltip_reveal > 0.02,
+            self.session_tooltip_reveal > 0.02,
         )
     }
 
@@ -1504,18 +1526,20 @@ fn animated_damage_region(
     notif_scrollbar: bool,
     tray_scrollbar: bool,
     avatar: bool,
-) -> Option<tessera_types::Rect> {
+    work_mode_tooltip: bool,
+    session_tooltip: bool,
+) -> Option<tessera_primitives::Rect> {
     if conservative {
         return None;
     }
     let rects = ControlCenter::cluster_bounds(display);
-    let mut region: Option<tessera_types::Rect> = None;
-    let mut merge = |rect: Rect| {
-        let as_rect = tessera_types::Rect::new(
+    let mut region: Option<tessera_primitives::Rect> = None;
+    let mut merge = |rect: Rect, pad_top: f32| {
+        let as_rect = tessera_primitives::Rect::new(
             rect.x.floor() as i32,
-            rect.y.floor() as i32,
+            (rect.y - pad_top).floor() as i32,
             rect.w.ceil() as i32,
-            rect.h.ceil() as i32,
+            (rect.h + pad_top).ceil() as i32,
         );
         region = Some(match region {
             Some(existing) => existing.union(as_rect),
@@ -1523,16 +1547,22 @@ fn animated_damage_region(
         });
     };
     if work_mode {
-        merge(rects.6); // work-mode band
+        merge(rects.6, 0.0); // work-mode band
+    }
+    if work_mode_tooltip {
+        merge(rects.6, 50.0); // work-mode band + tooltip headroom
+    }
+    if session_tooltip {
+        merge(rects.7, 50.0); // power/session band + tooltip headroom
     }
     if notif_scrollbar {
-        merge(rects.2); // notification stream
+        merge(rects.2, 0.0); // notification stream
     }
     if tray_scrollbar {
-        merge(rects.4); // tray column
+        merge(rects.4, 0.0); // tray column
     }
     if avatar {
-        merge(rects.0); // profile block
+        merge(rects.0, 0.0); // profile block
     }
     region
 }

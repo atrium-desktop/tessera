@@ -8,7 +8,7 @@
 //! spatial echo of the real desktop. No flux, lens, or Wayland dependency,
 //! so the layout is unit-tested in isolation.
 
-use tessera_types::{Point, Rect, Size};
+use tessera_primitives::{Point, Rect, Size};
 
 pub use tessera_desktop::layout::grid::{fit, grid_with_spacing};
 

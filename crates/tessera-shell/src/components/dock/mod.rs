@@ -48,9 +48,9 @@ use tessera_desktop::dock::DockPosition;
 use tessera_desktop::window::SpaceUse;
 use tessera_desktop::window::Window;
 use tessera_desktop::workspace::WorkspaceSnapshot;
-use tessera_types::input::KeyAction;
-use tessera_types::input::KeyChar;
-use tessera_types::input::key_action;
+use tessera_primitives::input::KeyAction;
+use tessera_primitives::input::KeyChar;
+use tessera_primitives::input::key_action;
 
 /// Visual height of the dock bar. Tiles rest inside it; magnified tiles pop
 /// above its top edge (they are drawn as their own placed subtrees, unclipped). On a
@@ -1331,7 +1331,7 @@ impl Dock {
     pub fn minimize_targets(
         &self,
         display: (f32, f32),
-    ) -> Vec<(tessera_desktop::window::WindowId, tessera_types::Rect)> {
+    ) -> Vec<(tessera_desktop::window::WindowId, tessera_primitives::Rect)> {
         let tiles = Self::frame_tiles(
             &self.tile_cache,
             &self.apps,
@@ -1363,7 +1363,7 @@ impl Dock {
         pinned_count: usize,
         position: DockPosition,
         display: (f32, f32),
-    ) -> tessera_types::Rect {
+    ) -> tessera_primitives::Rect {
         let axis_len = match position {
             DockPosition::Bottom => display.0,
             DockPosition::Left | DockPosition::Right => display.1,
@@ -1391,7 +1391,7 @@ impl Dock {
                 h: s,
             },
         };
-        tessera_types::Rect::new(
+        tessera_primitives::Rect::new(
             rect.x.round() as i32,
             rect.y.round() as i32,
             rect.w.round() as i32,

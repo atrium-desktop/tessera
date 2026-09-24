@@ -73,7 +73,7 @@ pub struct AgentActivity {
     /// Toplevel that received the operation.
     pub window: tessera_desktop::window::WindowId,
     /// Applied compositor-global pointer position, when applicable.
-    pub position: Option<tessera_types::Point>,
+    pub position: Option<tessera_primitives::Point>,
     /// Privacy-preserving operation class.
     pub kind: AgentInputKind,
     /// Active `wp_cursor_shape_device_v1` cursor shape of the Agent seat.
@@ -89,7 +89,7 @@ pub enum AgentInputKind {
     },
     PointerButton {
         button: u32,
-        state: tessera_types::input::ButtonState,
+        state: tessera_primitives::input::ButtonState,
     },
     Scroll {
         dx: f32,
@@ -100,7 +100,7 @@ pub enum AgentInputKind {
     },
     Key {
         key_name: String,
-        state: tessera_types::input::ButtonState,
+        state: tessera_primitives::input::ButtonState,
     },
 }
 
@@ -220,13 +220,6 @@ impl BackdropCover {
         fade: f32,
     ) -> BackdropRegion {
         let fade = fade.clamp(0.0, 1.0);
-        let stepped_fade = if fade <= 0.01 {
-            0.0
-        } else if fade >= 0.99 {
-            1.0
-        } else {
-            (fade * 8.0).round() / 8.0
-        };
         BackdropRegion {
             x: 0.0,
             y: 0.0,
@@ -236,9 +229,9 @@ impl BackdropCover {
                 design
                     .colors
                     .modal_scrim
-                    .with_alpha((Self::SCRIM_ALPHA * stepped_fade).round() as u8),
+                    .with_alpha((Self::SCRIM_ALPHA * fade).round() as u8),
             )),
-            opacity: stepped_fade,
+            opacity: fade,
         }
     }
 }
@@ -332,8 +325,8 @@ impl BackdropLayer {
     }
 }
 
-impl From<tessera_types::Rect> for BackdropRegion {
-    fn from(rect: tessera_types::Rect) -> Self {
+impl From<tessera_primitives::Rect> for BackdropRegion {
+    fn from(rect: tessera_primitives::Rect) -> Self {
         Self {
             x: rect.origin.x as f32,
             y: rect.origin.y as f32,
@@ -606,13 +599,13 @@ pub enum CursorShape {
 
 impl Reserved {
     /// Shrink `rect` by these margins, clamped so size never goes negative.
-    pub fn inset(self, r: tessera_types::Rect) -> tessera_types::Rect {
-        tessera_types::Rect {
-            origin: tessera_types::Point {
+    pub fn inset(self, r: tessera_primitives::Rect) -> tessera_primitives::Rect {
+        tessera_primitives::Rect {
+            origin: tessera_primitives::Point {
                 x: r.origin.x + self.left,
                 y: r.origin.y + self.top,
             },
-            size: tessera_types::Size {
+            size: tessera_primitives::Size {
                 w: (r.size.w - self.left - self.right).max(0),
                 h: (r.size.h - self.top - self.bottom).max(0),
             },
@@ -875,10 +868,10 @@ pub struct ChromeEvents {
     /// the same command/journal path as `SwitchWorkspaceTo`.
     pub overview_switch: Option<tessera_desktop::workspace::WorkspaceId>,
     /// Region the screenshot selector asked to capture this frame, if any.
-    pub screenshot_region: Option<tessera_types::Rect>,
+    pub screenshot_region: Option<tessera_primitives::Rect>,
     /// Point the pixel picker was clicked at this frame (ADR-0054), in
     /// compositor logical pixels.
-    pub picked_point: Option<tessera_types::Point>,
+    pub picked_point: Option<tessera_primitives::Point>,
     /// Window id the window picker was clicked on this frame (ADR-0054).
     pub picked_window: Option<tessera_desktop::window::WindowId>,
     /// The window-picker user chose the whole output instead of a window:
@@ -1064,7 +1057,7 @@ pub trait Chrome {
     /// Handle one resolved key event while [`Chrome::captures_keyboard`] is
     /// true. Default no-op; override to consume typed input (the launcher's
     /// search box).
-    fn key_char(&mut self, _kc: &tessera_types::input::KeyChar, _out: &mut ChromeEvents) {}
+    fn key_char(&mut self, _kc: &tessera_primitives::input::KeyChar, _out: &mut ChromeEvents) {}
 
     /// Receive a discrete host lifecycle command.
     fn command(&mut self, _command: &ChromeCommand<'_>, _out: &mut ChromeEvents) {}
@@ -1142,7 +1135,7 @@ pub trait Chrome {
     fn minimize_targets(
         &self,
         _display: (f32, f32),
-        _out: &mut Vec<(tessera_desktop::window::WindowId, tessera_types::Rect)>,
+        _out: &mut Vec<(tessera_desktop::window::WindowId, tessera_primitives::Rect)>,
     ) {
     }
 
@@ -1207,7 +1200,7 @@ pub trait Chrome {
     fn prepare_window_switcher(
         &mut self,
         _input: &Input,
-        _display: tessera_types::Rect,
+        _display: tessera_primitives::Rect,
         _windows: &[Window],
         _order: &[tessera_desktop::window::WindowId],
         _selected: Option<tessera_desktop::window::WindowId>,
@@ -1315,7 +1308,7 @@ pub trait Chrome {
         &self,
         _windows: &[Window],
         _display: (f32, f32),
-    ) -> Option<tessera_types::Rect> {
+    ) -> Option<tessera_primitives::Rect> {
         None
     }
 

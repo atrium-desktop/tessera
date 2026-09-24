@@ -101,7 +101,7 @@ pub fn backdrop_refresh_regions(
         .iter()
         .copied()
         .filter(|region| {
-            let input = tessera_types::Rect::new(
+            let input = tessera_primitives::Rect::new(
                 region.origin.0 as i32,
                 region.origin.1 as i32,
                 region.extent.0 as i32,
@@ -169,10 +169,10 @@ mod tests {
             },
         ];
         let video_above_dock =
-            FrameDamage::Area(vec![tessera_types::Rect::new(100, 100, 800, 450)]);
+            FrameDamage::Area(vec![tessera_primitives::Rect::new(100, 100, 800, 450)]);
         assert!(backdrop_refresh_regions(true, false, &video_above_dock, &input).is_empty());
         let video_under_dock =
-            FrameDamage::Area(vec![tessera_types::Rect::new(100, 1020, 800, 60)]);
+            FrameDamage::Area(vec![tessera_primitives::Rect::new(100, 1020, 800, 60)]);
         assert_eq!(
             backdrop_refresh_regions(true, false, &video_under_dock, &input),
             vec![input[1]]

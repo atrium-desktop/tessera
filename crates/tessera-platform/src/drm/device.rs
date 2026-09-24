@@ -840,7 +840,7 @@ impl DrmBackend {
         &mut self,
         surface: &flux::Surface,
         frame: flux::SubmittedFrame<'_>,
-        damage: Option<&[tessera_types::Rect]>,
+        damage: Option<&[tessera_primitives::Rect]>,
     ) -> Result<Option<OwnedFd>, DrmError> {
         if !self.active || !self.render_ready || !self.outputs_powered {
             return Err(DrmError::Inactive);
@@ -893,8 +893,8 @@ impl DrmBackend {
     /// so the runtime falls back to compositing the next frame.
     pub fn present_scanout(
         &mut self,
-        client: &tessera_scene::SurfaceDmabuf,
-        damage: Option<&[tessera_types::Rect]>,
+        client: &tessera_primitives::SurfaceDmabuf,
+        damage: Option<&[tessera_primitives::Rect]>,
     ) -> Result<Option<OwnedFd>, DrmError> {
         if !self.active || !self.render_ready || !self.outputs_powered {
             return Err(DrmError::Inactive);
@@ -1209,7 +1209,7 @@ impl DrmBackend {
     pub(super) fn commit_scanout(
         &mut self,
         mut scanout: Scanout,
-        damage: Option<&[tessera_types::Rect]>,
+        damage: Option<&[tessera_primitives::Rect]>,
         frame: PrimaryPlaneFrame,
     ) -> Result<Option<OwnedFd>, DrmError> {
         if !scanout.ownership.matches_frame(frame) {

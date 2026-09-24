@@ -9,7 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 tessera-desktop.workspace = true
-tessera-types.workspace = true
+tessera-primitives.workspace = true
 # Pure: no flux, lens, or Wayland dependency. The schema is shared types from
 # `tessera-desktop` (Mods, Keybind, Keymap, and the name resolvers), so configuration
 # stays unit-testable in isolation — mirroring `tessera-desktop::keybind`. ADR-0026.

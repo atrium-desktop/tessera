@@ -39,7 +39,7 @@ pub fn detect_system_status() -> SystemStatus {
         bluetooth_enabled: detect_bluetooth_radio(),
         brightness: detect_brightness(),
         do_not_disturb: false,
-        input: tessera_types::input::InputStatus::default(),
+        input: tessera_primitives::input::InputStatus::default(),
         display: DisplayStatus::default(),
         idle_inhibited: false,
         power_mode: tessera_desktop::power::PowerMode::default(),
@@ -88,7 +88,7 @@ pub fn detect_system_status_lightweight(
         bluetooth_enabled: detect_bluetooth_radio(),
         brightness: detect_brightness(),
         do_not_disturb: false,
-        input: tessera_types::input::InputStatus::default(),
+        input: tessera_primitives::input::InputStatus::default(),
         display: DisplayStatus::default(),
         idle_inhibited: false,
         power_mode: tessera_desktop::power::PowerMode::default(),
@@ -261,11 +261,11 @@ mod tests {
         assert_eq!(status.bluetooth_enabled, None);
         assert_eq!(
             status.input.touchpad.config,
-            tessera_types::input::TouchpadConfig::default()
+            tessera_primitives::input::TouchpadConfig::default()
         );
         assert_eq!(
             status.input.keyboard,
-            tessera_types::input::KeyboardConfig::default()
+            tessera_primitives::input::KeyboardConfig::default()
         );
     }
 

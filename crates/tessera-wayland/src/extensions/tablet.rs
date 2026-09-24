@@ -234,7 +234,7 @@ pub(crate) unsafe fn announce_tool(
     state: *mut State,
     seat: *mut ffi::wl_resource,
     tool: u64,
-    info: &tessera_types::input::TabletToolInfo,
+    info: &tessera_primitives::input::TabletToolInfo,
 ) {
     unsafe {
         let res = tablet_tool_resource(state, seat, tool);

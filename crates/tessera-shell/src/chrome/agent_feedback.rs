@@ -34,7 +34,7 @@ use tessera_design::materials::{chrome_place, surface_layout};
 use tessera_desktop::window::Window;
 use tessera_desktop::window::WindowId;
 use tessera_desktop::workspace::WorkspaceSnapshot;
-use tessera_types::Point;
+use tessera_primitives::Point;
 
 use crate::HUD_HEIGHT;
 use crate::component::{
@@ -437,7 +437,7 @@ impl Chrome for AgentFeedback {
                                 || matches!(
                                     activity.kind,
                                     AgentInputKind::PointerButton {
-                                        state: tessera_types::input::ButtonState::Pressed,
+                                        state: tessera_primitives::input::ButtonState::Pressed,
                                         ..
                                     }
                                 )
@@ -460,7 +460,7 @@ impl Chrome for AgentFeedback {
                             }
                         } else if let AgentInputKind::Key {
                             ref key_name,
-                            state: tessera_types::input::ButtonState::Pressed,
+                            state: tessera_primitives::input::ButtonState::Pressed,
                         } = activity.kind
                         {
                             state.keycast.push(KeycastEntry {
@@ -487,7 +487,7 @@ impl Chrome for AgentFeedback {
                             }],
                             AgentInputKind::Key {
                                 ref key_name,
-                                state: tessera_types::input::ButtonState::Pressed,
+                                state: tessera_primitives::input::ButtonState::Pressed,
                             } => vec![KeycastEntry {
                                 label: key_name.clone(),
                                 at: now,
@@ -498,7 +498,7 @@ impl Chrome for AgentFeedback {
                             || matches!(
                                 activity.kind,
                                 AgentInputKind::PointerButton {
-                                    state: tessera_types::input::ButtonState::Pressed,
+                                    state: tessera_primitives::input::ButtonState::Pressed,
                                     ..
                                 }
                             );
@@ -545,10 +545,10 @@ impl Chrome for AgentFeedback {
         &self,
         windows: &[Window],
         display: (f32, f32),
-    ) -> Option<tessera_types::Rect> {
+    ) -> Option<tessera_primitives::Rect> {
         let now = Instant::now();
         let display = (display.0.max(1.0), display.1.max(1.0));
-        let mut region: Option<tessera_types::Rect> = None;
+        let mut region: Option<tessera_primitives::Rect> = None;
         let mut background_count = 0usize;
         for (id, activity) in &self.activity {
             let expired = now.saturating_duration_since(activity.latest_at) >= VISIBLE_FOR;
@@ -580,7 +580,7 @@ impl Chrome for AgentFeedback {
             match projected_window {
                 Some((operation, position)) => {
                     let OperationRegion::Window { rect, .. } = operation;
-                    let mask = tessera_types::Rect::new(
+                    let mask = tessera_primitives::Rect::new(
                         rect.x as i32,
                         rect.y as i32,
                         rect.w as i32,
@@ -588,7 +588,7 @@ impl Chrome for AgentFeedback {
                     );
                     let label = match position {
                         Some(pos) => pointer_label_footprint(pos, display),
-                        None => tessera_types::Rect::new(
+                        None => tessera_primitives::Rect::new(
                             rect.x as i32,
                             rect.y as i32,
                             rect.w as i32,
@@ -596,15 +596,15 @@ impl Chrome for AgentFeedback {
                         ),
                     };
                     let ripple = match position {
-                        Some(pos) => tessera_types::Rect::new(
+                        Some(pos) => tessera_primitives::Rect::new(
                             (pos.x - 24).max(0),
                             (pos.y - 24).max(0),
                             48,
                             48,
                         ),
-                        None => tessera_types::Rect::new(0, 0, 0, 0),
+                        None => tessera_primitives::Rect::new(0, 0, 0, 0),
                     };
-                    let keycast_rect = tessera_types::Rect::new(
+                    let keycast_rect = tessera_primitives::Rect::new(
                         (rect.x + rect.w - 240.0).max(0.0) as i32,
                         (rect.y + rect.h - 50.0).max(0.0) as i32,
                         240,
@@ -623,7 +623,7 @@ impl Chrome for AgentFeedback {
             }
         }
         if background_count > 0 {
-            let band = tessera_types::Rect::new(
+            let band = tessera_primitives::Rect::new(
                 0,
                 0,
                 display.0 as i32,
@@ -1170,7 +1170,7 @@ fn pointer_label_rect(position: Point, width: f32, display: (f32, f32)) -> Rect 
     }
 }
 
-fn pointer_label_footprint(position: Point, display: (f32, f32)) -> tessera_types::Rect {
+fn pointer_label_footprint(position: Point, display: (f32, f32)) -> tessera_primitives::Rect {
     let max_width = 290.0f32.min((display.0 - 16.0).max(1.0));
     let x0 = (position.x as f32 - max_width - 20.0)
         .min(position.x as f32 - CURSOR_SIZE * 0.5)
@@ -1180,7 +1180,7 @@ fn pointer_label_footprint(position: Point, display: (f32, f32)) -> tessera_type
         .min(display.0);
     let y0 = (position.y as f32 - LABEL_HEIGHT - 18.0).max(0.0);
     let y1 = (position.y as f32 + 18.0 + LABEL_HEIGHT).min(display.1);
-    tessera_types::Rect::new(
+    tessera_primitives::Rect::new(
         x0.floor() as i32,
         y0.floor() as i32,
         (x1 - x0).ceil() as i32,
@@ -1346,7 +1346,7 @@ mod tests {
     fn region_projects_only_inside_a_read_only_human_mirror() {
         let mut window = Window::new(WindowId(42));
         window.position = Point { x: 20, y: 30 };
-        window.size = tessera_types::Size { w: 100, h: 80 };
+        window.size = tessera_primitives::Size { w: 100, h: 80 };
         assert!(window_contains(&window, Point { x: 25, y: 35 }));
         assert!(!window.read_only);
         window.read_only = true;
@@ -1429,7 +1429,7 @@ mod tests {
             1,
             AgentInputKind::PointerButton {
                 button: 0x110,
-                state: tessera_types::input::ButtonState::Pressed,
+                state: tessera_primitives::input::ButtonState::Pressed,
             },
             Some(Point { x: 40, y: 50 }),
             Some(1),
@@ -1443,7 +1443,7 @@ mod tests {
             2,
             AgentInputKind::Key {
                 key_name: "Ctrl".into(),
-                state: tessera_types::input::ButtonState::Pressed,
+                state: tessera_primitives::input::ButtonState::Pressed,
             },
             None,
             None,

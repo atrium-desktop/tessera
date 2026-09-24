@@ -1,6 +1,6 @@
 //! Stream-frame crop and target-resolution geometry.
 
-use tessera_types::Rect;
+use tessera_primitives::Rect;
 
 /// Extract one target region's rows out of a shared full-frame readback.
 /// `rect` is in physical pixels and already clamped to the frame.
@@ -56,11 +56,11 @@ mod tests {
                         refresh_mhz: 60_000,
                     },
                     scale: tessera_desktop::output::Scale(1.0),
-                    transform: tessera_types::Transform::Normal,
-                    logical_origin: tessera_types::Point { x: 0, y: 0 },
+                    transform: tessera_primitives::Transform::Normal,
+                    logical_origin: tessera_primitives::Point { x: 0, y: 0 },
                 },
                 available_modes: Vec::new(),
-                color_caps: tessera_scene::edid::EdidColorCapabilities::default(),
+                color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
             },
             tessera_desktop::output::OutputInfo {
                 connector: "DP-1".into(),
@@ -71,11 +71,11 @@ mod tests {
                         refresh_mhz: 60_000,
                     },
                     scale: tessera_desktop::output::Scale(1.0),
-                    transform: tessera_types::Transform::Normal,
-                    logical_origin: tessera_types::Point { x: 1920, y: 0 },
+                    transform: tessera_primitives::Transform::Normal,
+                    logical_origin: tessera_primitives::Point { x: 1920, y: 0 },
                 },
                 available_modes: Vec::new(),
-                color_caps: tessera_scene::edid::EdidColorCapabilities::default(),
+                color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
             },
         ]
     }

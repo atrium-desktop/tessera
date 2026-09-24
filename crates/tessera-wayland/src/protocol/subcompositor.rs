@@ -110,7 +110,7 @@ unsafe extern "C" fn subsurface_set_position(
     unsafe {
         let rec = ffi::wl_resource_get_user_data(resource) as *mut SurfaceRec;
         if !rec.is_null() {
-            (*rec).subsurface_offset = tessera_types::Point { x, y };
+            (*rec).subsurface_offset = tessera_primitives::Point { x, y };
         }
     }
 }

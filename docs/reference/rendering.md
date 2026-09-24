@@ -114,6 +114,12 @@ Leaving direct scanout forces full compositor damage and invalidates cached
 backdrop inputs. The software state changes to composited only after the
 fallback framebuffer has been accepted.
 
+## Backdrop Effect Recomputation and Material Fade
+
+Backdrop effects decouple scene capture from material composition (ADR-0163):
+- **Scene Refresh**: Triggered when client windows, desktop geometry, or blur sigma change. Re-captures the desktop scene and executes the Dual-Kawase pyramid blur passes.
+- **Material Recompute**: Triggered on material property updates (e.g. frost opacity, wash alpha, glass tint) while the underlying scene and sigma remain valid. Reuses the cached blurred scene output without re-recording blur compute passes, sustaining high-refresh frame pacing during chrome enter/exit transitions.
+
 ## Window-Switcher Transition
 
 The window-switcher action uses this sequence:

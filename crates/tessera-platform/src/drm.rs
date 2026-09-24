@@ -58,24 +58,24 @@ use tessera_desktop::output::OutputMode;
 use tessera_desktop::output::Scale;
 use tessera_desktop::output::automatic_scale;
 use tessera_desktop::output::physical_ppi;
-use tessera_types::Size;
-use tessera_types::input::ButtonState;
-use tessera_types::input::InputEvent;
-use tessera_types::input::InputStatus;
-use tessera_types::input::MouseCapabilities;
-use tessera_types::input::MouseConfig;
-use tessera_types::input::MouseStatus;
-use tessera_types::input::PointerAxis;
-use tessera_types::input::PointerAxisFrame;
-use tessera_types::input::PointerAxisRelativeDirection;
-use tessera_types::input::PointerAxisSource;
-use tessera_types::input::PointerGestureEvent;
-use tessera_types::input::TabletEvent;
-use tessera_types::input::TabletToolInfo;
-use tessera_types::input::TouchpadCapabilities;
-use tessera_types::input::TouchpadConfig;
-use tessera_types::input::TouchpadScrollMethod;
-use tessera_types::input::TouchpadStatus;
+use tessera_primitives::Size;
+use tessera_primitives::input::ButtonState;
+use tessera_primitives::input::InputEvent;
+use tessera_primitives::input::InputStatus;
+use tessera_primitives::input::MouseCapabilities;
+use tessera_primitives::input::MouseConfig;
+use tessera_primitives::input::MouseStatus;
+use tessera_primitives::input::PointerAxis;
+use tessera_primitives::input::PointerAxisFrame;
+use tessera_primitives::input::PointerAxisRelativeDirection;
+use tessera_primitives::input::PointerAxisSource;
+use tessera_primitives::input::PointerGestureEvent;
+use tessera_primitives::input::TabletEvent;
+use tessera_primitives::input::TabletToolInfo;
+use tessera_primitives::input::TouchpadCapabilities;
+use tessera_primitives::input::TouchpadConfig;
+use tessera_primitives::input::TouchpadScrollMethod;
+use tessera_primitives::input::TouchpadStatus;
 
 use crate::Backend;
 
@@ -155,7 +155,7 @@ fn commit_error_is_transient(error: &std::io::Error) -> bool {
 /// tick) survive as separate clips instead of being unioned into one spanning
 /// rect — which would defeat PSR2 / panel self-refresh.
 fn damage_clip_for_output(
-    damage: Option<&[tessera_types::Rect]>,
+    damage: Option<&[tessera_primitives::Rect]>,
     output_x: u32,
     output_y: u32,
     width: u32,
@@ -420,7 +420,7 @@ struct Output {
     /// highest resolution first), surfaced through `output_infos`.
     available_modes: Vec<OutputMode>,
     /// HDR/wide-gamut capabilities parsed from the connector's EDID.
-    color_caps: tessera_scene::edid::EdidColorCapabilities,
+    color_caps: tessera_primitives::edid::EdidColorCapabilities,
 }
 
 /// The session-wide color pipeline mode. The compositor renders one shared
@@ -835,12 +835,12 @@ impl DrmBackend {
     /// This is the conservative set suitable for the linux-dmabuf feedback
     /// SCANOUT tranche: a client choosing one of these pairs can still be
     /// scanned out when the desktop spans more than one selected output.
-    pub fn dmabuf_scanout_formats(&self) -> Vec<tessera_scene::dmabuf::DmabufFormat> {
+    pub fn dmabuf_scanout_formats(&self) -> Vec<tessera_primitives::dmabuf::DmabufFormat> {
         let mut formats = self
             .displays
             .scanout_formats
             .iter()
-            .map(|(&fourcc, modifiers)| tessera_scene::dmabuf::DmabufFormat {
+            .map(|(&fourcc, modifiers)| tessera_primitives::dmabuf::DmabufFormat {
                 fourcc,
                 modifiers: modifiers.clone(),
             })
@@ -1026,8 +1026,8 @@ impl Backend for DrmBackend {
                             refresh_mhz: output.mode.vrefresh().saturating_mul(1_000),
                         },
                         scale: output.scale,
-                        transform: tessera_types::Transform::Normal,
-                        logical_origin: tessera_types::Point {
+                        transform: tessera_primitives::Transform::Normal,
+                        logical_origin: tessera_primitives::Point {
                             x: output.x as i32,
                             y: output.y as i32,
                         },
@@ -1039,7 +1039,7 @@ impl Backend for DrmBackend {
             .collect()
     }
 
-    fn set_input_config(&mut self, config: tessera_types::input::InputConfig) -> InputStatus {
+    fn set_input_config(&mut self, config: tessera_primitives::input::InputConfig) -> InputStatus {
         self.touchpad_config = config.touchpad;
         for device in self.touchpads.values_mut() {
             Self::apply_touchpad_profile(device, config.touchpad);
@@ -1358,7 +1358,7 @@ mod tests {
 
     #[test]
     fn damage_clip_intersects_output_rect() {
-        use tessera_types::Rect;
+        use tessera_primitives::Rect;
         // Unknown damage covers the whole output.
         assert_eq!(
             damage_clip_for_output(None, 1920, 0, 1920, 1080),
@@ -1571,7 +1571,7 @@ mod tests {
                     },
                 ],
                 available_modes: Vec::new(),
-                color_caps: tessera_scene::edid::EdidColorCapabilities::default(),
+                color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
             },
             OutputCandidate {
                 connector: connector::Handle::from(raw(2)),
@@ -1587,7 +1587,7 @@ mod tests {
                     modifiers: vec![0, 9],
                 }],
                 available_modes: Vec::new(),
-                color_caps: tessera_scene::edid::EdidColorCapabilities::default(),
+                color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
             },
         ];
 

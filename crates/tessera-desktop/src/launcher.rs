@@ -7,7 +7,7 @@
 use std::cell::{Ref, RefCell};
 
 use crate::app::{ApplicationTarget, BuiltInApplication, Entry};
-use tessera_types::input::KeyAction;
+use tessera_primitives::input::KeyAction;
 
 /// What the launcher asked the main loop to do when the user activates a row.
 #[derive(Debug, Clone)]

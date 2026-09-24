@@ -181,16 +181,16 @@ impl From<&Command> for AuditedCommand {
                 let (mut pointer_moves, mut clicks, mut scrolls, mut key_presses) = (0, 0, 0, 0);
                 for action in actions {
                     match action {
-                        tessera_types::input::SyntheticInputAction::PointerMove { .. } => {
+                        tessera_primitives::input::SyntheticInputAction::PointerMove { .. } => {
                             pointer_moves += 1;
                         }
-                        tessera_types::input::SyntheticInputAction::Click { .. }
-                        | tessera_types::input::SyntheticInputAction::PointerButton { .. } => {
+                        tessera_primitives::input::SyntheticInputAction::Click { .. }
+                        | tessera_primitives::input::SyntheticInputAction::PointerButton { .. } => {
                             clicks += 1;
                         }
-                        tessera_types::input::SyntheticInputAction::Scroll { .. } => scrolls += 1,
-                        tessera_types::input::SyntheticInputAction::KeyPress { .. }
-                        | tessera_types::input::SyntheticInputAction::Key { .. } => {
+                        tessera_primitives::input::SyntheticInputAction::Scroll { .. } => scrolls += 1,
+                        tessera_primitives::input::SyntheticInputAction::KeyPress { .. }
+                        | tessera_primitives::input::SyntheticInputAction::Key { .. } => {
                             key_presses += 1;
                         }
                     }
@@ -275,18 +275,18 @@ impl From<&SemanticActionIntent> for AuditedSemanticAction {
                 let mut key_presses = 0u32;
                 for action in actions {
                     match action {
-                        tessera_types::input::SyntheticInputAction::PointerMove { .. } => {
+                        tessera_primitives::input::SyntheticInputAction::PointerMove { .. } => {
                             pointer_moves = pointer_moves.saturating_add(1);
                         }
-                        tessera_types::input::SyntheticInputAction::Click { .. }
-                        | tessera_types::input::SyntheticInputAction::PointerButton { .. } => {
+                        tessera_primitives::input::SyntheticInputAction::Click { .. }
+                        | tessera_primitives::input::SyntheticInputAction::PointerButton { .. } => {
                             clicks = clicks.saturating_add(1);
                         }
-                        tessera_types::input::SyntheticInputAction::Scroll { .. } => {
+                        tessera_primitives::input::SyntheticInputAction::Scroll { .. } => {
                             scrolls = scrolls.saturating_add(1);
                         }
-                        tessera_types::input::SyntheticInputAction::KeyPress { .. }
-                        | tessera_types::input::SyntheticInputAction::Key { .. } => {
+                        tessera_primitives::input::SyntheticInputAction::KeyPress { .. }
+                        | tessera_primitives::input::SyntheticInputAction::Key { .. } => {
                             key_presses = key_presses.saturating_add(1);
                         }
                     }
@@ -885,10 +885,10 @@ mod tests {
             },
             SemanticActionIntent::SyntheticInput {
                 actions: vec![
-                    tessera_types::input::SyntheticInputAction::PointerMove {
-                        position: tessera_types::Point { x: 123, y: 456 },
+                    tessera_primitives::input::SyntheticInputAction::PointerMove {
+                        position: tessera_primitives::Point { x: 123, y: 456 },
                     },
-                    tessera_types::input::SyntheticInputAction::KeyPress { code: 777 },
+                    tessera_primitives::input::SyntheticInputAction::KeyPress { code: 777 },
                 ],
             },
         ];
@@ -914,18 +914,18 @@ mod tests {
             },
             Command::Screenshot {
                 path: "/private/customer/screenshot.png".into(),
-                region: Some(tessera_types::Rect::new(123_456, 234_567, 10, 20)),
+                region: Some(tessera_primitives::Rect::new(123_456, 234_567, 10, 20)),
             },
             Command::InjectInput {
                 id: tessera_desktop::window::WindowId(4),
                 actions: vec![
-                    tessera_types::input::SyntheticInputAction::PointerMove {
-                        position: tessera_types::Point {
+                    tessera_primitives::input::SyntheticInputAction::PointerMove {
+                        position: tessera_primitives::Point {
                             x: 345_678,
                             y: 456_789,
                         },
                     },
-                    tessera_types::input::SyntheticInputAction::KeyPress { code: 777 },
+                    tessera_primitives::input::SyntheticInputAction::KeyPress { code: 777 },
                 ],
             },
         ];

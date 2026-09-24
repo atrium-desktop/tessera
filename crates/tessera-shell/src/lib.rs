@@ -491,7 +491,7 @@ impl Shell {
     pub fn prepare_window_switcher(
         &mut self,
         input: &Input,
-        display: tessera_types::Rect,
+        display: tessera_primitives::Rect,
         windows: &[Window],
         order: &[tessera_desktop::window::WindowId],
         selected: Option<tessera_desktop::window::WindowId>,
@@ -585,12 +585,12 @@ impl Shell {
     }
 
     /// Region the screenshot selector asked to capture this frame, if any.
-    pub fn take_screenshot_region(&mut self) -> Option<tessera_types::Rect> {
+    pub fn take_screenshot_region(&mut self) -> Option<tessera_primitives::Rect> {
         self.events.screenshot_region.take()
     }
 
     /// Point the pixel picker was clicked at this frame, if any (ADR-0054).
-    pub fn take_picked_point(&mut self) -> Option<tessera_types::Point> {
+    pub fn take_picked_point(&mut self) -> Option<tessera_primitives::Point> {
         self.events.picked_point.take()
     }
 
@@ -841,7 +841,7 @@ impl Shell {
     /// Feed one resolved key event to every registered component. Components
     /// with keyboard-owned state, such as the launcher or an application
     /// context menu, override [`Chrome::key_char`]; others no-op.
-    pub fn key_char(&mut self, kc: tessera_types::input::KeyChar) {
+    pub fn key_char(&mut self, kc: tessera_primitives::input::KeyChar) {
         let modal_active = self
             .components
             .iter()
@@ -942,14 +942,14 @@ impl Shell {
     /// This only describes *chrome* animation damage. Client windows, the
     /// software cursor, and the backdrop-effect source have their own damage
     /// paths and are unioned by the host separately.
-    pub fn anim_damage_region(&self, display: (f32, f32)) -> Option<tessera_types::Rect> {
+    pub fn anim_damage_region(&self, display: (f32, f32)) -> Option<tessera_primitives::Rect> {
         let modal_active = self
             .components
             .iter()
             .any(|component| component.modal_active());
         let window_switcher_active = self.window_switcher_active();
         let exclusive_presentation_active = self.exclusive_presentation_active();
-        let mut region: Option<tessera_types::Rect> = None;
+        let mut region: Option<tessera_primitives::Rect> = None;
         for component in self
             .components
             .iter()
@@ -1092,7 +1092,7 @@ impl Shell {
     pub fn minimize_targets(
         &self,
         display: (f32, f32),
-    ) -> Vec<(tessera_desktop::window::WindowId, tessera_types::Rect)> {
+    ) -> Vec<(tessera_desktop::window::WindowId, tessera_primitives::Rect)> {
         let mut targets = Vec::new();
         for component in &self.components {
             component.minimize_targets(display, &mut targets);
@@ -1466,9 +1466,9 @@ mod tests {
             left: 4,
             right: 0,
         };
-        let out = r.inset(tessera_types::Rect::new(0, 0, 1000, 800));
-        assert_eq!(out.origin, tessera_types::Point { x: 4, y: 10 });
-        assert_eq!(out.size, tessera_types::Size { w: 996, h: 714 }); // 800-10-76
+        let out = r.inset(tessera_primitives::Rect::new(0, 0, 1000, 800));
+        assert_eq!(out.origin, tessera_primitives::Point { x: 4, y: 10 });
+        assert_eq!(out.size, tessera_primitives::Size { w: 996, h: 714 }); // 800-10-76
     }
 
     #[test]
@@ -1479,8 +1479,8 @@ mod tests {
             left: 0,
             right: 0,
         };
-        let out = r.inset(tessera_types::Rect::new(0, 0, 100, 100));
-        assert_eq!(out.size, tessera_types::Size { w: 100, h: 0 });
+        let out = r.inset(tessera_primitives::Rect::new(0, 0, 100, 100));
+        assert_eq!(out.size, tessera_primitives::Size { w: 100, h: 0 });
     }
 }
 

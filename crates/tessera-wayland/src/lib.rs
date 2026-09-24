@@ -51,8 +51,8 @@ use tessera_authority::interaction_domain::SeatCapabilities;
 use tessera_authority::interaction_domain::SeatId;
 use tessera_authority::interaction_domain::TransferOptions;
 use tessera_authority::interaction_domain::VirtualOutput;
-use tessera_scene::SurfaceDmabuf;
-use tessera_scene::SurfacePixels;
+use tessera_primitives::SurfaceDmabuf;
+use tessera_primitives::SurfacePixels;
 
 /// Security-visible phase of the ext-session-lock protocol.
 ///
@@ -391,17 +391,17 @@ pub(crate) struct DragState {
 /// the common "top-left" so menus and tooltips place predictably.
 #[derive(Default)]
 struct PositionerState {
-    size: Option<tessera_types::Size>,
-    anchor_rect: Option<tessera_types::Rect>,
+    size: Option<tessera_primitives::Size>,
+    anchor_rect: Option<tessera_primitives::Rect>,
     anchor: u32,
     gravity: u32,
     constraint_adjustment: u32,
-    offset: tessera_types::Point,
+    offset: tessera_primitives::Point,
 }
 
 #[derive(Default)]
 struct RegionRec {
-    rects: Vec<tessera_types::Rect>,
+    rects: Vec<tessera_primitives::Rect>,
 }
 
 // Minimal close() without pulling the libc crate.
@@ -427,10 +427,10 @@ pub(crate) unsafe fn libc_close(fd: i32) {
 pub struct PlacementNudge {
     /// The origin the placement policy resolved before nudging. This is the
     /// position persistence remembers.
-    pub base: tessera_types::Point,
+    pub base: tessera_primitives::Point,
     /// The shifted origin actually assigned at map. Persistence folds back to
     /// `base` only while the window still rests exactly here.
-    pub nudged: tessera_types::Point,
+    pub nudged: tessera_primitives::Point,
 }
 
 /// A client surface: its pending buffer, the last committed contents copied out
@@ -440,8 +440,8 @@ pub struct SurfaceRec {
     client_id: tessera_authority::interaction_domain::ClientId,
     pending_buffer: *mut ffi::wl_resource,
     pending_buffer_set: bool,
-    pending_attach_offset: tessera_types::Point,
-    attach_offset: tessera_types::Point,
+    pending_attach_offset: tessera_primitives::Point,
+    attach_offset: tessera_primitives::Point,
     pub mapped: bool,
     pub width: i32,
     pub height: i32,
@@ -453,7 +453,7 @@ pub struct SurfaceRec {
     /// policy: rule/remembered/session geometry, a fallback diagonal cascade,
     /// and a collision nudge when the resolved origin is already taken
     /// (ADR-0131).
-    pub position: tessera_types::Point,
+    pub position: tessera_primitives::Point,
     /// Last committed contents, tightly packed BGRA8, copied out of the client
     /// shm buffer at commit so the buffer can be released immediately.
     pixels: Vec<u8>,
@@ -515,7 +515,7 @@ pub struct SurfaceRec {
     children: Vec<*mut SurfaceRec>,
     /// Offset relative to the parent's top-left, set by
     /// `wl_subsurface.set_position`. Defaults to (0, 0).
-    subsurface_offset: tessera_types::Point,
+    subsurface_offset: tessera_primitives::Point,
     /// Whether this subsurface renders above (true) or below (false) its
     /// parent. Defaults to above; `place_below` flips it.
     subsurface_above_parent: bool,
@@ -536,10 +536,10 @@ pub struct SurfaceRec {
     /// Tiling target (ADR-0024): the layout rect the tiling policy last
     /// configured this surface to, or `None` when not under active tiling.
     /// The apply path reconfigures only when the target moves.
-    pub layout_target: Option<tessera_types::Rect>,
+    pub layout_target: Option<tessera_primitives::Rect>,
     /// Saved floating position and size prior to maximizing or full-screening,
     /// restored when unmaximized/unfullscreened.
-    pub saved_floating_rect: Option<tessera_types::Rect>,
+    pub saved_floating_rect: Option<tessera_primitives::Rect>,
     /// Size the compositor handed out with the most recent maximize/fullscreen
     /// restore configure. While set, a client commit that still carries a
     /// different size is a pre-resize stale buffer (clients acknowledge the
@@ -549,7 +549,7 @@ pub struct SurfaceRec {
     /// maximized geometry back and the window would never shrink. Cleared when
     /// the client commits the restored size, when the window re-enters a
     /// state, or when an explicit size configure supersedes the restore.
-    pub restore_pending_size: Option<tessera_types::Size>,
+    pub restore_pending_size: Option<tessera_primitives::Size>,
     /// Session-scoped placement nudge (ADR-0131): the window was placed with a
     /// compositor-invented diagonal offset because its resolved origin collided
     /// with a live window's origin, and `(base, nudged)` is the fold-back pair.
@@ -564,12 +564,12 @@ pub struct SurfaceRec {
     /// Source rectangle in surface pixel coords, or None for "whole buffer".
     /// Set by `wp_viewport.set_source`. Coordinates arrive as 24.8
     /// fixed-point; we store them as f32.
-    pub viewport_src: Option<tessera_types::Rect>,
-    pending_viewport_src: Option<Option<tessera_types::Rect>>,
+    pub viewport_src: Option<tessera_primitives::Rect>,
+    pending_viewport_src: Option<Option<tessera_primitives::Rect>>,
     /// Destination size in logical pixels, or None for "source size".
     /// Set by `wp_viewport.set_destination`.
-    pub viewport_dst: Option<tessera_types::Size>,
-    pending_viewport_dst: Option<Option<tessera_types::Size>>,
+    pub viewport_dst: Option<tessera_primitives::Size>,
+    pending_viewport_dst: Option<Option<tessera_primitives::Size>>,
     viewport_resource: *mut ffi::wl_resource,
     // ----- wp_fractional_scale_v1 state -----
     /// The `wp_fractional_scale_v1` resource bound for this surface, if any.
@@ -584,30 +584,30 @@ pub struct SurfaceRec {
     /// Pending image description from `set_image_description`, applied at
     /// commit. `None` pending means no change; the inner `None` means the
     /// client unset the tag (back to the sRGB default).
-    pending_image_description: Option<Option<tessera_scene::color::ContentColor>>,
+    pending_image_description: Option<Option<tessera_primitives::color::ContentColor>>,
     /// Committed image description; `None` is the protocol-default sRGB.
-    image_description: Option<tessera_scene::color::ContentColor>,
+    image_description: Option<tessera_primitives::color::ContentColor>,
     /// Committed xdg-shell window geometry (excluding client shadows). Its
     /// size is the window rect's size; its origin is the frame inset by
     /// which the buffer sits up-left of the window rect (see
     /// `surface_draw_origin`).
-    window_geometry: Option<tessera_types::Rect>,
-    pending_window_geometry: Option<tessera_types::Rect>,
+    window_geometry: Option<tessera_primitives::Rect>,
+    pending_window_geometry: Option<tessera_primitives::Rect>,
     /// `None` means the whole surface accepts input; `Some` is the union of
     /// rectangles copied from the last committed `wl_region`.
-    input_region: Option<Vec<tessera_types::Rect>>,
-    pending_input_region: Option<Option<Vec<tessera_types::Rect>>>,
+    input_region: Option<Vec<tessera_primitives::Rect>>,
+    pending_input_region: Option<Option<Vec<tessera_primitives::Rect>>>,
     /// `None` means no opacity guarantee; `Some` is the union of rectangles
     /// copied from the last committed `wl_region`, in surface-local logical
     /// coordinates. Unlike the input-region default, a null opaque region is
     /// deliberately empty.
-    opaque_region: Option<Vec<tessera_types::Rect>>,
-    pending_opaque_region: Option<Option<Vec<tessera_types::Rect>>>,
+    opaque_region: Option<Vec<tessera_primitives::Rect>>,
+    pending_opaque_region: Option<Option<Vec<tessera_primitives::Rect>>>,
     // ----- pending buffer transform / scale -----
     /// Pending buffer transform from `wl_surface.set_buffer_transform`,
     /// applied on the next commit.
-    pending_transform: tessera_types::Transform,
-    buffer_transform: tessera_types::Transform,
+    pending_transform: tessera_primitives::Transform,
+    buffer_transform: tessera_primitives::Transform,
     /// Pending buffer scale from `wl_surface.set_buffer_scale`.
     pending_scale: i32,
     buffer_scale: i32,
@@ -616,17 +616,17 @@ pub struct SurfaceRec {
     /// commit, in surface-local logical coordinates;
     /// empty means "client did not report damage, renderer should
     /// re-upload the whole texture on a generation change".
-    pending_damage: Vec<tessera_types::Rect>,
+    pending_damage: Vec<tessera_primitives::Rect>,
     /// Raw buffer-coordinate rectangles accumulated by
     /// `wl_surface.damage_buffer`. Kept separate until commit because buffer
     /// scale/transform requests may be interleaved with damage requests.
-    pending_buffer_damage: Vec<tessera_types::Rect>,
+    pending_buffer_damage: Vec<tessera_primitives::Rect>,
     /// Damage accumulated across every commit since the last successfully
     /// presented compositor frame, surfaced via `Server::toplevel_frames`.
     /// Multiple client commits can be dispatched before one render, so
     /// replacing this at each commit would make both texture upload and KMS
     /// damage miss earlier changed pixels.
-    committed_damage: Vec<tessera_types::Rect>,
+    committed_damage: Vec<tessera_primitives::Rect>,
     /// Empty `committed_damage` normally means no outstanding damage. This
     /// flag distinguishes the conservative "damage is unknown/full" state.
     committed_damage_full: bool,
@@ -639,12 +639,12 @@ impl SurfaceRec {
             client_id: tessera_authority::interaction_domain::ClientId::default(),
             pending_buffer: std::ptr::null_mut(),
             pending_buffer_set: false,
-            pending_attach_offset: tessera_types::Point::default(),
-            attach_offset: tessera_types::Point::default(),
+            pending_attach_offset: tessera_primitives::Point::default(),
+            attach_offset: tessera_primitives::Point::default(),
             mapped: false,
             width: 0,
             height: 0,
-            position: tessera_types::Point::default(),
+            position: tessera_primitives::Point::default(),
             pixels: Vec::new(),
             generation: 0,
             content_is_dmabuf: false,
@@ -675,7 +675,7 @@ impl SurfaceRec {
             index: 0,
             parent: std::ptr::null_mut(),
             children: Vec::new(),
-            subsurface_offset: tessera_types::Point::default(),
+            subsurface_offset: tessera_primitives::Point::default(),
             subsurface_above_parent: true,
             subsurface_sync: true,
             subsurface_cached_commit: false,
@@ -698,8 +698,8 @@ impl SurfaceRec {
             pending_input_region: None,
             opaque_region: None,
             pending_opaque_region: None,
-            pending_transform: tessera_types::Transform::Normal,
-            buffer_transform: tessera_types::Transform::Normal,
+            pending_transform: tessera_primitives::Transform::Normal,
+            buffer_transform: tessera_primitives::Transform::Normal,
             pending_scale: 1,
             buffer_scale: 1,
             pending_damage: Vec::new(),
@@ -717,7 +717,7 @@ impl SurfaceRec {
     }
 }
 
-fn surface_logical_size(surface: &SurfaceRec) -> tessera_types::Size {
+fn surface_logical_size(surface: &SurfaceRec) -> tessera_primitives::Size {
     if let Some(destination) = surface.viewport_dst {
         return destination;
     }
@@ -730,13 +730,13 @@ fn surface_logical_size(surface: &SurfaceRec) -> tessera_types::Size {
     } else {
         (surface.width, surface.height)
     };
-    tessera_types::Size {
+    tessera_primitives::Size {
         w: (width as f32 / scale).round().max(1.0) as i32,
         h: (height as f32 / scale).round().max(1.0) as i32,
     }
 }
 
-fn intersect_rect(a: tessera_types::Rect, b: tessera_types::Rect) -> Option<tessera_types::Rect> {
+fn intersect_rect(a: tessera_primitives::Rect, b: tessera_primitives::Rect) -> Option<tessera_primitives::Rect> {
     let ax1 = i64::from(a.origin.x) + i64::from(a.size.w.max(0));
     let ay1 = i64::from(a.origin.y) + i64::from(a.size.h.max(0));
     let bx1 = i64::from(b.origin.x) + i64::from(b.size.w.max(0));
@@ -746,14 +746,14 @@ fn intersect_rect(a: tessera_types::Rect, b: tessera_types::Rect) -> Option<tess
     let x1 = ax1.min(bx1);
     let y1 = ay1.min(by1);
     (x1 > x0 && y1 > y0)
-        .then(|| tessera_types::Rect::new(x0 as i32, y0 as i32, (x1 - x0) as i32, (y1 - y0) as i32))
+        .then(|| tessera_primitives::Rect::new(x0 as i32, y0 as i32, (x1 - x0) as i32, (y1 - y0) as i32))
 }
 
 /// Clip, deduplicate and bound one Interaction Domain's damage metadata. The compositor
 /// never exposes unchecked client coordinates through IPC.
 fn normalize_interaction_domain_damage(
-    rects: &mut Vec<tessera_types::Rect>,
-    output: tessera_types::Rect,
+    rects: &mut Vec<tessera_primitives::Rect>,
+    output: tessera_primitives::Rect,
 ) {
     *rects = rects
         .drain(..)
@@ -778,7 +778,7 @@ fn normalize_interaction_domain_damage(
         .max()
         .unwrap_or(i64::from(y0));
     rects.clear();
-    rects.push(tessera_types::Rect::new(
+    rects.push(tessera_primitives::Rect::new(
         x0,
         y0,
         (x1 - i64::from(x0)) as i32,
@@ -793,23 +793,23 @@ fn normalize_interaction_domain_damage(
 /// is anchored in its parent's buffer space, so its origin resolves through
 /// the parent chain — this is what makes nested subsurfaces (a subsurface
 /// with its own subsurfaces) land at the right compositor position.
-pub(crate) fn surface_draw_origin(surface: &SurfaceRec) -> tessera_types::Point {
+pub(crate) fn surface_draw_origin(surface: &SurfaceRec) -> tessera_primitives::Point {
     surface_draw_origin_depth(surface, 0)
 }
 
-fn surface_draw_origin_depth(surface: &SurfaceRec, depth: u32) -> tessera_types::Point {
+fn surface_draw_origin_depth(surface: &SurfaceRec, depth: u32) -> tessera_primitives::Point {
     // The depth cap only breaks reference cycles defensively; the destroy
     // path orphans children, so a live parent pointer is always valid.
     if !surface.parent.is_null() && depth < 32 {
         let parent = unsafe { &*surface.parent };
         let origin = surface_draw_origin_depth(parent, depth + 1);
-        return tessera_types::Point {
+        return tessera_primitives::Point {
             x: origin.x + surface.subsurface_offset.x,
             y: origin.y + surface.subsurface_offset.y,
         };
     }
     match surface.window_geometry {
-        Some(geometry) => tessera_types::Point {
+        Some(geometry) => tessera_primitives::Point {
             x: surface.position.x - geometry.origin.x,
             y: surface.position.y - geometry.origin.y,
         },
@@ -847,7 +847,7 @@ fn surface_accepts_point(s: &SurfaceRec, x: f32, y: f32) -> bool {
     let local_y = y - draw_origin.y as f32;
     s.input_region.as_ref().is_none_or(|rects| {
         rects.iter().any(|rect| {
-            rect.contains(tessera_types::Point {
+            rect.contains(tessera_primitives::Point {
                 x: local_x as i32,
                 y: local_y as i32,
             })
@@ -940,7 +940,7 @@ unsafe fn update_overlay_positions_for_seat(state: *mut State, seat: SeatId) {
         if !cursor_surface.is_null() {
             let rec = ffi::wl_resource_get_user_data(cursor_surface) as *mut SurfaceRec;
             if !rec.is_null() {
-                (*rec).position = tessera_types::Point {
+                (*rec).position = tessera_primitives::Point {
                     x: pointer_x.round() as i32 - cursor_hotspot.x + (*rec).attach_offset.x,
                     y: pointer_y.round() as i32 - cursor_hotspot.y + (*rec).attach_offset.y,
                 };
@@ -955,7 +955,7 @@ unsafe fn update_overlay_positions_for_seat(state: *mut State, seat: SeatId) {
             };
             let rec = ffi::wl_resource_get_user_data(drag.icon) as *mut SurfaceRec;
             if !rec.is_null() {
-                (*rec).position = tessera_types::Point {
+                (*rec).position = tessera_primitives::Point {
                     x: target_x.round() as i32 + (*rec).attach_offset.x,
                     y: target_y.round() as i32 + (*rec).attach_offset.y,
                 };
@@ -1076,12 +1076,12 @@ pub(crate) struct SeatRuntime {
     pub(crate) tablet_device_seen: bool,
     pub(crate) tablet_focus: *mut ffi::wl_resource,
     text_inputs: Vec<*mut ffi::wl_resource>,
-    pending_text_input_states: Vec<tessera_types::input::TextInputState>,
+    pending_text_input_states: Vec<tessera_primitives::input::TextInputState>,
     input_methods: Vec<*mut ffi::wl_resource>,
     virtual_keyboards: Vec<*mut ffi::wl_resource>,
     cursor_shape: u32,
     cursor_surface: *mut ffi::wl_resource,
-    cursor_hotspot: tessera_types::Point,
+    cursor_hotspot: tessera_primitives::Point,
     cursor_hidden: bool,
     last_pointer_enter_serial: u32,
     pointer_focus: *mut ffi::wl_resource,
@@ -1100,7 +1100,7 @@ pub(crate) struct SeatRuntime {
     touch_grab_x: f32,
     touch_grab_y: f32,
     client_pressed_buttons: std::collections::BTreeSet<u32>,
-    depressed_mods: tessera_types::input::Mods,
+    depressed_mods: tessera_primitives::input::Mods,
     /// Presses consumed by compositor shortcuts. Their matching releases are
     /// consumed too so a newly focused client never receives a release for a
     /// key press it did not receive.
@@ -1169,7 +1169,7 @@ impl SeatRuntime {
             virtual_keyboards: Vec::new(),
             cursor_shape: 0,
             cursor_surface: std::ptr::null_mut(),
-            cursor_hotspot: tessera_types::Point::default(),
+            cursor_hotspot: tessera_primitives::Point::default(),
             cursor_hidden: false,
             last_pointer_enter_serial: 0,
             pointer_focus: std::ptr::null_mut(),
@@ -1188,7 +1188,7 @@ impl SeatRuntime {
             touch_grab_x: 0.0,
             touch_grab_y: 0.0,
             client_pressed_buttons: std::collections::BTreeSet::new(),
-            depressed_mods: tessera_types::input::Mods::NONE,
+            depressed_mods: tessera_primitives::input::Mods::NONE,
             suppressed_shortcut_keys: std::collections::HashSet::new(),
             client_pressed_keys: std::collections::BTreeSet::new(),
             keyboard: None,
@@ -1245,7 +1245,7 @@ struct WorkspaceSlideLayer {
 /// enough for both desktops to cross the output edge.
 #[derive(Debug)]
 struct WorkspaceSlide {
-    output: tessera_types::Rect,
+    output: tessera_primitives::Rect,
     layers: Vec<WorkspaceSlideLayer>,
     started_ms: u64,
     duration_ms: u64,
@@ -1262,7 +1262,7 @@ pub struct WorkspaceSlideLayerPresentation {
 /// independently so windows from separate workspaces never share one Z-order.
 #[derive(Debug, Clone)]
 pub struct WorkspaceSlidePresentation {
-    pub output: tessera_types::Rect,
+    pub output: tessera_primitives::Rect,
     pub layers: Vec<WorkspaceSlideLayerPresentation>,
 }
 
@@ -1310,7 +1310,7 @@ pub(crate) struct ClosingFrame {
     pub id: usize,
     /// Root window rect at the moment of the close: the full-size start of
     /// the fade-out flight.
-    pub rect: tessera_types::Rect,
+    pub rect: tessera_primitives::Rect,
     /// Snapshot of the last committed contents: the CPU-copied BGRA8 pixels
     /// (shm clients), or a compositor-owned duplicate of the dma-buf.
     pub pixels: Vec<u8>,
@@ -1320,7 +1320,7 @@ pub(crate) struct ClosingFrame {
     /// The surface's committed image description at close time
     /// (`wp_color_management_v1` tag), so the ghost renders like the live
     /// surface did.
-    pub color: Option<tessera_scene::color::ContentColor>,
+    pub color: Option<tessera_primitives::color::ContentColor>,
     /// The in-flight close transition (fade + slight shrink).
     pub transition: tessera_desktop::transition::WindowTransition,
 }
@@ -1329,7 +1329,7 @@ impl ClosingFrame {
     /// The rect the ghost renders at `now_ms`: interpolated between the
     /// window's final rect and a slightly inset target while the transition
     /// runs, `None` once settled.
-    pub fn rect_at(&self, now_ms: u64) -> Option<tessera_types::Rect> {
+    pub fn rect_at(&self, now_ms: u64) -> Option<tessera_primitives::Rect> {
         let target = inset_rect(self.rect, self.rect.size.w / 16, self.rect.size.h / 16);
         self.transition.rect_at(target, now_ms)
     }
@@ -1342,17 +1342,17 @@ impl ClosingFrame {
 
 /// Shrink `rect` by `dx`/`dy` on every side, keeping a minimum 2×2 extent so
 /// the interpolation always has a visible target.
-pub(crate) fn inset_rect(rect: tessera_types::Rect, dx: i32, dy: i32) -> tessera_types::Rect {
+pub(crate) fn inset_rect(rect: tessera_primitives::Rect, dx: i32, dy: i32) -> tessera_primitives::Rect {
     let w = (rect.size.w - dx * 2).max(2);
     let h = (rect.size.h - dy * 2).max(2);
     let lost_w = rect.size.w.saturating_sub(w);
     let lost_h = rect.size.h.saturating_sub(h);
-    tessera_types::Rect {
-        origin: tessera_types::Point {
+    tessera_primitives::Rect {
+        origin: tessera_primitives::Point {
             x: rect.origin.x + lost_w / 2,
             y: rect.origin.y + lost_h / 2,
         },
-        size: tessera_types::Size { w, h },
+        size: tessera_primitives::Size { w, h },
     }
 }
 
@@ -1429,7 +1429,7 @@ pub(crate) struct State {
     semantic_trees: tessera_semantic::SemanticTreeRegistry,
     interaction_domain_placements: std::collections::BTreeMap<
         (InteractionDomainId, tessera_desktop::window::WindowId),
-        tessera_types::Rect,
+        tessera_primitives::Rect,
     >,
     /// Interaction Domain layouts are recomputed after the current Wayland dispatch batch.
     /// Deferring keeps role creation and surface commits atomic from the
@@ -1443,7 +1443,7 @@ pub(crate) struct State {
     /// Conservative damage queued for topology changes where an old placement
     /// may no longer be recoverable (remove, transfer, output reconfigure).
     pending_interaction_domain_damage:
-        std::collections::BTreeMap<InteractionDomainId, Vec<tessera_types::Rect>>,
+        std::collections::BTreeMap<InteractionDomainId, Vec<tessera_primitives::Rect>>,
     /// Surface pointers in stacking order (bottom to top). Entries are
     /// removed (order-preserving, with the shifted tail renumbered) when a
     /// surface's destroy notify fires; focusing a toplevel moves its pointer
@@ -1492,7 +1492,7 @@ pub(crate) struct State {
     pub(crate) ipc_idle_inhibit: bool,
     /// Physical tablet tools seen so far, with their announced info. A tool
     /// is announced to every seat the first time it enters proximity.
-    pub(crate) known_tools: Vec<(u64, tessera_types::input::TabletToolInfo)>,
+    pub(crate) known_tools: Vec<(u64, tessera_primitives::input::TabletToolInfo)>,
     retired_buffer_releases: Vec<RetiredBufferRelease>,
     /// Bound `ext_foreign_toplevel_list_v1` resources. New toplevels, title
     /// changes, and removals are pushed to each.
@@ -1559,14 +1559,14 @@ pub(crate) struct State {
     /// Keyboard repeat policy advertised as `wl_keyboard.repeat_info`
     /// (`[input.keyboard]`). Clients repeat locally from these values; the
     /// compositor itself does not repeat keys (ADR-0010).
-    pub(crate) keyboard_repeat: tessera_types::input::KeyboardConfig,
+    pub(crate) keyboard_repeat: tessera_primitives::input::KeyboardConfig,
     /// The configured minimize flight style (`[dock] minimize_animation`).
     pub(crate) minimize_animation: tessera_desktop::dock::MinimizeAnimationStyle,
     /// Resting dock-icon rectangles per window, pushed by the shell every
     /// frame: the minimize flight targets. While empty (startup, no dock),
     /// minimize falls back to a screen-edge stub target.
     pub(crate) minimize_targets:
-        std::collections::HashMap<tessera_desktop::window::WindowId, tessera_types::Rect>,
+        std::collections::HashMap<tessera_desktop::window::WindowId, tessera_primitives::Rect>,
     /// Effective decoration ownership announced to xdg-decoration clients.
     /// Borderless is compositor-owned: clients omit CSDs while window
     /// controls remain available through gestures and shell surfaces.
@@ -1612,7 +1612,7 @@ pub(crate) struct State {
     /// at 1 so `WindowId(0)` remains reserved for the `Window::default()`
     /// that non-toplevel surfaces carry.
     /// Cached chrome-aware work area bounds for maximized windows.
-    pub(crate) last_work_area: tessera_types::Rect,
+    pub(crate) last_work_area: tessera_primitives::Rect,
     pub(crate) epoch: std::time::Instant,
     /// Memoized window signatures, keyed by the `now_ms` they were computed
     /// at: `(now, visible_set_signature, all_windows_signature)`. The frame
@@ -1626,7 +1626,7 @@ pub(crate) struct State {
     /// Last remembered floating window position and size per application ID.
     /// Bounded to [`MAX_APP_GEOMETRY_ENTRIES`] (mirroring the persisted
     /// store's own ceiling) because `app_id` is client-supplied.
-    pub(crate) last_app_geometries: std::collections::HashMap<String, tessera_types::Rect>,
+    pub(crate) last_app_geometries: std::collections::HashMap<String, tessera_primitives::Rect>,
     /// Persistent window state store across restarts.
     pub(crate) window_state_store: window_state::WindowStateStore,
     /// Path to persistent window state file.
@@ -1637,11 +1637,11 @@ pub(crate) struct State {
     /// the renderer from the Vulkan device's real capabilities so clients
     /// allocate GPU-optimal (tiled/compressed) buffers instead of LINEAR.
     /// Drives the format/modifier events in `dmabuf_bind`.
-    pub(crate) dmabuf_formats: Vec<tessera_scene::dmabuf::DmabufFormat>,
+    pub(crate) dmabuf_formats: Vec<tessera_primitives::dmabuf::DmabufFormat>,
     /// Format/modifier pairs that every active primary plane accepts for
     /// direct scanout. Feedback intersects this with the renderer table before
     /// advertising the preferred SCANOUT tranche.
-    pub(crate) dmabuf_scanout_formats: Vec<tessera_scene::dmabuf::DmabufFormat>,
+    pub(crate) dmabuf_scanout_formats: Vec<tessera_primitives::dmabuf::DmabufFormat>,
     /// Linux `dev_t` of the renderer's preferred DRM node. When present the
     /// linux-dmabuf global is advertised at v4 and feedback objects use this
     /// as `main_device` and the renderer fallback tranche target. Without
@@ -1869,10 +1869,10 @@ enum PointerAxisWireEvent {
 
 fn pointer_axis_wire_events(
     version: i32,
-    frame: tessera_types::input::PointerAxisFrame,
+    frame: tessera_primitives::input::PointerAxisFrame,
 ) -> Vec<PointerAxisWireEvent> {
-    use tessera_types::input::PointerAxisRelativeDirection as Direction;
-    use tessera_types::input::PointerAxisSource as Source;
+    use tessera_primitives::input::PointerAxisRelativeDirection as Direction;
+    use tessera_primitives::input::PointerAxisSource as Source;
 
     let mut events = Vec::with_capacity(10);
     if version >= 5 {
@@ -2040,7 +2040,7 @@ pub struct Server {
 #[derive(Debug, Clone, Copy)]
 pub struct PreparedKeyboardEvent {
     evdev_code: u32,
-    state: tessera_types::input::ButtonState,
+    state: tessera_primitives::input::ButtonState,
     outcome: keyboard::KeyOutcome,
     consumed_by_vt_switch: bool,
 }
@@ -2050,11 +2050,11 @@ impl PreparedKeyboardEvent {
     ///
     /// VT-switch keysyms are compositor control events rather than text and
     /// therefore intentionally have no character view.
-    pub fn key_char(self) -> Option<tessera_types::input::KeyChar> {
-        (!self.consumed_by_vt_switch).then_some(tessera_types::input::KeyChar {
+    pub fn key_char(self) -> Option<tessera_primitives::input::KeyChar> {
+        (!self.consumed_by_vt_switch).then_some(tessera_primitives::input::KeyChar {
             keysym: self.outcome.keysym,
             ch: self.outcome.utf8,
-            mods: tessera_types::input::Mods(self.outcome.depressed),
+            mods: tessera_primitives::input::Mods(self.outcome.depressed),
         })
     }
 }

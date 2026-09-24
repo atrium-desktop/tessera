@@ -446,7 +446,7 @@ pub trait Handler: Send + Sync {
     /// `None` captures the whole output.
     fn capture_output(
         &self,
-        _region: Option<tessera_types::Rect>,
+        _region: Option<tessera_primitives::Rect>,
     ) -> Result<CaptureOutputPayload, String> {
         Err("capture unsupported".into())
     }
@@ -456,7 +456,7 @@ pub trait Handler: Send + Sync {
         _conn_id: u64,
         _subject: Option<&str>,
         _interaction_domain: tessera_authority::interaction_domain::InteractionDomainId,
-        _region: Option<tessera_types::Rect>,
+        _region: Option<tessera_primitives::Rect>,
     ) -> Result<CaptureInteractionDomainPayload, String> {
         Err("interaction_domain capture unsupported".into())
     }

@@ -205,7 +205,7 @@ fn new_test_server_scaled(scale: f32) -> Option<Server> {
     Some(server)
 }
 
-fn toplevel_rect(server: &Server) -> (tessera_types::Point, tessera_types::Size) {
+fn toplevel_rect(server: &Server) -> (tessera_primitives::Point, tessera_primitives::Size) {
     let root = server
         .state
         .live_surfaces()
@@ -214,7 +214,7 @@ fn toplevel_rect(server: &Server) -> (tessera_types::Point, tessera_types::Size)
     unsafe { ((*root).position, (*root).window.size) }
 }
 
-fn popup_rect(server: &Server) -> (tessera_types::Point, tessera_types::Size) {
+fn popup_rect(server: &Server) -> (tessera_primitives::Point, tessera_primitives::Size) {
     let popup = server
         .state
         .live_surfaces()
@@ -259,14 +259,14 @@ fn grabbed_menu_popup_receives_hover_click_and_outside_dismiss() {
     let click = (origin.x + 100, origin.y + 100);
     server.forward_input(
         &[
-            tessera_types::input::InputEvent::pointer_move_to(click.0 as f32, click.1 as f32),
-            tessera_types::input::InputEvent::PointerButton {
+            tessera_primitives::input::InputEvent::pointer_move_to(click.0 as f32, click.1 as f32),
+            tessera_primitives::input::InputEvent::PointerButton {
                 button: 0x110,
-                state: tessera_types::input::ButtonState::Pressed,
+                state: tessera_primitives::input::ButtonState::Pressed,
             },
-            tessera_types::input::InputEvent::PointerButton {
+            tessera_primitives::input::InputEvent::PointerButton {
                 button: 0x110,
-                state: tessera_types::input::ButtonState::Released,
+                state: tessera_primitives::input::ButtonState::Released,
             },
         ],
         &keymap(),
@@ -287,8 +287,8 @@ fn grabbed_menu_popup_receives_hover_click_and_outside_dismiss() {
     );
     server.forward_input(
         &[
-            tessera_types::input::InputEvent::pointer_move_to(hover.0 as f32, hover.1 as f32),
-            tessera_types::input::InputEvent::pointer_move_to(hover.0 as f32 + 1.0, hover.1 as f32),
+            tessera_primitives::input::InputEvent::pointer_move_to(hover.0 as f32, hover.1 as f32),
+            tessera_primitives::input::InputEvent::pointer_move_to(hover.0 as f32 + 1.0, hover.1 as f32),
         ],
         &keymap(),
     );
@@ -302,13 +302,13 @@ fn grabbed_menu_popup_receives_hover_click_and_outside_dismiss() {
     // popup holds pointer focus, and must NOT dismiss the grab.
     server.forward_input(
         &[
-            tessera_types::input::InputEvent::PointerButton {
+            tessera_primitives::input::InputEvent::PointerButton {
                 button: 0x110,
-                state: tessera_types::input::ButtonState::Pressed,
+                state: tessera_primitives::input::ButtonState::Pressed,
             },
-            tessera_types::input::InputEvent::PointerButton {
+            tessera_primitives::input::InputEvent::PointerButton {
                 button: 0x110,
-                state: tessera_types::input::ButtonState::Released,
+                state: tessera_primitives::input::ButtonState::Released,
             },
         ],
         &keymap(),
@@ -336,14 +336,14 @@ fn grabbed_menu_popup_receives_hover_click_and_outside_dismiss() {
     // Click outside every client surface: the grab must dismiss exactly once.
     server.forward_input(
         &[
-            tessera_types::input::InputEvent::pointer_move_to(10.0, 1000.0),
-            tessera_types::input::InputEvent::PointerButton {
+            tessera_primitives::input::InputEvent::pointer_move_to(10.0, 1000.0),
+            tessera_primitives::input::InputEvent::PointerButton {
                 button: 0x110,
-                state: tessera_types::input::ButtonState::Pressed,
+                state: tessera_primitives::input::ButtonState::Pressed,
             },
-            tessera_types::input::InputEvent::PointerButton {
+            tessera_primitives::input::InputEvent::PointerButton {
                 button: 0x110,
-                state: tessera_types::input::ButtonState::Released,
+                state: tessera_primitives::input::ButtonState::Released,
             },
         ],
         &keymap(),
@@ -464,8 +464,8 @@ fn compositor_fullscreen_configures_the_client_and_restores() {
     assert_eq!(
         (origin, size),
         (
-            tessera_types::Point { x: 0, y: 0 },
-            tessera_types::Size { w: 1920, h: 1080 }
+            tessera_primitives::Point { x: 0, y: 0 },
+            tessera_primitives::Size { w: 1920, h: 1080 }
         ),
         "compositor geometry must cover the whole output"
     );
@@ -625,7 +625,7 @@ fn chrome_tooltips_keep_their_requested_size() {
     };
     while x < origin.x + size.w - 10 {
         server.forward_input(
-            &[tessera_types::input::InputEvent::pointer_move_to(
+            &[tessera_primitives::input::InputEvent::pointer_move_to(
                 x as f32, y as f32,
             )],
             &keymap,
@@ -744,7 +744,7 @@ fn dump_scene_ppm(server: &Server, path: &std::path::Path) {
         px[3] = 0xff;
     }
     let frames = server.client_surface_frames();
-    let by_id: std::collections::HashMap<usize, &tessera_scene::SurfacePixels<'_>> =
+    let by_id: std::collections::HashMap<usize, &tessera_primitives::SurfacePixels<'_>> =
         frames.iter().map(|frame| (frame.id, frame)).collect();
     for id in server.client_surface_frame_order() {
         let Some(frame) = by_id.get(&id) else {
@@ -754,13 +754,13 @@ fn dump_scene_ppm(server: &Server, path: &std::path::Path) {
         let scale = geo.buffer_scale.max(1);
         let logical_w = (frame.width / scale).max(1);
         let logical_h = (frame.height / scale).max(1);
-        let dst = geo.viewport_dst.unwrap_or(tessera_types::Size {
+        let dst = geo.viewport_dst.unwrap_or(tessera_primitives::Size {
             w: logical_w,
             h: logical_h,
         });
         let src = geo
             .viewport_src
-            .unwrap_or(tessera_types::Rect::new(0, 0, logical_w, logical_h));
+            .unwrap_or(tessera_primitives::Rect::new(0, 0, logical_w, logical_h));
         for dy in 0..dst.h.max(0) {
             let out_y = geo.position.y + dy;
             if out_y < 0 || out_y >= h as i32 {
@@ -938,14 +938,14 @@ fn qt_context_menu_click_round(scale: f32, tag: &str) {
     let center = (origin.x + size.w / 2, origin.y + size.h / 2);
     server.forward_input(
         &[
-            tessera_types::input::InputEvent::pointer_move_to(center.0 as f32, center.1 as f32),
-            tessera_types::input::InputEvent::PointerButton {
+            tessera_primitives::input::InputEvent::pointer_move_to(center.0 as f32, center.1 as f32),
+            tessera_primitives::input::InputEvent::PointerButton {
                 button: 0x111,
-                state: tessera_types::input::ButtonState::Pressed,
+                state: tessera_primitives::input::ButtonState::Pressed,
             },
-            tessera_types::input::InputEvent::PointerButton {
+            tessera_primitives::input::InputEvent::PointerButton {
                 button: 0x111,
-                state: tessera_types::input::ButtonState::Released,
+                state: tessera_primitives::input::ButtonState::Released,
             },
         ],
         &keymap,
@@ -970,15 +970,15 @@ fn qt_context_menu_click_round(scale: f32, tag: &str) {
     let item = (popup_origin.x + 30, popup_origin.y + 12);
     server.forward_input(
         &[
-            tessera_types::input::InputEvent::pointer_move_to(item.0 as f32, item.1 as f32),
-            tessera_types::input::InputEvent::pointer_move_to(item.0 as f32 + 2.0, item.1 as f32),
-            tessera_types::input::InputEvent::PointerButton {
+            tessera_primitives::input::InputEvent::pointer_move_to(item.0 as f32, item.1 as f32),
+            tessera_primitives::input::InputEvent::pointer_move_to(item.0 as f32 + 2.0, item.1 as f32),
+            tessera_primitives::input::InputEvent::PointerButton {
                 button: 0x110,
-                state: tessera_types::input::ButtonState::Pressed,
+                state: tessera_primitives::input::ButtonState::Pressed,
             },
-            tessera_types::input::InputEvent::PointerButton {
+            tessera_primitives::input::InputEvent::PointerButton {
                 button: 0x110,
-                state: tessera_types::input::ButtonState::Released,
+                state: tessera_primitives::input::ButtonState::Released,
             },
         ],
         &keymap,
@@ -1087,14 +1087,14 @@ fn popup_mapped_under_a_stationary_cursor_receives_enter() {
     let click = (origin.x + 100, origin.y + 100);
     server.forward_input(
         &[
-            tessera_types::input::InputEvent::pointer_move_to(click.0 as f32, click.1 as f32),
-            tessera_types::input::InputEvent::PointerButton {
+            tessera_primitives::input::InputEvent::pointer_move_to(click.0 as f32, click.1 as f32),
+            tessera_primitives::input::InputEvent::PointerButton {
                 button: 0x110,
-                state: tessera_types::input::ButtonState::Pressed,
+                state: tessera_primitives::input::ButtonState::Pressed,
             },
-            tessera_types::input::InputEvent::PointerButton {
+            tessera_primitives::input::InputEvent::PointerButton {
                 button: 0x110,
-                state: tessera_types::input::ButtonState::Released,
+                state: tessera_primitives::input::ButtonState::Released,
             },
         ],
         &keymap(),
@@ -1114,13 +1114,13 @@ fn popup_mapped_under_a_stationary_cursor_receives_enter() {
     // itself, not the owning toplevel.
     server.forward_input(
         &[
-            tessera_types::input::InputEvent::PointerButton {
+            tessera_primitives::input::InputEvent::PointerButton {
                 button: 0x110,
-                state: tessera_types::input::ButtonState::Pressed,
+                state: tessera_primitives::input::ButtonState::Pressed,
             },
-            tessera_types::input::InputEvent::PointerButton {
+            tessera_primitives::input::InputEvent::PointerButton {
                 button: 0x110,
-                state: tessera_types::input::ButtonState::Released,
+                state: tessera_primitives::input::ButtonState::Released,
             },
         ],
         &keymap(),

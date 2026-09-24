@@ -29,7 +29,7 @@ pub struct CapturedInteractionDomain {
     pub width: u32,
     pub height: u32,
     pub scale_milli: u32,
-    pub region: tessera_types::Rect,
+    pub region: tessera_primitives::Rect,
     pub placements: Vec<tessera_authority::interaction_domain::InteractionDomainWindowPlacement>,
     pub observation: SemanticObservation,
     pub png: Vec<u8>,
@@ -45,7 +45,7 @@ pub struct CapturedWindow {
     pub width: u32,
     pub height: u32,
     pub scale_milli: u32,
-    pub rect: tessera_types::Rect,
+    pub rect: tessera_primitives::Rect,
     pub png: Vec<u8>,
 }
 
@@ -69,7 +69,7 @@ pub struct StreamFrame {
     pub height: u32,
     pub stride: u32,
     pub format: StreamPixelFormat,
-    pub damage: Vec<tessera_types::Rect>,
+    pub damage: Vec<tessera_primitives::Rect>,
     pub dropped: u64,
     pub pixels: Vec<u8>,
 }
@@ -468,7 +468,7 @@ impl Client {
     pub fn set_window_geometry(
         &mut self,
         id: tessera_desktop::window::WindowId,
-        rect: tessera_types::Rect,
+        rect: tessera_primitives::Rect,
     ) -> io::Result<()> {
         self.command(Command::SetWindowGeometry { id, rect })
     }
@@ -478,7 +478,7 @@ impl Client {
     pub fn inject_input(
         &mut self,
         id: tessera_desktop::window::WindowId,
-        actions: Vec<tessera_types::input::SyntheticInputAction>,
+        actions: Vec<tessera_primitives::input::SyntheticInputAction>,
     ) -> io::Result<()> {
         self.command(Command::InjectInput { id, actions })
     }
@@ -488,7 +488,7 @@ impl Client {
         interaction_domain: tessera_authority::interaction_domain::InteractionDomainId,
         target: tessera_semantic::model::SemanticObjectId,
         observation: ObservationToken,
-        actions: Vec<tessera_types::input::SyntheticInputAction>,
+        actions: Vec<tessera_primitives::input::SyntheticInputAction>,
     ) -> io::Result<ActorActionReceipt> {
         self.act_in_interaction_domain(ActorActionIntent {
             interaction_domain,
@@ -561,7 +561,7 @@ impl Client {
     pub fn screenshot_region(
         &mut self,
         path: impl Into<String>,
-        region: Option<tessera_types::Rect>,
+        region: Option<tessera_primitives::Rect>,
     ) -> io::Result<()> {
         self.command(Command::Screenshot {
             path: path.into(),
@@ -580,7 +580,7 @@ impl Client {
     /// height, png bytes)`. `region` is in compositor logical pixels.
     pub fn capture_output_region(
         &mut self,
-        region: Option<tessera_types::Rect>,
+        region: Option<tessera_primitives::Rect>,
     ) -> io::Result<(u32, u32, Vec<u8>)> {
         write_msg(&mut self.stream, &Request::CaptureOutput { region })?;
         match read_msg::<_, Response>(&mut self.stream)? {
@@ -626,7 +626,7 @@ impl Client {
                     available_modes: output.available_modes.unwrap_or_default(),
                     // The lean IPC shape carries no EDID color capabilities;
                     // the model field defaults for pre-field IPC peers.
-                    color_caps: tessera_scene::edid::EdidColorCapabilities::default(),
+                    color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
                 })
                 .collect()),
             Response::Error { message } => Err(io::Error::other(message)),
@@ -861,7 +861,7 @@ impl Client {
     pub fn capture_interaction_domain(
         &mut self,
         interaction_domain: tessera_authority::interaction_domain::InteractionDomainId,
-        region: Option<tessera_types::Rect>,
+        region: Option<tessera_primitives::Rect>,
     ) -> io::Result<CapturedInteractionDomain> {
         write_msg(
             &mut self.stream,

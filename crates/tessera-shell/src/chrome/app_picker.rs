@@ -33,9 +33,9 @@ use crate::widgets::picker::DEFAULT_PICKER_ROW_HEIGHT;
 use crate::widgets::picker::DEFAULT_WHEEL_SCROLL_ROWS;
 use tessera_design::{Design, GlassRole, materials, themes};
 use tessera_desktop::window::Window;
-use tessera_types::input::KeyAction;
-use tessera_types::input::KeyChar;
-use tessera_types::input::key_action;
+use tessera_primitives::input::KeyAction;
+use tessera_primitives::input::KeyChar;
+use tessera_primitives::input::key_action;
 
 const PANEL_W: f32 = 440.0;
 const PANEL_PAD: f32 = DEFAULT_MODAL_PAD;
@@ -698,9 +698,9 @@ mod tests {
         let mut out = ChromeEvents::default();
         picker.key_char(
             &KeyChar {
-                keysym: tessera_types::input::XKB_KEY_Return,
+                keysym: tessera_primitives::input::XKB_KEY_Return,
                 ch: None,
-                mods: tessera_types::input::Mods::NONE,
+                mods: tessera_primitives::input::Mods::NONE,
             },
             &mut out,
         );
@@ -715,9 +715,9 @@ mod tests {
         let mut out = ChromeEvents::default();
         picker.key_char(
             &KeyChar {
-                keysym: tessera_types::input::XKB_KEY_Escape,
+                keysym: tessera_primitives::input::XKB_KEY_Escape,
                 ch: None,
-                mods: tessera_types::input::Mods::NONE,
+                mods: tessera_primitives::input::Mods::NONE,
             },
             &mut out,
         );

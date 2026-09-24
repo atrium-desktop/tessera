@@ -28,9 +28,9 @@ use crate::widgets::geom::contains;
 use crate::widgets::geom::stretch;
 use tessera_design::{Design, GlassRole, materials, themes};
 use tessera_desktop::window::Window;
-use tessera_types::input::KeyAction;
-use tessera_types::input::KeyChar;
-use tessera_types::input::key_action;
+use tessera_primitives::input::KeyAction;
+use tessera_primitives::input::KeyChar;
+use tessera_primitives::input::key_action;
 use zeroize::Zeroize;
 
 const PANEL_W: f32 = 440.0;
@@ -477,7 +477,7 @@ mod tests {
         KeyChar {
             keysym: c as u32,
             ch: Some(c),
-            mods: tessera_types::input::Mods::NONE,
+            mods: tessera_primitives::input::Mods::NONE,
         }
     }
 
@@ -492,9 +492,9 @@ mod tests {
         assert_eq!(prompt.buffer, "s3c");
         prompt.key_char(
             &KeyChar {
-                keysym: tessera_types::input::XKB_KEY_BackSpace,
+                keysym: tessera_primitives::input::XKB_KEY_BackSpace,
                 ch: None,
-                mods: tessera_types::input::Mods::NONE,
+                mods: tessera_primitives::input::Mods::NONE,
             },
             &mut out,
         );
@@ -511,9 +511,9 @@ mod tests {
         }
         prompt.key_char(
             &KeyChar {
-                keysym: tessera_types::input::XKB_KEY_Return,
+                keysym: tessera_primitives::input::XKB_KEY_Return,
                 ch: None,
-                mods: tessera_types::input::Mods::NONE,
+                mods: tessera_primitives::input::Mods::NONE,
             },
             &mut out,
         );
@@ -530,9 +530,9 @@ mod tests {
         prompt.key_char(&char_key('x'), &mut out);
         prompt.key_char(
             &KeyChar {
-                keysym: tessera_types::input::XKB_KEY_Escape,
+                keysym: tessera_primitives::input::XKB_KEY_Escape,
                 ch: None,
-                mods: tessera_types::input::Mods::NONE,
+                mods: tessera_primitives::input::Mods::NONE,
             },
             &mut out,
         );

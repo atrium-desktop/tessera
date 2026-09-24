@@ -1,6 +1,6 @@
 use super::*;
 use tessera_desktop::keybind::Action;
-use tessera_types::input::Mods as M;
+use tessera_primitives::input::Mods as M;
 
 #[test]
 fn minimal_valid_config_loads() {
@@ -529,7 +529,7 @@ fn config_store_rejects_an_invalid_edit_without_replacing_a_valid_document() {
                     refresh_hz: Some(60),
                 },
                 scale: 5.0,
-                position: tessera_types::Point::default(),
+                position: tessera_primitives::Point::default(),
                 primary: true,
             },
         })
@@ -554,12 +554,12 @@ fn config_store_composes_typed_edits_without_losing_fields() {
         pointer_speed: 0.25,
         ..TouchpadConfig::default()
     };
-    let mouse = tessera_types::input::MouseConfig {
+    let mouse = tessera_primitives::input::MouseConfig {
         pointer_speed: -0.3,
         scroll_speed: 2.0,
-        ..tessera_types::input::MouseConfig::default()
+        ..tessera_primitives::input::MouseConfig::default()
     };
-    let keyboard = tessera_types::input::KeyboardConfig {
+    let keyboard = tessera_primitives::input::KeyboardConfig {
         repeat_rate: 40,
         repeat_delay_ms: 180,
     };
@@ -580,7 +580,7 @@ fn config_store_composes_typed_edits_without_losing_fields() {
                     refresh_hz: Some(60),
                 },
                 scale: 1.0,
-                position: tessera_types::Point::default(),
+                position: tessera_primitives::Point::default(),
                 primary: true,
             },
         })
@@ -607,11 +607,11 @@ fn touchpad_config_parses_defaults_and_rejects_bad_speed() {
     assert!(defaults.input.touchpad.natural_scroll);
     assert_eq!(
         defaults.input.mouse,
-        tessera_types::input::MouseConfig::default()
+        tessera_primitives::input::MouseConfig::default()
     );
     assert_eq!(
         defaults.input.keyboard,
-        tessera_types::input::KeyboardConfig::default()
+        tessera_primitives::input::KeyboardConfig::default()
     );
 
     let cfg = Config::parse(
@@ -700,12 +700,12 @@ fn config_store_sets_input_profile_and_preserves_other_content() {
         scroll_speed: 1.5,
         scroll_method: TouchpadScrollMethod::Edge,
     };
-    let mouse = tessera_types::input::MouseConfig {
+    let mouse = tessera_primitives::input::MouseConfig {
         natural_scroll: true,
         pointer_speed: 0.5,
         scroll_speed: 0.75,
     };
-    let keyboard = tessera_types::input::KeyboardConfig {
+    let keyboard = tessera_primitives::input::KeyboardConfig {
         repeat_rate: 30,
         repeat_delay_ms: 400,
     };
@@ -929,7 +929,7 @@ fn keymap_layers_overrides_on_defaults() {
     assert_eq!(km.match_key(M::SUPER, 0x20), Some(Action::ToggleLauncher));
     // Defaults still present.
     assert_eq!(
-        km.match_key(M::SUPER, tessera_types::input::XKB_KEY_Tab),
+        km.match_key(M::SUPER, tessera_primitives::input::XKB_KEY_Tab),
         Some(Action::CycleFocus)
     );
     assert!(km.len() >= 6);
@@ -1394,8 +1394,8 @@ fn output_policies_resolve_and_later_duplicate_wins() {
     let dp = &policies["DP-1"];
     assert_eq!(dp.scale, Some(1.5));
     assert_eq!(dp.mode, "2560x1440@144".parse().ok());
-    assert_eq!(dp.position, Some(tessera_types::Point { x: 1920, y: 0 }));
-    assert_eq!(dp.transform, Some(tessera_types::Transform::Rotate180));
+    assert_eq!(dp.position, Some(tessera_primitives::Point { x: 1920, y: 0 }));
+    assert_eq!(dp.transform, Some(tessera_primitives::Transform::Rotate180));
     assert!(dp.primary);
     // The later HDMI-A-1 entry replaces the earlier one wholesale.
     let hdmi = &policies["HDMI-A-1"];
@@ -1543,7 +1543,7 @@ fn config_store_persists_output_atomically_and_keeps_unrelated_fields() {
                     refresh_hz: Some(144),
                 },
                 scale: 1.5,
-                position: tessera_types::Point { x: 120, y: -40 },
+                position: tessera_primitives::Point { x: 120, y: -40 },
                 primary: true,
             },
         })
@@ -1560,10 +1560,10 @@ fn config_store_persists_output_atomically_and_keeps_unrelated_fields() {
     assert_eq!(policy.mode.unwrap().refresh_hz, Some(144));
     assert_eq!(
         policy.position,
-        Some(tessera_types::Point { x: 120, y: -40 })
+        Some(tessera_primitives::Point { x: 120, y: -40 })
     );
     assert!(policy.primary);
-    assert_eq!(policy.transform, Some(tessera_types::Transform::Rotate180));
+    assert_eq!(policy.transform, Some(tessera_primitives::Transform::Rotate180));
     assert!(
         std::fs::read_dir(&directory)
             .unwrap()

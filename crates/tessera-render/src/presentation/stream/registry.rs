@@ -4,9 +4,9 @@
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
-use tessera_scene::stream::{StreamCursorMode, StreamTarget};
+use tessera_primitives::stream::{StreamCursorMode, StreamTarget};
 
-use tessera_scene::stream::StreamInfo;
+use tessera_primitives::stream::StreamInfo;
 
 use crate::presentation::damage::{FrameDamage, union_frame_damage};
 
@@ -33,15 +33,15 @@ pub const LIVENESS_INTERVAL: Duration = Duration::from_secs(1);
 /// missed frame carried stay accumulated for the next one.
 #[derive(Clone, Debug)]
 pub struct SampledDamage {
-    pub origin: tessera_types::Point,
+    pub origin: tessera_primitives::Point,
     pub damage: FrameDamage,
 }
 
 /// The full-target damage rect reported whenever precise damage is
 /// unavailable (a forced/liveness frame, a moved crop origin, or damage
 /// that never intersected the target): over-reporting is always safe.
-pub fn full_target_damage(size: (u32, u32)) -> Vec<tessera_types::Rect> {
-    vec![tessera_types::Rect::new(0, 0, size.0 as i32, size.1 as i32)]
+pub fn full_target_damage(size: (u32, u32)) -> Vec<tessera_primitives::Rect> {
+    vec![tessera_primitives::Rect::new(0, 0, size.0 as i32, size.1 as i32)]
 }
 
 /// Translate a sampled desktop-space damage into one stream's target
@@ -49,15 +49,15 @@ pub fn full_target_damage(size: (u32, u32)) -> Vec<tessera_types::Rect> {
 /// extent. Falls back to the full target rect when nothing precise
 /// survives — including when every accumulated rect lay outside the crop,
 /// which keeps the wire contract free of empty damage lists.
-pub fn damage_in_target(sampled: &SampledDamage, size: (u32, u32)) -> Vec<tessera_types::Rect> {
+pub fn damage_in_target(sampled: &SampledDamage, size: (u32, u32)) -> Vec<tessera_primitives::Rect> {
     let Some(rects) = sampled.damage.area_rects() else {
         return full_target_damage(size);
     };
-    let extent = tessera_types::Rect::new(0, 0, size.0 as i32, size.1 as i32);
-    let translated: Vec<tessera_types::Rect> = rects
+    let extent = tessera_primitives::Rect::new(0, 0, size.0 as i32, size.1 as i32);
+    let translated: Vec<tessera_primitives::Rect> = rects
         .iter()
         .filter_map(|rect| {
-            tessera_types::Rect::new(
+            tessera_primitives::Rect::new(
                 rect.origin.x - sampled.origin.x,
                 rect.origin.y - sampled.origin.y,
                 rect.size.w,
@@ -104,8 +104,8 @@ pub struct WindowStream {
     /// Toplevel logical origin and extent at the last geometry
     /// re-resolution, for renders between re-resolutions and the
     /// cursor-over-window test.
-    pub origin: tessera_types::Point,
-    pub logical_size: tessera_types::Size,
+    pub origin: tessera_primitives::Point,
+    pub logical_size: tessera_primitives::Size,
     /// Capture scale in milli-units at the last geometry re-resolution.
     pub scale_milli: u32,
     /// Content generations of the window's surface tree at the last
@@ -164,7 +164,7 @@ pub struct OutputStream {
     /// The crop origin the damage accumulator was last sampled against, for
     /// the origin-move guard (a moved crop invalidates the coordinate space
     /// of everything accumulated).
-    pub damage_origin: Option<tessera_types::Point>,
+    pub damage_origin: Option<tessera_primitives::Point>,
     /// SHM output streams: the damage sample for the frame currently
     /// traversing the shared readback lane, cloned post-present for every
     /// due stream (window and dmabuf streams carry theirs in their own
@@ -242,7 +242,7 @@ impl OutputStreams {
             stream_id,
             width: size.0,
             height: size.1,
-            format: tessera_scene::stream::StreamPixelFormat::Bgra8,
+            format: tessera_primitives::stream::StreamPixelFormat::Bgra8,
             slots: None,
         }
     }
@@ -286,7 +286,7 @@ impl OutputStreams {
                 ring_stalled: false,
             });
         }
-        info.format = tessera_scene::stream::StreamPixelFormat::Dmabuf {
+        info.format = tessera_primitives::stream::StreamPixelFormat::Dmabuf {
             drm_format: DRM_FORMAT_XRGB8888,
             modifier,
         };
@@ -535,7 +535,7 @@ impl OutputStreams {
     /// accumulator itself is NOT reset here; it clears on delivery
     /// ([`OutputStream::note_delivered`]) so a dropped frame's regions stay
     /// accumulated for the next one.
-    pub fn sample_damage(&mut self, stream_id: u64, origin: tessera_types::Point) -> SampledDamage {
+    pub fn sample_damage(&mut self, stream_id: u64, origin: tessera_primitives::Point) -> SampledDamage {
         let Some(stream) = self.streams.get_mut(&stream_id) else {
             return SampledDamage {
                 origin,
@@ -905,8 +905,8 @@ mod tests {
             WindowStream {
                 shm: None,
                 geometry_sig: (0, 0),
-                origin: tessera_types::Point { x: 0, y: 0 },
-                logical_size: tessera_types::Size { w: 100, h: 50 },
+                origin: tessera_primitives::Point { x: 0, y: 0 },
+                logical_size: tessera_primitives::Size { w: 100, h: 50 },
                 scale_milli: 1000,
                 generations: std::collections::HashMap::new(),
                 dirty,
@@ -975,7 +975,7 @@ mod tests {
             .stage = WindowStreamStage::AwaitingReadback {
             security_generation: 1,
             damage: SampledDamage {
-                origin: tessera_types::Point { x: 0, y: 0 },
+                origin: tessera_primitives::Point { x: 0, y: 0 },
                 damage: FrameDamage::Full,
             },
         };
@@ -1036,8 +1036,8 @@ mod tests {
             hidden: false,
             client_surface: false,
         };
-        let origin = tessera_types::Point { x: 100, y: 50 };
-        let size = tessera_types::Size { w: 200, h: 100 };
+        let origin = tessera_primitives::Point { x: 100, y: 50 };
+        let size = tessera_primitives::Size { w: 200, h: 100 };
         // Inside: the draw position is window-relative.
         let drawn =
             window_stream_cursor(&state((150.0, 80.0)), origin, size).expect("cursor inside");
@@ -1055,45 +1055,45 @@ mod tests {
     #[test]
     fn damage_translates_and_clips_into_target_space() {
         let sampled = SampledDamage {
-            origin: tessera_types::Point { x: 100, y: 50 },
+            origin: tessera_primitives::Point { x: 100, y: 50 },
             damage: FrameDamage::Area(vec![
-                tessera_types::Rect::new(110, 60, 20, 10),
+                tessera_primitives::Rect::new(110, 60, 20, 10),
                 // Fully outside the target: clipped away.
-                tessera_types::Rect::new(500, 500, 20, 20),
+                tessera_primitives::Rect::new(500, 500, 20, 20),
             ]),
         };
         assert_eq!(
             damage_in_target(&sampled, (200, 100)),
-            vec![tessera_types::Rect::new(10, 10, 20, 10)]
+            vec![tessera_primitives::Rect::new(10, 10, 20, 10)]
         );
         // Partially overlapping damage clips to the target extent.
         let sampled = SampledDamage {
-            origin: tessera_types::Point { x: 100, y: 50 },
-            damage: FrameDamage::Area(vec![tessera_types::Rect::new(90, 40, 20, 20)]),
+            origin: tessera_primitives::Point { x: 100, y: 50 },
+            damage: FrameDamage::Area(vec![tessera_primitives::Rect::new(90, 40, 20, 20)]),
         };
         assert_eq!(
             damage_in_target(&sampled, (200, 100)),
-            vec![tessera_types::Rect::new(0, 0, 10, 10)]
+            vec![tessera_primitives::Rect::new(0, 0, 10, 10)]
         );
         // Damage that never intersected the target reports the full rect
         // (the wire contract never carries an empty list).
         let sampled = SampledDamage {
-            origin: tessera_types::Point { x: 0, y: 0 },
-            damage: FrameDamage::Area(vec![tessera_types::Rect::new(900, 900, 10, 10)]),
+            origin: tessera_primitives::Point { x: 0, y: 0 },
+            damage: FrameDamage::Area(vec![tessera_primitives::Rect::new(900, 900, 10, 10)]),
         };
         assert_eq!(
             damage_in_target(&sampled, (200, 100)),
-            vec![tessera_types::Rect::new(0, 0, 200, 100)]
+            vec![tessera_primitives::Rect::new(0, 0, 200, 100)]
         );
         // Full and no accumulated damage both stay conservative.
         for damage in [FrameDamage::Full, FrameDamage::None] {
             let sampled = SampledDamage {
-                origin: tessera_types::Point { x: 0, y: 0 },
+                origin: tessera_primitives::Point { x: 0, y: 0 },
                 damage,
             };
             assert_eq!(
                 damage_in_target(&sampled, (200, 100)),
-                vec![tessera_types::Rect::new(0, 0, 200, 100)]
+                vec![tessera_primitives::Rect::new(0, 0, 200, 100)]
             );
         }
     }
@@ -1102,7 +1102,7 @@ mod tests {
     fn damage_accumulates_until_delivery_and_survives_drops() {
         let mut streams = OutputStreams::new();
         let id = start(&mut streams, 1, Some(30), (100, 100));
-        let origin = tessera_types::Point { x: 0, y: 0 };
+        let origin = tessera_primitives::Point { x: 0, y: 0 };
         // The first sample of a fresh stream is full (and the origin guard
         // would force that anyway).
         let sampled = streams.sample_damage(id, origin);
@@ -1110,18 +1110,18 @@ mod tests {
         streams.streams.get_mut(&id).unwrap().note_delivered();
 
         // Two presented frames accumulate; the sample carries both rects.
-        streams.accumulate_damage(&FrameDamage::Area(vec![tessera_types::Rect::new(
+        streams.accumulate_damage(&FrameDamage::Area(vec![tessera_primitives::Rect::new(
             1, 2, 3, 4,
         )]));
-        streams.accumulate_damage(&FrameDamage::Area(vec![tessera_types::Rect::new(
+        streams.accumulate_damage(&FrameDamage::Area(vec![tessera_primitives::Rect::new(
             5, 6, 7, 8,
         )]));
         let sampled = streams.sample_damage(id, origin);
         assert_eq!(
             sampled.damage,
             FrameDamage::Area(vec![
-                tessera_types::Rect::new(1, 2, 3, 4),
-                tessera_types::Rect::new(5, 6, 7, 8),
+                tessera_primitives::Rect::new(1, 2, 3, 4),
+                tessera_primitives::Rect::new(5, 6, 7, 8),
             ])
         );
         // Sampling is a clone: a second sample (a retried capture) sees the
@@ -1133,7 +1133,7 @@ mod tests {
         assert!(matches!(after.damage, FrameDamage::None));
 
         // A dropped frame folds its damage back: nothing is lost.
-        streams.accumulate_damage(&FrameDamage::Area(vec![tessera_types::Rect::new(
+        streams.accumulate_damage(&FrameDamage::Area(vec![tessera_primitives::Rect::new(
             9, 9, 1, 1,
         )]));
         let sampled = streams.sample_damage(id, origin);
@@ -1146,7 +1146,7 @@ mod tests {
         let reaccumulated = streams.sample_damage(id, origin);
         assert_eq!(
             reaccumulated.damage,
-            FrameDamage::Area(vec![tessera_types::Rect::new(9, 9, 1, 1)])
+            FrameDamage::Area(vec![tessera_primitives::Rect::new(9, 9, 1, 1)])
         );
     }
 
@@ -1154,23 +1154,23 @@ mod tests {
     fn damage_sample_reports_full_after_an_origin_move() {
         let mut streams = OutputStreams::new();
         let id = start(&mut streams, 1, Some(30), (100, 100));
-        streams.accumulate_damage(&FrameDamage::Area(vec![tessera_types::Rect::new(
+        streams.accumulate_damage(&FrameDamage::Area(vec![tessera_primitives::Rect::new(
             1, 1, 5, 5,
         )]));
-        let moved = streams.sample_damage(id, tessera_types::Point { x: 50, y: 50 });
+        let moved = streams.sample_damage(id, tessera_primitives::Point { x: 50, y: 50 });
         // The origin moved (stream starts with no recorded origin): the old
         // accumulation belongs to another coordinate space.
         assert!(matches!(moved.damage, FrameDamage::Full));
         // Same origin next time: back to the accumulated (still full, the
         // accumulator was never cleared).
         streams.streams.get_mut(&id).unwrap().note_delivered();
-        streams.accumulate_damage(&FrameDamage::Area(vec![tessera_types::Rect::new(
+        streams.accumulate_damage(&FrameDamage::Area(vec![tessera_primitives::Rect::new(
             2, 2, 5, 5,
         )]));
-        let steady = streams.sample_damage(id, tessera_types::Point { x: 50, y: 50 });
+        let steady = streams.sample_damage(id, tessera_primitives::Point { x: 50, y: 50 });
         assert_eq!(
             steady.damage,
-            FrameDamage::Area(vec![tessera_types::Rect::new(2, 2, 5, 5)])
+            FrameDamage::Area(vec![tessera_primitives::Rect::new(2, 2, 5, 5)])
         );
     }
 

@@ -86,7 +86,7 @@ fn stage_entry(root: &Path) {
 }
 
 fn assert_staged_entry(root: &Path) {
-    let applications = tessera_apps::enumerate_with_theme_and_scale("hicolor", 1);
+    let applications = tessera_launch_services::enumerate_with_theme_and_scale("hicolor", 1);
     let staged = applications
         .iter()
         .find(|entry| entry.id == format!("{STAGED_ID}.desktop"))

@@ -537,7 +537,7 @@ fn damaged_base_and_stencil_overlay_preserve_pixels_outside_the_scissor() {
     frame.submit().unwrap().present().unwrap();
 
     let mut frame = surface.begin_frame().unwrap();
-    let repaint = FrameDamage::Area(vec![tessera_types::Rect::new(8, 6, 10, 9)]);
+    let repaint = FrameDamage::Area(vec![tessera_primitives::Rect::new(8, 6, 10, 9)]);
     let session = begin_opaque_frame_repaint(
         &mut canvas,
         &mut frame,
@@ -741,8 +741,8 @@ fn frost_opacity_drains_the_cover_between_sharp_and_blurred() {
 #[test]
 fn frame_damage_render_area_uses_the_exact_union() {
     let damage = FrameDamage::Area(vec![
-        tessera_types::Rect::new(11, 7, 5, 9),
-        tessera_types::Rect::new(29, 3, 4, 8),
+        tessera_primitives::Rect::new(11, 7, 5, 9),
+        tessera_primitives::Rect::new(29, 3, 4, 8),
     ]);
     assert_eq!(
         frame_damage_render_area(&damage),

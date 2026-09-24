@@ -7,7 +7,7 @@
 //! [`Output`](crate::workspace::Output) gains a geometry reference when M7
 //! wires real hotplug.
 
-use tessera_types::{Point, Rect, Size, Transform};
+use tessera_primitives::{Point, Rect, Size, Transform};
 
 const MILLIMETERS_PER_INCH: f32 = 25.4;
 const INTERNAL_TARGET_PPI: f32 = 125.0;
@@ -163,15 +163,15 @@ impl ColorPipeline {
     /// the space the framebuffer is written in. The luminances anchor the
     /// description to absolute levels so clients can tell SDR from HDR
     /// (and scale headroom correctly) instead of guessing.
-    pub fn output_color(self) -> tessera_scene::color::ParametricColor {
-        use tessera_scene::color::{
+    pub fn output_color(self) -> tessera_primitives::color::ParametricColor {
+        use tessera_primitives::color::{
             ContentPrimaries, ContentTransfer, Luminances, NamedPrimaries, NamedTransfer,
             ParametricColor,
         };
         match self {
             ColorPipeline::Sdr | ColorPipeline::SdrDeepColor => ParametricColor {
                 luminances: Some(Luminances::SDR),
-                ..tessera_scene::color::ContentColor::SRGB
+                ..tessera_primitives::color::ContentColor::SRGB
             },
             ColorPipeline::Hdr => ParametricColor {
                 primaries: ContentPrimaries::Named(NamedPrimaries::Bt2020),
@@ -273,7 +273,7 @@ pub struct OutputInfo {
     /// read EDID (nested). `serde(default)` keeps pre-field IPC peers
     /// compatible.
     #[cfg_attr(feature = "serde", serde(default))]
-    pub color_caps: tessera_scene::edid::EdidColorCapabilities,
+    pub color_caps: tessera_primitives::edid::EdidColorCapabilities,
 }
 
 /// Per-output geometry (ADR-0028): the physical mode, scale, transform, and

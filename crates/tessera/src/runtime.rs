@@ -118,7 +118,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // development) is a documented environment limitation, not a defect: the
     // limitation is reported again if a sandboxed launch is ever requested,
     // so startup stays at info level.
-    match tessera_apps::prepare_interaction_domain_host() {
+    match tessera_launch_services::prepare_interaction_domain_host() {
         Ok(root) => log::info!(
             "Interaction Domain cgroup host prepared under delegated root {}",
             root.display()
@@ -427,7 +427,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // A compositor overlay changes the owner of new key presses, not the
     // Wayland keyboard focus. Preserve that owner until the matching release
     // so opening or closing chrome cannot split one physical key sequence.
-    let keyboard_capture = tessera_types::input::KeyboardCaptureState::default();
+    let keyboard_capture = tessera_primitives::input::KeyboardCaptureState::default();
 
     // Global key bindings: built-in defaults overridden by the config file's
     // `[[keybind]]` entries. `forward_input` consumes a matched key before

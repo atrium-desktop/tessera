@@ -9,7 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 tessera-desktop.workspace = true
-tessera-types.workspace = true
+tessera-primitives.workspace = true
 tessera-ipc.workspace = true
 tessera-protocol.workspace = true
 tessera-semantic.workspace = true

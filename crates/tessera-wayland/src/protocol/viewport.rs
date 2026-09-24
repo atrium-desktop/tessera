@@ -134,7 +134,7 @@ pub(crate) fn decode_viewport_source(
     y: i32,
     w: i32,
     h: i32,
-) -> Result<Option<tessera_types::Rect>, ()> {
+) -> Result<Option<tessera_primitives::Rect>, ()> {
     if [x, y, w, h]
         .into_iter()
         .all(|value| value == WL_FIXED_NEGATIVE_ONE)
@@ -144,7 +144,7 @@ pub(crate) fn decode_viewport_source(
     if x < 0 || y < 0 || w <= 0 || h <= 0 {
         return Err(());
     }
-    Ok(Some(tessera_types::Rect::new(
+    Ok(Some(tessera_primitives::Rect::new(
         fixed_to_f32(x).round() as i32,
         fixed_to_f32(y).round() as i32,
         fixed_to_f32(w).round().max(1.0) as i32,
@@ -202,6 +202,6 @@ unsafe extern "C" fn viewport_set_destination(
             ffi::wl_resource_post_error(resource, 0, c"invalid viewport destination size".as_ptr());
             return;
         }
-        (*rec).pending_viewport_dst = Some(Some(tessera_types::Size { w, h }));
+        (*rec).pending_viewport_dst = Some(Some(tessera_primitives::Size { w, h }));
     }
 }

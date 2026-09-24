@@ -45,12 +45,12 @@ struct KeybindingInvocation {
 fn keybinding_invocation(
     action: tessera_desktop::keybind::Action,
     cursor: (f32, f32),
-    key: tessera_types::input::KeyChar,
+    key: tessera_primitives::input::KeyChar,
 ) -> KeybindingInvocation {
     KeybindingInvocation {
         action,
         cursor,
-        super_held: key.mods.has(tessera_types::input::Mods::SUPER),
+        super_held: key.mods.has(tessera_primitives::input::Mods::SUPER),
     }
 }
 
@@ -61,10 +61,10 @@ fn keybinding_invocation(
 /// never observes the chord. Like the VT-switch chords it is deliberately
 /// not a configurable `[[keybind]]` entry: the escape hatch must survive
 /// every configuration.
-fn is_modal_escape_chord(key: Option<tessera_types::input::KeyChar>) -> bool {
+fn is_modal_escape_chord(key: Option<tessera_primitives::input::KeyChar>) -> bool {
     key.is_some_and(|key| {
-        key.keysym == tessera_types::input::XKB_KEY_Escape
-            && key.mods == tessera_types::input::Mods::CTRL | tessera_types::input::Mods::ALT
+        key.keysym == tessera_primitives::input::XKB_KEY_Escape
+            && key.mods == tessera_primitives::input::Mods::CTRL | tessera_primitives::input::Mods::ALT
     })
 }
 
@@ -150,20 +150,20 @@ pub(super) fn agent_activities_from_applied_input(
     interaction_domain: tessera_authority::interaction_domain::InteractionDomainId,
     interaction_domain_label: &str,
     window: tessera_desktop::window::WindowId,
-    actions: &[tessera_types::input::SyntheticInputAction],
-    events: &[tessera_types::input::InputEvent],
+    actions: &[tessera_primitives::input::SyntheticInputAction],
+    events: &[tessera_primitives::input::InputEvent],
     sequence: &mut u64,
     cursor_shape: Option<u32>,
 ) -> Vec<tessera_shell::component::AgentActivity> {
-    use tessera_types::input::InputEvent;
-    use tessera_types::input::SyntheticInputAction;
+    use tessera_primitives::input::InputEvent;
+    use tessera_primitives::input::SyntheticInputAction;
 
     // Every prepared pointer action contributes exactly one global motion
     // event before its button/axis events. Reading those positions preserves
     // the exact coordinates the server applied rather than remapping target-
     // local coordinates a second time in the presentation layer.
     let mut pointer_positions = events.iter().filter_map(|event| match *event {
-        InputEvent::PointerMotion { x, y, .. } => Some(tessera_types::Point {
+        InputEvent::PointerMotion { x, y, .. } => Some(tessera_primitives::Point {
             x: x.round() as i32,
             y: y.round() as i32,
         }),
@@ -188,7 +188,7 @@ pub(super) fn agent_activities_from_applied_input(
                 SyntheticInputAction::KeyPress { code } => (
                     None,
                     tessera_shell::component::AgentInputKind::Keyboard {
-                        key_name: Some(tessera_types::input::evdev_key_name(code).to_owned()),
+                        key_name: Some(tessera_primitives::input::evdev_key_name(code).to_owned()),
                     },
                 ),
                 SyntheticInputAction::PointerButton {
@@ -202,7 +202,7 @@ pub(super) fn agent_activities_from_applied_input(
                 SyntheticInputAction::Key { code, state } => (
                     None,
                     tessera_shell::component::AgentInputKind::Key {
-                        key_name: tessera_types::input::evdev_key_name(code).to_owned(),
+                        key_name: tessera_primitives::input::evdev_key_name(code).to_owned(),
                         state,
                     },
                 ),
@@ -277,10 +277,10 @@ impl CompositorRuntime<'_> {
     /// the bound action then fires one step per `STEP_PX` of travel. Which
     /// action listens on which (fingers, axis) is configuration, not code —
     /// see `tessera_desktop::gesture`.
-    fn claim_swipe(&mut self, event: &tessera_types::input::PointerGestureEvent) -> bool {
+    fn claim_swipe(&mut self, event: &tessera_primitives::input::PointerGestureEvent) -> bool {
         use tessera_desktop::gesture::GestureAction;
         use tessera_desktop::gesture::GestureAxis;
-        use tessera_types::input::PointerGestureEvent as G;
+        use tessera_primitives::input::PointerGestureEvent as G;
         const AXIS_LOCK_PX: f32 = 30.0;
         const STEP_PX: f32 = 120.0;
         if self.server.session_locked() {
@@ -587,7 +587,7 @@ impl CompositorRuntime<'_> {
 
     fn flush_physical_input_segment(
         &mut self,
-        forwarded: &mut Vec<tessera_types::input::InputEvent>,
+        forwarded: &mut Vec<tessera_primitives::input::InputEvent>,
         forwarded_keys: &mut Vec<Option<tessera_wayland::PreparedKeyboardEvent>>,
         candidates: &mut Vec<KeybindingInvocation>,
         session_locked: bool,
@@ -604,7 +604,7 @@ impl CompositorRuntime<'_> {
         let fallback_super_held = self
             .server
             .depressed_modifiers()
-            .has(tessera_types::input::Mods::SUPER);
+            .has(tessera_primitives::input::Mods::SUPER);
         let mut candidate_at = 0;
         for action in actions {
             let invocation = candidates[candidate_at..]
@@ -716,7 +716,7 @@ impl CompositorRuntime<'_> {
             && events.iter().all(|event| {
                 matches!(
                     event,
-                    tessera_types::input::InputEvent::PointerMotion { .. }
+                    tessera_primitives::input::InputEvent::PointerMotion { .. }
                 )
             });
         if !events.is_empty() {
@@ -742,8 +742,8 @@ impl CompositorRuntime<'_> {
         let coord_factor = self.host.scale() / effective_scale;
         if (coord_factor - 1.0).abs() > f32::EPSILON {
             for ev in &mut events {
-                use tessera_types::input::InputEvent::*;
-                use tessera_types::input::TabletEvent;
+                use tessera_primitives::input::InputEvent::*;
+                use tessera_primitives::input::TabletEvent;
                 match ev {
                     PointerMotion { x, y, dx, dy, .. } => {
                         *x *= coord_factor;
@@ -780,7 +780,7 @@ impl CompositorRuntime<'_> {
         let mut prepared_key_events = vec![None; events.len()];
         if !events.is_empty() {
             for (event_index, ev) in events.iter().enumerate() {
-                use tessera_types::input::InputEvent::*;
+                use tessera_primitives::input::InputEvent::*;
                 match *ev {
                     PointerMotion { x, y, .. } => {
                         event_cursor = (x, y);
@@ -832,7 +832,7 @@ impl CompositorRuntime<'_> {
                         modal_escape_chord_events[event_index] = escape_chord;
                         let route = self.keyboard_capture.route(code, state, keyboard_captured);
                         let chrome_owned =
-                            route == tessera_types::input::KeyRoute::Chrome || escape_chord;
+                            route == tessera_primitives::input::KeyRoute::Chrome || escape_chord;
                         chrome_owned_key_events[event_index] = chrome_owned;
                         if !chrome_owned
                             && state.is_pressed()
@@ -884,7 +884,7 @@ impl CompositorRuntime<'_> {
                         }
                     }
                     PointerAxis(frame) => {
-                        use tessera_types::input::PointerAxisSource;
+                        use tessera_primitives::input::PointerAxisSource;
                         // Wayland axis values are positive for a downward
                         // scroll gesture, while lens input follows the
                         // conventional UI delta contract in which scrolling
@@ -924,7 +924,7 @@ impl CompositorRuntime<'_> {
             let mut forwarded_keys = Vec::new();
             let mut forwarded_candidates = Vec::new();
             for (event_index, ev) in events.iter().copied().enumerate() {
-                use tessera_types::input::InputEvent::*;
+                use tessera_primitives::input::InputEvent::*;
                 match ev {
                     Key { code, state } if chrome_owned_key_events[event_index] => {
                         self.flush_physical_input_segment(
@@ -950,12 +950,12 @@ impl CompositorRuntime<'_> {
                         }
                         let super_held_at_event = prepared_key_events[event_index]
                             .and_then(|prepared| prepared.key_char())
-                            .is_some_and(|key| key.mods.has(tessera_types::input::Mods::SUPER));
+                            .is_some_and(|key| key.mods.has(tessera_primitives::input::Mods::SUPER));
                         if !state.is_pressed()
                             && matches!(
                                 code,
-                                tessera_types::input::KEY_LEFTMETA
-                                    | tessera_types::input::KEY_RIGHTMETA
+                                tessera_primitives::input::KEY_LEFTMETA
+                                    | tessera_primitives::input::KEY_RIGHTMETA
                             )
                             && !super_held_at_event
                         {
@@ -970,12 +970,12 @@ impl CompositorRuntime<'_> {
                         }
                         let super_held_at_event = prepared_key_events[event_index]
                             .and_then(|prepared| prepared.key_char())
-                            .is_some_and(|key| key.mods.has(tessera_types::input::Mods::SUPER));
+                            .is_some_and(|key| key.mods.has(tessera_primitives::input::Mods::SUPER));
                         let super_released = !state.is_pressed()
                             && matches!(
                                 code,
-                                tessera_types::input::KEY_LEFTMETA
-                                    | tessera_types::input::KEY_RIGHTMETA
+                                tessera_primitives::input::KEY_LEFTMETA
+                                    | tessera_primitives::input::KEY_RIGHTMETA
                             )
                             && !super_held_at_event;
                         if client_action_candidates[event_index].is_some() || super_released {
@@ -1020,7 +1020,7 @@ impl CompositorRuntime<'_> {
                             );
                         if self.synthetic_pointer_active {
                             if !captured {
-                                forwarded.push(tessera_types::input::InputEvent::pointer_move_to(
+                                forwarded.push(tessera_primitives::input::InputEvent::pointer_move_to(
                                     route_cursor.0,
                                     route_cursor.1,
                                 ));
@@ -1046,7 +1046,7 @@ impl CompositorRuntime<'_> {
                             // forwarding it because the enter-side motion was
                             // consumed while chrome owned the pointer.
                             if self.chrome_pointer_captured {
-                                forwarded.push(tessera_types::input::InputEvent::pointer_move_to(
+                                forwarded.push(tessera_primitives::input::InputEvent::pointer_move_to(
                                     route_cursor.0,
                                     route_cursor.1,
                                 ));
@@ -1064,7 +1064,7 @@ impl CompositorRuntime<'_> {
                             );
                         if self.synthetic_pointer_active {
                             if !captured {
-                                forwarded.push(tessera_types::input::InputEvent::pointer_move_to(
+                                forwarded.push(tessera_primitives::input::InputEvent::pointer_move_to(
                                     route_cursor.0,
                                     route_cursor.1,
                                 ));
@@ -1077,7 +1077,7 @@ impl CompositorRuntime<'_> {
                             }
                         } else {
                             if self.chrome_pointer_captured {
-                                forwarded.push(tessera_types::input::InputEvent::pointer_move_to(
+                                forwarded.push(tessera_primitives::input::InputEvent::pointer_move_to(
                                     route_cursor.0,
                                     route_cursor.1,
                                 ));
@@ -1097,7 +1097,7 @@ impl CompositorRuntime<'_> {
                         // Re-hit-test at the physical contact before routing
                         // the down event after a synthetic pointer move.
                         self.synthetic_pointer_active = false;
-                        forwarded.push(tessera_types::input::InputEvent::pointer_move_to(x, y));
+                        forwarded.push(tessera_primitives::input::InputEvent::pointer_move_to(x, y));
                         forwarded.push(ev);
                     }
                     _ => forwarded.push(ev),
@@ -1118,7 +1118,7 @@ impl CompositorRuntime<'_> {
             let super_held = self
                 .server
                 .depressed_modifiers()
-                .has(tessera_types::input::Mods::SUPER);
+                .has(tessera_primitives::input::Mods::SUPER);
             self.finish_keyboard_switcher_if_released(super_held);
             // Ctrl+Alt+Fn: the compositor performs console VT switches itself
             // through libseat (the kernel never sees the key once libinput
@@ -1141,13 +1141,13 @@ impl CompositorRuntime<'_> {
                     let prepared = self.server.prepare_synthetic_input(*id, actions);
                     if let Some(events) = prepared {
                         let has_key = events.iter().any(|event| {
-                            matches!(event, tessera_types::input::InputEvent::Key { .. })
+                            matches!(event, tessera_primitives::input::InputEvent::Key { .. })
                         });
                         let blocked_by_chrome = (has_key && self.shell.captures_keyboard())
                             || events.iter().any(|event| {
                                 matches!(
                                     *event,
-                                    tessera_types::input::InputEvent::PointerMotion { x, y, .. }
+                                    tessera_primitives::input::InputEvent::PointerMotion { x, y, .. }
                                         if self.shell.captures_pointer_at(
                                             x,
                                             y,
@@ -1172,7 +1172,7 @@ impl CompositorRuntime<'_> {
                             if events.iter().any(|event| {
                                 matches!(
                                     event,
-                                    tessera_types::input::InputEvent::PointerMotion { .. }
+                                    tessera_primitives::input::InputEvent::PointerMotion { .. }
                                 )
                             }) {
                                 self.synthetic_pointer_active = true;
@@ -1462,10 +1462,10 @@ mod tests {
     use super::*;
     use tessera_authority::interaction_domain::InteractionDomainId;
     use tessera_desktop::window::WindowId;
-    use tessera_types::Point;
-    use tessera_types::input::ButtonState;
-    use tessera_types::input::InputEvent;
-    use tessera_types::input::SyntheticInputAction;
+    use tessera_primitives::Point;
+    use tessera_primitives::input::ButtonState;
+    use tessera_primitives::input::InputEvent;
+    use tessera_primitives::input::SyntheticInputAction;
 
     fn frame(input: tessera_shell::component::Input, had_input: bool) -> FrameState {
         FrameState {
@@ -1571,24 +1571,24 @@ mod tests {
         let invocation = keybinding_invocation(
             tessera_desktop::keybind::Action::CycleFocus,
             (20.0, 30.0),
-            tessera_types::input::KeyChar {
-                keysym: tessera_types::input::XKB_KEY_Tab,
+            tessera_primitives::input::KeyChar {
+                keysym: tessera_primitives::input::XKB_KEY_Tab,
                 ch: None,
-                mods: tessera_types::input::Mods::SUPER,
+                mods: tessera_primitives::input::Mods::SUPER,
             },
         );
-        let end_of_batch_mods = tessera_types::input::Mods::NONE;
+        let end_of_batch_mods = tessera_primitives::input::Mods::NONE;
 
         assert!(invocation.super_held);
-        assert!(!end_of_batch_mods.has(tessera_types::input::Mods::SUPER));
+        assert!(!end_of_batch_mods.has(tessera_primitives::input::Mods::SUPER));
     }
 
     #[test]
     fn the_modal_escape_chord_matches_ctrl_alt_escape_exactly() {
-        use tessera_types::input::KeyChar;
-        use tessera_types::input::Mods;
-        use tessera_types::input::XKB_KEY_Escape;
-        use tessera_types::input::XKB_KEY_Return;
+        use tessera_primitives::input::KeyChar;
+        use tessera_primitives::input::Mods;
+        use tessera_primitives::input::XKB_KEY_Escape;
+        use tessera_primitives::input::XKB_KEY_Return;
         let chord = |mods, keysym| {
             is_modal_escape_chord(Some(KeyChar {
                 keysym,

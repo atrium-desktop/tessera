@@ -8,7 +8,7 @@ use super::*;
 /// `settle_finished_transitions`).
 #[test]
 fn closing_frame_interpolates_then_settles() {
-    let rect = tessera_types::Rect::new(100, 100, 800, 600);
+    let rect = tessera_primitives::Rect::new(100, 100, 800, 600);
     let frame = ClosingFrame {
         id: 7,
         rect,
@@ -45,7 +45,7 @@ fn closing_frame_interpolates_then_settles() {
 /// collapses below the 2×2 floor.
 #[test]
 fn inset_rect_targets_sixteenth_and_keeps_floor() {
-    let rect = tessera_types::Rect::new(0, 0, 160, 96);
+    let rect = tessera_primitives::Rect::new(0, 0, 160, 96);
     let inset = inset_rect(rect, rect.size.w / 16, rect.size.h / 16);
     assert_eq!(inset.size.w, 160 - 20);
     assert_eq!(inset.size.h, 96 - 12);
@@ -53,8 +53,8 @@ fn inset_rect_targets_sixteenth_and_keeps_floor() {
     assert_eq!(inset.origin.x, 10);
     assert_eq!(inset.origin.y, 6);
 
-    let tiny = inset_rect(tessera_types::Rect::new(0, 0, 3, 3), 50, 50);
-    assert_eq!(tiny.size, tessera_types::Size { w: 2, h: 2 });
+    let tiny = inset_rect(tessera_primitives::Rect::new(0, 0, 3, 3), 50, 50);
+    assert_eq!(tiny.size, tessera_primitives::Size { w: 2, h: 2 });
 }
 
 /// Ghost-frame ids never repeat, so renderer texture caches cannot collide
@@ -72,7 +72,7 @@ fn closing_frame_ids_never_repeat() {
 #[test]
 fn closing_frame_capacity_drops_oldest() {
     const { assert!(MAX_CLOSING_FRAMES >= 4) };
-    let rect = tessera_types::Rect::new(0, 0, 100, 100);
+    let rect = tessera_primitives::Rect::new(0, 0, 100, 100);
     let mut frames: Vec<ClosingFrame> = Vec::new();
     for i in 0..(MAX_CLOSING_FRAMES + 3) {
         let frame = ClosingFrame {

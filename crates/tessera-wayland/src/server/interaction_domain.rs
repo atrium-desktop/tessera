@@ -397,7 +397,7 @@ impl Server {
             return Err("accessibility tree targets an unknown or unmapped window".into());
         }
         let surface_size = unsafe {
-            tessera_types::Size {
+            tessera_primitives::Size {
                 w: (*rec).width,
                 h: (*rec).height,
             }
@@ -1044,7 +1044,7 @@ impl Server {
                 *placement_interaction_domain != interaction_domain || windows.contains(window)
             },
         );
-        let area = tessera_types::Rect::new(0, 0, output.width as i32, output.height as i32);
+        let area = tessera_primitives::Rect::new(0, 0, output.width as i32, output.height as i32);
         let slots = tessera_desktop::layout::grid::grid_with_spacing(area, windows.len(), 48, 24);
         for (window, slot) in windows.into_iter().zip(slots) {
             let rec = self.find_surface_by_window_id(window);
@@ -1117,7 +1117,7 @@ impl Server {
         runtime.swipe_gesture_client = std::ptr::null_mut();
         runtime.pinch_gesture_client = std::ptr::null_mut();
         runtime.hold_gesture_client = std::ptr::null_mut();
-        runtime.depressed_mods = tessera_types::input::Mods::NONE;
+        runtime.depressed_mods = tessera_primitives::input::Mods::NONE;
         runtime.client_pressed_keys.clear();
         runtime.keyboard = None;
         runtime.cursor_surface = std::ptr::null_mut();
@@ -1211,7 +1211,7 @@ impl Server {
     /// rectangles per Interaction Domain, collapsing excess entries to one bounding box.
     pub fn take_interaction_domain_damage(
         &mut self,
-    ) -> std::collections::BTreeMap<InteractionDomainId, Vec<tessera_types::Rect>> {
+    ) -> std::collections::BTreeMap<InteractionDomainId, Vec<tessera_primitives::Rect>> {
         let changed_windows = std::mem::take(&mut self.state.damaged_windows);
         let mut damage = std::mem::take(&mut self.state.pending_interaction_domain_damage);
 
@@ -1261,7 +1261,7 @@ impl Server {
             }
             normalize_interaction_domain_damage(
                 rects,
-                tessera_types::Rect::new(0, 0, output.width as i32, output.height as i32),
+                tessera_primitives::Rect::new(0, 0, output.width as i32, output.height as i32),
             );
             !rects.is_empty()
         });

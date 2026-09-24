@@ -19,9 +19,9 @@ use tessera_protocol::{
 };
 use tessera_semantic::model::SemanticActionIntent;
 use tessera_semantic::model::SemanticObjectId;
-use tessera_types::Point;
-use tessera_types::Rect;
-use tessera_types::input::SyntheticInputAction;
+use tessera_primitives::Point;
+use tessera_primitives::Rect;
+use tessera_primitives::input::SyntheticInputAction;
 
 use crate::BridgeConfig;
 use tessera_ipc::{InteractionDomainSession, ManagedInteractionDomain};
@@ -906,8 +906,8 @@ impl TryFrom<InputActionArgs> for SyntheticInputAction {
             )),
         };
         let parse_state = |state: &str| match state {
-            "pressed" => Ok(tessera_types::input::ButtonState::Pressed),
-            "released" => Ok(tessera_types::input::ButtonState::Released),
+            "pressed" => Ok(tessera_primitives::input::ButtonState::Pressed),
+            "released" => Ok(tessera_primitives::input::ButtonState::Released),
             _ => Err(invalid("state must be pressed or released")),
         };
         match value {
@@ -1110,7 +1110,7 @@ mod tests {
             SyntheticInputAction::PointerButton {
                 position: Some(Point { x: 15, y: 25 }),
                 button: 0x110,
-                state: tessera_types::input::ButtonState::Pressed,
+                state: tessera_primitives::input::ButtonState::Pressed,
             }
         );
         let drag_end = InputActionArgs::PointerButton {
@@ -1124,7 +1124,7 @@ mod tests {
             SyntheticInputAction::PointerButton {
                 position: None,
                 button: 0x110,
-                state: tessera_types::input::ButtonState::Released,
+                state: tessera_primitives::input::ButtonState::Released,
             }
         );
         let key_down = InputActionArgs::Key {
@@ -1135,7 +1135,7 @@ mod tests {
             SyntheticInputAction::try_from(key_down).expect("key down"),
             SyntheticInputAction::Key {
                 code: 29,
-                state: tessera_types::input::ButtonState::Pressed,
+                state: tessera_primitives::input::ButtonState::Pressed,
             }
         );
         assert!(

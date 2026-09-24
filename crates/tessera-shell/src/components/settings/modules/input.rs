@@ -3,10 +3,10 @@ use tessera_design::Design;
 use tessera_desktop::settings::SettingsAction;
 use tessera_desktop::settings::SettingsSnapshot;
 use tessera_i18n::{Localizer, Message};
-use tessera_types::input::KeyboardConfig;
-use tessera_types::input::MouseStatus;
-use tessera_types::input::TouchpadScrollMethod;
-use tessera_types::input::TouchpadStatus;
+use tessera_primitives::input::KeyboardConfig;
+use tessera_primitives::input::MouseStatus;
+use tessera_primitives::input::TouchpadScrollMethod;
+use tessera_primitives::input::TouchpadStatus;
 
 use crate::components::settings::module::{
     ApplyPolicy, ModuleAvailability, ModuleCategory, ModuleEvents, ModuleId, ModuleMetadata,
@@ -151,7 +151,7 @@ impl SettingsModule for InputModule {
                 "##keyboard-repeat-rate",
                 &mut keyboard_rate,
                 0.0,
-                tessera_types::input::MAX_REPEAT_RATE as f32,
+                tessera_primitives::input::MAX_REPEAT_RATE as f32,
             );
             frame.row_ex(
                 &LayoutOpts {
@@ -187,7 +187,7 @@ impl SettingsModule for InputModule {
                 "##keyboard-repeat-delay",
                 &mut keyboard_delay,
                 50.0,
-                tessera_types::input::MAX_REPEAT_DELAY_MS as f32,
+                tessera_primitives::input::MAX_REPEAT_DELAY_MS as f32,
             );
             frame.row_ex(
                 &LayoutOpts {
@@ -379,17 +379,17 @@ impl SettingsModule for InputModule {
             mouse.scroll_speed = mouse.scroll_speed.clamp(0.1, 10.0);
             keyboard.repeat_rate = keyboard_rate
                 .round()
-                .clamp(0.0, tessera_types::input::MAX_REPEAT_RATE as f32)
+                .clamp(0.0, tessera_primitives::input::MAX_REPEAT_RATE as f32)
                 as u32;
             keyboard.repeat_delay_ms = keyboard_delay
                 .round()
-                .clamp(1.0, tessera_types::input::MAX_REPEAT_DELAY_MS as f32)
+                .clamp(1.0, tessera_primitives::input::MAX_REPEAT_DELAY_MS as f32)
                 as u32;
             self.touchpad.config = touchpad;
             self.mouse.config = mouse;
             self.keyboard = keyboard;
             out.actions.push(SettingsAction::SetInput {
-                config: tessera_types::input::InputConfig {
+                config: tessera_primitives::input::InputConfig {
                     touchpad,
                     mouse,
                     keyboard,

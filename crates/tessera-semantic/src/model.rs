@@ -5,9 +5,9 @@
 //! protocol adapter and must be attached as descendants of these stable
 //! window roots; pixels are never treated as semantic authority.
 
-use tessera_types::InteractionDomainId;
-use tessera_types::WindowId;
-use tessera_types::{Rect, Size};
+use tessera_primitives::InteractionDomainId;
+use tessera_primitives::WindowId;
+use tessera_primitives::{Rect, Size};
 
 /// Stable semantic object identity namespaced by its owning window.
 ///
@@ -112,7 +112,7 @@ pub enum SemanticActionIntent {
     /// Target-local low-level fallback for surfaces without an accessibility
     /// action implementation.
     SyntheticInput {
-        actions: Vec<tessera_types::input::SyntheticInputAction>,
+        actions: Vec<tessera_primitives::input::SyntheticInputAction>,
     },
 }
 

@@ -12,7 +12,7 @@
 //! (CapsLock, NumLock) lives in xkbcommon's `locked` mask and does not pollute
 //! the `depressed` mask the matcher reads.
 
-use tessera_types::input::{
+use tessera_primitives::input::{
     Mods, XKB_KEY_BackSpace, XKB_KEY_Down, XKB_KEY_Escape, XKB_KEY_ISO_Left_Tab, XKB_KEY_Print,
     XKB_KEY_Return, XKB_KEY_Tab, XKB_KEY_Up,
 };
@@ -261,7 +261,7 @@ pub fn keysym_from_name(s: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tessera_types::input::XKB_KEY_NoSymbol;
+    use tessera_primitives::input::XKB_KEY_NoSymbol;
 
     #[test]
     fn defaults_match_documented_bindings() {

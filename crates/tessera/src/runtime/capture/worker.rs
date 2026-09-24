@@ -155,7 +155,7 @@ pub(in crate::runtime) enum CaptureTarget {
     /// One user-picked pixel readback (ADR-0054). The main loop answers the
     /// waiting `PickTarget` IPC request with the colour.
     Pixel {
-        point: tessera_types::Point,
+        point: tessera_primitives::Point,
         reply: std::sync::mpsc::Sender<Result<tessera_protocol::PickResult, String>>,
     },
     /// One shared readback for every stream that was due this presentation
@@ -198,7 +198,7 @@ enum CaptureJob {
     },
     Pixel {
         capture: CapturedPixels,
-        point: tessera_types::Point,
+        point: tessera_primitives::Point,
         reply: std::sync::mpsc::Sender<Result<tessera_protocol::PickResult, String>>,
     },
     Stream {

@@ -29,9 +29,9 @@ pub use tessera_desktop::settings::ColorScheme;
 pub use tessera_desktop::settings::Contrast;
 pub use tessera_desktop::settings::DesktopPreferences;
 pub use tessera_desktop::settings::IdleSettings;
-use tessera_types::input::Mods;
-use tessera_types::input::TouchpadConfig;
-use tessera_types::input::TouchpadScrollMethod;
+use tessera_primitives::input::Mods;
+use tessera_primitives::input::TouchpadConfig;
+use tessera_primitives::input::TouchpadScrollMethod;
 use toml_edit::DocumentMut;
 
 mod migration;
@@ -662,8 +662,8 @@ pub struct UiConfig {
 }
 
 /// The `[input]` section: keyboard, mouse, and touchpad policy, shared with
-/// the settings UI and backends as [`tessera_types::input::InputConfig`].
-pub type InputConfig = tessera_types::input::InputConfig;
+/// the settings UI and backends as [`tessera_primitives::input::InputConfig`].
+pub type InputConfig = tessera_primitives::input::InputConfig;
 
 /// The wallpaper rendering strategy selected by [`WallpaperConfig`]. Keeping
 /// the four user-facing modes explicit prevents source-specific options from
@@ -757,7 +757,7 @@ pub struct OutputConfig {
     pub position: Option<OutputPosition>,
     /// Output transform name (`normal`, `90`, `180`, `270`, `flipped`,
     /// `flipped-90`, `flipped-180`, `flipped-270`; see
-    /// [`tessera_types::Transform::from_name`]). Parsed and validated now;
+    /// [`tessera_primitives::Transform::from_name`]). Parsed and validated now;
     /// applied once the renderer supports output transforms.
     #[serde(default)]
     pub transform: Option<String>,
@@ -1092,7 +1092,7 @@ impl Config {
                 }
             }
             if let Some(transform) = &output.transform
-                && tessera_types::Transform::from_name(transform).is_none()
+                && tessera_primitives::Transform::from_name(transform).is_none()
             {
                 diagnostics.push(Diagnostic::new(
                     Some(format!("output.{index}.transform")),
@@ -1178,7 +1178,7 @@ impl Config {
             ));
         }
         if !cfg.input.touchpad.scroll_speed.is_finite()
-            || !tessera_types::input::SCROLL_SPEED_RANGE.contains(&cfg.input.touchpad.scroll_speed)
+            || !tessera_primitives::input::SCROLL_SPEED_RANGE.contains(&cfg.input.touchpad.scroll_speed)
         {
             diagnostics.push(Diagnostic::new(
                 Some("input.touchpad.scroll_speed".into()),
@@ -1194,21 +1194,21 @@ impl Config {
             ));
         }
         if !cfg.input.mouse.scroll_speed.is_finite()
-            || !tessera_types::input::SCROLL_SPEED_RANGE.contains(&cfg.input.mouse.scroll_speed)
+            || !tessera_primitives::input::SCROLL_SPEED_RANGE.contains(&cfg.input.mouse.scroll_speed)
         {
             diagnostics.push(Diagnostic::new(
                 Some("input.mouse.scroll_speed".into()),
                 "must be between 0.1 and 10.0",
             ));
         }
-        if cfg.input.keyboard.repeat_rate > tessera_types::input::MAX_REPEAT_RATE {
+        if cfg.input.keyboard.repeat_rate > tessera_primitives::input::MAX_REPEAT_RATE {
             diagnostics.push(Diagnostic::new(
                 Some("input.keyboard.repeat_rate".into()),
                 "must be at most 150",
             ));
         }
         if cfg.input.keyboard.repeat_delay_ms == 0
-            || cfg.input.keyboard.repeat_delay_ms > tessera_types::input::MAX_REPEAT_DELAY_MS
+            || cfg.input.keyboard.repeat_delay_ms > tessera_primitives::input::MAX_REPEAT_DELAY_MS
         {
             diagnostics.push(Diagnostic::new(
                 Some("input.keyboard.repeat_delay_ms".into()),
@@ -1423,11 +1423,11 @@ impl Config {
                     mode: output.mode.as_deref().and_then(|m| m.parse().ok()),
                     position: output
                         .position
-                        .map(|p| tessera_types::Point { x: p.x, y: p.y }),
+                        .map(|p| tessera_primitives::Point { x: p.x, y: p.y }),
                     transform: output
                         .transform
                         .as_deref()
-                        .and_then(tessera_types::Transform::from_name),
+                        .and_then(tessera_primitives::Transform::from_name),
                     primary: output.primary,
                     hdr: output.hdr,
                     deep_color: output.deep_color,
@@ -1707,8 +1707,8 @@ pub enum ConfigEdit {
     /// Replace the complete `[input]` profile: touchpad, mouse, and keyboard.
     SetInput {
         touchpad: TouchpadConfig,
-        mouse: tessera_types::input::MouseConfig,
-        keyboard: tessera_types::input::KeyboardConfig,
+        mouse: tessera_primitives::input::MouseConfig,
+        keyboard: tessera_primitives::input::KeyboardConfig,
     },
     /// Replace the user-editable fields for one `[[output]]` entry.
     SetOutput {
@@ -1876,8 +1876,8 @@ fn apply_wallpaper_edit(
 fn apply_input(
     document: &mut DocumentMut,
     touchpad: &TouchpadConfig,
-    mouse: tessera_types::input::MouseConfig,
-    keyboard: tessera_types::input::KeyboardConfig,
+    mouse: tessera_primitives::input::MouseConfig,
+    keyboard: tessera_primitives::input::KeyboardConfig,
 ) {
     if !document.get("input").is_some_and(toml_edit::Item::is_table) {
         document["input"] = toml_edit::Item::Table(toml_edit::Table::new());

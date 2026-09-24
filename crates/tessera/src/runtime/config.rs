@@ -394,7 +394,7 @@ pub(super) fn reload_config(
             server.set_decoration_policy(tessera_desktop::window::DecorationPolicy::default());
             server.set_output_policies(std::collections::HashMap::new());
             server.set_allow_quit_while_locked(false);
-            server.set_keyboard_repeat(tessera_types::input::KeyboardConfig::default());
+            server.set_keyboard_repeat(tessera_primitives::input::KeyboardConfig::default());
         }
         cursor_cache.set_preferences(preferences.cursor_theme, preferences.cursor_size);
     };
@@ -558,8 +558,8 @@ pub(super) fn output_geometry_from_host(
             refresh_mhz: 0,
         },
         scale: tessera_desktop::output::Scale(scale),
-        transform: tessera_types::Transform::Normal,
-        logical_origin: tessera_types::Point::default(),
+        transform: tessera_primitives::Transform::Normal,
+        logical_origin: tessera_primitives::Point::default(),
     }
 }
 

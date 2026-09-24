@@ -329,7 +329,7 @@ fn synthetic_input_is_separately_capability_and_window_scoped() {
     let cmd = Command::InjectInput {
         id: WindowId(9),
         actions: vec![SyntheticInputAction::Click {
-            position: tessera_types::Point { x: 20, y: 30 },
+            position: tessera_primitives::Point { x: 20, y: 30 },
             button: 0x110,
         }],
     };
@@ -1023,7 +1023,7 @@ fn interaction_domain_capture_response_round_trips_correlated_layout_metadata() 
         placements: vec![InteractionDomainWindowPlacement {
             window: WindowId(42),
             output_rect: Rect::new(120, 70, 300, 150),
-            surface_size: tessera_types::Size { w: 900, h: 450 },
+            surface_size: tessera_primitives::Size { w: 900, h: 450 },
         }],
         observation: SemanticObservation {
             token: ObservationToken("a".repeat(64)),
@@ -1048,7 +1048,7 @@ fn interaction_domain_capture_response_round_trips_correlated_layout_metadata() 
     assert_eq!(capture.placements[0].window, WindowId(42));
     assert_eq!(
         capture.placements[0].surface_size,
-        tessera_types::Size { w: 900, h: 450 }
+        tessera_primitives::Size { w: 900, h: 450 }
     );
     assert_eq!(capture.revision, 19);
 }
@@ -1249,7 +1249,7 @@ fn pick_target_round_trips_all_kinds_and_results() {
             rect: Rect::new(10, 20, 300, 200),
         },
         PickResult::Pixel {
-            point: tessera_types::Point { x: 4, y: 8 },
+            point: tessera_primitives::Point { x: 4, y: 8 },
             rgb: [255, 128, 0],
         },
         PickResult::Window { id: WindowId(3) },
@@ -1642,11 +1642,11 @@ fn output_info_project_marks_primary_and_scales_rectangles() {
                     refresh_mhz: 60_000,
                 },
                 scale: tessera_desktop::output::Scale(2.0),
-                transform: tessera_types::Transform::Normal,
-                logical_origin: tessera_types::Point { x: 0, y: 0 },
+                transform: tessera_primitives::Transform::Normal,
+                logical_origin: tessera_primitives::Point { x: 0, y: 0 },
             },
             available_modes: Vec::new(),
-            color_caps: tessera_scene::edid::EdidColorCapabilities::default(),
+            color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
         },
         tessera_desktop::output::OutputInfo {
             connector: "DP-1".into(),
@@ -1657,11 +1657,11 @@ fn output_info_project_marks_primary_and_scales_rectangles() {
                     refresh_mhz: 60_000,
                 },
                 scale: tessera_desktop::output::Scale(2.0),
-                transform: tessera_types::Transform::Normal,
-                logical_origin: tessera_types::Point { x: 960, y: 0 },
+                transform: tessera_primitives::Transform::Normal,
+                logical_origin: tessera_primitives::Point { x: 960, y: 0 },
             },
             available_modes: Vec::new(),
-            color_caps: tessera_scene::edid::EdidColorCapabilities::default(),
+            color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
         },
     ];
     let projected = OutputInfo::project(&infos);

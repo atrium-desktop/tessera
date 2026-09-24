@@ -9,7 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 # XDG portrait asset discovery.
-tessera-apps = { workspace = true }
+tessera-launch-services = { workspace = true }
 # POSIX account lookups (getpwuid) for the local profile defaults.
 libc = { workspace = true }
 # GPU texture upload path shared with the compositor.

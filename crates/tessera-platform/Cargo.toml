@@ -10,8 +10,7 @@ build = "build.rs"
 
 [dependencies]
 tessera-desktop.workspace = true
-tessera-scene.workspace = true
-tessera-types.workspace = true
+tessera-primitives.workspace = true
 tessera-wayland-protocols = { workspace = true }
 flux = { workspace = true }
 flux-sys = { workspace = true }

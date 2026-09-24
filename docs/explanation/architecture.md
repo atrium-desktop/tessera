@@ -21,11 +21,10 @@ applies the corresponding desktop mutation.
 
 ## Domain boundaries
 
-Stable geometry, identities, and input values live in `tessera-types`.
-Renderer-independent surface and stream descriptions live in `tessera-scene`.
+Foundational geometry, physical colors, buffer descriptors, identities, and input primitives live in `tessera-primitives` (ADR-0164).
 Window, workspace, layout, and desktop preferences live in `tessera-desktop`.
 Application discovery, scale-aware icon-theme lookup, detached process execution,
-and headless intent search live in `tessera-apps`.
+and headless intent search live in `tessera-launch-services` (ADR-0164).
 Actor authority, credentials, grants, and interaction-domain policy live in `tessera-authority`.
 Accessibility validation and semantic routing live in `tessera-semantic`.
 

@@ -23,7 +23,7 @@ impl State {
                 return;
             }
             let now = self.now_ms();
-            let full = tessera_types::Rect {
+            let full = tessera_primitives::Rect {
                 origin: (*rec).position,
                 size: (*rec).window.size,
             };
@@ -61,7 +61,7 @@ impl State {
             if window.minimized {
                 return;
             }
-            let rect = tessera_types::Rect {
+            let rect = tessera_primitives::Rect {
                 origin: window.position,
                 size: window.size,
             };
@@ -111,7 +111,7 @@ impl State {
     pub(crate) fn persist_app_geometry(
         &mut self,
         app_id: &str,
-        rect: tessera_types::Rect,
+        rect: tessera_primitives::Rect,
         workspace: Option<u32>,
         layout_role: Option<tessera_desktop::layout::LayoutRole>,
     ) {
@@ -176,7 +176,7 @@ impl State {
             if let (Some(pos), Some(sz)) = (entry.position, entry.size) {
                 last_app_geometries.insert(
                     app_id.clone(),
-                    tessera_types::Rect {
+                    tessera_primitives::Rect {
                         origin: pos,
                         size: sz,
                     },
@@ -237,7 +237,7 @@ impl State {
             output,
             layout_params: tessera_desktop::layout::LayoutParams::default(),
             reduced_motion: false,
-            keyboard_repeat: tessera_types::input::KeyboardConfig::default(),
+            keyboard_repeat: tessera_primitives::input::KeyboardConfig::default(),
             minimize_animation: tessera_desktop::dock::MinimizeAnimationStyle::default(),
             minimize_targets: std::collections::HashMap::new(),
             decoration_policy: tessera_desktop::window::DecorationPolicy::default(),
@@ -247,7 +247,7 @@ impl State {
                 connector: "nested".to_owned(),
                 geometry: tessera_desktop::output::OutputGeometry::default(),
                 available_modes: Vec::new(),
-                color_caps: tessera_scene::edid::EdidColorCapabilities::default(),
+                color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
             }],
             outputs_revision: 0,
             output_policies: std::collections::HashMap::new(),
@@ -255,7 +255,7 @@ impl State {
             color_management_outputs: Vec::new(),
             color_identity_next: 2,
             color_pipeline_identity: 1,
-            last_work_area: tessera_types::Rect::default(),
+            last_work_area: tessera_primitives::Rect::default(),
             epoch: std::time::Instant::now(),
             window_signature_memo: std::cell::Cell::new((0, 0, 0)),
             last_app_geometries,
@@ -494,7 +494,7 @@ impl State {
         self.pending_interaction_domain_damage
             .entry(interaction_domain)
             .or_default()
-            .push(tessera_types::Rect::new(
+            .push(tessera_primitives::Rect::new(
                 0,
                 0,
                 output.width as i32,

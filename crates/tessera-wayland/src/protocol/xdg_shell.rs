@@ -86,7 +86,7 @@ unsafe extern "C" fn positioner_set_size(
     unsafe {
         let st = ffi::wl_resource_get_user_data(resource) as *mut PositionerState;
         if !st.is_null() && w > 0 && h > 0 {
-            (*st).size = Some(tessera_types::Size { w, h });
+            (*st).size = Some(tessera_primitives::Size { w, h });
         }
     }
 }
@@ -102,7 +102,7 @@ unsafe extern "C" fn positioner_set_anchor_rect(
     unsafe {
         let st = ffi::wl_resource_get_user_data(resource) as *mut PositionerState;
         if !st.is_null() {
-            (*st).anchor_rect = Some(tessera_types::Rect::new(x, y, w, h));
+            (*st).anchor_rect = Some(tessera_primitives::Rect::new(x, y, w, h));
         }
     }
 }
@@ -116,7 +116,7 @@ unsafe extern "C" fn positioner_set_offset(
     unsafe {
         let st = ffi::wl_resource_get_user_data(resource) as *mut PositionerState;
         if !st.is_null() {
-            (*st).offset = tessera_types::Point { x, y };
+            (*st).offset = tessera_primitives::Point { x, y };
         }
     }
 }
@@ -168,14 +168,14 @@ const POSITIONER_RESIZE_X: u32 = 16;
 const POSITIONER_RESIZE_Y: u32 = 32;
 
 fn positioner_origin(
-    anchor_rect: tessera_types::Rect,
-    popup_size: tessera_types::Size,
+    anchor_rect: tessera_primitives::Rect,
+    popup_size: tessera_primitives::Size,
     anchor: u32,
     gravity: u32,
-    offset: tessera_types::Point,
+    offset: tessera_primitives::Point,
     flip_x: bool,
     flip_y: bool,
-) -> tessera_types::Point {
+) -> tessera_primitives::Point {
     let anchor_x = match anchor {
         3 | 5 | 6 if flip_x => anchor_rect.origin.x + anchor_rect.size.w,
         4 | 7 | 8 if flip_x => anchor_rect.origin.x,
@@ -204,7 +204,7 @@ fn positioner_origin(
         2 | 6 | 8 => 0,
         _ => -popup_size.h / 2,
     };
-    tessera_types::Point {
+    tessera_primitives::Point {
         x: anchor_x + gravity_x + offset.x,
         y: anchor_y + gravity_y + offset.y,
     }
@@ -232,14 +232,14 @@ fn resize_axis(origin: i32, size: i32, min: i32, max: i32) -> (i32, i32) {
 /// slide, then resize. `bounds` is expressed in the parent window geometry's
 /// local coordinate space, just like the returned popup origin.
 fn constrain_positioner(
-    anchor_rect: tessera_types::Rect,
-    popup_size: tessera_types::Size,
+    anchor_rect: tessera_primitives::Rect,
+    popup_size: tessera_primitives::Size,
     anchor: u32,
     gravity: u32,
-    offset: tessera_types::Point,
+    offset: tessera_primitives::Point,
     adjustment: u32,
-    bounds: tessera_types::Rect,
-) -> (tessera_types::Point, tessera_types::Size) {
+    bounds: tessera_primitives::Rect,
+) -> (tessera_primitives::Point, tessera_primitives::Size) {
     let original = positioner_origin(
         anchor_rect,
         popup_size,
@@ -381,7 +381,7 @@ unsafe extern "C" fn xdg_surface_set_window_geometry(
         if rec.is_null() || width <= 0 || height <= 0 {
             return;
         }
-        (*rec).pending_window_geometry = Some(tessera_types::Rect::new(x, y, width, height));
+        (*rec).pending_window_geometry = Some(tessera_primitives::Rect::new(x, y, width, height));
     }
 }
 
@@ -495,7 +495,7 @@ unsafe extern "C" fn xdg_surface_get_popup(
             ffi::wl_resource_get_user_data(parent) as *mut SurfaceRec
         };
         let parent_origin = if parent_rec.is_null() {
-            tessera_types::Point::default()
+            tessera_primitives::Point::default()
         } else {
             // Positioner and configure coordinates are relative to the
             // parent's window geometry, not the potentially inset buffer.
@@ -504,9 +504,9 @@ unsafe extern "C" fn xdg_surface_get_popup(
         let anchor_rect = if !pos_state.is_null() {
             (*pos_state)
                 .anchor_rect
-                .unwrap_or_else(|| tessera_types::Rect::new(0, 0, 1, 1))
+                .unwrap_or_else(|| tessera_primitives::Rect::new(0, 0, 1, 1))
         } else {
-            tessera_types::Rect::new(0, 0, 1, 1)
+            tessera_primitives::Rect::new(0, 0, 1, 1)
         };
         let anchor = if pos_state.is_null() {
             0
@@ -519,16 +519,16 @@ unsafe extern "C" fn xdg_surface_get_popup(
             (*pos_state).gravity
         };
         let offset = if pos_state.is_null() {
-            tessera_types::Point::default()
+            tessera_primitives::Point::default()
         } else {
             (*pos_state).offset
         };
         let popup_size = if !pos_state.is_null() {
             (*pos_state)
                 .size
-                .unwrap_or(tessera_types::Size { w: 0, h: 0 })
+                .unwrap_or(tessera_primitives::Size { w: 0, h: 0 })
         } else {
-            tessera_types::Size { w: 0, h: 0 }
+            tessera_primitives::Size { w: 0, h: 0 }
         };
         let adjustment = if pos_state.is_null() {
             0
@@ -544,7 +544,7 @@ unsafe extern "C" fn xdg_surface_get_popup(
                 gravity,
                 offset,
                 adjustment,
-                tessera_types::Rect::new(
+                tessera_primitives::Rect::new(
                     bounds.origin.x - parent_origin.x,
                     bounds.origin.y - parent_origin.y,
                     bounds.size.w,
@@ -565,7 +565,7 @@ unsafe extern "C" fn xdg_surface_get_popup(
                 popup_size,
             )
         };
-        let popup_pos = tessera_types::Point {
+        let popup_pos = tessera_primitives::Point {
             x: parent_origin.x + local_origin.x,
             y: parent_origin.y + local_origin.y,
         };
@@ -896,9 +896,9 @@ unsafe extern "C" fn toplevel_set_max_size(
 }
 
 pub(crate) fn clamp_size_to_hints(
-    requested: tessera_types::Size,
+    requested: tessera_primitives::Size,
     hints: tessera_desktop::window::SizeHints,
-) -> tessera_types::Size {
+) -> tessera_primitives::Size {
     let min_w = hints.min_w.max(1);
     let min_h = hints.min_h.max(1);
     let max_w = if hints.max_w > 0 {
@@ -911,7 +911,7 @@ pub(crate) fn clamp_size_to_hints(
     } else {
         i32::MAX
     };
-    tessera_types::Size {
+    tessera_primitives::Size {
         w: requested.w.clamp(min_w, max_w),
         h: requested.h.clamp(min_h, max_h),
     }
@@ -921,7 +921,7 @@ pub(crate) fn clamp_size_to_hints(
 /// size, activation/deactivation and decoration changes must preserve it.
 /// Sending 0,0 here delegates sizing back to the client; Firefox responds to
 /// the focus-time `activated` configure by reverting to its own small default.
-pub(crate) fn state_configure_dimensions(size: tessera_types::Size) -> (i32, i32) {
+pub(crate) fn state_configure_dimensions(size: tessera_primitives::Size) -> (i32, i32) {
     if size.w > 0 && size.h > 0 {
         (size.w, size.h)
     } else {
@@ -943,7 +943,7 @@ pub(crate) unsafe fn apply_state_geometry(rec: *mut SurfaceRec) -> (i32, i32) {
         }
         if (*rec).window.state.fullscreen {
             if (*rec).saved_floating_rect.is_none() {
-                (*rec).saved_floating_rect = Some(tessera_types::Rect {
+                (*rec).saved_floating_rect = Some(tessera_primitives::Rect {
                     origin: (*rec).position,
                     size: (*rec).window.size,
                 });
@@ -963,7 +963,7 @@ pub(crate) unsafe fn apply_state_geometry(rec: *mut SurfaceRec) -> (i32, i32) {
             }
         } else if (*rec).window.state.maximized {
             if (*rec).saved_floating_rect.is_none() {
-                (*rec).saved_floating_rect = Some(tessera_types::Rect {
+                (*rec).saved_floating_rect = Some(tessera_primitives::Rect {
                     origin: (*rec).position,
                     size: (*rec).window.size,
                 });
@@ -1170,18 +1170,18 @@ unsafe extern "C" fn toplevel_set_minimized(
 pub(crate) fn minimize_flight_target(
     state: &State,
     window_id: tessera_desktop::window::WindowId,
-    window_rect: tessera_types::Rect,
-) -> tessera_types::Rect {
+    window_rect: tessera_primitives::Rect,
+) -> tessera_primitives::Rect {
     if let Some(icon) = state.minimize_targets.get(&window_id) {
         return tessera_desktop::transition::minimize_target_rect(state.minimize_animation, *icon);
     }
     let screen_h = state.output_geometry.logical_rect().size.h;
-    tessera_types::Rect {
-        origin: tessera_types::Point {
+    tessera_primitives::Rect {
+        origin: tessera_primitives::Point {
             x: window_rect.origin.x + window_rect.size.w / 4,
             y: screen_h - 20,
         },
-        size: tessera_types::Size {
+        size: tessera_primitives::Size {
             w: (window_rect.size.w / 2).max(40),
             h: 20,
         },
@@ -1195,7 +1195,7 @@ pub(crate) fn minimize_flight_target(
 pub(crate) fn minimize_transition(
     state: &State,
     window_id: tessera_desktop::window::WindowId,
-    from: tessera_types::Rect,
+    from: tessera_primitives::Rect,
 ) -> tessera_desktop::transition::WindowTransition {
     let now = state.now_ms();
     match state.minimize_targets.get(&window_id) {
@@ -1219,7 +1219,7 @@ pub(crate) unsafe fn minimize_toplevel_record(rec: *mut SurfaceRec) {
         }
         let state = (*rec).state;
         if !state.is_null() && !(*state).reduced_motion {
-            let old = tessera_types::Rect {
+            let old = tessera_primitives::Rect {
                 origin: (*rec).position,
                 size: (*rec).window.size,
             };
@@ -1329,10 +1329,10 @@ pub(crate) unsafe fn minimize_toplevel_record(rec: *mut SurfaceRec) {
 /// locked to the title bar / grab header).
 pub(crate) fn reanchor_tear_off(
     cursor: (f32, f32),
-    current_origin: tessera_types::Point,
-    current_size: tessera_types::Size,
-    target_size: tessera_types::Size,
-) -> tessera_types::Point {
+    current_origin: tessera_primitives::Point,
+    current_size: tessera_primitives::Size,
+    target_size: tessera_primitives::Size,
+) -> tessera_primitives::Point {
     let (cursor_x, cursor_y) = cursor;
     let curr_x = current_origin.x as f32;
     let curr_y = current_origin.y as f32;
@@ -1363,7 +1363,7 @@ pub(crate) fn reanchor_tear_off(
         cursor_y
     };
 
-    tessera_types::Point {
+    tessera_primitives::Point {
         x: new_x.round() as i32,
         y: new_y.round() as i32,
     }
@@ -1415,7 +1415,7 @@ pub(crate) unsafe fn begin_toplevel_interactive_move(rec: *mut SurfaceRec, origi
                 } else {
                     default_h
                 };
-                tessera_types::Size { w, h }
+                tessera_primitives::Size { w, h }
             };
 
             let reanchored = reanchor_tear_off(origin, curr_origin, curr_size, target_size);
@@ -1557,7 +1557,7 @@ impl Server {
                 let new_x = start_position.x as f32 + (x - origin.0);
                 let new_y = start_position.y as f32 + (y - origin.1);
                 // Round to integer logical pixels.
-                let pos = tessera_types::Point {
+                let pos = tessera_primitives::Point {
                     x: new_x.round() as i32,
                     y: new_y.round() as i32,
                 };
@@ -1636,13 +1636,13 @@ impl Server {
                 // Apply and send a configure with the new dimensions so the
                 // client reallocates its buffer.
                 unsafe {
-                    let pos = tessera_types::Point { x: new_x, y: new_y };
+                    let pos = tessera_primitives::Point { x: new_x, y: new_y };
                     consume_placement_nudge(&mut *rec_ptr, pos);
                     reposition_toplevel_with_popups(rec_ptr, pos);
                     // A user-driven resize supersedes any pending state
                     // restore; commits during the drag carry stale buffers.
                     (*rec_ptr).restore_pending_size = None;
-                    (*rec_ptr).window.size = tessera_types::Size { w: new_w, h: new_h };
+                    (*rec_ptr).window.size = tessera_primitives::Size { w: new_w, h: new_h };
                     if !(*rec_ptr).xdg_toplevel.is_null() {
                         let mut arr = ffi::wl_array::empty();
                         let states = (*rec_ptr).window.state.to_state_array();
@@ -1699,45 +1699,45 @@ mod tests {
     #[test]
     fn cascading_menu_flips_to_left_when_right_side_is_constrained() {
         let (origin, size) = constrain_positioner(
-            tessera_types::Rect::new(850, 100, 50, 40),
-            tessera_types::Size { w: 260, h: 160 },
+            tessera_primitives::Rect::new(850, 100, 50, 40),
+            tessera_primitives::Size { w: 260, h: 160 },
             4, // right
             4, // right
-            tessera_types::Point::default(),
+            tessera_primitives::Point::default(),
             POSITIONER_FLIP_X,
-            tessera_types::Rect::new(0, 0, 1_000, 800),
+            tessera_primitives::Rect::new(0, 0, 1_000, 800),
         );
 
-        assert_eq!(origin, tessera_types::Point { x: 590, y: 40 });
-        assert_eq!(size, tessera_types::Size { w: 260, h: 160 });
+        assert_eq!(origin, tessera_primitives::Point { x: 590, y: 40 });
+        assert_eq!(size, tessera_primitives::Size { w: 260, h: 160 });
     }
 
     #[test]
     fn corner_popup_can_flip_on_both_axes() {
         let (origin, size) = constrain_positioner(
-            tessera_types::Rect::new(900, 700, 50, 40),
-            tessera_types::Size { w: 200, h: 150 },
+            tessera_primitives::Rect::new(900, 700, 50, 40),
+            tessera_primitives::Size { w: 200, h: 150 },
             8, // bottom-right
             8, // bottom-right
-            tessera_types::Point::default(),
+            tessera_primitives::Point::default(),
             POSITIONER_FLIP_X | POSITIONER_FLIP_Y,
-            tessera_types::Rect::new(0, 0, 1_000, 800),
+            tessera_primitives::Rect::new(0, 0, 1_000, 800),
         );
 
-        assert_eq!(origin, tessera_types::Point { x: 700, y: 550 });
-        assert_eq!(size, tessera_types::Size { w: 200, h: 150 });
+        assert_eq!(origin, tessera_primitives::Point { x: 700, y: 550 });
+        assert_eq!(size, tessera_primitives::Size { w: 200, h: 150 });
     }
 
     #[test]
     fn failed_flip_falls_through_to_slide_then_resize() {
         let (origin, size) = constrain_positioner(
-            tessera_types::Rect::new(10, 10, 10, 10),
-            tessera_types::Size { w: 120, h: 20 },
+            tessera_primitives::Rect::new(10, 10, 10, 10),
+            tessera_primitives::Size { w: 120, h: 20 },
             4, // right
             4, // right
-            tessera_types::Point::default(),
+            tessera_primitives::Point::default(),
             POSITIONER_FLIP_X | POSITIONER_SLIDE_X | POSITIONER_RESIZE_X,
-            tessera_types::Rect::new(0, 0, 100, 100),
+            tessera_primitives::Rect::new(0, 0, 100, 100),
         );
 
         assert_eq!(origin.x, 0);
@@ -1746,9 +1746,9 @@ mod tests {
 
     #[test]
     fn reanchor_tear_off_centers_and_preserves_titlebar_grab() {
-        let current_origin = tessera_types::Point { x: 0, y: 0 };
-        let current_size = tessera_types::Size { w: 1920, h: 1080 };
-        let target_size = tessera_types::Size { w: 800, h: 600 };
+        let current_origin = tessera_primitives::Point { x: 0, y: 0 };
+        let current_size = tessera_primitives::Size { w: 1920, h: 1080 };
+        let target_size = tessera_primitives::Size { w: 800, h: 600 };
 
         // Center grab on maximized title bar: (960, 20)
         let reanchored =
@@ -1756,7 +1756,7 @@ mod tests {
         // Ratio x is 960 / 1920 = 0.5. Target w is 800.
         // New x = 960 - 0.5 * 800 = 560.
         // New y = 20 - 20 = 0.
-        assert_eq!(reanchored, tessera_types::Point { x: 560, y: 0 });
+        assert_eq!(reanchored, tessera_primitives::Point { x: 560, y: 0 });
 
         // Cursor at 960 is 400px from left of 800px window (50% width).
         assert_eq!(960 - reanchored.x, 400);
@@ -1766,37 +1766,37 @@ mod tests {
 
     #[test]
     fn reanchor_tear_off_scales_horizontal_ratio_consistently() {
-        let current_origin = tessera_types::Point { x: 0, y: 0 };
-        let current_size = tessera_types::Size { w: 2000, h: 1000 };
-        let target_size = tessera_types::Size { w: 1000, h: 500 };
+        let current_origin = tessera_primitives::Point { x: 0, y: 0 };
+        let current_size = tessera_primitives::Size { w: 2000, h: 1000 };
+        let target_size = tessera_primitives::Size { w: 1000, h: 500 };
 
         // Grab at 80% width (1600, 30)
         let reanchored_right =
             reanchor_tear_off((1600.0, 30.0), current_origin, current_size, target_size);
         // 1600 - 0.8 * 1000 = 800.
-        assert_eq!(reanchored_right, tessera_types::Point { x: 800, y: 0 });
+        assert_eq!(reanchored_right, tessera_primitives::Point { x: 800, y: 0 });
         assert_eq!(1600 - reanchored_right.x, 800); // 80% of 1000px
 
         // Grab at 20% width (400, 30)
         let reanchored_left =
             reanchor_tear_off((400.0, 30.0), current_origin, current_size, target_size);
         // 400 - 0.2 * 1000 = 200.
-        assert_eq!(reanchored_left, tessera_types::Point { x: 200, y: 0 });
+        assert_eq!(reanchored_left, tessera_primitives::Point { x: 200, y: 0 });
         assert_eq!(400 - reanchored_left.x, 200); // 20% of 1000px
     }
 
     #[test]
     fn reanchor_tear_off_handles_fullscreen_deep_grabs() {
-        let current_origin = tessera_types::Point { x: 0, y: 0 };
-        let current_size = tessera_types::Size { w: 1920, h: 1080 };
-        let target_size = tessera_types::Size { w: 600, h: 400 };
+        let current_origin = tessera_primitives::Point { x: 0, y: 0 };
+        let current_size = tessera_primitives::Size { w: 1920, h: 1080 };
+        let target_size = tessera_primitives::Size { w: 600, h: 400 };
 
         // Super+drag at bottom-middle (960, 810) - 75% down
         let reanchored =
             reanchor_tear_off((960.0, 810.0), current_origin, current_size, target_size);
         // ratio_x = 0.5 -> new_x = 960 - 300 = 660.
         // ratio_y = 810 / 1080 = 0.75 -> new_y = 810 - 0.75 * 400 = 510.
-        assert_eq!(reanchored, tessera_types::Point { x: 660, y: 510 });
+        assert_eq!(reanchored, tessera_primitives::Point { x: 660, y: 510 });
 
         // Cursor at (960, 810) is inside the 600x400 window starting at (660, 510).
         assert_eq!(960 - reanchored.x, 300); // 50% width

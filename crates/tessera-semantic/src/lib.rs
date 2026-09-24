@@ -11,9 +11,9 @@ use crate::model::SemanticRole;
 use crate::model::SemanticSource;
 use crate::model::SemanticState;
 use tessera_desktop::window::WindowId;
-use tessera_types::Point;
-use tessera_types::Rect;
-use tessera_types::Size;
+use tessera_primitives::Point;
+use tessera_primitives::Rect;
+use tessera_primitives::Size;
 
 const MAX_NODES_PER_WINDOW: usize = 4_096;
 const MAX_TREE_DEPTH: usize = 64;

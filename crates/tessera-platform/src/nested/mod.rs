@@ -14,15 +14,15 @@ use std::ffi::{CStr, CString, c_void};
 use std::ptr;
 
 use ash::vk::Handle;
-use tessera_types::Size;
-use tessera_types::input::InputEvent;
-use tessera_types::input::PointerAxis;
-use tessera_types::input::PointerAxisFrame;
-use tessera_types::input::PointerAxisRelativeDirection;
-use tessera_types::input::PointerAxisSource;
-use tessera_types::input::PointerGestureEvent;
-use tessera_types::input::TextInputEvent;
-use tessera_types::input::TextInputState;
+use tessera_primitives::Size;
+use tessera_primitives::input::InputEvent;
+use tessera_primitives::input::PointerAxis;
+use tessera_primitives::input::PointerAxisFrame;
+use tessera_primitives::input::PointerAxisRelativeDirection;
+use tessera_primitives::input::PointerAxisSource;
+use tessera_primitives::input::PointerGestureEvent;
+use tessera_primitives::input::TextInputEvent;
+use tessera_primitives::input::TextInputState;
 
 use crate::Backend;
 
@@ -127,7 +127,7 @@ pub struct NestedHost {
     vk_surface: u64,
     /// Persisted profile for direct-display sessions. The outer compositor
     /// owns the physical devices while this backend is nested.
-    input_config: tessera_types::input::InputConfig,
+    input_config: tessera_primitives::input::InputConfig,
     /// The compositor's Wayland server event-loop fd, registered via
     /// `Backend::set_wakeup_fd`. Polled for readability only — the main loop
     /// dispatches the server itself once the wait wakes.

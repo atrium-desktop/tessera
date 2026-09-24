@@ -8,7 +8,7 @@ use tessera_desktop::settings::DisplayStatus;
 use tessera_desktop::settings::SettingsAction;
 use tessera_desktop::settings::SettingsSnapshot;
 use tessera_i18n::{Localizer, Message};
-use tessera_types::Point;
+use tessera_primitives::Point;
 
 use crate::components::settings::module::{
     ApplyPolicy, ModuleAvailability, ModuleCategory, ModuleEvents, ModuleId, ModuleMetadata,
@@ -460,11 +460,11 @@ mod tests {
             geometry: tessera_desktop::output::OutputGeometry {
                 mode,
                 scale: tessera_desktop::output::Scale::IDENTITY,
-                transform: tessera_types::Transform::Normal,
+                transform: tessera_primitives::Transform::Normal,
                 logical_origin: Point { x, y },
             },
             available_modes: vec![mode],
-            color_caps: tessera_scene::edid::EdidColorCapabilities::default(),
+            color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
         }
     }
 

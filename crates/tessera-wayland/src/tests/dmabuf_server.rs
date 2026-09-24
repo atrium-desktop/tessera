@@ -7,9 +7,9 @@ use super::*;
 /// avoid uncompressed LINEAR buffers.
 #[test]
 fn new_with_render_caps_carries_dmabuf_format_table() {
-    use tessera_scene::dmabuf::DRM_FORMAT_MOD_LINEAR;
-    use tessera_scene::dmabuf::DRM_FORMAT_XRGB8888;
-    use tessera_scene::dmabuf::DmabufFormat;
+    use tessera_primitives::dmabuf::DRM_FORMAT_MOD_LINEAR;
+    use tessera_primitives::dmabuf::DRM_FORMAT_XRGB8888;
+    use tessera_primitives::dmabuf::DmabufFormat;
 
     if std::env::var_os("XDG_RUNTIME_DIR").is_none() {
         eprintln!("skipping: XDG_RUNTIME_DIR not set");
@@ -22,7 +22,7 @@ fn new_with_render_caps_carries_dmabuf_format_table() {
             modifiers: vec![FAKE_TILE, DRM_FORMAT_MOD_LINEAR],
         },
         DmabufFormat {
-            fourcc: tessera_scene::dmabuf::DRM_FORMAT_ARGB8888,
+            fourcc: tessera_primitives::dmabuf::DRM_FORMAT_ARGB8888,
             modifiers: vec![FAKE_TILE],
         },
     ];
@@ -43,8 +43,8 @@ fn new_with_render_caps_carries_dmabuf_format_table() {
 
 #[test]
 fn new_with_dmabuf_feedback_carries_separate_scanout_capabilities() {
-    use tessera_scene::dmabuf::DRM_FORMAT_XRGB8888;
-    use tessera_scene::dmabuf::DmabufFormat;
+    use tessera_primitives::dmabuf::DRM_FORMAT_XRGB8888;
+    use tessera_primitives::dmabuf::DmabufFormat;
 
     if std::env::var_os("XDG_RUNTIME_DIR").is_none() {
         eprintln!("skipping: XDG_RUNTIME_DIR not set");
@@ -81,9 +81,9 @@ fn new_with_dmabuf_feedback_carries_separate_scanout_capabilities() {
 
 #[test]
 fn dmabuf_feedback_update_skips_semantically_identical_capabilities() {
-    use tessera_scene::dmabuf::DRM_FORMAT_ARGB8888;
-    use tessera_scene::dmabuf::DRM_FORMAT_XRGB8888;
-    use tessera_scene::dmabuf::DmabufFormat;
+    use tessera_primitives::dmabuf::DRM_FORMAT_ARGB8888;
+    use tessera_primitives::dmabuf::DRM_FORMAT_XRGB8888;
+    use tessera_primitives::dmabuf::DmabufFormat;
 
     if std::env::var_os("XDG_RUNTIME_DIR").is_none() {
         eprintln!("skipping: XDG_RUNTIME_DIR not set");
@@ -182,9 +182,9 @@ fn dmabuf_v4_feedback_roundtrips_through_wayland_info() {
         if !feedback_updated && !server.state.dmabuf_feedback_resources.is_empty() {
             feedback_updated = true;
             assert!(server.update_dmabuf_feedback(
-                vec![tessera_scene::dmabuf::DmabufFormat {
-                    fourcc: tessera_scene::dmabuf::DRM_FORMAT_XRGB8888,
-                    modifiers: vec![tessera_scene::dmabuf::DRM_FORMAT_MOD_LINEAR],
+                vec![tessera_primitives::dmabuf::DmabufFormat {
+                    fourcc: tessera_primitives::dmabuf::DRM_FORMAT_XRGB8888,
+                    modifiers: vec![tessera_primitives::dmabuf::DRM_FORMAT_MOD_LINEAR],
                 }],
                 Some(main_device),
             ));
@@ -364,7 +364,7 @@ fn chrome_extensions_menu_receives_a_complete_click() {
         .map(|surface| unsafe { (*surface).resource as usize })
         .collect::<std::collections::HashSet<_>>();
     server.forward_input(
-        &[tessera_types::input::InputEvent::pointer_move_to(
+        &[tessera_primitives::input::InputEvent::pointer_move_to(
             menu_x as f32,
             menu_y as f32,
         )],
@@ -376,17 +376,17 @@ fn chrome_extensions_menu_receives_a_complete_click() {
     );
     pump(&mut server, 100);
     server.forward_input(
-        &[tessera_types::input::InputEvent::PointerButton {
+        &[tessera_primitives::input::InputEvent::PointerButton {
             button: 0x110,
-            state: tessera_types::input::ButtonState::Pressed,
+            state: tessera_primitives::input::ButtonState::Pressed,
         }],
         &keymap,
     );
     pump(&mut server, 100);
     server.forward_input(
-        &[tessera_types::input::InputEvent::PointerButton {
+        &[tessera_primitives::input::InputEvent::PointerButton {
             button: 0x110,
-            state: tessera_types::input::ButtonState::Released,
+            state: tessera_primitives::input::ButtonState::Released,
         }],
         &keymap,
     );
@@ -418,14 +418,14 @@ fn chrome_extensions_menu_receives_a_complete_click() {
     };
     server.forward_input(
         &[
-            tessera_types::input::InputEvent::pointer_move_to(item_x as f32, item_y as f32),
-            tessera_types::input::InputEvent::PointerButton {
+            tessera_primitives::input::InputEvent::pointer_move_to(item_x as f32, item_y as f32),
+            tessera_primitives::input::InputEvent::PointerButton {
                 button: 0x110,
-                state: tessera_types::input::ButtonState::Pressed,
+                state: tessera_primitives::input::ButtonState::Pressed,
             },
-            tessera_types::input::InputEvent::PointerButton {
+            tessera_primitives::input::InputEvent::PointerButton {
                 button: 0x110,
-                state: tessera_types::input::ButtonState::Released,
+                state: tessera_primitives::input::ButtonState::Released,
             },
         ],
         &keymap,
@@ -462,8 +462,8 @@ fn prepared_keyboard_edges_keep_physical_order_across_route_boundary() {
     // Super began on the client route in the previous backend batch.
     let super_down = server
         .prepare_keyboard_event(
-            tessera_types::input::KEY_LEFTMETA,
-            tessera_types::input::ButtonState::Pressed,
+            tessera_primitives::input::KEY_LEFTMETA,
+            tessera_primitives::input::ButtonState::Pressed,
         )
         .expect("keyboard");
     assert!(
@@ -471,7 +471,7 @@ fn prepared_keyboard_edges_keep_physical_order_across_route_boundary() {
             .key_char()
             .expect("ordinary modifier")
             .mods
-            .has(tessera_types::input::Mods::SUPER)
+            .has(tessera_primitives::input::Mods::SUPER)
     );
 
     // The next batch crosses ownership: Super's release still belongs to the
@@ -479,27 +479,27 @@ fn prepared_keyboard_edges_keep_physical_order_across_route_boundary() {
     // retain the XKB state at their physical position in that one batch.
     let super_up = server
         .prepare_keyboard_event(
-            tessera_types::input::KEY_LEFTMETA,
-            tessera_types::input::ButtonState::Released,
+            tessera_primitives::input::KEY_LEFTMETA,
+            tessera_primitives::input::ButtonState::Released,
         )
         .expect("keyboard")
         .key_char()
         .expect("ordinary modifier");
     let alt_down = server
         .prepare_keyboard_event(
-            tessera_types::input::KEY_LEFTALT,
-            tessera_types::input::ButtonState::Pressed,
+            tessera_primitives::input::KEY_LEFTALT,
+            tessera_primitives::input::ButtonState::Pressed,
         )
         .expect("keyboard")
         .key_char()
         .expect("ordinary modifier");
 
-    assert!(!super_up.mods.has(tessera_types::input::Mods::SUPER));
-    assert!(alt_down.mods.has(tessera_types::input::Mods::ALT));
-    assert!(!alt_down.mods.has(tessera_types::input::Mods::SUPER));
+    assert!(!super_up.mods.has(tessera_primitives::input::Mods::SUPER));
+    assert!(alt_down.mods.has(tessera_primitives::input::Mods::ALT));
+    assert!(!alt_down.mods.has(tessera_primitives::input::Mods::SUPER));
     assert_eq!(
         server.depressed_modifiers(),
-        tessera_types::input::Mods::ALT
+        tessera_primitives::input::Mods::ALT
     );
 }
 

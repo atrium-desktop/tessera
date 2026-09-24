@@ -58,12 +58,12 @@ impl PrimaryPlaneState {
 /// allocation to the per-frame direct candidate path merely to balance enum
 /// variant sizes.
 pub struct PrimaryPlanePlan {
-    direct: Option<tessera_scene::SurfaceDmabuf>,
+    direct: Option<tessera_primitives::SurfaceDmabuf>,
     rejection: Option<ScanoutRejection>,
 }
 
 impl PrimaryPlanePlan {
-    fn direct(candidate: tessera_scene::SurfaceDmabuf) -> Self {
+    fn direct(candidate: tessera_primitives::SurfaceDmabuf) -> Self {
         Self {
             direct: Some(candidate),
             rejection: None,
@@ -77,7 +77,7 @@ impl PrimaryPlanePlan {
         }
     }
 
-    pub fn direct_candidate(&self) -> Option<&tessera_scene::SurfaceDmabuf> {
+    pub fn direct_candidate(&self) -> Option<&tessera_primitives::SurfaceDmabuf> {
         self.direct.as_ref()
     }
 
@@ -234,15 +234,15 @@ pub fn evaluate_scene(facts: ScanoutSceneFacts) -> Result<(), ScanoutRejectReaso
     Ok(())
 }
 
-fn surface_is_fully_opaque(surface: &tessera_scene::SurfaceDmabuf) -> bool {
-    if tessera_scene::dmabuf::is_format_opaque(surface.drm_format) {
+fn surface_is_fully_opaque(surface: &tessera_primitives::SurfaceDmabuf) -> bool {
+    if tessera_primitives::dmabuf::is_format_opaque(surface.drm_format) {
         return true;
     }
     if surface.width <= 0 || surface.height <= 0 {
         return false;
     }
     let scale = surface.geometry.buffer_scale.max(1) as f32;
-    let logical = tessera_types::Rect::new(
+    let logical = tessera_primitives::Rect::new(
         0,
         0,
         (surface.width as f32 / scale).round().max(1.0) as i32,
@@ -255,14 +255,14 @@ fn surface_is_fully_opaque(surface: &tessera_scene::SurfaceDmabuf) -> bool {
 }
 
 pub fn evaluate_surface(
-    surface: &tessera_scene::SurfaceDmabuf,
+    surface: &tessera_primitives::SurfaceDmabuf,
     physical_size: (u32, u32),
     plane_supported: bool,
 ) -> Result<(), ScanoutRejectReason> {
-    if surface.geometry.transform != tessera_types::Transform::Normal {
+    if surface.geometry.transform != tessera_primitives::Transform::Normal {
         return Err(ScanoutRejectReason::NonTrivialTransform);
     }
-    if surface.geometry.position != (tessera_types::Point { x: 0, y: 0 }) {
+    if surface.geometry.position != (tessera_primitives::Point { x: 0, y: 0 }) {
         return Err(ScanoutRejectReason::NonZeroOrigin);
     }
     if surface.geometry.viewport_src.is_some() || surface.geometry.viewport_dst.is_some() {
@@ -289,7 +289,7 @@ pub fn evaluate_surface(
 pub fn plan_scanout(
     facts: ScanoutSceneFacts,
     physical_size: (u32, u32),
-    candidate: Option<tessera_scene::SurfaceDmabuf>,
+    candidate: Option<tessera_primitives::SurfaceDmabuf>,
     plane_supported: bool,
 ) -> PrimaryPlanePlan {
     let plausible_candidate = facts.plausible_candidate();
@@ -393,8 +393,8 @@ impl ScanoutTelemetry {
 mod tests {
     use super::*;
 
-    fn candidate(format: u32) -> tessera_scene::SurfaceDmabuf {
-        tessera_scene::SurfaceDmabuf {
+    fn candidate(format: u32) -> tessera_primitives::SurfaceDmabuf {
+        tessera_primitives::SurfaceDmabuf {
             id: 7,
             window: Some(tessera_desktop::window::WindowId(9)),
             width: 3072,
@@ -408,7 +408,7 @@ mod tests {
             offset: 0,
             stride: 3072 * 4,
             acquire_fence: -1,
-            geometry: tessera_scene::SurfaceGeometry {
+            geometry: tessera_primitives::SurfaceGeometry {
                 buffer_scale: 2,
                 ..Default::default()
             },
@@ -428,7 +428,7 @@ mod tests {
 
     #[test]
     fn maximized_xrgb_geometry_is_scanout_eligible_without_fullscreen_state() {
-        let surface = candidate(tessera_scene::dmabuf::DRM_FORMAT_XRGB8888);
+        let surface = candidate(tessera_primitives::dmabuf::DRM_FORMAT_XRGB8888);
         // SurfaceDmabuf contains no xdg fullscreen flag: actual output
         // placement, extent, opacity, and plane support are the entire policy.
         assert_eq!(evaluate_scene(eligible_scene()), Ok(()));
@@ -437,15 +437,15 @@ mod tests {
 
     #[test]
     fn argb_full_opaque_region_is_scanout_eligible() {
-        let mut surface = candidate(tessera_scene::dmabuf::DRM_FORMAT_ARGB8888);
-        surface.opaque_region = Some(vec![tessera_types::Rect::new(0, 0, 1536, 960)]);
+        let mut surface = candidate(tessera_primitives::dmabuf::DRM_FORMAT_ARGB8888);
+        surface.opaque_region = Some(vec![tessera_primitives::Rect::new(0, 0, 1536, 960)]);
         assert_eq!(evaluate_surface(&surface, (3072, 1920), true), Ok(()));
     }
 
     #[test]
     fn incomplete_argb_opaque_region_is_rejected() {
-        let mut surface = candidate(tessera_scene::dmabuf::DRM_FORMAT_ARGB8888);
-        surface.opaque_region = Some(vec![tessera_types::Rect::new(0, 0, 1535, 960)]);
+        let mut surface = candidate(tessera_primitives::dmabuf::DRM_FORMAT_ARGB8888);
+        surface.opaque_region = Some(vec![tessera_primitives::Rect::new(0, 0, 1535, 960)]);
         assert_eq!(
             evaluate_surface(&surface, (3072, 1920), true),
             Err(ScanoutRejectReason::NotFullyOpaque)
@@ -454,7 +454,7 @@ mod tests {
 
     #[test]
     fn output_geometry_must_match_exactly() {
-        let mut surface = candidate(tessera_scene::dmabuf::DRM_FORMAT_XRGB8888);
+        let mut surface = candidate(tessera_primitives::dmabuf::DRM_FORMAT_XRGB8888);
         surface.width -= 1;
         assert_eq!(
             evaluate_surface(&surface, (3072, 1920), true),

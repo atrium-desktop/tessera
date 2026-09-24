@@ -158,7 +158,7 @@ pub(super) struct CompositorRuntime<'engine> {
     /// Kept independently from `primary_plane_state` so a persistent video client
     /// explains why it is composited instead of failing silently every frame.
     pub(super) scanout_telemetry: ScanoutTelemetry,
-    pub(super) keyboard_capture: tessera_types::input::KeyboardCaptureState,
+    pub(super) keyboard_capture: tessera_primitives::input::KeyboardCaptureState,
     pub(super) keymap: tessera_desktop::keybind::Keymap,
     pub(super) system_status: tessera_shell::component::SystemStatus,
     pub(super) wireless: crate::wireless::WirelessHandle,

@@ -10,13 +10,13 @@ use crate::Backend;
 use crate::drm::{DrmBackend, DrmError};
 use crate::nested::{DEVICE_EXTENSIONS, INSTANCE_EXTENSIONS, NestedError, NestedHost};
 use tessera_desktop::output::ModeSpec;
-use tessera_types::Size;
-use tessera_types::input::InputConfig;
-use tessera_types::input::InputEvent;
-use tessera_types::input::InputStatus;
-use tessera_types::input::PointerGestureEvent;
-use tessera_types::input::TextInputEvent;
-use tessera_types::input::TextInputState;
+use tessera_primitives::Size;
+use tessera_primitives::input::InputConfig;
+use tessera_primitives::input::InputEvent;
+use tessera_primitives::input::InputStatus;
+use tessera_primitives::input::PointerGestureEvent;
+use tessera_primitives::input::TextInputEvent;
+use tessera_primitives::input::TextInputState;
 
 /// Frame slots Flux runs concurrently. ADR-0038's frame pacing assumes three:
 /// on DRM the offscreen ring must hold one image per slot so a frame being
@@ -225,7 +225,7 @@ impl Host {
         &mut self,
         surface: &flux::Surface,
         frame: flux::SubmittedFrame<'_>,
-        damage: Option<&[tessera_types::Rect]>,
+        damage: Option<&[tessera_primitives::Rect]>,
     ) -> Result<Option<OwnedFd>, HostError> {
         match self {
             Self::Nested(_) => {
@@ -258,8 +258,8 @@ impl Host {
     /// then composites instead).
     pub fn present_scanout(
         &mut self,
-        candidate: &tessera_scene::SurfaceDmabuf,
-        damage: Option<&[tessera_types::Rect]>,
+        candidate: &tessera_primitives::SurfaceDmabuf,
+        damage: Option<&[tessera_primitives::Rect]>,
     ) -> Result<Option<OwnedFd>, HostError> {
         match self {
             Self::Nested(_) => Err(HostError::Drm(DrmError::ScanoutUnsupported)),
@@ -376,7 +376,7 @@ impl Host {
     /// Format/modifier intersection accepted by every active DRM primary
     /// plane. Nested mode has no local KMS planes and therefore no scanout
     /// tranche to advertise.
-    pub fn dmabuf_scanout_formats(&self) -> Vec<tessera_scene::dmabuf::DmabufFormat> {
+    pub fn dmabuf_scanout_formats(&self) -> Vec<tessera_primitives::dmabuf::DmabufFormat> {
         match self {
             Self::Nested(_) => Vec::new(),
             Self::Drm(host) => host.dmabuf_scanout_formats(),

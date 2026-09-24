@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use tessera_apps::xdg_data_dirs;
+use tessera_launch_services::xdg_data_dirs;
 
 /// One configured portrait candidate.
 #[derive(Clone, Debug, PartialEq, Eq)]

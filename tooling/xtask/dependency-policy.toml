@@ -2,17 +2,17 @@
 # Review changes here alongside the owning package manifest.
 
 [tessera]
-normal = ["flux", "flux-scene-graph-sys", "flux-sys", "image", "include_dir", "lens", "lens-sys", "libc", "log", "prism", "prism-sys", "resvg", "serde", "serde_json", "sha2", "tessera-apps", "tessera-audit", "tessera-authority", "tessera-bootstrap", "tessera-cli", "tessera-config", "tessera-design", "tessera-desktop", "tessera-i18n", "tessera-ipc", "tessera-platform", "tessera-protocol", "tessera-render", "tessera-scene", "tessera-semantic", "tessera-shell", "tessera-tray", "tessera-types", "tessera-wallpaper", "tessera-wayland", "thiserror", "tiny-skia", "tracing", "usvg", "zeroize"]
+normal = ["flux", "flux-scene-graph-sys", "flux-sys", "image", "include_dir", "lens", "lens-sys", "libc", "log", "prism", "prism-sys", "resvg", "serde", "serde_json", "sha2", "tessera-audit", "tessera-authority", "tessera-bootstrap", "tessera-cli", "tessera-config", "tessera-design", "tessera-desktop", "tessera-i18n", "tessera-ipc", "tessera-launch-services", "tessera-platform", "tessera-primitives", "tessera-protocol", "tessera-render", "tessera-semantic", "tessera-shell", "tessera-tray", "tessera-wallpaper", "tessera-wayland", "thiserror", "tiny-skia", "tracing", "usvg", "zbus", "zeroize"]
 build = []
 dev = ["tempfile", "tessera-desktop", "tessera-ipc", "tessera-protocol", "tessera-shell"]
 
-[tessera-apps]
+[tessera-launch-services]
 normal = ["dirs", "libc", "log", "rust-ini", "tessera-desktop", "tessera-i18n", "thiserror"]
 build = []
 dev = ["tempfile"]
 
 [tessera-atspi]
-normal = ["async-io", "atspi", "log", "serde_json", "sha2", "tessera-bootstrap", "tessera-desktop", "tessera-ipc", "tessera-protocol", "tessera-semantic", "tessera-types", "zbus"]
+normal = ["async-io", "atspi", "log", "serde_json", "sha2", "tessera-bootstrap", "tessera-desktop", "tessera-ipc", "tessera-primitives", "tessera-protocol", "tessera-semantic", "zbus"]
 build = []
 dev = []
 
@@ -22,17 +22,17 @@ build = []
 dev = ["tempfile"]
 
 [tessera-authority]
-normal = ["getrandom", "libc", "serde", "serde_json", "tessera-desktop", "tessera-semantic", "tessera-types", "thiserror", "zeroize"]
+normal = ["getrandom", "libc", "serde", "serde_json", "tessera-desktop", "tessera-primitives", "tessera-semantic", "thiserror", "zeroize"]
 build = []
 dev = ["tempfile"]
 
 [tessera-avatar]
-normal = ["fastrand", "flux", "flux-scene-graph", "flux-scene-graph-sys", "flux-sys", "image", "lens", "libc", "log", "notify", "tessera-apps", "thiserror"]
+normal = ["fastrand", "flux", "flux-scene-graph", "flux-scene-graph-sys", "flux-sys", "image", "lens", "libc", "log", "notify", "tessera-launch-services", "thiserror"]
 build = []
 dev = ["tempfile"]
 
 [tessera-platform]
-normal = ["ash", "drm", "flux", "flux-sys", "input", "libc", "libseat", "log", "tessera-desktop", "tessera-scene", "tessera-types", "tessera-wayland-protocols", "thiserror", "udev"]
+normal = ["ash", "drm", "flux", "flux-sys", "input", "libc", "libseat", "log", "tessera-desktop", "tessera-primitives", "tessera-wayland-protocols", "thiserror", "udev"]
 build = ["pkg-config"]
 dev = []
 
@@ -42,12 +42,12 @@ build = []
 dev = ["tessera-ipc"]
 
 [tessera-cli]
-normal = ["clap", "clap_complete", "serde", "serde_json", "tessera-apps", "tessera-audit", "tessera-authority", "tessera-bootstrap", "tessera-config", "tessera-desktop", "tessera-i18n", "tessera-ipc", "tessera-protocol", "tessera-types", "thiserror", "zeroize"]
+normal = ["clap", "clap_complete", "serde", "serde_json", "tessera-audit", "tessera-authority", "tessera-bootstrap", "tessera-config", "tessera-desktop", "tessera-i18n", "tessera-ipc", "tessera-launch-services", "tessera-primitives", "tessera-protocol", "thiserror", "zeroize"]
 build = []
-dev = ["tempfile", "tessera-ipc", "tessera-scene", "tessera-semantic"]
+dev = ["tempfile", "tessera-ipc", "tessera-primitives", "tessera-semantic"]
 
 [tessera-config]
-normal = ["dirs", "libc", "serde", "tessera-desktop", "tessera-types", "thiserror", "toml", "toml_edit"]
+normal = ["dirs", "libc", "serde", "tessera-desktop", "tessera-primitives", "thiserror", "toml", "toml_edit"]
 build = []
 dev = ["tempfile"]
 
@@ -57,7 +57,7 @@ build = []
 dev = []
 
 [tessera-desktop]
-normal = ["serde", "tessera-scene", "tessera-types"]
+normal = ["serde", "tessera-primitives"]
 build = []
 dev = ["serde_json"]
 
@@ -72,7 +72,7 @@ build = []
 dev = []
 
 [tessera-ipc]
-normal = ["libc", "serde", "serde_json", "tessera-authority", "tessera-desktop", "tessera-protocol", "tessera-scene", "tessera-semantic", "tessera-types", "thiserror", "zeroize"]
+normal = ["libc", "serde", "serde_json", "tessera-authority", "tessera-desktop", "tessera-primitives", "tessera-protocol", "tessera-semantic", "thiserror", "zeroize"]
 build = []
 dev = ["tempfile", "tessera-protocol"]
 
@@ -82,42 +82,37 @@ build = ["pkg-config"]
 dev = []
 
 [tessera-mcp]
-normal = ["base64", "clap", "serde", "serde_json", "tessera-apps", "tessera-authority", "tessera-bootstrap", "tessera-desktop", "tessera-ipc", "tessera-protocol", "tessera-semantic", "tessera-types", "thiserror"]
+normal = ["base64", "clap", "serde", "serde_json", "tessera-authority", "tessera-bootstrap", "tessera-desktop", "tessera-ipc", "tessera-launch-services", "tessera-primitives", "tessera-protocol", "tessera-semantic", "thiserror"]
 build = []
 dev = ["tempfile", "tessera-audit", "tessera-ipc"]
 
 [tessera-protocol]
-normal = ["serde", "serde_json", "tessera-authority", "tessera-desktop", "tessera-scene", "tessera-semantic", "tessera-types", "zeroize"]
+normal = ["serde", "serde_json", "tessera-authority", "tessera-desktop", "tessera-primitives", "tessera-semantic", "zeroize"]
 build = []
 dev = ["tempfile", "tessera-audit"]
 
 [tessera-render]
-normal = ["flux", "flux-sys", "image", "libc", "log", "tessera-desktop", "tessera-scene", "tessera-types", "thiserror"]
+normal = ["flux", "flux-sys", "image", "libc", "log", "tessera-desktop", "tessera-primitives", "thiserror"]
 build = []
 dev = []
 
-[tessera-scene]
-normal = ["serde", "tessera-types"]
+[tessera-primitives]
+normal = ["serde"]
 build = []
 dev = ["serde_json"]
 
 [tessera-semantic]
-normal = ["serde", "tessera-desktop", "tessera-types"]
+normal = ["serde", "tessera-desktop", "tessera-primitives"]
 build = []
 dev = ["serde_json"]
 
 [tessera-shell]
-normal = ["flux", "flux-scene-graph-sys", "flux-sys", "include_dir", "lens", "lens-sys", "libc", "log", "resvg", "serde", "tessera-apps", "tessera-authority", "tessera-avatar", "tessera-design", "tessera-desktop", "tessera-i18n", "tessera-scene", "tessera-tray", "tessera-types", "thiserror", "tiny-skia", "toml", "usvg", "zbus", "zeroize"]
+normal = ["flux", "flux-scene-graph-sys", "flux-sys", "include_dir", "lens", "lens-sys", "libc", "log", "resvg", "serde", "tessera-authority", "tessera-avatar", "tessera-design", "tessera-desktop", "tessera-i18n", "tessera-launch-services", "tessera-primitives", "tessera-tray", "thiserror", "tiny-skia", "toml", "usvg", "zbus", "zeroize"]
 build = []
 dev = ["tempfile"]
 
 [tessera-tray]
-normal = ["image", "log", "tessera-apps", "zbus"]
-build = []
-dev = []
-
-[tessera-types]
-normal = ["serde"]
+normal = ["image", "log", "tessera-launch-services", "zbus"]
 build = []
 dev = []
 
@@ -127,7 +122,7 @@ build = []
 dev = []
 
 [tessera-wayland]
-normal = ["getrandom", "log", "serde", "serde_json", "tessera-authority", "tessera-desktop", "tessera-scene", "tessera-semantic", "tessera-types", "tessera-wayland-protocols", "thiserror", "xkbcommon"]
+normal = ["getrandom", "log", "serde", "serde_json", "tessera-authority", "tessera-desktop", "tessera-primitives", "tessera-semantic", "tessera-wayland-protocols", "thiserror", "xkbcommon"]
 build = ["pkg-config"]
 dev = ["tempfile"]
 

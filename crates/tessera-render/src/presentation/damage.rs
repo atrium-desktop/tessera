@@ -1,7 +1,7 @@
-use tessera_scene::SurfaceDmabuf;
-use tessera_scene::SurfaceGeometry;
-use tessera_scene::SurfacePixels;
-use tessera_types::Rect;
+use tessera_primitives::SurfaceDmabuf;
+use tessera_primitives::SurfaceGeometry;
+use tessera_primitives::SurfacePixels;
+use tessera_primitives::Rect;
 
 /// Hard bound for damage carried across swapchain-slot history. Wayland
 /// surface commits are independently capped upstream, but combining many
@@ -315,7 +315,7 @@ struct SurfaceDamageSample<'a> {
 /// clamping mirrors the renderer's incremental-upload path so both agree on
 /// what "usable damage" means.
 fn surface_damage_logical(
-    position: tessera_types::Point,
+    position: tessera_primitives::Point,
     width: i32,
     height: i32,
     damage: &[Rect],
@@ -577,7 +577,7 @@ mod tests {
     fn surface_damage_maps_and_clamps_to_surface() {
         // Tight damage translates by the compositor position.
         let area = surface_damage_logical(
-            tessera_types::Point { x: 100, y: 50 },
+            tessera_primitives::Point { x: 100, y: 50 },
             800,
             600,
             &[Rect::new(10, 20, 30, 40)],
@@ -585,7 +585,7 @@ mod tests {
         assert_eq!(area, vec![Rect::new(110, 70, 30, 40)]);
         // Out-of-bounds damage clamps like the renderer's upload path.
         let clamped = surface_damage_logical(
-            tessera_types::Point { x: 0, y: 0 },
+            tessera_primitives::Point { x: 0, y: 0 },
             800,
             600,
             &[Rect::new(-20, 590, 900, 50)],
@@ -594,7 +594,7 @@ mod tests {
         // Partial negative damage clips by intersection rather than moving the
         // origin to zero while preserving the original width.
         let partial_negative = surface_damage_logical(
-            tessera_types::Point { x: 10, y: 20 },
+            tessera_primitives::Point { x: 10, y: 20 },
             800,
             600,
             &[Rect::new(-20, 10, 30, 20)],
@@ -604,7 +604,7 @@ mod tests {
         // damage.
         assert!(
             surface_damage_logical(
-                tessera_types::Point { x: 0, y: 0 },
+                tessera_primitives::Point { x: 0, y: 0 },
                 800,
                 600,
                 &[Rect::new(-50, 10, 20, 20)],
@@ -612,11 +612,11 @@ mod tests {
             .is_empty()
         );
         // No damage information damages the whole surface.
-        let whole = surface_damage_logical(tessera_types::Point { x: 5, y: 6 }, 800, 600, &[]);
+        let whole = surface_damage_logical(tessera_primitives::Point { x: 5, y: 6 }, 800, 600, &[]);
         assert_eq!(whole, vec![Rect::new(5, 6, 800, 600)]);
         // Fully degenerate damage reports nothing.
         let degenerate = surface_damage_logical(
-            tessera_types::Point { x: 0, y: 0 },
+            tessera_primitives::Point { x: 0, y: 0 },
             800,
             600,
             &[Rect::new(10, 10, 0, 0)],
@@ -624,7 +624,7 @@ mod tests {
         assert!(degenerate.is_empty());
         // Disjoint damage rects are preserved individually, not unioned.
         let disjoint = surface_damage_logical(
-            tessera_types::Point { x: 0, y: 0 },
+            tessera_primitives::Point { x: 0, y: 0 },
             800,
             600,
             &[Rect::new(10, 10, 5, 5), Rect::new(500, 400, 8, 8)],
@@ -777,11 +777,11 @@ mod tests {
             }
         }
         let geometry = SurfaceGeometry {
-            position: tessera_types::Point { x: 10, y: 20 },
+            position: tessera_primitives::Point { x: 10, y: 20 },
             ..Default::default()
         };
         let moved = SurfaceGeometry {
-            position: tessera_types::Point { x: 11, y: 20 },
+            position: tessera_primitives::Point { x: 11, y: 20 },
             ..geometry
         };
 
@@ -843,7 +843,7 @@ mod tests {
             }
         }
         let geometry = SurfaceGeometry {
-            position: tessera_types::Point { x: 10, y: 20 },
+            position: tessera_primitives::Point { x: 10, y: 20 },
             ..Default::default()
         };
 
@@ -898,7 +898,7 @@ mod tests {
             }
         }
         let geometry = SurfaceGeometry {
-            position: tessera_types::Point { x: 10, y: 20 },
+            position: tessera_primitives::Point { x: 10, y: 20 },
             buffer_scale: 2,
             ..Default::default()
         };

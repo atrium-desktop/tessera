@@ -8,10 +8,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use tessera_types::WindowId;
-use tessera_types::{Rect, Size};
+use tessera_primitives::WindowId;
+use tessera_primitives::{Rect, Size};
 
-pub use tessera_types::{
+pub use tessera_primitives::{
     ClientId, HUMAN_INTERACTION_DOMAIN, HUMAN_PRINCIPAL, HUMAN_SEAT, InteractionDomainId,
     InteractionGroupId, InteractionPrincipalId, SeatId,
 };

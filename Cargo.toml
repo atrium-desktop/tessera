@@ -13,12 +13,12 @@ rust-version = "1.88"
 repository = "https://github.com/atrium-desktop/tessera"
 
 [workspace.dependencies]
-tessera-scene = { path = "crates/tessera-scene" }
+tessera-primitives = { path = "crates/tessera-primitives" }
+tessera-launch-services = { path = "crates/tessera-launch-services" }
 tessera-desktop = { path = "crates/tessera-desktop" }
 tessera-ipc = { path = "crates/tessera-ipc" }
 tessera-protocol = { path = "crates/tessera-protocol" }
 tessera-audit = { path = "crates/tessera-audit" }
-tessera-types = { path = "crates/tessera-types" }
 # flux (rendering engine) + lens (immediate-mode UI engine) Rust bindings.
 # The canonical build resolves the binding sources from the tagged optics
 # monorepo and links the C libraries discovered by pkg-config. A linked
@@ -94,13 +94,10 @@ input = { version = "0.10", default-features = false, features = [
 udev = "0.9"
 libc = "0.2"
 
-# Desktop application subsystem (tessera-apps): XDG base-directory resolution,
+# Desktop application subsystem (tessera-launch-services): XDG base-directory resolution,
 # desktop-entry parsing, and index.theme INI parsing. Kept off every other crate.
 dirs = "5"
 ini = { package = "rust-ini", version = "0.20" }
-
-# Desktop applications: XDG discovery, icon lookup, launching, and intent search (ADR-0160).
-tessera-apps = { path = "crates/tessera-apps" }
 
 # Shared, effect-free Tessera state and deterministic state rules (ADR-0155).
 # Pure presentation-domain value layer: frame damage verdicts, slot-ring

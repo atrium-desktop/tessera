@@ -25,11 +25,11 @@ fn interaction_domain_output_info(
                 refresh_mhz: output.refresh_mhz,
             },
             scale: tessera_desktop::output::Scale(output.scale_milli as f32 / 1000.0),
-            transform: tessera_types::Transform::Normal,
-            logical_origin: tessera_types::Point::default(),
+            transform: tessera_primitives::Transform::Normal,
+            logical_origin: tessera_primitives::Point::default(),
         },
         available_modes: Vec::new(),
-        color_caps: tessera_scene::edid::EdidColorCapabilities::default(),
+        color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
     }
 }
 
@@ -284,7 +284,7 @@ pub(crate) unsafe fn send_output_geometry(res: *mut ffi::wl_resource) {
         let version = ffi::wl_resource_get_version(res);
         let make = CString::new("tessera").unwrap();
         let (origin, model_name) = if global.is_null() {
-            (tessera_types::Point::default(), "unknown")
+            (tessera_primitives::Point::default(), "unknown")
         } else {
             (
                 (*global).info.geometry.logical_origin,

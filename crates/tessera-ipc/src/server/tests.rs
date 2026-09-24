@@ -9,7 +9,7 @@ fn frame(stream_id: u64) -> StreamFramePayload {
         height: 2,
         stride: 8,
         format: StreamPixelFormat::Bgra8,
-        damage: vec![tessera_types::Rect::new(0, 0, 2, 2)],
+        damage: vec![tessera_primitives::Rect::new(0, 0, 2, 2)],
         dropped: 0,
         pixels: Arc::from(&[7u8; 16][..]),
     })
@@ -337,14 +337,14 @@ impl Handler for StreamHandler {
             tessera_protocol::schema::OutputInfo {
                 connector: "HDMI-A-1".into(),
                 primary: true,
-                rect: tessera_types::Rect::new(0, 0, 1920, 1080),
+                rect: tessera_primitives::Rect::new(0, 0, 1920, 1080),
                 geometry: Some(tessera_desktop::output::OutputGeometry::default()),
                 available_modes: Some(Vec::new()),
             },
             tessera_protocol::schema::OutputInfo {
                 connector: "DP-1".into(),
                 primary: false,
-                rect: tessera_types::Rect::new(1920, 0, 2560, 1440),
+                rect: tessera_primitives::Rect::new(1920, 0, 2560, 1440),
                 geometry: Some(tessera_desktop::output::OutputGeometry::default()),
                 available_modes: Some(Vec::new()),
             },
@@ -651,7 +651,7 @@ fn slot_frames_cross_the_wire_without_a_blob() {
             drm_format: 0x3432_5258,
             modifier: 0,
         },
-        damage: vec![tessera_types::Rect::new(0, 0, 2, 2)],
+        damage: vec![tessera_primitives::Rect::new(0, 0, 2, 2)],
         dropped: 3,
         slot: 2,
         byte_len: 16,
@@ -770,7 +770,7 @@ fn enumerate_outputs_is_query_gated_and_strips_the_rich_fields() {
                 assert!(outputs.iter().all(|output| output.geometry.is_some()));
                 assert_eq!(outputs[0].connector, "HDMI-A-1");
                 assert!(outputs[0].primary);
-                assert_eq!(outputs[0].rect, tessera_types::Rect::new(0, 0, 1920, 1080));
+                assert_eq!(outputs[0].rect, tessera_primitives::Rect::new(0, 0, 1920, 1080));
             }
             other => panic!("expected Outputs, got {other:?}"),
         }
@@ -785,12 +785,12 @@ fn enumerate_outputs_is_query_gated_and_strips_the_rich_fields() {
                 }
                 assert_eq!(outputs[0].connector, "HDMI-A-1");
                 assert!(outputs[0].primary);
-                assert_eq!(outputs[0].rect, tessera_types::Rect::new(0, 0, 1920, 1080));
+                assert_eq!(outputs[0].rect, tessera_primitives::Rect::new(0, 0, 1920, 1080));
                 assert_eq!(outputs[1].connector, "DP-1");
                 assert!(!outputs[1].primary);
                 assert_eq!(
                     outputs[1].rect,
-                    tessera_types::Rect::new(1920, 0, 2560, 1440)
+                    tessera_primitives::Rect::new(1920, 0, 2560, 1440)
                 );
             }
             other => panic!("expected Outputs, got {other:?}"),
