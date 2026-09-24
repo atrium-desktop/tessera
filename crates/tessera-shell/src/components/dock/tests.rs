@@ -1913,3 +1913,56 @@ fn dock_morph_keeps_capture_and_shadow_damage_stable() {
         }
     }
 }
+
+#[test]
+fn autohide_collapse_settle_drains_swapchain_ring_frames() {
+    let mut dock = Dock::new();
+    dock.set_autohide(true);
+    dock.autohide_reveal = 1.0;
+    dock.autohide_idle = dock.autohide_timeout;
+    let display = (1920.0, 1080.0);
+    let workspaces = workspace_snapshot();
+    let windows = Vec::new();
+    let i18n = Localizer::default();
+    let mut out = ChromeEvents::default();
+
+    let mut ui = lens::Ui::headless().unwrap();
+    let mut input = Input::new(display, 0.05);
+    input.set_cursor(display.0 * 0.5, 100.0);
+
+    // Advance collapse over several frames until it settles to 0.0
+    for _ in 0..60 {
+        dock.prepare_backdrop(&input, &windows, &workspaces);
+        ui.frame(&input, |f| {
+            dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
+        });
+        if (dock.autohide_reveal - 0.0).abs() <= 0.002 {
+            break;
+        }
+    }
+    assert_eq!(dock.autohide_reveal, 0.0);
+    // When the animation settles, it primes 3 drain frames
+    assert_eq!(dock.settled_drain_frames, 3);
+    assert!(dock.anim_pending(), "drain frames keep animation pending");
+
+    // Frame 1 of drain
+    ui.frame(&input, |f| {
+        dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
+    });
+    assert_eq!(dock.settled_drain_frames, 2);
+    assert!(dock.anim_pending());
+
+    // Frame 2 of drain
+    ui.frame(&input, |f| {
+        dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
+    });
+    assert_eq!(dock.settled_drain_frames, 1);
+    assert!(dock.anim_pending());
+
+    // Frame 3 of drain
+    ui.frame(&input, |f| {
+        dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
+    });
+    assert_eq!(dock.settled_drain_frames, 0);
+    assert!(!dock.anim_pending(), "all 3 ring slots drained, dock at complete rest");
+}

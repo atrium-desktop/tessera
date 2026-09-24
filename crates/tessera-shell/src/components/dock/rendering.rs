@@ -14,6 +14,7 @@ impl Chrome for Dock {
         let dt = input.as_raw().dt_seconds.max(0.0);
         let cursor = input.as_raw().cursor;
         let down = input.as_raw().mouse_down.first().copied().unwrap_or(false);
+        let was_animating = self.anim_active;
         self.last_display = Some((disp.x, disp.y));
 
         // A fullscreen client owns the whole output edge: no animation,
@@ -1121,6 +1122,20 @@ impl Chrome for Dock {
         if !self.app_menu.is_open() {
             self.menu_tile = None;
         }
+
+        let is_animating = self.anim_active;
+        if was_animating && !is_animating {
+            // Animation just settled this frame. Prime the swapchain ring drain
+            // counter so all FLUX_MAX_FRAMES_IN_FLIGHT (3) slots present the
+            // final settled geometry with full damage, purging all transient
+            // material footprints from the ring.
+            self.settled_drain_frames = 3;
+        } else if !is_animating && self.settled_drain_frames > 0 {
+            self.settled_drain_frames -= 1;
+        } else if is_animating {
+            self.settled_drain_frames = 0;
+        }
+
         self.prev_down = down;
     }
 
@@ -1282,6 +1297,7 @@ impl Chrome for Dock {
         self.anim_active
             || dwell_active
             || (effective_autohide && (target - self.autohide_reveal).abs() > 0.002)
+            || self.settled_drain_frames > 0
     }
 
     fn damage_region(

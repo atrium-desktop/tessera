@@ -828,122 +828,7 @@ impl CompositorRuntime<'_> {
                 let capture_started = refresh_requested && !effect_work_regions.is_empty();
                 let recompute_ready = recompute_only && !effect_work_regions.is_empty();
 
-                if freeze_capturing && !self.screenshot_freeze.failed {
-                    if !self.screenshot_freeze.ensure_target(
-                        self.device,
-                        self.surface,
-                        frame_slot,
-                        physical_size,
-                    ) {
-                        self.screenshot_freeze.failed = true;
-                    } else if let Some(target) = self.screenshot_freeze.target_mut(frame_slot) {
-                        let capture_ok = (|| -> Result<(), flux::Error> {
-                            let s1 = self.canvas.begin_session(
-                                flux::ImageTarget {
-                                    frame: &mut frame,
-                                    image: target,
-                                },
-                                flux::CanvasPassOptions {
-                                    clear: Some(self.clear),
-                                    antialias: flux::CanvasAntialias::None,
-                                    render_area: None,
-                                    skip_stencil: true,
-                                },
-                            )?;
-                            draw_wallpaper_background(
-                                &s1,
-                                self.device,
-                                &mut self.wallpaper,
-                                logical_size,
-                                scale,
-                            );
-                            s1.end()?;
-
-                            if model_active && let Some(wallpaper) = self.wallpaper.as_mut() {
-                                wallpaper.draw_model_to(self.device, &mut frame, target);
-                            }
-
-                            let s2 = self.canvas.begin_session(
-                                flux::ImageTarget {
-                                    frame: &mut frame,
-                                    image: target,
-                                },
-                                flux::CanvasPassOptions {
-                                    clear: None,
-                                    antialias: flux::CanvasAntialias::None,
-                                    render_area: None,
-                                    skip_stencil: true,
-                                },
-                            )?;
-                            draw_client_scene(
-                                &s2,
-                                self.device,
-                                self.renderer,
-                                self.server,
-                                scale,
-                                false,
-                                None,
-                                tessera_desktop::window::WindowShadowStyle::Resize,
-                            );
-                            s2.end()?;
-
-                            if self.shell.requires_composition() {
-                                let s3 = self.canvas.begin_session(
-                                    flux::ImageTarget {
-                                        frame: &mut frame,
-                                        image: target,
-                                    },
-                                    flux::CanvasPassOptions {
-                                        clear: None,
-                                        antialias: flux::CanvasAntialias::None,
-                                        render_area: None,
-                                        skip_stencil: false,
-                                    },
-                                )?;
-                                let _uploads = self.device.uploads_begin();
-                                let _ = unsafe { self.shell.render(s3.as_raw() as *mut _, &input) };
-                                s3.end()?;
-                            }
-
-                            if human_screenshot_session
-                                && screenshot_include_cursor
-                                && let Some(cursor) = frozen_trigger_cursor
-                                && !cursor.hidden
-                                && !cursor.client_surface
-                            {
-                                let s4 = self.canvas.begin_session(
-                                    flux::ImageTarget {
-                                        frame: &mut frame,
-                                        image: target,
-                                    },
-                                    flux::CanvasPassOptions {
-                                        clear: None,
-                                        antialias: flux::CanvasAntialias::None,
-                                        render_area: None,
-                                        skip_stencil: true,
-                                    },
-                                )?;
-                                draw_software_cursor(
-                                    &s4,
-                                    self.device,
-                                    &mut self.cursor_cache,
-                                    cursor.position,
-                                    cursor.shape,
-                                    scale,
-                                );
-                                s4.end()?;
-                            }
-                            Ok(())
-                        })();
-                        if capture_ok.is_ok() {
-                            self.screenshot_freeze.mark_captured(frame_slot);
-                        } else {
-                            self.screenshot_freeze.failed = true;
-                        }
-                    }
-                }
-
-                let base_session = match backdrop_plan {
+                let (refreshed, capture_covers_output) = match backdrop_plan {
                     BackdropPlan::Refresh(_) | BackdropPlan::Recompute
                         if capture_started || recompute_ready =>
                     {
@@ -1240,117 +1125,9 @@ impl CompositorRuntime<'_> {
                             .collect();
                         repaint = repaint.with_rects(effect_damage.clone());
                         presented_damage = presented_damage.with_rects(effect_damage);
-                        output_render_area = frame_damage_render_area(&repaint);
-                        let active = begin_desktop_output(
-                            self.canvas,
-                            self.device,
-                            &mut frame,
-                            &mut self.wallpaper,
-                            logical_size,
-                            scale,
-                            self.clear,
-                            output_render_area,
-                            model_active,
-                        )?;
-                        if self.screenshot_freeze.active() {
-                            if let Some(image) = self.screenshot_freeze.image() {
-                                active.draw_image(
-                                    image,
-                                    0.0,
-                                    0.0,
-                                    physical_size.0 as f32,
-                                    physical_size.1 as f32,
-                                );
-                            }
-                        } else if capture_covers_output
-                            && refreshed
-                            && self.backdrop_graph.draw_capture_opaque(
-                                &active,
-                                frame_slot,
-                                physical_size,
-                            )
-                        {
-                            // The capture pass already rendered this exact
-                            // desktop.  Reuse it as the base output rather than
-                            // acquiring every client dma-buf and drawing the
-                            // complete scene a second time in the same frame.
-                        } else {
-                            // A local capture has no pixels for the rest of the
-                            // output (or the effect failed), so draw the normal
-                            // desktop base once before overlaying the effect.
-                            draw_direct_desktop_scene(
-                                &active,
-                                self.device,
-                                self.renderer,
-                                self.server,
-                                render_geometry,
-                                overview_active,
-                                overview_progress,
-                                window_switcher.as_ref(),
-                                color_scheme,
-                                soft_shadow_layer.as_ref(),
-                                shadow_style,
-                            )?;
-                        }
-                        if refreshed {
-                            self.backdrop_graph.draw_cached(
-                                &active,
-                                frame_slot,
-                                capture_origin,
-                                capture_extent,
-                            );
-                        }
-                        active
+                        (refreshed, capture_covers_output)
                     }
-                    BackdropPlan::Cached => {
-                        // The desktop still repaints normally, but the effect
-                        // image is only sampled. No capture, blur, or liquid
-                        // compute is recorded for this frame.
-                        output_render_area = frame_damage_render_area(&repaint);
-                        let active = begin_desktop_output(
-                            self.canvas,
-                            self.device,
-                            &mut frame,
-                            &mut self.wallpaper,
-                            logical_size,
-                            scale,
-                            self.clear,
-                            output_render_area,
-                            model_active,
-                        )?;
-                        if self.screenshot_freeze.active() {
-                            if let Some(image) = self.screenshot_freeze.image() {
-                                active.draw_image(
-                                    image,
-                                    0.0,
-                                    0.0,
-                                    physical_size.0 as f32,
-                                    physical_size.1 as f32,
-                                );
-                            }
-                        } else {
-                            draw_direct_desktop_scene(
-                                &active,
-                                self.device,
-                                self.renderer,
-                                self.server,
-                                render_geometry,
-                                overview_active,
-                                overview_progress,
-                                window_switcher.as_ref(),
-                                color_scheme,
-                                soft_shadow_layer.as_ref(),
-                                shadow_style,
-                            )?;
-                        }
-                        self.backdrop_graph.draw_cached(
-                            &active,
-                            frame_slot,
-                            capture_origin,
-                            capture_extent,
-                        );
-                        active
-                    }
+                    BackdropPlan::Cached => (true, false),
                     BackdropPlan::Refresh(_) | BackdropPlan::Recompute | BackdropPlan::Direct => {
                         if refresh_requested {
                             // Capture setup failed. Repaint the previous effect
@@ -1370,67 +1147,12 @@ impl CompositorRuntime<'_> {
                             repaint = repaint.with_rects(effect_damage.clone());
                             presented_damage = presented_damage.with_rects(effect_damage);
                         }
-                        output_render_area = frame_damage_render_area(&repaint);
-                        let active = begin_desktop_output(
-                            self.canvas,
-                            self.device,
-                            &mut frame,
-                            &mut self.wallpaper,
-                            logical_size,
-                            scale,
-                            self.clear,
-                            output_render_area,
-                            model_active,
-                        )?;
-                        if self.screenshot_freeze.active() {
-                            if let Some(image) = self.screenshot_freeze.image() {
-                                active.draw_image(
-                                    image,
-                                    0.0,
-                                    0.0,
-                                    physical_size.0 as f32,
-                                    physical_size.1 as f32,
-                                );
-                            }
-                        } else {
-                            draw_direct_desktop_scene(
-                                &active,
-                                self.device,
-                                self.renderer,
-                                self.server,
-                                render_geometry,
-                                overview_active,
-                                overview_progress,
-                                window_switcher.as_ref(),
-                                color_scheme,
-                                soft_shadow_layer.as_ref(),
-                                shadow_style,
-                            )?;
-                        }
-                        active
+                        (false, false)
                     }
                 };
-                if !session_locked && !self.screenshot_freeze.active() {
-                    if let Some(presentation) = window_switcher.as_ref() {
-                        draw_window_switcher_cards(
-                            &base_session,
-                            self.device,
-                            self.renderer,
-                            self.server,
-                            scale,
-                            presentation,
-                        );
-                    } else {
-                        draw_live_preview_scenes(
-                            &base_session,
-                            self.device,
-                            self.renderer,
-                            self.server,
-                            scale,
-                            &live_previews,
-                        );
-                    }
-                }
+                let has_cached_effects = refreshed;
+                output_render_area = frame_damage_render_area(&repaint);
+
                 // Hand the shell a snapshot of live toplevels so the chrome's
                 // window list reflects the current set. The shell reads
                 // title/app_id/activated off each Window to draw its buttons.
@@ -1555,17 +1277,296 @@ impl CompositorRuntime<'_> {
                 // Report the output scale so lens rasterises chrome crisply on
                 // a HiDPI host; layout and input stay in logical pixels.
                 self.shell.set_scale(scale);
-                // The desktop/client pass intentionally has no stencil
-                // attachment. Lens is an arbitrary vector renderer and may
-                // emit winding/even-odd path fills, so visible shell chrome
-                // must run in a separate stencil-capable LOAD pass. Query the
-                // shell only after every snapshot/status update above: its
-                // `requires_composition` contract describes exact next-frame
-                // visible output (and defaults conservatively). When false,
-                // skip Lens replay entirely and retain the cheaper no-stencil
-                // base pass; this is the same policy direct scanout trusts.
+
                 let shell_requires_composition = self.shell.requires_composition();
-                let overlay_session = if shell_requires_composition {
+
+                if freeze_capturing && !self.screenshot_freeze.failed {
+                    if !self.screenshot_freeze.ensure_target(
+                        self.device,
+                        self.surface,
+                        frame_slot,
+                        physical_size,
+                    ) {
+                        self.screenshot_freeze.failed = true;
+                    } else if let Some(target) = self.screenshot_freeze.target_mut(frame_slot) {
+                        let capture_ok = (|| -> Result<(), flux::Error> {
+                            let s1 = self.canvas.begin_session(
+                                flux::ImageTarget {
+                                    frame: &mut frame,
+                                    image: target,
+                                },
+                                flux::CanvasPassOptions {
+                                    clear: Some(self.clear),
+                                    antialias: flux::CanvasAntialias::None,
+                                    render_area: None,
+                                    skip_stencil: true,
+                                },
+                            )?;
+                            draw_wallpaper_background(
+                                &s1,
+                                self.device,
+                                &mut self.wallpaper,
+                                logical_size,
+                                scale,
+                            );
+                            s1.end()?;
+
+                            if model_active && let Some(wallpaper) = self.wallpaper.as_mut() {
+                                wallpaper.draw_model_to(self.device, &mut frame, target);
+                            }
+
+                            let s2 = self.canvas.begin_session(
+                                flux::ImageTarget {
+                                    frame: &mut frame,
+                                    image: target,
+                                },
+                                flux::CanvasPassOptions {
+                                    clear: None,
+                                    antialias: flux::CanvasAntialias::None,
+                                    render_area: None,
+                                    skip_stencil: true,
+                                },
+                            )?;
+                            draw_direct_desktop_scene(
+                                &s2,
+                                self.device,
+                                self.renderer,
+                                self.server,
+                                render_geometry,
+                                overview_active,
+                                overview_progress,
+                                window_switcher.as_ref(),
+                                color_scheme,
+                                soft_shadow_layer.as_ref(),
+                                shadow_style,
+                            )?;
+                            if !session_locked {
+                                if let Some(presentation) = window_switcher.as_ref() {
+                                    draw_window_switcher_cards(
+                                        &s2,
+                                        self.device,
+                                        self.renderer,
+                                        self.server,
+                                        scale,
+                                        presentation,
+                                    );
+                                } else {
+                                    draw_live_preview_scenes(
+                                        &s2,
+                                        self.device,
+                                        self.renderer,
+                                        self.server,
+                                        scale,
+                                        &live_previews,
+                                    );
+                                }
+                            }
+                            if has_cached_effects {
+                                self.backdrop_graph.draw_cached(
+                                    &s2,
+                                    frame_slot,
+                                    capture_origin,
+                                    capture_extent,
+                                );
+                            }
+                            s2.end()?;
+
+                            let (include_live_cursor, cursor_position) =
+                                if !human_screenshot_session {
+                                    (false, None)
+                                } else {
+                                    let client_cursor = screenshot_include_cursor
+                                        && frozen_trigger_cursor
+                                            .is_some_and(|cursor| cursor.client_surface);
+                                    (
+                                        client_cursor,
+                                        client_cursor
+                                            .then(|| {
+                                                frozen_trigger_cursor
+                                                    .map(|cursor| cursor.position)
+                                            })
+                                            .flatten(),
+                                    )
+                                };
+                            if shell_requires_composition {
+                                let s3 = self.canvas.begin_session(
+                                    flux::ImageTarget {
+                                        frame: &mut frame,
+                                        image: target,
+                                    },
+                                    flux::CanvasPassOptions {
+                                        clear: None,
+                                        antialias: flux::CanvasAntialias::None,
+                                        render_area: None,
+                                        skip_stencil: false,
+                                    },
+                                )?;
+                                let _uploads = self.device.uploads_begin();
+                                let _ = unsafe { self.shell.render(s3.as_raw() as *mut _, &input) };
+                                if !session_locked {
+                                    draw_client_overlays(
+                                        &s3,
+                                        self.device,
+                                        self.renderer,
+                                        self.server,
+                                        scale,
+                                        include_live_cursor,
+                                        cursor_position,
+                                    );
+                                }
+                                if human_screenshot_session
+                                    && screenshot_include_cursor
+                                    && let Some(cursor) = frozen_trigger_cursor
+                                    && !cursor.hidden
+                                    && !cursor.client_surface
+                                {
+                                    draw_software_cursor(
+                                        &s3,
+                                        self.device,
+                                        &mut self.cursor_cache,
+                                        cursor.position,
+                                        cursor.shape,
+                                        scale,
+                                    );
+                                }
+                                s3.end()?;
+                            } else {
+                                let s3 = self.canvas.begin_session(
+                                    flux::ImageTarget {
+                                        frame: &mut frame,
+                                        image: target,
+                                    },
+                                    flux::CanvasPassOptions {
+                                        clear: None,
+                                        antialias: flux::CanvasAntialias::None,
+                                        render_area: None,
+                                        skip_stencil: true,
+                                    },
+                                )?;
+                                if !session_locked {
+                                    draw_client_overlays(
+                                        &s3,
+                                        self.device,
+                                        self.renderer,
+                                        self.server,
+                                        scale,
+                                        include_live_cursor,
+                                        cursor_position,
+                                    );
+                                }
+                                if human_screenshot_session
+                                    && screenshot_include_cursor
+                                    && let Some(cursor) = frozen_trigger_cursor
+                                    && !cursor.hidden
+                                    && !cursor.client_surface
+                                {
+                                    draw_software_cursor(
+                                        &s3,
+                                        self.device,
+                                        &mut self.cursor_cache,
+                                        cursor.position,
+                                        cursor.shape,
+                                        scale,
+                                    );
+                                }
+                                s3.end()?;
+                            }
+                            Ok(())
+                        })();
+                        if capture_ok.is_ok() {
+                            self.screenshot_freeze.mark_captured(frame_slot);
+                        } else {
+                            self.screenshot_freeze.failed = true;
+                        }
+                    }
+                }
+
+                let active = begin_desktop_output(
+                    self.canvas,
+                    self.device,
+                    &mut frame,
+                    &mut self.wallpaper,
+                    logical_size,
+                    scale,
+                    self.clear,
+                    output_render_area,
+                    model_active && !self.screenshot_freeze.active(),
+                )?;
+                if self.screenshot_freeze.active() {
+                    if let Some(image) = self.screenshot_freeze.image() {
+                        active.draw_image(
+                            image,
+                            0.0,
+                            0.0,
+                            physical_size.0 as f32,
+                            physical_size.1 as f32,
+                        );
+                    }
+                } else if capture_covers_output
+                    && refreshed
+                    && self.backdrop_graph.draw_capture_opaque(
+                        &active,
+                        frame_slot,
+                        physical_size,
+                    )
+                {
+                    // The capture pass already rendered this exact
+                    // desktop.  Reuse it as the base output rather than
+                    // acquiring every client dma-buf and drawing the
+                    // complete scene a second time in the same frame.
+                } else {
+                    // A local capture has no pixels for the rest of the
+                    // output (or the effect failed), so draw the normal
+                    // desktop base once before overlaying the effect.
+                    draw_direct_desktop_scene(
+                        &active,
+                        self.device,
+                        self.renderer,
+                        self.server,
+                        render_geometry,
+                        overview_active,
+                        overview_progress,
+                        window_switcher.as_ref(),
+                        color_scheme,
+                        soft_shadow_layer.as_ref(),
+                        shadow_style,
+                    )?;
+                }
+                if has_cached_effects && !self.screenshot_freeze.active() {
+                    self.backdrop_graph.draw_cached(
+                        &active,
+                        frame_slot,
+                        capture_origin,
+                        capture_extent,
+                    );
+                }
+                let base_session = active;
+
+                if !session_locked && !self.screenshot_freeze.active() {
+                    if let Some(presentation) = window_switcher.as_ref() {
+                        draw_window_switcher_cards(
+                            &base_session,
+                            self.device,
+                            self.renderer,
+                            self.server,
+                            scale,
+                            presentation,
+                        );
+                    } else {
+                        draw_live_preview_scenes(
+                            &base_session,
+                            self.device,
+                            self.renderer,
+                            self.server,
+                            scale,
+                            &live_previews,
+                        );
+                    }
+                }
+
+                let overlay_session = if shell_requires_composition
+                    && (!self.screenshot_freeze.active() || self.screenshot_freeze.opened)
+                {
                     base_session.end()?;
                     let s =
                         begin_stencil_frame_overlay(self.canvas, &mut frame, output_render_area)?;
@@ -1575,6 +1576,7 @@ impl CompositorRuntime<'_> {
                 } else {
                     base_session
                 };
+
                 // Protocol overlays sit above ordinary shell chrome. A modal
                 // screenshot/picker owns the whole frame and suppresses live
                 // client overlays without changing Wayland keyboard focus.
@@ -1845,6 +1847,7 @@ impl CompositorRuntime<'_> {
                         &mut self.system_status,
                         &mut self.ipc_idle_inhibits,
                         &mut self.idle_process,
+                        &self.wireless,
                         action,
                     )
                 {
@@ -2149,6 +2152,7 @@ impl CompositorRuntime<'_> {
                             &mut self.system_status,
                             &mut self.ipc_idle_inhibits,
                             &mut self.idle_process,
+                            &self.wireless,
                             action,
                         ) {
                             Ok(()) => {
@@ -2180,7 +2184,7 @@ impl CompositorRuntime<'_> {
                         // cycle: `apply_system_action` already updated the HUD
                         // with optimistic values, and the poller thread
                         // re-probes the host right away so the main loop never
-                        // blocks on a wpctl/nmcli subprocess.
+                        // blocks on a subprocess.
                         let _ = self.status_refresh_tx.send(());
                     }
                 }

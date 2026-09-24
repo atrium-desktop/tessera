@@ -169,6 +169,42 @@ fn screenshot_freeze_keeps_the_trigger_cursor_snapshot() {
 }
 
 #[test]
+fn screenshot_freeze_lifecycle_tracks_capture_and_opened_phases() {
+    let mut freeze = ScreenshotFreeze::new();
+    assert!(!freeze.needs_capture());
+    assert!(!freeze.active());
+    assert!(!freeze.pending_open);
+    assert!(!freeze.opened);
+
+    freeze.request_open(None);
+    assert!(freeze.needs_capture());
+    assert!(!freeze.active());
+    assert!(freeze.pending_open);
+    assert!(!freeze.opened);
+
+    // Frame capture completes with effects and chrome drawn into the snapshot.
+    freeze.mark_captured(0);
+    assert!(!freeze.needs_capture());
+    assert!(freeze.active());
+    assert!(freeze.pending_open);
+    assert!(!freeze.opened);
+
+    // Selector chrome opens over the frozen desktop snapshot.
+    freeze.mark_opened();
+    assert!(!freeze.needs_capture());
+    assert!(freeze.active());
+    assert!(!freeze.pending_open);
+    assert!(freeze.opened);
+
+    // Confirmation / dismissal disarms the freeze session.
+    assert!(freeze.should_disarm(false));
+    assert!(!freeze.should_disarm(true));
+    freeze.disarm();
+    assert!(!freeze.active());
+    assert!(!freeze.needs_capture());
+}
+
+#[test]
 fn capture_bounds_cover_top_bar_with_blur_margin() {
     // 32px status bar at the top of a 1920x1080 output, sigma 12: the
     // capture spans the full width but only the bar plus the 3σ margin.
