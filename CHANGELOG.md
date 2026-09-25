@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.66] - 2026-09-25
+
 ### Changed
 - Purify compositor boundary and decouple application accessibility (ADR-0165):
   - Retired and deleted `tessera-atspi` sidecar package; external tools and agents connect directly to the standard freedesktop AT-SPI D-Bus bus (`org.a11y.Bus`).

@@ -232,57 +232,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
-name = "atspi"
-version = "0.30.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6bf601cccedfffec598ec2db1f9d6745885458bccc0e8916d7023f017c94b3d0"
-dependencies = [
- "atspi-common",
- "atspi-connection",
- "atspi-proxies",
- "zbus",
-]
-
-[[package]]
-name = "atspi-common"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8a79bed3f5b408ce3152f36e07327a845e6ed5d7e2821a89264037dbcc11daf"
-dependencies = [
- "enumflags2",
- "serde",
- "static_assertions",
- "zbus",
- "zbus-lockstep",
- "zbus-lockstep-macros",
- "zbus_names",
- "zvariant",
-]
-
-[[package]]
-name = "atspi-connection"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8fab8e4f574f5a7d3af280b38eff25fb6f47a537dac9ae39ce152f52b19fb10b"
-dependencies = [
- "atspi-common",
- "atspi-proxies",
- "futures-lite",
- "zbus",
-]
-
-[[package]]
-name = "atspi-proxies"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53403acd3ab2fdb5914f6558da22e540fc07656fce5510f8c02be0e6ef68413e"
-dependencies = [
- "atspi-common",
- "serde",
- "zbus",
-]
-
-[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1915,12 +1864,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "static_assertions"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
-
-[[package]]
 name = "strict-num"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1998,7 +1941,7 @@ dependencies = [
 
 [[package]]
 name = "tessera"
-version = "0.0.65"
+version = "0.0.66"
 dependencies = [
  "flux",
  "flux-scene-graph-sys",
@@ -2018,11 +1961,11 @@ dependencies = [
  "tempfile",
  "tessera-audit",
  "tessera-authority",
- "tessera-bootstrap",
  "tessera-cli",
  "tessera-config",
  "tessera-design",
  "tessera-desktop",
+ "tessera-env",
  "tessera-i18n",
  "tessera-ipc",
  "tessera-launch-services",
@@ -2030,9 +1973,7 @@ dependencies = [
  "tessera-primitives",
  "tessera-protocol",
  "tessera-render",
- "tessera-semantic",
  "tessera-shell",
- "tessera-tray",
  "tessera-wallpaper",
  "tessera-wayland",
  "thiserror 2.0.20",
@@ -2044,26 +1985,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "tessera-atspi"
-version = "0.0.65"
-dependencies = [
- "async-io",
- "atspi",
- "log",
- "serde_json",
- "sha2",
- "tessera-bootstrap",
- "tessera-desktop",
- "tessera-ipc",
- "tessera-primitives",
- "tessera-protocol",
- "tessera-semantic",
- "zbus",
-]
-
-[[package]]
 name = "tessera-audit"
-version = "0.0.65"
+version = "0.0.66"
 dependencies = [
  "flate2",
  "getrandom 0.4.3",
@@ -2080,7 +2003,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-authority"
-version = "0.0.65"
+version = "0.0.66"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -2089,14 +2012,13 @@ dependencies = [
  "tempfile",
  "tessera-desktop",
  "tessera-primitives",
- "tessera-semantic",
  "thiserror 2.0.20",
  "zeroize",
 ]
 
 [[package]]
 name = "tessera-avatar"
-version = "0.0.65"
+version = "0.0.66"
 dependencies = [
  "fastrand",
  "flux",
@@ -2114,19 +2036,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "tessera-bootstrap"
-version = "0.0.65"
-dependencies = [
- "log",
- "tessera-ipc",
- "thiserror 2.0.20",
- "tracing-log",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "tessera-cli"
-version = "0.0.65"
+version = "0.0.66"
 dependencies = [
  "clap",
  "clap_complete",
@@ -2135,22 +2046,21 @@ dependencies = [
  "tempfile",
  "tessera-audit",
  "tessera-authority",
- "tessera-bootstrap",
  "tessera-config",
  "tessera-desktop",
+ "tessera-env",
  "tessera-i18n",
  "tessera-ipc",
  "tessera-launch-services",
  "tessera-primitives",
  "tessera-protocol",
- "tessera-semantic",
  "thiserror 2.0.20",
  "zeroize",
 ]
 
 [[package]]
 name = "tessera-config"
-version = "0.0.65"
+version = "0.0.66"
 dependencies = [
  "dirs",
  "libc",
@@ -2165,7 +2075,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-design"
-version = "0.0.65"
+version = "0.0.66"
 dependencies = [
  "lens",
  "lens-sys",
@@ -2174,7 +2084,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-desktop"
-version = "0.0.65"
+version = "0.0.66"
 dependencies = [
  "serde",
  "serde_json",
@@ -2182,8 +2092,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tessera-env"
+version = "0.0.66"
+dependencies = [
+ "log",
+ "tessera-ipc",
+ "thiserror 2.0.20",
+ "tracing-log",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "tessera-i18n"
-version = "0.0.65"
+version = "0.0.66"
 dependencies = [
  "serde",
  "toml",
@@ -2191,12 +2112,12 @@ dependencies = [
 
 [[package]]
 name = "tessera-idle"
-version = "0.0.65"
+version = "0.0.66"
 dependencies = [
  "libc",
  "log",
- "tessera-bootstrap",
  "tessera-desktop",
+ "tessera-env",
  "tessera-ipc",
  "tessera-protocol",
  "wayland-client",
@@ -2206,7 +2127,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-ipc"
-version = "0.0.65"
+version = "0.0.66"
 dependencies = [
  "libc",
  "serde",
@@ -2216,14 +2137,13 @@ dependencies = [
  "tessera-desktop",
  "tessera-primitives",
  "tessera-protocol",
- "tessera-semantic",
  "thiserror 2.0.20",
  "zeroize",
 ]
 
 [[package]]
 name = "tessera-launch-services"
-version = "0.0.65"
+version = "0.0.66"
 dependencies = [
  "dirs",
  "libc",
@@ -2237,7 +2157,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-lock"
-version = "0.0.65"
+version = "0.0.66"
 dependencies = [
  "ash",
  "flux",
@@ -2250,9 +2170,9 @@ dependencies = [
  "pkg-config",
  "smithay-client-toolkit",
  "tessera-avatar",
- "tessera-bootstrap",
  "tessera-config",
  "tessera-design",
+ "tessera-env",
  "tessera-wallpaper",
  "thiserror 2.0.20",
  "wayland-client",
@@ -2263,7 +2183,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-mcp"
-version = "0.0.65"
+version = "0.0.66"
 dependencies = [
  "base64",
  "clap",
@@ -2272,19 +2192,18 @@ dependencies = [
  "tempfile",
  "tessera-audit",
  "tessera-authority",
- "tessera-bootstrap",
  "tessera-desktop",
+ "tessera-env",
  "tessera-ipc",
  "tessera-launch-services",
  "tessera-primitives",
  "tessera-protocol",
- "tessera-semantic",
  "thiserror 2.0.20",
 ]
 
 [[package]]
 name = "tessera-platform"
-version = "0.0.65"
+version = "0.0.66"
 dependencies = [
  "ash",
  "drm",
@@ -2304,7 +2223,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-primitives"
-version = "0.0.65"
+version = "0.0.66"
 dependencies = [
  "serde",
  "serde_json",
@@ -2312,7 +2231,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-protocol"
-version = "0.0.65"
+version = "0.0.66"
 dependencies = [
  "serde",
  "serde_json",
@@ -2321,13 +2240,12 @@ dependencies = [
  "tessera-authority",
  "tessera-desktop",
  "tessera-primitives",
- "tessera-semantic",
  "zeroize",
 ]
 
 [[package]]
 name = "tessera-render"
-version = "0.0.65"
+version = "0.0.66"
 dependencies = [
  "flux",
  "flux-sys",
@@ -2340,22 +2258,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "tessera-semantic"
-version = "0.0.65"
-dependencies = [
- "serde",
- "serde_json",
- "tessera-desktop",
- "tessera-primitives",
-]
-
-[[package]]
 name = "tessera-shell"
-version = "0.0.65"
+version = "0.0.66"
 dependencies = [
  "flux",
  "flux-scene-graph-sys",
  "flux-sys",
+ "image",
  "include_dir",
  "lens",
  "lens-sys",
@@ -2371,7 +2280,6 @@ dependencies = [
  "tessera-i18n",
  "tessera-launch-services",
  "tessera-primitives",
- "tessera-tray",
  "thiserror 2.0.20",
  "tiny-skia",
  "toml",
@@ -2381,18 +2289,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "tessera-tray"
-version = "0.0.65"
-dependencies = [
- "image",
- "log",
- "tessera-launch-services",
- "zbus",
-]
-
-[[package]]
 name = "tessera-wallpaper"
-version = "0.0.65"
+version = "0.0.66"
 dependencies = [
  "flux",
  "flux-scene-graph",
@@ -2405,7 +2303,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-wayland"
-version = "0.0.65"
+version = "0.0.66"
 dependencies = [
  "getrandom 0.4.3",
  "log",
@@ -2416,7 +2314,6 @@ dependencies = [
  "tessera-authority",
  "tessera-desktop",
  "tessera-primitives",
- "tessera-semantic",
  "tessera-wayland-protocols",
  "thiserror 2.0.20",
  "xkbcommon 0.9.0",
@@ -2424,7 +2321,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-wayland-protocols"
-version = "0.0.65"
+version = "0.0.66"
 dependencies = [
  "cc",
 ]
@@ -2707,7 +2604,6 @@ version = "1.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ef6dac1e96601b4fb3acccccff2139741fcb757cb9a36089bf5be91cfb285ce"
 dependencies = [
- "getrandom 0.4.3",
  "js-sys",
  "serde_core",
  "wasm-bindgen",
@@ -3177,30 +3073,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "zbus-lockstep"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6998de05217a084b7578728a9443d04ea4cd80f2a0839b8d78770b76ccd45863"
-dependencies = [
- "zbus_xml",
- "zvariant",
-]
-
-[[package]]
-name = "zbus-lockstep-macros"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10da05367f3a7b7553c8cdf8fa91aee6b64afebe32b51c95177957efc47ca3a0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
- "zbus-lockstep",
- "zbus_xml",
- "zvariant",
-]
-
-[[package]]
 name = "zbus_macros"
 version = "5.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3223,18 +3095,6 @@ checksum = "d8bf88b4a3ff53e883001e0e0115b297a9d53c31b9c1edd2bfdd853e3428624e"
 dependencies = [
  "serde",
  "winnow",
- "zvariant",
-]
-
-[[package]]
-name = "zbus_xml"
-version = "5.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1586c021a01ca0a9216dcd874e546382e156a5cbab5fab6cb5f10087e22682a"
-dependencies = [
- "serde",
- "winnow",
- "zbus_names",
  "zvariant",
 ]
 

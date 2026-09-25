@@ -4,7 +4,7 @@ resolver = "3"
 members = ["crates/*", "tooling/*"]
 
 [workspace.package]
-version = "0.0.65"
+version = "0.0.66"
 edition = "2024"
 # Workspace crates contain MIT-licensed source, including the bundled cursor
 # art under assets/cursors (original, generated in-tree).
