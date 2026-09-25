@@ -1,13 +1,13 @@
 //! The shared application model.
 //!
 //! A parsed, launchable freedesktop.org desktop entry of `Type=Application`,
-//! backend- and renderer-agnostic. Lives here (rather than in `tessera-apps`)
+//! backend- and renderer-agnostic. Lives here (rather than in `tessera-launch-services`)
 //! because the chrome in `tessera-shell` reads it to render a launcher without
-//! pulling in the `.desktop` / icon-theme parsing dependency graph; `tessera-apps`
+//! pulling in the `.desktop` / icon-theme parsing dependency graph; `tessera-launch-services`
 //! builds these and consumes them for launching.
 //!
 //! Locale-sensitive fields are resolved to a single value at parse time (in
-//! `tessera-apps`) so the rest of the compositor never sees `Name[xx_YY]` suffixes.
+//! `tessera-launch-services`) so the rest of the compositor never sees `Name[xx_YY]` suffixes.
 
 use std::path::PathBuf;
 
@@ -22,7 +22,7 @@ pub enum BuiltInApplication {
 /// How activating an application entry is fulfilled.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ApplicationTarget {
-    /// Expand `Exec` and spawn an external process through `tessera-apps::launcher`.
+    /// Expand `Exec` and spawn an external process through `tessera-launch-services::launcher`.
     #[default]
     External,
     /// Ask the compositor to present one of its trusted, built-in apps.

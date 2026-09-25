@@ -298,13 +298,13 @@ impl Handler for TestHandler {
                 scale_milli: 1000,
                 region: tessera_primitives::Rect::new(0, 0, 1, 1),
                 placements: vec![],
-                observation: tessera_protocol::SemanticObservation {
+                observation: tessera_protocol::InteractionDomainObservation {
                     token: tessera_protocol::ObservationToken("a".repeat(64)),
                     ttl_ms: 15_000,
-                    snapshot: tessera_semantic::model::SemanticSnapshot {
+                    snapshot: tessera_protocol::ObservationSnapshot {
                         interaction_domain,
                         authority_revision: revision,
-                        objects: Vec::new(),
+                        windows: Vec::new(),
                     },
                 },
                 png_bytes: 8,
@@ -340,7 +340,7 @@ impl Handler for TestHandler {
         conn_id: u64,
         _subject: Option<&str>,
         interaction_domain: tessera_authority::interaction_domain::InteractionDomainId,
-    ) -> Result<tessera_protocol::SemanticObservation, String> {
+    ) -> Result<tessera_protocol::InteractionDomainObservation, String> {
         let revision = self
             .interaction_domains
             .lock()
@@ -350,30 +350,23 @@ impl Handler for TestHandler {
             .lock()
             .expect("observation lock")
             .insert("b".repeat(64), conn_id);
-        Ok(tessera_protocol::SemanticObservation {
+        Ok(tessera_protocol::InteractionDomainObservation {
             token: tessera_protocol::ObservationToken("b".repeat(64)),
             ttl_ms: 15_000,
-            snapshot: tessera_semantic::model::SemanticSnapshot {
+            snapshot: tessera_protocol::ObservationSnapshot {
                 interaction_domain,
                 authority_revision: revision,
-                objects: vec![tessera_semantic::model::SemanticObject {
-                    id: tessera_semantic::model::SemanticObjectId::for_window(WindowId(7)),
-                    parent: None,
-                    window: WindowId(7),
-                    source: tessera_semantic::model::SemanticSource::Compositor,
-                    role: tessera_semantic::model::SemanticRole::Window,
-                    name: Some("smoke".into()),
-                    description: None,
-                    value: None,
+                windows: vec![tessera_protocol::ObservedWindow {
+                    id: WindowId(7),
                     app_id: Some("visual-smoke.test".into()),
+                    title: Some("smoke".into()),
                     bounds: tessera_primitives::Rect::new(0, 0, 320, 180),
                     local_size: tessera_primitives::Size { w: 320, h: 180 },
-                    state: tessera_semantic::model::SemanticState {
-                        visible: true,
-                        enabled: true,
-                        ..Default::default()
-                    },
-                    actions: vec![tessera_semantic::model::SemanticAction::Pointer],
+                    visible: true,
+                    focused: true,
+                    enabled: true,
+                    minimized: false,
+                    read_only: false,
                     revision: 1,
                 }],
             },
@@ -404,8 +397,7 @@ impl Handler for TestHandler {
         let receipt = tessera_protocol::ActorActionReceipt {
             action_id: 1,
             interaction_domain: intent.interaction_domain,
-            target: intent.target,
-            window: WindowId(7),
+            target_window: intent.target_window,
             authority_revision: revision,
             actions_applied: intent.actions.len() as u32,
             committed_mono_ms: 0,
@@ -416,9 +408,8 @@ impl Handler for TestHandler {
             JournalMutation::ActorAction {
                 action_id: Some(receipt.action_id),
                 interaction_domain: intent.interaction_domain,
-                target: intent.target,
-                window: Some(WindowId(7)),
-                actions: tessera_protocol::audit_semantic_actions(&intent.actions),
+                target_window: intent.target_window,
+                input: tessera_protocol::audit_input_actions(&intent.actions),
                 actions_truncated: false,
                 authority_revision: Some(revision),
             },
@@ -477,7 +468,7 @@ fn stdio_discovers_manages_captures_and_revokes_interaction_domain() {
         json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"_meta": &meta}}),
         json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"interaction_domain_ensure","arguments":{},"_meta": &meta}}),
         json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"interaction_domain_observe","arguments":{},"_meta": &meta}}),
-        json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"interaction_domain_input","arguments":{"target_window_id":7,"target_local_id":0,"observation_token":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","actions":[{"type":"pointer_move","x":160,"y":90}]},"_meta": &meta}}),
+        json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"interaction_domain_input","arguments":{"target_window_id":7,"observation_token":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","actions":[{"type":"pointer_move","x":160,"y":90}]},"_meta": &meta}}),
         json!({"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"interaction_domain_capture","arguments":{},"_meta": &meta}}),
         json!({"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"window_capture","arguments":{"window_id":7},"_meta": &meta}}),
         json!({"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"launch_app","arguments":{"desktop_id":"visual-smoke.test.desktop","new_workspace":true,"workspace_label":"smoke run"},"_meta": &meta}}),
@@ -524,8 +515,7 @@ fn stdio_discovers_manages_captures_and_revokes_interaction_domain() {
         .as_str()
         .expect("interaction_domain_input JSON text");
     assert!(input_result.contains(r#""status":"committed""#));
-    assert!(input_result.contains(r#""window":7"#));
-    assert!(input_result.contains(r#""local":0"#));
+    assert!(input_result.contains(r#""target_window_id":7"#));
     assert_eq!(responses[5]["result"]["content"][1]["type"], "image");
     assert_eq!(responses[6]["result"]["isError"], false);
     let window_capture_text = responses[6]["result"]["content"][0]["text"]

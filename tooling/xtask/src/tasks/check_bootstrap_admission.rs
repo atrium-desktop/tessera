@@ -1,9 +1,9 @@
 //! Bootstrap admission gate (ADR-0147, Decision 1).
 //!
-//! A function or type belongs in `tessera-bootstrap` only if it is
+//! A function or type belongs in `tessera-env` only if it is
 //! referenced by at least two distinct first-party process entry points.
 //! This task makes that criterion mechanical: it scans the workspace for
-//! process entry points and counts the `tessera_bootstrap::<item>`
+//! process entry points and counts the `tessera_env::<item>`
 //! references each one makes.
 //!
 //! An entry point is a `main.rs`-like file: any source file named
@@ -95,7 +95,7 @@ fn declared_bin_paths(pkg: &str, crate_dir: &Path) -> Vec<PathBuf> {
     paths
 }
 
-/// The `tessera_bootstrap::<item>` references in one source tree.
+/// The `tessera_env::<item>` references in one source tree.
 ///
 /// A tree root covers the file and its `mod`-declared descendants, so an
 /// entry point that delegates to sibling runtime modules still counts as
@@ -132,10 +132,10 @@ fn bootstrap_items(root: &Path) -> Result<BTreeSet<String>> {
                 }
                 continue;
             }
-            // Every `tessera_bootstrap::<item>` path occurrence.
+            // Every `tessera_env::<item>` path occurrence.
             let mut rest: &str = line;
-            while let Some(pos) = rest.find("tessera_bootstrap::") {
-                rest = &rest[pos + "tessera_bootstrap::".len()..];
+            while let Some(pos) = rest.find("tessera_env::") {
+                rest = &rest[pos + "tessera_env::".len()..];
                 let item: String = rest
                     .chars()
                     .take_while(|c| c.is_alphanumeric() || *c == '_')
@@ -189,7 +189,7 @@ pub fn run_check_bootstrap_admission(_args: CheckBootstrapAdmissionArgs) -> Resu
             continue;
         }
         violations.push(format!(
-            "{} is used by {} entry point(s) ({}); single-consumer logic must live in its owning binary, not tessera-bootstrap",
+            "{} is used by {} entry point(s) ({}); single-consumer logic must live in its owning binary, not tessera-env",
             finding.item,
             finding.users.len(),
             finding.users.iter().cloned().collect::<Vec<_>>().join(", ")
@@ -230,10 +230,10 @@ mod tests {
         fs::write(
             &main,
             r#"
-            use tessera_bootstrap::init;
+            use tessera_env::init;
             fn main() {
                 init("info");
-                tessera_bootstrap::runtime_dir().unwrap();
+                tessera_env::runtime_dir().unwrap();
             }
         "#,
         )
@@ -250,7 +250,7 @@ mod tests {
         fs::write(&main, "mod runtime;\nfn main() {}\n").unwrap();
         fs::write(
             dir.path().join("runtime.rs"),
-            "fn run() { let _ = tessera_bootstrap::runtime_dir(); }",
+            "fn run() { let _ = tessera_env::runtime_dir(); }",
         )
         .unwrap();
         let items = bootstrap_items(&main).unwrap();

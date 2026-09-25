@@ -19,7 +19,7 @@ enum CliCommand {
     PackageConformity(tasks::package_conformity::PackageConformityArgs),
     /// Checks architectural layer and dependency boundaries between crates
     CheckBoundaries(tasks::check_boundaries::CheckBoundariesArgs),
-    /// Checks that every tessera-bootstrap item serves at least two process entry points (ADR-0147)
+    /// Checks that every tessera-env item serves at least two process entry points (ADR-0147)
     CheckBootstrapAdmission(tasks::check_bootstrap_admission::CheckBootstrapAdmissionArgs),
     /// Inspects and validates Optics release tag resolution
     Optics(tasks::optics::OpticsArgs),

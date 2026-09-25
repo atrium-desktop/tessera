@@ -1,17 +1,17 @@
 #!/bin/sh
 set -eu
 
-cargo test -p tessera-apps --no-run
+cargo test -p tessera-launch-services --no-run
 
 test_binary=$(
-    find target/debug/deps -maxdepth 1 -type f -name 'tessera_apps-*' -perm -u+x \
+    find target/debug/deps -maxdepth 1 -type f -name 'tessera_launch_services-*' -perm -u+x \
         -printf '%T@ %p\n' \
         | sort -nr \
         | sed -n '1s/^[^ ]* //p'
 )
 
 if [ -z "$test_binary" ]; then
-    printf '%s\n' 'could not locate the tessera-apps unit-test binary' >&2
+    printf '%s\n' 'could not locate the tessera-launch-services unit-test binary' >&2
     exit 1
 fi
 

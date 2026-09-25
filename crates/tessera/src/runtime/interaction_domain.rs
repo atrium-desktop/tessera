@@ -22,7 +22,7 @@ pub(super) struct InteractionDomainObserveRequest {
     pub(super) max_observations: usize,
     pub(super) interaction_domain: tessera_authority::interaction_domain::InteractionDomainId,
     pub(super) reply:
-        std::sync::mpsc::Sender<Result<tessera_protocol::SemanticObservation, String>>,
+        std::sync::mpsc::Sender<Result<tessera_protocol::InteractionDomainObservation, String>>,
 }
 
 pub(super) struct InteractionDomainActorActionRequest {
@@ -31,23 +31,6 @@ pub(super) struct InteractionDomainActorActionRequest {
     pub(super) scope: tessera_protocol::Scope,
     pub(super) origin: tessera_protocol::Origin,
     pub(super) intent: tessera_protocol::ActorActionIntent,
-    pub(super) reply: std::sync::mpsc::Sender<Result<tessera_protocol::ActorActionReceipt, String>>,
-}
-
-pub(super) struct SemanticTreeUpdateRequest {
-    pub(super) provider: tessera_semantic::SemanticProviderId,
-    pub(super) update: tessera_semantic::AccessibilityTreeUpdate,
-    pub(super) reply: std::sync::mpsc::Sender<Result<(), String>>,
-}
-
-pub(super) struct PendingSemanticActorAction {
-    pub(super) completion: std::sync::mpsc::Receiver<Result<(), String>>,
-    pub(super) deadline: std::time::Instant,
-    pub(super) origin: tessera_protocol::Origin,
-    pub(super) intent: tessera_protocol::ActorActionIntent,
-    pub(super) action_id: u64,
-    pub(super) window: tessera_desktop::window::WindowId,
-    pub(super) authority_revision: u64,
     pub(super) reply: std::sync::mpsc::Sender<Result<tessera_protocol::ActorActionReceipt, String>>,
 }
 
@@ -220,8 +203,8 @@ pub(super) struct InteractionDomainCaptureContext {
     pub(super) region: tessera_primitives::Rect,
     pub(super) placements:
         Vec<tessera_authority::interaction_domain::InteractionDomainWindowPlacement>,
-    pub(super) semantic: tessera_semantic::model::SemanticSnapshot,
-    pub(super) observation: Option<tessera_protocol::SemanticObservation>,
+    pub(super) observation_snapshot: tessera_authority::authority::ObservationSnapshot,
+    pub(super) observation: Option<tessera_protocol::InteractionDomainObservation>,
 }
 
 pub(super) struct PendingInteractionDomainCapture {
@@ -298,8 +281,8 @@ pub(super) fn begin_interaction_domain_capture(
         None => tessera_primitives::Rect::new(0, 0, output.width as i32, output.height as i32),
     };
     let placements = server.interaction_domain_window_placements(interaction_domain);
-    let semantic = server
-        .interaction_domain_semantic_snapshot(interaction_domain)
+    let observation_snapshot = server
+        .interaction_domain_observation_snapshot(interaction_domain)
         .map_err(|error| error.to_string())?;
     let physical_size = virtual_output_physical_size(output)?;
     if targets
@@ -409,7 +392,7 @@ pub(super) fn begin_interaction_domain_capture(
             scale_milli: output.scale_milli,
             region,
             placements,
-            semantic,
+            observation_snapshot,
             observation: None,
         },
     })

@@ -74,58 +74,6 @@ fn exact_resource_grant_requests_round_trip_without_ambient_fields() {
 }
 
 #[test]
-fn accessibility_provider_protocol_round_trips_complete_revisions_and_actions() {
-    let update = AccessibilityTreeUpdate {
-        window: WindowId(42),
-        revision: 7,
-        nodes: vec![tessera_semantic::AccessibilityNode {
-            local_id: 1,
-            parent_local_id: None,
-            role: SemanticRole::Button,
-            name: Some("Submit".into()),
-            description: None,
-            value: None,
-            bounds: Rect::new(0, 0, 80, 32),
-            state: SemanticState {
-                visible: true,
-                enabled: true,
-                ..SemanticState::default()
-            },
-            actions: vec![SemanticAction::Invoke],
-        }],
-    };
-    let request = Request::PublishAccessibilityTree {
-        update: update.clone(),
-    };
-    let encoded = serde_json::to_string(&request).unwrap();
-    assert_eq!(serde_json::from_str::<Request>(&encoded).unwrap(), request);
-    let bindings = serde_json::to_string(&Request::GetAccessibilityWindows).unwrap();
-    assert_eq!(
-        serde_json::from_str::<Request>(&bindings).unwrap(),
-        Request::GetAccessibilityWindows
-    );
-
-    let response = Response::AccessibilityAction {
-        request: Some(SemanticActionRequest {
-            request_id: 11,
-            target: tessera_semantic::model::SemanticObjectId {
-                window: update.window,
-                local: 1,
-            },
-            provider_node_id: 1,
-            tree_revision: update.revision,
-            action: tessera_semantic::model::SemanticActionIntent::Invoke,
-        }),
-    };
-    let encoded = serde_json::to_string(&response).unwrap();
-    let decoded = serde_json::from_str::<Response>(&encoded).unwrap();
-    assert_eq!(
-        serde_json::to_value(decoded).unwrap(),
-        serde_json::to_value(response).unwrap()
-    );
-}
-
-#[test]
 fn response_hello_carries_pairing_outcome_only_when_present() {
     let bare = Response::Hello {
         version: PROTOCOL_VERSION,
@@ -1025,13 +973,13 @@ fn interaction_domain_capture_response_round_trips_correlated_layout_metadata() 
             output_rect: Rect::new(120, 70, 300, 150),
             surface_size: tessera_primitives::Size { w: 900, h: 450 },
         }],
-        observation: SemanticObservation {
+        observation: InteractionDomainObservation {
             token: ObservationToken("a".repeat(64)),
             ttl_ms: 15_000,
-            snapshot: SemanticSnapshot {
+            snapshot: ObservationSnapshot {
                 interaction_domain: InteractionDomainId(7),
                 authority_revision: 19,
-                objects: Vec::new(),
+                windows: Vec::new(),
             },
         },
         png_bytes: 3,

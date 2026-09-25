@@ -13,7 +13,7 @@ path = "src/lib.rs"
 [dependencies]
 tessera-ipc = { workspace = true }
 tessera-launch-services = { workspace = true }
-tessera-bootstrap = { workspace = true }
+tessera-env = { workspace = true }
 tessera-i18n = { workspace = true }
 tessera-desktop.workspace = true
 tessera-primitives.workspace = true
@@ -29,7 +29,6 @@ clap_complete = "4"
 thiserror = { workspace = true }
 
 [dev-dependencies]
-tessera-semantic.workspace = true
 tessera-primitives.workspace = true
 tessera-ipc.workspace = true
 tempfile = "3"

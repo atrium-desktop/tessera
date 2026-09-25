@@ -12,7 +12,8 @@ use std::path::PathBuf;
 
 pub use tessera_authority::authority::{
     ActorActionIntent, ActorActionReceipt, ActorCapability, ActorResource, AuthorizationDecision,
-    ObservationToken, ResourceGrant, ResourceGrantId, SemanticObservation,
+    InteractionDomainObservation, ObservationSnapshot, ObservationToken, ObservedWindow,
+    ResourceGrant, ResourceGrantId,
 };
 use tessera_authority::interaction_domain::InteractionDomainBundle;
 use tessera_authority::interaction_domain::InteractionDomainId;
@@ -36,21 +37,10 @@ use tessera_desktop::workspace::LaunchPlacement;
 use tessera_desktop::workspace::Switch;
 use tessera_desktop::workspace::WorkspaceId;
 use tessera_desktop::workspace::WorkspaceSnapshot;
-#[cfg(test)]
-use tessera_semantic::model::SemanticAction;
-#[cfg(test)]
-use tessera_semantic::model::SemanticRole;
-#[cfg(test)]
-use tessera_semantic::model::SemanticSnapshot;
-#[cfg(test)]
-use tessera_semantic::model::SemanticState;
 use tessera_primitives::Rect;
 use tessera_primitives::input::SyntheticInputAction;
 
 use crate::journal::{JournalEntry, JournalSnapshot};
-pub use tessera_semantic::{
-    AccessibilityTreeUpdate, AccessibilityWindowBinding, SemanticActionRequest,
-};
 
 /// The protocol major version this build speaks. A client offering a newer
 /// major version is refused at the [`Request::Hello`] handshake; an older
@@ -95,7 +85,7 @@ pub use tessera_semantic::{
 /// compositor authority boundary from Realm to Interaction Domain and moved
 /// observation-bound action contracts into the transport-neutral authority
 /// kernel. Version 21 made
-/// Interaction Domain input observation-bound and synchronous: semantic observations and
+/// Interaction Domain input observation-bound and synchronous: window observations and
 /// captures issue short-lived, connection-bound tokens consumed by
 /// `ActInInteractionDomain`, which returns an authoritative main-loop receipt. Version 20
 /// removes compositor filesystem selection (`PickFile`, `FilePicked`, and
@@ -1287,10 +1277,10 @@ pub struct InteractionDomainCapture {
     pub scale_milli: u32,
     pub region: Rect,
     pub placements: Vec<InteractionDomainWindowPlacement>,
-    /// Semantic state captured in the same compositor transaction as the
+    /// Observation state captured in the same compositor transaction as the
     /// directed pixels. Its token is bound to the authenticated connection,
     /// expires quickly, and is consumed by one [`Request::ActInInteractionDomain`].
-    pub observation: SemanticObservation,
+    pub observation: InteractionDomainObservation,
     /// Byte length of the sealed PNG memfd sent immediately after this JSON
     /// response through `SCM_RIGHTS`.
     pub png_bytes: u64,
@@ -1539,23 +1529,6 @@ pub enum Request {
     },
     /// Revoke one resource grant owned by this Actor session.
     RevokeResourceGrant { id: ResourceGrantId },
-    /// Fetch process-bound windows for the trusted accessibility adapter.
-    /// This is intentionally separate from `GetWindows`: process credentials
-    /// are never general observation data.
-    GetAccessibilityWindows,
-    /// Publish a complete accessibility-tree revision. Requires a paired
-    /// semantic-provider principal with `PublishAccessibilityTree`.
-    PublishAccessibilityTree { update: AccessibilityTreeUpdate },
-    /// Long-poll the next compositor-validated semantic action for this
-    /// provider. D-Bus execution stays in the adapter process.
-    NextAccessibilityAction { timeout_ms: u64 },
-    /// Complete a previously delivered semantic action.
-    CompleteAccessibilityAction {
-        request_id: u64,
-        success: bool,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        message: Option<String>,
-    },
     /// Fetch the compositor-owned persistent settings snapshot.
     GetSettings,
     /// Fetch live host and compositor-owned session status.
@@ -1606,7 +1579,7 @@ pub enum Request {
     /// [`ActorCapability::CaptureWindow`] scope decision for this window —
     /// never inherited — and it is refused while the session is locked.
     CaptureWindow { window: WindowId },
-    /// Read semantic objects for one Interaction Domain without receiving framebuffer
+    /// Read window observation state for one Interaction Domain without receiving framebuffer
     /// pixels. The returned observation is a short-lived precondition lease,
     /// not action authority.
     ObserveInteractionDomain {
@@ -1783,10 +1756,6 @@ pub enum Response {
     Windows {
         windows: Vec<Window>,
     },
-    /// Reply to [`Request::GetAccessibilityWindows`].
-    AccessibilityWindows {
-        windows: Vec<AccessibilityWindowBinding>,
-    },
     /// Reply to [`Request::GetWorkspaces`].
     Workspaces {
         snapshot: WorkspaceSnapshot,
@@ -1830,12 +1799,6 @@ pub enum Response {
         grant: ResourceGrant,
     },
     ResourceGrantRevoked {},
-    AccessibilityTreePublished {},
-    AccessibilityAction {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        request: Option<SemanticActionRequest>,
-    },
-    AccessibilityActionCompleted {},
     Settings {
         snapshot: SettingsSnapshot,
     },
@@ -1885,7 +1848,7 @@ pub enum Response {
     },
     /// Reply to [`Request::ObserveInteractionDomain`].
     InteractionDomainObserved {
-        observation: SemanticObservation,
+        observation: InteractionDomainObservation,
     },
     /// Reply to [`Request::ActInInteractionDomain`].
     ActorActionCommitted {
@@ -1968,7 +1931,6 @@ impl std::fmt::Debug for Response {
         let variant = match self {
             Self::Hello { .. } => "Hello",
             Self::Windows { .. } => "Windows",
-            Self::AccessibilityWindows { .. } => "AccessibilityWindows",
             Self::Workspaces { .. } => "Workspaces",
             Self::Notifications { .. } => "Notifications",
             Self::Outputs { .. } => "Outputs",
@@ -1980,9 +1942,6 @@ impl std::fmt::Debug for Response {
             Self::ResourceGranted { .. } => "ResourceGranted",
             Self::ResourceGrantConsumed { .. } => "ResourceGrantConsumed",
             Self::ResourceGrantRevoked { .. } => "ResourceGrantRevoked",
-            Self::AccessibilityTreePublished { .. } => "AccessibilityTreePublished",
-            Self::AccessibilityAction { .. } => "AccessibilityAction",
-            Self::AccessibilityActionCompleted { .. } => "AccessibilityActionCompleted",
             Self::Settings { .. } => "Settings",
             Self::SystemStatus { .. } => "SystemStatus",
             Self::SettingsApplied { .. } => "SettingsApplied",

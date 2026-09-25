@@ -1,6 +1,6 @@
 //! Transport-neutral Actor authority primitives.
 //!
-//! This crate owns identities bound to live broker sessions, semantic
+//! This crate owns identities bound to live broker sessions, window
 //! observation leases, and optimistic action-transaction validation. It has
 //! no IPC, Wayland, renderer, shell, or agent-runtime dependency. Transport
 //! adapters serialize these values; the compositor main loop remains the
@@ -16,8 +16,9 @@ mod session;
 pub use capability::{ActorCapability, AuthorizationDecision};
 pub use identity::{ActorPrincipal, AgentIdentity, PairedAgent};
 pub use observation::{
-    ActorActionIntent, ActorActionReceipt, ActorBinding, ObservationLeaseRegistry,
-    ObservationToken, SemanticObservation, ValidatedActorAction,
+    ActorActionIntent, ActorActionReceipt, ActorBinding, InteractionDomainObservation,
+    ObservationLeaseRegistry, ObservationSnapshot, ObservationToken, ObservedWindow,
+    ValidatedActorAction,
 };
 pub use resource::{
     ActorResource, FilesystemAccess, ResourceGrant, ResourceGrantId, ResourceGrantRegistry,

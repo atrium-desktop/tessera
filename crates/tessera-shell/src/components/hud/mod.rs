@@ -19,12 +19,10 @@
 //! The composition root (the `tessera` binary)
 //! registers it conditionally from the `[hud]` configuration.
 //!
-//! The StatusNotifierItem system tray lives in the shared [`tessera_tray`]
-//! crate (re-exported here as [`tray`]); the composition root spawns it once
-//! and shares the handle with the command panel.
+//! The StatusNotifierItem system tray lives in [`crate::tray`]; the composition
+//! root spawns it once and shares the handle with the command panel.
 
 #[allow(clippy::module_inception)]
 mod hud;
 
 pub use hud::Hud;
-pub use tessera_tray as tray;

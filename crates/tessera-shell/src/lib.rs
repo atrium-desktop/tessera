@@ -1490,3 +1490,6 @@ pub mod components;
 mod widgets;
 
 pub mod layout;
+
+#[cfg(feature = "chrome-tray")]
+pub mod tray;

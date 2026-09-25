@@ -34,7 +34,7 @@ A standalone application reaches Tessera through two runtime boundaries:
 
 Do not add the application crate as an `tessera` Rust dependency. Shared
 schemas and models belong in library crates such as `tessera-desktop`,
-`tessera-protocol`, and `tessera-scene`. A surface that should render in-process belongs in a chrome
+`tessera-protocol`, and `tessera-primitives`. A surface that should render in-process belongs in a chrome
 component crate on the `tessera-shell` contract instead — that is where the
 settings modules live.
 

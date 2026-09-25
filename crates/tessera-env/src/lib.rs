@@ -1,4 +1,4 @@
-//! Shared process bootstrap for Tessera executables (ADR-0147).
+//! Shared process environment and observability for Tessera executables (ADR-0147).
 //!
 //! Every first-party binary calls [`init`] before doing anything else;
 //! library crates never link this crate and keep using the `log` facade.

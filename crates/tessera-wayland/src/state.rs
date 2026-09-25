@@ -196,7 +196,6 @@ impl State {
             client_process_ids: std::collections::HashMap::new(),
             client_initial_interaction_domains: std::collections::HashMap::new(),
             client_bound_seats: std::collections::HashMap::new(),
-            semantic_trees: tessera_semantic::SemanticTreeRegistry::default(),
             interaction_domain_placements: std::collections::BTreeMap::new(),
             pending_interaction_domain_layouts: std::collections::BTreeSet::new(),
             damaged_windows: std::collections::BTreeSet::new(),
@@ -434,7 +433,6 @@ impl State {
     }
 
     pub(super) fn unregister_window(&mut self, window: tessera_desktop::window::WindowId) {
-        self.semantic_trees.remove_window(window);
         if self
             .authority
             .interaction_group_for_window(window)

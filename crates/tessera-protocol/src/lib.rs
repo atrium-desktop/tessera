@@ -8,22 +8,21 @@ pub use tessera_authority::authority::{
 };
 
 pub use journal::{
-    ActorSessionAuditAction, AgentAuthAction, AuditedCommand, AuditedSemanticAction,
+    ActorSessionAuditAction, AgentAuthAction, AuditedCommand, AuditedInputAction,
     CapabilityUseAction, Effect, GrantPersistence, JournalEntry, JournalMutation, JournalSnapshot,
     Origin, ResourceGrantAttemptAction, ResourceGrantAuditAction, ResourceKind,
-    audit_semantic_actions,
+    audit_input_actions,
 };
 pub use schema::{
-    AccessibilityTreeUpdate, AccessibilityWindowBinding, ActorActionIntent, ActorActionReceipt,
-    ActorCapability, AgentGrantDecision, AgentGrantInfo, AgentHello, AgentIssued,
-    AgentPrincipalInfo, AppPickResult, AuthorizationDecision, Command, CommandScopePolicy,
-    ConfirmPickResult, ConnectionCapabilities, Event, InteractionDomainAction,
-    InteractionDomainActionResult, InteractionDomainCapture, JournalCursor,
-    LOCAL_AGENT_ADMIN_SCOPE, LOCAL_INTERACTION_DOMAIN_ADMIN_SCOPE, LOCAL_OWNER_ADMIN_SCOPE,
-    LOCAL_PORTAL_SCOPE, LeaseGrant, LeaseRequest, MAX_TRANSACT_OPS, ObservationToken,
-    ObserveSnapshot, OutputInfo, PROTOCOL_VERSION, PickKind, PickResult, Request, Response, Scope,
-    SecretPromptResult, SemanticActionRequest, SemanticObservation, SettingsAction,
-    SettingsReceipt, SettingsSnapshot, StreamCursorMode, StreamPixelFormat, StreamTarget,
-    SystemAction, SystemStatus, TransactOp, TransactOpResult, TransactPrecondition,
+    ActorActionIntent, ActorActionReceipt, ActorCapability, AgentGrantDecision, AgentGrantInfo,
+    AgentHello, AgentIssued, AgentPrincipalInfo, AppPickResult, AuthorizationDecision, Command,
+    CommandScopePolicy, ConfirmPickResult, ConnectionCapabilities, Event, InteractionDomainAction,
+    InteractionDomainActionResult, InteractionDomainCapture, InteractionDomainObservation,
+    JournalCursor, LOCAL_AGENT_ADMIN_SCOPE, LOCAL_INTERACTION_DOMAIN_ADMIN_SCOPE,
+    LOCAL_OWNER_ADMIN_SCOPE, LOCAL_PORTAL_SCOPE, LeaseGrant, LeaseRequest, MAX_TRANSACT_OPS,
+    ObservationSnapshot, ObservationToken, ObserveSnapshot, ObservedWindow, OutputInfo,
+    PROTOCOL_VERSION, PickKind, PickResult, Request, Response, Scope, SecretPromptResult,
+    SettingsAction, SettingsReceipt, SettingsSnapshot, StreamCursorMode, StreamPixelFormat,
+    StreamTarget, SystemAction, SystemStatus, TransactOp, TransactOpResult, TransactPrecondition,
     TransactReceipt, TransactResult, WindowCapture,
 };

@@ -646,7 +646,7 @@ impl CompositorRuntime<'_> {
                 let model_active = self
                     .wallpaper
                     .as_ref()
-                    .is_some_and(tessera_wallpaper::Wallpaper::has_model);
+                    .is_some_and(wallpaper::Wallpaper::has_model);
                 // Once frozen, the immutable screenshot image is the backdrop
                 // source even if the live wallpaper owns a 3D model. Keep the
                 // effect capture local to the glass footprint in that state.
@@ -1196,9 +1196,7 @@ impl CompositorRuntime<'_> {
                             });
                         }
                     }
-                    let accessibility_windows = self.server.accessibility_window_bindings();
-                    self.live
-                        .set_windows(win_snapshot.clone(), accessibility_windows);
+                    self.live.set_windows(win_snapshot.clone());
                     self.shell.set_windows(win_snapshot);
                 }
                 // The dock's strip is workspace-global: it additionally
@@ -2739,7 +2737,7 @@ fn begin_desktop_output<'c, 'surface>(
     canvas: &'c mut flux::Canvas,
     device: &flux::Device,
     frame: &'c mut flux::Frame<'surface>,
-    wallpaper: &mut Option<tessera_wallpaper::Wallpaper>,
+    wallpaper: &mut Option<wallpaper::Wallpaper>,
     logical_size: (u32, u32),
     scale: f32,
     clear: u32,

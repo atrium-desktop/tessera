@@ -4,7 +4,7 @@ mod render;
 mod style;
 
 fn main() {
-    tessera_bootstrap::init("info");
+    tessera_env::init("info");
     if let Err(error) = preview::run() {
         log::error!("lock preview: {error}");
         eprintln!("tessera-lock-preview: {error}");

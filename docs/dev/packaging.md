@@ -107,7 +107,6 @@ inside the package build root.
 |--------|-------------|---------------------|
 | `target/release/tessera` | `/usr/bin/tessera` | core |
 | `target/release/tessera-idle` | `/usr/bin/tessera-idle` | core |
-| `target/release/tessera-atspi` | `/usr/bin/tessera-atspi` | core |
 | `target/release/tessera-lock` | `/usr/bin/tessera-lock` | core |
 | Portal: Meson portal executable | `/usr/libexec/xdg-desktop-portal-atrium` by default | portal |
 | Portal: Meson FileChooser executable | `/usr/libexec/atrium-portal-prompter` by default | portal |
@@ -144,8 +143,6 @@ install -Dm0755 target/release/tessera \
   "$package_root/usr/bin/tessera"
 install -Dm0755 target/release/tessera-idle \
   "$package_root/usr/bin/tessera-idle"
-install -Dm0755 target/release/tessera-atspi \
-  "$package_root/usr/bin/tessera-atspi"
 install -Dm0755 target/release/tessera-lock \
   "$package_root/usr/bin/tessera-lock"
 install -Dm0755 target/release/tessera-mcp \
@@ -212,7 +209,6 @@ Test the completed packages in a clean environment rather than running out of
 systemd-analyze --user verify tessera.service tessera-shutdown.target
 pkg-config --modversion flux flux-scene-graph lens iris
 test -x /usr/bin/tessera-idle
-test -x /usr/bin/tessera-atspi
 test -x /usr/bin/tessera-lock
 test -r /etc/pam.d/tessera-lock
 systemctl --user daemon-reload
@@ -325,7 +321,6 @@ package() {
 
   install -Dm0755 target/release/tessera          "$dest/bin/tessera"
   install -Dm0755 target/release/tessera-idle     "$dest/bin/tessera-idle"
-  install -Dm0755 target/release/tessera-atspi    "$dest/bin/tessera-atspi"
   install -Dm0755 target/release/tessera-lock     "$dest/bin/tessera-lock"
   install -Dm0755 target/release/tessera-mcp "$dest/bin/tessera-mcp"
 

@@ -1,7 +1,7 @@
 # Settings Reference
 
 Persistent settings live in the command panel, the compositor's modal
-chrome surface. The `tessera-settings` crate is the settings module library:
+chrome surface. The `tessera-shell::components::settings` module provides the settings module library:
 the module contract, the module registry, and the built-in pages, rendered
 in-process by the panel. There is no standalone settings application.
 

@@ -23,9 +23,8 @@
 //!   renewal and transparent re-pairing after a transport failure.
 //!
 //! It is a client library, not a daemon: consumers keep their own processes,
-//! supervision, and reconnection policies. Current consumers are `tessera-mcp`
-//! (the MCP bridge) and `tessera-atspi` (the accessibility adapter). The
-//! compositor never links it.
+//! supervision, and reconnection policies. A primary consumer is `tessera-mcp`
+//! (the MCP bridge). The compositor never links it.
 
 mod connect;
 mod identity;

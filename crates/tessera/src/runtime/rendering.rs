@@ -1609,7 +1609,7 @@ impl ScreenshotFreeze {
 pub(super) fn draw_wallpaper_background(
     canvas: &flux::CanvasCommands<'_>,
     device: &flux::Device,
-    wallpaper: &mut Option<tessera_wallpaper::Wallpaper>,
+    wallpaper: &mut Option<wallpaper::Wallpaper>,
     logical_size: (u32, u32),
     scale: f32,
 ) {

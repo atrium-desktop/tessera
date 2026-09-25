@@ -8,7 +8,7 @@ still/VRM portrait, motion playback, and hot-reload pipeline
 ## Responsibilities
 
 - The lightweight `persona::Profile` contract (available without features).
-- Portrait discovery from XDG portrait directories (via `tessera-apps`'
+- Portrait discovery from XDG portrait directories (via `tessera-launch-services`'
   XDG base-directory resolution).
 - VRM/still portrait texture upload through the compositor's flux device.
 - Motion library playback, semantic triggers, and transactional hot reload.

@@ -30,7 +30,7 @@ The approved set becomes the principal's ceiling, and the compositor issues
 a credential the bridge persists under its data directory. Later starts,
 upgrades, and script edits never prompt again. Observation capabilities are
 approved independently from action capabilities. The sensitive groups —
-closing windows, Interaction Domain capture, semantic Interaction Domain
+closing windows, Interaction Domain capture, Interaction Domain
 observation, Interaction Domain input, Interaction Domain management,
 sandboxed launches — ask once more at first use, with
 *Deny / Allow once / Allow session / Always allow* options; "Always" is
@@ -94,8 +94,8 @@ This opt-in probe temporarily transfers only that window, retains it as a
 read-only mirror on the physical desktop, and applies one pointer move at
 its center. The user's XDG cursor does not move. Look for a semi-transparent
 mask over the mirror with an arrow cursor at its center and an
-`AGENT · Tessera Agent · Pointer move` label. The command obtains a semantic
-observation, commits the pointer move with its single-use token, waits for
+`AGENT · Tessera Agent · Pointer move` label. The command obtains an observation
+lease, commits the pointer move with its single-use token, waits for
 the matching `ActorAction` journal entry, and returns the window to the
 human Interaction Domain even if the probe fails. It does not click, type,
 close, or launch anything. Use a disposable window because authority
@@ -134,15 +134,14 @@ Interaction Domain. A safe interaction loop is:
 2. `interaction_domain_launch_app` creates or recovers the bridge-managed
    Interaction Domain and queues the sandboxed launch.
 3. `interaction_domain_status` waits for the interaction group to appear.
-4. `interaction_domain_observe` reads stable semantic window objects and
-   returns a short-lived, single-use observation token.
-5. `interaction_domain_capture` is optional when application state is not
-   available semantically; it observes only the Interaction Domain's
-   directed output and returns a correlated token too.
-6. `interaction_domain_input` passes the token, semantic target id, and
-   target-local actions. The compositor aborts if the observed state
+4. `interaction_domain_observe` reads stable window placements and geometry
+   and returns a short-lived, single-use observation token.
+5. `interaction_domain_capture` observes the Interaction Domain's
+   directed output pixels and returns a correlated observation token.
+6. `interaction_domain_input` passes the token, target window id, and
+   target-local physical actions. The compositor aborts if the observed state
    changed and returns a commit receipt on success.
-7. a new semantic observation, or a capture when necessary, verifies the
+7. a new observation, or a capture when necessary, verifies the
    effect.
 
 The capture arrives as MCP image content, which the agent product forwards

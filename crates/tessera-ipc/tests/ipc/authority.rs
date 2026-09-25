@@ -560,17 +560,17 @@ fn interaction_domain_actions_require_an_observation_and_return_commit_receipts(
     let interaction_domain = tessera_authority::interaction_domain::InteractionDomainId(2);
     let observation = client
         .observe_interaction_domain(interaction_domain)
-        .expect("semantic observation");
-    let target = tessera_semantic::model::SemanticObjectId::for_window(WindowId(1));
+        .expect("interaction domain observation");
+    let target_window = WindowId(1);
     assert_eq!(
-        observation.snapshot.object(target).unwrap().name.as_deref(),
+        observation.snapshot.window(target_window).unwrap().title.as_deref(),
         Some("first")
     );
 
     let receipt = client
         .inject_interaction_domain_input(
             interaction_domain,
-            target,
+            target_window,
             observation.token,
             vec![tessera_primitives::input::SyntheticInputAction::Click {
                 button: 0x110,
@@ -585,7 +585,7 @@ fn interaction_domain_actions_require_an_observation_and_return_commit_receipts(
 }
 
 #[test]
-fn semantic_observation_needs_query_not_interaction_domain_action_authority() {
+fn window_observation_needs_query_not_interaction_domain_action_authority() {
     let path = scratch();
     let handler = Arc::new(TestHandler::query(sample_windows()));
     let _server = Server::start(&path, handler).expect("bind");
@@ -604,7 +604,7 @@ fn semantic_observation_needs_query_not_interaction_domain_action_authority() {
         .observe_interaction_domain(tessera_authority::interaction_domain::InteractionDomainId(
             2,
         ))
-        .expect("semantic observation is independently query-scoped");
+        .expect("window observation is independently query-scoped");
     assert_eq!(
         observation.snapshot.interaction_domain,
         tessera_authority::interaction_domain::InteractionDomainId(2)

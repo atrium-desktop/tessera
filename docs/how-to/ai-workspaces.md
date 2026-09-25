@@ -110,15 +110,14 @@ process, filesystem, or network isolation is required.
 
 ## Observe a Workspace
 
-Agents should read semantic state before requesting pixels. In `tessera-mcp`,
-call `interaction_domain_observe` to receive the Interaction Domain's compositor-owned window objects
-and a short-lived observation token. Each object includes a stable semantic
-id, state, declared actions, bounds, target-local size, and revision.
+In `tessera-mcp`, call `interaction_domain_observe` to receive the Interaction Domain's compositor-owned window topology
+and a short-lived observation token. Each window includes its durable window
+id, application id, title, state, bounds, local surface size, and revision.
 
 To act, pass that single-use token to `interaction_domain_input` with the selected
-semantic target and bounded actions. The compositor consumes the token and aborts
-the complete batch if the connection, principal, Interaction Domain authority, semantic
-target, seat, or coordinates changed. Obtain a new observation before every
+target window and bounded physical input actions. The compositor consumes the token and aborts
+the complete batch if the connection, principal, Interaction Domain authority, target
+window, seat, or coordinates changed. Obtain a new observation before every
 dependent action. A successful response contains a committed action receipt;
 a queued response or old screenshot is not sufficient evidence.
 
@@ -132,10 +131,8 @@ tessera interaction-domain capture 2 /tmp/research.png
 
 Interaction Domain captures are refused while the session is locked, the seat is inactive,
 or the Interaction Domain is paused or revoked. In-flight captures are invalidated when
-the security state changes. A capture includes a correlated semantic
-observation token, but pixel access remains a separate capability and is a
-fallback for applications whose internal controls are not semantically
-available. Pixels and coordinates alone never authorize input.
+the security state changes. A capture includes a correlated observation
+token, but pixel access remains a separate capability. Pixels and coordinates alone never authorize input.
 
 Trusted local operators can use `tessera events`. An `InteractionDomainDamaged` event
 identifies the changed Interaction Domain and virtual-output damage; request

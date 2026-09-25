@@ -20,7 +20,7 @@ toml = { workspace = true }
 # only one parser copy is compiled.
 toml_edit = "0.25"
 # `$XDG_CONFIG_HOME` / `~/.config` resolution for the default config path.
-# Already a workspace dependency (tessera-apps uses it for XDG data dirs).
+# Already a workspace dependency (tessera-launch-services uses it for XDG data dirs).
 dirs = { workspace = true }
 libc.workspace = true
 

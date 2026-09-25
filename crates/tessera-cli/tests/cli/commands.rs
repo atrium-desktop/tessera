@@ -272,13 +272,13 @@ impl Handler for CtlHandler {
                         surface_size: tessera_primitives::Size { w: 2, h: 1 },
                     },
                 ],
-                observation: tessera_protocol::SemanticObservation {
+                observation: tessera_protocol::InteractionDomainObservation {
                     token: tessera_protocol::ObservationToken("0".repeat(64)),
                     ttl_ms: 15_000,
-                    snapshot: tessera_semantic::model::SemanticSnapshot {
+                    snapshot: tessera_protocol::ObservationSnapshot {
                         interaction_domain,
                         authority_revision: 2,
-                        objects: Vec::new(),
+                        windows: Vec::new(),
                     },
                 },
                 png_bytes: 3,

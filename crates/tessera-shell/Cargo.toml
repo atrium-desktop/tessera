@@ -13,8 +13,9 @@ default = ["full-chrome"]
 full-chrome = ["chrome-dock", "chrome-hud", "chrome-pivot", "chrome-control-center"]
 chrome-dock = []
 chrome-pivot = ["dep:tessera-launch-services"]
-chrome-hud = ["dep:tessera-tray"]
-chrome-control-center = ["dep:tessera-tray", "dep:zbus", "persona"]
+chrome-tray = ["dep:image", "dep:tessera-launch-services", "dep:zbus"]
+chrome-hud = ["chrome-tray"]
+chrome-control-center = ["chrome-tray", "persona"]
 # Full personalized portrait runtime preview example.
 persona = [
     "dep:tessera-avatar",
@@ -26,7 +27,7 @@ required-features = ["persona"]
 
 [dependencies]
 tessera-launch-services = { workspace = true, optional = true }
-tessera-tray = { workspace = true, optional = true }
+image = { workspace = true, optional = true }
 zbus = { workspace = true, optional = true }
 flux-scene-graph-sys.workspace = true
 tessera-authority.workspace = true

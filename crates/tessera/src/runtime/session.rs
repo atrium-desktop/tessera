@@ -9,7 +9,7 @@
 //! D-Bus activation environment and the systemd --user manager.
 
 /// Desktop name advertised through `XDG_CURRENT_DESKTOP`. The lowercase
-/// project name, matching what `tessera-apps` compares `OnlyShowIn=` against.
+/// project name, matching what `tessera-launch-services` compares `OnlyShowIn=` against.
 const DESKTOP_NAME: &str = "tessera";
 
 /// Session variables every Wayland client of this compositor needs.
@@ -48,7 +48,7 @@ pub(crate) fn publish(socket_name: &str, nested: bool) {
 /// `systemctl --user start --wait tessera.service` and units ordered after the
 /// compositor cannot race the Wayland socket. Outside a service context this
 /// is a no-op: the manager sets `NOTIFY_SOCKET`, and it is consumed here so
-/// supervised children (idle coordinator, semantic adapter) cannot notify on
+/// supervised children (such as the idle coordinator) cannot notify on
 /// the compositor's behalf.
 pub(crate) fn notify_ready() {
     let Some(socket) = std::env::var_os("NOTIFY_SOCKET") else {
@@ -567,123 +567,6 @@ fn trusted_sibling_program(name: &str) -> std::io::Result<std::ffi::OsString> {
         ));
     }
     Ok(path.into_os_string())
-}
-
-fn forward_adapter_environment(command: &mut std::process::Command) {
-    command.env_clear();
-    for name in [
-        "XDG_RUNTIME_DIR",
-        "DBUS_SESSION_BUS_ADDRESS",
-        "AT_SPI_BUS_ADDRESS",
-        "LANG",
-        "LC_ALL",
-        "RUST_LOG",
-    ] {
-        if let Some(value) = std::env::var_os(name) {
-            command.env(name, value);
-        }
-    }
-}
-
-/// Supervised, out-of-process accessibility adapter. Its credential is a
-/// compositor-lifetime secret delivered through stdin, never argv, the
-/// environment, or persistent storage. The process reconnects with the same
-/// ephemeral principal after crashes; dropping the compositor kills it and
-/// destroys the principal registry that recognizes the credential.
-pub(super) struct SemanticAdapterProcess {
-    child: Option<std::process::Child>,
-    credential: String,
-    available: bool,
-    restart_at: std::time::Instant,
-}
-
-impl SemanticAdapterProcess {
-    pub(super) fn start(credential: String, available: bool) -> Self {
-        let mut process = Self {
-            child: None,
-            credential,
-            available,
-            restart_at: std::time::Instant::now(),
-        };
-        if available {
-            process.spawn();
-        } else {
-            log::info!(
-                "session: semantic accessibility adapter disabled outside the production IPC session"
-            );
-        }
-        process
-    }
-
-    pub(super) fn maintain(&mut self) {
-        if !self.available {
-            return;
-        }
-        if let Some(status) = self
-            .child
-            .as_mut()
-            .and_then(|child| child.try_wait().ok())
-            .flatten()
-        {
-            self.child = None;
-            self.restart_at = std::time::Instant::now() + RESTART_BACKOFF;
-            log::warn!(
-                "session: semantic accessibility adapter exited ({status}); scheduling restart"
-            );
-        }
-        if self.child.is_none() && std::time::Instant::now() >= self.restart_at {
-            self.spawn();
-        }
-    }
-
-    fn spawn(&mut self) {
-        let program = match trusted_sibling_program("tessera-atspi") {
-            Ok(program) => program,
-            Err(error) => {
-                log::warn!("session: could not start tessera-atspi: {error}");
-                self.restart_at = std::time::Instant::now() + RESTART_BACKOFF;
-                return;
-            }
-        };
-        let mut command = std::process::Command::new(program);
-        forward_adapter_environment(&mut command);
-        command
-            .arg("--credential-stdin")
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::null());
-        match command.spawn() {
-            Ok(mut child) => {
-                let delivered = child.stdin.take().is_some_and(|mut stdin| {
-                    use std::io::Write as _;
-                    writeln!(stdin, "{}", self.credential).is_ok()
-                });
-                if delivered {
-                    log::info!("session: semantic accessibility adapter started");
-                    self.child = Some(child);
-                } else {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    log::warn!("session: could not deliver tessera-atspi credential");
-                    self.restart_at = std::time::Instant::now() + RESTART_BACKOFF;
-                }
-            }
-            Err(error) => {
-                log::warn!("session: could not start tessera-atspi: {error}");
-                self.restart_at = std::time::Instant::now() + RESTART_BACKOFF;
-            }
-        }
-    }
-}
-
-impl Drop for SemanticAdapterProcess {
-    fn drop(&mut self) {
-        use zeroize::Zeroize as _;
-        self.credential.zeroize();
-        if let Some(child) = self.child.as_mut() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-    }
 }
 
 #[cfg(test)]

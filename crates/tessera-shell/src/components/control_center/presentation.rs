@@ -10,7 +10,7 @@ impl ControlCenter {
     pub(super) fn open_popover_bounds(&mut self, display: (f32, f32)) -> Option<Rect> {
         let key = self.menu_open_for.clone()?;
         let menu = self.menu_snapshot().filter(|menu| menu.key == key)?;
-        tessera_tray::visible_children(&menu.root, &self.menu_path)
+        tray::visible_children(&menu.root, &self.menu_path)
             .map(|visible| menu_bounds(self.menu_owner, visible, display))
     }
 
@@ -1739,12 +1739,12 @@ impl ControlCenter {
     ) {
         // If a targeted submenu id no longer exists (the worker truncated the
         // tree on `LayoutUpdated`), pop back to the nearest valid level.
-        while tessera_tray::visible_children(&menu.root, &self.menu_path).is_none()
+        while tray::visible_children(&menu.root, &self.menu_path).is_none()
             && self.menu_path.len() > 1
         {
             self.menu_path.pop();
         }
-        let visible = match tessera_tray::visible_children(&menu.root, &self.menu_path) {
+        let visible = match tray::visible_children(&menu.root, &self.menu_path) {
             Some(rows) => rows,
             None => return,
         };
@@ -1793,7 +1793,7 @@ impl ControlCenter {
                             if !row.visible {
                                 continue;
                             }
-                            if row.kind == tessera_tray::MenuEntryKind::Separator {
+                            if row.kind == tray::MenuEntryKind::Separator {
                                 f.spacer(MENU_SEP_GAP);
                                 f.size_next(inner_w, 1.0);
                                 f.separator();

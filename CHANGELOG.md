@@ -14,6 +14,19 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Changed
+- Purify compositor boundary and decouple application accessibility (ADR-0165):
+  - Retired and deleted `tessera-atspi` sidecar package; external tools and agents connect directly to the standard freedesktop AT-SPI D-Bus bus (`org.a11y.Bus`).
+  - Purged in-compositor application accessibility tree validation, tree registry, and long-polling action broker from `tessera-desktop`, `tessera-wayland`, `tessera-protocol`, and `tessera`.
+  - Streamlined `tessera-authority` observation leases and `tessera-mcp` automation around macroscopic window topology, zero-copy visual frame capture, and window-scoped physical input mediation (`SyntheticInputAction`).
+- Workspace consolidation and legacy pruning (ADR-0164):
+  - Retired `tessera-semantic` and simplified actor observation leases to compositor-owned window topology.
+  - Retired `tessera-tray` and consolidated the SNI system tray service into `tessera-shell::tray`.
+  - Renamed `tessera-bootstrap` to `tessera-env` for process runtime environment and observability initialization.
+  - Thoroughly modernized codebase comments, module docs, and repository architecture guides to prevent concept drift and eliminate references to legacy micro-crates.
+  - Consolidated integration test suites across `tessera-cli`, `tessera-launch-services`, and `tessera-shell`.
+  - Cleaned up Cargo workspace manifest ghost comments and stale dependencies.
+
 ## [0.0.65] - 2026-09-24
 
 ### Changed

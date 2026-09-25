@@ -84,7 +84,7 @@ pub(super) fn apply_system_action(
             status.wifi_state = tessera_desktop::system::WifiLinkState::Scanning;
         }
         SystemAction::ConnectWifi { ssid, passphrase } => {
-            wireless.connect(ssid.clone(), passphrase);
+            wireless.connect(ssid, passphrase);
             status.wifi_state = tessera_desktop::system::WifiLinkState::Connecting;
         }
         SystemAction::DisconnectWifi => {

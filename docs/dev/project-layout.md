@@ -9,12 +9,11 @@ the architectural role; directory nesting does not grant dependency rights.
 ```text
 crates/
   tessera                 composition root binary, display resource lifecycle, and session orchestration
-  tessera-atspi           supervised out-of-process AT-SPI accessibility adapter
   tessera-audit           bounded, integrity-checked durable event storage
-  tessera-authority       actor identity, credentials, grants, ceilings, and capabilities
+  tessera-authority       actor identity, credentials, grants, ceilings, capabilities, and observation leases
   tessera-avatar          profile contract, portrait assets, and VRM runtime
   tessera-platform        DRM/KMS, nested display, seat, and input adapters
-  tessera-bootstrap       shared process bootstrap, tracing/log bridge, and runtime hygiene
+  tessera-env             shared process environment, tracing/log bridge, and runtime hygiene
   tessera-cli             domain-oriented management command library and headless tessera-ctl tool
   tessera-config          declarative configuration schema, loader, and live reload
   tessera-design          product design tokens, themes, and glass materials
@@ -28,9 +27,7 @@ crates/
   tessera-primitives      foundational physical geometry, color, buffer descriptor, identity, and input primitives (ADR-0164)
   tessera-protocol        versioned wire DTOs and audit vocabulary (zero socket/GPU dependencies)
   tessera-render          GPU composition, damage tracking, scanout, streams, and capture encoding
-  tessera-semantic        actor semantic observation tree and transactional action routing
-  tessera-shell           Lens UI host and built-in chrome components (dock, hud, pivot, control-center, settings)
-  tessera-tray            StatusNotifierItem system tray D-Bus service
+  tessera-shell           Lens UI host and built-in chrome components (dock, hud, pivot, control-center, settings, tray)
   tessera-wallpaper       desktop wallpaper and continuous parallax runtime
   tessera-wayland         Wayland protocol handlers and client state machines
   tessera-wayland-protocols generated Wayland C ABI interface tables

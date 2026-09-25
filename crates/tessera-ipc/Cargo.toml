@@ -8,7 +8,6 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-tessera-semantic.workspace = true
 tessera-authority.workspace = true
 tessera-desktop.workspace = true
 tessera-primitives.workspace = true

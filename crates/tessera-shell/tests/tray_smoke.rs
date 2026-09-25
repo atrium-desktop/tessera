@@ -3,7 +3,7 @@
 //! own StatusNotifierWatcher:
 //!
 //! ```sh
-//! dbus-run-session -- cargo test -p tessera-tray --test tray_smoke -- --ignored --nocapture
+//! dbus-run-session -- cargo test -p tessera-shell --test tray_smoke -- --ignored --nocapture
 //! ```
 //!
 //! Exercises the full loop: watcher name ownership, item registration,
@@ -14,7 +14,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use tessera_tray::{self, TrayCommand, TrayIcon};
+use tessera_shell::tray::{TrayCommand, TrayIcon};
 
 /// A minimal fake StatusNotifierItem: fixed properties, and a record of the
 /// activation methods the watcher invoked.
@@ -96,7 +96,7 @@ fn wait_for(condition: impl Fn() -> bool) -> bool {
 #[test]
 #[ignore = "needs a session bus with a free StatusNotifierWatcher name"]
 fn watcher_registers_item_and_delivers_activate() {
-    let Some(tray) = tessera_tray::spawn() else {
+    let Some(tray) = tessera_shell::tray::spawn() else {
         eprintln!("no session bus or watcher name taken; skipping");
         return;
     };

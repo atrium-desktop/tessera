@@ -1,6 +1,6 @@
-# tessera-control-center
+# Control Center Component (`tessera-shell::components::control_center`)
 
-Modal control center for the tessera compositor (ADR-0080).
+Modal control center for the tessera compositor (ADR-0080, ADR-0115).
 
 ## Scope
 
@@ -37,7 +37,7 @@ Surfaces:
   Bluetooth radios, tiled layout, Agent Workspaces status, Lock Now) are
   held out of the panel for now; they return through the settings module
   tabs.
-- **Settings module tabs** — one tab per available `tessera-settings` module
+- **Settings module tabs** — one tab per available settings module
   (display, input, appearance, power), rendered from the registry inside
   the main panel; their `SettingsAction`s leave through
   `ChromeEvents::settings_actions` with the current snapshot revision.
@@ -48,7 +48,7 @@ Surfaces:
   (ADR-0083).
 - **Clock (top-center)** — locale wall-clock time at hero scale plus the
   weekday and date, frameless.
-- **Tray (left-middle)** — the shared `tessera-tray` StatusNotifierItem
+- **Tray (left-middle)** — the shared `tessera-shell::tray` StatusNotifierItem
   snapshot as a vertical icon capsule with a recessed surface: hover raises a
   rounded accent plate *behind* the icon (the glyph itself never dims or
   disappears — only its backing becomes prominent), active indicator highlights

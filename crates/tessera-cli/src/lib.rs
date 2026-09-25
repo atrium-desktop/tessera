@@ -1540,7 +1540,7 @@ pub fn execute(cli: Cli) -> Result<String, CliError> {
     let socket = if requires_session(&cli) {
         match cli.socket.clone() {
             Some(path) => path,
-            None => tessera_bootstrap::runtime_dir()
+            None => tessera_env::runtime_dir()
                 .map(|dir| tessera_ipc::socket_paths::default_socket_path(&dir))
                 .map_err(|error| CliError::Connect(error.to_string()))?,
         }

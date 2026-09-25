@@ -295,15 +295,12 @@ impl WirelessBackend for IwdBackend {
                 Some("org.freedesktop.DBus.Properties"),
                 "Get",
                 &(NETWORK_IFACE, "Name"),
-            ) {
-                if let Ok(val) = reply.body().deserialize::<zbus::zvariant::OwnedValue>() {
-                    if let Ok(name) = <&str>::try_from(&val) {
-                        if name == ssid {
-                            net_path = Some(path.as_str().to_string());
-                            break;
-                        }
-                    }
-                }
+            ) && let Ok(val) = reply.body().deserialize::<zbus::zvariant::OwnedValue>()
+                && let Ok(name) = <&str>::try_from(&val)
+                && name == ssid
+            {
+                net_path = Some(path.as_str().to_string());
+                break;
             }
         }
 

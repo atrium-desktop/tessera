@@ -15,9 +15,9 @@ use tessera_protocol::schema::{
     ActorActionIntent, ActorActionReceipt, ActorCapability, ActorResource, AgentGrantInfo,
     AgentHello, AgentIssued, AgentPrincipalInfo, AppPickResult, Command, ConfirmPickResult,
     ConnectionCapabilities, Event, InteractionDomainAction, InteractionDomainActionResult,
-    LeaseGrant, LeaseRequest, ObservationToken, ObserveSnapshot, OutputInfo, PROTOCOL_VERSION,
-    PickKind, PickResult, Request, ResourceGrant, ResourceGrantId, Response, Scope,
-    SecretPromptResult, SemanticObservation, SettingsAction, SettingsReceipt, SettingsSnapshot,
+    InteractionDomainObservation, LeaseGrant, LeaseRequest, ObservationToken, ObserveSnapshot,
+    OutputInfo, PROTOCOL_VERSION, PickKind, PickResult, Request, ResourceGrant, ResourceGrantId,
+    Response, Scope, SecretPromptResult, SettingsAction, SettingsReceipt, SettingsSnapshot,
     StreamCursorMode, StreamPixelFormat, StreamTarget, SystemAction, SystemStatus, TransactOp,
     TransactResult,
 };
@@ -31,7 +31,7 @@ pub struct CapturedInteractionDomain {
     pub scale_milli: u32,
     pub region: tessera_primitives::Rect,
     pub placements: Vec<tessera_authority::interaction_domain::InteractionDomainWindowPlacement>,
-    pub observation: SemanticObservation,
+    pub observation: InteractionDomainObservation,
     pub png: Vec<u8>,
     pub revision: u64,
 }
@@ -486,17 +486,15 @@ impl Client {
     pub fn inject_interaction_domain_input(
         &mut self,
         interaction_domain: tessera_authority::interaction_domain::InteractionDomainId,
-        target: tessera_semantic::model::SemanticObjectId,
+        target_window: tessera_primitives::WindowId,
         observation: ObservationToken,
         actions: Vec<tessera_primitives::input::SyntheticInputAction>,
     ) -> io::Result<ActorActionReceipt> {
         self.act_in_interaction_domain(ActorActionIntent {
             interaction_domain,
-            target,
+            target_window,
             observation,
-            actions: vec![
-                tessera_semantic::model::SemanticActionIntent::SyntheticInput { actions },
-            ],
+            actions,
         })
     }
 
@@ -821,7 +819,7 @@ impl Client {
     pub fn observe_interaction_domain(
         &mut self,
         interaction_domain: tessera_authority::interaction_domain::InteractionDomainId,
-    ) -> io::Result<SemanticObservation> {
+    ) -> io::Result<InteractionDomainObservation> {
         write_msg(
             &mut self.stream,
             &Request::ObserveInteractionDomain { interaction_domain },
@@ -1125,86 +1123,6 @@ impl Client {
             other => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("expected ResourceGrantRevoked, got {other:?}"),
-            )),
-        }
-    }
-
-    pub fn publish_accessibility_tree(
-        &mut self,
-        update: tessera_protocol::AccessibilityTreeUpdate,
-    ) -> io::Result<()> {
-        write_msg(
-            &mut self.stream,
-            &Request::PublishAccessibilityTree { update },
-        )?;
-        match read_msg::<_, Response>(&mut self.stream)? {
-            Response::AccessibilityTreePublished {} => Ok(()),
-            Response::Error { message } => Err(io::Error::other(message)),
-            other => Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("expected AccessibilityTreePublished, got {other:?}"),
-            )),
-        }
-    }
-
-    /// Fetch kernel-process-bound windows for a trusted accessibility
-    /// provider. Ordinary window observers cannot call this endpoint.
-    pub fn accessibility_windows(
-        &mut self,
-    ) -> io::Result<Vec<tessera_protocol::AccessibilityWindowBinding>> {
-        write_msg(&mut self.stream, &Request::GetAccessibilityWindows)?;
-        match read_msg::<_, Response>(&mut self.stream)? {
-            Response::AccessibilityWindows { windows } => Ok(windows),
-            Response::Error { message } => Err(io::Error::other(message)),
-            other => Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("expected AccessibilityWindows, got {other:?}"),
-            )),
-        }
-    }
-
-    pub fn next_accessibility_action(
-        &mut self,
-        timeout: Duration,
-    ) -> io::Result<Option<tessera_protocol::SemanticActionRequest>> {
-        let timeout_ms = u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX);
-        write_msg(
-            &mut self.stream,
-            &Request::NextAccessibilityAction { timeout_ms },
-        )?;
-        match read_msg::<_, Response>(&mut self.stream)? {
-            Response::AccessibilityAction { request } => Ok(request),
-            Response::Error { message } => Err(io::Error::other(message)),
-            other => Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("expected AccessibilityAction, got {other:?}"),
-            )),
-        }
-    }
-
-    pub fn complete_accessibility_action(
-        &mut self,
-        request_id: u64,
-        result: Result<(), String>,
-    ) -> io::Result<()> {
-        let (success, message) = match result {
-            Ok(()) => (true, None),
-            Err(message) => (false, Some(message)),
-        };
-        write_msg(
-            &mut self.stream,
-            &Request::CompleteAccessibilityAction {
-                request_id,
-                success,
-                message,
-            },
-        )?;
-        match read_msg::<_, Response>(&mut self.stream)? {
-            Response::AccessibilityActionCompleted {} => Ok(()),
-            Response::Error { message } => Err(io::Error::other(message)),
-            other => Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("expected AccessibilityActionCompleted, got {other:?}"),
             )),
         }
     }

@@ -1,8 +1,8 @@
-# tessera-bootstrap
+# tessera-env
 
-`tessera-bootstrap` is the shared process bootstrap for every first-party
-Tessera executable: the compositor binary, the idle/session sidecars, the
-lock host, and out-of-tree consumers such as the portal backend.
+`tessera-env` is the shared process environment and observability foundation for
+every first-party Tessera executable: the compositor binary, the idle/session
+sidecars, the lock host, the CLI, and headless tools.
 
 ## Responsibilities
 

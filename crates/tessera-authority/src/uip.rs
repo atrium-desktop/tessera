@@ -3,7 +3,7 @@
 //! Provides a transport- and HID-agnostic interaction foundation for Tessera,
 //! unifying physical hardware, remote networked devices (phones, tablets, IoT dials),
 //! and autonomous agents under consistent mathematical manifolds, discrete transitions,
-//! and transactional semantic mutations.
+//! and transactional interaction mutations.
 
 use crate::interaction_domain::{InteractionDomainId, InteractionPrincipalId, SeatId};
 use std::collections::{HashMap, HashSet};
@@ -30,8 +30,8 @@ pub enum ActionPayload {
     Continuous(ContinuousManifold),
     /// Discrete state transitions and symbolic tokens.
     Discrete(DiscreteTransition),
-    /// Structured semantic mutations with precondition guards.
-    Semantic(SemanticTransaction),
+    /// Structured accessibility mutations with precondition guards.
+    Accessibility(AccessibilityTransaction),
 }
 
 /// Continuous manifold: multi-dimensional physical and geometric measurements.
@@ -107,23 +107,23 @@ pub enum DiscreteTransition {
     StateSelector { selector_id: u16, state_index: u32 },
 }
 
-/// Structured semantic transaction with precondition barriers.
+/// Structured accessibility transaction with precondition barriers.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
-pub struct SemanticTransaction {
+pub struct AccessibilityTransaction {
     /// Targeted interaction domain.
     pub target_domain: InteractionDomainId,
-    /// Targeted semantic element or target descriptor.
+    /// Targeted accessible element or target descriptor.
     pub target_element: u64,
     /// Optimistic concurrency barrier: expected revision of the domain.
     pub precondition_revision: AuthorityRevision,
     /// One-time authorization nonce / token (anti-replay).
     pub one_time_token: [u8; 32],
-    /// Semantic intent payload.
+    /// Accessibility intent payload.
     pub intent: IntentPayload,
 }
 
-/// Semantic intent payload.
+/// Interaction intent payload.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
 pub enum IntentPayload {
@@ -193,8 +193,8 @@ pub enum PerceptionSubscription {
     Blind,
     /// Variable state stream (e.g. rotary dial OLED, status indicators).
     VariableStream { variables: Vec<String> },
-    /// Semantic tree slice (e.g. smartphone companion UI, accessibility deck).
-    SemanticTree { domain: InteractionDomainId },
+    /// Accessibility tree slice (e.g. smartphone companion UI, accessibility deck).
+    AccessibilityTree { domain: InteractionDomainId },
     /// Rendered visual buffer (e.g. companion display, tablet stylus canvas).
     SurfaceBuffer {
         domain: InteractionDomainId,

@@ -360,7 +360,7 @@ impl Server {
     /// Inject the validated XDG runtime directory (ADR-0147 Decision 2).
     ///
     /// The composition root resolves the environment through
-    /// `tessera_bootstrap::runtime_dir()` and hands the result in here;
+    /// `tessera_env::runtime_dir()` and hands the result in here;
     /// the compositor core never reads the environment itself. Required
     /// before any interaction-domain portal launch; portal naming is
     /// derived from the IPC contract.

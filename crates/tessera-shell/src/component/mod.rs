@@ -829,9 +829,9 @@ pub struct ChromeEvents {
     /// journal entry per affected toplevel.
     pub window_actions: Vec<WindowAction>,
     /// A desktop entry the chrome asked to launch (e.g. the launcher's
-    /// clicked row). Drained into `tessera-launch` by the main loop; carrying the
-    /// full [`Entry`] keeps `tessera-shell` free of any `tessera-apps` dependency
-    /// (ADR-0022).
+    /// clicked row). Drained into `tessera-launch-services` by the main loop; carrying the
+    /// full [`Entry`] keeps `tessera-shell` free of any `tessera-launch-services` dependency
+    /// (ADR-0022, ADR-0164).
     pub spawn: Option<Entry>,
     /// A trusted compositor-owned application to present. Built-ins share the
     /// launcher catalog with external apps but never pass through a shell

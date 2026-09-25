@@ -52,8 +52,8 @@ The reference client requests 900,000 milliseconds by default.
 Every connection also receives a distinct `ActorSession` in `Hello`. It is
 bound to the connection and authenticated principal, has independent TTL and
 idle deadlines, and carries hard pending-action and live-observation quotas.
-Session expiry, EOF, or principal removal cascades to observation tokens,
-resource grants, and semantic-provider queues. A durable principal can
+Session expiry, EOF, or principal removal cascades to observation tokens
+and resource grants. A durable principal can
 survive; its execution session cannot.
 
 ## Queries
@@ -78,13 +78,9 @@ survive; its execution session cannot.
 | `RequestResourceGrant { resource, ttl_ms, uses }` | `ResourceGranted` | matching Actor capability; exact-resource confirmation when gated or payment |
 | `ConsumeResourceGrant { id, resource }` | `ResourceGrantConsumed` | owning live Actor session and exact resource |
 | `RevokeResourceGrant { id }` | `ResourceGrantRevoked` | owning live Actor session |
-| `GetAccessibilityWindows` | `AccessibilityWindows` | authenticated system provider + `ObserveWindows` + `PublishAccessibilityTree`; never ordinary observation |
 | `Observe` | `Observed` with a multi-class snapshot and journal cursor | `query`; every class gated by the live scope like the matching `Get*` (protocol 28) |
 | `GetConnectionState` | `ConnectionState` with the connection's own caps, re-resolved scope, lease, and Actor session | always; a paired agent reads its registry ceiling without reconnecting (protocol 28) |
 | `Transact { expected_journal_seq?, expected_interaction_domain_revision?, ops }` | `Transact` with a commit receipt or a precondition conflict | `control`; every op authorized like its `Command` (protocol 28) |
-| `PublishAccessibilityTree { update }` | `AccessibilityTreePublished` | authenticated provider + `PublishAccessibilityTree` |
-| `NextAccessibilityAction { timeout_ms }` | `AccessibilityAction` | authenticated provider + `DispatchAccessibilityAction` |
-| `CompleteAccessibilityAction { request_id, success, message }` | `AccessibilityActionCompleted` | owning provider session and pending request |
 | `StreamOutputStart { max_fps, target, dmabuf, cursor }` | `StreamOutputStarted` | `control` + `StreamOutput` scope op |
 | `StreamOutputStop { stream_id }` | `StreamOutputStopped` | `control` + `StreamOutput` scope op |
 | `SetIdleInhibit { inhibit }` | `IdleInhibitSet { inhibited }` | `control` + `IdleInhibit` scope op |
@@ -173,14 +169,6 @@ pixels are delivered.
 Capability, lease, validation, and scope refusals are journaled even when the
 mutation never reaches the compositor main loop. Interaction Domain actions
 rejected by live state carry the unchanged revision in both revision fields.
-
-Routine capability polling is not durably audited
-([ADR-0135](../adr/0135-routine-capability-polling-is-not-durably-audited.md)).
-A timed-out `NextAccessibilityAction` long-poll (`Ok(None)`) and a
-successful `GetAccessibilityWindows` scan query decide nothing and journal
-nothing; action delivery, handler errors, and authorization refusals remain
-durable records, so steady-state audit growth is independent of session
-length.
 
 The live journal is backed by
 `$XDG_DATA_HOME/tessera/audit/events-v2.jsonl` (or the equivalent default data
@@ -568,39 +556,14 @@ after queuing appears as `Effect::Refused` in the mutation journal.
 
 ### Observation-bound Interaction Domain Actions
 
-`ObserveInteractionDomain { interaction_domain }` returns a `SemanticObservation` without framebuffer
-pixels. Its semantic snapshot contains the Interaction Domain authority revision and
-compositor-owned objects. Window roots are guaranteed and use durable window
-ids as semantic object ids. Application descendants use
-`{ window, nonzero_local_id }`, so provider ids can never collide across
-windows. Each object carries its source, parent, role, optional name,
-description and bounded value, application id, Interaction Domain-output
-bounds, target-local extent, state, declared actions, and content revision.
-The compositor does not infer semantic nodes from pixels.
-
-In a production direct session, the compositor supervises `tessera-atspi` as a
-separate process with a compositor-lifetime principal. Its credential crosses
-an inherited stdin pipe, not argv, environment, or disk. The adapter maps
-AT-SPI trees into complete bounded revisions; `tessera-semantic` rejects an
-invalid graph, oversized text/tree, escaping geometry, stale revision, or
-provider takeover. Nested sessions do not attach to the host AT-SPI bus,
-because that could confuse outer-desktop objects with inner windows. The
-compositor resolves the adapter only as a sibling of its own executable and
-rejects a symlink, non-regular or non-executable file, owner mismatch, or
-group/world-writable binary or parent directory. The child starts with a
-cleared environment and receives only `XDG_RUNTIME_DIR`, the session and
-AT-SPI bus addresses, locale, and `RUST_LOG`; credentials and the ambient
-`PATH` are never forwarded.
-Before mapping a tree, the adapter requires the AT-SPI D-Bus Unix process id
-to equal the kernel credential captured from the still-live Wayland client,
-then uses an exact non-empty title to select one toplevel. PID-bearing
-bindings are available only to an authenticated provider holding both
-`ObserveWindows` and `PublishAccessibilityTree`; `GetWindows` never exposes
-them. Missing or ambiguous correlation fails closed.
-`PublishAccessibilityTree` and `DispatchAccessibilityAction` are reserved for
-the compositor-provisioned ephemeral system principal: ordinary Agent
-pairing and administrator registration cannot grant them. The adapter also
-refuses unsupervised startup.
+`ObserveInteractionDomain { interaction_domain }` returns an `InteractionDomainObservation` without framebuffer
+pixels. Its snapshot contains the Interaction Domain authority revision and
+compositor-owned observed windows. Each window carries its durable window id, application id,
+optional title, Interaction Domain-output bounds, local surface extent, state (visible, focused, enabled, minimized, read-only),
+and content revision.
+Per ADR-0165, the compositor does not ingest or broker application-internal control trees;
+assistive tools and agents requiring AT-SPI accessibility connect directly to the standard
+freedesktop AT-SPI D-Bus bus (`org.a11y.Bus`).
 
 Secret prompt values and Agent credentials are never journaled. IPC framing
 zeroizes raw JSON serialization/deserialization buffers, and the server
@@ -617,30 +580,19 @@ expiration, session lock, inactive seat, or Interaction Domain lifecycle invalid
 attempt from a different Actor neither uses nor revokes the owning Actor's
 token.
 
-`ActInInteractionDomain { intent }` names the Interaction Domain, semantic target, observation token,
-and bounded actions. Compositor-owned roots accept 1–64 prepared fallback
-actions. Accessibility targets accept exactly one semantic action so a
-provider can never partially apply a batch. On the compositor main loop it
-atomically checks:
+`ActInInteractionDomain { intent }` names the Interaction Domain, target window, observation token,
+and bounded actions (`actions: Vec<SyntheticInputAction>`). Compositor-owned window targets accept 1–64 prepared
+actions. On the compositor main loop it atomically checks:
 
 - the token's connection, principal, Interaction Domain, and expiry;
 - the Actor's live capability ceiling, runtime grant, and resource allowlists;
-- unchanged Interaction Domain authority and complete semantic target state;
-- an active Interaction Domain seat and current interaction authority;
-- that the target declares every requested semantic action; and
-- that pointer positions remain inside the target-local extent.
+- unchanged Interaction Domain authority and target window state;
+- an active Interaction Domain seat and current interaction authority; and
+- that pointer positions remain inside the target window's surface extent.
 
-The complete batch is prepared before delivery. Accessibility actions are
-then queued to their owning provider, which immediately re-reads live role,
-state, bounds, names, value fingerprint, and declared actions before invoking
-AT-SPI. Password contents are never requested or published, and password text
-actions are not declared because polling cannot prove an unchanged
-same-length secret. Provider rejection, disconnect, queue saturation, stale
-state, or timeout produces a refused audit event and no commit receipt. Any
-mismatch aborts. A
-successful `ActorActionCommitted` receipt contains `action_id`, `interaction_domain`,
-`target`, the compositor-resolved owning `window`, `authority_revision`,
-`actions_applied`, and `committed_mono_ms`.
+The complete batch is prepared and validated synchronously before delivery to the window surface.
+A successful `ActorActionCommitted` receipt contains `action_id`, `interaction_domain`,
+`target_window`, `authority_revision`, `actions_applied`, and `committed_mono_ms`.
 The transaction closes the observation-to-dispatch race; it does not roll
 back application business state after the application receives an event.
 
@@ -932,9 +884,8 @@ sandbox or voluntarily grant ambient process access. Secret prompting already
 consumes a one-use exact grant. Payment requests always require fresh exact
 human confirmation.
 
-Protocol 24 adds `GetAccessibilityWindows`, a provider-only process-bound
-window seam. It prevents the trusted adapter from assigning an untrusted
-AT-SPI tree to a Wayland window based only on spoofable application metadata.
+Protocol 24 historically added `GetAccessibilityWindows`, which was subsequently
+retired by ADR-0165 along with in-compositor accessibility tree ingestion.
 
 Protocol 27 adds workspace-directed application launching (`LaunchApp`
 with an optional `LaunchPlacement`) and the additive `reveal` flag on

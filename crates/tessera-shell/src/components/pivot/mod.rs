@@ -150,7 +150,7 @@ impl AppCategory {
     }
 }
 
-/// Action to execute when a search item is activated (re-exported from tessera-apps).
+/// Action to execute when a search item is activated (re-exported from tessera-launch-services).
 pub type PivotAction = IntentAction;
 
 /// Displayable search result item.

@@ -1,72 +1,5 @@
 use super::*;
 
-type SemanticCompletion = std::sync::mpsc::Sender<Result<(), String>>;
-type SemanticEnvelopeReceiver =
-    std::sync::Arc<std::sync::Mutex<std::sync::mpsc::Receiver<SemanticDispatchEnvelope>>>;
-type SemanticPendingKey = (tessera_semantic::SemanticProviderId, u64);
-type SemanticPendingAction = (
-    tessera_authority::authority::ActorSessionId,
-    SemanticCompletion,
-);
-
-struct SemanticDispatchEnvelope {
-    request: tessera_semantic::SemanticActionRequest,
-    completion: SemanticCompletion,
-}
-
-struct SemanticProviderLane {
-    session: tessera_authority::authority::ActorSessionId,
-    sender: std::sync::mpsc::SyncSender<SemanticDispatchEnvelope>,
-    receiver: SemanticEnvelopeReceiver,
-}
-
-#[derive(Default)]
-struct SemanticDispatchBroker {
-    providers:
-        std::collections::HashMap<tessera_semantic::SemanticProviderId, SemanticProviderLane>,
-    pending: std::collections::HashMap<SemanticPendingKey, SemanticPendingAction>,
-}
-
-impl SemanticDispatchBroker {
-    fn receiver(
-        &mut self,
-        provider: tessera_semantic::SemanticProviderId,
-        session: tessera_authority::authority::ActorSessionId,
-    ) -> Result<SemanticEnvelopeReceiver, String> {
-        if let Some(lane) = self.providers.get(&provider) {
-            if lane.session != session {
-                return Err("semantic provider already has another live session".into());
-            }
-            return Ok(std::sync::Arc::clone(&lane.receiver));
-        }
-        let (sender, receiver) = std::sync::mpsc::sync_channel(64);
-        let receiver = std::sync::Arc::new(std::sync::Mutex::new(receiver));
-        self.providers.insert(
-            provider,
-            SemanticProviderLane {
-                session,
-                sender,
-                receiver: std::sync::Arc::clone(&receiver),
-            },
-        );
-        Ok(receiver)
-    }
-
-    fn revoke_session(&mut self, session: tessera_authority::authority::ActorSessionId) {
-        self.providers.retain(|_, lane| lane.session != session);
-        let revoked = self
-            .pending
-            .iter()
-            .filter_map(|(key, (owner, _))| (*owner == session).then_some(key.clone()))
-            .collect::<Vec<_>>();
-        for key in revoked {
-            if let Some((_, completion)) = self.pending.remove(&key) {
-                let _ = completion.send(Err("semantic provider session was revoked".into()));
-            }
-        }
-    }
-}
-
 /// Shared live window snapshot for the IPC (ADR-0027). The main loop writes
 /// the same `Vec<Window>` it hands the shell; connection threads read it.
 /// `query`-capability commands never mutate, so the lock is an `RwLock` and
@@ -88,9 +21,6 @@ pub(super) struct LiveChannels {
     pub(super) interaction_domain_observe:
         std::sync::mpsc::SyncSender<InteractionDomainObserveRequest>,
     pub(super) actor_actions: std::sync::mpsc::SyncSender<InteractionDomainActorActionRequest>,
-    pub(super) semantic_tree_updates: std::sync::mpsc::SyncSender<SemanticTreeUpdateRequest>,
-    pub(super) semantic_provider_revocations:
-        std::sync::mpsc::SyncSender<tessera_semantic::SemanticProviderId>,
     pub(super) observation_discards: std::sync::mpsc::SyncSender<ObservationDiscardRequest>,
     pub(super) actor_disconnects: std::sync::mpsc::Sender<u64>,
     pub(super) stream_controls: std::sync::mpsc::Sender<StreamControlRequest>,
@@ -109,7 +39,6 @@ pub(super) struct LiveState {
     /// against this set: a capturable window stays capturable while it lives,
     /// regardless of presentation.
     all_windows: std::sync::RwLock<Vec<tessera_desktop::window::Window>>,
-    accessibility_windows: std::sync::RwLock<Vec<tessera_semantic::AccessibilityWindowBinding>>,
     workspaces: std::sync::RwLock<tessera_desktop::workspace::WorkspaceSnapshot>,
     outputs: std::sync::RwLock<Vec<tessera_desktop::output::OutputInfo>>,
     interaction_domains:
@@ -134,9 +63,6 @@ pub(super) struct LiveState {
         std::sync::Mutex<std::sync::mpsc::SyncSender<InteractionDomainObserveRequest>>,
     actor_actions:
         std::sync::Mutex<std::sync::mpsc::SyncSender<InteractionDomainActorActionRequest>>,
-    semantic_tree_updates: std::sync::Mutex<std::sync::mpsc::SyncSender<SemanticTreeUpdateRequest>>,
-    semantic_provider_revocations:
-        std::sync::mpsc::SyncSender<tessera_semantic::SemanticProviderId>,
     observation_discards: std::sync::mpsc::SyncSender<ObservationDiscardRequest>,
     actor_disconnects: std::sync::mpsc::Sender<u64>,
     stream_controls: std::sync::Mutex<std::sync::mpsc::Sender<StreamControlRequest>>,
@@ -165,8 +91,6 @@ pub(super) struct LiveState {
     actor_sessions: std::sync::Mutex<tessera_authority::authority::ActorSessionRegistry>,
     /// Exact, session-bound filesystem/network/secret/payment authorities.
     resource_grants: std::sync::Mutex<tessera_authority::authority::ResourceGrantRegistry>,
-    semantic_dispatch: std::sync::Mutex<SemanticDispatchBroker>,
-    next_semantic_request: std::sync::atomic::AtomicU64,
     audit_start: std::time::Instant,
     /// `[agent] lockdown`: strip privileged capabilities from connections
     /// that neither present a built-in scope nor pair as an agent.
@@ -257,7 +181,6 @@ impl LiveState {
         LiveState {
             windows: std::sync::RwLock::new(Vec::new()),
             all_windows: std::sync::RwLock::new(Vec::new()),
-            accessibility_windows: std::sync::RwLock::new(Vec::new()),
             workspaces: std::sync::RwLock::new(
                 tessera_desktop::workspace::WorkspaceModel::new().snapshot(),
             ),
@@ -282,8 +205,6 @@ impl LiveState {
             window_capture: std::sync::Mutex::new(channels.window_capture),
             interaction_domain_observe: std::sync::Mutex::new(channels.interaction_domain_observe),
             actor_actions: std::sync::Mutex::new(channels.actor_actions),
-            semantic_tree_updates: std::sync::Mutex::new(channels.semantic_tree_updates),
-            semantic_provider_revocations: channels.semantic_provider_revocations,
             observation_discards: channels.observation_discards,
             actor_disconnects: channels.actor_disconnects,
             stream_controls: std::sync::Mutex::new(channels.stream_controls),
@@ -305,8 +226,6 @@ impl LiveState {
             resource_grants: std::sync::Mutex::new(
                 tessera_authority::authority::ResourceGrantRegistry::default(),
             ),
-            semantic_dispatch: std::sync::Mutex::new(SemanticDispatchBroker::default()),
-            next_semantic_request: std::sync::atomic::AtomicU64::new(0),
             audit_start,
             lockdown,
         }
@@ -474,15 +393,6 @@ impl LiveState {
             .lock()
             .unwrap()
             .revoke_session(snapshot.id);
-        self.semantic_dispatch
-            .lock()
-            .unwrap()
-            .revoke_session(snapshot.id);
-        if let Some(principal) = snapshot.principal.as_ref()
-            && let Ok(provider) = tessera_semantic::SemanticProviderId::new(principal.as_ref())
-        {
-            let _ = self.semantic_provider_revocations.try_send(provider);
-        }
         let _ = self.actor_disconnects.send(snapshot.connection_id);
         self.audit_event(
             origin.clone(),
@@ -529,10 +439,8 @@ impl LiveState {
     pub(super) fn set_windows(
         &self,
         windows: Vec<tessera_desktop::window::Window>,
-        accessibility_windows: Vec<tessera_semantic::AccessibilityWindowBinding>,
     ) {
         *self.windows.write().unwrap() = windows;
-        *self.accessibility_windows.write().unwrap() = accessibility_windows;
     }
 
     pub(super) fn set_all_windows(&self, windows: Vec<tessera_desktop::window::Window>) {
@@ -570,52 +478,6 @@ impl LiveState {
     pub(super) fn set_system_status(&self, snapshot: tessera_protocol::SystemStatus) {
         *self.system_status.write().unwrap() = snapshot;
     }
-
-    pub(super) fn dispatch_accessibility_action(
-        &self,
-        target: tessera_semantic::SemanticDispatchTarget,
-        action: tessera_semantic::model::SemanticActionIntent,
-    ) -> Result<std::sync::mpsc::Receiver<Result<(), String>>, String> {
-        let previous = self
-            .next_semantic_request
-            .fetch_update(
-                std::sync::atomic::Ordering::AcqRel,
-                std::sync::atomic::Ordering::Acquire,
-                |value| value.checked_add(1),
-            )
-            .map_err(|_| "semantic action request id space exhausted".to_owned())?;
-        let request_id = previous + 1;
-        let request = tessera_semantic::SemanticActionRequest {
-            request_id,
-            target: tessera_semantic::model::SemanticObjectId {
-                window: target.window,
-                local: target.provider_node_id,
-            },
-            provider_node_id: target.provider_node_id,
-            tree_revision: target.tree_revision,
-            action,
-        };
-        let (completion, receiver) = std::sync::mpsc::channel();
-        let broker = self.semantic_dispatch.lock().unwrap();
-        let lane = broker
-            .providers
-            .get(&target.provider)
-            .ok_or_else(|| "semantic provider is not accepting actions".to_owned())?;
-        lane.sender
-            .try_send(SemanticDispatchEnvelope {
-                request,
-                completion,
-            })
-            .map_err(|error| match error {
-                std::sync::mpsc::TrySendError::Full(_) => {
-                    "semantic provider action queue is full".to_owned()
-                }
-                std::sync::mpsc::TrySendError::Disconnected(_) => {
-                    "semantic provider disconnected".to_owned()
-                }
-            })?;
-        Ok(receiver)
-    }
 }
 
 impl tessera_ipc::Handler for LiveState {
@@ -634,10 +496,6 @@ impl tessera_ipc::Handler for LiveState {
 
     fn windows(&self) -> Vec<tessera_desktop::window::Window> {
         self.windows.read().unwrap().clone()
-    }
-
-    fn accessibility_windows(&self) -> Vec<tessera_semantic::AccessibilityWindowBinding> {
-        self.accessibility_windows.read().unwrap().clone()
     }
 
     fn workspaces(&self) -> tessera_desktop::workspace::WorkspaceSnapshot {
@@ -1001,105 +859,6 @@ impl tessera_ipc::Handler for LiveState {
         Ok(())
     }
 
-    fn publish_accessibility_tree(
-        &self,
-        principal: &str,
-        update: tessera_semantic::AccessibilityTreeUpdate,
-    ) -> Result<(), String> {
-        let provider =
-            tessera_semantic::SemanticProviderId::new(principal).map_err(str::to_owned)?;
-        let (reply, response) = std::sync::mpsc::channel();
-        self.semantic_tree_updates
-            .lock()
-            .unwrap()
-            .send(SemanticTreeUpdateRequest {
-                provider,
-                update,
-                reply,
-            })
-            .map_err(|_| "compositor is shutting down".to_owned())?;
-        response
-            .recv_timeout(std::time::Duration::from_secs(2))
-            .map_err(|_| "accessibility tree publication timed out".to_owned())?
-    }
-
-    fn next_accessibility_action(
-        &self,
-        session: tessera_authority::authority::ActorSessionId,
-        principal: &str,
-        timeout: std::time::Duration,
-    ) -> Result<Option<tessera_semantic::SemanticActionRequest>, String> {
-        let provider =
-            tessera_semantic::SemanticProviderId::new(principal).map_err(str::to_owned)?;
-        let session_snapshot = self.actor_sessions.lock().unwrap().authorize(session)?;
-        if session_snapshot.principal.as_deref() != Some(principal) {
-            return Err("semantic provider principal does not own the Actor session".into());
-        }
-        let max_pending = session_snapshot.max_pending_actions as usize;
-        let receiver = {
-            let mut broker = self.semantic_dispatch.lock().unwrap();
-            let pending = broker
-                .pending
-                .keys()
-                .filter(|(owner, _)| owner == &provider)
-                .count();
-            if pending >= max_pending {
-                return Err("semantic provider pending-action quota exhausted".into());
-            }
-            broker.receiver(provider.clone(), session)?
-        };
-        let received = receiver.lock().unwrap().recv_timeout(timeout);
-        match received {
-            Ok(envelope) => {
-                if let Err(message) = self.actor_sessions.lock().unwrap().authorize(session) {
-                    let _ = envelope.completion.send(Err(message.clone()));
-                    return Err(message);
-                }
-                self.semantic_dispatch.lock().unwrap().pending.insert(
-                    (provider, envelope.request.request_id),
-                    (session, envelope.completion),
-                );
-                Ok(Some(envelope.request))
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Ok(None),
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                Err("semantic provider queue was revoked".into())
-            }
-        }
-    }
-
-    fn complete_accessibility_action(
-        &self,
-        session: tessera_authority::authority::ActorSessionId,
-        principal: &str,
-        request_id: u64,
-        result: Result<(), String>,
-    ) -> Result<(), String> {
-        let provider =
-            tessera_semantic::SemanticProviderId::new(principal).map_err(str::to_owned)?;
-        let session_snapshot = self.actor_sessions.lock().unwrap().authorize(session)?;
-        if session_snapshot.principal.as_deref() != Some(principal) {
-            return Err("semantic provider principal does not own the Actor session".into());
-        }
-        let mut broker = self.semantic_dispatch.lock().unwrap();
-        let key = (provider, request_id);
-        let (owner, _) = broker
-            .pending
-            .get(&key)
-            .ok_or_else(|| "unknown or already completed semantic action".to_owned())?;
-        if *owner != session {
-            return Err("semantic action belongs to another provider session".into());
-        }
-        let (_, completion) = broker
-            .pending
-            .remove(&key)
-            .expect("pending semantic action was verified under the same lock");
-        drop(broker);
-        completion
-            .send(result)
-            .map_err(|_| "semantic action requester disconnected".to_owned())
-    }
-
     fn lockdown(&self) -> bool {
         self.lockdown
     }
@@ -1376,9 +1135,6 @@ impl tessera_ipc::Handler for LiveState {
                 tessera_protocol::ResourceGrantAuditAction::Revoked,
             );
         }
-        if let Ok(provider) = tessera_semantic::SemanticProviderId::new(principal.as_ref()) {
-            let _ = self.semantic_provider_revocations.try_send(provider);
-        }
         self.auth_event(
             None,
             principal.as_ref(),
@@ -1574,7 +1330,7 @@ impl tessera_ipc::Handler for LiveState {
         conn_id: u64,
         subject: Option<&str>,
         interaction_domain: tessera_authority::interaction_domain::InteractionDomainId,
-    ) -> Result<tessera_protocol::SemanticObservation, String> {
+    ) -> Result<tessera_protocol::InteractionDomainObservation, String> {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         let (actor, session) = self.actor_binding(conn_id, subject)?;
         self.interaction_domain_observe
@@ -1958,71 +1714,5 @@ mod actor_action_scope_tests {
             deny,
             Some(true)
         ));
-    }
-
-    fn semantic_request(request_id: u64) -> tessera_semantic::SemanticActionRequest {
-        tessera_semantic::SemanticActionRequest {
-            request_id,
-            target: tessera_semantic::model::SemanticObjectId {
-                window: tessera_desktop::window::WindowId(7),
-                local: 2,
-            },
-            provider_node_id: 2,
-            tree_revision: 3,
-            action: tessera_semantic::model::SemanticActionIntent::Invoke,
-        }
-    }
-
-    #[test]
-    fn semantic_broker_is_single_session_bounded_and_revocation_completes_pending() {
-        let provider = tessera_semantic::SemanticProviderId::new("atspi.test").unwrap();
-        let session = tessera_authority::authority::ActorSessionId(7);
-        let mut broker = SemanticDispatchBroker::default();
-        let receiver = broker.receiver(provider.clone(), session).unwrap();
-        assert!(
-            broker
-                .receiver(
-                    provider.clone(),
-                    tessera_authority::authority::ActorSessionId(8)
-                )
-                .is_err()
-        );
-
-        for request_id in 1..=64 {
-            let (completion, _result) = std::sync::mpsc::channel();
-            broker
-                .providers
-                .get(&provider)
-                .unwrap()
-                .sender
-                .try_send(SemanticDispatchEnvelope {
-                    request: semantic_request(request_id),
-                    completion,
-                })
-                .unwrap();
-        }
-        let (completion, _result) = std::sync::mpsc::channel();
-        assert!(matches!(
-            broker
-                .providers
-                .get(&provider)
-                .unwrap()
-                .sender
-                .try_send(SemanticDispatchEnvelope {
-                    request: semantic_request(65),
-                    completion,
-                }),
-            Err(std::sync::mpsc::TrySendError::Full(_))
-        ));
-
-        let envelope = receiver.lock().unwrap().recv().unwrap();
-        let (result_tx, result_rx) = std::sync::mpsc::channel();
-        broker.pending.insert(
-            (provider.clone(), envelope.request.request_id),
-            (session, result_tx),
-        );
-        broker.revoke_session(session);
-        assert!(result_rx.recv().unwrap().is_err());
-        assert!(!broker.providers.contains_key(&provider));
     }
 }

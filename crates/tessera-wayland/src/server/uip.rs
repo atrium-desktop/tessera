@@ -59,8 +59,8 @@ impl Server {
                 Ok(UipDispatchResult::Committed)
             }
 
-            ActionPayload::Semantic(transaction) => {
-                self.dispatch_uip_semantic(seat, transaction, frame.flags)
+            ActionPayload::Accessibility(transaction) => {
+                self.dispatch_uip_accessibility(seat, transaction, frame.flags)
             }
         }
     }
@@ -73,10 +73,10 @@ impl Server {
         translate_discrete_transition(discrete)
     }
 
-    fn dispatch_uip_semantic(
+    fn dispatch_uip_accessibility(
         &mut self,
         seat: SeatId,
-        transaction: SemanticTransaction,
+        transaction: tessera_authority::uip::AccessibilityTransaction,
         flags: IngestFlags,
     ) -> Result<UipDispatchResult, InteractionDomainRuntimeError> {
         // 1. Validate domain existence
@@ -111,9 +111,9 @@ impl Server {
             }
         }
 
-        // 3. Commit semantic action
+        // 3. Commit accessibility action
         log::debug!(
-            "UIP Semantic transaction committed on seat {} for domain {}",
+            "UIP Accessibility transaction committed on seat {} for domain {}",
             seat.0,
             transaction.target_domain.0
         );

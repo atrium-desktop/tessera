@@ -1,11 +1,11 @@
-# tessera-presentation
+# tessera-presentation (Presentation module)
 
-Pure presentation-domain value layer for the tessera compositor.
+Pure presentation-domain value layer for the tessera compositor, housed within `tessera-render`.
 
-This crate holds the *facts* of the output-damage pipeline — frame damage
+This module holds the *facts* of the output-damage pipeline — frame damage
 verdicts (`FrameDamage`), the per-consumer damage assessment split, the
 swapchain slot-ring repaint history, surface damage baselines, and the
-logical→physical damage mapping — as pure functions over `tessera-scene` and `tessera-types`
+logical→physical damage mapping — as pure functions over `tessera-primitives`
 geometry types. It also defines the narrow `SurfaceDamageFrame` observation
 seam that the composition root implements when feeding client surfaces into
 the `ClientDamageTracker`.

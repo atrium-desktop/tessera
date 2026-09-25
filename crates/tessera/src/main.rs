@@ -32,7 +32,11 @@ fn main() -> ExitCode {
 
 fn run_compositor() -> ExitCode {
     // `RUST_LOG` controls verbosity; compositor bring-up is visible by default.
-    tessera_bootstrap::init("info");
+    tessera_env::init("info");
+    if let Err(error) = tessera_env::runtime_dir() {
+        log::error!("tessera: {error}");
+        return ExitCode::from(1);
+    }
     match tessera::run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -44,7 +48,7 @@ fn run_compositor() -> ExitCode {
 
 fn run_session_command(cli: tessera_cli::Cli) -> ExitCode {
     // One-shot commands print results, not a log stream.
-    tessera_bootstrap::init("warn");
+    tessera_env::init("warn");
     match tessera_cli::execute(cli) {
         Ok(output) if !output.is_empty() => {
             println!("{output}");

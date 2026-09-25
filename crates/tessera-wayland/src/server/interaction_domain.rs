@@ -243,22 +243,14 @@ impl Server {
         placements
     }
 
-    /// Build the semantic observation tree the compositor can prove from its
-    /// own model. Application-internal accessibility nodes may be attached by
-    /// a protocol adapter later; framebuffer pixels never synthesize nodes.
-    pub fn interaction_domain_semantic_snapshot(
+    /// Build the window observation snapshot the compositor proves from its own model.
+    pub fn interaction_domain_observation_snapshot(
         &self,
         interaction_domain: InteractionDomainId,
-    ) -> Result<tessera_semantic::model::SemanticSnapshot, InteractionDomainRuntimeError> {
-        const MAX_SEMANTIC_OBJECTS: usize = 4_096;
-        const MAX_SEMANTIC_LABEL_BYTES: usize = 1_024;
-        use tessera_semantic::model::SemanticAction;
-        use tessera_semantic::model::SemanticObject;
-        use tessera_semantic::model::SemanticObjectId;
-        use tessera_semantic::model::SemanticRole;
-        use tessera_semantic::model::SemanticSnapshot;
-        use tessera_semantic::model::SemanticSource;
-        use tessera_semantic::model::SemanticState;
+    ) -> Result<tessera_authority::authority::ObservationSnapshot, InteractionDomainRuntimeError> {
+        const MAX_OBSERVED_WINDOWS: usize = 1_024;
+        const MAX_WINDOW_LABEL_BYTES: usize = 1_024;
+        use tessera_authority::authority::{ObservationSnapshot, ObservedWindow};
 
         let authority = self.interaction_domain_snapshot();
         let interaction_domain_record = authority
@@ -281,15 +273,15 @@ impl Server {
             .filter(|seat| seat.interaction_domain == interaction_domain && seat.enabled)
             .collect::<Vec<_>>();
         let placements = self.interaction_domain_window_placements(interaction_domain);
-        if placements.len() > MAX_SEMANTIC_OBJECTS {
-            return Err(InteractionDomainRuntimeError::SemanticObservationTooLarge {
-                limit: MAX_SEMANTIC_OBJECTS,
+        if placements.len() > MAX_OBSERVED_WINDOWS {
+            return Err(InteractionDomainRuntimeError::AccessibilityObservationTooLarge {
+                limit: MAX_OBSERVED_WINDOWS,
             });
         }
         let bounded_label = |value: Option<String>| {
             value.map(|mut value| {
-                if value.len() > MAX_SEMANTIC_LABEL_BYTES {
-                    let mut end = MAX_SEMANTIC_LABEL_BYTES;
+                if value.len() > MAX_WINDOW_LABEL_BYTES {
+                    let mut end = MAX_WINDOW_LABEL_BYTES;
                     while !value.is_char_boundary(end) {
                         end -= 1;
                     }
@@ -298,14 +290,14 @@ impl Server {
                 value
             })
         };
-        let mut objects = Vec::with_capacity(placements.len());
+        let mut windows = Vec::with_capacity(placements.len());
         for placement in placements {
             let rec = self.find_surface_by_window_id(placement.window);
             if rec.is_null() {
                 continue;
             }
             let window = unsafe { (*rec).window.clone() };
-            // One window semantic root represents its complete Wayland
+            // One observed window represents its complete Wayland
             // surface tree. Fold every descendant generation into the
             // revision so a subsurface or popup commit invalidates an older
             // observation just like a root-buffer commit.
@@ -328,94 +320,30 @@ impl Server {
                 group.control_interaction_domain == interaction_domain
                     && group.windows.contains(&placement.window)
             });
-            let mut actions = Vec::new();
-            if controlled {
-                actions.push(SemanticAction::Focus);
-                if seats.iter().any(|seat| seat.capabilities.pointer) {
-                    actions.push(SemanticAction::Pointer);
-                    actions.push(SemanticAction::Scroll);
-                }
-                if seats.iter().any(|seat| seat.capabilities.keyboard) {
-                    actions.push(SemanticAction::TypeText);
-                }
-            }
             let focused = seats
                 .iter()
                 .any(|seat| self.seat_focuses_window(seat.id, placement.window));
             let app_id = bounded_label(window.app_id);
-            objects.push(SemanticObject {
-                id: SemanticObjectId::for_window(placement.window),
-                parent: None,
-                window: placement.window,
-                source: SemanticSource::Compositor,
-                role: SemanticRole::Window,
-                name: bounded_label(window.title).or_else(|| app_id.clone()),
-                description: None,
-                value: None,
+            windows.push(ObservedWindow {
+                id: placement.window,
                 app_id,
+                title: bounded_label(window.title),
                 bounds: placement.output_rect,
                 local_size: placement.surface_size,
-                state: SemanticState {
-                    visible: true,
-                    enabled: controlled && !seats.is_empty(),
-                    focused,
-                    read_only: !controlled,
-                    minimized: window.minimized,
-                },
-                actions,
+                visible: true,
+                focused,
+                enabled: controlled && !seats.is_empty(),
+                minimized: window.minimized,
+                read_only: !controlled,
                 revision: content_revision,
             });
-            objects.extend(
-                self.state
-                    .semantic_trees
-                    .objects_for_window(placement.window, placement.output_rect),
-            );
-            if objects.len() > MAX_SEMANTIC_OBJECTS {
-                return Err(InteractionDomainRuntimeError::SemanticObservationTooLarge {
-                    limit: MAX_SEMANTIC_OBJECTS,
-                });
-            }
         }
-        objects.sort_by_key(|object| object.id);
-        Ok(SemanticSnapshot {
+        windows.sort_by_key(|window| window.id);
+        Ok(ObservationSnapshot {
             interaction_domain,
             authority_revision: authority.revision,
-            objects,
+            windows,
         })
-    }
-
-    /// Publish one authenticated adapter's complete accessibility tree for a
-    /// live toplevel. The update is validated before replacing the previous
-    /// revision; partial or malformed trees never become observable.
-    pub fn publish_accessibility_tree(
-        &mut self,
-        provider: tessera_semantic::SemanticProviderId,
-        update: tessera_semantic::AccessibilityTreeUpdate,
-    ) -> Result<(), String> {
-        let rec = self.find_surface_by_window_id(update.window);
-        if rec.is_null() || unsafe { !(*rec).mapped || (*rec).xdg_toplevel.is_null() } {
-            return Err("accessibility tree targets an unknown or unmapped window".into());
-        }
-        let surface_size = unsafe {
-            tessera_primitives::Size {
-                w: (*rec).width,
-                h: (*rec).height,
-            }
-        };
-        self.state
-            .semantic_trees
-            .publish(provider, update, surface_size)
-    }
-
-    pub fn resolve_semantic_dispatch(
-        &self,
-        target: tessera_semantic::model::SemanticObjectId,
-    ) -> Option<tessera_semantic::SemanticDispatchTarget> {
-        self.state.semantic_trees.resolve(target)
-    }
-
-    pub fn revoke_semantic_provider(&mut self, provider: &tessera_semantic::SemanticProviderId) {
-        self.state.semantic_trees.revoke_provider(provider);
     }
 
     /// Create an independently advertised agent seat and its authority interaction domain.

@@ -182,7 +182,7 @@ struct Daemon {
 }
 
 fn main() {
-    tessera_bootstrap::init("info");
+    tessera_env::init("info");
     match run() {
         Ok(()) => {}
         Err(error) => {
@@ -812,7 +812,7 @@ struct Options {
 
 impl Options {
     fn parse(args: impl Iterator<Item = OsString>) -> Result<Self, Box<dyn std::error::Error>> {
-        let runtime = tessera_bootstrap::runtime_dir()?;
+        let runtime = tessera_env::runtime_dir()?;
         let mut options = Self {
             policy: IdlePolicy::default(),
             ipc_socket: tessera_ipc::socket_paths::default_socket_path(&runtime),

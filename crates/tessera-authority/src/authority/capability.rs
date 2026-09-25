@@ -61,12 +61,8 @@ pub enum ActorCapability {
     CaptureInteractionDomain,
     /// Capture the real pixels of one authorized window, wherever it lives.
     CaptureWindow,
-    /// Read semantic state without receiving framebuffer pixels.
+    /// Read window observation state without receiving framebuffer pixels.
     ObserveInteractionDomain,
-    /// Publish validated accessibility trees as a dedicated semantic adapter.
-    PublishAccessibilityTree,
-    /// Receive and execute semantic actions through the accessibility API.
-    DispatchAccessibilityAction,
     LaunchInInteractionDomain,
     /// Launch a desktop entry, optionally directing its first toplevel to a
     /// chosen or fresh workspace without switching the user's view (ADR-0118).
@@ -126,8 +122,6 @@ impl ActorCapability {
             "captureinteractiondomain" => Self::CaptureInteractionDomain,
             "capturewindow" => Self::CaptureWindow,
             "observeinteractiondomain" => Self::ObserveInteractionDomain,
-            "publishaccessibilitytree" => Self::PublishAccessibilityTree,
-            "dispatchaccessibilityaction" => Self::DispatchAccessibilityAction,
             "launchininteractiondomain" => Self::LaunchInInteractionDomain,
             "launchapp" => Self::LaunchApp,
             _ => return None,
@@ -179,9 +173,7 @@ impl ActorCapability {
             Self::RevokeInteractionDomain => "Revoke Agent Interaction Domains",
             Self::CaptureInteractionDomain => "Capture its Interaction Domain",
             Self::CaptureWindow => "Capture window contents",
-            Self::ObserveInteractionDomain => "Observe its semantic objects",
-            Self::PublishAccessibilityTree => "Publish application accessibility trees",
-            Self::DispatchAccessibilityAction => "Dispatch application accessibility actions",
+            Self::ObserveInteractionDomain => "Observe its window topology and state",
             Self::LaunchInInteractionDomain => "Launch apps in its Interaction Domain",
             Self::LaunchApp => "Launch applications",
         }

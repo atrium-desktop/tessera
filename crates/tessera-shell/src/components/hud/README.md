@@ -1,11 +1,11 @@
-# tessera-hud
+# HUD Component (`tessera-shell::components::hud`)
 
-`tessera-hud` is the display-only session HUD for the tessera compositor
-(ADR-0080, ADR-0083), built on the `Chrome` contract from `tessera-shell` and
+`hud` is the display-only session HUD for the tessera compositor
+(ADR-0080, ADR-0083), built on the `Chrome` contract in `tessera-shell` and
 shared materials from `tessera-design`. What used to be the interactive top
 status bar is now two floating frosted chips in minimal FPS-HUD style;
 every interaction the bar once hosted moved to the control center
-(`tessera-control-center`).
+(`components::control_center`).
 
 ## Responsibilities
 
@@ -24,7 +24,7 @@ every interaction the bar once hosted moved to the control center
   and themed icons draw only above an alpha floor because lens cannot fade
   images.
 - Read the session's StatusNotifierItem tray snapshot from the shared
-  `tessera-tray` service and render registered items' icons in the tray row.
+  `tessera-shell::tray` service and render registered items' icons in the tray row.
   The HUD never sends tray commands; tray interaction (including the
   host-rendered dbusmenu popover) lives in the command panel.
 - Fold SNI cells into a fixed slot budget with a `+N` overflow indicator.
@@ -40,8 +40,8 @@ cache and pushed through `ChromeUpdate::AppCatalog`. It emits no
 configuration. The Agent Workspaces status the right chip once showed moved
 to the command panel's System section (ADR-0083).
 
-The SNI tray service lives in the `tessera-tray` crate (re-exported here as
-`tray`); the composition root spawns it once and shares the snapshot with
+The SNI tray service lives in the `tray` module of `tessera-shell`;
+the composition root spawns it once and shares the snapshot with
 both this HUD (read-only) and the command panel (read + command). SNI icon
 pixmaps are uploaded through a borrowed `flux::Device` (refcounted in C,
 held non-owning on the render thread, matching `Shell::new`'s pattern).

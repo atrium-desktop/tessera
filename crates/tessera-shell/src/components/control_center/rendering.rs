@@ -404,8 +404,8 @@ pub(super) fn menu_row_label(row: &MenuNode) -> String {
     let mut label = row.label.clone();
     if row.toggle.is_on() {
         let glyph = match row.toggle {
-            tessera_tray::MenuToggle::Checkmark(_) => "✓ ",
-            tessera_tray::MenuToggle::Radio(_) => "● ",
+            tray::MenuToggle::Checkmark(_) => "✓ ",
+            tray::MenuToggle::Radio(_) => "● ",
             _ => "",
         };
         label.insert_str(0, glyph);
@@ -424,11 +424,11 @@ pub(super) fn menu_row_label(row: &MenuNode) -> String {
 pub(super) fn menu_bounds(owner: Rect, visible: &[MenuNode], display: (f32, f32)) -> Rect {
     let separator_count = visible
         .iter()
-        .filter(|row| row.visible && row.kind == tessera_tray::MenuEntryKind::Separator)
+        .filter(|row| row.visible && row.kind == tray::MenuEntryKind::Separator)
         .count();
     let row_count = visible
         .iter()
-        .filter(|row| row.visible && row.kind != tessera_tray::MenuEntryKind::Separator)
+        .filter(|row| row.visible && row.kind != tray::MenuEntryKind::Separator)
         .count();
     // Overestimating is safe: this is used for click-away hit-testing, and
     // the render pass recomputes the exact height from the same rows.

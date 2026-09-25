@@ -274,7 +274,7 @@ impl Transform {
 }
 
 
-// --- Surface Geometry & Mapping (migrated from tessera-scene) ---
+// --- Surface Geometry & Mapping ---
 
 /// Common geometry/metadata carried alongside every surface's pixels, whether
 /// the backing store is shm CPU memory or a dma-buf fd. Fields default to

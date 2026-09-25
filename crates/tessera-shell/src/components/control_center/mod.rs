@@ -8,7 +8,7 @@
 //! One centered cluster of surfaces: a frameless user identity block with
 //! the avatar, display name, `@username · groups`, and the hostname on the
 //! left; the main panel to its right, hosting the Quick Controls tab plus
-//! one tab per available `tessera-settings` module; a notification stream of
+//! one tab per available settings module; a notification stream of
 //! individually-carded items in the top-right that fades out at its tail; a
 //! clock and date at top-center; the tray icons as a compact vertical
 //! column at left-middle. The right-bottom corner is one horizontal band
@@ -42,7 +42,7 @@
 //! Like the HUD and the dock, the panel is compositor-owned lens chrome on
 //! the [`tessera_shell`] `Chrome` seam: snapshots arrive through the
 //! trait each frame, and user intents leave through `ChromeEvents` plus the
-//! shared `tessera-tray` command channel.
+//! shared SNI tray command channel.
 
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -72,7 +72,8 @@ use crate::component::{
     Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, IconSet, Localizer, Message,
     PopupSide, SystemAction, SystemStatus, ellipsize, place_popup_side, truncate,
 };
-use tessera_tray::{MenuNode, MenuState, TrayCommand, TrayHandle, TrayIcon};
+pub(super) use crate::tray;
+use crate::tray::{MenuNode, MenuState, TrayCommand, TrayHandle, TrayIcon};
 
 mod mpris;
 mod rendering;
@@ -339,7 +340,7 @@ impl ControlCenter {
     /// Construct the control center. The flux device is borrowed (non-owning, like
     /// [`crate::component::Shell::new`]) to upload SNI tray pixmaps to the GPU;
     /// the caller must keep it alive past the panel. The tray handle comes
-    /// from the composition root's single `tessera_tray::spawn()` shared with
+    /// from the composition root's single `crate::tray::spawn()` shared with
     /// the HUD; `None` leaves the tray section empty.
     pub fn new(
         device: &flux::Device,
@@ -935,60 +936,60 @@ impl ControlCenter {
                 revision: 1,
                 root: MenuNode {
                     id: 0,
-                    kind: tessera_tray::MenuEntryKind::Standard,
+                    kind: tray::MenuEntryKind::Standard,
                     label: "Root".into(),
                     enabled: true,
                     visible: true,
-                    toggle: tessera_tray::MenuToggle::None,
+                    toggle: tray::MenuToggle::None,
                     has_submenu: false,
                     children: vec![
                         MenuNode {
                             id: 1,
-                            kind: tessera_tray::MenuEntryKind::Standard,
+                            kind: tray::MenuEntryKind::Standard,
                             label: "Status: Active".into(),
                             enabled: true,
                             visible: true,
-                            toggle: tessera_tray::MenuToggle::Checkmark(1),
+                            toggle: tray::MenuToggle::Checkmark(1),
                             has_submenu: false,
                             children: vec![],
                         },
                         MenuNode {
                             id: 2,
-                            kind: tessera_tray::MenuEntryKind::Separator,
+                            kind: tray::MenuEntryKind::Separator,
                             label: String::new(),
                             enabled: true,
                             visible: true,
-                            toggle: tessera_tray::MenuToggle::None,
+                            toggle: tray::MenuToggle::None,
                             has_submenu: false,
                             children: vec![],
                         },
                         MenuNode {
                             id: 3,
-                            kind: tessera_tray::MenuEntryKind::Standard,
+                            kind: tray::MenuEntryKind::Standard,
                             label: "Open Dashboard".into(),
                             enabled: true,
                             visible: true,
-                            toggle: tessera_tray::MenuToggle::None,
+                            toggle: tray::MenuToggle::None,
                             has_submenu: false,
                             children: vec![],
                         },
                         MenuNode {
                             id: 4,
-                            kind: tessera_tray::MenuEntryKind::Separator,
+                            kind: tray::MenuEntryKind::Separator,
                             label: String::new(),
                             enabled: true,
                             visible: true,
-                            toggle: tessera_tray::MenuToggle::None,
+                            toggle: tray::MenuToggle::None,
                             has_submenu: false,
                             children: vec![],
                         },
                         MenuNode {
                             id: 5,
-                            kind: tessera_tray::MenuEntryKind::Standard,
+                            kind: tray::MenuEntryKind::Standard,
                             label: "Preferences...".into(),
                             enabled: true,
                             visible: true,
-                            toggle: tessera_tray::MenuToggle::None,
+                            toggle: tray::MenuToggle::None,
                             has_submenu: false,
                             children: vec![],
                         },
@@ -1303,11 +1304,11 @@ impl Chrome for ControlCenter {
                 self.wifi_input_passphrase.pop();
                 return;
             }
-            if let Some(c) = kc.ch {
-                if !c.is_control() {
-                    self.wifi_input_passphrase.push(c);
-                    return;
-                }
+            if let Some(c) = kc.ch
+                && !c.is_control()
+            {
+                self.wifi_input_passphrase.push(c);
+                return;
             }
         }
 

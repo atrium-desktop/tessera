@@ -12,7 +12,6 @@ build = "build.rs"
 tessera-authority.workspace = true
 tessera-desktop.workspace = true
 tessera-primitives.workspace = true
-tessera-semantic.workspace = true
 tessera-wayland-protocols = { workspace = true }
 # Portal socket tree naming comes from the IPC contract (ADR-0147 D3);
 # the runtime directory itself is injected by the composition root.

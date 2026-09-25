@@ -1314,7 +1314,7 @@ impl CompositorRuntime<'_> {
             && !self
                 .wallpaper
                 .as_ref()
-                .is_some_and(tessera_wallpaper::Wallpaper::parallax_pointer_active);
+                .is_some_and(wallpaper::Wallpaper::parallax_pointer_active);
         let chrome_captures = self.shell.captures_pointer_at(
             self.input_acc.cursor.0,
             self.input_acc.cursor.1,
@@ -1382,7 +1382,7 @@ impl CompositorRuntime<'_> {
                     let mut context = prepared.context;
                     match self.observations.issue_bounded(
                         request.actor,
-                        context.semantic.clone(),
+                        context.observation_snapshot.clone(),
                         request.max_observations,
                     ) {
                         Ok(observation) => {

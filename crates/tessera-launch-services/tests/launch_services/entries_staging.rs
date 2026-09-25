@@ -18,7 +18,7 @@ fn staged_entry_is_discovered_through_xdg() {
 
     let status = Command::new(std::env::current_exe().expect("locate integration test binary"))
         .arg("--exact")
-        .arg("staged_entry_is_discovered_through_xdg")
+        .arg("entries_staging::staged_entry_is_discovered_through_xdg")
         .arg("--nocapture")
         .env(CHILD_ROOT, temp.path())
         .env("HOME", temp.path().join("home"))

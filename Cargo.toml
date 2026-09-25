@@ -39,7 +39,7 @@ prism = { git = "https://github.com/ming2k/optics", tag = "v0.0.48" }
 prism-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.48" }
 
 # Observability: crates emit through the `log` facade; each binary installs a
-# `tracing`-based subscriber through the shared `tessera-bootstrap` crate, which
+# `tracing`-based subscriber through the shared `tessera-env` crate, which
 # bridges `log::` records into structured spans and fields (ADR-0079).
 # Long-term this seam is also how the AI-adaptation phase subscribes to
 # compositor events.
@@ -64,11 +64,10 @@ getrandom = "0.4"
 hmac = "0.12"
 notify = "8.2"
 sha2 = "0.10"
-atspi = { version = "0.30", features = ["zbus"] }
 async-io = "2"
 
-# Session D-Bus for the StatusNotifierItem system tray (tessera-tray, shared by
-# tessera-hud and tessera-control-center).
+# Session D-Bus for the StatusNotifierItem system tray (internal to tessera-shell,
+# shared by HUD and control-center).
 # Pure-Rust zbus (no libdbus system dep) with the blocking API so the tray
 # worker stays a plain `std::thread`; `async-io` is zbus's smol-based
 # internal executor — tokio stays out of the dependency graph.
@@ -104,14 +103,10 @@ ini = { package = "rust-ini", version = "0.20" }
 # repaint history, and the client-damage generation diff seam.
 # Transport-neutral Actor authority plus hash-chained audit persistence.
 tessera-authority = { path = "crates/tessera-authority" }
-# Validated application accessibility trees and semantic dispatch routing.
-tessera-semantic = { path = "crates/tessera-semantic" }
-# Out-of-process AT-SPI accessibility adapter for semantic observations.
-tessera-atspi = { path = "crates/tessera-atspi" }
-# Shared process bootstrap (observability init today; panic hooks, runtime
-# directories, and socket hygiene as they emerge) installed once by every
-# executable. Library crates keep using the `log` facade and never link this.
-tessera-bootstrap = { path = "crates/tessera-bootstrap" }
+# Shared process environment (observability init, panic hooks, runtime
+# directories, and socket hygiene) installed once by every executable.
+# Library crates keep using the `log` facade and never link this.
+tessera-env = { path = "crates/tessera-env" }
 tessera-wayland-protocols = { path = "crates/tessera-wayland-protocols" }
 tessera-wayland = { path = "crates/tessera-wayland" }
 tessera-platform = { path = "crates/tessera-platform" }
@@ -120,38 +115,21 @@ tessera-render = { path = "crates/tessera-render" }
 tessera-shell = { path = "crates/tessera-shell", default-features = false }
 # Product-specific design tokens, themes, and materials shared by chrome.
 tessera-design = { path = "crates/tessera-design" }
-# Composite UI patterns, dialog scaffolding, and panel widgets.
-# The Panel contract: trait, snapshot/event types, and backdrop declarations.
 # Locale negotiation and the typed translated message catalog for chrome.
 tessera-i18n = { path = "crates/tessera-i18n" }
-# Chrome components promoted out of tessera-shell (ADR-0044).
 # Persona/avatar runtime: profile contract plus the feature-gated still/VRM
 # portrait, motion, and hot-reload pipeline (ADR-0080, ADR-0096).
 tessera-avatar = { path = "crates/tessera-avatar" }
-# Display-only floating HUD status chips (ADR-0080).
-# SNI system tray service shared by shell chrome (ADR-0080).
-tessera-tray = { path = "crates/tessera-tray" }
-# Modal control center (ADR-0080).
+# Compositor wallpaper: image, video, 3D, and multi-plane parallax backgrounds.
 tessera-wallpaper = { path = "crates/tessera-wallpaper" }
 # First-party session products. The compositor retains the protocol and
 # fail-closed authority; these packages are ordinary Wayland clients.
 tessera-lock = { path = "crates/tessera-lock" }
 tessera-idle = { path = "crates/tessera-idle" }
-# Settings module library hosted by the command panel (ADR-0056).
 # Configuration: versioned TOML schema, loader, and live reload (ADR-0026).
 tessera-config = { path = "crates/tessera-config" }
-# IPC: versioned schema over a unix socket (ADR-0027).
-
-# Rich client library for the capability broker: pairing, credentials,
-# state recovery, and observation leases for out-of-process consumers
-# (ADR-0125).
 # Domain-oriented native command implementation used by the `tessera` binary.
 tessera-cli = { path = "crates/tessera-cli" }
-# Pure pixel-capture domain: readback staging, RGBA encoding, capture
-# geometry. The orchestrating worker stays in the composition root.
-# Agent principal registry and durable runtime-grant store (ADR-0088/0090).
-# Remote interaction gateway for the Universal Interaction Protocol (UIP).
-# Launcher: XDG application discovery + detached launch. See ADR-0022 and ADR-0160.
 # tessera-mcp: the scoped Tessera platform bridge over MCP — the standard agent
 # access point (ADR-0047, ADR-0087). It is an out-of-process adapter any MCP
 # client can spawn; the compositor never links it.
@@ -238,7 +216,7 @@ tiny-skia = { opt-level = 3 }
 usvg = { opt-level = 3 }
 image = { opt-level = 3 }
 tessera-design = { codegen-units = 1 }
-tessera-bootstrap = { codegen-units = 1 }
+tessera-env = { codegen-units = 1 }
 
 # Keep the compositor responsive without applying full release optimization to
 # workspace crates on every edit. Dependencies change less often, so their

@@ -17,8 +17,6 @@ use tessera_protocol::{
     ActorCapability, Command, ConnectionCapabilities, Effect, InteractionDomainAction,
     InteractionDomainActionResult, JournalMutation, ObservationToken, Scope,
 };
-use tessera_semantic::model::SemanticActionIntent;
-use tessera_semantic::model::SemanticObjectId;
 use tessera_primitives::Point;
 use tessera_primitives::Rect;
 use tessera_primitives::input::SyntheticInputAction;
@@ -481,7 +479,7 @@ impl ToolKind {
             ),
             Self::InteractionDomainObserve => definition(
                 "interaction_domain_observe",
-                "Read compositor-owned semantic objects for the Agent Interaction Domain without receiving pixels. Returns a short-lived, single-use observation token for interaction_domain_input.",
+                "Read compositor-owned window state and geometry for the Agent Interaction Domain without receiving pixels. Returns a short-lived, single-use observation token for interaction_domain_input.",
                 empty(),
                 true,
                 false,
@@ -547,8 +545,7 @@ fn input_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "target_window_id": {"type": "integer", "minimum": 1, "description":"Owning window id from semantic.id.window"},
-            "target_local_id": {"type": "integer", "minimum": 0, "description":"Window-scoped semantic id; 0 denotes the window root"},
+            "target_window_id": {"type": "integer", "minimum": 1, "description":"Target window id from observation"},
             "observation_token": {"type": "string", "minLength": 32, "maxLength": 128},
             "actions": {
                 "type": "array",
@@ -556,13 +553,6 @@ fn input_schema() -> Value {
                 "maxItems": MAX_INPUT_ACTIONS,
                 "items": {
                     "oneOf": [
-                        {"type":"object","properties":{"type":{"const":"invoke"}},"required":["type"],"additionalProperties":false},
-                        {"type":"object","properties":{"type":{"const":"focus"}},"required":["type"],"additionalProperties":false},
-                        {"type":"object","properties":{"type":{"const":"set_value"},"value":{"type":"string","maxLength":16384}},"required":["type","value"],"additionalProperties":false},
-                        {"type":"object","properties":{"type":{"const":"type_text"},"text":{"type":"string","maxLength":16384}},"required":["type","text"],"additionalProperties":false},
-                        {"type":"object","properties":{"type":{"const":"select"},"selected":{"type":"boolean"}},"required":["type","selected"],"additionalProperties":false},
-                        {"type":"object","properties":{"type":{"const":"expand"}},"required":["type"],"additionalProperties":false},
-                        {"type":"object","properties":{"type":{"const":"collapse"}},"required":["type"],"additionalProperties":false},
                         {"type":"object","properties":{"type":{"const":"pointer_move"},"x":{"type":"integer","minimum":0},"y":{"type":"integer","minimum":0}},"required":["type","x","y"],"additionalProperties":false},
                         {"type":"object","properties":{"type":{"const":"click"},"x":{"type":"integer","minimum":0},"y":{"type":"integer","minimum":0},"button":{"type":"string","enum":["left","right","middle","side","extra"]}},"required":["type","x","y","button"],"additionalProperties":false},
                         {"type":"object","properties":{"type":{"const":"pointer_button"},"x":{"type":"integer","minimum":0},"y":{"type":"integer","minimum":0},"button":{"type":"string","enum":["left","right","middle","side","extra"]},"state":{"type":"string","enum":["pressed","released"]}},"required":["type","button","state"],"additionalProperties":false},
@@ -803,40 +793,15 @@ impl TryFrom<RegionArgs> for Rect {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct InputArgs {
-    target_window_id: u64,
-    #[serde(default)]
-    target_local_id: u64,
-    observation_token: String,
-    actions: Vec<InputActionArgs>,
-}
-
-fn semantic_object_id(window: u64, local: u64) -> Result<SemanticObjectId, PlatformError> {
-    let window = (window != 0).then_some(window).ok_or_else(|| {
-        invalid("semantic target_window_id must identify a non-zero owning window")
-    })?;
-    Ok(SemanticObjectId {
-        window: tessera_desktop::window::WindowId(window),
-        local,
-    })
+pub(crate) struct InputArgs {
+    pub(crate) target_window_id: u64,
+    pub(crate) observation_token: String,
+    pub(crate) actions: Vec<InputActionArgs>,
 }
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
-enum InputActionArgs {
-    Invoke,
-    Focus,
-    SetValue {
-        value: String,
-    },
-    TypeText {
-        text: String,
-    },
-    Select {
-        selected: bool,
-    },
-    Expand,
-    Collapse,
+pub(crate) enum InputActionArgs {
     PointerMove {
         x: i32,
         y: i32,
@@ -867,21 +832,6 @@ enum InputActionArgs {
         code: u32,
         state: String,
     },
-}
-
-fn semantic_action(value: InputActionArgs) -> Result<SemanticActionIntent, PlatformError> {
-    Ok(match value {
-        InputActionArgs::Invoke => SemanticActionIntent::Invoke,
-        InputActionArgs::Focus => SemanticActionIntent::Focus,
-        InputActionArgs::SetValue { value } => SemanticActionIntent::SetValue { value },
-        InputActionArgs::TypeText { text } => SemanticActionIntent::TypeText { text },
-        InputActionArgs::Select { selected } => SemanticActionIntent::Select { selected },
-        InputActionArgs::Expand => SemanticActionIntent::Expand,
-        InputActionArgs::Collapse => SemanticActionIntent::Collapse,
-        synthetic => SemanticActionIntent::SyntheticInput {
-            actions: vec![SyntheticInputAction::try_from(synthetic)?],
-        },
-    })
 }
 
 impl TryFrom<InputActionArgs> for SyntheticInputAction {
@@ -963,7 +913,6 @@ impl TryFrom<InputActionArgs> for SyntheticInputAction {
                 let state = parse_state(&state)?;
                 Ok(Self::Key { code, state })
             }
-            _ => Err(invalid("semantic action is not a synthetic input fallback")),
         }
     }
 }
@@ -1086,7 +1035,7 @@ mod tests {
     }
 
     #[test]
-    fn input_translation_is_bounded_and_semantic() {
+    fn input_translation_is_bounded_and_validated() {
         let action = InputActionArgs::Click {
             x: 10,
             y: 20,

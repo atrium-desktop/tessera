@@ -339,15 +339,10 @@ impl TesseraPlatform {
         let actions = vec![SyntheticInputAction::PointerMove {
             position: local_position,
         }];
-        let semantic_actions = vec![
-            tessera_semantic::model::SemanticActionIntent::SyntheticInput {
-                actions: actions.clone(),
-            },
-        ];
-        let audited_actions = tessera_protocol::audit_semantic_actions(&semantic_actions);
+        let audited_input = tessera_protocol::audit_input_actions(&actions);
         client.inject_interaction_domain_input(
             interaction_domain,
-            SemanticObjectId::for_window(window),
+            window,
             observation.token,
             actions,
         )?;
@@ -359,12 +354,12 @@ impl TesseraPlatform {
                     &entry.mutation,
                     JournalMutation::ActorAction {
                         interaction_domain: event_interaction_domain,
-                        target,
-                        actions: event_actions,
+                        target_window,
+                        input: event_input,
                         ..
                     } if *event_interaction_domain == interaction_domain
-                        && *target == SemanticObjectId::for_window(window)
-                        && event_actions == &audited_actions
+                        && *target_window == window
+                        && *event_input == audited_input
                 )
             }) {
                 return match entry.effect {
@@ -936,7 +931,7 @@ impl TesseraPlatform {
         let image_png = (image_bytes <= MAX_INLINE_MCP_IMAGE_BYTES).then_some(capture.png);
         let observation_token = capture.observation.token.clone();
         let observation_ttl_ms = capture.observation.ttl_ms;
-        let semantic = capture.observation.snapshot;
+        let snapshot = capture.observation.snapshot;
         Ok(ToolCallResult {
             value: json!({
                 "interaction_domain_id": capture.interaction_domain.0,
@@ -948,7 +943,7 @@ impl TesseraPlatform {
                 "revision": capture.revision,
                 "observation_token": observation_token.0,
                 "observation_ttl_ms": observation_ttl_ms,
-                "semantic": semantic,
+                "windows": snapshot.windows,
                 "image_bytes": image_bytes,
                 "image_attached": image_png.is_some(),
                 "image_path": image_path
@@ -999,7 +994,7 @@ impl TesseraPlatform {
             "interaction_domain_id": managed.id.0,
             "observation_token": token.0,
             "observation_ttl_ms": ttl_ms,
-            "semantic": snapshot
+            "windows": snapshot.windows,
         })))
     }
 
@@ -1016,15 +1011,15 @@ impl TesseraPlatform {
         let actions = args
             .actions
             .into_iter()
-            .map(semantic_action)
+            .map(SyntheticInputAction::try_from)
             .collect::<Result<Vec<_>, PlatformError>>()?;
-        let target = semantic_object_id(args.target_window_id, args.target_local_id)?;
+        let target_window = window_id(args.target_window_id)?;
         let (managed_id, receipt) = run(&mut self.conn, GRANT_TIMEOUT, |client| {
             let managed = existing_interaction_domain(&mut self.interaction_domain, client)?;
             let receipt =
                 client.act_in_interaction_domain(tessera_protocol::ActorActionIntent {
                     interaction_domain: managed.id,
-                    target,
+                    target_window,
                     observation: ObservationToken(args.observation_token),
                     actions,
                 })?;
@@ -1034,7 +1029,7 @@ impl TesseraPlatform {
             "status": "committed",
             "operation": "interaction_domain_input",
             "interaction_domain_id": managed_id.0,
-            "target": target,
+            "target_window_id": target_window.0,
             "verified": true,
             "receipt": receipt
         })))

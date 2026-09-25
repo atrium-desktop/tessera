@@ -12,7 +12,7 @@
 //! - honours the entry's `Terminal=true` by wrapping the command in a
 //!   terminal emulator.
 //!
-//! Field codes in the entry's `Exec` are expanded first via `tessera-apps`. The
+//! Field codes in the entry's `Exec` are expanded first via `tessera-launch-services`. The
 //! final command line is handed to `sh -c` after each token is POSIX
 //! single-quote-escaped by `crate::entries::expand_exec`, so shell metacharacters in
 //! file names are safe. Ordinary process detachment is delegated to the

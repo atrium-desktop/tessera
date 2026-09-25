@@ -36,7 +36,7 @@ use crate::component::{
 use tessera_desktop::system::BatteryStatus;
 use tessera_desktop::system::NetworkState;
 
-use crate::components::hud::tray::{TrayHandle, TrayIcon};
+use crate::tray::{TrayHandle, TrayIcon};
 
 mod rendering;
 

@@ -14,33 +14,37 @@
 
 use crate::schema::{ActorCapability, Command, InteractionDomainAction, Scope, SettingsAction};
 use tessera_authority::interaction_domain::InteractionDomainId;
-use tessera_semantic::model::SemanticActionIntent;
-use tessera_semantic::model::SemanticObjectId;
+use tessera_primitives::input::SyntheticInputAction;
 
-/// Privacy-preserving semantic action shape retained in the durable audit.
-/// User-entered text and values never enter the event store.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum AuditedSemanticAction {
-    Invoke,
-    Focus,
-    SetValue {
-        utf8_bytes: u32,
-    },
-    TypeText {
-        utf8_bytes: u32,
-    },
-    Select {
-        selected: bool,
-    },
-    Expand,
-    Collapse,
-    SyntheticInput {
-        pointer_moves: u32,
-        clicks: u32,
-        scrolls: u32,
-        key_presses: u32,
-    },
+/// Privacy-preserving synthetic input counts retained in the durable audit.
+/// Input coordinates and text keys never enter the event store.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AuditedInputAction {
+    pub pointer_moves: u32,
+    pub clicks: u32,
+    pub scrolls: u32,
+    pub key_presses: u32,
+}
+
+pub fn audit_input_actions(actions: &[SyntheticInputAction]) -> AuditedInputAction {
+    let mut audited = AuditedInputAction::default();
+    for action in actions {
+        match action {
+            SyntheticInputAction::PointerMove { .. } => {
+                audited.pointer_moves = audited.pointer_moves.saturating_add(1);
+            }
+            SyntheticInputAction::Click { .. } | SyntheticInputAction::PointerButton { .. } => {
+                audited.clicks = audited.clicks.saturating_add(1);
+            }
+            SyntheticInputAction::Scroll { .. } => {
+                audited.scrolls = audited.scrolls.saturating_add(1);
+            }
+            SyntheticInputAction::KeyPress { .. } | SyntheticInputAction::Key { .. } => {
+                audited.key_presses = audited.key_presses.saturating_add(1);
+            }
+        }
+    }
+    audited
 }
 
 /// Privacy-minimized command projection retained in the durable audit.
@@ -252,60 +256,6 @@ impl From<&Command> for AuditedCommand {
     }
 }
 
-impl From<&SemanticActionIntent> for AuditedSemanticAction {
-    fn from(action: &SemanticActionIntent) -> Self {
-        match action {
-            SemanticActionIntent::Invoke => Self::Invoke,
-            SemanticActionIntent::Focus => Self::Focus,
-            SemanticActionIntent::SetValue { value } => Self::SetValue {
-                utf8_bytes: value.len().min(u32::MAX as usize) as u32,
-            },
-            SemanticActionIntent::TypeText { text } => Self::TypeText {
-                utf8_bytes: text.len().min(u32::MAX as usize) as u32,
-            },
-            SemanticActionIntent::Select { selected } => Self::Select {
-                selected: *selected,
-            },
-            SemanticActionIntent::Expand => Self::Expand,
-            SemanticActionIntent::Collapse => Self::Collapse,
-            SemanticActionIntent::SyntheticInput { actions } => {
-                let mut pointer_moves = 0u32;
-                let mut clicks = 0u32;
-                let mut scrolls = 0u32;
-                let mut key_presses = 0u32;
-                for action in actions {
-                    match action {
-                        tessera_primitives::input::SyntheticInputAction::PointerMove { .. } => {
-                            pointer_moves = pointer_moves.saturating_add(1);
-                        }
-                        tessera_primitives::input::SyntheticInputAction::Click { .. }
-                        | tessera_primitives::input::SyntheticInputAction::PointerButton { .. } => {
-                            clicks = clicks.saturating_add(1);
-                        }
-                        tessera_primitives::input::SyntheticInputAction::Scroll { .. } => {
-                            scrolls = scrolls.saturating_add(1);
-                        }
-                        tessera_primitives::input::SyntheticInputAction::KeyPress { .. }
-                        | tessera_primitives::input::SyntheticInputAction::Key { .. } => {
-                            key_presses = key_presses.saturating_add(1);
-                        }
-                    }
-                }
-                Self::SyntheticInput {
-                    pointer_moves,
-                    clicks,
-                    scrolls,
-                    key_presses,
-                }
-            }
-        }
-    }
-}
-
-pub fn audit_semantic_actions(actions: &[SemanticActionIntent]) -> Vec<AuditedSemanticAction> {
-    actions.iter().map(AuditedSemanticAction::from).collect()
-}
-
 /// Who caused a mutation. The agent filters its own echoes and models user
 /// intent from the origin.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -388,11 +338,8 @@ pub enum JournalMutation {
     ActorAction {
         action_id: Option<u64>,
         interaction_domain: InteractionDomainId,
-        target: SemanticObjectId,
-        window: Option<tessera_desktop::window::WindowId>,
-        actions: Vec<AuditedSemanticAction>,
-        /// True when an invalid oversized request was bounded to the first
-        /// 64 actions for audit retention.
+        target_window: tessera_desktop::window::WindowId,
+        input: AuditedInputAction,
         actions_truncated: bool,
         authority_revision: Option<u64>,
     },
@@ -843,16 +790,13 @@ mod tests {
         let mutation = JournalMutation::ActorAction {
             action_id: Some(17),
             interaction_domain: tessera_authority::interaction_domain::InteractionDomainId(4),
-            target: tessera_semantic::model::SemanticObjectId::for_window(
-                tessera_desktop::window::WindowId(9),
-            ),
-            window: Some(tessera_desktop::window::WindowId(9)),
-            actions: vec![AuditedSemanticAction::SyntheticInput {
+            target_window: tessera_desktop::window::WindowId(9),
+            input: AuditedInputAction {
                 pointer_moves: 0,
                 clicks: 1,
                 scrolls: 0,
                 key_presses: 0,
-            }],
+            },
             actions_truncated: false,
             authority_revision: Some(22),
         };
@@ -877,29 +821,18 @@ mod tests {
     #[test]
     fn audited_actions_never_retain_text_keys_or_coordinates() {
         let actions = vec![
-            SemanticActionIntent::TypeText {
-                text: "private-password".into(),
+            tessera_primitives::input::SyntheticInputAction::PointerMove {
+                position: tessera_primitives::Point { x: 123, y: 456 },
             },
-            SemanticActionIntent::SetValue {
-                value: "private-value".into(),
-            },
-            SemanticActionIntent::SyntheticInput {
-                actions: vec![
-                    tessera_primitives::input::SyntheticInputAction::PointerMove {
-                        position: tessera_primitives::Point { x: 123, y: 456 },
-                    },
-                    tessera_primitives::input::SyntheticInputAction::KeyPress { code: 777 },
-                ],
-            },
+            tessera_primitives::input::SyntheticInputAction::KeyPress { code: 777 },
         ];
-        let encoded = serde_json::to_string(&audit_semantic_actions(&actions)).unwrap();
-        for secret in ["private-password", "private-value", "123", "456", "777"] {
+        let encoded = serde_json::to_string(&audit_input_actions(&actions)).unwrap();
+        for secret in ["123", "456", "777"] {
             assert!(
                 !encoded.contains(secret),
                 "audit leaked {secret}: {encoded}"
             );
         }
-        assert!(encoded.contains("utf8_bytes"));
         assert!(encoded.contains("key_presses"));
     }
 

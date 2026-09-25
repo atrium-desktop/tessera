@@ -256,7 +256,7 @@ in the production topology with:
 scripts/test-interaction-domain-sandbox.sh
 ```
 
-The script starts the compiled `tessera-launcher` test binary as a transient
+The script starts the compiled `tessera-launch-services` test binary as a transient
 systemd user service with delegated `cpu`, `memory`, and `pids` controllers.
 It verifies mount-scoped multi-connection Wayland portals, mandatory resource
 limits, cgroup freeze/resume, and `cgroup.kill` against a worker that escapes

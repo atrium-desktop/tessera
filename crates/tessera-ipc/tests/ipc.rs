@@ -76,9 +76,6 @@ struct TestHandler {
             tessera_protocol::Effect,
         )>,
     >,
-    /// What `next_accessibility_action` answers: `Ok(None)` mimics the
-    /// timed-out long-poll heartbeat of the real adapter.
-    next_action_result: Mutex<Result<Option<tessera_semantic::SemanticActionRequest>, String>>,
     pair_result: Mutex<Result<tessera_authority::authority::PairedAgent, String>>,
     pair_calls: Mutex<Vec<PairCall>>,
     lookup_result: Mutex<Option<tessera_authority::authority::AgentIdentity>>,
@@ -137,7 +134,6 @@ impl TestHandler {
             idle_inhibits: Mutex::new(Vec::new()),
             idle_disconnects: Mutex::new(Vec::new()),
             capability_uses: Mutex::new(Vec::new()),
-            next_action_result: Mutex::new(Ok(None)),
             pair_result: Mutex::new(Err("pairing not offered".into())),
             pair_calls: Mutex::new(Vec::new()),
             lookup_result: Mutex::new(None),
@@ -203,7 +199,6 @@ impl TestHandler {
             idle_inhibits: Mutex::new(Vec::new()),
             idle_disconnects: Mutex::new(Vec::new()),
             capability_uses: Mutex::new(Vec::new()),
-            next_action_result: Mutex::new(Ok(None)),
             pair_result: Mutex::new(Err("pairing not offered".into())),
             pair_calls: Mutex::new(Vec::new()),
             lookup_result: Mutex::new(None),
@@ -674,14 +669,6 @@ impl Handler for TestHandler {
     fn idle_inhibit_disconnected(&self, conn_id: u64) {
         self.idle_disconnects.lock().unwrap().push(conn_id);
     }
-    fn next_accessibility_action(
-        &self,
-        _session: tessera_authority::authority::ActorSessionId,
-        _principal: &str,
-        _timeout: std::time::Duration,
-    ) -> Result<Option<tessera_semantic::SemanticActionRequest>, String> {
-        self.next_action_result.lock().unwrap().clone()
-    }
     fn pick_target(
         &self,
         conn_id: u64,
@@ -753,13 +740,13 @@ impl Handler for TestHandler {
                         surface_size: tessera_primitives::Size { w: 20, h: 10 },
                     },
                 ],
-                observation: tessera_protocol::SemanticObservation {
+                observation: tessera_protocol::InteractionDomainObservation {
                     token: tessera_protocol::ObservationToken("a".repeat(64)),
                     ttl_ms: 15_000,
-                    snapshot: tessera_semantic::model::SemanticSnapshot {
+                    snapshot: tessera_protocol::ObservationSnapshot {
                         interaction_domain,
                         authority_revision: 4,
-                        objects: Vec::new(),
+                        windows: Vec::new(),
                     },
                 },
                 png_bytes: 3,
@@ -794,31 +781,24 @@ impl Handler for TestHandler {
         _conn_id: u64,
         _subject: Option<&str>,
         interaction_domain: tessera_authority::interaction_domain::InteractionDomainId,
-    ) -> Result<tessera_protocol::SemanticObservation, String> {
-        Ok(tessera_protocol::SemanticObservation {
+    ) -> Result<tessera_protocol::InteractionDomainObservation, String> {
+        Ok(tessera_protocol::InteractionDomainObservation {
             token: tessera_protocol::ObservationToken("b".repeat(64)),
             ttl_ms: 15_000,
-            snapshot: tessera_semantic::model::SemanticSnapshot {
+            snapshot: tessera_protocol::ObservationSnapshot {
                 interaction_domain,
                 authority_revision: 4,
-                objects: vec![tessera_semantic::model::SemanticObject {
-                    id: tessera_semantic::model::SemanticObjectId::for_window(WindowId(1)),
-                    parent: None,
-                    window: WindowId(1),
-                    source: tessera_semantic::model::SemanticSource::Compositor,
-                    role: tessera_semantic::model::SemanticRole::Window,
-                    name: Some("first".into()),
-                    description: None,
-                    value: None,
+                windows: vec![tessera_protocol::ObservedWindow {
+                    id: WindowId(1),
                     app_id: Some("org.example.first".into()),
+                    title: Some("first".into()),
                     bounds: tessera_primitives::Rect::new(0, 0, 20, 10),
                     local_size: tessera_primitives::Size { w: 20, h: 10 },
-                    state: tessera_semantic::model::SemanticState {
-                        visible: true,
-                        enabled: true,
-                        ..Default::default()
-                    },
-                    actions: vec![tessera_semantic::model::SemanticAction::Pointer],
+                    visible: true,
+                    focused: true,
+                    enabled: true,
+                    minimized: false,
+                    read_only: false,
                     revision: 9,
                 }],
             },
@@ -838,8 +818,7 @@ impl Handler for TestHandler {
         Ok(tessera_protocol::ActorActionReceipt {
             action_id: 12,
             interaction_domain: intent.interaction_domain,
-            target: intent.target,
-            window: WindowId(1),
+            target_window: intent.target_window,
             authority_revision: 4,
             actions_applied: intent.actions.len() as u32,
             committed_mono_ms: 99,
@@ -1035,8 +1014,6 @@ fn sample_outputs() -> Vec<tessera_protocol::OutputInfo> {
 
 #[path = "ipc/agent.rs"]
 mod agent;
-#[path = "ipc/audit_polling.rs"]
-mod audit_polling;
 #[path = "ipc/authority.rs"]
 mod authority;
 #[path = "ipc/basics.rs"]

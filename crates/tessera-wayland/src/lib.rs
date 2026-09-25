@@ -1423,10 +1423,6 @@ pub(crate) struct State {
         InteractionDomainId,
     >,
     client_bound_seats: std::collections::HashMap<usize, std::collections::BTreeSet<SeatId>>,
-    /// Validated application accessibility trees. The compositor owns only
-    /// the bounded projection and routing metadata; D-Bus stays in the
-    /// out-of-process adapter.
-    semantic_trees: tessera_semantic::SemanticTreeRegistry,
     interaction_domain_placements: std::collections::BTreeMap<
         (InteractionDomainId, tessera_desktop::window::WindowId),
         tessera_primitives::Rect,
@@ -2134,8 +2130,8 @@ pub enum InteractionDomainRuntimeError {
     SeatUnavailable(SeatId),
     #[error("interaction_domain {} has no logical seat", .0.0)]
     InteractionDomainHasNoSeat(InteractionDomainId),
-    #[error("InteractionDomain semantic observation exceeds the {limit}-object safety bound")]
-    SemanticObservationTooLarge { limit: usize },
+    #[error("InteractionDomain accessibility observation exceeds the {limit}-object safety bound")]
+    AccessibilityObservationTooLarge { limit: usize },
     #[error("failed to create InteractionDomain launch portal: {0}")]
     Portal(String),
 }

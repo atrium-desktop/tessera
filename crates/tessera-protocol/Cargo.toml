@@ -9,7 +9,6 @@ rust-version.workspace = true
 tessera-desktop.workspace = true
 tessera-primitives.workspace = true
 tessera-authority.workspace = true
-tessera-semantic.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 zeroize.workspace = true

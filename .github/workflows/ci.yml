@@ -51,18 +51,18 @@ jobs:
       - name: Clippy (flux-free crates)
         run: >-
           cargo clippy --locked
-          -p tessera-desktop -p tessera-types -p tessera-scene -p tessera-authority -p tessera-audit -p tessera-semantic
-          -p tessera-config -p tessera-ipc -p tessera-apps
+          -p tessera-desktop -p tessera-primitives -p tessera-authority -p tessera-audit
+          -p tessera-config -p tessera-ipc -p tessera-protocol -p tessera-launch-services -p tessera-env
           -p tessera-cli -p tessera-mcp -p tessera-idle
-          -p tessera-atspi -p tessera-wayland-protocols -p tessera-wayland
+          -p tessera-wayland-protocols -p tessera-wayland
           --all-targets -- -D warnings
       - name: Doc check (flux-free crates)
         run: >-
           cargo doc --locked --no-deps
-          -p tessera-desktop -p tessera-types -p tessera-scene -p tessera-authority -p tessera-audit -p tessera-semantic
-          -p tessera-config -p tessera-ipc -p tessera-apps
+          -p tessera-desktop -p tessera-primitives -p tessera-authority -p tessera-audit
+          -p tessera-config -p tessera-ipc -p tessera-protocol -p tessera-launch-services -p tessera-env
           -p tessera-cli -p tessera-mcp -p tessera-idle
-          -p tessera-atspi -p tessera-wayland-protocols -p tessera-wayland
+          -p tessera-wayland-protocols -p tessera-wayland
 
   flux-free-tests:
     runs-on: ubuntu-24.04
@@ -83,10 +83,10 @@ jobs:
       - name: Test flux-free crates
         run: >-
           cargo nextest run --profile ci --locked
-          -p tessera-desktop -p tessera-types -p tessera-scene -p tessera-authority -p tessera-audit -p tessera-semantic
-          -p tessera-config -p tessera-ipc -p tessera-apps
+          -p tessera-desktop -p tessera-primitives -p tessera-authority -p tessera-audit
+          -p tessera-config -p tessera-ipc -p tessera-protocol -p tessera-launch-services -p tessera-env
           -p tessera-cli -p tessera-mcp -p tessera-idle
-          -p tessera-atspi -p tessera-wayland
+          -p tessera-wayland
       - name: Build tessera-wayland-protocols
         run: cargo build --locked -p tessera-wayland-protocols
 

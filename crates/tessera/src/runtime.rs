@@ -1,6 +1,7 @@
 use crate::*;
 use tessera_authority::authority::{ActorBinding, ObservationLeaseRegistry as ObservationRegistry};
 use tessera_protocol::CommandScopePolicy as _;
+pub(super) use tessera_wallpaper as wallpaper;
 
 mod app_pick;
 mod apps;
@@ -227,7 +228,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // the runtime directory is validated here and injected into the core,
     // which never reads the environment itself. A failure is fatal —
     // interaction-domain portals cannot work without a runtime directory.
-    server.set_runtime_dir(tessera_bootstrap::runtime_dir()?);
+    server.set_runtime_dir(tessera_env::runtime_dir()?);
     server.set_outputs(host.output_infos());
     server.set_color_pipeline(host.color_pipeline());
     log::info!("server: listening on WAYLAND_DISPLAY={}", server.socket());
@@ -305,7 +306,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         feature = "chrome-command-panel"
     )) || config.as_ref().map(|c| c.hud.enabled).unwrap_or(true)
     {
-        tessera_tray::spawn()
+        tessera_shell::tray::spawn()
     } else {
         None
     };
@@ -706,10 +707,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         std::sync::mpsc::sync_channel::<InteractionDomainObserveRequest>(1_024);
     let (actor_action_tx, actor_action_rx) =
         std::sync::mpsc::sync_channel::<InteractionDomainActorActionRequest>(1_024);
-    let (semantic_tree_update_tx, semantic_tree_update_rx) =
-        std::sync::mpsc::sync_channel::<SemanticTreeUpdateRequest>(256);
-    let (semantic_provider_revocation_tx, semantic_provider_revocation_rx) =
-        std::sync::mpsc::sync_channel::<tessera_semantic::SemanticProviderId>(256);
     // Predispatch refusals can be generated without waiting for the main
     // loop. Bound this lane so a hostile connection receives backpressure
     // instead of accumulating unbounded token-revocation work.
@@ -849,19 +846,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         j
     };
     let journal = std::sync::Arc::new(std::sync::Mutex::new(journal));
-    let mut agent_registry = PrincipalRegistry::load(data_home.join("tessera/principals.json"));
+    let agent_registry = PrincipalRegistry::load(data_home.join("tessera/principals.json"));
     let grant_store = GrantStore::load(data_home.join("tessera/grants.json"));
     let journal_broadcaster = tessera_ipc::JournalBroadcaster::default();
-    let (_, semantic_adapter_credential) = agent_registry
-        .register_ephemeral(
-            Some("Tessera AT-SPI adapter"),
-            vec![
-                tessera_protocol::ActorCapability::ObserveWindows,
-                tessera_protocol::ActorCapability::PublishAccessibilityTree,
-                tessera_protocol::ActorCapability::DispatchAccessibilityAction,
-            ],
-        )
-        .map_err(std::io::Error::other)?;
     let agent_lockdown = config.as_ref().is_none_or(|config| config.agent.lockdown);
     let live = std::sync::Arc::new(LiveState::new(
         LiveChannels {
@@ -876,8 +863,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             window_capture: window_capture_tx,
             interaction_domain_observe: interaction_domain_observe_tx,
             actor_actions: actor_action_tx,
-            semantic_tree_updates: semantic_tree_update_tx,
-            semantic_provider_revocations: semantic_provider_revocation_tx,
             observation_discards: observation_discard_tx,
             actor_disconnects: actor_disconnect_tx,
             stream_controls: stream_control_tx,
@@ -939,7 +924,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     live.set_settings(settings_snapshot.clone());
     shell.set_settings(settings_snapshot);
     live.set_system_status(system_status.clone());
-    let ipc: Option<tessera_ipc::Server> = match tessera_bootstrap::runtime_dir()
+    let ipc: Option<tessera_ipc::Server> = match tessera_env::runtime_dir()
         .map(|dir| tessera_ipc::socket_paths::default_socket_path(&dir))
     {
         Ok(path) => {
@@ -973,10 +958,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or_default(),
         host.name() == "nested",
         ipc.is_some(),
-    );
-    let semantic_adapter_process = session::SemanticAdapterProcess::start(
-        semantic_adapter_credential,
-        ipc.is_some() && host.name() != "nested",
     );
     // Signature of the last broadcast window set, used to detect changes.
     let last_win_sig: Option<WindowEventSignature> = None;
@@ -1110,7 +1091,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         dock_state_path,
         reload,
         idle_process,
-        semantic_adapter_process,
         quit_requested,
         ipc_cmd_rx,
         transact_rx,
@@ -1123,9 +1103,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         window_capture_rx,
         interaction_domain_observe_rx,
         actor_action_rx,
-        semantic_tree_update_rx,
-        semantic_provider_revocation_rx,
-        pending_semantic_actions: Vec::new(),
         observation_discard_rx,
         actor_disconnect_rx,
         observations: ObservationRegistry::default(),

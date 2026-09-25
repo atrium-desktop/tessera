@@ -64,12 +64,6 @@ pub const AGENT_REQUESTABLE: &[ActorCapability] = &[
     ActorCapability::LaunchApp,
 ];
 
-const SYSTEM_COMPONENT_CAPABILITIES: &[ActorCapability] = &[
-    ActorCapability::ObserveWindows,
-    ActorCapability::PublishAccessibilityTree,
-    ActorCapability::DispatchAccessibilityAction,
-];
-
 /// Operation families that always route through the interactive runtime
 /// grant on first use, however the ceiling was approved: destructive,
 /// privacy-sensitive, or authority-transferring (ADR-0088).
@@ -363,44 +357,6 @@ impl PrincipalRegistry {
     ) -> Result<(String, String), String> {
         let (pregranted, gated) = validate_explicit_ceiling(pregranted, gated)?;
         self.register_record(label, pregranted, gated)
-    }
-
-    /// Provision a first-party process identity for this compositor
-    /// lifetime. The returned credential is passed over an inherited pipe;
-    /// neither the cleartext credential nor its digest reaches disk.
-    pub fn register_ephemeral(
-        &mut self,
-        label: Option<&str>,
-        pregranted: Vec<ActorCapability>,
-    ) -> Result<(String, String), String> {
-        if pregranted.is_empty() {
-            return Err("system component capability ceiling is empty".into());
-        }
-        let mut seen = Vec::new();
-        for capability in &pregranted {
-            if !SYSTEM_COMPONENT_CAPABILITIES.contains(capability) {
-                return Err(format!(
-                    "operation {capability:?} is not available to an ephemeral system component"
-                ));
-            }
-            if seen.contains(capability) {
-                return Err(format!(
-                    "system component ceiling contains duplicate operation {capability:?}"
-                ));
-            }
-            seen.push(*capability);
-        }
-        let principal = format!("prin_{}", random_hex(8)?);
-        let credential = random_hex(32)?;
-        self.ephemeral.push(PrincipalRecord {
-            id: principal.clone(),
-            label: label.map(str::to_owned),
-            credential_sha256: sha256_hex(credential.as_bytes()),
-            pregranted,
-            gated: Vec::new(),
-            created_at: now_epoch(),
-        });
-        Ok((principal, credential))
     }
 
     /// Shared tail of [`PrincipalRegistry::issue`] and
@@ -1281,27 +1237,6 @@ mod tests {
             registry.principals()[0].label.as_deref(),
             Some("Provisioned")
         );
-    }
-
-    #[test]
-    fn ephemeral_component_identity_is_recognized_but_never_persisted() {
-        let path = scratch();
-        let mut registry = PrincipalRegistry::load(path.clone());
-        let (principal, credential) = registry
-            .register_ephemeral(
-                Some("Tessera AT-SPI adapter"),
-                vec![ActorCapability::PublishAccessibilityTree],
-            )
-            .unwrap();
-        assert_eq!(
-            registry.lookup(&credential).unwrap().principal.as_str(),
-            principal
-        );
-        assert!(!path.exists(), "ephemeral registration wrote durable state");
-
-        let reloaded = PrincipalRegistry::load(path.clone());
-        assert!(reloaded.lookup(&credential).is_none());
-        cleanup(&path);
     }
 
     #[test]

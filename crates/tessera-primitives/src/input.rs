@@ -2,7 +2,7 @@
 //!
 //! Backends (nested-host, libinput, DRM/KMS) emit these; the main loop drains
 //! and routes them — to the focused client via `wl_seat`, to the chrome via
-//! `lens::Input`, or both. Keeping the types in `tessera-types` (rather than in
+//! `lens::Input`, or both. Keeping the types in `tessera-primitives` (rather than in
 //! `tessera-platform`) means the server and shell never need to depend on a backend
 //! crate to consume input.
 
@@ -659,7 +659,7 @@ pub enum PointerGestureEvent {
 
 // XKB keysym values for the few control keys the compositor chrome cares
 // about. These are stable, public constants from X11/keysymdef.h; defining
-// them here keeps `tessera-types` free of an `xkbcommon` dependency while letting
+// them here keeps `tessera-primitives` free of an `xkbcommon` dependency while letting
 // the launcher interpret keysym output it receives from the server. The names
 // intentionally match the C macros verbatim (greppable against keysymdef.h),
 // so they do not follow Rust's UPPER_CASE globals convention; the file-level

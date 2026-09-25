@@ -5,11 +5,11 @@
 //! same runtime directory, so the names live here as pure functions
 //! over a caller-supplied directory. Environment resolution (where the
 //! runtime directory actually is) is deliberately NOT here — that is
-//! `tessera_bootstrap::runtime_dir()` (ADR-0147 Decision 2). Consumers
+//! `tessera_env::runtime_dir()` (ADR-0147 Decision 2). Consumers
 //! compose the two:
 //!
 //! ```ignore
-//! let dir = tessera_bootstrap::runtime_dir()?;
+//! let dir = tessera_env::runtime_dir()?;
 //! let path = crate::socket_paths::default_socket_path(&dir);
 //! ```
 //!

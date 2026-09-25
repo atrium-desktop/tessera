@@ -383,42 +383,6 @@ impl Server {
         self.windows_in_set(&visible)
     }
 
-    /// Process-bound window identities for the first-party AT-SPI adapter.
-    /// Keeping this separate from `windows()` prevents kernel process
-    /// credentials from leaking into ordinary observation responses.
-    pub fn accessibility_window_bindings(
-        &self,
-    ) -> Vec<tessera_semantic::AccessibilityWindowBinding> {
-        let visible = self.visible();
-        self.state
-            .live_surfaces()
-            .map(|surface| unsafe { &*surface })
-            .filter(|surface| {
-                surface.mapped
-                    && !surface.xdg_toplevel.is_null()
-                    && visible.contains(&surface.window.id)
-                    && self.state.authority.interaction_domain_observes_window(
-                        HUMAN_INTERACTION_DOMAIN,
-                        surface.window.id,
-                    )
-            })
-            .filter_map(|surface| {
-                let process_id = self
-                    .state
-                    .client_process_ids
-                    .get(&surface.client_id)
-                    .copied()?;
-                let mut window = surface.window.clone();
-                window.read_only = !self
-                    .state
-                    .authority
-                    .seat_controls_window(HUMAN_SEAT, window.id);
-                window.state.activated = self.seat_focuses_window(HUMAN_SEAT, window.id);
-                Some(tessera_semantic::AccessibilityWindowBinding { window, process_id })
-            })
-            .collect()
-    }
-
     /// Enumerate the presentation-visible windows. During a workspace slide
     /// this includes retained source pages so their compositor-owned shadows
     /// remain stable until the page leaves the output.

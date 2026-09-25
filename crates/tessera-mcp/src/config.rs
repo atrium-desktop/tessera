@@ -74,7 +74,7 @@ impl BridgeConfig {
         // fed into the lookup-based constructor alongside the other
         // environment variables, so the validation path is identical in
         // production and in tests (ADR-0147 Decision 2).
-        match tessera_bootstrap::runtime_dir() {
+        match tessera_env::runtime_dir() {
             Ok(dir) => Self::from_lookup(|name| {
                 if name == "XDG_RUNTIME_DIR" {
                     return Some(dir.as_os_str().to_os_string());
@@ -264,7 +264,7 @@ pub enum ConfigError {
     /// The XDG runtime directory failed validation (unset or relative).
     /// The message carries the underlying bootstrap error.
     #[error("runtime environment: {0}")]
-    RuntimeEnvironment(#[from] tessera_bootstrap::RuntimeDirError),
+    RuntimeEnvironment(#[from] tessera_env::RuntimeDirError),
 }
 
 #[cfg(test)]

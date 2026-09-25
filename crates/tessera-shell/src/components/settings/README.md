@@ -1,8 +1,8 @@
-# tessera-settings
+# Settings Component (`tessera-shell::components::settings`)
 
-`tessera-settings` is the settings module library for tessera: the
+`components::settings` is the settings module library for tessera: the
 `SettingsModule` contract, the `ModuleRegistry`, and the built-in settings
-modules. It is hosted in-process by the command panel; the former standalone
+modules. It is hosted in-process by the command panel (`components::control_center`); the former standalone
 application and its IPC worker are gone.
 
 ## Responsibilities
@@ -45,10 +45,10 @@ keep stable routes but remain unavailable until their backends exist.
 
 ## Use
 
-Depend on the crate and build the built-in module set:
+Construct the built-in module set:
 
 ```rust
-let registry = tessera_settings::builtin_settings_modules();
+let registry = tessera_shell::components::settings::builtin_settings_modules();
 ```
 
 ## Related Documentation

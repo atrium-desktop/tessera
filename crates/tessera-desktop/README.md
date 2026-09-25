@@ -6,7 +6,7 @@ deterministic model contract shared by Tessera components.
 ## Responsibilities
 
 - Define logical geometry, output, input, window, workspace, Interaction
-  Domain, seat, semantic object, and application types.
+  Domain, seat, and application types.
 - Hold pure layout, key-binding, launcher, notification, and window-rule
   logic.
 - Provide the stable models exchanged by the server, renderer, shell,
@@ -46,4 +46,4 @@ shared model.
 - [Responsibility boundary decision](../../docs/adr/0001-scope-and-responsibility-boundary.md)
 - [Workspace layout](../../docs/dev/project-layout.md)
 - [Interaction Domain and seat decision](../../docs/adr/0040-realms-seats-and-transferable-interaction-authority.md)
-- [Actor semantic observation decision](../../docs/adr/0102-actor-scoped-semantic-observation-and-transactional-actions.md)
+- [Purify compositor boundary and decouple application accessibility](../../docs/adr/0165-purify-compositor-boundary-and-decouple-application-accessibility.md)

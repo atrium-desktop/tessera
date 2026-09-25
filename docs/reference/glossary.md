@@ -18,9 +18,8 @@ Canonical terms for Tessera authority, automation, and Agent integration.
 | Interaction Domain | A compositor-enforced GUI interaction authority boundary: controller, lifecycle, seat, presentation target, controlled groups, observers, and revision. | Authentication realm, VM, Linux namespace, or desktop workspace. |
 | Agent Workspace | The user-facing status metaphor for an Agent Interaction Domain, shown as a status label in the command panel. | The kernel security primitive or a human desktop workspace. |
 | Interaction group | The smallest set of related surfaces whose control authority transfers atomically. | One arbitrary rectangle or individual subsurface. |
-| Observation | Actor-scoped semantic state or separately authorized pixels. It grants no action authority. | An action or framebuffer-global visibility. |
-| Semantic provider | An authenticated out-of-process adapter that publishes complete bounded accessibility revisions and executes routed semantic actions. | An Agent runtime or trusted self-asserted application label. |
-| Action intent | Semantic target, bounded actions, and a single-use observation precondition submitted for optimistic validation. | A coordinate click sent directly to a global input device. |
+| Observation | Actor-scoped window state or separately authorized pixels. It grants no action authority. | An action or framebuffer-global visibility. |
+| Action intent | Target window, bounded physical actions, and a single-use observation precondition submitted for optimistic validation. | A coordinate click sent directly to a global input device. |
 | Action receipt | Authoritative evidence that the compositor main loop revalidated and committed the complete action batch. | A queued acknowledgement. |
 | Audit event | Privacy-minimized, principal-attributed decision stored in the bounded projection and hash-chained durable log. | Raw input content, Agent memory, or a restorable snapshot of external clients. |
 | Primitive family | One of four canonical classes of the broker's client-facing protocol — Observe, Transact, Inject, Subscribe — that new client capabilities extend. | A single request type or a raw verb exposed to model clients. |

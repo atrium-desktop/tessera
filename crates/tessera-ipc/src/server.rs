@@ -30,9 +30,9 @@ use tessera_protocol::schema::{
     ActorActionIntent, ActorActionReceipt, ActorCapability, AgentGrantInfo, AgentIssued,
     AgentPrincipalInfo, AuthorizationDecision, Command, CommandScopePolicy, ConnectionCapabilities,
     Event, InteractionDomainAction, InteractionDomainActionResult, InteractionDomainCapture,
-    LOCAL_AGENT_ADMIN_SCOPE, LOCAL_INTERACTION_DOMAIN_ADMIN_SCOPE, LOCAL_OWNER_ADMIN_SCOPE,
-    LOCAL_PORTAL_SCOPE, LeaseGrant, MAX_TRANSACT_OPS, PROTOCOL_VERSION, Request, Response, Scope,
-    SemanticObservation, SettingsAction, SettingsReceipt, SettingsSnapshot, TransactOp,
+    InteractionDomainObservation, LOCAL_AGENT_ADMIN_SCOPE, LOCAL_INTERACTION_DOMAIN_ADMIN_SCOPE,
+    LOCAL_OWNER_ADMIN_SCOPE, LOCAL_PORTAL_SCOPE, LeaseGrant, MAX_TRANSACT_OPS, PROTOCOL_VERSION,
+    Request, Response, Scope, SettingsAction, SettingsReceipt, SettingsSnapshot, TransactOp,
 };
 
 /// Large output-capture payload transferred as a sealed memfd by the IPC

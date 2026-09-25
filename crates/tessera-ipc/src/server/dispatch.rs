@@ -449,193 +449,6 @@ pub(super) fn drive_read_loop<H: Handler>(
                 }
                 response
             }
-            Request::GetAccessibilityWindows => {
-                let current_scope = effective_scope(
-                    handler,
-                    scope_name.as_deref(),
-                    &granted_scope,
-                    principal.as_deref(),
-                );
-                let authorized = granted.query
-                    && granted.control
-                    && lease_alive
-                    && principal.is_some()
-                    && current_scope.as_ref().is_some_and(|scope| {
-                        scope.pregrants(ActorCapability::ObserveWindows)
-                            && scope.pregrants(ActorCapability::PublishAccessibilityTree)
-                    });
-                let response = if authorized {
-                    Response::AccessibilityWindows {
-                        windows: filter_accessibility_windows(
-                            handler.accessibility_windows(),
-                            current_scope.as_ref().expect("scope checked"),
-                        ),
-                    }
-                } else {
-                    Response::Error {
-                        message: "accessibility process bindings are out of scope".into(),
-                    }
-                };
-                // The scan query is routine snapshot polling and is not
-                // durably logged (ADR-0135): it decides nothing and the
-                // published revisions it feeds are audited at
-                // `PublishAccessibilityTree`. Only a refusal — an
-                // out-of-scope process trying to bind — is an authority
-                // decision worth durable history.
-                if matches!(response, Response::Error { .. }) {
-                    audit_capability_response(
-                        handler,
-                        &live_scope,
-                        ActorCapability::PublishAccessibilityTree,
-                        tessera_protocol::journal::CapabilityUseAction::Observe,
-                        &response,
-                    );
-                }
-                response
-            }
-            Request::PublishAccessibilityTree { update } => {
-                let current_scope = effective_scope(
-                    handler,
-                    scope_name.as_deref(),
-                    &granted_scope,
-                    principal.as_deref(),
-                );
-                let authorized = granted.control
-                    && lease_alive
-                    && current_scope.as_ref().is_some_and(|scope| {
-                        scope.pregrants(ActorCapability::PublishAccessibilityTree)
-                    });
-                let response = match (authorized, principal.as_deref()) {
-                    (false, _) => Response::Error {
-                        message: "publishing accessibility trees is out of scope".into(),
-                    },
-                    (true, None) => Response::Error {
-                        message: "accessibility providers require an authenticated principal"
-                            .into(),
-                    },
-                    (true, Some(principal)) => {
-                        match handler.publish_accessibility_tree(principal, update) {
-                            Ok(()) => Response::AccessibilityTreePublished {},
-                            Err(message) => Response::Error { message },
-                        }
-                    }
-                };
-                audit_capability_response(
-                    handler,
-                    &live_scope,
-                    ActorCapability::PublishAccessibilityTree,
-                    tessera_protocol::journal::CapabilityUseAction::Publish,
-                    &response,
-                );
-                response
-            }
-            Request::NextAccessibilityAction { timeout_ms } => {
-                let current_scope = effective_scope(
-                    handler,
-                    scope_name.as_deref(),
-                    &granted_scope,
-                    principal.as_deref(),
-                );
-                let authorized = granted.control
-                    && lease_alive
-                    && current_scope.as_ref().is_some_and(|scope| {
-                        scope.pregrants(ActorCapability::DispatchAccessibilityAction)
-                    });
-                let response = match (authorized, principal.as_deref()) {
-                    (false, _) => Response::Error {
-                        message: "accessibility action dispatch is out of scope".into(),
-                    },
-                    (true, None) => Response::Error {
-                        message: "accessibility providers require an authenticated principal"
-                            .into(),
-                    },
-                    (true, Some(principal)) => {
-                        match handler.next_accessibility_action(
-                            session.id,
-                            principal,
-                            std::time::Duration::from_millis(timeout_ms.clamp(1, 30_000)),
-                        ) {
-                            Ok(request) => Response::AccessibilityAction { request },
-                            Err(message) => Response::Error { message },
-                        }
-                    }
-                };
-                // A timed-out long-poll is connection maintenance, not an
-                // authority decision: the provider asked for work, found
-                // none, and changed nothing. Auditing every heartbeat here
-                // writes one durable event per poll interval for the whole
-                // life of the adapter (ADR-0135) — the unbounded growth
-                // that exhausted the disk. The durable trail keeps action
-                // delivery (`Ok(Some)`) and refusals.
-                match &response {
-                    Response::AccessibilityAction { request: Some(_) } | Response::Error { .. } => {
-                        audit_capability_response(
-                            handler,
-                            &live_scope,
-                            ActorCapability::DispatchAccessibilityAction,
-                            tessera_protocol::journal::CapabilityUseAction::Await,
-                            &response,
-                        );
-                    }
-                    // `Ok(None)`: the poll expired without work.
-                    _ => {}
-                }
-                response
-            }
-            Request::CompleteAccessibilityAction {
-                request_id,
-                success,
-                message,
-            } => {
-                let message_valid = message
-                    .as_ref()
-                    .is_none_or(|message| message.len() <= 1_024 && !message.contains('\0'));
-                let current_scope = effective_scope(
-                    handler,
-                    scope_name.as_deref(),
-                    &granted_scope,
-                    principal.as_deref(),
-                );
-                let authorized = granted.control
-                    && lease_alive
-                    && message_valid
-                    && current_scope.as_ref().is_some_and(|scope| {
-                        scope.pregrants(ActorCapability::DispatchAccessibilityAction)
-                    });
-                let response = match (authorized, principal.as_deref()) {
-                    (false, _) => Response::Error {
-                        message: "accessibility action completion is invalid or out of scope"
-                            .into(),
-                    },
-                    (true, None) => Response::Error {
-                        message: "accessibility providers require an authenticated principal"
-                            .into(),
-                    },
-                    (true, Some(principal)) => {
-                        let result = if success {
-                            Ok(())
-                        } else {
-                            Err(message.unwrap_or_else(|| {
-                                "accessibility adapter refused the action".into()
-                            }))
-                        };
-                        match handler.complete_accessibility_action(
-                            session.id, principal, request_id, result,
-                        ) {
-                            Ok(()) => Response::AccessibilityActionCompleted {},
-                            Err(message) => Response::Error { message },
-                        }
-                    }
-                };
-                audit_capability_response(
-                    handler,
-                    &live_scope,
-                    ActorCapability::DispatchAccessibilityAction,
-                    tessera_protocol::journal::CapabilityUseAction::Complete,
-                    &response,
-                );
-                response
-            }
             Request::GetWindows => {
                 let scope = effective_scope(
                     handler,
@@ -1796,9 +1609,8 @@ pub(super) fn drive_read_loop<H: Handler>(
                         JournalMutation::ActorAction {
                             action_id: None,
                             interaction_domain: intent.interaction_domain,
-                            target: intent.target,
-                            window: None,
-                            actions: tessera_protocol::journal::audit_semantic_actions(
+                            target_window: intent.target_window,
+                            input: tessera_protocol::journal::audit_input_actions(
                                 &intent.actions.iter().take(64).cloned().collect::<Vec<_>>(),
                             ),
                             actions_truncated,
@@ -1809,7 +1621,7 @@ pub(super) fn drive_read_loop<H: Handler>(
                     Response::Error { message }
                 } else {
                     let expected_interaction_domain = intent.interaction_domain;
-                    let expected_target = intent.target;
+                    let expected_target = intent.target_window;
                     let expected_actions = intent.actions.len() as u32;
                     match handler.act_in_interaction_domain(
                         conn_id,
@@ -1821,8 +1633,7 @@ pub(super) fn drive_read_loop<H: Handler>(
                         Ok(receipt)
                             if receipt.action_id != 0
                                 && receipt.interaction_domain == expected_interaction_domain
-                                && receipt.target == expected_target
-                                && receipt.window.0 != 0
+                                && receipt.target_window == expected_target
                                 && receipt.actions_applied == expected_actions =>
                         {
                             Response::ActorActionCommitted { receipt }

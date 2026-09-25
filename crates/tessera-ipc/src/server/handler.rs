@@ -12,11 +12,6 @@ pub trait Handler: Send + Sync {
     /// Snapshot of live toplevels, in z-order — the same `Window` the
     /// renderer and chrome read.
     fn windows(&self) -> Vec<tessera_desktop::window::Window>;
-    /// Process-bound toplevels for the authenticated first-party semantic
-    /// provider. The default exposes nothing.
-    fn accessibility_windows(&self) -> Vec<tessera_semantic::AccessibilityWindowBinding> {
-        Vec::new()
-    }
     /// Snapshot of the workspace/output model. Same shape the chrome and the
     /// agent read.
     fn workspaces(&self) -> tessera_desktop::workspace::WorkspaceSnapshot;
@@ -167,34 +162,6 @@ pub trait Handler: Send + Sync {
         _id: &tessera_authority::authority::ResourceGrantId,
     ) -> Result<(), String> {
         Err("dynamic resource grants are not supported by this server".into())
-    }
-    /// Commit a validated accessibility-tree revision on the compositor main
-    /// loop. `principal` must be the authenticated provider identity.
-    fn publish_accessibility_tree(
-        &self,
-        _principal: &str,
-        _update: tessera_semantic::AccessibilityTreeUpdate,
-    ) -> Result<(), String> {
-        Err("accessibility-tree publishing is not supported by this server".into())
-    }
-    /// Long-poll one semantic action routed to this authenticated provider.
-    /// `Ok(None)` is a normal timeout, not an error.
-    fn next_accessibility_action(
-        &self,
-        _session: tessera_authority::authority::ActorSessionId,
-        _principal: &str,
-        _timeout: std::time::Duration,
-    ) -> Result<Option<tessera_semantic::SemanticActionRequest>, String> {
-        Err("accessibility action dispatch is not supported by this server".into())
-    }
-    fn complete_accessibility_action(
-        &self,
-        _session: tessera_authority::authority::ActorSessionId,
-        _principal: &str,
-        _request_id: u64,
-        _result: Result<(), String>,
-    ) -> Result<(), String> {
-        Err("accessibility action dispatch is not supported by this server".into())
     }
     /// Interactively pair a capability-borrowing agent: ask the user to
     /// approve the declared ceiling and return the issued principal,
@@ -472,14 +439,14 @@ pub trait Handler: Send + Sync {
     ) -> Result<CaptureWindowPayload, String> {
         Err("window capture unsupported".into())
     }
-    /// Read compositor-owned semantic objects without transferring pixels.
+    /// Read compositor-owned window state without transferring pixels.
     fn observe_interaction_domain(
         &self,
         _conn_id: u64,
         _subject: Option<&str>,
         _interaction_domain: tessera_authority::interaction_domain::InteractionDomainId,
-    ) -> Result<SemanticObservation, String> {
-        Err("InteractionDomain semantic observation unsupported".into())
+    ) -> Result<InteractionDomainObservation, String> {
+        Err("InteractionDomain observation unsupported".into())
     }
     /// Revalidate and commit one observation-bound action on the compositor
     /// main loop. The implementation must consume the observation even when

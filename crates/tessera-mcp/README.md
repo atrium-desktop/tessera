@@ -18,7 +18,7 @@ target/release/tessera-mcp print-config   # MCP client config entry
 The bridge is a protocol edge over the compositor's native capability
 broker. It borrows capabilities through first-run pairing, persists an
 instance-partitioned credential, and prompts again only for sensitive
-operations on first use. Semantic observation is separate from action:
+operations on first use. Window observation is separate from action:
 `interaction_domain_observe` returns a single-use state precondition and
 `interaction_domain_input`
 returns only after the compositor commits or refuses the bounded action. See the

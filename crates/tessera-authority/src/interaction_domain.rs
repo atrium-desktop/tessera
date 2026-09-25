@@ -275,7 +275,7 @@ pub struct InteractionDomainSnapshot {
 /// `output_rect` is in virtual-output logical coordinates. `surface_size` is
 /// the target-local logical extent accepted by observation-bound
 /// `ActInInteractionDomain`; together they correlate pixel compatibility captures with
-/// compositor-owned semantic window roots.
+/// compositor-owned observed windows.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InteractionDomainWindowPlacement {

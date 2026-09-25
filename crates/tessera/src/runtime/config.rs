@@ -95,7 +95,7 @@ pub(super) fn load_wallpaper(
     surface: &flux::Surface,
     target_size: (u32, u32),
     bundled_image: &[u8],
-) -> Result<(tessera_wallpaper::Wallpaper, String), tessera_wallpaper::Error> {
+) -> Result<(wallpaper::Wallpaper, String), wallpaper::Error> {
     let source_override = nonempty_env("TESSERA_WALLPAPER");
     let model_override = nonempty_env("TESSERA_WALLPAPER_MODEL");
     let override_is_gltf = source_override
@@ -107,9 +107,9 @@ pub(super) fn load_wallpaper(
 
     let (mut wallpaper, mut label) = if let Some(path) = source_override.as_deref() {
         let wallpaper = if override_is_gltf {
-            tessera_wallpaper::Wallpaper::from_gltf(device, surface, path)?
+            wallpaper::Wallpaper::from_gltf(device, surface, path)?
         } else {
-            tessera_wallpaper::Wallpaper::from_path(path, target_size.0, target_size.1)?
+            wallpaper::Wallpaper::from_path(path, target_size.0, target_size.1)?
         };
         (wallpaper, format!("environment source {path}"))
     } else {
@@ -146,7 +146,7 @@ fn load_configured_wallpaper(
     surface: &flux::Surface,
     target_size: (u32, u32),
     bundled_image: &[u8],
-) -> Result<(tessera_wallpaper::Wallpaper, String), tessera_wallpaper::Error> {
+) -> Result<(wallpaper::Wallpaper, String), wallpaper::Error> {
     let defaults = tessera_config::WallpaperConfig::default();
     let config = config.unwrap_or(&defaults);
     use tessera_config::WallpaperMode;
@@ -155,11 +155,11 @@ fn load_configured_wallpaper(
         WallpaperMode::Image => {
             if let Some(path) = config.source.as_deref() {
                 let path = configured_asset_path(config_path, path);
-                let wallpaper = tessera_wallpaper::Wallpaper::from_image_path(&path)?;
+                let wallpaper = wallpaper::Wallpaper::from_image_path(&path)?;
                 Ok((wallpaper, format!("image {}", path.display())))
             } else {
                 Ok((
-                    tessera_wallpaper::Wallpaper::from_static_image_bytes(
+                    wallpaper::Wallpaper::from_static_image_bytes(
                         bundled_image,
                         "bundled procedural-generation.png",
                     )?,
@@ -176,7 +176,7 @@ fn load_configured_wallpaper(
                     .expect("validated video wallpaper source"),
             );
             let wallpaper =
-                tessera_wallpaper::Wallpaper::from_video_path(&path, target_size.0, target_size.1)?;
+                wallpaper::Wallpaper::from_video_path(&path, target_size.0, target_size.1)?;
             Ok((wallpaper, format!("video {}", path.display())))
         }
         WallpaperMode::ThreeD => {
@@ -186,16 +186,16 @@ fn load_configured_wallpaper(
                 .expect("validated 3D wallpaper source");
             let mut wallpaper = if let Some(background) = config.background.as_deref() {
                 let background = configured_asset_path(config_path, background);
-                tessera_wallpaper::Wallpaper::from_path(&background, target_size.0, target_size.1)?
+                wallpaper::Wallpaper::from_path(&background, target_size.0, target_size.1)?
             } else if model == "builtin" {
                 return Ok((
-                    tessera_wallpaper::Wallpaper::from_builtin_model(device, surface)?,
+                    wallpaper::Wallpaper::from_builtin_model(device, surface)?,
                     "3d builtin".into(),
                 ));
             } else {
                 let path = configured_asset_path(config_path, model);
                 return Ok((
-                    tessera_wallpaper::Wallpaper::from_gltf(device, surface, &path)?,
+                    wallpaper::Wallpaper::from_gltf(device, surface, &path)?,
                     format!("3d {}", path.display()),
                 ));
             };
@@ -212,15 +212,15 @@ fn load_configured_wallpaper(
                 .layers
                 .iter()
                 .map(|layer| {
-                    tessera_wallpaper::ParallaxLayerSpec::new(
+                    wallpaper::ParallaxLayerSpec::new(
                         configured_asset_path(config_path, &layer.path),
                         layer.depth,
                     )
                 })
                 .collect::<Vec<_>>();
-            let wallpaper = tessera_wallpaper::Wallpaper::from_parallax_layers(
+            let wallpaper = wallpaper::Wallpaper::from_parallax_layers(
                 &layers,
-                tessera_wallpaper::ParallaxOptions {
+                wallpaper::ParallaxOptions {
                     max_shift: config.max_shift,
                     transition: std::time::Duration::from_millis(config.transition_ms.into()),
                 },

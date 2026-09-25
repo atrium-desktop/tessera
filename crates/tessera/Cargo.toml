@@ -23,8 +23,8 @@ full-chrome = [
 chrome-dock = ["tessera-shell/chrome-dock"]
 chrome-pivot = ["tessera-shell/chrome-pivot"]
 # The composition root owns the single tray service used by either surface.
-chrome-hud = ["tessera-shell/chrome-hud", "dep:tessera-tray"]
-chrome-control-center = ["tessera-shell/chrome-control-center", "dep:tessera-tray"]
+chrome-hud = ["tessera-shell/chrome-hud"]
+chrome-control-center = ["tessera-shell/chrome-control-center"]
 
 [dependencies]
 thiserror = { workspace = true }
@@ -35,7 +35,6 @@ tessera-ipc.workspace = true
 tessera-protocol.workspace = true
 tessera-audit.workspace = true
 tessera-authority.workspace = true
-tessera-semantic.workspace = true
 tessera-render = { workspace = true }
 # Design tokens: scene colors and glass material policy (single source).
 tessera-design = { workspace = true }
@@ -46,8 +45,6 @@ tessera-shell = { workspace = true, default-features = false }
 tessera-i18n = { workspace = true }
 # Chrome components split out of tessera-shell (ADR-0044); only the binary
 # composes them into the shell.
-# SNI tray service shared by the HUD and the control center (ADR-0080).
-tessera-tray = { workspace = true, optional = true }
 # Modal control center (ADR-0080).
 tessera-wallpaper = { workspace = true }
 # Declarative configuration: TOML schema + live reload (ADR-0026).
@@ -77,7 +74,7 @@ serde_json.workspace = true
 zeroize.workspace = true
 log.workspace = true
 tracing.workspace = true
-tessera-bootstrap.workspace = true
+tessera-env.workspace = true
 zbus = { workspace = true }
 # Direct deps purely so this binary's build script receives DEP_FLUX_RPATHS /
 # DEP_LENS_RPATHS (published via the -sys crates' `links` metadata) and can

@@ -148,16 +148,6 @@ pub(super) fn filter_windows(
         .collect()
 }
 
-pub(super) fn filter_accessibility_windows(
-    windows: Vec<tessera_semantic::AccessibilityWindowBinding>,
-    scope: &Scope,
-) -> Vec<tessera_semantic::AccessibilityWindowBinding> {
-    windows
-        .into_iter()
-        .filter(|binding| scope.permits_window(binding.window.id))
-        .collect()
-}
-
 pub(super) fn filter_workspaces(
     mut snapshot: tessera_desktop::workspace::WorkspaceSnapshot,
     scope: &Scope,
@@ -278,11 +268,11 @@ pub(super) fn journal_entry_permitted(
         }
         JournalMutation::ActorAction {
             interaction_domain,
-            window,
+            target_window,
             ..
         } => {
             scope.permits_interaction_domain(*interaction_domain)
-                && window.is_none_or(|window| scope.permits_window(window))
+                && scope.permits_window(*target_window)
         }
         JournalMutation::Settings { .. } => true,
         JournalMutation::AgentAuth { principal, .. } => {

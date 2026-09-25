@@ -81,7 +81,6 @@ impl CompositorRuntime<'_> {
         self.capture_worker.drain_wakeup();
         self.idle_process.maintain();
         self.evaluate_night_light();
-        self.semantic_adapter_process.maintain();
         let outputs_powered = self.host.outputs_powered();
         if !self.server.session_locked() && !outputs_powered {
             self.idle_process
@@ -854,8 +853,7 @@ impl CompositorRuntime<'_> {
         }
 
         // Expiry is timer-driven, not request-driven. Cascade it before
-        // other IPC work so idle Actors lose observations, resource grants,
-        // and semantic-provider authority promptly.
+        // other IPC work so idle Actors lose observations and resource grants promptly.
         self.live.expire_due_actor_sessions();
         self.drain_idle_controls();
         self.drain_pick_controls();
@@ -1156,21 +1154,12 @@ impl CompositorRuntime<'_> {
             );
             let _ = request.reply.send(result);
         }
-        while let Ok(provider) = self.semantic_provider_revocation_rx.try_recv() {
-            self.server.revoke_semantic_provider(&provider);
-        }
-        while let Ok(request) = self.semantic_tree_update_rx.try_recv() {
-            let result = self
-                .server
-                .publish_accessibility_tree(request.provider, request.update);
-            let _ = request.reply.send(result);
-        }
         while let Ok(request) = self.interaction_domain_observe_rx.try_recv() {
             let result = if self.server.session_locked() || !self.host.is_active() {
                 Err("session is locked or inactive".into())
             } else {
                 self.server
-                    .interaction_domain_semantic_snapshot(request.interaction_domain)
+                    .interaction_domain_observation_snapshot(request.interaction_domain)
                     .map_err(|error| error.to_string())
                     .and_then(|snapshot| {
                         self.observations.issue_bounded(
@@ -1200,76 +1189,8 @@ impl CompositorRuntime<'_> {
             self.observations
                 .discard_for_actor(&request.actor, &request.token);
         }
-        let mut pending_index = 0;
-        while pending_index < self.pending_semantic_actions.len() {
-            let completion = self.pending_semantic_actions[pending_index]
-                .completion
-                .try_recv();
-            let timed_out =
-                std::time::Instant::now() >= self.pending_semantic_actions[pending_index].deadline;
-            let resolved = match completion {
-                Ok(result) => Some(result),
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => Some(Err(
-                    "semantic provider disconnected before completion".into(),
-                )),
-                Err(std::sync::mpsc::TryRecvError::Empty) if timed_out => {
-                    Some(Err("semantic action dispatch timed out".into()))
-                }
-                Err(std::sync::mpsc::TryRecvError::Empty) => None,
-            };
-            let Some(provider_result) = resolved else {
-                pending_index += 1;
-                continue;
-            };
-            let pending = self.pending_semantic_actions.swap_remove(pending_index);
-            let result = provider_result.map(|()| tessera_protocol::ActorActionReceipt {
-                action_id: pending.action_id,
-                interaction_domain: pending.intent.interaction_domain,
-                target: pending.intent.target,
-                window: pending.window,
-                authority_revision: pending.authority_revision,
-                actions_applied: 1,
-                committed_mono_ms: self.start.elapsed().as_millis() as u64,
-            });
-            let timestamp = result.as_ref().map_or_else(
-                |_| self.start.elapsed().as_millis() as u64,
-                |receipt| receipt.committed_mono_ms,
-            );
-            let effect = result.as_ref().map_or_else(
-                |reason| tessera_protocol::Effect::Refused {
-                    reason: reason.clone(),
-                },
-                |_| tessera_protocol::Effect::Applied,
-            );
-            journal_mutation_effect_and_broadcast(
-                &self.journal,
-                &self.ipc,
-                timestamp,
-                pending.origin,
-                tessera_protocol::JournalMutation::ActorAction {
-                    action_id: result.as_ref().ok().map(|receipt| receipt.action_id),
-                    interaction_domain: pending.intent.interaction_domain,
-                    target: pending.intent.target,
-                    window: result.as_ref().ok().map(|receipt| receipt.window),
-                    actions: tessera_protocol::audit_semantic_actions(&pending.intent.actions),
-                    actions_truncated: false,
-                    authority_revision: result
-                        .as_ref()
-                        .ok()
-                        .map(|receipt| receipt.authority_revision),
-                },
-                effect,
-            );
-            let _ = pending.reply.send(result);
-        }
-
-        enum ActorActionDispatch {
-            Immediate(tessera_protocol::ActorActionReceipt),
-            Deferred(PendingSemanticActorAction),
-        }
-
         while let Ok(request) = self.actor_action_rx.try_recv() {
-            let dispatch: Result<ActorActionDispatch, String> = if self.server.session_locked()
+            let result: Result<tessera_protocol::ActorActionReceipt, String> = if self.server.session_locked()
                 || !self.host.is_active()
             {
                 self.observations.discard(&request.intent.observation);
@@ -1290,7 +1211,7 @@ impl CompositorRuntime<'_> {
                     };
                     let current = match self
                         .server
-                        .interaction_domain_semantic_snapshot(request.intent.interaction_domain)
+                        .interaction_domain_observation_snapshot(request.intent.interaction_domain)
                     {
                         Ok(current) => current,
                         Err(error) => {
@@ -1315,31 +1236,6 @@ impl CompositorRuntime<'_> {
                         .unwrap_or_else(|| {
                             format!("InteractionDomain {}", request.intent.interaction_domain.0)
                         });
-                    if validated.source == tessera_semantic::model::SemanticSource::Accessibility {
-                        let target = self
-                            .server
-                            .resolve_semantic_dispatch(request.intent.target)
-                            .ok_or_else(|| {
-                                "accessibility target lost its provider before dispatch".to_owned()
-                            })?;
-                        let action = request
-                            .intent
-                            .actions
-                            .first()
-                            .cloned()
-                            .ok_or_else(|| "semantic action is empty".to_owned())?;
-                        let completion = self.live.dispatch_accessibility_action(target, action)?;
-                        return Ok(ActorActionDispatch::Deferred(PendingSemanticActorAction {
-                            completion,
-                            deadline: std::time::Instant::now() + std::time::Duration::from_secs(5),
-                            origin: request.origin.clone(),
-                            intent: request.intent.clone(),
-                            action_id: validated.action_id,
-                            window: validated.window,
-                            authority_revision: validated.authority_revision,
-                            reply: request.reply.clone(),
-                        }));
-                    }
                     let seat = interaction_domain_snapshot
                         .seats
                         .iter()
@@ -1349,28 +1245,11 @@ impl CompositorRuntime<'_> {
                         })
                         .map(|seat| seat.id)
                         .ok_or_else(|| "InteractionDomain has no active seat".to_owned())?;
-                    let synthetic_actions =
-                        request
-                            .intent
-                            .actions
-                            .iter()
-                            .map(|action| match action {
-                                tessera_semantic::model::SemanticActionIntent::SyntheticInput {
-                                    actions,
-                                } => Ok(actions.as_slice()),
-                                _ => Err("application semantic action dispatch is unavailable"
-                                    .to_owned()),
-                            })
-                            .collect::<Result<Vec<_>, _>>()?
-                            .into_iter()
-                            .flatten()
-                            .cloned()
-                            .collect::<Vec<_>>();
                     let events = self
                         .server
-                        .prepare_agent_synthetic_input(seat, validated.window, &synthetic_actions)
+                        .prepare_agent_synthetic_input(seat, validated.window, &request.intent.actions)
                         .ok_or_else(|| {
-                            "semantic action became invalid before input preparation".to_owned()
+                            "action became invalid before input preparation".to_owned()
                         })?;
                     self.server
                         .forward_agent_input_to(seat, validated.window, &events)
@@ -1380,33 +1259,22 @@ impl CompositorRuntime<'_> {
                         request.intent.interaction_domain,
                         &interaction_domain_label,
                         validated.window,
-                        &synthetic_actions,
+                        &request.intent.actions,
                         &events,
                         &mut self.agent_activity_sequence,
                         cursor_shape,
                     ) {
                         self.shell.report_agent_activity(activity);
                     }
-                    Ok(ActorActionDispatch::Immediate(
-                        tessera_protocol::ActorActionReceipt {
-                            action_id: validated.action_id,
-                            interaction_domain: request.intent.interaction_domain,
-                            target: request.intent.target,
-                            window: validated.window,
-                            authority_revision: validated.authority_revision,
-                            actions_applied: request.intent.actions.len() as u32,
-                            committed_mono_ms: self.start.elapsed().as_millis() as u64,
-                        },
-                    ))
+                    Ok(tessera_protocol::ActorActionReceipt {
+                        action_id: validated.action_id,
+                        interaction_domain: request.intent.interaction_domain,
+                        target_window: validated.window,
+                        authority_revision: validated.authority_revision,
+                        actions_applied: request.intent.actions.len() as u32,
+                        committed_mono_ms: self.start.elapsed().as_millis() as u64,
+                    })
                 })()
-            };
-            let result: Result<tessera_protocol::ActorActionReceipt, String> = match dispatch {
-                Ok(ActorActionDispatch::Deferred(pending)) => {
-                    self.pending_semantic_actions.push(pending);
-                    continue;
-                }
-                Ok(ActorActionDispatch::Immediate(receipt)) => Ok(receipt),
-                Err(reason) => Err(reason),
             };
             let ts = result.as_ref().map_or_else(
                 |_| self.start.elapsed().as_millis() as u64,
@@ -1426,9 +1294,8 @@ impl CompositorRuntime<'_> {
                 tessera_protocol::JournalMutation::ActorAction {
                     action_id: result.as_ref().ok().map(|receipt| receipt.action_id),
                     interaction_domain: request.intent.interaction_domain,
-                    target: request.intent.target,
-                    window: result.as_ref().ok().map(|receipt| receipt.window),
-                    actions: tessera_protocol::audit_semantic_actions(&request.intent.actions),
+                    target_window: result.as_ref().map_or(request.intent.target_window, |receipt| receipt.target_window),
+                    input: tessera_protocol::journal::audit_input_actions(&request.intent.actions),
                     actions_truncated: false,
                     authority_revision: result
                         .as_ref()
@@ -1834,7 +1701,7 @@ impl CompositorRuntime<'_> {
             return Err("glTF wallpapers are not supported over IPC".into());
         }
         let (width, height) = self.host.physical_size();
-        let wallpaper = tessera_wallpaper::Wallpaper::from_path(path, width, height)
+        let wallpaper = wallpaper::Wallpaper::from_path(path, width, height)
             .map_err(|error| format!("could not decode {}: {error}", path.display()))?;
         self.wallpaper = Some(wallpaper);
         // Full-output repaint for the swap: the damage path has no dedicated

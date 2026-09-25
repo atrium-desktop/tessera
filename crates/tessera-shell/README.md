@@ -30,7 +30,7 @@ as typed intents to the compositor loop.
 
 Chrome components do not mutate Wayland state, discover or spawn applications,
 or issue presentation commands. The executable drains their intents into
-`tessera-wayland` and `tessera-apps`, while `tessera-platform` and flux own presentation.
+`tessera-wayland` and `tessera-launch-services`, while `tessera-platform` and flux own presentation.
 Product-specific tokens and materials come from `tessera-design`; generic UI
 behavior remains in lens.
 

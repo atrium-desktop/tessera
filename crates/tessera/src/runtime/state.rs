@@ -147,7 +147,7 @@ pub(super) struct CompositorRuntime<'engine> {
     pub(super) interaction_domain_damage_sequence: u64,
     pub(super) agent_activity_sequence: u64,
     pub(super) start: std::time::Instant,
-    pub(super) wallpaper: Option<tessera_wallpaper::Wallpaper>,
+    pub(super) wallpaper: Option<wallpaper::Wallpaper>,
     pub(super) clear: u32,
     pub(super) frame_count: u64,
     pub(super) retired_defer: Option<u64>,
@@ -177,8 +177,6 @@ pub(super) struct CompositorRuntime<'engine> {
     pub(super) reload: Option<tessera_config::ReloadWatcher>,
     /// Supervised ext-idle-notify policy client for this session.
     pub(super) idle_process: session::IdleProcess,
-    /// Supervised out-of-process accessibility semantic adapter.
-    pub(super) semantic_adapter_process: session::SemanticAdapterProcess,
     pub(super) quit_requested: bool,
     pub(super) ipc_cmd_rx: std::sync::mpsc::Receiver<IpcCommandRequest>,
     pub(super) transact_rx: std::sync::mpsc::Receiver<TransactRequest>,
@@ -194,10 +192,6 @@ pub(super) struct CompositorRuntime<'engine> {
     pub(super) interaction_domain_observe_rx:
         std::sync::mpsc::Receiver<InteractionDomainObserveRequest>,
     pub(super) actor_action_rx: std::sync::mpsc::Receiver<InteractionDomainActorActionRequest>,
-    pub(super) semantic_tree_update_rx: std::sync::mpsc::Receiver<SemanticTreeUpdateRequest>,
-    pub(super) semantic_provider_revocation_rx:
-        std::sync::mpsc::Receiver<tessera_semantic::SemanticProviderId>,
-    pub(super) pending_semantic_actions: Vec<PendingSemanticActorAction>,
     pub(super) observation_discard_rx: std::sync::mpsc::Receiver<ObservationDiscardRequest>,
     pub(super) actor_disconnect_rx: std::sync::mpsc::Receiver<u64>,
     pub(super) observations: ObservationRegistry,

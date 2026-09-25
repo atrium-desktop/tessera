@@ -1,6 +1,6 @@
 [package]
-name = "tessera-bootstrap"
-description = "Shared process bootstrap for Tessera executables: observability init, panic hooks, runtime directories, and socket hygiene"
+name = "tessera-env"
+description = "Shared process environment for Tessera executables: observability init, panic hooks, runtime directories, and socket hygiene"
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
