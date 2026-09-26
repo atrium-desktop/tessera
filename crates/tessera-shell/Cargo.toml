@@ -10,8 +10,9 @@ build = "build.rs"
 
 [features]
 default = ["full-chrome"]
-full-chrome = ["chrome-dock", "chrome-hud", "chrome-pivot", "chrome-control-center"]
+full-chrome = ["chrome-dock", "chrome-hud", "chrome-pivot", "chrome-control-center", "chrome-accessibility"]
 chrome-dock = []
+chrome-accessibility = ["dep:zbus"]
 chrome-pivot = ["dep:tessera-launch-services"]
 chrome-tray = ["dep:image", "dep:tessera-launch-services", "dep:zbus"]
 chrome-hud = ["chrome-tray"]

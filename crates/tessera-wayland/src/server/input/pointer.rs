@@ -650,6 +650,16 @@ impl Server {
         // Always posting modifiers (even when unchanged) is simpler; the
         // client-side xkbcommon treats a no-op update cheaply. A delta check
         // can be added if profiling ever shows it matters.
+        let now = std::time::Instant::now();
+        let filter_outcome = if state.is_pressed() {
+            self.state.keyboard_accessibility.process_press(evdev_code, now)
+        } else {
+            self.state.keyboard_accessibility.process_release(evdev_code, now)
+        };
+        if filter_outcome == crate::server::input::accessibility::FilterOutcome::Reject {
+            return None;
+        }
+
         let outcome = {
             let kb = self.state.keyboard.as_mut()?;
             kb.update_key(evdev_code, state.is_pressed())
@@ -731,6 +741,11 @@ impl Server {
         if matched.is_some() {
             self.state.suppressed_shortcut_keys.insert(evdev_code);
             return matched;
+        }
+        if state.is_pressed()
+            && !crate::server::input::accessibility::KeyboardAccessibilityFilter::is_modifier(evdev_code)
+        {
+            self.state.keyboard_accessibility.consume_latched_modifiers();
         }
         let time = self.epoch.elapsed().as_millis() as u32;
         if unsafe {

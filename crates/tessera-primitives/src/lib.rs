@@ -1,6 +1,7 @@
 //! Foundational physical, geometric, color, identity, and buffer primitives for Tessera.
 #![forbid(unsafe_code)]
 
+pub mod accessibility;
 pub mod color;
 pub mod dmabuf;
 pub mod edid;

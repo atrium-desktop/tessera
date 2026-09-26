@@ -15,7 +15,8 @@ use module::{
     ApplyPolicy, ModuleAvailability, ModuleCategory, ModuleId, ModuleMetadata, ModuleRegistry,
 };
 use modules::{
-    AppearanceModule, DisplayModule, DockModule, InputModule, PowerModule, UnavailableModule,
+    AccessibilityModule, AppearanceModule, DisplayModule, DockModule, InputModule, PowerModule,
+    UnavailableModule,
 };
 use tessera_i18n::Message;
 
@@ -25,6 +26,7 @@ pub fn builtin_settings_modules() -> ModuleRegistry {
     modules.register(DisplayModule::new());
     modules.register(InputModule::new());
     modules.register(AppearanceModule::new());
+    modules.register(AccessibilityModule::new());
     modules.register(DockModule::new());
     modules.register(PowerModule::new());
     modules.register(UnavailableModule::new(
@@ -70,6 +72,7 @@ mod tests {
                 "display",
                 "input",
                 "appearance",
+                "accessibility",
                 "dock",
                 "power",
                 "users",
@@ -82,7 +85,7 @@ mod tests {
                 .filter(|module| module.availability == ModuleAvailability::Available)
                 .map(|module| module.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["display", "input", "appearance", "dock", "power"]
+            vec!["display", "input", "appearance", "accessibility", "dock", "power"]
         );
     }
 }

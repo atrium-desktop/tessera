@@ -385,6 +385,7 @@ pub(super) fn reload_config(
             server.set_output_policies(c.output_policies());
             server.set_allow_quit_while_locked(c.dev.allow_quit_while_locked);
             server.set_keyboard_repeat(c.input.keyboard);
+            server.set_keyboard_accessibility(c.accessibility.keyboard);
         } else {
             server.set_remember_window_positions(true);
             server.set_minimize_animation(tessera_desktop::dock::MinimizeAnimationStyle::default());
@@ -395,6 +396,7 @@ pub(super) fn reload_config(
             server.set_output_policies(std::collections::HashMap::new());
             server.set_allow_quit_while_locked(false);
             server.set_keyboard_repeat(tessera_primitives::input::KeyboardConfig::default());
+            server.set_keyboard_accessibility(preferences.accessibility.keyboard);
         }
         cursor_cache.set_preferences(preferences.cursor_theme, preferences.cursor_size);
     };

@@ -284,6 +284,14 @@ impl Server {
         }
     }
 
+    /// Set the physical keyboard accessibility filter policy (ADR-0166).
+    pub fn set_keyboard_accessibility(
+        &mut self,
+        config: tessera_primitives::accessibility::KeyboardAccessibilityConfig,
+    ) {
+        self.state.keyboard_accessibility.set_config(config);
+    }
+
     /// Set the minimize flight style (`[dock] minimize_animation`). Applies
     /// to the next minimize/restore; in-flight transitions keep their style.
     pub fn set_minimize_animation(&mut self, style: tessera_desktop::dock::MinimizeAnimationStyle) {

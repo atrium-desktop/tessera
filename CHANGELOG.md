@@ -14,6 +14,16 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Added
+- Decoupled native accessibility architecture across compositor and Optics (ADR-0166):
+  - Defined transport-neutral semantic UI primitives (`AccessibleRole`, `AccessibleNode`, `AccessibleState`, `SemanticTreeUpdate`) and Daltonism correction matrices in `tessera-primitives`.
+  - Added first-class `[accessibility]` configuration table in `tessera-config` and `DesktopPreferences.accessibility` in `tessera-desktop`.
+  - Implemented kernel peer authentication (`SO_PEERCRED` / `pidfd`) in `tessera-shell` to verify caller identity and prevent unauthenticated A11y eavesdropping.
+  - Implemented credential redaction (`Role::PasswordText`) and action focus barriers in `tessera-shell` AT-SPI D-Bus adapter.
+  - Added native `AccessibilityModule` to System Settings with English and Simplified Chinese localization in `tessera-i18n`.
+  - Implemented physical keyboard accessibility filters (Sticky Keys, Slow Keys, Bounce Keys) in `tessera-wayland` input pipeline.
+
+
 ## [0.0.66] - 2026-09-25
 
 ### Changed

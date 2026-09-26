@@ -22,6 +22,8 @@ pub use chrome::{
     Overview, ScreenshotSelector, SecretPrompt, Toast, WindowSwitcher,
 };
 
+pub mod accessibility;
+
 /// Logical height of the HUD chips (the `tessera-hud` component).
 /// Defined here, at the shell seam, so shell-resident chrome that must align
 /// with the chips (the notification toast stack) can share the value without

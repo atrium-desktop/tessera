@@ -290,6 +290,7 @@ fn config_store_persists_desktop_preferences_without_losing_ui_policy() {
         icon_theme: "Papirus".into(),
         cursor_theme: "Bibata".into(),
         cursor_size: 36,
+        accessibility: Default::default(),
     };
     ConfigStore::new(&path)
         .apply(ConfigEdit::SetDesktopPreferences {

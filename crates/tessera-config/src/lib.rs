@@ -29,6 +29,11 @@ pub use tessera_desktop::settings::ColorScheme;
 pub use tessera_desktop::settings::Contrast;
 pub use tessera_desktop::settings::DesktopPreferences;
 pub use tessera_desktop::settings::IdleSettings;
+pub use tessera_primitives::accessibility::{
+    AccessibilityConfig, AccessibleAction, AccessibleNode, AccessibleRole, AccessibleState,
+    DaltonismMode, KeyboardAccessibilityConfig, ScreenReaderConfig, SemanticTreeUpdate,
+    VisualAccessibilityConfig,
+};
 use tessera_primitives::input::Mods;
 use tessera_primitives::input::TouchpadConfig;
 use tessera_primitives::input::TouchpadScrollMethod;
@@ -106,6 +111,10 @@ pub struct Config {
     /// written as a `[lock_screen]` table.
     #[serde(default)]
     pub lock_screen: LockScreenConfig,
+
+    /// Accessibility policy and visual/typing assistance, written as an `[accessibility]` table (ADR-0166).
+    #[serde(default)]
+    pub accessibility: AccessibilityConfig,
 
     /// Per-output display policy (ADR-0028), written as `[[output]]`
     /// array-of-tables. Each entry overrides the backend-reported mode,
@@ -1286,6 +1295,7 @@ impl Config {
                 .clone()
                 .unwrap_or(defaults.cursor_theme),
             cursor_size: self.ui.cursor_size.unwrap_or(defaults.cursor_size),
+            accessibility: self.accessibility,
         }
     }
 
@@ -1837,6 +1847,45 @@ fn apply_desktop_preferences(document: &mut DocumentMut, preferences: &DesktopPr
     ui["icon_theme"] = toml_edit::value(preferences.icon_theme.as_str());
     ui["cursor_theme"] = toml_edit::value(preferences.cursor_theme.as_str());
     ui["cursor_size"] = toml_edit::value(i64::from(preferences.cursor_size));
+
+    if !document
+        .get("accessibility")
+        .is_some_and(toml_edit::Item::is_table)
+    {
+        document["accessibility"] = toml_edit::Item::Table(toml_edit::Table::new());
+    }
+    let a11y = &mut document["accessibility"];
+    if !a11y.get("visual").is_some_and(toml_edit::Item::is_table) {
+        a11y["visual"] = toml_edit::Item::Table(toml_edit::Table::new());
+    }
+    a11y["visual"]["zoom_factor"] =
+        toml_edit::value(f64::from(preferences.accessibility.visual.zoom_factor));
+    a11y["visual"]["invert_colors"] =
+        toml_edit::value(preferences.accessibility.visual.invert_colors);
+    a11y["visual"]["high_contrast"] =
+        toml_edit::value(preferences.accessibility.visual.high_contrast);
+    a11y["visual"]["daltonism"] = toml_edit::value(match preferences.accessibility.visual.daltonism {
+        DaltonismMode::None => "none",
+        DaltonismMode::Protanopia => "protanopia",
+        DaltonismMode::Deuteranopia => "deuteranopia",
+        DaltonismMode::Tritanopia => "tritanopia",
+    });
+
+    if !a11y.get("keyboard").is_some_and(toml_edit::Item::is_table) {
+        a11y["keyboard"] = toml_edit::Item::Table(toml_edit::Table::new());
+    }
+    a11y["keyboard"]["sticky_keys"] =
+        toml_edit::value(preferences.accessibility.keyboard.sticky_keys);
+    a11y["keyboard"]["slow_keys_ms"] =
+        toml_edit::value(i64::from(preferences.accessibility.keyboard.slow_keys_ms));
+    a11y["keyboard"]["bounce_keys_ms"] =
+        toml_edit::value(i64::from(preferences.accessibility.keyboard.bounce_keys_ms));
+
+    if !a11y.get("screen_reader").is_some_and(toml_edit::Item::is_table) {
+        a11y["screen_reader"] = toml_edit::Item::Table(toml_edit::Table::new());
+    }
+    a11y["screen_reader"]["enabled"] =
+        toml_edit::value(preferences.accessibility.screen_reader.enabled);
 }
 
 fn apply_dock_minimize_animation(

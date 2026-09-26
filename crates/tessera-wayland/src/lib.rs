@@ -21,7 +21,10 @@ mod server;
 mod tests;
 
 pub(crate) use protocol::*;
-pub use server::{ClipboardError, UipDispatchResult, UipRejectReason};
+pub use server::{
+    ClipboardError, FilterOutcome, KeyboardAccessibilityFilter, StickyState, UipDispatchResult,
+    UipRejectReason,
+};
 
 use std::ffi::{CStr, CString, c_void};
 use std::ops::{Deref, DerefMut};
@@ -1552,6 +1555,8 @@ pub(crate) struct State {
     /// Accessibility reduced-motion policy (ADR-0029): when true, window
     /// transitions resolve in one frame and none are recorded.
     reduced_motion: bool,
+    /// Physical keyboard accessibility filters (Sticky, Slow, Bounce Keys per ADR-0166).
+    pub(crate) keyboard_accessibility: server::input::accessibility::KeyboardAccessibilityFilter,
     /// Keyboard repeat policy advertised as `wl_keyboard.repeat_info`
     /// (`[input.keyboard]`). Clients repeat locally from these values; the
     /// compositor itself does not repeat keys (ADR-0010).

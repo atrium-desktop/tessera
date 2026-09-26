@@ -455,9 +455,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         server.set_allow_quit_while_locked(c.dev.allow_quit_while_locked);
         server.set_minimize_animation(c.dock.minimize_animation);
         server.set_keyboard_repeat(c.input.keyboard);
+        server.set_keyboard_accessibility(c.accessibility.keyboard);
     }
     shell.set_reduced_motion(desktop_preferences.reduced_motion);
     server.set_reduced_motion(desktop_preferences.reduced_motion);
+    server.set_keyboard_accessibility(desktop_preferences.accessibility.keyboard);
     shell.set_color_scheme(desktop_preferences.color_scheme);
     // The dock: a persistent strip of pinned `.desktop` app icons (ADR-0022).
     // Resolve the pinned entries from the config's `[dock] pinned` list.

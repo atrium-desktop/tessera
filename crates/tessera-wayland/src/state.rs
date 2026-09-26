@@ -236,6 +236,7 @@ impl State {
             output,
             layout_params: tessera_desktop::layout::LayoutParams::default(),
             reduced_motion: false,
+            keyboard_accessibility: crate::server::input::accessibility::KeyboardAccessibilityFilter::default(),
             keyboard_repeat: tessera_primitives::input::KeyboardConfig::default(),
             minimize_animation: tessera_desktop::dock::MinimizeAnimationStyle::default(),
             minimize_targets: std::collections::HashMap::new(),

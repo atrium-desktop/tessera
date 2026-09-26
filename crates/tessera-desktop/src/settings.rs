@@ -107,6 +107,7 @@ pub struct DesktopPreferences {
     pub icon_theme: String,
     pub cursor_theme: String,
     pub cursor_size: u32,
+    pub accessibility: tessera_primitives::accessibility::AccessibilityConfig,
 }
 
 impl Default for DesktopPreferences {
@@ -122,6 +123,7 @@ impl Default for DesktopPreferences {
             icon_theme: "hicolor".into(),
             cursor_theme: "default".into(),
             cursor_size: 24,
+            accessibility: tessera_primitives::accessibility::AccessibilityConfig::default(),
         }
     }
 }
@@ -143,6 +145,10 @@ impl DesktopPreferences {
             if value.trim().is_empty() || value.len() > 256 {
                 return Err("desktop preference string is empty or too long");
             }
+        }
+        let zoom = self.accessibility.visual.zoom_factor;
+        if !zoom.is_finite() || !(1.0..=10.0).contains(&zoom) {
+            return Err("accessibility zoom factor is outside 1.0..=10.0");
         }
         Ok(())
     }

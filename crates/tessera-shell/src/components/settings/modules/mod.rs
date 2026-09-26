@@ -1,3 +1,4 @@
+mod accessibility;
 mod appearance;
 mod display;
 mod dock;
@@ -5,6 +6,7 @@ mod input;
 mod power;
 mod unavailable;
 
+pub(crate) use accessibility::AccessibilityModule;
 pub(crate) use appearance::AppearanceModule;
 pub(crate) use display::DisplayModule;
 pub(crate) use dock::DockModule;
