@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.67] - 2026-09-26
+
 ### Added
 - Decoupled native accessibility architecture across compositor and Optics (ADR-0166):
   - Defined transport-neutral semantic UI primitives (`AccessibleRole`, `AccessibleNode`, `AccessibleState`, `SemanticTreeUpdate`) and Daltonism correction matrices in `tessera-primitives`.
