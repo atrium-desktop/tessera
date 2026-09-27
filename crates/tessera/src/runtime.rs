@@ -1,4 +1,5 @@
 use crate::*;
+use crate::wireless::WirelessBackend as _;
 use tessera_authority::authority::{ActorBinding, ObservationLeaseRegistry as ObservationRegistry};
 use tessera_protocol::CommandScopePolicy as _;
 pub(super) use tessera_wallpaper as wallpaper;
@@ -551,16 +552,30 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // or on user action, while Wi-Fi radio and AP states stream from `crate::wireless`.
     const SYSTEM_STATUS_INTERVAL: std::time::Duration = std::time::Duration::from_secs(3);
     const FORKED_STATUS_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
-    let mut system_status = crate::host_system::detect_system_status();
-    system_status.do_not_disturb = notif_queue.lock().unwrap().do_not_disturb();
+    let host_system: std::sync::Arc<dyn crate::host_system::HostSystem> = if is_preview {
+        log::info!("host system: running preview session; using mock backend");
+        std::sync::Arc::new(crate::host_system::MockHostSystem::new())
+    } else {
+        std::sync::Arc::new(crate::host_system::LiveHostSystem::new())
+    };
+    let wireless = if is_preview {
+        log::info!("wireless subsystem: running preview session; using mock backend");
+        let mock = crate::wireless::MockWirelessBackend::new();
+        let _ = mock.connect("Home-WiFi-5G", None);
+        crate::wireless::WirelessHandle::spawn_with_backend(mock)
+    } else {
+        crate::wireless::WirelessHandle::spawn_auto()
+    };
+    let mut system_status = host_system.detect_status();
+    system_status.wifi_networks = wireless.snapshot().networks;
     system_status.input = input_status;
     system_status.display = tessera_desktop::settings::DisplayStatus {
         configurable: host.name() == "drm",
         outputs: server.output_infos(),
         error: None,
     };
+    system_status.do_not_disturb = notif_queue.lock().unwrap().do_not_disturb();
     shell.set_system_status(system_status.clone());
-    let wireless = crate::wireless::WirelessHandle::spawn_auto();
     // Resource sampling was retired with the command panel's machine
     // monitor: no surface displays utilization anymore, and an always-on
     // CPU/GPU/RAM/network probe contradicted the panel's event-driven
@@ -572,89 +587,97 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // reconciles its optimistic values right away; the main loop itself never
     // waits on a probe subprocess.
     let (status_refresh_tx, status_refresh_rx) = std::sync::mpsc::channel::<()>();
+    let poller_host = host_system.clone();
     std::thread::Builder::new()
         .name("tessera-status".into())
         .spawn(move || {
-            // Last-known values for the forked fields; carried across cheap
-            // polls so the snapshot stays coherent between full probes.
-            struct StatusProbe {
-                last_volume: Option<u8>,
-                last_muted: bool,
-                last_wifi: Option<bool>,
-                last_ssid: Option<String>,
-            }
-            impl StatusProbe {
-                fn full(&mut self) -> tessera_shell::component::SystemStatus {
-                    let (volume, muted, wifi, ssid) = crate::host_system::detect_forked_status();
-                    self.last_volume = volume;
-                    self.last_muted = muted;
-                    self.last_wifi = wifi;
-                    self.last_ssid = ssid.clone();
-                    crate::host_system::detect_system_status_lightweight(volume, muted, wifi, ssid)
+                // Last-known values for the forked fields; carried across cheap
+                // polls so the snapshot stays coherent between full probes.
+                struct StatusProbe {
+                    last_volume: Option<u8>,
+                    last_muted: bool,
+                    last_wifi: Option<bool>,
+                    last_ssid: Option<String>,
                 }
-                fn cheap(&self) -> tessera_shell::component::SystemStatus {
-                    crate::host_system::detect_system_status_lightweight(
-                        self.last_volume,
-                        self.last_muted,
-                        self.last_wifi,
-                        self.last_ssid.clone(),
-                    )
+                impl StatusProbe {
+                    fn full(
+                        &mut self,
+                        hs: &dyn crate::host_system::HostSystem,
+                    ) -> tessera_shell::component::SystemStatus {
+                        let (volume, muted, wifi, ssid) = hs.detect_forked_status();
+                        self.last_volume = volume;
+                        self.last_muted = muted;
+                        self.last_wifi = wifi;
+                        self.last_ssid = ssid.clone();
+                        hs.detect_status_lightweight(volume, muted, wifi, ssid)
+                    }
+                    fn cheap(
+                        &self,
+                        hs: &dyn crate::host_system::HostSystem,
+                    ) -> tessera_shell::component::SystemStatus {
+                        hs.detect_status_lightweight(
+                            self.last_volume,
+                            self.last_muted,
+                            self.last_wifi,
+                            self.last_ssid.clone(),
+                        )
+                    }
                 }
-            }
-            let mut probe = StatusProbe {
-                last_volume: None,
-                last_muted: false,
-                last_wifi: None,
-                last_ssid: None,
-            };
-            // Drain any refresh requests queued during the previous probe so a
-            // burst of volume key presses collapses into one full probe.
-            let drain_refresh = || {
-                while status_refresh_rx.try_recv().is_ok() {}
-            };
-            // The inner loop only exits by returning, so the initial probe
-            // send is a one-shot guard, not a loop (clippy: never loops).
-            if status_tx.send(probe.full()).is_ok() {
-                let mut next_forked_deadline = std::time::Instant::now() + FORKED_STATUS_INTERVAL;
-                loop {
-                    // A queued refresh request re-probes out of cycle instead
-                    // of waiting out the interval; disconnection means the main
-                    // loop is gone.
-                    match status_refresh_rx.recv_timeout(SYSTEM_STATUS_INTERVAL) {
-                        Ok(()) => {
-                            // Refresh requested: run a full probe immediately
-                            // so optimistic HUD values reconcile at once, then
-                            // reset the forked cadence.
-                            if status_tx.send(probe.full()).is_err() {
+                let mut probe = StatusProbe {
+                    last_volume: None,
+                    last_muted: false,
+                    last_wifi: None,
+                    last_ssid: None,
+                };
+                // Drain any refresh requests queued during the previous probe so a
+                // burst of volume key presses collapses into one full probe.
+                let drain_refresh = || {
+                    while status_refresh_rx.try_recv().is_ok() {}
+                };
+                // The inner loop only exits by returning, so the initial probe
+                // send is a one-shot guard, not a loop (clippy: never loops).
+                if status_tx.send(probe.full(&*poller_host)).is_ok() {
+                    let mut next_forked_deadline =
+                        std::time::Instant::now() + FORKED_STATUS_INTERVAL;
+                    loop {
+                        // A queued refresh request re-probes out of cycle instead
+                        // of waiting out the interval; disconnection means the main
+                        // loop is gone.
+                        match status_refresh_rx.recv_timeout(SYSTEM_STATUS_INTERVAL) {
+                            Ok(()) => {
+                                // Refresh requested: run a full probe immediately
+                                // so optimistic HUD values reconcile at once, then
+                                // reset the forked cadence.
+                                if status_tx.send(probe.full(&*poller_host)).is_err() {
+                                    return;
+                                }
+                                next_forked_deadline =
+                                    std::time::Instant::now() + FORKED_STATUS_INTERVAL;
+                            }
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                                let now = std::time::Instant::now();
+                                if now >= next_forked_deadline {
+                                    if status_tx.send(probe.full(&*poller_host)).is_err() {
+                                        return;
+                                    }
+                                    next_forked_deadline = now + FORKED_STATUS_INTERVAL;
+                                } else {
+                                    // Cheap poll: stay off the fork path and reuse
+                                    // the last volume/wifi values.
+                                    if status_tx.send(probe.cheap(&*poller_host)).is_err() {
+                                        return;
+                                    }
+                                }
+                            }
+                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                                drain_refresh();
                                 return;
                             }
-                            next_forked_deadline =
-                                std::time::Instant::now() + FORKED_STATUS_INTERVAL;
-                        }
-                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                            let now = std::time::Instant::now();
-                            if now >= next_forked_deadline {
-                                if status_tx.send(probe.full()).is_err() {
-                                    return;
-                                }
-                                next_forked_deadline = now + FORKED_STATUS_INTERVAL;
-                            } else {
-                                // Cheap poll: stay off the fork path and reuse
-                                // the last volume/wifi values.
-                                if status_tx.send(probe.cheap()).is_err() {
-                                    return;
-                                }
-                            }
-                        }
-                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                            drain_refresh();
-                            return;
                         }
                     }
                 }
-            }
-        })
-        .expect("spawn status poller");
+            })
+            .expect("spawn status poller");
     // Resource utilisation (CPU/GPU/memory/net/disk) polls on its own channel:
     // the probe reads only /proc and /sys plus one statvfs, so it never
     // mtime-based reload watcher, polled each frame. `None` when there is no
@@ -1154,6 +1177,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         night_light: tessera_desktop::night_light::NightLight::default(),
         night_light_last_eval: std::time::Instant::now() - std::time::Duration::from_secs(2),
         input_status_last_probe: std::time::Instant::now() - std::time::Duration::from_secs(3),
+        host_system,
         _preview_sandbox: preview_sandbox,
     }
     .run_loop()

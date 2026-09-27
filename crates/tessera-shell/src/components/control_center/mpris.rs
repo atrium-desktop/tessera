@@ -52,6 +52,40 @@ impl MediaHandle {
     pub fn send(&self, command: MediaCommand) {
         let _ = self.commands.send(command);
     }
+
+    /// Controllable mock media handle for testing and preview sandboxes (ADR-0169).
+    pub fn mock() -> Self {
+        let (commands, rx) = mpsc::channel();
+        let snapshot = Arc::new(Mutex::new(MediaSnapshot {
+            available: true,
+            playing: true,
+            identity: "Synthesizer".to_string(),
+            title: "Resonance".to_string(),
+            artist: "HOME".to_string(),
+            can_previous: true,
+            can_next: true,
+        }));
+        let worker_snap = Arc::clone(&snapshot);
+        let _ = thread::Builder::new()
+            .name("mpris-mock-worker".to_string())
+            .spawn(move || {
+                while let Ok(cmd) = rx.recv() {
+                    let mut st = worker_snap.lock().unwrap();
+                    match cmd {
+                        MediaCommand::PlayPause => st.playing = !st.playing,
+                        MediaCommand::Next => {
+                            st.title = "Sunlight".to_string();
+                            st.artist = "Kavinsky".to_string();
+                        }
+                        MediaCommand::Previous => {
+                            st.title = "Resonance".to_string();
+                            st.artist = "HOME".to_string();
+                        }
+                    }
+                }
+            });
+        Self { snapshot, commands }
+    }
 }
 
 pub(super) fn spawn() -> Option<MediaHandle> {

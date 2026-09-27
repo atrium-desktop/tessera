@@ -1,5 +1,6 @@
 use super::*;
 
+use crate::layout::bento::{BentoItem, BentoSpan, BentoSpec};
 use lens::Icon;
 use tessera_design::materials::{chrome_place, sized, transparent};
 
@@ -837,12 +838,6 @@ impl ControlCenter {
         let type_scale = self.design.typography;
         let original = f.theme();
         let status = self.status.clone();
-        let gap = 12.0;
-        let tile_gap = 10.0;
-        let tile_w = ((area.w - tile_gap) * 0.5).max(1.0);
-        let tile_h = 58.0;
-        let fader_h = 68.0;
-
         let wifi_active = status.wifi_enabled.unwrap_or(false);
         let wifi_sub = status.wifi_ssid.as_deref().unwrap_or(if wifi_active {
             "On"
@@ -859,178 +854,291 @@ impl ControlCenter {
         let dark_active = !self.design.is_light();
         let dark_sub = if dark_active { "Dark" } else { "Light" };
 
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        enum QuickWidgetKey {
+            Wifi,
+            Media,
+            Bluetooth,
+            DoNotDisturb,
+            DarkMode,
+            DisplayBrightness,
+            SoundVolume,
+            KeyboardBacklight,
+        }
+
+        let items = [
+            BentoItem {
+                key: QuickWidgetKey::Wifi,
+                span: BentoSpan::WIDE_2X1,
+                visible: true,
+            },
+            BentoItem {
+                key: QuickWidgetKey::Media,
+                span: BentoSpan::CARD_2X2,
+                visible: true,
+            },
+            BentoItem {
+                key: QuickWidgetKey::Bluetooth,
+                span: BentoSpan::WIDE_2X1,
+                visible: true,
+            },
+            BentoItem {
+                key: QuickWidgetKey::DoNotDisturb,
+                span: BentoSpan::WIDE_2X1,
+                visible: true,
+            },
+            BentoItem {
+                key: QuickWidgetKey::DarkMode,
+                span: BentoSpan::WIDE_2X1,
+                visible: true,
+            },
+            BentoItem {
+                key: QuickWidgetKey::DisplayBrightness,
+                span: BentoSpan::STRIP_4X1,
+                visible: true,
+            },
+            BentoItem {
+                key: QuickWidgetKey::SoundVolume,
+                span: BentoSpan::STRIP_4X1,
+                visible: true,
+            },
+            BentoItem {
+                key: QuickWidgetKey::KeyboardBacklight,
+                span: BentoSpan::STRIP_4X1,
+                visible: status.kbd_brightness.is_some(),
+            },
+        ];
+
+        let spec = BentoSpec {
+            columns: 4,
+            unit_height: 58.0,
+            gap: 10.0,
+        };
+
+        let layout = spec.layout(area, &items);
+
         f.set_theme(themes::hud(&hud));
-        f.place(
-            "tessera-hud-quick",
-            &chrome_place(area, transparent()),
-            |f| {
-                f.column_ex(
-                    &LayoutOpts {
-                        width: area.w,
-                        height: area.h,
-                        gap,
-                        cross: Align::Stretch,
-                        ..Default::default()
-                    },
-                    |f| {
-                        // Row 1: Wi-Fi + Bluetooth
-                        f.row_ex(
-                            &LayoutOpts {
-                                width: area.w,
-                                height: tile_h,
-                                gap: tile_gap,
-                                cross: Align::Stretch,
-                                ..Default::default()
-                            },
+        for cell in layout.cells {
+            match cell.key {
+                QuickWidgetKey::Wifi => {
+                    f.place(
+                        "tessera-hud-quick-wifi-slot",
+                        &chrome_place(cell.rect, transparent()),
+                        |f| {
+                            let (wifi_toggle, wifi_expand) = render_expandable_quick_toggle_tile(
+                                f,
+                                "tessera-hud-quick-wifi",
+                                i18n.text(Message::Wifi),
+                                wifi_sub,
+                                lens::sys::lens_icon_id::LENS_ICON_WIFI,
+                                wifi_active,
+                                (cell.rect.w, cell.rect.h),
+                                hud,
+                                type_scale,
+                            );
+                            if wifi_toggle {
+                                out.system_actions.push(SystemAction::SetWifi {
+                                    enabled: !wifi_active,
+                                });
+                            }
+                            if wifi_expand {
+                                self.wifi_expanded = true;
+                                out.system_actions.push(SystemAction::ScanWifi);
+                            }
+                        },
+                    );
+                }
+                QuickWidgetKey::Media => {
+                    f.place(
+                        "tessera-hud-quick-media-slot",
+                        &chrome_place(cell.rect, transparent()),
+                        |f| {
+                            self.render_bento_media_card(
+                                f,
+                                (cell.rect.w, cell.rect.h),
+                                hud,
+                                type_scale,
+                                i18n,
+                            );
+                        },
+                    );
+                }
+                QuickWidgetKey::Bluetooth => {
+                    f.place(
+                        "tessera-hud-quick-bluetooth-slot",
+                        &chrome_place(cell.rect, transparent()),
+                        |f| {
+                            if render_quick_toggle_tile(
+                                f,
+                                "tessera-hud-quick-bluetooth",
+                                i18n.text(Message::Bluetooth),
+                                bt_sub,
+                                lens::sys::lens_icon_id::LENS_ICON_BLUETOOTH,
+                                bt_active,
+                                (cell.rect.w, cell.rect.h),
+                                hud,
+                                type_scale,
+                            ) {
+                                out.system_actions.push(SystemAction::SetBluetooth {
+                                    enabled: !bt_active,
+                                });
+                            }
+                        },
+                    );
+                }
+                QuickWidgetKey::DoNotDisturb => {
+                    f.place(
+                        "tessera-hud-quick-dnd-slot",
+                        &chrome_place(cell.rect, transparent()),
+                        |f| {
+                            if render_quick_toggle_tile(
+                                f,
+                                "tessera-hud-quick-dnd",
+                                i18n.text(Message::DoNotDisturb),
+                                dnd_sub,
+                                lens::sys::lens_icon_id::LENS_ICON_BELL,
+                                dnd_active,
+                                (cell.rect.w, cell.rect.h),
+                                hud,
+                                type_scale,
+                            ) {
+                                out.system_actions.push(SystemAction::SetDoNotDisturb {
+                                    enabled: !dnd_active,
+                                });
+                            }
+                        },
+                    );
+                }
+                QuickWidgetKey::DarkMode => {
+                    f.place(
+                        "tessera-hud-quick-dark-mode-slot",
+                        &chrome_place(cell.rect, transparent()),
+                        |f| {
+                            if render_quick_toggle_tile(
+                                f,
+                                "tessera-hud-quick-dark-mode",
+                                "Dark Mode",
+                                dark_sub,
+                                if dark_active {
+                                    lens::sys::lens_icon_id::LENS_ICON_MOON
+                                } else {
+                                    lens::sys::lens_icon_id::LENS_ICON_SUN
+                                },
+                                dark_active,
+                                (cell.rect.w, cell.rect.h),
+                                hud,
+                                type_scale,
+                            ) {
+                                let mut preferences = self
+                                    .settings
+                                    .as_ref()
+                                    .map(|s| s.preferences.clone())
+                                    .unwrap_or_default();
+                                preferences.color_scheme = if dark_active {
+                                    tessera_desktop::settings::ColorScheme::Light
+                                } else {
+                                    tessera_desktop::settings::ColorScheme::Dark
+                                };
+                                out.settings_actions.push((
+                                    None,
+                                    SettingsAction::SetDesktopPreferences { preferences },
+                                ));
+                            }
+                        },
+                    );
+                }
+                QuickWidgetKey::DisplayBrightness => {
+                    f.place(
+                        "tessera-hud-quick-brightness-slot",
+                        &chrome_place(cell.rect, transparent()),
+                        |f| {
+                            let (bright_level, _) = render_horizontal_fader(
+                                f,
+                                "tessera-hud-quick-brightness",
+                                i18n.text(Message::Brightness),
+                                lens::sys::lens_icon_id::LENS_ICON_SUN,
+                                false,
+                                status.brightness,
+                                (1, 100),
+                                (cell.rect.w, cell.rect.h),
+                                hud.text,
+                                hud,
+                                type_scale,
+                            );
+                            if let Some(level) = bright_level {
+                                out.system_actions.push(SystemAction::SetBrightness { level });
+                            }
+                        },
+                    );
+                }
+                QuickWidgetKey::SoundVolume => {
+                    let sound_label = if status.muted {
+                        i18n.text(Message::Muted)
+                    } else {
+                        i18n.text(Message::Sound)
+                    };
+                    let sound_fill = if status.muted {
+                        hud.text_muted
+                    } else {
+                        hud.accent
+                    };
+                    f.place(
+                        "tessera-hud-quick-volume-slot",
+                        &chrome_place(cell.rect, transparent()),
+                        |f| {
+                            let (vol_level, mute_clicked) = render_horizontal_fader(
+                                f,
+                                "tessera-hud-quick-volume",
+                                sound_label,
+                                volume_icon_raw(&status),
+                                true,
+                                status.volume,
+                                (0, 100),
+                                (cell.rect.w, cell.rect.h),
+                                sound_fill,
+                                hud,
+                                type_scale,
+                            );
+                            if mute_clicked {
+                                out.system_actions.push(SystemAction::ToggleMute);
+                            }
+                            if let Some(level) = vol_level {
+                                out.system_actions.push(SystemAction::SetVolume { level });
+                            }
+                        },
+                    );
+                }
+                QuickWidgetKey::KeyboardBacklight => {
+                    if let Some(kbd_val) = status.kbd_brightness {
+                        f.place(
+                            "tessera-hud-quick-kbd-brightness-slot",
+                            &chrome_place(cell.rect, transparent()),
                             |f| {
-                                let (wifi_toggle, wifi_expand) = render_expandable_quick_toggle_tile(
+                                let (kbd_level, kbd_icon_clicked) = render_horizontal_fader(
                                     f,
-                                    "tessera-hud-quick-wifi",
-                                    i18n.text(Message::Wifi),
-                                    wifi_sub,
-                                    lens::sys::lens_icon_id::LENS_ICON_WIFI,
-                                    wifi_active,
-                                    (tile_w, tile_h),
+                                    "tessera-hud-quick-kbd-brightness",
+                                    "Keyboard",
+                                    lens::sys::lens_icon_id::LENS_ICON_EDIT,
+                                    true,
+                                    Some(kbd_val),
+                                    (0, 100),
+                                    (cell.rect.w, cell.rect.h),
+                                    hud.text,
                                     hud,
                                     type_scale,
                                 );
-                                if wifi_toggle {
-                                    out.system_actions.push(SystemAction::SetWifi {
-                                        enabled: !wifi_active,
-                                    });
-                                }
-                                if wifi_expand {
-                                    self.wifi_expanded = true;
-                                    out.system_actions.push(SystemAction::ScanWifi);
-                                }
-                                if render_quick_toggle_tile(
-                                    f,
-                                    "tessera-hud-quick-bluetooth",
-                                    i18n.text(Message::Bluetooth),
-                                    bt_sub,
-                                    lens::sys::lens_icon_id::LENS_ICON_BLUETOOTH,
-                                    bt_active,
-                                    (tile_w, tile_h),
-                                    hud,
-                                    type_scale,
-                                ) {
-                                    out.system_actions.push(SystemAction::SetBluetooth {
-                                        enabled: !bt_active,
-                                    });
+                                if kbd_icon_clicked {
+                                    out.system_actions.push(SystemAction::StepKeyboardBrightness);
+                                } else if let Some(level) = kbd_level {
+                                    out.system_actions
+                                        .push(SystemAction::SetKeyboardBrightness { level });
                                 }
                             },
                         );
-
-                        // Row 2: Do Not Disturb + Dark Mode
-                        f.row_ex(
-                            &LayoutOpts {
-                                width: area.w,
-                                height: tile_h,
-                                gap: tile_gap,
-                                cross: Align::Stretch,
-                                ..Default::default()
-                            },
-                            |f| {
-                                if render_quick_toggle_tile(
-                                    f,
-                                    "tessera-hud-quick-dnd",
-                                    i18n.text(Message::DoNotDisturb),
-                                    dnd_sub,
-                                    lens::sys::lens_icon_id::LENS_ICON_BELL,
-                                    dnd_active,
-                                    (tile_w, tile_h),
-                                    hud,
-                                    type_scale,
-                                ) {
-                                    out.system_actions.push(SystemAction::SetDoNotDisturb {
-                                        enabled: !dnd_active,
-                                    });
-                                }
-                                if render_quick_toggle_tile(
-                                    f,
-                                    "tessera-hud-quick-dark-mode",
-                                    "Dark Mode",
-                                    dark_sub,
-                                    if dark_active {
-                                        lens::sys::lens_icon_id::LENS_ICON_MOON
-                                    } else {
-                                        lens::sys::lens_icon_id::LENS_ICON_SUN
-                                    },
-                                    dark_active,
-                                    (tile_w, tile_h),
-                                    hud,
-                                    type_scale,
-                                ) {
-                                    let mut preferences = self
-                                        .settings
-                                        .as_ref()
-                                        .map(|s| s.preferences.clone())
-                                        .unwrap_or_default();
-                                    preferences.color_scheme = if dark_active {
-                                        tessera_desktop::settings::ColorScheme::Light
-                                    } else {
-                                        tessera_desktop::settings::ColorScheme::Dark
-                                    };
-                                    out.settings_actions.push((
-                                        None,
-                                        SettingsAction::SetDesktopPreferences { preferences },
-                                    ));
-                                }
-                            },
-                        );
-
-                        // Horizontal Fader 1: Display (Brightness)
-                        let (bright_level, _) = render_horizontal_fader(
-                            f,
-                            "tessera-hud-quick-brightness",
-                            i18n.text(Message::Brightness),
-                            lens::sys::lens_icon_id::LENS_ICON_SUN,
-                            false,
-                            status.brightness,
-                            (1, 100),
-                            (area.w, fader_h),
-                            hud.text,
-                            hud,
-                            type_scale,
-                        );
-                        if let Some(level) = bright_level {
-                            out.system_actions.push(SystemAction::SetBrightness { level });
-                        }
-
-                        // Horizontal Fader 2: Sound (Volume + Mute)
-                        let sound_label = if status.muted {
-                            i18n.text(Message::Muted)
-                        } else {
-                            i18n.text(Message::Sound)
-                        };
-                        let sound_fill = if status.muted {
-                            hud.text_muted
-                        } else {
-                            hud.accent
-                        };
-                        let (vol_level, mute_clicked) = render_horizontal_fader(
-                            f,
-                            "tessera-hud-quick-volume",
-                            sound_label,
-                            volume_icon_raw(&status),
-                            true,
-                            status.volume,
-                            (0, 100),
-                            (area.w, fader_h),
-                            sound_fill,
-                            hud,
-                            type_scale,
-                        );
-                        if mute_clicked {
-                            out.system_actions.push(SystemAction::ToggleMute);
-                        }
-                        if let Some(level) = vol_level {
-                            out.system_actions.push(SystemAction::SetVolume { level });
-                        }
-                    },
-                );
-            },
-        );
+                    }
+                }
+            }
+        }
         f.set_theme(original);
     }
 
@@ -1226,6 +1334,7 @@ impl ControlCenter {
                                             };
 
                                             let row_id = format!("tessera-wifi-net-{idx}");
+                                            let mut row_action_consumed = false;
                                             let (row_resp, _) = f.pressable_row(
                                                 &row_id,
                                                 &net.ssid,
@@ -1262,6 +1371,14 @@ impl ControlCenter {
                                                         f.icon_raw(lens::sys::lens_icon_id::LENS_ICON_LOCK, 14.0);
                                                     }
 
+                                                    // Frequency band badge if known
+                                                    if let Some(freq) = net.frequency_mhz {
+                                                        f.spacer(4.0);
+                                                        f.set_theme(themes::hud(&hud).with_fg(hud.text_muted));
+                                                        let band = if freq >= 5000 { "5 GHz" } else { "2.4 GHz" };
+                                                        display_label(f, band, type_scale.caption);
+                                                    }
+
                                                     f.flex(1.0);
                                                     f.spacer(0.0);
 
@@ -1290,12 +1407,105 @@ impl ControlCenter {
                                                             },
                                                         );
                                                         if disconn_resp.clicked {
+                                                            row_action_consumed = true;
                                                             out.system_actions.push(SystemAction::DisconnectWifi);
+                                                        }
+                                                        if net.is_saved {
+                                                            f.spacer(4.0);
+                                                            let (forget_resp, _) = f.pressable_row(
+                                                                &format!("tessera-wifi-forget-{idx}"),
+                                                                "Forget",
+                                                                &LayoutOpts {
+                                                                    width: 58.0,
+                                                                    height: 28.0,
+                                                                    radius: 8.0,
+                                                                    cross: Align::Center,
+                                                                    bg: hud.surface,
+                                                                    ..Default::default()
+                                                                },
+                                                                |f, _| {
+                                                                    f.flex(1.0);
+                                                                    f.spacer(0.0);
+                                                                    display_label(f, "Forget", type_scale.footnote);
+                                                                    f.flex(1.0);
+                                                                    f.spacer(0.0);
+                                                                },
+                                                            );
+                                                            if forget_resp.clicked {
+                                                                row_action_consumed = true;
+                                                                out.system_actions.push(SystemAction::ForgetWifi {
+                                                                    ssid: net.ssid.clone(),
+                                                                });
+                                                            }
                                                         }
                                                     } else if is_connecting {
                                                         f.set_theme(themes::hud(&hud).with_fg(hud.accent));
                                                         display_label(f, "Connecting...", type_scale.footnote);
                                                     } else {
+                                                        if net.is_saved {
+                                                            let (auto_resp, _) = f.pressable_row(
+                                                                &format!("tessera-wifi-autoconn-{idx}"),
+                                                                "Auto",
+                                                                &LayoutOpts {
+                                                                    width: 44.0,
+                                                                    height: 28.0,
+                                                                    radius: 8.0,
+                                                                    cross: Align::Center,
+                                                                    bg: if net.auto_connect {
+                                                                        hud.accent.with_alpha(50)
+                                                                    } else {
+                                                                        hud.surface
+                                                                    },
+                                                                    ..Default::default()
+                                                                },
+                                                                |f, _| {
+                                                                    f.flex(1.0);
+                                                                    f.spacer(0.0);
+                                                                    f.set_theme(themes::hud(&hud).with_fg(if net.auto_connect {
+                                                                        hud.accent
+                                                                    } else {
+                                                                        hud.text_muted
+                                                                    }));
+                                                                    display_label(f, "Auto", type_scale.caption);
+                                                                    f.flex(1.0);
+                                                                    f.spacer(0.0);
+                                                                },
+                                                            );
+                                                            if auto_resp.clicked {
+                                                                row_action_consumed = true;
+                                                                out.system_actions.push(SystemAction::SetWifiAutoConnect {
+                                                                    ssid: net.ssid.clone(),
+                                                                    auto_connect: !net.auto_connect,
+                                                                });
+                                                            }
+                                                            f.spacer(4.0);
+                                                            let (forget_resp, _) = f.pressable_row(
+                                                                &format!("tessera-wifi-forget-{idx}"),
+                                                                "Forget",
+                                                                &LayoutOpts {
+                                                                    width: 58.0,
+                                                                    height: 28.0,
+                                                                    radius: 8.0,
+                                                                    cross: Align::Center,
+                                                                    bg: hud.surface,
+                                                                    ..Default::default()
+                                                                },
+                                                                |f, _| {
+                                                                    f.flex(1.0);
+                                                                    f.spacer(0.0);
+                                                                    display_label(f, "Forget", type_scale.footnote);
+                                                                    f.flex(1.0);
+                                                                    f.spacer(0.0);
+                                                                },
+                                                            );
+                                                            if forget_resp.clicked {
+                                                                row_action_consumed = true;
+                                                                out.system_actions.push(SystemAction::ForgetWifi {
+                                                                    ssid: net.ssid.clone(),
+                                                                });
+                                                            }
+                                                            f.spacer(4.0);
+                                                        }
                                                         f.set_theme(themes::hud(&hud).with_fg(hud.text_muted));
                                                         let bars_text = match net.signal_bars {
                                                             4 => "••••",
@@ -1308,7 +1518,7 @@ impl ControlCenter {
                                                 },
                                             );
 
-                                            if row_resp.clicked && !is_curr {
+                                            if row_resp.clicked && !row_action_consumed && !is_curr {
                                                 if net.security == tessera_desktop::system::WifiSecurity::Open
                                                     || net.is_saved
                                                 {
@@ -1847,42 +2057,27 @@ impl ControlCenter {
         }
     }
 
-    /// Compact MPRIS now-playing card at the left-bottom anchor. The card
-    /// remains useful as an honest empty state when no player owns MPRIS;
-    /// when one appears, transport actions are forwarded to the worker and
-    /// never block the render thread.
-    pub(super) fn render_media_panel(
+    /// Integrated MPRIS now-playing card inside the Quick Controls Bento Grid (ADR-0169).
+    pub(super) fn render_bento_media_card(
         &mut self,
         f: &mut Frame,
-        rect: Rect,
-        progress: f32,
+        size: (f32, f32),
+        hud: ControlCenterColors,
+        type_scale: TypeScale,
         i18n: &Localizer,
     ) {
-        if rect.w < 150.0 || rect.h < 80.0 {
-            return;
-        }
-        let hud = self.panel_colors();
-        let type_scale = self.design.typography;
-        let slide = (1.0 - ease_out_cubic(progress)) * -20.0;
-        let rect = Rect {
-            x: rect.x + slide,
-            ..rect
-        };
         let snapshot = self
             .media
             .as_ref()
             .map(MediaHandle::snapshot)
             .unwrap_or_default();
-        let original = f.theme();
         let base_theme = themes::hud(&hud);
         let muted_theme = themes::hud_muted(base_theme, &hud);
         let mut command = None;
         let card_pad = 12.0;
         let icon_w = 18.0;
         let icon_gap = 10.0;
-        // Text area occupies the width of the card minus padding, play icon, and gap.
-        // Safety margin ensures wide CJK characters and bold display text stay within bounds.
-        let text_max_w = (rect.w - card_pad * 2.0 - icon_w - icon_gap - 8.0).max(20.0);
+        let text_max_w = (size.0 - card_pad * 2.0 - icon_w - icon_gap - 8.0).max(20.0);
 
         let identity_raw = if snapshot.available && !snapshot.identity.is_empty() {
             &snapshot.identity
@@ -1901,162 +2096,153 @@ impl ControlCenter {
         let artist_label = ellipsize(f, &snapshot.artist, type_scale.footnote, text_max_w);
 
         f.set_theme(base_theme);
-        f.place(
-            "tessera-hud-media",
-            &chrome_place(
-                rect,
-                LayoutOpts {
-                    radius: 18.0,
-                    bg: hud.surface_recessed,
-                    border: hud.border,
-                    border_width: 1.0,
-                    ..Default::default()
-                },
-            ),
+        f.column_ex(
+            &LayoutOpts {
+                width: size.0,
+                height: size.1,
+                gap: 4.0,
+                pad: card_pad,
+                radius: 16.0,
+                bg: hud.surface_recessed,
+                border: hud.border,
+                border_width: 1.0,
+                cross: Align::Stretch,
+                ..Default::default()
+            },
             |f| {
-                f.column_ex(
+                f.row_ex(
                     &LayoutOpts {
-                        width: rect.w,
-                        height: rect.h,
-                        gap: 4.0,
-                        pad: 12.0,
-                        cross: Align::Stretch,
+                        height: 48.0,
+                        gap: 10.0,
+                        cross: Align::Center,
                         ..Default::default()
                     },
                     |f| {
-                        f.row_ex(
-                            &LayoutOpts {
-                                height: 44.0,
-                                gap: 10.0,
-                                cross: Align::Center,
-                                ..Default::default()
+                        f.icon(
+                            if snapshot.playing {
+                                Icon::Pause
+                            } else {
+                                Icon::Play
                             },
-                            |f| {
-                                f.icon(
-                                    if snapshot.playing {
-                                        Icon::Pause
-                                    } else {
-                                        Icon::Play
-                                    },
-                                    18.0,
-                                );
-                                f.column_ex(
-                                    &LayoutOpts {
-                                        flex: 1.0,
-                                        max_width: text_max_w,
-                                        gap: 2.0,
-                                        ..Default::default()
-                                    },
-                                    |f| {
-                                        f.set_theme(muted_theme);
-                                        display_label(f, &identity_label, type_scale.footnote);
-                                        f.set_theme(base_theme);
-                                        display_label(f, &title_label, type_scale.body);
-                                        if snapshot.available && !snapshot.artist.is_empty() {
-                                            f.set_theme(muted_theme);
-                                            display_label(f, &artist_label, type_scale.footnote);
-                                            f.set_theme(base_theme);
-                                        }
-                                    },
-                                );
-                            },
+                            18.0,
                         );
-
-                        f.row_ex(
+                        f.column_ex(
                             &LayoutOpts {
-                                height: 36.0,
-                                gap: 6.0,
-                                cross: Align::Center,
+                                flex: 1.0,
+                                max_width: text_max_w,
+                                gap: 2.0,
                                 ..Default::default()
                             },
                             |f| {
-                                f.flex(1.0);
-                                f.spacer(0.0);
-                                f.set_theme(if snapshot.can_previous {
-                                    base_theme
-                                } else {
-                                    muted_theme
-                                });
-                                let (previous, _) = f.pressable_row(
-                                    "tessera-hud-media-previous",
-                                    "Previous",
-                                    &LayoutOpts {
-                                        width: 36.0,
-                                        height: 36.0,
-                                        radius: 12.0,
-                                        cross: Align::Center,
-                                        bg: Color::TRANSPARENT,
-                                        ..Default::default()
-                                    },
-                                    |f, _| f.centered(36.0, 36.0, |f| f.icon(Icon::SkipBack, 17.0)),
-                                );
-                                if previous.clicked && snapshot.can_previous {
-                                    command = Some(MediaCommand::Previous);
+                                f.set_theme(muted_theme);
+                                display_label(f, &identity_label, type_scale.footnote);
+                                f.set_theme(base_theme);
+                                display_label(f, &title_label, type_scale.body);
+                                if snapshot.available && !snapshot.artist.is_empty() {
+                                    f.set_theme(muted_theme);
+                                    display_label(f, &artist_label, type_scale.footnote);
+                                    f.set_theme(base_theme);
                                 }
-                                f.set_theme(if snapshot.available {
-                                    base_theme
-                                } else {
-                                    muted_theme
-                                });
-                                let (play_pause, _) = f.pressable_row(
-                                    "tessera-hud-media-play-pause",
-                                    "Play or pause",
-                                    &LayoutOpts {
-                                        width: 40.0,
-                                        height: 36.0,
-                                        radius: 12.0,
-                                        cross: Align::Center,
-                                        bg: hud.selection_surface,
-                                        ..Default::default()
-                                    },
-                                    |f, _| {
-                                        f.centered(40.0, 36.0, |f| {
-                                            f.icon(
-                                                if snapshot.playing {
-                                                    Icon::Pause
-                                                } else {
-                                                    Icon::Play
-                                                },
-                                                18.0,
-                                            )
-                                        })
-                                    },
-                                );
-                                if play_pause.clicked && snapshot.available {
-                                    command = Some(MediaCommand::PlayPause);
-                                }
-                                f.set_theme(if snapshot.can_next {
-                                    base_theme
-                                } else {
-                                    muted_theme
-                                });
-                                let (next, _) = f.pressable_row(
-                                    "tessera-hud-media-next",
-                                    "Next",
-                                    &LayoutOpts {
-                                        width: 36.0,
-                                        height: 36.0,
-                                        radius: 12.0,
-                                        cross: Align::Center,
-                                        bg: Color::TRANSPARENT,
-                                        ..Default::default()
-                                    },
-                                    |f, _| {
-                                        f.centered(36.0, 36.0, |f| f.icon(Icon::SkipForward, 17.0))
-                                    },
-                                );
-                                if next.clicked && snapshot.can_next {
-                                    command = Some(MediaCommand::Next);
-                                }
-                                f.flex(1.0);
-                                f.spacer(0.0);
                             },
                         );
                     },
                 );
+
+                f.flex(1.0);
+                f.spacer(0.0);
+
+                f.row_ex(
+                    &LayoutOpts {
+                        height: 36.0,
+                        gap: 6.0,
+                        cross: Align::Center,
+                        ..Default::default()
+                    },
+                    |f| {
+                        f.flex(1.0);
+                        f.spacer(0.0);
+                        f.set_theme(if snapshot.can_previous {
+                            base_theme
+                        } else {
+                            muted_theme
+                        });
+                        let (previous, _) = f.pressable_row(
+                            "tessera-hud-media-previous",
+                            "Previous",
+                            &LayoutOpts {
+                                width: 36.0,
+                                height: 36.0,
+                                radius: 12.0,
+                                cross: Align::Center,
+                                bg: Color::TRANSPARENT,
+                                ..Default::default()
+                            },
+                            |f, _| f.centered(36.0, 36.0, |f| f.icon(Icon::SkipBack, 17.0)),
+                        );
+                        if previous.clicked && snapshot.can_previous {
+                            command = Some(MediaCommand::Previous);
+                        }
+                        f.set_theme(if snapshot.available {
+                            base_theme
+                        } else {
+                            muted_theme
+                        });
+                        let (play_pause, _) = f.pressable_row(
+                            "tessera-hud-media-play-pause",
+                            "Play or pause",
+                            &LayoutOpts {
+                                width: 40.0,
+                                height: 36.0,
+                                radius: 12.0,
+                                cross: Align::Center,
+                                bg: hud.selection_surface,
+                                ..Default::default()
+                            },
+                            |f, _| {
+                                f.centered(40.0, 36.0, |f| {
+                                    f.icon(
+                                        if snapshot.playing {
+                                            Icon::Pause
+                                        } else {
+                                            Icon::Play
+                                        },
+                                        18.0,
+                                    )
+                                })
+                            },
+                        );
+                        if play_pause.clicked && snapshot.available {
+                            command = Some(MediaCommand::PlayPause);
+                        }
+                        f.set_theme(if snapshot.can_next {
+                            base_theme
+                        } else {
+                            muted_theme
+                        });
+                        let (next, _) = f.pressable_row(
+                            "tessera-hud-media-next",
+                            "Next",
+                            &LayoutOpts {
+                                width: 36.0,
+                                height: 36.0,
+                                radius: 12.0,
+                                cross: Align::Center,
+                                bg: Color::TRANSPARENT,
+                                ..Default::default()
+                            },
+                            |f, _| {
+                                f.centered(36.0, 36.0, |f| f.icon(Icon::SkipForward, 17.0))
+                            },
+                        );
+                        if next.clicked && snapshot.can_next {
+                            command = Some(MediaCommand::Next);
+                        }
+                        f.flex(1.0);
+                        f.spacer(0.0);
+                    },
+                );
             },
         );
-        f.set_theme(original);
         if let Some(command) = command
             && let Some(media) = &self.media
         {

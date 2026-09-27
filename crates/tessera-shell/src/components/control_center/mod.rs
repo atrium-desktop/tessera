@@ -112,10 +112,6 @@ const TRAY_ICON: f32 = 22.0;
 const TRAY_GAP: f32 = 10.0;
 /// Inset between the tray surface boundary and its contained icons.
 const TRAY_PAD: f32 = 8.0;
-/// MPRIS now-playing card at the left-bottom anchor. Its width contracts to
-/// preserve a gap from the centered main panel on compact outputs.
-const MEDIA_W: f32 = 260.0;
-const MEDIA_H: f32 = 108.0;
 /// The right-bottom band: one mode selector followed by the lock and power
 /// buttons. All three components share one compact baseline.
 const WORK_MODE_W: f32 = 252.0;
@@ -482,7 +478,11 @@ impl ControlCenter {
             notifications,
             notification_cache: None,
             tray,
-            media: mpris::spawn(),
+            media: if open_on_start {
+                mpris::spawn().or_else(|| Some(mpris::MediaHandle::mock()))
+            } else {
+                mpris::spawn()
+            },
             menu_open_for: None,
             menu_path: Vec::new(),
             menu_owner: Rect {
@@ -754,19 +754,14 @@ impl ControlCenter {
         }
     }
 
-    /// The profile panel (screen top-left), clock (screen top-center),
-    /// notifications stream (screen top-right), tray column (screen
-    /// left-middle), media card (screen left-bottom), and the work-mode +
-    /// session cluster (screen right-bottom).
-    /// Calculate panel bounds based on the 9-region spatial anchor system:
+    /// Calculate panel bounds based on the spatial anchor system:
     /// - Top-Left (左上): User Profile Chip
     /// - Top-Center (上中): Clock & Date
     /// - Top-Right (右上): Notifications Stream (frameless items)
     /// - Left-Middle (左中): Vertical tray icon column
-    /// - Left-Bottom (左下): MPRIS now-playing controls
     /// - Right-Bottom (右下): Work-mode segmented control + power/session
     /// - Center (中): Split Main Control Panel (Left Nav Rail + Right Tab View)
-    fn cluster_bounds(display: (f32, f32)) -> (Rect, Rect, Rect, Rect, Rect, Rect, Rect, Rect) {
+    fn cluster_bounds(display: (f32, f32)) -> (Rect, Rect, Rect, Rect, Rect, Rect, Rect) {
         let margin_x = (display.0 * 0.025).clamp(16.0, 48.0);
         let margin_y = (display.1 * 0.035).clamp(16.0, 40.0);
         let gap = PANEL_GAP;
@@ -869,27 +864,12 @@ impl ControlCenter {
             h: (display.1 - main_y - margin_y).min(main_h).max(1.0),
         };
 
-        // 7. Left-Bottom Anchor (左下): the MPRIS card grows to its design
-        // width when space permits and contracts before touching the main
-        // panel on compact nested outputs.
-        let media_w = MEDIA_W
-            .min((main.x - margin_x - gap).max(1.0))
-            .min((display.0 - margin_x * 2.0).max(1.0));
-        let media_h = MEDIA_H.min((display.1 - margin_y * 2.0).max(1.0));
-        let media = Rect {
-            x: margin_x,
-            y: display.1 - margin_y - media_h,
-            w: media_w,
-            h: media_h,
-        };
-
         (
             profile,
             main,
             notifications,
             clock,
             tray,
-            media,
             work_mode,
             power,
         )
@@ -1192,7 +1172,6 @@ impl Chrome for ControlCenter {
             notifications_rect,
             clock_rect,
             tray_rect,
-            media_rect,
             work_mode_rect,
             power_rect,
         ) = Self::cluster_bounds(display);
@@ -1223,7 +1202,6 @@ impl Chrome for ControlCenter {
             && !contains(main_rect, cursor.0, cursor.1)
             && !contains(clock_rect, cursor.0, cursor.1)
             && !contains(tray_rect, cursor.0, cursor.1)
-            && !contains(media_rect, cursor.0, cursor.1)
             && !contains(work_mode_rect, cursor.0, cursor.1)
             && !contains(power_rect, cursor.0, cursor.1)
             && !on_popover
@@ -1254,7 +1232,6 @@ impl Chrome for ControlCenter {
         f.set_opacity(side_progress.max(content_progress));
         self.render_clock_panel(f, clock_rect, side_progress, i18n);
         self.render_tray_column(f, tray_rect, side_progress, cursor, i18n);
-        self.render_media_panel(f, media_rect, side_progress, i18n);
         self.render_work_mode_panel(f, work_mode_rect, side_progress, i18n, out);
         self.render_power_session_panel(f, power_rect, side_progress, cursor, i18n, out);
 
@@ -1548,13 +1525,13 @@ fn animated_damage_region(
         });
     };
     if work_mode {
-        merge(rects.6, 0.0); // work-mode band
+        merge(rects.5, 0.0); // work-mode band
     }
     if work_mode_tooltip {
-        merge(rects.6, 50.0); // work-mode band + tooltip headroom
+        merge(rects.5, 50.0); // work-mode band + tooltip headroom
     }
     if session_tooltip {
-        merge(rects.7, 50.0); // power/session band + tooltip headroom
+        merge(rects.6, 50.0); // power/session band + tooltip headroom
     }
     if notif_scrollbar {
         merge(rects.2, 0.0); // notification stream

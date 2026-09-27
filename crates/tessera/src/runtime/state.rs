@@ -280,6 +280,7 @@ pub(super) struct CompositorRuntime<'engine> {
     /// device set only moves on hotplug, which the same event iteration
     /// observes anyway. Probed at `TOUCHPAD_PROBE_INTERVAL` instead.
     pub(super) input_status_last_probe: std::time::Instant,
+    pub(super) host_system: std::sync::Arc<dyn crate::host_system::HostSystem>,
     pub(super) _preview_sandbox: Option<PreviewSandbox>,
 }
 

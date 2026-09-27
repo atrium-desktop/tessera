@@ -27,6 +27,8 @@ impl Default for MockState {
                     security: WifiSecurity::WpaPsk,
                     is_connected: false,
                     is_saved: true,
+                    auto_connect: true,
+                    frequency_mhz: Some(5180),
                 },
                 WifiNetwork {
                     ssid: "Cafe-Guest-Open".to_string(),
@@ -34,6 +36,8 @@ impl Default for MockState {
                     security: WifiSecurity::Open,
                     is_connected: false,
                     is_saved: false,
+                    auto_connect: false,
+                    frequency_mhz: Some(2412),
                 },
                 WifiNetwork {
                     ssid: "Enterprise-Office".to_string(),
@@ -41,6 +45,8 @@ impl Default for MockState {
                     security: WifiSecurity::Enterprise,
                     is_connected: false,
                     is_saved: false,
+                    auto_connect: false,
+                    frequency_mhz: Some(5240),
                 },
             ],
             last_connected_passphrase: None,
@@ -105,6 +111,21 @@ impl WirelessBackend for MockWirelessBackend {
             }
             target.is_connected = true;
             target.is_saved = true;
+            target.auto_connect = true;
+        } else {
+            st.networks.push(WifiNetwork {
+                ssid: ssid.to_string(),
+                signal_bars: 4,
+                security: if passphrase.is_some() {
+                    WifiSecurity::WpaPsk
+                } else {
+                    WifiSecurity::Open
+                },
+                is_connected: true,
+                is_saved: true,
+                auto_connect: true,
+                frequency_mhz: Some(5180),
+            });
         }
         for n in &mut st.networks {
             if n.ssid != ssid {
@@ -125,6 +146,31 @@ impl WirelessBackend for MockWirelessBackend {
         st.active_ssid = None;
         st.state = WifiLinkState::Disconnected;
         Ok(())
+    }
+
+    fn forget(&self, ssid: &str) -> Result<(), String> {
+        let mut st = self.state.lock().unwrap();
+        let was_active = st.active_ssid.as_deref() == Some(ssid);
+        if let Some(target) = st.networks.iter_mut().find(|n| n.ssid == ssid) {
+            target.is_saved = false;
+            target.auto_connect = false;
+            target.is_connected = false;
+        }
+        if was_active {
+            st.active_ssid = None;
+            st.state = WifiLinkState::Disconnected;
+        }
+        Ok(())
+    }
+
+    fn set_auto_connect(&self, ssid: &str, auto_connect: bool) -> Result<(), String> {
+        let mut st = self.state.lock().unwrap();
+        if let Some(target) = st.networks.iter_mut().find(|n| n.ssid == ssid) {
+            target.auto_connect = auto_connect;
+            Ok(())
+        } else {
+            Err(format!("network '{ssid}' not found"))
+        }
     }
 
     fn set_enabled(&self, enabled: bool) -> Result<(), String> {

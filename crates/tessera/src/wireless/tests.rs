@@ -74,3 +74,64 @@ fn wireless_handle_processes_async_commands() {
     assert_eq!(snap.state, WifiLinkState::Disconnected);
     assert_eq!(snap.active_ssid, None);
 }
+
+#[test]
+fn mock_backend_forget_and_auto_connect() {
+    let mock = MockWirelessBackend::new();
+    let nets = mock.networks();
+    assert!(nets[0].is_saved);
+    assert!(nets[0].auto_connect);
+
+    // Toggle auto connect
+    assert!(mock.set_auto_connect("Home-WiFi-5G", false).is_ok());
+    let nets = mock.networks();
+    assert!(!nets[0].auto_connect);
+
+    // Connect first
+    assert!(mock.connect("Home-WiFi-5G", None).is_ok());
+    assert_eq!(mock.state(), WifiLinkState::Connected);
+
+    // Forget discards saved profile and tears down active connection
+    assert!(mock.forget("Home-WiFi-5G").is_ok());
+    assert_eq!(mock.state(), WifiLinkState::Disconnected);
+    assert_eq!(mock.active_ssid(), None);
+    let nets = mock.networks();
+    assert!(!nets[0].is_saved);
+    assert!(!nets[0].auto_connect);
+    assert!(!nets[0].is_connected);
+}
+
+#[test]
+fn wireless_handle_processes_forget_and_auto_connect() {
+    let mock = MockWirelessBackend::new();
+    let handle = WirelessHandle::spawn_with_backend(mock);
+
+    // Connect to Home-WiFi-5G
+    handle.connect("Home-WiFi-5G".to_string(), None);
+    std::thread::sleep(Duration::from_millis(600));
+    assert_eq!(handle.snapshot().state, WifiLinkState::Connected);
+
+    // Send async auto_connect update
+    handle.set_auto_connect("Home-WiFi-5G".to_string(), false);
+    std::thread::sleep(Duration::from_millis(600));
+    let home = handle
+        .snapshot()
+        .networks
+        .into_iter()
+        .find(|n| n.ssid == "Home-WiFi-5G")
+        .expect("Home-WiFi-5G");
+    assert!(!home.auto_connect);
+
+    // Send async forget
+    handle.forget("Home-WiFi-5G".to_string());
+    std::thread::sleep(Duration::from_millis(600));
+    let snap = handle.snapshot();
+    assert_eq!(snap.state, WifiLinkState::Disconnected);
+    let home = snap
+        .networks
+        .into_iter()
+        .find(|n| n.ssid == "Home-WiFi-5G")
+        .expect("Home-WiFi-5G");
+    assert!(!home.is_saved);
+    assert!(!home.auto_connect);
+}

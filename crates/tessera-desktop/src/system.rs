@@ -40,7 +40,7 @@ pub enum WifiLinkState {
     Connected,
 }
 
-/// One observed wireless network / access point (ADR-0162).
+/// One observed wireless network / access point (ADR-0162, ADR-0167).
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WifiNetwork {
@@ -50,6 +50,12 @@ pub struct WifiNetwork {
     pub security: WifiSecurity,
     pub is_connected: bool,
     pub is_saved: bool,
+    /// Whether automatic reconnection is enabled for this known profile (ADR-0167).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub auto_connect: bool,
+    /// Center frequency in MHz (e.g. 2412 for 2.4 GHz, 5180 for 5 GHz), if known (ADR-0167).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub frequency_mhz: Option<u32>,
 }
 
 /// Battery state read from the host power service.
@@ -129,6 +135,9 @@ pub struct SystemStatus {
     pub bluetooth_enabled: Option<bool>,
     /// Backlight level in percent, or `None` without a controllable backlight.
     pub brightness: Option<u8>,
+    /// Keyboard backlight level in percent, or `None` without a controllable keyboard backlight (ADR-0168).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub kbd_brightness: Option<u8>,
     pub do_not_disturb: bool,
     /// Included so one host probe can feed both status and settings surfaces.
     pub input: InputStatus,
@@ -216,6 +225,12 @@ pub enum SystemAction {
     SetBrightness {
         level: u8,
     },
+    /// Set keyboard backlight level in percent (0..=100) (ADR-0168).
+    SetKeyboardBrightness {
+        level: u8,
+    },
+    /// Step keyboard backlight brightness through supported hardware tiers (ADR-0168).
+    StepKeyboardBrightness,
     SetWifi {
         enabled: bool,
     },
@@ -228,6 +243,15 @@ pub enum SystemAction {
     },
     /// Disconnect from the currently associated Wi-Fi network (ADR-0162).
     DisconnectWifi,
+    /// Discard saved credentials and configuration for a specified network (ADR-0167).
+    ForgetWifi {
+        ssid: String,
+    },
+    /// Set auto-connect behavior for a saved network (ADR-0167).
+    SetWifiAutoConnect {
+        ssid: String,
+        auto_connect: bool,
+    },
     SetBluetooth {
         enabled: bool,
     },
@@ -275,7 +299,16 @@ impl SystemAction {
             Self::SetBrightness { level } if !(1..=100).contains(level) => {
                 Err("brightness is outside 1..=100")
             }
+            Self::SetKeyboardBrightness { level } if *level > 100 => {
+                Err("keyboard brightness is outside 0..=100")
+            }
             Self::ConnectWifi { ssid, .. } if ssid.trim().is_empty() => {
+                Err("ssid cannot be empty")
+            }
+            Self::ForgetWifi { ssid } if ssid.trim().is_empty() => {
+                Err("ssid cannot be empty")
+            }
+            Self::SetWifiAutoConnect { ssid, .. } if ssid.trim().is_empty() => {
                 Err("ssid cannot be empty")
             }
             _ => Ok(()),
@@ -317,6 +350,36 @@ mod tests {
             .validate()
             .is_ok()
         );
+        assert!(
+            SystemAction::ForgetWifi {
+                ssid: "  ".to_string(),
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            SystemAction::ForgetWifi {
+                ssid: "MyHome".to_string(),
+            }
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            SystemAction::SetWifiAutoConnect {
+                ssid: "  ".to_string(),
+                auto_connect: true,
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            SystemAction::SetWifiAutoConnect {
+                ssid: "MyHome".to_string(),
+                auto_connect: false,
+            }
+            .validate()
+            .is_ok()
+        );
     }
 
     #[test]
@@ -328,6 +391,10 @@ mod tests {
                 .validate()
                 .is_ok()
         );
+        assert!(SystemAction::SetKeyboardBrightness { level: 101 }.validate().is_err());
+        assert!(SystemAction::SetKeyboardBrightness { level: 100 }.validate().is_ok());
+        assert!(SystemAction::SetKeyboardBrightness { level: 0 }.validate().is_ok());
+        assert!(SystemAction::StepKeyboardBrightness.validate().is_ok());
     }
 
     #[test]

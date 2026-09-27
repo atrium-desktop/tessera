@@ -146,7 +146,7 @@ fn a_fullscreen_window_closes_the_panel() {
 #[test]
 fn cluster_bounds_stay_inside_small_displays() {
     for display in [(320.0, 480.0), (800.0, 600.0), (1920.0, 1080.0)] {
-        let (profile, main, notifications, clock, tray, media, work_mode, power) =
+        let (profile, main, notifications, clock, tray, work_mode, power) =
             CommandPanel::cluster_bounds(display);
         for rect in [
             profile,
@@ -154,7 +154,6 @@ fn cluster_bounds_stay_inside_small_displays() {
             notifications,
             clock,
             tray,
-            media,
             work_mode,
             power,
         ] {
@@ -169,7 +168,7 @@ fn cluster_bounds_stay_inside_small_displays() {
 
 #[test]
 fn full_size_displays_get_the_design_geometry() {
-    let (profile, main, notifications, clock, tray, media, work_mode, power) =
+    let (profile, main, notifications, clock, tray, work_mode, power) =
         CommandPanel::cluster_bounds((1920.0, 1080.0));
     // Profile is compact in top-left
     assert_eq!(profile.w, 300.0);
@@ -192,12 +191,6 @@ fn full_size_displays_get_the_design_geometry() {
     assert_eq!(tray.x, 48.0);
     assert!(tray.y > notifications.y);
     assert!(tray.h < 1080.0 - 37.8 * 2.0);
-
-    // The MPRIS card owns the left-bottom anchor and stays clear of the
-    // centered main surface.
-    assert_eq!(media.x, profile.x);
-    assert_eq!(media.y + media.h, 1080.0 - 37.8);
-    assert!(media.x + media.w + PANEL_GAP <= main.x);
 
     // The right-bottom band is horizontal and pinned into the corner:
     // power/session flush to the right margin, work mode to its left, both
@@ -362,7 +355,7 @@ fn projected_modes_never_blank_an_unlocked_session() {
 #[test]
 fn work_mode_and_power_session_panels_render_within_cluster() {
     let display = (1920.0, 1080.0);
-    let (_profile, _main, notifications, _clock, _tray, _media, work_mode, power) =
+    let (_profile, _main, notifications, _clock, _tray, work_mode, power) =
         CommandPanel::cluster_bounds(display);
 
     assert!(work_mode.w > 0.0);
@@ -418,7 +411,7 @@ fn scrollbar_reveals_fade_out_after_wheel_activity_stops() {
 #[test]
 fn animated_frames_localize_damage_to_the_moving_bands() {
     let display = (1920.0, 1080.0);
-    let (profile, _main, notifications, _clock, tray, _media, work_mode, power) =
+    let (profile, _main, notifications, _clock, tray, work_mode, power) =
         CommandPanel::cluster_bounds(display);
     let full = tessera_primitives::Rect::new(0, 0, display.0 as i32, display.1 as i32);
 
@@ -623,4 +616,50 @@ fn wifi_escape_peels_expanded_view_first() {
     // Second escape closes panel
     panel.key_char(&kc(tessera_primitives::input::XKB_KEY_Escape), &mut out);
     assert!(!panel.open);
+}
+
+#[test]
+fn wifi_forget_and_autoconnect_actions_validate() {
+    let mut out = ChromeEvents::default();
+    out.system_actions.push(SystemAction::ForgetWifi {
+        ssid: "OldCafe".to_string(),
+    });
+    out.system_actions.push(SystemAction::SetWifiAutoConnect {
+        ssid: "MyPhoneHotspot".to_string(),
+        auto_connect: false,
+    });
+    assert_eq!(out.system_actions.len(), 2);
+    assert!(out.system_actions[0].validate().is_ok());
+    assert!(out.system_actions[1].validate().is_ok());
+}
+
+#[test]
+fn keyboard_backlight_actions_validate() {
+    let mut out = ChromeEvents::default();
+    out.system_actions
+        .push(SystemAction::SetKeyboardBrightness { level: 75 });
+    out.system_actions
+        .push(SystemAction::StepKeyboardBrightness);
+    assert_eq!(out.system_actions.len(), 2);
+    assert!(out.system_actions[0].validate().is_ok());
+    assert!(out.system_actions[1].validate().is_ok());
+}
+
+#[test]
+fn mpris_mock_handle_state_and_commands() {
+    let handle = mpris::MediaHandle::mock();
+    let snap = handle.snapshot();
+    assert!(snap.available);
+    assert!(snap.playing);
+    assert_eq!(snap.title, "Resonance");
+
+    handle.send(mpris::MediaCommand::PlayPause);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let snap = handle.snapshot();
+    assert!(!snap.playing);
+
+    handle.send(mpris::MediaCommand::Next);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let snap = handle.snapshot();
+    assert_eq!(snap.title, "Sunlight");
 }

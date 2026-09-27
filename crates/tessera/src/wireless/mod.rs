@@ -27,6 +27,10 @@ pub trait WirelessBackend: Send + Sync {
     fn disconnect(&self) -> Result<(), String>;
     /// Enable or disable the wireless radio.
     fn set_enabled(&self, enabled: bool) -> Result<(), String>;
+    /// Discard saved credentials and profile for a specified network (ADR-0167).
+    fn forget(&self, ssid: &str) -> Result<(), String>;
+    /// Set auto-connect behavior for a saved network (ADR-0167).
+    fn set_auto_connect(&self, ssid: &str, auto_connect: bool) -> Result<(), String>;
     /// Get current link state.
     fn state(&self) -> WifiLinkState;
     /// Get currently discovered networks.
@@ -45,6 +49,13 @@ pub enum WirelessCommand {
     },
     Disconnect,
     SetEnabled(bool),
+    Forget {
+        ssid: String,
+    },
+    SetAutoConnect {
+        ssid: String,
+        auto_connect: bool,
+    },
 }
 
 /// Snapshot of the wireless state shared with the compositor.
@@ -94,6 +105,12 @@ impl WirelessHandle {
                                 WirelessCommand::SetEnabled(enabled) => {
                                     let _ = backend.set_enabled(enabled);
                                 }
+                                WirelessCommand::Forget { ssid } => {
+                                    let _ = backend.forget(&ssid);
+                                }
+                                WirelessCommand::SetAutoConnect { ssid, auto_connect } => {
+                                    let _ = backend.set_auto_connect(&ssid, auto_connect);
+                                }
                             }
                         }
                         Err(mpsc::RecvTimeoutError::Timeout) => {}
@@ -142,6 +159,16 @@ impl WirelessHandle {
     /// Dispatch an asynchronous radio state change.
     pub fn set_enabled(&self, enabled: bool) {
         let _ = self.cmd_tx.send(WirelessCommand::SetEnabled(enabled));
+    }
+
+    /// Dispatch an asynchronous forget request (ADR-0167).
+    pub fn forget(&self, ssid: String) {
+        let _ = self.cmd_tx.send(WirelessCommand::Forget { ssid });
+    }
+
+    /// Dispatch an asynchronous auto-connect preference update (ADR-0167).
+    pub fn set_auto_connect(&self, ssid: String, auto_connect: bool) {
+        let _ = self.cmd_tx.send(WirelessCommand::SetAutoConnect { ssid, auto_connect });
     }
 
     /// Read the latest snapshot without blocking.

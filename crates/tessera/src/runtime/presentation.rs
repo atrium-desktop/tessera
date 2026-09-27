@@ -1846,6 +1846,7 @@ impl CompositorRuntime<'_> {
                         &mut self.ipc_idle_inhibits,
                         &mut self.idle_process,
                         &self.wireless,
+                        &*self.host_system,
                         action,
                     )
                 {
@@ -2151,6 +2152,7 @@ impl CompositorRuntime<'_> {
                             &mut self.ipc_idle_inhibits,
                             &mut self.idle_process,
                             &self.wireless,
+                            &*self.host_system,
                             action,
                         ) {
                             Ok(()) => {

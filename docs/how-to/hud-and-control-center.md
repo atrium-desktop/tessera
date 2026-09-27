@@ -21,7 +21,10 @@ Two frosted chips float over the desktop along the top edge:
   and brighter.
 
 The chips reserve no space: windows tile and maximize underneath them, and
-clicks fall straight through to the windows below. Moving the cursor near a
+clicks fall straight through to the windows below. The HUD chips are strictly
+passive telemetry monitors and cannot be clicked or activated. All interactive
+controls, configuration toggles, and detail views belong exclusively to the
+control center (ADR-0080). Moving the cursor near a
 chip fades it out; moving away fades it back in. A fullscreen window hides
 the HUD entirely.
 
@@ -62,6 +65,19 @@ key = "d"
 action = "control_center"
 ```
 
+### Preview and Debug Routing
+
+For development, visual inspection, and verification without input gestures or keybindings:
+
+```bash
+TESSERA_PREVIEW=control-center cargo run -p tessera
+```
+
+This runs a fully mocked, zero-side-effect component sandbox:
+- **Rich baseline telemetry**: Pre-populates realistic state (88% battery charging, Wi-Fi connected to `Home-WiFi-5G` with full scan list, 65% volume, 80% screen brightness, 66% keyboard backlight, Bluetooth active, and seeded notification cards);
+- **Zero host interference**: Volume, brightness, Wi-Fi, Bluetooth, and power actions update in-memory state and render immediately without spawning subprocesses (`wpctl`, `brightnessctl`, `rfkill`, `systemctl`) or altering host wireless daemons;
+- **State isolation**: Isolates dock pins, configuration, and audit journals within a disposable temporary sandbox directory.
+
 ## Read the Profile and Machine Monitors
 
 The **profile chip (top-left)** shows your avatar (with live 3D VRM rendering
@@ -85,13 +101,22 @@ Long tab bodies scroll inside the main panel.
 
 ## Adjust Quick Settings
 
-Open the panel and select the **System** tab. Controls group under muted
-headers: Sound, Brightness, Connectivity, Desktop, Agent Workspaces, and
-Session. The tab carries the volume slider and mute toggle, the
-brightness slider, Wi-Fi and Bluetooth toggles, Do Not Disturb, and the
-tiled-layout toggle, plus a display-only **Agent Workspaces** status row
-aggregating the live agent sessions. Controls a host cannot serve (no
-backlight, no audio device) read as unavailable.
+Open the panel and select the **System** tab. Controls are arranged in an ergonomic **2D Bento Grid** (ADR-0169):
+
+- **Bento Top Cluster**: Network tiles (expandable Wi-Fi on top, Bluetooth below) paired directly beside the integrated **MPRIS Now Playing card** (album art, track title, artist, and transport controls: Previous, Play/Pause, Next);
+- **Quick Action Toggles**: Do Not Disturb and Dark Mode arranged side-by-side;
+- **Continuous Faders**: Display brightness slider, sound volume slider with mute toggle, and an adaptive keyboard backlight slider (when supported by hardware, ADR-0168). Controls a host cannot serve read as unavailable or omit their fader entirely.
+
+## Manage Wireless Networks (Wi-Fi)
+
+Under the **System** tab, the Connectivity group features an expandable Wi-Fi tile (ADR-0162, ADR-0167):
+
+- **Expand Details**: Click the chevron (`>`) on the Wi-Fi tile to reveal the inline network list. Discovered access points sort by signal strength with normalized signal indicators and radio band badges (`2.4 GHz` or `5 GHz`).
+- **Scan**: Click the refresh button (`↻`) in the header row to trigger an active channel scan through the host wireless daemon (`iwd`).
+- **Connect**: Click an open or saved network to associate immediately. Clicking an unconfigured secured network opens an inline passphrase field; typing the passphrase and pressing `Enter` or clicking **Connect** delivers credentials through the native D-Bus agent.
+- **Forget Saved Profile**: Saved networks display an inline **Forget** button. Activating it purges credentials and profiles from `/var/lib/iwd/`. If actively connected, the link disconnects immediately.
+- **Auto-Connect Toggle**: Saved profiles provide an **Auto** toggle pill. Disabling it prevents the daemon from automatically connecting when in range (useful for metered mobile hotspots).
+- **Radio Power**: The header switch enables or disables the wireless radio interface without discarding configured networks.
 
 ## Edit Persistent Settings
 

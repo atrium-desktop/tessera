@@ -14,6 +14,7 @@ const OBJECT_MANAGER_IFACE: &str = "org.freedesktop.DBus.ObjectManager";
 const DEVICE_IFACE: &str = "net.connman.iwd.Device";
 const STATION_IFACE: &str = "net.connman.iwd.Station";
 const NETWORK_IFACE: &str = "net.connman.iwd.Network";
+const KNOWN_NETWORK_IFACE: &str = "net.connman.iwd.KnownNetwork";
 const AGENT_MANAGER_IFACE: &str = "net.connman.iwd.AgentManager";
 const AGENT_PATH: &str = "/io/github/ming2k/tessera/iwd_agent";
 
@@ -81,6 +82,7 @@ struct IwdCache {
     state: WifiLinkState,
     active_ssid: Option<String>,
     networks: Vec<WifiNetwork>,
+    known_networks: HashMap<String, (String, bool)>,
 }
 
 impl IwdBackend {
@@ -140,6 +142,7 @@ impl IwdBackend {
         let mut station_state = WifiLinkState::Disconnected;
         let mut connected_network_path: Option<String> = None;
         let mut device_powered = true;
+        let mut known_networks: HashMap<String, (String, bool)> = HashMap::new();
 
         struct RawNetwork {
             ssid: String,
@@ -188,8 +191,16 @@ impl IwdBackend {
                         ssid: name,
                         security,
                         connected,
-                        path: path_str,
+                        path: path_str.clone(),
                     });
+                }
+            }
+
+            if let Some(props) = ifaces.get(KNOWN_NETWORK_IFACE) {
+                let name = get_str(props, "Name").unwrap_or("").to_string();
+                if !name.is_empty() {
+                    let auto_connect = get_bool(props, "AutoConnect").unwrap_or(true);
+                    known_networks.insert(name, (path_str.clone(), auto_connect));
                 }
             }
         }
@@ -210,12 +221,19 @@ impl IwdBackend {
             if is_conn {
                 active_ssid = Some(raw.ssid.clone());
             }
+            let is_saved = known_networks.contains_key(&raw.ssid);
+            let auto_connect = known_networks
+                .get(&raw.ssid)
+                .map(|(_, ac)| *ac)
+                .unwrap_or(false);
             final_networks.push(WifiNetwork {
                 ssid: raw.ssid,
                 signal_bars: 4,
                 security: raw.security,
                 is_connected: is_conn,
-                is_saved: true,
+                is_saved,
+                auto_connect,
+                frequency_mhz: None,
             });
         }
 
@@ -225,6 +243,7 @@ impl IwdBackend {
         cache.state = station_state;
         cache.active_ssid = active_ssid;
         cache.networks = final_networks;
+        cache.known_networks = known_networks;
 
         Ok(())
     }
@@ -371,6 +390,52 @@ impl WirelessBackend for IwdBackend {
 
         let _ = self.refresh();
         Ok(())
+    }
+
+    fn forget(&self, ssid: &str) -> Result<(), String> {
+        let target_path = {
+            let cache = self.cache.lock().unwrap();
+            cache.known_networks.get(ssid).map(|(p, _)| p.clone())
+        };
+
+        if let Some(path) = target_path {
+            self.conn
+                .call_method(
+                    Some(IWD_SERVICE),
+                    path.as_str(),
+                    Some(KNOWN_NETWORK_IFACE),
+                    "Forget",
+                    &(),
+                )
+                .map_err(|e| format!("iwd Forget failed: {e}"))?;
+            let _ = self.refresh();
+            Ok(())
+        } else {
+            Err(format!("known network '{ssid}' not found"))
+        }
+    }
+
+    fn set_auto_connect(&self, ssid: &str, auto_connect: bool) -> Result<(), String> {
+        let target_path = {
+            let cache = self.cache.lock().unwrap();
+            cache.known_networks.get(ssid).map(|(p, _)| p.clone())
+        };
+
+        if let Some(path) = target_path {
+            self.conn
+                .call_method(
+                    Some(IWD_SERVICE),
+                    path.as_str(),
+                    Some("org.freedesktop.DBus.Properties"),
+                    "Set",
+                    &(KNOWN_NETWORK_IFACE, "AutoConnect", Value::new(auto_connect)),
+                )
+                .map_err(|e| format!("iwd Set AutoConnect failed: {e}"))?;
+            let _ = self.refresh();
+            Ok(())
+        } else {
+            Err(format!("known network '{ssid}' not found"))
+        }
     }
 
     fn state(&self) -> WifiLinkState {
