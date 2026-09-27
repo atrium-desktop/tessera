@@ -43,18 +43,19 @@ We eliminate the floating media panel from `cluster_bounds`:
 
 ### 2. 2D Bento Grid Architecture in Quick Controls (`tessera-shell`)
 
-The Quick Controls section transitions from a linear vertical stack into a high-density 2D modular Bento Grid:
+The Quick Controls section transitions from a linear vertical stack into a high-density 2D modular Bento Grid powered directly by `lens`'s native orthogonal 2D grid subsystem (Optics ADR-0104):
+- **Native Engine Consolidation (ADR-0156)**: Rather than writing duplicate userland grid math, Quick Controls directly consumes `f.grid(4)` with procedural `.col_span()` and `.row_span()` annotations, leveraging the zero-heap-allocation C grid solver in `lensi_grid_arrange`.
 - **Top Bento Cluster**:
   - **Left Column (2×2 unit span, height: $2 \times \text{tile\_h} + \text{gap}$)**:
     - Stacked wide tiles: Wi-Fi tile (with live SSID and flyout expansion) on top, Bluetooth tile (with connection status) below.
   - **Right Column (2×2 unit span, matching height)**:
     - Dedicated **MPRIS Now Playing Bento Card**: Integrates playback state, album art / identity icon, song title, artist, and transport controls (Previous, Play/Pause, Next) directly beside the network controls.
 - **Middle Grid Row**:
-  - Twin action tiles: Do Not Disturb and Dark Mode arranged side-by-side.
+  - Twin action tiles: Do Not Disturb and Dark Mode arranged side-by-side (each with `col_span(2)`).
 - **Bottom Fader Rows**:
-  - Screen Brightness fader (`tessera-hud-quick-brightness`).
-  - Sound Volume & Mute fader (`tessera-hud-quick-volume`), placed in direct visual proximity to the media player above it.
-  - Keyboard Backlight fader (`tessera-hud-quick-kbd-brightness`), rendered conditionally when supported by hardware (ADR-0168).
+  - Screen Brightness fader (`col_span(4)`).
+  - Sound Volume & Mute fader (`col_span(4)`), placed in direct visual proximity to the media player above it.
+  - Keyboard Backlight fader (`col_span(4)`), rendered conditionally when supported by hardware (ADR-0168).
 
 ### 3. Integrated Media Player Transport Routing
 

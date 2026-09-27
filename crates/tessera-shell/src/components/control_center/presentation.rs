@@ -1,6 +1,5 @@
 use super::*;
 
-use crate::layout::bento::{BentoItem, BentoSpan, BentoSpec};
 use lens::Icon;
 use tessera_design::materials::{chrome_place, sized, transparent};
 
@@ -838,6 +837,12 @@ impl ControlCenter {
         let type_scale = self.design.typography;
         let original = f.theme();
         let status = self.status.clone();
+        let tile_gap = 10.0;
+        let tile_w = ((area.w - tile_gap) * 0.5).max(1.0);
+        let tile_h = 58.0;
+        let bento_h = tile_h * 2.0 + tile_gap;
+        let fader_h = 68.0;
+
         let wifi_active = status.wifi_enabled.unwrap_or(false);
         let wifi_sub = status.wifi_ssid.as_deref().unwrap_or(if wifi_active {
             "On"
@@ -854,291 +859,185 @@ impl ControlCenter {
         let dark_active = !self.design.is_light();
         let dark_sub = if dark_active { "Dark" } else { "Light" };
 
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        enum QuickWidgetKey {
-            Wifi,
-            Media,
-            Bluetooth,
-            DoNotDisturb,
-            DarkMode,
-            DisplayBrightness,
-            SoundVolume,
-            KeyboardBacklight,
-        }
-
-        let items = [
-            BentoItem {
-                key: QuickWidgetKey::Wifi,
-                span: BentoSpan::WIDE_2X1,
-                visible: true,
-            },
-            BentoItem {
-                key: QuickWidgetKey::Media,
-                span: BentoSpan::CARD_2X2,
-                visible: true,
-            },
-            BentoItem {
-                key: QuickWidgetKey::Bluetooth,
-                span: BentoSpan::WIDE_2X1,
-                visible: true,
-            },
-            BentoItem {
-                key: QuickWidgetKey::DoNotDisturb,
-                span: BentoSpan::WIDE_2X1,
-                visible: true,
-            },
-            BentoItem {
-                key: QuickWidgetKey::DarkMode,
-                span: BentoSpan::WIDE_2X1,
-                visible: true,
-            },
-            BentoItem {
-                key: QuickWidgetKey::DisplayBrightness,
-                span: BentoSpan::STRIP_4X1,
-                visible: true,
-            },
-            BentoItem {
-                key: QuickWidgetKey::SoundVolume,
-                span: BentoSpan::STRIP_4X1,
-                visible: true,
-            },
-            BentoItem {
-                key: QuickWidgetKey::KeyboardBacklight,
-                span: BentoSpan::STRIP_4X1,
-                visible: status.kbd_brightness.is_some(),
-            },
-        ];
-
-        let spec = BentoSpec {
-            columns: 4,
-            unit_height: 58.0,
-            gap: 10.0,
-        };
-
-        let layout = spec.layout(area, &items);
-
         f.set_theme(themes::hud(&hud));
-        for cell in layout.cells {
-            match cell.key {
-                QuickWidgetKey::Wifi => {
-                    f.place(
-                        "tessera-hud-quick-wifi-slot",
-                        &chrome_place(cell.rect, transparent()),
-                        |f| {
-                            let (wifi_toggle, wifi_expand) = render_expandable_quick_toggle_tile(
-                                f,
-                                "tessera-hud-quick-wifi",
-                                i18n.text(Message::Wifi),
-                                wifi_sub,
-                                lens::sys::lens_icon_id::LENS_ICON_WIFI,
-                                wifi_active,
-                                (cell.rect.w, cell.rect.h),
-                                hud,
-                                type_scale,
-                            );
-                            if wifi_toggle {
-                                out.system_actions.push(SystemAction::SetWifi {
-                                    enabled: !wifi_active,
-                                });
-                            }
-                            if wifi_expand {
-                                self.wifi_expanded = true;
-                                out.system_actions.push(SystemAction::ScanWifi);
-                            }
-                        },
-                    );
+        f.grid(4)
+            .width(area.w)
+            .col_gap(tile_gap)
+            .row_gap(tile_gap)
+            .row_height(tile_h)
+            .show(|f| {
+                // Wi-Fi (2 cols x 1 row)
+                f.col_span(2);
+                let (wifi_toggle, wifi_expand) = render_expandable_quick_toggle_tile(
+                    f,
+                    "tessera-hud-quick-wifi",
+                    i18n.text(Message::Wifi),
+                    wifi_sub,
+                    lens::sys::lens_icon_id::LENS_ICON_WIFI,
+                    wifi_active,
+                    (tile_w, tile_h),
+                    hud,
+                    type_scale,
+                );
+                if wifi_toggle {
+                    out.system_actions.push(SystemAction::SetWifi {
+                        enabled: !wifi_active,
+                    });
                 }
-                QuickWidgetKey::Media => {
-                    f.place(
-                        "tessera-hud-quick-media-slot",
-                        &chrome_place(cell.rect, transparent()),
-                        |f| {
-                            self.render_bento_media_card(
-                                f,
-                                (cell.rect.w, cell.rect.h),
-                                hud,
-                                type_scale,
-                                i18n,
-                            );
-                        },
-                    );
+                if wifi_expand {
+                    self.wifi_expanded = true;
+                    out.system_actions.push(SystemAction::ScanWifi);
                 }
-                QuickWidgetKey::Bluetooth => {
-                    f.place(
-                        "tessera-hud-quick-bluetooth-slot",
-                        &chrome_place(cell.rect, transparent()),
-                        |f| {
-                            if render_quick_toggle_tile(
-                                f,
-                                "tessera-hud-quick-bluetooth",
-                                i18n.text(Message::Bluetooth),
-                                bt_sub,
-                                lens::sys::lens_icon_id::LENS_ICON_BLUETOOTH,
-                                bt_active,
-                                (cell.rect.w, cell.rect.h),
-                                hud,
-                                type_scale,
-                            ) {
-                                out.system_actions.push(SystemAction::SetBluetooth {
-                                    enabled: !bt_active,
-                                });
-                            }
-                        },
-                    );
+
+                // MPRIS Now Playing (2 cols x 2 rows, ADR-0104 / ADR-0169)
+                f.col_span(2);
+                f.row_span(2);
+                self.render_bento_media_card(f, (tile_w, bento_h), hud, type_scale, i18n);
+
+                // Bluetooth (2 cols x 1 row, auto-placed under Wi-Fi in the 4-column grid)
+                f.col_span(2);
+                if render_quick_toggle_tile(
+                    f,
+                    "tessera-hud-quick-bluetooth",
+                    i18n.text(Message::Bluetooth),
+                    bt_sub,
+                    lens::sys::lens_icon_id::LENS_ICON_BLUETOOTH,
+                    bt_active,
+                    (tile_w, tile_h),
+                    hud,
+                    type_scale,
+                ) {
+                    out.system_actions.push(SystemAction::SetBluetooth {
+                        enabled: !bt_active,
+                    });
                 }
-                QuickWidgetKey::DoNotDisturb => {
-                    f.place(
-                        "tessera-hud-quick-dnd-slot",
-                        &chrome_place(cell.rect, transparent()),
-                        |f| {
-                            if render_quick_toggle_tile(
-                                f,
-                                "tessera-hud-quick-dnd",
-                                i18n.text(Message::DoNotDisturb),
-                                dnd_sub,
-                                lens::sys::lens_icon_id::LENS_ICON_BELL,
-                                dnd_active,
-                                (cell.rect.w, cell.rect.h),
-                                hud,
-                                type_scale,
-                            ) {
-                                out.system_actions.push(SystemAction::SetDoNotDisturb {
-                                    enabled: !dnd_active,
-                                });
-                            }
-                        },
-                    );
+
+                // Do Not Disturb (2 cols x 1 row)
+                f.col_span(2);
+                if render_quick_toggle_tile(
+                    f,
+                    "tessera-hud-quick-dnd",
+                    i18n.text(Message::DoNotDisturb),
+                    dnd_sub,
+                    lens::sys::lens_icon_id::LENS_ICON_BELL,
+                    dnd_active,
+                    (tile_w, tile_h),
+                    hud,
+                    type_scale,
+                ) {
+                    out.system_actions.push(SystemAction::SetDoNotDisturb {
+                        enabled: !dnd_active,
+                    });
                 }
-                QuickWidgetKey::DarkMode => {
-                    f.place(
-                        "tessera-hud-quick-dark-mode-slot",
-                        &chrome_place(cell.rect, transparent()),
-                        |f| {
-                            if render_quick_toggle_tile(
-                                f,
-                                "tessera-hud-quick-dark-mode",
-                                "Dark Mode",
-                                dark_sub,
-                                if dark_active {
-                                    lens::sys::lens_icon_id::LENS_ICON_MOON
-                                } else {
-                                    lens::sys::lens_icon_id::LENS_ICON_SUN
-                                },
-                                dark_active,
-                                (cell.rect.w, cell.rect.h),
-                                hud,
-                                type_scale,
-                            ) {
-                                let mut preferences = self
-                                    .settings
-                                    .as_ref()
-                                    .map(|s| s.preferences.clone())
-                                    .unwrap_or_default();
-                                preferences.color_scheme = if dark_active {
-                                    tessera_desktop::settings::ColorScheme::Light
-                                } else {
-                                    tessera_desktop::settings::ColorScheme::Dark
-                                };
-                                out.settings_actions.push((
-                                    None,
-                                    SettingsAction::SetDesktopPreferences { preferences },
-                                ));
-                            }
-                        },
-                    );
-                }
-                QuickWidgetKey::DisplayBrightness => {
-                    f.place(
-                        "tessera-hud-quick-brightness-slot",
-                        &chrome_place(cell.rect, transparent()),
-                        |f| {
-                            let (bright_level, _) = render_horizontal_fader(
-                                f,
-                                "tessera-hud-quick-brightness",
-                                i18n.text(Message::Brightness),
-                                lens::sys::lens_icon_id::LENS_ICON_SUN,
-                                false,
-                                status.brightness,
-                                (1, 100),
-                                (cell.rect.w, cell.rect.h),
-                                hud.text,
-                                hud,
-                                type_scale,
-                            );
-                            if let Some(level) = bright_level {
-                                out.system_actions.push(SystemAction::SetBrightness { level });
-                            }
-                        },
-                    );
-                }
-                QuickWidgetKey::SoundVolume => {
-                    let sound_label = if status.muted {
-                        i18n.text(Message::Muted)
+
+                // Dark Mode (2 cols x 1 row)
+                f.col_span(2);
+                if render_quick_toggle_tile(
+                    f,
+                    "tessera-hud-quick-dark-mode",
+                    "Dark Mode",
+                    dark_sub,
+                    if dark_active {
+                        lens::sys::lens_icon_id::LENS_ICON_MOON
                     } else {
-                        i18n.text(Message::Sound)
-                    };
-                    let sound_fill = if status.muted {
-                        hud.text_muted
+                        lens::sys::lens_icon_id::LENS_ICON_SUN
+                    },
+                    dark_active,
+                    (tile_w, tile_h),
+                    hud,
+                    type_scale,
+                ) {
+                    let mut preferences = self
+                        .settings
+                        .as_ref()
+                        .map(|s| s.preferences.clone())
+                        .unwrap_or_default();
+                    preferences.color_scheme = if dark_active {
+                        tessera_desktop::settings::ColorScheme::Light
                     } else {
-                        hud.accent
+                        tessera_desktop::settings::ColorScheme::Dark
                     };
-                    f.place(
-                        "tessera-hud-quick-volume-slot",
-                        &chrome_place(cell.rect, transparent()),
-                        |f| {
-                            let (vol_level, mute_clicked) = render_horizontal_fader(
-                                f,
-                                "tessera-hud-quick-volume",
-                                sound_label,
-                                volume_icon_raw(&status),
-                                true,
-                                status.volume,
-                                (0, 100),
-                                (cell.rect.w, cell.rect.h),
-                                sound_fill,
-                                hud,
-                                type_scale,
-                            );
-                            if mute_clicked {
-                                out.system_actions.push(SystemAction::ToggleMute);
-                            }
-                            if let Some(level) = vol_level {
-                                out.system_actions.push(SystemAction::SetVolume { level });
-                            }
-                        },
-                    );
+                    out.settings_actions.push((
+                        None,
+                        SettingsAction::SetDesktopPreferences { preferences },
+                    ));
                 }
-                QuickWidgetKey::KeyboardBacklight => {
-                    if let Some(kbd_val) = status.kbd_brightness {
-                        f.place(
-                            "tessera-hud-quick-kbd-brightness-slot",
-                            &chrome_place(cell.rect, transparent()),
-                            |f| {
-                                let (kbd_level, kbd_icon_clicked) = render_horizontal_fader(
-                                    f,
-                                    "tessera-hud-quick-kbd-brightness",
-                                    "Keyboard",
-                                    lens::sys::lens_icon_id::LENS_ICON_EDIT,
-                                    true,
-                                    Some(kbd_val),
-                                    (0, 100),
-                                    (cell.rect.w, cell.rect.h),
-                                    hud.text,
-                                    hud,
-                                    type_scale,
-                                );
-                                if kbd_icon_clicked {
-                                    out.system_actions.push(SystemAction::StepKeyboardBrightness);
-                                } else if let Some(level) = kbd_level {
-                                    out.system_actions
-                                        .push(SystemAction::SetKeyboardBrightness { level });
-                                }
-                            },
-                        );
+
+                // Display Brightness (4 cols x 1 row)
+                f.col_span(4);
+                let (bright_level, _) = render_horizontal_fader(
+                    f,
+                    "tessera-hud-quick-brightness",
+                    i18n.text(Message::Brightness),
+                    lens::sys::lens_icon_id::LENS_ICON_SUN,
+                    false,
+                    status.brightness,
+                    (1, 100),
+                    (area.w, fader_h),
+                    hud.text,
+                    hud,
+                    type_scale,
+                );
+                if let Some(level) = bright_level {
+                    out.system_actions.push(SystemAction::SetBrightness { level });
+                }
+
+                // Sound Volume (4 cols x 1 row)
+                let sound_label = if status.muted {
+                    i18n.text(Message::Muted)
+                } else {
+                    i18n.text(Message::Sound)
+                };
+                let sound_fill = if status.muted {
+                    hud.text_muted
+                } else {
+                    hud.accent
+                };
+                f.col_span(4);
+                let (vol_level, mute_clicked) = render_horizontal_fader(
+                    f,
+                    "tessera-hud-quick-volume",
+                    sound_label,
+                    volume_icon_raw(&status),
+                    true,
+                    status.volume,
+                    (0, 100),
+                    (area.w, fader_h),
+                    sound_fill,
+                    hud,
+                    type_scale,
+                );
+                if mute_clicked {
+                    out.system_actions.push(SystemAction::ToggleMute);
+                }
+                if let Some(level) = vol_level {
+                    out.system_actions.push(SystemAction::SetVolume { level });
+                }
+
+                // Keyboard Backlight (4 cols x 1 row, conditional ADR-0168)
+                if let Some(kbd_val) = status.kbd_brightness {
+                    f.col_span(4);
+                    let (kbd_level, kbd_icon_clicked) = render_horizontal_fader(
+                        f,
+                        "tessera-hud-quick-kbd-brightness",
+                        "Keyboard",
+                        lens::sys::lens_icon_id::LENS_ICON_EDIT,
+                        true,
+                        Some(kbd_val),
+                        (0, 100),
+                        (area.w, fader_h),
+                        hud.text,
+                        hud,
+                        type_scale,
+                    );
+                    if kbd_icon_clicked {
+                        out.system_actions.push(SystemAction::StepKeyboardBrightness);
+                    } else if let Some(level) = kbd_level {
+                        out.system_actions
+                            .push(SystemAction::SetKeyboardBrightness { level });
                     }
                 }
-            }
-        }
+            });
         f.set_theme(original);
     }
 
