@@ -32,7 +32,6 @@ flux-scene-graph-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.4
 # Renderer-neutral offscreen DAG planning above Flux image operators.
 lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.48" }
 lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.48" }
-iris = { git = "https://github.com/ming2k/optics", tag = "v0.0.48" }
 # prism (material library; ADR-0063) carries the liquid-glass compositor.
 # Canonical resolution needs an optics tag containing prism-rs.
 prism = { git = "https://github.com/ming2k/optics", tag = "v0.0.48" }
