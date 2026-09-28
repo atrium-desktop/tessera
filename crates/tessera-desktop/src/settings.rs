@@ -107,6 +107,7 @@ pub struct DesktopPreferences {
     pub icon_theme: String,
     pub cursor_theme: String,
     pub cursor_size: u32,
+    #[cfg_attr(feature = "serde", serde(default))]
     pub accessibility: tessera_primitives::accessibility::AccessibilityConfig,
 }
 
@@ -581,5 +582,31 @@ mod tests {
             .validate()
             .is_err()
         );
+    }
+
+    #[test]
+    fn desktop_preferences_serde_defaults_accessibility_when_missing() {
+        let json_without_a11y = r#"{
+            "color_scheme": "light",
+            "accent_color": null,
+            "contrast": "normal",
+            "reduced_motion": false,
+            "font_name": "Sans 10",
+            "monospace_font_name": "Monospace 10",
+            "text_scale": 1.0,
+            "icon_theme": "Papirus-Dark",
+            "cursor_theme": "Bibata-Modern-Ice",
+            "cursor_size": 24
+        }"#;
+
+        let prefs: DesktopPreferences = serde_json::from_str(json_without_a11y).unwrap();
+        assert_eq!(
+            prefs.accessibility,
+            tessera_primitives::accessibility::AccessibilityConfig::default()
+        );
+
+        let serialized = serde_json::to_string(&prefs).unwrap();
+        let round_tripped: DesktopPreferences = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(round_tripped, prefs);
     }
 }
