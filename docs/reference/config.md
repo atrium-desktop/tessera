@@ -62,7 +62,10 @@ not written back to TOML.
 | `TESSERA_WALLPAPER` | `[wallpaper]`, then bundled image | Process-start source override. Accepts an image, animated image, short video, or model-only `.glb` and disables the configured source mode for that process. |
 | `TESSERA_WALLPAPER_MODEL` | configured model, then unset | Process-start 3D-model override. Set to `builtin` for the procedural knot or to a `.glb` path. Ignored when `TESSERA_WALLPAPER` is a `.glb` or the configured mode is parallax. |
 | `TESSERA_BACKEND` | `auto` | Presentation backend target: `auto`, `drm`, or `nested`. When `auto`, automatically selects `nested` if `$WAYLAND_DISPLAY` is present, or `drm` on bare-metal virtual terminals. Explicit values override detection for CI, direct DRM testing within existing sessions, or display-manager transitions. |
-| `TESSERA_PREVIEW` | unset | Direct component preview routing: `control-center` (or `command-panel`), `overview`, or `switcher`. Opens directly into the requested surface on startup and isolates state in a temporary disposable sandbox directory. |
+| `TESSERA_PREVIEW` | unset | Direct component preview routing: `pivot` (or `launcher`, `spotlight`), `control-center` (or `command-panel`), `overview`, or `switcher`. Opens directly into the requested surface on startup and isolates state in a temporary disposable sandbox directory. |
+| `TESSERA_COLOR_SCHEME` | `[appearance] color_scheme`, then `system` | Process-start appearance scheme override: `dark`, `light`, or `system`. Overrides persistent configuration for the session and exports to toolkit portals without mutating configuration. Also accepts `TESSERA_THEME` as an alias. |
+| `TESSERA_AVATAR_DEBUG_ASSETS` | unset | Set to `1` in debug builds to prepend `assets/debug/persona/` to avatar discovery before system stills. Ignored in release builds. |
+| `TESSERA_AVATAR_DEBUG_DIR` | unset | Explicit directory override for local debug avatar assets in debug builds. Ignored in release builds. |
 
 The launcher captures image/video, 3D, and client layers into one quarter-scale
 RGBA8 offscreen scene and updates a fixed-cost Dual-Kawase backdrop every

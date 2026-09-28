@@ -15,8 +15,8 @@ libc = { workspace = true }
 # GPU texture upload path shared with the compositor.
 flux = { workspace = true }
 flux-sys = { workspace = true, optional = true }
-flux-scene-graph = { workspace = true, optional = true }
-flux-scene-graph-sys = { workspace = true, optional = true }
+vista = { workspace = true, optional = true }
+vista-sys = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 notify = { workspace = true, optional = true }
 fastrand = { workspace = true, optional = true }
@@ -31,14 +31,14 @@ default = []
 persona = [
     "dep:fastrand",
     "dep:flux-sys",
-    "dep:flux-scene-graph",
-    "dep:flux-scene-graph-sys",
+    "dep:vista",
+    "dep:vista-sys",
     "dep:image",
     "dep:notify",
 ]
 
 [package.metadata.cargo-machete]
-ignored = ["flux-scene-graph-sys", "flux-sys"]
+ignored = ["vista-sys", "flux-sys"]
 
 [dev-dependencies]
 tempfile = "3"

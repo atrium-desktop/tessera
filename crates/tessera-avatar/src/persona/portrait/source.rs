@@ -76,9 +76,16 @@ fn vrm_candidate(directory: PathBuf) -> PortraitCandidate {
 }
 
 fn enabled_debug_asset_dir() -> Option<PathBuf> {
-    (cfg!(debug_assertions)
-        && std::env::var_os("TESSERA_AVATAR_DEBUG_ASSETS").is_some_and(|value| !value.is_empty()))
-    .then(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("persona-debug-assets"))
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    if let Some(dir) = std::env::var_os("TESSERA_AVATAR_DEBUG_DIR").filter(|v| !v.is_empty()) {
+        return Some(PathBuf::from(dir));
+    }
+    if std::env::var_os("TESSERA_AVATAR_DEBUG_ASSETS").is_some_and(|value| !value.is_empty()) {
+        return Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/debug/persona"));
+    }
+    None
 }
 
 fn tessera_portrait_dir() -> PathBuf {
@@ -129,12 +136,12 @@ mod tests {
         let config = PortraitConfig::from_roots(
             PathBuf::from("/data/tessera/avatars"),
             None,
-            Some(PathBuf::from("/src/persona-debug-assets")),
+            Some(PathBuf::from("/src/assets/debug/persona")),
         );
         assert!(matches!(
             &config.candidates()[0],
             PortraitCandidate::Vrm { model, .. }
-                if model.ends_with("persona-debug-assets/avatar.vrm")
+                if model.ends_with("assets/debug/persona/avatar.vrm")
         ));
     }
 

@@ -556,8 +556,8 @@ pub(super) fn liquid_glass_groups(
             frost_strength: (region.frost_strength != 1.0).then_some(region.frost_strength),
             tint_strength: (region.tint_strength != 1.0).then_some(region.tint_strength),
             saturation: (region.saturation != 1.0).then_some(region.saturation),
-            contact_ao: None,
-            ambient_fresnel: None,
+            contact_ao: (region.contact_ao >= 0.0).then_some(region.contact_ao),
+            ambient_fresnel: (region.ambient_fresnel >= 0.0).then_some(region.ambient_fresnel),
             curvature: Some(region.curvature),
             focus: region.focus.map(|focus| prism::LiquidGlassFocus {
                 shape: prism::LiquidGlassShape {
@@ -625,7 +625,7 @@ pub(super) struct BackdropMaterialKey {
     /// are material, not capture: animating them re-runs the effect composite
     /// over the still-valid scene capture without re-rendering clients.
     frost_regions: Vec<[u32; 6]>,
-    liquid_regions: Vec<[u32; 24]>,
+    liquid_regions: Vec<[u32; 26]>,
     glass_tint: [u8; 3],
 }
 
@@ -699,6 +699,8 @@ impl BackdropMaterialKey {
                         region.saturation.to_bits(),
                         region.plate_polarity.to_bits(),
                         region.curvature.to_bits(),
+                        region.contact_ao.to_bits(),
+                        region.ambient_fresnel.to_bits(),
                         u32::from(region.adaptation.is_some()),
                         adaptation.plate_luminance.to_bits(),
                         adaptation.backdrop_energy.to_bits(),

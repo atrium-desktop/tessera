@@ -536,6 +536,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             "control-center" | "control_center" | "command-panel" | "command_panel" | "panel" => {
                 shell.toggle_control_center()
             }
+            "pivot" | "launcher" | "spotlight" | "prism" | "apps" => shell.toggle_pivot(),
             "switcher" => shell.start_window_switcher(),
             _ => {}
         }

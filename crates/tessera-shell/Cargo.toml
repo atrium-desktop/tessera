@@ -30,7 +30,7 @@ required-features = ["persona"]
 tessera-launch-services = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 zbus = { workspace = true, optional = true }
-flux-scene-graph-sys.workspace = true
+vista-sys.workspace = true
 tessera-authority.workspace = true
 tessera-desktop.workspace = true
 tessera-primitives.workspace = true
@@ -61,7 +61,7 @@ include_dir = { workspace = true }
 tempfile = "3"
 
 [package.metadata.cargo-machete]
-ignored = ["flux-sys", "lens-sys"]
+ignored = ["flux-sys", "lens-sys", "vista-sys"]
 
 [lints]
 workspace = true

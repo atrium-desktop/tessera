@@ -59,6 +59,16 @@ library. Press `Escape`, press `Super+Space` again, or click outside the panel
 to close it. Opening Prism closes the full launcher, and opening the launcher
 closes Prism.
 
+### Preview and Debug Routing
+
+For development, visual inspection, and verification without input gestures or keybindings:
+
+```bash
+TESSERA_PREVIEW=pivot cargo run -p tessera
+```
+
+This runs a fully mocked, zero-side-effect component sandbox that boots directly into the Pivot search surface on startup and isolates state in a disposable temporary directory.
+
 ## Start or Focus an Application
 
 1. Select an application in the Dock, launcher, or Prism.

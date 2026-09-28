@@ -37,7 +37,7 @@ pub enum Error {
     #[error("wallpaper: ffmpeg produced no frames for {0:?}")]
     FfmpegEmpty(PathBuf),
     #[error("wallpaper: glTF model {0:?}: {1}")]
-    Gltf(PathBuf, #[source] flux_scene_graph::Error),
+    Gltf(PathBuf, #[source] vista::Error),
     #[error("wallpaper: glTF model {0:?} has no measurable bounds")]
     GltfBounds(PathBuf),
     #[error("wallpaper: 3D render resource: {0}")]

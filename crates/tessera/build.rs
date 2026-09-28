@@ -13,7 +13,7 @@ fn main() {
     for var in [
         "DEP_LENS_RPATHS",
         "DEP_FLUX_RPATHS",
-        "DEP_FLUX_SCENE_GRAPH_RPATHS",
+        "DEP_VISTA_RPATHS",
         "DEP_PRISM_RPATHS",
     ] {
         if let Ok(rpaths) = std::env::var(var) {
@@ -26,7 +26,7 @@ fn main() {
     let mut emitted_dtags = false;
     for var in [
         "DEP_FLUX_RPATHS",
-        "DEP_FLUX_SCENE_GRAPH_RPATHS",
+        "DEP_VISTA_RPATHS",
         "DEP_LENS_RPATHS",
         "DEP_PRISM_RPATHS",
     ] {

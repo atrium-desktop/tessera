@@ -190,16 +190,25 @@ fn desktop_preferences_have_one_deterministic_override_chain() {
             icon_theme: Some("Breeze".into()),
             cursor_theme: None,
             cursor_size: Some(48),
+            color_scheme: Some(tessera_desktop::settings::ColorScheme::Light),
         },
     );
     assert_eq!(preferences.icon_theme, "Breeze");
     assert_eq!(preferences.cursor_theme, "Bibata");
     assert_eq!(preferences.cursor_size, 48);
+    assert_eq!(
+        preferences.color_scheme,
+        tessera_desktop::settings::ColorScheme::Light
+    );
 
     let defaults = resolve_desktop_preferences(None, &PreferenceOverrides::default());
     assert_eq!(defaults.icon_theme, "hicolor");
     assert_eq!(defaults.cursor_theme, "default");
     assert_eq!(defaults.cursor_size, 24);
+    assert_eq!(
+        defaults.color_scheme,
+        tessera_desktop::settings::ColorScheme::System
+    );
 }
 
 #[test]
@@ -213,7 +222,7 @@ fn desktop_preference_overrides_are_not_copied_into_persistence() {
     )
     .unwrap();
     let requested = tessera_desktop::settings::DesktopPreferences {
-        color_scheme: tessera_desktop::settings::ColorScheme::Dark,
+        color_scheme: tessera_desktop::settings::ColorScheme::Light,
         icon_theme: "OverrideIcon".into(),
         cursor_theme: "OverrideCursor".into(),
         cursor_size: 64,
@@ -226,15 +235,28 @@ fn desktop_preference_overrides_are_not_copied_into_persistence() {
             icon_theme: Some("OverrideIcon".into()),
             cursor_theme: Some("OverrideCursor".into()),
             cursor_size: Some(64),
+            color_scheme: Some(tessera_desktop::settings::ColorScheme::Light),
         },
     );
     assert_eq!(
         persistent.color_scheme,
-        tessera_desktop::settings::ColorScheme::Dark
+        tessera_desktop::settings::ColorScheme::System
     );
     assert_eq!(persistent.icon_theme, "Papirus");
     assert_eq!(persistent.cursor_theme, "Bibata");
     assert_eq!(persistent.cursor_size, 32);
+}
+
+#[test]
+fn color_scheme_override_parsing_and_aliases() {
+    use super::config::parse_color_scheme;
+    use tessera_desktop::settings::ColorScheme;
+    assert_eq!(parse_color_scheme("light"), Some(ColorScheme::Light));
+    assert_eq!(parse_color_scheme("LIGHT"), Some(ColorScheme::Light));
+    assert_eq!(parse_color_scheme("dark"), Some(ColorScheme::Dark));
+    assert_eq!(parse_color_scheme("DARK "), Some(ColorScheme::Dark));
+    assert_eq!(parse_color_scheme("system"), Some(ColorScheme::System));
+    assert_eq!(parse_color_scheme("invalid"), None);
 }
 
 #[test]

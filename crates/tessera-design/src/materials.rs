@@ -52,15 +52,15 @@ pub fn popover(design: &Design) -> LayoutOpts {
 /// The minimal painted foreground shared by analytic glass panels.
 ///
 /// The compositor's analytic liquid-glass pass supplies the physical body —
-/// refraction, adaptive tint and rim light — so this painted layer stays
-/// deliberately minimal: a whisper of white for cohesion and no painted
-/// border (the glass rim provides the edge definition, not an outline).
+/// refraction, adaptive tint and rim light — while this painted layer
+/// supplies subtle surface cohesion and a crisp hairline boundary stroke
+/// following the Optics Lens material specification.
 #[must_use]
 pub fn glass_panel(design: &Design) -> LayoutOpts {
     LayoutOpts {
         bg: design.colors.glass_surface,
         border: design.colors.glass_border,
-        border_width: 0.0,
+        border_width: design.strokes.hairline,
         radius: design.radii.glass_panel,
         pad: 0.0,
         cross: Align::Center,
@@ -179,7 +179,7 @@ mod tests {
         let material = glass_panel(&dark);
         assert_eq!(material.bg, dark.colors.glass_surface);
         assert_eq!(material.border, dark.colors.glass_border);
-        assert_eq!(material.border_width, 0.0);
+        assert_eq!(material.border_width, dark.strokes.hairline);
         assert_eq!(material.radius, 18.0);
         assert_eq!(material.cross, Align::Center);
     }

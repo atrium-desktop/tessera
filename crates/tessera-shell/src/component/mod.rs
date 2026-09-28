@@ -375,6 +375,10 @@ pub struct LiquidGlassRegion {
     /// Continuous curvature (squircle) blend factor: 0 = Euclidean L2 rounded rect,
     /// 1 = G2 superellipse (p = 4 norm).
     pub curvature: f32,
+    /// Sub-pixel contact ambient occlusion [0, 1].
+    pub contact_ao: f32,
+    /// 360-degree isotropic environmental Fresnel sheen [0, 1].
+    pub ambient_fresnel: f32,
     /// Stable cross-frame identity. A component that opts into backdrop
     /// adaptation declares a unique non-zero id (see
     /// [`liquid_glass_region_id`]); the compositor keys temporal smoothing
@@ -449,6 +453,8 @@ impl Default for LiquidGlassRegion {
             saturation: 1.0,
             plate_polarity: -1.0,
             curvature: 0.0,
+            contact_ao: 0.35,
+            ambient_fresnel: 0.50,
             id: 0,
             adaptation: None,
             focus: None,
@@ -480,6 +486,8 @@ impl LiquidGlassRegion {
             saturation: style.saturation,
             plate_polarity: style.plate_polarity,
             curvature: style.curvature,
+            contact_ao: style.contact_ao,
+            ambient_fresnel: style.ambient_fresnel,
             id: 0,
             adaptation: None,
             focus: None,

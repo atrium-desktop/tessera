@@ -14,6 +14,23 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Added
+- Canonical shell preview routing and workspace debug asset topology (ADR-0170):
+  - Added `pivot` (with `launcher` and `spotlight` aliases) to `TESSERA_PREVIEW` sandbox routing.
+  - Relocated persona debug assets from `crates/tessera-shell/persona-debug-assets/` to workspace-level `assets/debug/persona/`.
+  - Added runtime `TESSERA_AVATAR_DEBUG_DIR` and `TESSERA_COLOR_SCHEME` (`TESSERA_THEME`) environment overrides.
+- Standardized wireless lifecycle, host system backend, and control center bento grid (ADR-0167, ADR-0168, ADR-0169):
+  - Standardized wireless known network management, secure credential handling, and profile autonomy in `tessera-desktop` and `tessera`.
+  - Introduced hardware-agnostic keyboard backlight subsystem and standardized host system controls.
+  - Unified Control Center quick controls on Optics native 2D Bento grid layout and integrated MPRIS media control surface.
+
+### Changed
+- Promoted and adapted Optics v0.0.52 monorepo identity unification (ADR-0106):
+  - Migrated glTF/VRM scene rendering and motion playback dependency from `flux-scene-graph` / `flux-scene-graph-sys` to `vista` / `vista-sys`.
+  - Re-emitted native link search and rpath flags for `DEP_VISTA_RPATHS` across `tessera`, `tessera-lock`, `tessera-shell`, and `tessera-wallpaper`.
+  - Synchronized workspace dependencies, `.cargo/optics-local.toml`, CI workflow, and dependency policy boundaries to `v0.0.52`.
+  - Calibrated glass panel border metrics and contact AO / ambient Fresnel sheen in `tessera-design`.
+
 ## [0.0.67] - 2026-09-26
 
 ### Added

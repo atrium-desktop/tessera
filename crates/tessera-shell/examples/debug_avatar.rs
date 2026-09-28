@@ -1,11 +1,19 @@
 //! Render the ignored source-tree VRM fixture with an explicit caller camera.
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    if std::env::var_os("TESSERA_AVATAR_DEBUG_ASSETS").is_none() {
-        return Err("set TESSERA_AVATAR_DEBUG_ASSETS=1 for debug-assets".into());
+    if std::env::var_os("TESSERA_AVATAR_DEBUG_ASSETS").is_none()
+        && std::env::var_os("TESSERA_AVATAR_DEBUG_DIR").is_none()
+    {
+        return Err(
+            "set TESSERA_AVATAR_DEBUG_ASSETS=1 or TESSERA_AVATAR_DEBUG_DIR for debug-assets".into(),
+        );
     }
     let device = flux::Device::new(true, &[], &[], 1)?;
-    let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("persona-debug-assets");
+    let directory = std::env::var_os("TESSERA_AVATAR_DEBUG_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/debug/persona")
+        });
     let motion = directory.join("avatar.vrma");
     let config = tessera_avatar::persona::PortraitConfig::new(vec![
         tessera_avatar::persona::PortraitCandidate::Vrm {

@@ -67,7 +67,8 @@ impl Design {
                     .with_curvature(0.60),
                 prominent_panel: GlassStyle::new(0.20, 18.0, 9.0)
                     .with_material(4.0, 3.2, 0.8, 0.0)
-                    .with_curvature(0.60),
+                    .with_curvature(0.60)
+                    .with_optics(0.35, 0.65),
                 dock: GlassStyle::new(0.20, 12.0, 6.0)
                     .with_material(1.2, 0.8, 1.05, 0.0)
                     .with_curvature(0.65),
@@ -141,22 +142,28 @@ impl Design {
             glass: GlassStyles {
                 chip: GlassStyle::new(0.18, 4.0, 2.0)
                     .with_material(1.0, 0.8, 1.05, 1.0)
-                    .with_curvature(0.65),
+                    .with_curvature(0.65)
+                    .with_optics(0.45, 0.50),
                 tooltip: GlassStyle::new(0.16, 10.0, 5.0)
                     .with_material(3.0, 3.5, 0.9, 1.0)
-                    .with_curvature(0.55),
+                    .with_curvature(0.55)
+                    .with_optics(0.45, 0.50),
                 menu: GlassStyle::new(0.20, 16.0, 8.0)
                     .with_material(5.0, 4.5, 0.8, 1.0)
-                    .with_curvature(0.50),
+                    .with_curvature(0.50)
+                    .with_optics(0.45, 0.50),
                 floating_panel: GlassStyle::new(0.20, 16.0, 8.0)
                     .with_material(3.5, 3.5, 0.9, 1.0)
-                    .with_curvature(0.60),
+                    .with_curvature(0.60)
+                    .with_optics(0.45, 0.50),
                 prominent_panel: GlassStyle::new(0.22, 18.0, 9.0)
                     .with_material(4.0, 4.0, 0.85, 1.0)
-                    .with_curvature(0.60),
+                    .with_curvature(0.60)
+                    .with_optics(0.45, 0.50),
                 dock: GlassStyle::new(0.22, 12.0, 6.0)
                     .with_material(1.2, 0.85, 1.05, 1.0)
-                    .with_curvature(0.65),
+                    .with_curvature(0.65)
+                    .with_optics(0.45, 0.50),
             },
             glass_focus: GlassFocus {
                 hover_tint: colors.glass_focus.surface_hover,
@@ -311,6 +318,8 @@ pub struct GlassStyle {
     pub saturation: f32,
     pub plate_polarity: f32,
     pub curvature: f32,
+    pub contact_ao: f32,
+    pub ambient_fresnel: f32,
 }
 
 impl GlassStyle {
@@ -324,6 +333,8 @@ impl GlassStyle {
             saturation: 1.0,
             plate_polarity: -1.0,
             curvature: 0.0,
+            contact_ao: 0.35,
+            ambient_fresnel: 0.60,
         }
     }
 
@@ -347,6 +358,14 @@ impl GlassStyle {
     /// 1.0 = G2 superellipse (p = 4 norm).
     pub const fn with_curvature(mut self, curvature: f32) -> Self {
         self.curvature = curvature;
+        self
+    }
+
+    /// Optical dielectric parameters: sub-pixel contact ambient occlusion [0, 1]
+    /// and 360-degree isotropic environmental Fresnel sheen [0, 1].
+    pub const fn with_optics(mut self, contact_ao: f32, ambient_fresnel: f32) -> Self {
+        self.contact_ao = contact_ao;
+        self.ambient_fresnel = ambient_fresnel;
         self
     }
 }

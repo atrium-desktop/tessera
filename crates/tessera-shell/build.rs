@@ -4,7 +4,9 @@ fn main() {
     let manifest_dir = std::path::PathBuf::from(
         std::env::var_os("CARGO_MANIFEST_DIR").expect("Cargo sets CARGO_MANIFEST_DIR"),
     );
-    let debug_assets = manifest_dir.join("persona-debug-assets");
+    let debug_assets = std::env::var_os("TESSERA_AVATAR_DEBUG_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| manifest_dir.join("../../assets/debug/persona"));
     let debug_vrm = debug_assets.join("avatar.vrm");
     let debug_vrma = debug_assets.join("avatar.vrma");
     let debug_motions = debug_assets.join("motions");
@@ -31,7 +33,7 @@ fn main() {
     for var in [
         "DEP_LENS_RPATHS",
         "DEP_FLUX_RPATHS",
-        "DEP_FLUX_SCENE_GRAPH_RPATHS",
+        "DEP_VISTA_RPATHS",
     ] {
         if let Ok(rpaths) = std::env::var(var) {
             if !emitted_dtags {

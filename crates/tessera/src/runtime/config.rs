@@ -1,10 +1,12 @@
 use super::*;
+use tessera_desktop::settings::ColorScheme;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct PreferenceOverrides {
     pub(super) icon_theme: Option<String>,
     pub(super) cursor_theme: Option<String>,
     pub(super) cursor_size: Option<u32>,
+    pub(super) color_scheme: Option<ColorScheme>,
 }
 
 impl PreferenceOverrides {
@@ -16,7 +18,20 @@ impl PreferenceOverrides {
                 .ok()
                 .and_then(|value| value.parse().ok())
                 .filter(|size| (8..=128).contains(size)),
+            color_scheme: nonempty_env("TESSERA_COLOR_SCHEME")
+                .or_else(|| nonempty_env("TESSERA_THEME"))
+                .as_deref()
+                .and_then(parse_color_scheme),
         }
+    }
+}
+
+pub(super) fn parse_color_scheme(value: &str) -> Option<ColorScheme> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "dark" => Some(ColorScheme::Dark),
+        "light" => Some(ColorScheme::Light),
+        "system" => Some(ColorScheme::System),
+        _ => None,
     }
 }
 
@@ -43,6 +58,9 @@ pub(super) fn resolve_desktop_preferences(
     if let Some(size) = overrides.cursor_size {
         preferences.cursor_size = size;
     }
+    if let Some(scheme) = overrides.color_scheme {
+        preferences.color_scheme = scheme;
+    }
     preferences
 }
 
@@ -65,6 +83,9 @@ pub(super) fn preferences_for_persistence(
     }
     if overrides.cursor_size.is_some() {
         requested.cursor_size = configured.cursor_size;
+    }
+    if overrides.color_scheme.is_some() {
+        requested.color_scheme = configured.color_scheme;
     }
     requested
 }

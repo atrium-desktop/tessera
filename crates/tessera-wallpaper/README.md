@@ -10,7 +10,7 @@ wallpaper sources as the bottom-most compositor layers.
 - Pace multi-frame media and upload a new texture only when content changes.
 - Cover-scale image planes with displacement-safe overscan.
 - Interpolate exposed-wallpaper pointer targets across missing observations.
-- Load binary glTF scenes through `flux-scene-graph` and auto-frame their
+- Load binary glTF scenes through `vista` and auto-frame their
   world-space bounds.
 - Animate an orbiting camera, directional light, and Phong highlights.
 - Keep one depth target per frame-in-flight slot and recreate it on resize.

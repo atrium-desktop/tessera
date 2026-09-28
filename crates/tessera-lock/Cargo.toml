@@ -30,7 +30,7 @@ ash.workspace = true
 tessera-env.workspace = true
 flux.workspace = true
 flux-sys.workspace = true
-flux-scene-graph-sys.workspace = true
+vista-sys.workspace = true
 lens.workspace = true
 lens-sys.workspace = true
 libc.workspace = true
@@ -48,7 +48,7 @@ zeroize.workspace = true
 pkg-config = "0.3"
 
 [package.metadata.cargo-machete]
-ignored = ["flux-sys", "flux-scene-graph-sys", "lens-sys", "pkg-config"]
+ignored = ["flux-sys", "vista-sys", "lens-sys", "pkg-config"]
 
 [lints]
 workspace = true

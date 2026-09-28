@@ -28,7 +28,8 @@ features. The remaining APIs on this page require the shell's optional
 | 6 | `~/.face.icon` | Freedesktop-compatible still image |
 | 7 | `$XDG_DATA_HOME/tessera/avatars/avatar.vrm` | VRM 0.x or 1.0 model |
 
-`TESSERA_AVATAR_DEBUG_ASSETS=1` adds the source-tree debug VRM before priority
+`TESSERA_AVATAR_DEBUG_ASSETS=1` adds the source-tree debug VRM (located at
+`assets/debug/persona/` or overridden by `TESSERA_AVATAR_DEBUG_DIR`) before priority
 1 in debug builds. It never changes release behavior. `PortraitConfig::new`
 accepts an explicit ordered list for an embedder that must replace the
 canonical policy.

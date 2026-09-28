@@ -2,7 +2,7 @@
 //! portrait texture already circle-masked in its alpha channel.
 //!
 //! VRM 0.x and VRM 1.0 are both binary glTF containers, so the model loads
-//! through `flux_scene_graph::Scene::from_glb_with_materials`, including its
+//! through `vista::Scene::from_glb_with_materials`, including its
 //! embedded base-colour textures and per-primitive alpha/culling state. VRMA
 //! motion-library clips are bound by humanoid bone identity, retargeted from
 //! their source T-pose, sampled on the CPU, and skinned on the GPU.
@@ -16,7 +16,7 @@
 use std::path::{Path, PathBuf};
 
 use flux::{Camera, Canvas, Format, Image, SceneColorLoad, SceneLight, Surface, Target};
-use flux_scene_graph::{Bounds, MaterialTarget, Scene};
+use vista::{Bounds, MaterialTarget, Scene};
 
 #[cfg(debug_assertions)]
 use super::super::mask::circle_mask_premultiplied;
@@ -108,13 +108,13 @@ pub enum VrmError {
     #[error("read {0:?}")]
     Io(PathBuf, #[source] std::io::Error),
     #[error("vrm model {0:?}")]
-    Gltf(PathBuf, #[source] flux_scene_graph::LoadError),
+    Gltf(PathBuf, #[source] vista::LoadError),
     /// The model has no measurable bounding box, so a framing camera cannot
     /// be computed. Usually an empty or corrupt glTF.
     #[error("vrm model {0:?} has no measurable bounds")]
     NoBounds(PathBuf),
     #[error("vrma clip {0:?}")]
-    Animation(PathBuf, #[source] flux_scene_graph::Error),
+    Animation(PathBuf, #[source] vista::Error),
     #[error("avatar motion path {0:?} must be a directory")]
     MotionDirectory(PathBuf),
     #[error("avatar motion path {0:?} must be a regular file")]

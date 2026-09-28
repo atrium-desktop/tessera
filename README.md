@@ -35,7 +35,7 @@ meson setup ../optics/build ../optics \
 meson compile -C ../optics/build
 sudo meson install -C ../optics/build
 sudo ldconfig
-pkg-config --modversion flux flux-scene-graph lens iris
+pkg-config --modversion flux vista lens iris
 ```
 
 From the Tessera repository root, start the compositor:

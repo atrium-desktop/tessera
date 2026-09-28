@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use flux::{Camera, Material, MaterialDesc, MaterialKind, SceneColorLoad, SceneLight, Target};
-use flux_scene_graph::{Bounds, Scene};
+use vista::{Bounds, Scene};
 
 use crate::Error;
 

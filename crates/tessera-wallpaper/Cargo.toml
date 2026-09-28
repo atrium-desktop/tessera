@@ -10,14 +10,14 @@ rust-version.workspace = true
 [dependencies]
 flux = { workspace = true }
 flux-sys = { workspace = true }
-flux-scene-graph = { workspace = true }
-flux-scene-graph-sys = { workspace = true }
+vista = { workspace = true }
+vista-sys = { workspace = true }
 image = { workspace = true }
 log.workspace = true
 thiserror.workspace = true
 
 [package.metadata.cargo-machete]
-ignored = ["flux-scene-graph-sys", "flux-sys"]
+ignored = ["vista-sys", "flux-sys"]
 
 [lints]
 workspace = true

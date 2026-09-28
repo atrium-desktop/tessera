@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use flux_scene_graph::{Animation, Scene};
+use vista::{Animation, Scene};
 
 use super::model::VrmError;
 
