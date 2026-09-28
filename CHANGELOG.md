@@ -14,6 +14,20 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.71] - 2026-09-28
+
+### Changed
+- Adopted Optics `transit` as the single motion vocabulary across shell chrome (ADR-0139, ADR-0172, ADR-0174): every continuous scalar update delegates to `transit`, and reduced motion is carried by the library's per-call flag instead of hand-written snaps.
+- Renamed `tessera-render` to `tessera-composite` (ADR-0173) across the workspace, manifest, and dependency policy.
+- Pinned and promoted Optics to `v0.0.53`, which adds an explicit `reduced_motion` flag to every `transit` advance entry point.
+
+### Added
+- `cargo xtask check-motion` enforces the chrome zero-math invariant (`INV-ARCH-49`): no `.exp()` integrators outside the `widgets::motion` seam.
+
+### Fixed
+- Propagate the `transit` runtime-library path from terminal binaries and the shell test harness so the loader selects the local Optics build instead of a stale system `libtransit`.
+- Restored the keyboard-backlight binding in the lightweight system probe and removed dead code left by the refactor.
+
 ## [0.0.70] - 2026-09-28
 
 ### Fixed
