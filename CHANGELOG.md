@@ -14,6 +14,12 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.70] - 2026-09-28
+
+### Fixed
+- Fixed Control Center 2D Bento Grid layout drift by enclosing it within an explicit placed surface container (ADR-0171).
+- Synchronized Dock animation stepping into the pre-pass to prevent swapchain ring dirty-rect leaking and post-settle flickering (ADR-0171).
+
 ## [0.0.69] - 2026-09-28
 
 ### Fixed
