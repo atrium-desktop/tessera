@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.68] - 2026-09-28
+
 ### Added
 - Canonical shell preview routing and workspace debug asset topology (ADR-0170):
   - Added `pivot` (with `launcher` and `spotlight` aliases) to `TESSERA_PREVIEW` sandbox routing.
