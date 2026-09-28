@@ -14,6 +14,11 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.69] - 2026-09-28
+
+### Fixed
+- Forward-compatible `DesktopPreferences` deserialization with default accessibility configuration.
+
 ## [0.0.68] - 2026-09-28
 
 ### Added
