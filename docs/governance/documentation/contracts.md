@@ -30,8 +30,6 @@ root_sanitization:
     - "CHANGELOG.md"
     - "CONTRIBUTING.md"
     - "AGENTS.md"
-    - "CLAUDE.md"
-    - "GEMINI.md"
     - "LICENSE.md"
     - "SECURITY.md"
 
@@ -54,12 +52,12 @@ architecture:
 
 # [INV-LINT-04] Code-to-Doc Trigger Bindings
 triggers:
-  - watch: "crates/api/**"
+  - watch: "src/api/**"
     require_update: "docs/reference/**"
     message: "Public API modified; docs/reference/ must be synchronized in the same commit."
-  - watch: "crates/apps/**"
+  - watch: "src/cli/**"
     require_update: "docs/how-to/**"
-    message: "Application entry point modified; verify docs/how-to/ are up to date."
+    message: "CLI syntax changed; docs/how-to/ must be synchronized in the same commit."
 ```
 
 ---

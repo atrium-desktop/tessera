@@ -68,16 +68,19 @@ pub(super) fn apply_system_action(
         }
         SystemAction::StepKeyboardBrightness => {
             host_system.step_keyboard_brightness()?;
+            // Advance to the next rung of the hardware's own ladder when it is
+            // stepped; otherwise fall back to the documented default ladder.
+            let ladder = status
+                .kbd_brightness_tiers()
+                .unwrap_or_else(|| vec![0, 33, 66, 100]);
             let cur = status.kbd_brightness.unwrap_or(0);
-            let next = if cur >= 90 {
-                0
-            } else if cur >= 60 {
-                100
-            } else if cur >= 30 {
-                66
-            } else {
-                33
-            };
+            let index = ladder
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, rung)| rung.abs_diff(cur))
+                .map(|(index, _)| index)
+                .unwrap_or(0);
+            let next = ladder[(index + 1) % ladder.len()];
             status.kbd_brightness = Some(next);
         }
         SystemAction::SetWifi { enabled } => {

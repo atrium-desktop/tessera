@@ -77,7 +77,7 @@ fn spring_approaches_target_at_rest() {
         value: 10.0,
         velocity: 0.0,
     };
-    assert_eq!(Dock::spring(&mut s, 20.0, 0.0), 10.0);
+    assert_eq!(Dock::spring(&mut s, 20.0, 0.0, false), 10.0);
 }
 
 #[test]
@@ -88,7 +88,7 @@ fn spring_settles_on_target() {
         velocity: 0.0,
     };
     for _ in 0..2000 {
-        Dock::spring(&mut s, 20.0, 1.0 / 120.0);
+        Dock::spring(&mut s, 20.0, 1.0 / 120.0, false);
     }
     assert!((s.value - 20.0).abs() < 0.01, "settled at {}", s.value);
 }
@@ -103,7 +103,7 @@ fn spring_overshoots_then_settles() {
     };
     let mut overshot = false;
     for _ in 0..2000 {
-        Dock::spring(&mut s, 100.0, 1.0 / 120.0);
+        Dock::spring(&mut s, 100.0, 1.0 / 120.0, false);
         if s.value > 100.0 {
             overshot = true;
         }
@@ -119,7 +119,7 @@ fn spring_is_dt_stable() {
         value: 0.0,
         velocity: 0.0,
     };
-    let v = Dock::spring(&mut s, 100.0, 1.0 / 5.0);
+    let v = Dock::spring(&mut s, 100.0, 1.0 / 5.0, false);
     assert!(v.is_finite(), "value diverged: {v}");
     assert!(s.velocity.is_finite(), "velocity diverged: {}", s.velocity);
 }
@@ -131,7 +131,7 @@ fn spring_remains_bounded_and_settles_at_thirty_fps() {
         velocity: 0.0,
     };
     for _ in 0..300 {
-        Dock::spring(&mut s, DOCK_TILE_MAX, 1.0 / 30.0);
+        Dock::spring(&mut s, DOCK_TILE_MAX, 1.0 / 30.0, false);
         assert!(
             s.value >= 0.0 && s.value <= DOCK_TILE_MAX * 2.0,
             "spring escaped its visual range: {}",

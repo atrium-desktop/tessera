@@ -1,19 +1,19 @@
 //! Frame capture orchestration for the compositor runtime.
 //!
 //! The pure pixel domain (readback staging, encoding, geometry, naming)
-//! lives in `tessera-render::capture`. This module owns only the orchestrating worker and its
+//! lives in `tessera-composite::capture`. This module owns only the orchestrating worker and its
 //! wiring into the runtime: wakeups, completions, security gating, and
 //! the journal/IPC effects that a capture completion triggers.
 
 mod worker;
 
-pub use tessera_render::capture::{
+pub use tessera_composite::capture::{
     CaptureCursor, PendingReadback, StreamPixels, read_captured_pixels, read_captured_pixels_owned,
     request_frame_readback,
 };
 // Test-only capture helpers (BGRA conversion and PNG encoding assertions).
 #[cfg(test)]
-pub(crate) use tessera_render::capture::{encode_rgba_capture, stream_pixels};
+pub(crate) use tessera_composite::capture::{encode_rgba_capture, stream_pixels};
 pub(super) use worker::{
     CaptureCompletion, CaptureTarget, CaptureWorker, PendingCapture, queue_captured_pixels,
     refuse_capture_target,
@@ -22,6 +22,6 @@ pub(super) use worker::{
 mod output;
 pub use output::{atomic_write_capture, screenshot_uri_list};
 
-pub use tessera_render::presentation::{
+pub use tessera_composite::presentation::{
     clamp_logical_region, flux_last_error_detail, logical_rect_to_physical,
 };

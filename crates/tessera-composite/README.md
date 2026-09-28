@@ -1,6 +1,6 @@
-# tessera-render
+# tessera-composite
 
-`tessera-render` converts committed client buffers into flux textures and
+`tessera-composite` converts committed client buffers into flux textures and
 composites the surface tree into the current output frame.
 
 ## Responsibilities

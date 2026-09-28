@@ -37,7 +37,7 @@ pub(super) struct PreparedWindowCapture {
 /// toplevel's logical placement at query time. Shared by the one-shot
 /// `CaptureWindow` path and the per-window stream render targets
 /// (ADR-0127). A pure value owned by `tessera-presentation`.
-pub(super) use tessera_render::presentation::WindowTreeGeometry;
+pub(super) use tessera_composite::presentation::WindowTreeGeometry;
 
 /// Resolve one window's offscreen-capture geometry from the live model. The
 /// window is looked up across every workspace (`all_windows`): occluded,
@@ -122,7 +122,7 @@ fn window_capture_scale_milli(
 /// semantics). Shared by the one-shot capture and per-window streams.
 pub(super) fn draw_window_tree(
     device: &flux::Device,
-    renderer: &mut tessera_render::Renderer,
+    renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     canvas: &flux::CanvasCommands<'_>,
     geometry: &WindowTreeGeometry,
@@ -156,7 +156,7 @@ pub(super) fn draw_window_tree(
 /// `StreamTarget::Window` semantics).
 pub(super) fn begin_window_capture(
     device: &flux::Device,
-    renderer: &mut tessera_render::Renderer,
+    renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     window: tessera_desktop::window::WindowId,
     security_generation: u64,

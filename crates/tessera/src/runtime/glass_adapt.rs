@@ -62,9 +62,13 @@ impl GlassAdaptation {
         let energy = energy.clamp(0.0, 1.0);
         match self.regions.get_mut(&id) {
             Some(state) => {
-                let blend = 1.0 - (-SMOOTHING_RATE * dt_seconds.max(0.0)).exp();
-                state.luminance += (luminance - state.luminance) * blend;
-                state.energy += (energy - state.energy) * blend;
+                // Exponential follow, delegated to transit so the mechanism
+                // (frame-rate independence, NaN/dt clamping) stays in one place
+                // rather than a hand-rolled `1 - e^(-rate·dt)` per caller.
+                state.luminance =
+                    transit::approach(state.luminance, luminance, SMOOTHING_RATE, dt_seconds, false);
+                state.energy =
+                    transit::approach(state.energy, energy, SMOOTHING_RATE, dt_seconds, false);
                 state.emitted.plate_luminance =
                     quantize_hysteresis(state.luminance, state.emitted.plate_luminance);
                 state.emitted.backdrop_energy =

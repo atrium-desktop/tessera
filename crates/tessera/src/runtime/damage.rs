@@ -7,7 +7,7 @@ use super::*;
 // composition-root orchestration: sampling the change signals spread across
 // the server, shell, notifications, and wallpaper, and deciding what the
 // frame's output and backdrop damage are.
-pub(super) use tessera_render::presentation::{
+pub(super) use tessera_composite::presentation::{
     AssessedFrameDamage, ClientDamage, ClientDamageTracker, DamageAssessment, FrameDamage,
     SurfaceDamageFrame, composite_repaint_for_slot, logical_rects_to_frame,
     record_composite_present, union_frame_damage,

@@ -405,12 +405,6 @@ impl Shell {
     /// dock's Pivot tile).
     pub fn take_toggle_pivot(&mut self) -> bool {
         std::mem::take(&mut self.events.toggle_pivot)
-            || std::mem::take(&mut self.events.toggle_launcher)
-    }
-
-    /// Compatibility hook mapping to `take_toggle_pivot()`.
-    pub fn take_toggle_launcher(&mut self) -> bool {
-        self.take_toggle_pivot()
     }
 
     /// Drain a pending clipboard copy request from chrome.
@@ -430,8 +424,6 @@ impl Shell {
         let opening = !self.overview_active();
         if opening {
             self.broadcast_command(ChromeCommand::ClosePivot);
-            self.broadcast_command(ChromeCommand::CloseLauncher);
-            self.broadcast_command(ChromeCommand::ClosePrism);
             self.broadcast_command(ChromeCommand::CloseControlCenter);
         }
         self.broadcast_command(ChromeCommand::ToggleOverview);
@@ -459,28 +451,17 @@ impl Shell {
     pub fn toggle_control_center(&mut self) {
         let opening = !self.control_center_active();
         if opening {
-            self.broadcast_command(ChromeCommand::CloseLauncher);
-            self.broadcast_command(ChromeCommand::ClosePrism);
+            self.broadcast_command(ChromeCommand::ClosePivot);
             self.broadcast_command(ChromeCommand::CloseOverview);
         }
         self.broadcast_command(ChromeCommand::ToggleControlCenter);
-    }
-
-    /// Backwards-compatible alias for [`Shell::toggle_control_center`].
-    pub fn toggle_command_panel(&mut self) {
-        self.toggle_control_center();
     }
 
     /// Whether the control center is currently open.
     pub fn control_center_active(&self) -> bool {
         self.components
             .iter()
-            .any(|c| c.control_center_active() || c.command_panel_active())
-    }
-
-    /// Backwards-compatible alias for [`Shell::control_center_active`].
-    pub fn command_panel_active(&self) -> bool {
-        self.control_center_active()
+            .any(|c| c.control_center_active())
     }
 
     /// Open the compositor-owned Super+Tab preview strip.
@@ -877,16 +858,6 @@ impl Shell {
             self.broadcast_command(ChromeCommand::CloseOverview);
         }
         self.broadcast_command(ChromeCommand::TogglePivot);
-    }
-
-    /// Fire the global application-launcher hotkey (mapped to Pivot).
-    pub fn toggle(&mut self) {
-        self.toggle_pivot();
-    }
-
-    /// Fire the global Prism/Spotlight hotkey (mapped to Pivot).
-    pub fn toggle_prism(&mut self) {
-        self.toggle_pivot();
     }
 
     /// The union of every component's [`Chrome::reserved`] edges — the space

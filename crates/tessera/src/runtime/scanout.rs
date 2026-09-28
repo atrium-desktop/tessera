@@ -5,7 +5,7 @@ use super::*;
 // owned by `tessera-presentation` (api tier). This module keeps only the
 // composition-root observation: gathering the semantic scene facts from the
 // server, shell, and host and handing them to the evaluator.
-pub(super) use tessera_render::presentation::{
+pub(super) use tessera_composite::presentation::{
     PrimaryPlanePlan, PrimaryPlaneState, ScanoutRejectReason, ScanoutTelemetry,
 };
 
@@ -37,7 +37,7 @@ impl CompositorRuntime<'_> {
         let candidate_matches_scene = dmabuf_surface_count == 1
             && toplevel_dmabufs.len() == 1
             && sets.dmabuf[0].id == toplevel_dmabufs[0].id;
-        let facts = tessera_render::presentation::ScanoutSceneFacts {
+        let facts = tessera_composite::presentation::ScanoutSceneFacts {
             session_locked: self.server.session_locked(),
             capture_pending: frame_capture_pending
                 || self.pending_capture.is_some()
@@ -63,6 +63,6 @@ impl CompositorRuntime<'_> {
             self.host
                 .supports_scanout(candidate.drm_format, candidate.modifier)
         });
-        tessera_render::presentation::plan_scanout(facts, physical_size, candidate, plane_supported)
+        tessera_composite::presentation::plan_scanout(facts, physical_size, candidate, plane_supported)
     }
 }

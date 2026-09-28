@@ -432,14 +432,7 @@ impl Chrome for Dock {
                 eased.push(state.value);
                 continue;
             }
-            if self.reduced_motion {
-                // ADR-0029: springs resolve to their target in one frame.
-                state.value = target;
-                state.velocity = 0.0;
-                eased.push(target);
-                continue;
-            }
-            eased.push(Self::spring(state, target, dt));
+            eased.push(Self::spring(state, target, dt, self.reduced_motion));
             // A spring is still animating while it is meaningfully off its
             // target or still moving. Sub-pixel drift is ignored so we don't
             // tick forever chasing float noise.
@@ -872,7 +865,6 @@ impl Chrome for Dock {
                 let t = &tiles[i];
                 if t.launchpad {
                     out.toggle_pivot = true;
-                    out.toggle_launcher = true;
                 } else if let Some(id) = t.focus {
                     out.clicked = Some(id);
                 } else if let Some(ai) = t.spawn {
@@ -947,13 +939,13 @@ impl Chrome for Dock {
                 self.tooltip_tile.clone_from(&self.hovered_tile);
             }
             let target = if wants_tooltip { 1.0 } else { 0.0 };
-            if self.reduced_motion {
-                // ADR-0029: no fade; the tooltip appears/disappears at once.
-                self.tooltip_alpha = target;
-            } else {
-                let blend = 1.0 - (-TOOLTIP_FADE_SPEED * dt.min(1.0 / 30.0)).exp();
-                self.tooltip_alpha += (target - self.tooltip_alpha) * blend;
-            }
+            self.tooltip_alpha = crate::widgets::motion::approach(
+                self.tooltip_alpha,
+                target,
+                TOOLTIP_FADE_SPEED,
+                dt,
+                self.reduced_motion,
+            );
             if target == 0.0 && self.tooltip_alpha < 0.01 {
                 self.tooltip_alpha = 0.0;
                 self.tooltip_tile = None;
@@ -1450,14 +1442,15 @@ impl Dock {
         };
 
         let was_moving = self.was_autohide_animating;
-        if self.reduced_motion {
+        self.autohide_reveal = crate::widgets::motion::approach(
+            self.autohide_reveal,
+            target_reveal,
+            AUTOHIDE_REVEAL_RATE,
+            dt,
+            self.reduced_motion,
+        );
+        if (target_reveal - self.autohide_reveal).abs() < 0.002 {
             self.autohide_reveal = target_reveal;
-        } else {
-            let blend = 1.0 - (-12.0 * dt.min(1.0 / 30.0)).exp();
-            self.autohide_reveal += (target_reveal - self.autohide_reveal) * blend;
-            if (target_reveal - self.autohide_reveal).abs() < 0.002 {
-                self.autohide_reveal = target_reveal;
-            }
         }
         let autohide_moving = (target_reveal - self.autohide_reveal).abs() > 0.002;
         if self.collapse_pending && target_reveal == 0.0 && self.autohide_reveal <= 0.002 {

@@ -81,6 +81,8 @@ const SPRING_STIFFNESS: f32 = 900.0;
 /// lively while suppressing the visible jitter the previous lighter damping
 /// produced under variable frame times.
 const SPRING_DAMPING: f32 = 0.85;
+const DOCK_SPRING: crate::widgets::motion::SpringParams =
+    crate::widgets::motion::SpringParams::new(SPRING_STIFFNESS, SPRING_DAMPING);
 /// Side length a brand-new tile grows in from. Springs up over the first few
 /// frames instead of popping in at full size.
 const DOCK_TILE_BIRTH: f32 = 6.0;
@@ -120,6 +122,10 @@ const AUTOHIDE_CONTENT_INTERACTION_MIN: f32 = 0.01;
 /// Pointer dwell before an application name appears. This keeps labels from
 /// flashing while the pointer merely crosses the dock.
 const TOOLTIP_DWELL: f32 = 0.30;
+/// Exponential rate (per second) for the dock's autohide panel reveal. Applied
+/// through the shared `transit` follower so frame pacing stays stable and the
+/// rate matches the previously hand-rolled `1 - e^(-12·dt)` coefficient.
+const AUTOHIDE_REVEAL_RATE: f32 = 12.0;
 /// Exponential fade speed for the dock application-name tooltip.
 const TOOLTIP_FADE_SPEED: f32 = 18.0;
 const TOOLTIP_HEIGHT: f32 = 28.0;
@@ -1049,8 +1055,8 @@ impl Dock {
     /// wrapper over the shared [`crate::widgets::motion::Spring`] integrator
     /// (ADR-0139) carrying the dock's feel constants; `state` is updated in
     /// place and the new value is returned.
-    fn spring(state: &mut SpringState, target: f32, dt: f32) -> f32 {
-        state.advance(target, SPRING_STIFFNESS, SPRING_DAMPING, dt)
+    fn spring(state: &mut SpringState, target: f32, dt: f32, reduced_motion: bool) -> f32 {
+        state.advance(target, DOCK_SPRING, dt, reduced_motion)
     }
 
     /// The current frame's tile strip: the Launchpad tile, then every pinned

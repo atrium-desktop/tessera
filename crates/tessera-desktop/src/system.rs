@@ -138,6 +138,21 @@ pub struct SystemStatus {
     /// Keyboard backlight level in percent, or `None` without a controllable keyboard backlight (ADR-0168).
     #[cfg_attr(feature = "serde", serde(default))]
     pub kbd_brightness: Option<u8>,
+    /// The keyboard backlight's number of distinct illumination steps,
+    /// including "off" — the honest granularity of the hardware, probed from
+    /// `/sys/class/leds/*::kbd_backlight/max_brightness` as `max + 1`
+    /// (ADR-0168 amendment). `Some(n)` means the device exposes `n` discrete
+    /// levels and chrome should present a stepped selector; `None` means the
+    /// granularity is unknown or effectively continuous, so chrome presents a
+    /// continuous control. Meaningless (and always `None`) when
+    /// `kbd_brightness` is `None`; the probe is the single authority that
+    /// upholds that pairing.
+    ///
+    /// Additive field (ADR-0140 precedent): a peer that predates it
+    /// deserializes the same status without the key, so no protocol bump is
+    /// required.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub kbd_brightness_levels: Option<u8>,
     pub do_not_disturb: bool,
     /// Included so one host probe can feed both status and settings surfaces.
     pub input: InputStatus,
@@ -315,6 +330,67 @@ impl SystemAction {
         }
     }
 }
+
+impl SystemStatus {
+    /// The discrete illumination tiers of the keyboard backlight, as
+    /// percentages, when the hardware exposes a *stepped* backlight
+    /// (ADR-0168 amendment).
+    ///
+    /// Returns `None` when there is no keyboard backlight, when its granularity
+    /// is unknown, or when the granularity is effectively continuous — in every
+    /// such case chrome should present a continuous control (or nothing). When
+    /// `Some`, the returned ladder has exactly
+    /// [`kbd_brightness_levels`](Self::kbd_brightness_levels) rungs, evenly
+    /// spaced from `0` to `100` inclusive, and is what a stepped selector
+    /// renders.
+    ///
+    /// The threshold is deliberately conservative: real laptop backlights
+    /// expose a handful of steps (ThinkPad commonly three, many others four),
+    /// while a `max_brightness` of 255 is a fine-grained dimmer that deserves a
+    /// fader, not a four-segment selector. This keeps the "stepped" decision
+    /// honest instead of forcing every device onto a fixed ladder.
+    pub fn kbd_brightness_tiers(&self) -> Option<Vec<u8>> {
+        let levels = self.kbd_brightness_levels?;
+        self.kbd_brightness?;
+        if !(2..=KBD_BRIGHTNESS_MAX_STEPS).contains(&levels) {
+            return None;
+        }
+        let last = levels - 1;
+        Some(
+            (0..levels)
+                .map(|step| {
+                    // Even spacing with the endpoints pinned: step 0 is 0%,
+                    // step `last` is 100%, intermediates round to nearest.
+                    ((step as u32 * 100 + last as u32 / 2) / last as u32) as u8
+                })
+                .collect(),
+        )
+    }
+
+    /// The tier index a reported keyboard-backlight level belongs to: the
+    /// nearest rung of [`kbd_brightness_tiers`](Self::kbd_brightness_tiers).
+    ///
+    /// Returns `0` when the device has no stepped ladder, so callers that only
+    /// need an index never have to branch.
+    pub fn kbd_brightness_tier_index(&self) -> usize {
+        let Some(tiers) = self.kbd_brightness_tiers() else {
+            return 0;
+        };
+        let level = self.kbd_brightness.unwrap_or(0);
+        tiers
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, rung)| rung.abs_diff(level))
+            .map(|(index, _)| index)
+            .unwrap_or(0)
+    }
+}
+
+/// Above this many distinct illumination steps, a keyboard backlight is treated
+/// as a continuous dimmer rather than a stepped selector (ADR-0168 amendment).
+/// Five covers the real stepped devices (2–4 rungs) with headroom, while
+/// excluding fine-grained PWM dimmers (`max_brightness` in the tens to 255).
+pub const KBD_BRIGHTNESS_MAX_STEPS: u8 = 5;
 
 #[cfg(test)]
 mod tests {

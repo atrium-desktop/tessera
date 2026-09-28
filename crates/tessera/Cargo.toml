@@ -35,7 +35,7 @@ tessera-ipc.workspace = true
 tessera-protocol.workspace = true
 tessera-audit.workspace = true
 tessera-authority.workspace = true
-tessera-render = { workspace = true }
+tessera-composite = { workspace = true }
 # Design tokens: scene colors and glass material policy (single source).
 tessera-design = { workspace = true }
 tessera-wayland = { workspace = true }
@@ -52,7 +52,7 @@ tessera-config = { workspace = true }
 # IPC and introspection surface (ADR-0027).
 # Native resource commands dispatched through the same executable.
 # Launcher: enumerate `.desktop` entries and spawn them detached (ADR-0022, ADR-0160).
-# Only the binary wires these; tessera-shell and tessera-render stay free of them.
+# Only the binary wires these; tessera-shell and tessera-composite stay free of them.
 tessera-launch-services = { workspace = true }
 flux = { workspace = true }
 lens = { workspace = true }
@@ -83,9 +83,11 @@ flux-sys = { workspace = true }
 vista-sys = { workspace = true }
 lens-sys = { workspace = true }
 prism-sys = { workspace = true }
+transit = { workspace = true }
+transit-sys = { workspace = true }
 
 [package.metadata.cargo-machete]
-ignored = ["vista-sys", "lens-sys", "prism-sys"]
+ignored = ["vista-sys", "lens-sys", "prism-sys", "transit-sys"]
 
 [dev-dependencies]
 tessera-desktop = { workspace = true }

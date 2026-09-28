@@ -54,13 +54,6 @@ pub enum Action {
 }
 
 impl Action {
-    #[allow(non_upper_case_globals)]
-    pub const ToggleCommandPanel: Action = Action::ToggleControlCenter;
-    #[allow(non_upper_case_globals)]
-    pub const ToggleLauncher: Action = Action::TogglePivot;
-    #[allow(non_upper_case_globals)]
-    pub const TogglePrism: Action = Action::TogglePivot;
-
     /// Whether this compositor action remains available while trusted shell
     /// chrome owns the keyboard.
     ///
@@ -195,12 +188,9 @@ pub fn mod_from_name(s: &str) -> Option<Mods> {
 
 pub fn action_from_name(s: &str) -> Option<Action> {
     Some(match s.to_ascii_lowercase().as_str() {
-        "pivot" | "togglepivot" | "prism" | "toggleprism" | "spotlight" | "launcher"
-        | "togglelauncher" | "apps" | "pivotbrowse" | "togglepivotbrowse" => Action::TogglePivot,
+        "pivot" | "togglepivot" => Action::TogglePivot,
         "overview" | "toggleoverview" => Action::ToggleOverview,
-        "control_center" | "controlcenter" | "command_panel" | "commandpanel" | "panel" => {
-            Action::ToggleControlCenter
-        }
+        "control_center" | "controlcenter" => Action::ToggleControlCenter,
         "close" | "closefocused" => Action::CloseFocused,
         "cycle" | "next" => Action::CycleFocus,
         "prev" | "previous" | "cycleback" => Action::CycleFocusBack,
@@ -286,10 +276,10 @@ mod tests {
             Some(Action::TogglePivot)
         );
         assert_eq!(km.match_key(Mods::SUPER, b'a' as u32), None);
-        // Super+S → command panel.
+        // Super+S → control center.
         assert_eq!(
             km.match_key(Mods::SUPER, b's' as u32),
-            Some(Action::ToggleCommandPanel)
+            Some(Action::ToggleControlCenter)
         );
         // The old Super+Return default is gone.
         assert_eq!(km.match_key(Mods::SUPER, XKB_KEY_Return), None);
@@ -343,7 +333,7 @@ mod tests {
         );
         assert_eq!(
             km.match_key_during_keyboard_capture(Mods::SUPER, b's' as u32),
-            Some(Action::ToggleCommandPanel)
+            Some(Action::ToggleControlCenter)
         );
         assert_eq!(
             km.match_key_during_keyboard_capture(Mods::SUPER | Mods::CTRL, b'Q' as u32),
@@ -366,11 +356,11 @@ mod tests {
     #[test]
     fn override_takes_precedence_and_keeps_defaults() {
         let km =
-            Keymap::defaults().with_overrides(vec![kb(Mods::SUPER, 0x20, Action::ToggleLauncher)]);
+            Keymap::defaults().with_overrides(vec![kb(Mods::SUPER, 0x20, Action::TogglePivot)]);
         // Override present.
         assert_eq!(
             km.match_key(Mods::SUPER, 0x20),
-            Some(Action::ToggleLauncher)
+            Some(Action::TogglePivot)
         );
         // Defaults still present.
         assert_eq!(
@@ -407,11 +397,6 @@ mod tests {
     fn pivot_action_accepts_documented_names() {
         assert_eq!(action_from_name("pivot"), Some(Action::TogglePivot));
         assert_eq!(action_from_name("togglepivot"), Some(Action::TogglePivot));
-        assert_eq!(action_from_name("prism"), Some(Action::TogglePivot));
-        assert_eq!(action_from_name("toggleprism"), Some(Action::TogglePivot));
-        assert_eq!(action_from_name("spotlight"), Some(Action::TogglePivot));
-        assert_eq!(action_from_name("launcher"), Some(Action::TogglePivot));
-        assert_eq!(action_from_name("apps"), Some(Action::TogglePivot));
     }
 
     #[test]
@@ -441,15 +426,6 @@ mod tests {
             action_from_name("controlcenter"),
             Some(Action::ToggleControlCenter)
         );
-        assert_eq!(
-            action_from_name("command_panel"),
-            Some(Action::ToggleControlCenter)
-        );
-        assert_eq!(
-            action_from_name("commandpanel"),
-            Some(Action::ToggleControlCenter)
-        );
-        assert_eq!(action_from_name("panel"), Some(Action::ToggleControlCenter));
     }
 
     #[test]

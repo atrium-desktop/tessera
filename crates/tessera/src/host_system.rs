@@ -111,19 +111,37 @@ impl HostSystem for LiveHostSystem {
     }
 
     fn step_keyboard_brightness(&self) -> Result<(), String> {
-        let cur = detect_keyboard_brightness().unwrap_or(0);
-        let next = if cur >= 90 {
-            0
-        } else if cur >= 60 {
-            100
-        } else if cur >= 30 {
-            66
-        } else {
-            33
+        let (level, steps) = detect_keyboard_backlight();
+        let cur = level.unwrap_or(0);
+        // Cycle the hardware's own ladder when the backlight is stepped, so a
+        // three-rung ThinkPad advances 0 → 50 → 100, not through a fixed
+        // four-rung sequence the device cannot represent.
+        let next = match steps.filter(|n| *n >= 2) {
+            Some(levels) => {
+                let last = (levels - 1) as u32;
+                let rung = (0..levels as u32)
+                    .min_by_key(|step| {
+                        let percent = (step * 100 + last / 2) / last;
+                        (percent as i32 - cur as i32).unsigned_abs()
+                    })
+                    .unwrap_or(0);
+                let next_rung = (rung + 1) % levels as u32;
+                ((next_rung * 100 + last / 2) / last) as u8
+            }
+            None => {
+                if cur >= 90 {
+                    0
+                } else if cur >= 60 {
+                    100
+                } else if cur >= 30 {
+                    66
+                } else {
+                    33
+                }
+            }
         };
         self.set_keyboard_brightness(next)
     }
-
     fn set_bluetooth_enabled(&self, enabled: bool) -> Result<(), String> {
         spawn_host_command(
             "rfkill",
@@ -174,6 +192,9 @@ pub struct MockHostState {
     pub muted: bool,
     pub brightness: Option<u8>,
     pub kbd_brightness: Option<u8>,
+    /// Distinct illumination steps the simulated keyboard backlight exposes;
+    /// `None` models fine-grained/unknown hardware (ADR-0168 amendment).
+    pub kbd_brightness_levels: Option<u8>,
     pub bluetooth_enabled: Option<bool>,
     pub battery: Option<BatteryStatus>,
     pub network: NetworkState,
@@ -190,6 +211,9 @@ impl Default for MockHostState {
             muted: false,
             brightness: Some(80),
             kbd_brightness: Some(66),
+            // The mock models a stepped backlight, matching the four-rung
+            // ladder preview shows.
+            kbd_brightness_levels: Some(4),
             bluetooth_enabled: Some(true),
             battery: Some(BatteryStatus {
                 percent: 88,
@@ -324,6 +348,7 @@ impl HostSystem for MockHostSystem {
             bluetooth_enabled: st.bluetooth_enabled,
             brightness: st.brightness,
             kbd_brightness: st.kbd_brightness,
+            kbd_brightness_levels: st.kbd_brightness_levels,
             do_not_disturb: false,
             input: tessera_primitives::input::InputStatus::default(),
             display: DisplayStatus::default(),
@@ -353,6 +378,7 @@ impl HostSystem for MockHostSystem {
 fn detect_system_status() -> SystemStatus {
     let (volume, muted, wifi_enabled, wifi_ssid) = detect_forked_status();
     let (network, network_interface) = detect_network();
+    let (kbd_level, kbd_levels) = detect_keyboard_backlight();
     let wifi_state = if wifi_ssid.is_some() {
         tessera_desktop::system::WifiLinkState::Connected
     } else if wifi_enabled == Some(false) {
@@ -372,7 +398,8 @@ fn detect_system_status() -> SystemStatus {
         wifi_networks: Vec::new(),
         bluetooth_enabled: detect_bluetooth_radio(),
         brightness: detect_brightness(),
-        kbd_brightness: detect_keyboard_brightness(),
+        kbd_brightness: kbd_level,
+        kbd_brightness_levels: kbd_levels,
         do_not_disturb: false,
         input: tessera_primitives::input::InputStatus::default(),
         display: DisplayStatus::default(),
@@ -391,6 +418,7 @@ fn detect_system_status_lightweight(
     last_wifi_ssid: Option<String>,
 ) -> SystemStatus {
     let (network, network_interface) = detect_network();
+    let (kbd_level, kbd_levels) = detect_keyboard_backlight();
     let wifi_state = if last_wifi_ssid.is_some() {
         tessera_desktop::system::WifiLinkState::Connected
     } else if last_wifi_enabled == Some(false) {
@@ -410,7 +438,8 @@ fn detect_system_status_lightweight(
         wifi_networks: Vec::new(),
         bluetooth_enabled: detect_bluetooth_radio(),
         brightness: detect_brightness(),
-        kbd_brightness: detect_keyboard_brightness(),
+        kbd_brightness: kbd_level,
+        kbd_brightness_levels: kbd_levels,
         do_not_disturb: false,
         input: tessera_primitives::input::InputStatus::default(),
         display: DisplayStatus::default(),
@@ -544,8 +573,20 @@ fn detect_brightness() -> Option<u8> {
     None
 }
 
-fn detect_keyboard_brightness() -> Option<u8> {
-    let entries = fs::read_dir("/sys/class/leds").ok()?;
+/// Probe the keyboard backlight: `(level_percent, distinct_steps)`.
+///
+/// The level is normalized to 0..=100 for presentation. The step count is
+/// `max_brightness + 1` — the number of *distinct* illumination levels the LED
+/// class exposes including "off" — which is the honest granularity chrome needs
+/// to choose between a stepped selector and a continuous control (ADR-0168
+/// amendment). A `max_brightness` of `0` is treated as unknown granularity
+/// (`None`) rather than a single step, since a zero-max LED cannot be set.
+///
+/// Returns `(None, None)` when no standard `*::kbd_backlight` node exists.
+fn detect_keyboard_backlight() -> (Option<u8>, Option<u8>) {
+    let Some(entries) = fs::read_dir("/sys/class/leds").ok() else {
+        return (None, None);
+    };
     for entry in entries.flatten() {
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
@@ -560,11 +601,15 @@ fn detect_keyboard_brightness() -> Option<u8> {
             continue;
         };
         if maximum == 0 {
-            return Some(0);
+            // Present but unusable; report a level with unknown granularity so
+            // chrome falls back to a continuous control.
+            return (Some(0), None);
         }
-        return Some(((current.saturating_mul(100) + maximum / 2) / maximum).min(100) as u8);
+        let level = ((current.saturating_mul(100) + maximum / 2) / maximum).min(100) as u8;
+        let steps = maximum.saturating_add(1).min(u8::MAX as u64) as u8;
+        return (Some(level), Some(steps));
     }
-    None
+    (None, None)
 }
 
 fn read_u64(path: &Path) -> Option<u64> {

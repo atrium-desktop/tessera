@@ -141,9 +141,10 @@ impl Motion {
         // Three time constants reach 95.0%, so expose the more intuitive
         // settle duration while retaining a monotonic, overshoot-free filter.
         let tau = (self.transition.as_secs_f32() / 3.0).max(0.001);
-        let alpha = 1.0 - (-dt.as_secs_f32().min(0.050) / tau).exp();
-        self.current.0 += (self.target.0 - self.current.0) * alpha;
-        self.current.1 += (self.target.1 - self.current.1) * alpha;
+        let rate = 1.0 / tau;
+        let dt_sec = dt.as_secs_f32().min(0.050);
+        self.current.0 = transit::approach(self.current.0, self.target.0, rate, dt_sec, false);
+        self.current.1 = transit::approach(self.current.1, self.target.1, rate, dt_sec, false);
         if !self.is_animating() {
             self.current = self.target;
         }
@@ -289,6 +290,8 @@ impl ParallaxScene {
     ) {
         let now = Instant::now();
         if !self.reduced_motion {
+            // Decorative parallax is frozen entirely under reduced motion, so
+            // the follower only ever runs in its ordinary (non-snapping) mode.
             self.motion.advance(now);
         }
         for layer in &mut self.layers {

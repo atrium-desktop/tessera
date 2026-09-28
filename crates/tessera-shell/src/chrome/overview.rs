@@ -88,13 +88,13 @@ impl Overview {
 
     fn advance(&mut self, dt: f32) {
         let target = if self.open { 1.0 } else { 0.0 };
-        if self.reduced_motion {
-            self.visibility = target;
-            self.anim_active = false;
-            return;
-        }
-        let k = (dt * FADE_RATE).min(1.0);
-        self.visibility += (target - self.visibility) * k;
+        self.visibility = crate::widgets::motion::approach(
+            self.visibility,
+            target,
+            FADE_RATE,
+            dt,
+            self.reduced_motion,
+        );
         self.anim_active = (self.visibility - target).abs() > 0.002;
         if !self.anim_active {
             self.visibility = target;

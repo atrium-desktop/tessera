@@ -57,7 +57,7 @@ use secret_prompt::*;
 use state::*;
 use stream::*;
 use system::*;
-use tessera_render::presentation::{
+use tessera_composite::presentation::{
     ActivationChange, PresentationAvailability, PresentationScheduler,
 };
 use window_capture::*;
@@ -533,10 +533,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     if let Ok(preview) = std::env::var("TESSERA_PREVIEW") {
         match preview.trim().to_ascii_lowercase().as_str() {
             "overview" => shell.toggle_overview(),
-            "control-center" | "control_center" | "command-panel" | "command_panel" | "panel" => {
-                shell.toggle_control_center()
-            }
-            "pivot" | "launcher" | "spotlight" | "prism" | "apps" => shell.toggle_pivot(),
+            "control-center" | "control_center" => shell.toggle_control_center(),
+            "pivot" => shell.toggle_pivot(),
             "switcher" => shell.start_window_switcher(),
             _ => {}
         }

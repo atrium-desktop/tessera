@@ -52,7 +52,7 @@ use crate::components::settings::builtin_settings_modules;
 use crate::components::settings::module::{
     ModuleAvailability, ModuleEvents, ModuleId, ModuleRegistry,
 };
-use crate::widgets::motion::Spring;
+use crate::widgets::tiered::TieredIndicator;
 use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 use tessera_authority::interaction_domain::InteractionDomainSnapshot;
 use tessera_avatar::persona::{Portrait, PortraitConfig, PortraitWatcher, Profile};
@@ -94,7 +94,12 @@ mod tests;
 const PROFILE_W: f32 = 300.0;
 const PROFILE_H: f32 = 84.0;
 const MAIN_W: f32 = 820.0;
-const MAIN_H: f32 = 520.0;
+/// Main panel height. Sized to the Quick Controls Bento grid's natural height:
+/// 3 tile rows (58px) + 3 fader/tier rows (72px) + 5 row gaps (10px) = 440px of
+/// body, plus the view header (42px), its 8px gap, and 10px vertical padding
+/// top and bottom = 520px of panel content. 540 leaves a small breathing margin
+/// so the last fader row never crowds the panel's bottom rim.
+const MAIN_H: f32 = 540.0;
 const NOTIF_W: f32 = 260.0;
 const NOTIF_H: f32 = 200.0;
 /// The clock surface's footprint at top-center; the real glyph box is much
@@ -129,9 +134,11 @@ const SIDE_STAGGER: f32 = 0.26;
 /// Session action buttons in the right-bottom band.
 const SESSION_BUTTON: f32 = 44.0;
 const SESSION_BUTTON_GAP: f32 = 6.0;
-/// Segmented-control indicator spring: under-damped for a light bounce.
-const SEGMENTED_STIFFNESS: f32 = 380.0;
-const SEGMENTED_DAMPING: f32 = 22.0;
+
+// Segmented-control indicator spring tuning lives with the shared
+// `TieredIndicator` (crate::widgets::tiered): the power-mode selector and the
+// keyboard-backlight selector share it, so every segmented control in the shell
+// settles identically.
 
 /// The command panel explicitly owns its VRM composition. Keeping the
 /// parameters here lets another host choose a different crop without changing
@@ -283,7 +290,9 @@ pub struct ControlCenter {
     menu_cache: Option<MenuSnapshotCache>,
     /// Spring driving the segmented control's sliding indicator between
     /// work-mode segments (0..=2 in segment-width units).
-    work_mode_spring: Spring,
+    work_mode_indicator: TieredIndicator,
+    /// Spring driving the keyboard-backlight tier indicator (ADR-0168).
+    kbd_backlight_indicator: TieredIndicator,
     /// 0..1 hover reveal of the notification stream's scrollbar; wheel
     /// activity pushes it to 1, idle decays it back to 0.
     notif_scrollbar_reveal: f32,
@@ -457,7 +466,8 @@ impl ControlCenter {
             reduced_motion: false,
             prev_down: false,
             status: SystemStatus::default(),
-            work_mode_spring: Spring::at(0.0),
+            work_mode_indicator: TieredIndicator::at(0),
+            kbd_backlight_indicator: TieredIndicator::default(),
             notif_scrollbar_reveal: 0.0,
             tray_scrollbar_reveal: 0.0,
             work_mode_hover: None,
@@ -515,7 +525,8 @@ impl ControlCenter {
             reduced_motion: false,
             prev_down: false,
             status: SystemStatus::default(),
-            work_mode_spring: Spring::at(0.0),
+            work_mode_indicator: TieredIndicator::at(0),
+            kbd_backlight_indicator: TieredIndicator::default(),
             notif_scrollbar_reveal: 0.0,
             tray_scrollbar_reveal: 0.0,
             work_mode_hover: None,
@@ -639,55 +650,63 @@ impl ControlCenter {
             .iter()
             .position(|mode| *mode == self.status.power_mode)
             .unwrap_or(0) as f32;
-        if self.reduced_motion {
-            self.reveal = target;
-            self.work_mode_spring.snap_to(mode_index);
-            self.notif_scrollbar_reveal = 0.0;
-            self.tray_scrollbar_reveal = 0.0;
-            self.work_mode_tooltip_reveal = if self.work_mode_hover.is_some() {
-                1.0
-            } else {
-                0.0
-            };
-            self.session_tooltip_reveal = if self.session_hover.is_some() {
-                1.0
-            } else {
-                0.0
-            };
-            return;
-        }
-        let dt = dt.clamp(0.0, 1.0 / 15.0);
-        let follow = 1.0 - (-18.0 * dt).exp();
-        self.reveal += (target - self.reveal) * follow;
-        if (target - self.reveal).abs() < 0.004 {
-            self.reveal = target;
-        }
-        // Segmented-control indicator: an under-damped spring gives the
-        // switch its slight overshoot ("弹力") without ringing.
-        self.work_mode_spring
-            .advance(mode_index, SEGMENTED_STIFFNESS, SEGMENTED_DAMPING, dt);
-        // Wheel-activity reveals decay once the stream is left alone.
-        let decay = 1.0 - (-3.5 * dt).exp();
-        self.notif_scrollbar_reveal *= 1.0 - decay;
-        if self.notif_scrollbar_reveal < 0.01 {
-            self.notif_scrollbar_reveal = 0.0;
-        }
-        self.tray_scrollbar_reveal *= 1.0 - decay;
-        if self.tray_scrollbar_reveal < 0.01 {
-            self.tray_scrollbar_reveal = 0.0;
-        }
         let tip_target = if self.work_mode_hover.is_some() {
             1.0
         } else {
             0.0
         };
-        self.work_mode_tooltip_reveal += (tip_target - self.work_mode_tooltip_reveal) * follow;
         let session_tip_target = if self.session_hover.is_some() {
             1.0
         } else {
             0.0
         };
-        self.session_tooltip_reveal += (session_tip_target - self.session_tooltip_reveal) * follow;
+        // Reduced motion is a one-frame resolve expressed once by `transit`:
+        // `approach`/`decay`/`Spring::advance` all take the flag, so the whole
+        // panel resolves without a duplicated per-field snap branch.
+        let reduced = self.reduced_motion;
+        self.reveal = crate::widgets::motion::approach(self.reveal, target, 18.0, dt, reduced);
+        if (target - self.reveal).abs() < 0.004 {
+            self.reveal = target;
+        }
+        // Segmented-control indicator: an under-damped spring gives the
+        // switch its slight overshoot ("弹力") without ringing.
+        self.work_mode_indicator.advance(
+            mode_index as usize,
+            dt,
+            reduced,
+        );
+        // Keyboard backlight tier indicator (ADR-0168). The ladder is the
+        // standard hardware stepping sequence; the active tier is the one the
+        // reported level maps to.
+        if self.status.kbd_brightness.is_some() {
+            let index = self.status.kbd_brightness_tier_index();
+            self.kbd_backlight_indicator.advance(index, dt, reduced);
+        }
+        // Wheel-activity reveals decay once the stream is left alone.
+        self.notif_scrollbar_reveal =
+            crate::widgets::motion::decay(self.notif_scrollbar_reveal, 3.5, dt, reduced);
+        if self.notif_scrollbar_reveal < 0.01 {
+            self.notif_scrollbar_reveal = 0.0;
+        }
+        self.tray_scrollbar_reveal =
+            crate::widgets::motion::decay(self.tray_scrollbar_reveal, 3.5, dt, reduced);
+        if self.tray_scrollbar_reveal < 0.01 {
+            self.tray_scrollbar_reveal = 0.0;
+        }
+        self.work_mode_tooltip_reveal = crate::widgets::motion::approach(
+            self.work_mode_tooltip_reveal,
+            tip_target,
+            18.0,
+            dt,
+            reduced,
+        );
+        self.session_tooltip_reveal = crate::widgets::motion::approach(
+            self.session_tooltip_reveal,
+            session_tip_target,
+            18.0,
+            dt,
+            reduced,
+        );
     }
 
     /// Whether any of the always-animating micro-interactions (segment
@@ -695,10 +714,19 @@ impl ControlCenter {
     /// settling; keeps the frame loop ticking while open.
     fn interaction_anim_pending(&self) -> bool {
         self.work_mode_anim_pending()
+            || self.kbd_backlight_anim_pending()
             || self.notif_scrollbar_reveal > 0.0
             || self.tray_scrollbar_reveal > 0.0
             || self.work_mode_tooltip_reveal > 0.02
             || self.session_tooltip_reveal > 0.02
+    }
+
+    /// Whether the keyboard-backlight tier indicator is still settling.
+    fn kbd_backlight_anim_pending(&self) -> bool {
+        self.status.kbd_brightness.is_some()
+            && self
+                .kbd_backlight_indicator
+                .anim_pending(self.status.kbd_brightness_tier_index())
     }
 
     /// Whether the segmented power-mode indicator spring is still settling.
@@ -706,8 +734,8 @@ impl ControlCenter {
         let mode_index = PowerMode::ALL
             .iter()
             .position(|mode| *mode == self.status.power_mode)
-            .unwrap_or(0) as f32;
-        !self.work_mode_spring.settled_on(mode_index, 0.01, 0.5)
+            .unwrap_or(0);
+        self.work_mode_indicator.anim_pending(mode_index)
     }
 
     /// Whether the persona avatar is advancing its own texture this frame
@@ -1306,7 +1334,7 @@ impl Chrome for ControlCenter {
 
     fn command(&mut self, command: &ChromeCommand<'_>, _out: &mut ChromeEvents) {
         match command {
-            ChromeCommand::ToggleControlCenter | ChromeCommand::ToggleCommandPanel => {
+            ChromeCommand::ToggleControlCenter => {
                 if self.open {
                     self.close();
                 } else {
@@ -1321,7 +1349,6 @@ impl Chrome for ControlCenter {
                 }
             }
             ChromeCommand::CloseControlCenter
-            | ChromeCommand::CloseCommandPanel
             | ChromeCommand::DismissModal
                 if self.open =>
             {

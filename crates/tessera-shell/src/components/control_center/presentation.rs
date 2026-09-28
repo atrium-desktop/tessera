@@ -841,7 +841,13 @@ impl ControlCenter {
         let tile_w = ((area.w - tile_gap) * 0.5).max(1.0);
         let tile_h = 58.0;
         let bento_h = tile_h * 2.0 + tile_gap;
-        let fader_h = 68.0;
+        // Fader card height, derived from the fader's own content: a 24px title
+        // row, an 8px gap, and a 20px trough/selector = 52px, plus 10px padding
+        // top and bottom = 72px. The grid is three tile rows and three
+        // fader/tier rows, so it measures 3*58 + 3*72 + 5*10 = 440px. The old
+        // uniform `row_height(58)` clamped the taller fader rows to 58px and
+        // silently pushed the trough into the card's bottom rim.
+        let fader_h = 72.0;
 
         let wifi_active = status.wifi_enabled.unwrap_or(false);
         let wifi_sub = status.wifi_ssid.as_deref().unwrap_or(if wifi_active {
@@ -876,7 +882,6 @@ impl ControlCenter {
                             .width(area.w)
                             .col_gap(tile_gap)
                             .row_gap(tile_gap)
-                            .row_height(tile_h)
                             .show(|f| {
                                 // Wi-Fi (2 cols x 1 row)
                                 f.col_span(2);
@@ -1026,27 +1031,57 @@ impl ControlCenter {
                                     out.system_actions.push(SystemAction::SetVolume { level });
                                 }
 
-                                // Keyboard Backlight (4 cols x 1 row, conditional ADR-0168)
+                                // Keyboard Backlight (4 cols x 1 row, conditional ADR-0168).
+                                // Presentation follows the hardware's real
+                                // granularity (ADR-0168 amendment): a stepped
+                                // backlight gets a tiered segmented control, a
+                                // fine-grained dimmer gets a fader, and the row
+                                // is omitted entirely when there is no
+                                // backlight.
                                 if let Some(kbd_val) = status.kbd_brightness {
                                     f.col_span(4);
-                                    let (kbd_level, kbd_icon_clicked) = render_horizontal_fader(
-                                        f,
-                                        "tessera-hud-quick-kbd-brightness",
-                                        "Keyboard",
-                                        lens::sys::lens_icon_id::LENS_ICON_EDIT,
-                                        true,
-                                        Some(kbd_val),
-                                        (0, 100),
-                                        (area.w, fader_h),
-                                        hud.text,
-                                        hud,
-                                        type_scale,
-                                    );
-                                    if kbd_icon_clicked {
-                                        out.system_actions.push(SystemAction::StepKeyboardBrightness);
-                                    } else if let Some(level) = kbd_level {
-                                        out.system_actions
-                                            .push(SystemAction::SetKeyboardBrightness { level });
+                                    if let Some(tiers) = status.kbd_brightness_tiers() {
+                                        let tiers: Vec<Tier> = tiers
+                                            .iter()
+                                            .map(|level| Tier::new(format!("{level}%"), *level))
+                                            .collect();
+                                        let active = status.kbd_brightness_tier_index();
+                                        if let Some(index) = render_kbd_backlight_tiers(
+                                            f,
+                                            "tessera-hud-quick-kbd-brightness",
+                                            i18n.text(Message::Keyboard),
+                                            &tiers,
+                                            active,
+                                            &self.kbd_backlight_indicator,
+                                            (area.w, fader_h),
+                                            hud,
+                                            type_scale,
+                                        ) && let Some(level) = tiers.get(index).map(|t| t.value)
+                                        {
+                                            out.system_actions.push(
+                                                SystemAction::SetKeyboardBrightness { level },
+                                            );
+                                        }
+                                    } else {
+                                        let (kbd_level, _) = render_horizontal_fader(
+                                            f,
+                                            "tessera-hud-quick-kbd-brightness",
+                                            i18n.text(Message::Keyboard),
+                                            kbd_backlight_icon()
+                                                .unwrap_or(lens::sys::lens_icon_id::LENS_ICON_KEY),
+                                            false,
+                                            Some(kbd_val),
+                                            (0, 100),
+                                            (area.w, fader_h),
+                                            hud.text,
+                                            hud,
+                                            type_scale,
+                                        );
+                                        if let Some(level) = kbd_level {
+                                            out.system_actions.push(
+                                                SystemAction::SetKeyboardBrightness { level },
+                                            );
+                                        }
                                     }
                                 }
                             });
@@ -2227,7 +2262,8 @@ impl ControlCenter {
         // Sliding indicator: position from the spring (segment units), so
         // it overshoots slightly and settles with elastic bounce.
         let spring_pos = self
-            .work_mode_spring
+            .work_mode_indicator
+            .spring
             .value
             .clamp(0.0, PowerMode::ALL.len().saturating_sub(1) as f32);
         let indicator_x = inner.x + spring_pos * seg_w;

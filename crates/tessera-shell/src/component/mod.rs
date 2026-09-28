@@ -852,8 +852,6 @@ pub struct ChromeEvents {
     /// The chrome asked to toggle the Pivot system intent surface this frame
     /// (e.g. clicking the dock's Pivot tile). Drained by the main loop.
     pub toggle_pivot: bool,
-    /// Compatibility alias for toggle_pivot.
-    pub toggle_launcher: bool,
     /// Text to copy to the system clipboard (e.g. Pivot calculation result).
     pub clipboard_copy: Option<String>,
     /// Natural-language prompt dispatched from Pivot to the Agent Broker.
@@ -956,17 +954,11 @@ impl ChromeEvents {
 pub enum ChromeCommand<'a> {
     TogglePivot,
     ClosePivot,
-    ToggleLauncher,
-    CloseLauncher,
-    TogglePrism,
-    ClosePrism,
     OpenBuiltIn(BuiltInApplication),
     ToggleOverview,
     CloseOverview,
     ToggleControlCenter,
     CloseControlCenter,
-    ToggleCommandPanel,
-    CloseCommandPanel,
     StartWindowSwitcher,
     FinishWindowSwitcher,
     StartPick(PickerMode),

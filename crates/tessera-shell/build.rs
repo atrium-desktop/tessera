@@ -34,6 +34,7 @@ fn main() {
         "DEP_LENS_RPATHS",
         "DEP_FLUX_RPATHS",
         "DEP_VISTA_RPATHS",
+        "DEP_TRANSIT_RPATHS",
     ] {
         if let Ok(rpaths) = std::env::var(var) {
             if !emitted_dtags {

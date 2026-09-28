@@ -242,7 +242,7 @@ pub(super) fn begin_interaction_domain_capture(
         InteractionDomainRenderTarget,
     >,
     device: &flux::Device,
-    renderer: &mut tessera_render::Renderer,
+    renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     interaction_domain: tessera_authority::interaction_domain::InteractionDomainId,
     region: Option<tessera_primitives::Rect>,

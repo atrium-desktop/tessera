@@ -6,7 +6,7 @@
 
 use tessera_platform::Backend;
 use tessera_platform::host::Host;
-use tessera_render::Renderer;
+use tessera_composite::Renderer;
 use tessera_wayland::Server;
 
 pub struct Engine {
@@ -45,7 +45,7 @@ impl Engine {
         if let Err(error) = surface.prepare_readback() {
             log::warn!(
                 "capture: could not preallocate readback staging: {error}{}",
-                tessera_render::presentation::flux_last_error_detail()
+                tessera_composite::presentation::flux_last_error_detail()
             );
         }
         let canvas = flux::Canvas::new(&surface)?;
@@ -57,7 +57,7 @@ impl Engine {
         let server = Server::new_with_dmabuf_feedback(
             flux::dmabuf_supported(&device),
             flux::dmabuf_sync_supported(&device),
-            tessera_render::formats_with_modifiers(&device),
+            tessera_composite::formats_with_modifiers(&device),
             main_device,
             host.dmabuf_scanout_formats(),
             host.dmabuf_scanout_device(),

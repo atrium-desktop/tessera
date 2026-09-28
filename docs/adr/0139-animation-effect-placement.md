@@ -1,6 +1,6 @@
 # ADR-0139: Animation effect placement — Optics mechanism, Aegis policy
 
-- Status: Accepted
+- Status: Accepted (amended by [ADR-0172](0172-adopt-optics-transit-motion-vocabulary.md))
 - Date: 2026-08-22
 - Scope: whole workspace; amends [ADR-0029](0029-animation-and-effect-policy.md)
 

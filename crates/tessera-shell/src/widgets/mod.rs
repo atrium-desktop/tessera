@@ -13,8 +13,10 @@
 pub mod chip;
 pub mod dialog;
 pub mod geom;
+pub mod icons;
 pub mod menu;
 pub mod motion;
 pub mod picker;
 pub mod settings;
 pub mod shapes;
+pub mod tiered;

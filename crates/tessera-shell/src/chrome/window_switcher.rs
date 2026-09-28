@@ -95,13 +95,13 @@ impl WindowSwitcher {
 
     fn advance_visibility(&mut self, dt: f32) {
         let target = if self.open { 1.0 } else { 0.0 };
-        if self.reduced_motion {
-            self.visibility = target;
-            self.anim_active = false;
-            return;
-        }
-        let blend = (dt * FADE_RATE).min(1.0);
-        self.visibility += (target - self.visibility) * blend;
+        self.visibility = crate::widgets::motion::approach(
+            self.visibility,
+            target,
+            FADE_RATE,
+            dt,
+            self.reduced_motion,
+        );
         self.anim_active = (self.visibility - target).abs() > 0.002;
         if !self.anim_active {
             self.visibility = target;
@@ -167,11 +167,9 @@ impl WindowSwitcher {
             selected_index,
             self.mode,
         );
-        let blend = if self.reduced_motion {
-            1.0
-        } else {
-            1.0 - (-dt * SLIDE_RATE).exp()
-        };
+        // Reduced motion is a one-frame resolve, expressed once by `transit`
+        // (`blend == 1.0`), so no separate branch is needed below.
+        let blend = crate::widgets::motion::blend(SLIDE_RATE, dt, self.reduced_motion);
         let target_cards = target
             .cards
             .iter()
@@ -189,22 +187,20 @@ impl WindowSwitcher {
         let mut cards_moving = false;
         for (id, target_card) in self.order.iter().copied().zip(target_cards.iter().copied()) {
             let current = self.animated_cards.entry(id).or_insert(target_card);
-            if self.reduced_motion {
-                *current = target_card;
-            } else {
-                // A circular list has one off-screen item whose logical slot
-                // wraps from one tail to the other. Teleport only that distant
-                // item behind the panel clip; every visible item, including
-                // the incoming selection, moves exactly one adjacent step.
-                if self.mode == crate::layout::window_switcher::Mode::Carousel {
-                    let current_centre = current.outer.origin.x + current.outer.size.w / 2;
-                    let target_centre = target_card.outer.origin.x + target_card.outer.size.w / 2;
-                    if (current_centre - target_centre).abs() > target.panel.size.w / 2 {
-                        *current = target_card;
-                    }
+            // A circular list has one off-screen item whose logical slot wraps
+            // from one tail to the other. Teleport only that distant item behind
+            // the panel clip; every visible item, including the incoming
+            // selection, moves exactly one adjacent step.
+            if self.mode == crate::layout::window_switcher::Mode::Carousel {
+                let current_centre = current.outer.origin.x + current.outer.size.w / 2;
+                let target_centre = target_card.outer.origin.x + target_card.outer.size.w / 2;
+                if (current_centre - target_centre).abs() > target.panel.size.w / 2 {
+                    *current = target_card;
                 }
-                *current = lerp_card(*current, target_card, blend);
             }
+            // `blend` carries reduced motion (`1.0` resolves in one frame), so
+            // there is no separate reduced-motion branch here.
+            *current = lerp_card(*current, target_card, blend);
             cards_moving |= *current != target_card;
             if intersects(target.panel, current.outer) {
                 cards.push(PreviewCard {
@@ -219,7 +215,7 @@ impl WindowSwitcher {
         let target_selection = target_cards.get(selected_index).copied();
         let selection_moving = if let Some(target_selection) = target_selection {
             let current = self.animated_selection.get_or_insert(target_selection);
-            if self.mode == crate::layout::window_switcher::Mode::Carousel || self.reduced_motion {
+            if self.mode == crate::layout::window_switcher::Mode::Carousel {
                 *current = target_selection;
             } else {
                 *current = lerp_card(*current, target_selection, blend);

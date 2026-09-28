@@ -921,37 +921,19 @@ fn keymap_layers_overrides_on_defaults() {
              [[keybind]]\n\
              mods = [\"super\"]\n\
              key = \"space\"\n\
-             action = \"launcher\"\n",
+             action = \"pivot\"\n",
     )
     .unwrap();
     let (km, errs) = cfg.keymap();
     assert!(errs.is_empty());
     // Override present.
-    assert_eq!(km.match_key(M::SUPER, 0x20), Some(Action::ToggleLauncher));
+    assert_eq!(km.match_key(M::SUPER, 0x20), Some(Action::TogglePivot));
     // Defaults still present.
     assert_eq!(
         km.match_key(M::SUPER, tessera_primitives::input::XKB_KEY_Tab),
         Some(Action::CycleFocus)
     );
     assert!(km.len() >= 6);
-}
-
-#[test]
-fn prism_keybind_action_resolves() {
-    let cfg = Config::parse(
-        "schema_version = 2\n\
-             [[keybind]]\n\
-             mods = [\"super\"]\n\
-             key = \"space\"\n\
-             action = \"prism\"\n",
-    )
-    .unwrap();
-    let (binds, errs) = cfg.resolve_keybinds();
-    assert!(errs.is_empty());
-    assert_eq!(binds.len(), 1);
-    assert_eq!(binds[0].mods, M::SUPER);
-    assert_eq!(binds[0].keysym, 0x20);
-    assert_eq!(binds[0].action, Action::TogglePrism);
 }
 
 #[test]

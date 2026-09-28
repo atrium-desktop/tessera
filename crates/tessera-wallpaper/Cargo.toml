@@ -12,6 +12,7 @@ flux = { workspace = true }
 flux-sys = { workspace = true }
 vista = { workspace = true }
 vista-sys = { workspace = true }
+transit = { workspace = true }
 image = { workspace = true }
 log.workspace = true
 thiserror.workspace = true

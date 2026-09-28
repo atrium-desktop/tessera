@@ -1,6 +1,6 @@
 # tessera-presentation (Presentation module)
 
-Pure presentation-domain value layer for the tessera compositor, housed within `tessera-render`.
+Pure presentation-domain value layer for the tessera compositor, housed within `tessera-composite`.
 
 This module holds the *facts* of the output-damage pipeline — frame damage
 verdicts (`FrameDamage`), the per-consumer damage assessment split, the

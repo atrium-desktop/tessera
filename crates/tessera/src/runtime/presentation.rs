@@ -4,7 +4,7 @@ use super::*;
 // `tessera-presentation`; the transaction itself stays here because it is
 // the composition root's synchronous orchestration of renderer, server,
 // host, and shell.
-pub(super) use tessera_render::presentation::PresentationOutcome;
+pub(super) use tessera_composite::presentation::PresentationOutcome;
 
 mod capture;
 use capture::FrameCapture;
@@ -669,7 +669,7 @@ impl CompositorRuntime<'_> {
                 // Compositor blurred shadows (ADR-0139): render masks and
                 // record the shadow passes at this pass boundary, before any
                 // output pass opens. The borrowed filter outputs are placed
-                // by `tessera-render` inside the client-scene pass below.
+                // by `tessera-composite` inside the client-scene pass below.
                 let shadow_style = self
                     .config
                     .as_ref()
@@ -693,10 +693,10 @@ impl CompositorRuntime<'_> {
                 // renderer. The images stay valid for this frame: the filter
                 // slot is not applied again until the next rotation, after
                 // this frame submits (ADR-0074 lifetime).
-                let soft_shadow_entries: Vec<tessera_render::SoftShadowEntry<'_>> =
+                let soft_shadow_entries: Vec<tessera_composite::SoftShadowEntry<'_>> =
                     rendered_shadows
                         .iter()
-                        .map(|shadow| tessera_render::SoftShadowEntry {
+                        .map(|shadow| tessera_composite::SoftShadowEntry {
                             window: shadow.window,
                             raw: shadow.raw,
                             _borrow: std::marker::PhantomData,
@@ -707,7 +707,7 @@ impl CompositorRuntime<'_> {
                         })
                         .collect();
                 let soft_shadow_layer =
-                    (!soft_shadow_entries.is_empty()).then_some(tessera_render::SoftShadowLayer {
+                    (!soft_shadow_entries.is_empty()).then_some(tessera_composite::SoftShadowLayer {
                         entries: soft_shadow_entries.as_slice(),
                     });
                 // Restrict the backdrop capture to the union of the declared

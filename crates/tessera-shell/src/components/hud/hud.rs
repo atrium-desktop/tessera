@@ -460,8 +460,6 @@ impl Hud {
     }
 
     fn advance_fade(&mut self, dt: f32, cursor: (f32, f32)) {
-        let dt = dt.clamp(0.0, 1.0 / 15.0);
-        let follow = 1.0 - (-FADE_RATE * dt).exp();
         for index in [LEFT, CENTER] {
             // The launcher owning the output drives both chips to zero with
             // the same ease as the cursor-proximity fade, so the HUD melts
@@ -474,11 +472,17 @@ impl Hud {
                 0.0
             };
             self.chip_target[index] = target;
-            if self.reduced_motion || !self.layout.visible[index] {
+            if !self.layout.visible[index] {
                 self.chip_fade[index] = target;
                 continue;
             }
-            self.chip_fade[index] += (target - self.chip_fade[index]) * follow;
+            self.chip_fade[index] = crate::widgets::motion::approach(
+                self.chip_fade[index],
+                target,
+                FADE_RATE,
+                dt,
+                self.reduced_motion,
+            );
             if (target - self.chip_fade[index]).abs() < 0.002 {
                 self.chip_fade[index] = target;
             }
@@ -493,14 +497,18 @@ impl Hud {
             return;
         };
         self.workspace_target = active as f32;
-        if !self.workspace_position_initialized || self.reduced_motion {
+        if !self.workspace_position_initialized {
             self.workspace_position = self.workspace_target;
             self.workspace_position_initialized = true;
             return;
         }
-        let dt = dt.clamp(0.0, 1.0 / 15.0);
-        let follow = 1.0 - (-WORKSPACE_POSITION_RATE * dt).exp();
-        self.workspace_position += (self.workspace_target - self.workspace_position) * follow;
+        self.workspace_position = crate::widgets::motion::approach(
+            self.workspace_position,
+            self.workspace_target,
+            WORKSPACE_POSITION_RATE,
+            dt,
+            self.reduced_motion,
+        );
         if (self.workspace_target - self.workspace_position).abs() < 0.002 {
             self.workspace_position = self.workspace_target;
         }

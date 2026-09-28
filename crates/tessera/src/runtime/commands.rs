@@ -12,14 +12,14 @@ pub(super) struct RenderGeometry {
 pub(super) fn draw_direct_desktop_scene(
     canvas: &flux::CanvasCommands<'_>,
     device: &flux::Device,
-    renderer: &mut tessera_render::Renderer,
+    renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     geometry: RenderGeometry,
     overview: bool,
     overview_progress: f32,
     window_switcher: Option<&tessera_shell::component::WindowSwitcherPresentation>,
     scheme: tessera_desktop::settings::ColorScheme,
-    soft_shadows: Option<&tessera_render::SoftShadowLayer<'_>>,
+    soft_shadows: Option<&tessera_composite::SoftShadowLayer<'_>>,
     shadow_style: tessera_desktop::window::WindowShadowStyle,
 ) -> Result<(), flux::Error> {
     let RenderGeometry {

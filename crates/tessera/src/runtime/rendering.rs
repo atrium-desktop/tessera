@@ -4,14 +4,14 @@ use super::*;
 // in `tessera-presentation` (api tier); the composition root keeps the
 // chrome-typed mappings, the DAG planner (core types), and every GPU-owned
 // executor.
-pub(super) use tessera_render::presentation::{
+pub(super) use tessera_composite::presentation::{
     BACKDROP_DOWNSAMPLE, BackdropCaptureRegion, backdrop_refresh_regions, blur_regions_in_capture,
     intersect_blur_regions, refresh_regions_covering_material_change, slot_material_changed,
 };
 
 /// Convert output damage to the single physical-pixel rectangle accepted by
 /// Vulkan dynamic rendering. Re-exported from the api value layer.
-pub(super) use tessera_render::presentation::frame_damage_render_area;
+pub(super) use tessera_composite::presentation::frame_damage_render_area;
 
 /// Resume the output after the no-stencil client/image pass for arbitrary
 /// compositor UI. Lens may emit path fills whose correct winding semantics
@@ -39,7 +39,7 @@ pub(super) fn begin_stencil_frame_overlay<'c, 'surface>(
 
 /// Begin a compositor canvas pass without Flux's clear-triggered 4x MSAA —
 /// a canvas pass-configuration fact owned by `tessera-presentation`.
-pub(super) use tessera_render::presentation::begin_opaque_frame;
+pub(super) use tessera_composite::presentation::begin_opaque_frame;
 
 /// Begin an opaque output pass clipped to the accumulated damage for this
 /// ring slot. The full scene may still be submitted, but rasterization,
@@ -226,7 +226,7 @@ pub(super) fn plan_backdrop_graph(
     physical_size: (u32, u32),
     scale: f32,
 ) -> Result<BackdropGraphPlan, String> {
-    use tessera_render::composition_graph as graph;
+    use tessera_composite::composition_graph as graph;
 
     if layers.is_empty() {
         return Ok(BackdropGraphPlan {
@@ -379,7 +379,7 @@ fn physical_backdrop_rect(
     logical_size: (u32, u32),
     physical_size: (u32, u32),
     scale: f32,
-) -> Option<tessera_render::composition_graph::Rect> {
+) -> Option<tessera_composite::composition_graph::Rect> {
     let x0 = (region.x.max(0.0) * scale)
         .floor()
         .clamp(0.0, physical_size.0 as f32) as i32;
@@ -393,11 +393,11 @@ fn physical_backdrop_rect(
         .ceil()
         .clamp(0.0, physical_size.1 as f32) as i32;
     (x1 > x0 && y1 > y0)
-        .then(|| tessera_render::composition_graph::Rect::new(x0, y0, x1 - x0, y1 - y0))
+        .then(|| tessera_composite::composition_graph::Rect::new(x0, y0, x1 - x0, y1 - y0))
 }
 
 fn merge_physical_regions(
-    regions: impl IntoIterator<Item = tessera_render::composition_graph::Rect>,
+    regions: impl IntoIterator<Item = tessera_composite::composition_graph::Rect>,
 ) -> Vec<BackdropCaptureRegion> {
     let mut merged: Vec<(u32, u32, u32, u32)> = Vec::new();
     for region in regions {
@@ -1444,7 +1444,7 @@ impl BackdropGraphExecutor {
 /// once the selector closes.
 /// Cursor state sampled at a capture trigger instant — a pure value owned
 /// by `tessera-presentation` (shared by one-shot captures and streams).
-pub(super) use tessera_render::presentation::CaptureCursorState;
+pub(super) use tessera_composite::presentation::CaptureCursorState;
 
 pub(super) struct ScreenshotFreeze {
     captures: Vec<Option<ScreenshotCapture>>,
@@ -1628,11 +1628,11 @@ pub(super) fn draw_wallpaper_background(
 pub(super) fn draw_client_scene(
     canvas: &flux::CanvasCommands<'_>,
     device: &flux::Device,
-    renderer: &mut tessera_render::Renderer,
+    renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     scale: f32,
     retain_preview_sources: bool,
-    soft_shadows: Option<&tessera_render::SoftShadowLayer<'_>>,
+    soft_shadows: Option<&tessera_composite::SoftShadowLayer<'_>>,
     shadow_style: tessera_desktop::window::WindowShadowStyle,
 ) {
     canvas.save();
@@ -1675,7 +1675,7 @@ pub(super) fn draw_client_scene(
                 &surface_order,
                 &shm,
                 &dmabuf,
-                tessera_render::WorkspaceSurfaceLayer::new(&windows, &static_windows),
+                tessera_composite::WorkspaceSurfaceLayer::new(&windows, &static_windows),
             );
         }
         for layer in slide.layers {
@@ -1700,7 +1700,7 @@ pub(super) fn draw_client_scene(
                 &surface_order,
                 &shm,
                 &dmabuf,
-                tessera_render::WorkspaceSurfaceLayer::new(&windows, &window_filter),
+                tessera_composite::WorkspaceSurfaceLayer::new(&windows, &window_filter),
             );
             canvas.restore();
         }
@@ -1733,7 +1733,7 @@ pub(super) fn draw_client_scene(
 pub(super) fn draw_client_overlays(
     canvas: &flux::CanvasCommands<'_>,
     device: &flux::Device,
-    renderer: &mut tessera_render::Renderer,
+    renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     scale: f32,
     include_cursor: bool,
@@ -1757,7 +1757,7 @@ pub(super) fn draw_client_overlays(
 pub(super) fn draw_lock_scene(
     canvas: &flux::CanvasCommands<'_>,
     device: &flux::Device,
-    renderer: &mut tessera_render::Renderer,
+    renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     physical_size: (u32, u32),
     scale: f32,
@@ -1795,7 +1795,7 @@ pub(super) fn draw_lock_scene(
 pub(super) fn draw_overview_scene(
     canvas: &flux::CanvasCommands<'_>,
     device: &flux::Device,
-    renderer: &mut tessera_render::Renderer,
+    renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     logical_size: (u32, u32),
     scale: f32,
@@ -1930,7 +1930,7 @@ pub(super) fn draw_overview_scene(
 fn draw_workspace_rail_tiles(
     canvas: &flux::CanvasCommands<'_>,
     device: &flux::Device,
-    renderer: &mut tessera_render::Renderer,
+    renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     snapshot: &tessera_desktop::workspace::WorkspaceSnapshot,
     display: tessera_primitives::Rect,
@@ -2009,7 +2009,7 @@ fn draw_workspace_rail_tiles(
             &shm,
             &dmabuf,
             &map,
-            tessera_render::MappedSurfaceStyle {
+            tessera_composite::MappedSurfaceStyle {
                 opacity: progress.clamp(0.0, 1.0),
                 brightness: 1.0,
                 rounded_clip: *tile,
@@ -2047,7 +2047,7 @@ pub(super) fn draw_window_switcher_scrim(
 pub(super) fn draw_window_switcher_cards(
     canvas: &flux::CanvasCommands<'_>,
     device: &flux::Device,
-    renderer: &mut tessera_render::Renderer,
+    renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     scale: f32,
     presentation: &tessera_shell::component::WindowSwitcherPresentation,
@@ -2099,7 +2099,7 @@ pub(super) fn draw_window_switcher_cards(
 pub(super) fn draw_window_switcher_scene(
     canvas: &flux::CanvasCommands<'_>,
     device: &flux::Device,
-    renderer: &mut tessera_render::Renderer,
+    renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     logical_size: (u32, u32),
     scale: f32,
@@ -2117,7 +2117,7 @@ pub(super) fn draw_window_switcher_scene(
 pub(super) fn draw_live_preview_scenes(
     canvas: &flux::CanvasCommands<'_>,
     device: &flux::Device,
-    renderer: &mut tessera_render::Renderer,
+    renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     scale: f32,
     presentations: &[tessera_shell::component::LivePreviewPresentation],
@@ -2169,7 +2169,7 @@ pub(super) fn draw_live_preview_scenes(
 fn draw_preview_card_scene(
     canvas: &flux::CanvasCommands<'_>,
     device: &flux::Device,
-    renderer: &mut tessera_render::Renderer,
+    renderer: &mut tessera_composite::Renderer,
     surface_order: &[usize],
     shm: &[tessera_primitives::SurfacePixels<'_>],
     dmabuf: &[tessera_primitives::SurfaceDmabuf],
@@ -2210,7 +2210,7 @@ fn draw_preview_card_scene(
         shm,
         dmabuf,
         &map,
-        tessera_render::MappedSurfaceStyle {
+        tessera_composite::MappedSurfaceStyle {
             opacity: opacity.clamp(0.0, 1.0),
             brightness: brightness.clamp(0.0, 1.0),
             rounded_clip: card.geometry.preview,
@@ -2255,7 +2255,7 @@ mod tests;
 /// the Optics `flux_shadow_filter` renders a rounded-rect mask through a
 /// Gaussian blur; this wrapper owns the filter, renders each window's mask
 /// into a per-slot capture target, and records the shadow passes at a pass
-/// boundary. `tessera-render` then composites the borrowed outputs beneath
+/// boundary. `tessera-composite` then composites the borrowed outputs beneath
 /// each window tree.
 ///
 /// Ownership mirrors `BackdropGraphExecutor`: one filter for the surface's frame
@@ -2323,7 +2323,7 @@ impl WindowShadowRenderer {
         let mut out = Vec::new();
         for window in windows
             .iter()
-            .filter(|w| tessera_render::window_casts_shadow(w))
+            .filter(|w| tessera_composite::window_casts_shadow(w))
         {
             // Physical extent: the window rect inflated by the blur
             // footprint so the Gaussian skirt fits inside the image.

@@ -8,10 +8,12 @@ pub(super) enum MenuRowAction {
 }
 
 pub(super) use crate::widgets::geom::contains;
+pub(super) use crate::widgets::icons::keyboard_backlight as kbd_backlight_icon;
 pub(super) use crate::widgets::motion::ease_out_cubic;
 pub(super) use crate::widgets::motion::stagger;
 pub(super) use crate::widgets::shapes::render_disc;
 pub(super) use crate::widgets::shapes::render_ring;
+pub(super) use crate::widgets::tiered::{Tier, TieredIndicator, tiered_control};
 
 /// Two settings actions are the same kind when they mutate the same
 /// settings section; the queue keeps only the newest draft of each kind
@@ -326,8 +328,12 @@ pub(super) fn render_horizontal_fader(
         &LayoutOpts {
             width: size.0,
             height: size.1,
-            gap: 6.0,
-            pad: 12.0,
+            // 8px between the title row and the trough. With the 10px pad the
+            // card's content budget is 24 + 8 + 20 = 52px, which the caller's
+            // height must cover (see `fader_h` in the Quick Controls grid). The
+            // old 6px gap left the trough crowding the card's bottom rim.
+            gap: 8.0,
+            pad: 10.0,
             radius: 16.0,
             bg: hud.surface_recessed,
             border: hud.border,
@@ -338,7 +344,7 @@ pub(super) fn render_horizontal_fader(
         |f| {
             f.row_ex(
                 &LayoutOpts {
-                    width: (size.0 - 24.0).max(1.0),
+                    width: (size.0 - 20.0).max(1.0),
                     height: 24.0,
                     cross: Align::Center,
                     gap: 8.0,
@@ -380,7 +386,7 @@ pub(super) fn render_horizontal_fader(
                 },
             );
 
-            f.size_next((size.0 - 24.0).max(40.0), 20.0);
+            f.size_next((size.0 - 20.0).max(40.0), 20.0);
             changed = f.slider(
                 &format!("##{id}"),
                 &mut level,
@@ -394,6 +400,90 @@ pub(super) fn render_horizontal_fader(
         (changed && enabled).then(|| level.round().clamp(range.0 as f32, range.1 as f32) as u8),
         icon_clicked,
     )
+}
+
+/// A tiered control card: the icon + label header shared with
+/// [`render_horizontal_fader`], with a discrete segmented selector beneath it
+/// instead of a continuous trough. Used for controls whose hardware exposes
+/// fixed steps (keyboard backlight, ADR-0168).
+///
+/// Returns the selected tier index when the user picks a new tier this frame.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn render_kbd_backlight_tiers(
+    f: &mut Frame,
+    id: &str,
+    label: &str,
+    tiers: &[Tier],
+    active: usize,
+    indicator: &TieredIndicator,
+    size: (f32, f32),
+    hud: ControlCenterColors,
+    type_scale: TypeScale,
+) -> Option<usize> {
+    let original = f.theme();
+    let pad = 10.0;
+    let inner_w = (size.0 - pad * 2.0).max(1.0);
+    let theme = themes::hud(&hud).with_fg(hud.text);
+    f.set_theme(theme);
+    let mut selected = None;
+
+    f.column_ex(
+        &LayoutOpts {
+            width: size.0,
+            height: size.1,
+            gap: 8.0,
+            pad,
+            radius: 16.0,
+            bg: hud.surface_recessed,
+            border: hud.border,
+            border_width: 1.0,
+            cross: Align::Stretch,
+            ..Default::default()
+        },
+        |f| {
+            f.row_ex(
+                &LayoutOpts {
+                    width: inner_w,
+                    height: 24.0,
+                    cross: Align::Center,
+                    gap: 8.0,
+                    ..Default::default()
+                },
+                |f| {
+                    // The keyboard-backlight glyph (keyboard outline with three
+                    // illumination rays); falls back to the built-in key icon if
+                    // runtime SVG registration is unavailable.
+                    let icon = kbd_backlight_icon()
+                        .unwrap_or(lens::sys::lens_icon_id::LENS_ICON_KEY);
+                    f.icon_raw(icon, 18.0);
+                    display_label(f, label, type_scale.body);
+                    f.flex(1.0);
+                    f.spacer(0.0);
+                    display_label(
+                        f,
+                        &tiers
+                            .get(active)
+                            .map(|tier| tier.label.clone())
+                            .unwrap_or_else(|| "--".to_string()),
+                        type_scale.footnote,
+                    );
+                },
+            );
+
+            selected = tiered_control(
+                f,
+                id,
+                tiers,
+                active,
+                indicator,
+                hud,
+                type_scale.footnote,
+                (inner_w, 20.0),
+            );
+        },
+    );
+    f.set_theme(original);
+    selected
 }
 
 // ---- dbusmenu popover helpers -------------------------------------------

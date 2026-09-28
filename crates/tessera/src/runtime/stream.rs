@@ -38,7 +38,7 @@ use super::*;
 
 // Stream value layer re-exports: every bin module reaches these through the
 // runtime's glob chain, exactly as when they lived here.
-pub(super) use tessera_render::presentation::{
+pub(super) use tessera_composite::presentation::{
     CaptureCursorState, DmabufCapture, OutputStreams, PresentedFrameRef, StreamCursorBlit,
     StreamPainter, WindowShmTarget, WindowStream, WindowStreamDrive, WindowStreamStage,
     WindowTreeGeometry, blit_presented_frame, crop_stream_frame, damage_in_target,
@@ -80,7 +80,7 @@ pub(super) enum StreamControl {
 /// surface tree needs the core-tier renderer and server, which is exactly
 /// why the port exists.
 struct RuntimePainter<'a> {
-    renderer: &'a mut tessera_render::Renderer,
+    renderer: &'a mut tessera_composite::Renderer,
     server: &'a tessera_wayland::Server,
     cursor_cache: &'a mut cursor::CursorCache,
 }
@@ -495,7 +495,7 @@ impl CompositorRuntime<'_> {
                     dmabuf.ring.submitted(slot);
                     dmabuf
                         .pending
-                        .push(tessera_render::presentation::PendingSlotFrame {
+                        .push(tessera_composite::presentation::PendingSlotFrame {
                             slot,
                             fence,
                             source: Some(source),
@@ -508,12 +508,12 @@ impl CompositorRuntime<'_> {
                     stream.sequence += 1;
                     stream.last_frame = Some(now);
                 }
-                Err(tessera_render::presentation::BlitFailure::Retryable(reason)) => {
+                Err(tessera_composite::presentation::BlitFailure::Retryable(reason)) => {
                     log::warn!("stream {stream_id}: dmabuf capture frame failed: {reason}");
                     stream.dropped += 1;
                     stream.last_frame = Some(now);
                 }
-                Err(tessera_render::presentation::BlitFailure::Submitted(reason)) => {
+                Err(tessera_composite::presentation::BlitFailure::Submitted(reason)) => {
                     ended.push((stream_id, reason))
                 }
             }
@@ -575,19 +575,19 @@ impl CompositorRuntime<'_> {
         );
         for (stream_id, action) in actions {
             match action {
-                tessera_render::presentation::GeometryAction::Freeze(width, height) => {
+                tessera_composite::presentation::GeometryAction::Freeze(width, height) => {
                     log::info!(
                         "stream {stream_id}: target geometry changed to {width}x{height}; freezing"
                     );
                     ipc.stream_geometry_changed(stream_id, width, height);
                     self.streams.freeze(stream_id);
                 }
-                tessera_render::presentation::GeometryAction::End(reason) => {
+                tessera_composite::presentation::GeometryAction::End(reason) => {
                     log::info!("stream {stream_id}: {reason}; ending");
                     ipc.end_stream(stream_id, &reason);
                     self.streams.stop(stream_id);
                 }
-                tessera_render::presentation::GeometryAction::Unchanged => {}
+                tessera_composite::presentation::GeometryAction::Unchanged => {}
             }
         }
         self.publish_capture_stream_count();
@@ -855,7 +855,7 @@ impl CompositorRuntime<'_> {
 mod dmabuf_tests {
     use super::*;
     use std::os::fd::AsRawFd;
-    use tessera_render::presentation::{
+    use tessera_composite::presentation::{
         DmabufStream, STREAM_SLOT_COUNT, SlotRing, render_window_stream_dmabuf,
         render_window_stream_shm,
     };
@@ -884,7 +884,7 @@ mod dmabuf_tests {
         let Ok(server) = tessera_wayland::Server::new() else {
             return;
         };
-        let mut renderer = tessera_render::Renderer::new();
+        let mut renderer = tessera_composite::Renderer::new();
         let scheme = tessera_desktop::settings::ColorScheme::Dark;
         let geometry = WindowTreeGeometry {
             window: tessera_desktop::window::WindowId(1),
@@ -895,7 +895,7 @@ mod dmabuf_tests {
             logical_size: tessera_primitives::Size { w: 64, h: 48 },
         };
         struct EmptyPainter<'a> {
-            renderer: &'a mut tessera_render::Renderer,
+            renderer: &'a mut tessera_composite::Renderer,
             server: &'a tessera_wayland::Server,
         }
         impl StreamPainter for EmptyPainter<'_> {

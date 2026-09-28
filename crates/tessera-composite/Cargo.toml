@@ -1,5 +1,5 @@
 [package]
-name = "tessera-render"
+name = "tessera-composite"
 description = "Compositing: client buffers to flux textures, scene to the output via flux"
 readme = "README.md"
 version.workspace = true

@@ -51,7 +51,7 @@ fn smoothing_converges_and_hysteresis_holds_boundaries() {
 
     // A value hovering half a step away must not move the shipped value.
     let before = emitted.plate_luminance;
-    adapt.observe(ID, 1.0 - 0.5 * QUANTUM, 0.0, 10.0);
+    adapt.observe(ID, 1.0 - 0.5 * QUANTUM, 0.0, 1.0 / 60.0);
     let mut target = region(ID, 0.0, 3.6);
     adapt.apply_to(&mut target);
     assert_eq!(
@@ -59,8 +59,13 @@ fn smoothing_converges_and_hysteresis_holds_boundaries() {
         before
     );
 
-    // A full-step move does ship.
-    adapt.observe(ID, 1.0 - 2.0 * QUANTUM, 0.0, 10.0);
+    // A move of several steps does ship. The follower is asymptotic and clamps
+    // dt to [0, 1/30] (ADR-0077/INV-ARCH-45), so drive real frame dt and give it
+    // enough frames to cross the dither guard; a target exactly one step below
+    // the shipped value would sit on the guard boundary forever.
+    for _ in 0..240 {
+        adapt.observe(ID, 1.0 - 4.0 * QUANTUM, 0.0, 1.0 / 60.0);
+    }
     let mut target = region(ID, 0.0, 3.6);
     adapt.apply_to(&mut target);
     assert_ne!(
@@ -78,8 +83,11 @@ fn tint_recovery_eases_off_only_on_friendly_backdrops() {
     adapt.apply_to(&mut calm_dark);
     assert!((calm_dark.tint_strength - 3.6 * RECOVERY_FLOOR).abs() < 0.05);
 
-    // The same body over a bright backdrop keeps full strength.
-    adapt.observe(ID, 0.95, 0.0, 10.0);
+    // The same body over a bright backdrop keeps full strength. Convergence is
+    // driven over real frame dt (the follower clamps dt to [0, 1/30]).
+    for _ in 0..240 {
+        adapt.observe(ID, 0.95, 0.0, 1.0 / 60.0);
+    }
     let mut bright = region(ID, 0.0, 3.6);
     adapt.apply_to(&mut bright);
     assert!((bright.tint_strength - 3.6).abs() < 0.05);

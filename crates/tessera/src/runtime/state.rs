@@ -48,7 +48,7 @@ pub(super) struct SwipeState {
 #[derive(Default)]
 pub(super) struct DamageTracking {
     /// Double-buffered per-surface generation baseline for the client-damage
-    /// pass, owned by `tessera_render::presentation::ClientDamageTracker` behind the
+    /// pass, owned by `tessera_composite::presentation::ClientDamageTracker` behind the
     /// `SurfaceDamageFrame` seam. The maps swap in place per frame so the
     /// generation diff never freshly heap-allocates.
     pub(super) client_damage: ClientDamageTracker,
@@ -136,7 +136,7 @@ pub(super) struct CompositorRuntime<'engine> {
     /// State of the in-flight compositor-owned swipe; `None` when no claimed
     /// gesture is running.
     pub(super) swipe: Option<SwipeState>,
-    pub(super) renderer: &'engine mut tessera_render::Renderer,
+    pub(super) renderer: &'engine mut tessera_composite::Renderer,
     pub(super) interaction_domain_processes: InteractionDomainProcesses,
     pub(super) interaction_domain_render_targets: std::collections::BTreeMap<
         tessera_authority::interaction_domain::InteractionDomainId,

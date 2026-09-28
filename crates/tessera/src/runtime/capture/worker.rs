@@ -1,7 +1,7 @@
 use crate::runtime::commands::journal_effect_and_broadcast;
 use crate::runtime::interaction_domain::InteractionDomainCaptureContext;
 use crate::runtime::window_capture::WindowCaptureContext;
-use tessera_render::capture::{CapturedPixels, PendingReadback, StreamPixels, encode_capture};
+use tessera_composite::capture::{CapturedPixels, PendingReadback, StreamPixels, encode_capture};
 
 /// Pollable completion wakeup shared by the capture worker and the compositor
 /// event loop. The backend currently accepts one auxiliary wakeup fd, so an
@@ -513,7 +513,7 @@ impl CaptureWorker {
                                     == worker_security_generation
                                         .load(std::sync::atomic::Ordering::Acquire)
                             {
-                                tessera_render::capture::read_picked_pixel(capture)
+                                tessera_composite::capture::read_picked_pixel(capture)
                                     .map(|rgb| tessera_protocol::PickResult::Pixel { point, rgb })
                             } else {
                                 Err("session locked before pixel pick completed".into())
@@ -539,7 +539,7 @@ impl CaptureWorker {
                                     == worker_security_generation
                                         .load(std::sync::atomic::Ordering::Acquire)
                             {
-                                tessera_render::capture::stream_pixels(capture)
+                                tessera_composite::capture::stream_pixels(capture)
                             } else {
                                 Err("session locked before stream frame completed".into())
                             };
@@ -563,7 +563,7 @@ impl CaptureWorker {
                                     == worker_security_generation
                                         .load(std::sync::atomic::Ordering::Acquire)
                             {
-                                tessera_render::capture::stream_pixels(capture)
+                                tessera_composite::capture::stream_pixels(capture)
                             } else {
                                 Err("session locked before stream frame completed".into())
                             };

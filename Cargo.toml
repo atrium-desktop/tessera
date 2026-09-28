@@ -25,17 +25,21 @@ tessera-audit = { path = "crates/tessera-audit" }
 # development worktree can patch these sources through
 # .cargo/optics-local.toml without making a sibling checkout mandatory for CI
 # or downstream packagers.
-flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.52" }
-flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.52" }
-vista = { git = "https://github.com/ming2k/optics", tag = "v0.0.52" }
-vista-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.52" }
+flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.53" }
+flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.53" }
+vista = { git = "https://github.com/ming2k/optics", tag = "v0.0.53" }
+vista-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.53" }
 # Renderer-neutral offscreen DAG planning above Flux image operators.
-lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.52" }
-lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.52" }
+lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.53" }
+lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.53" }
 # prism (material library; ADR-0063) carries the liquid-glass compositor.
 # Canonical resolution needs an optics tag containing prism-rs.
-prism = { git = "https://github.com/ming2k/optics", tag = "v0.0.52" }
-prism-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.52" }
+prism = { git = "https://github.com/ming2k/optics", tag = "v0.0.53" }
+prism-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.53" }
+# transit (motion vocabulary; ADR-0172) provides analytic springs and easing;
+# v0.0.53 adds the explicit `reduced_motion` flag to every advance entry point.
+transit = { git = "https://github.com/ming2k/optics", tag = "v0.0.53" }
+transit-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.53" }
 
 # Observability: crates emit through the `log` facade; each binary installs a
 # `tracing`-based subscriber through the shared `tessera-env` crate, which
@@ -109,7 +113,7 @@ tessera-env = { path = "crates/tessera-env" }
 tessera-wayland-protocols = { path = "crates/tessera-wayland-protocols" }
 tessera-wayland = { path = "crates/tessera-wayland" }
 tessera-platform = { path = "crates/tessera-platform" }
-tessera-render = { path = "crates/tessera-render" }
+tessera-composite = { path = "crates/tessera-composite" }
 # Unified display server and compositing engine (ADR-0156).
 tessera-shell = { path = "crates/tessera-shell", default-features = false }
 # Product-specific design tokens, themes, and materials shared by chrome.

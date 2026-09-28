@@ -646,6 +646,56 @@ fn keyboard_backlight_actions_validate() {
 }
 
 #[test]
+fn quick_controls_grid_fits_the_main_panel_body() {
+    // The Bento grid sizes rows to their content: three tile rows (tile_h),
+    // three fader/tier rows (fader_h), and the row gaps between them. This
+    // arithmetic is the invariant the panel height must satisfy; a future
+    // height tweak that breaks it would silently push the last fader row into
+    // the panel's bottom rim (the original uniform-row-height defect).
+    const TILE_H: f32 = 58.0;
+    const FADER_H: f32 = 72.0;
+    const GAP: f32 = 10.0;
+    let grid_h = TILE_H * 3.0 + FADER_H * 3.0 + GAP * 5.0;
+
+    // The body the Quick Controls section receives, mirroring
+    // `render_main_panel`: panel height minus shell padding, the view header,
+    // and the vertical padding.
+    const SHELL_PAD: f32 = 12.0;
+    const PAD_V: f32 = 10.0;
+    const HEADER_H: f32 = 42.0;
+    const HEADER_GAP: f32 = 8.0;
+    let body_h = MAIN_H - SHELL_PAD * 2.0 - PAD_V * 2.0 - HEADER_H - HEADER_GAP;
+
+    assert!(
+        grid_h <= body_h,
+        "Bento grid ({grid_h}px) must fit the panel body ({body_h}px)"
+    );
+}
+
+#[test]
+fn keyboard_backlight_tier_ladder_matches_adr_0168() {
+    // The control commits exactly the documented hardware ladder.
+    assert_eq!(KBD_TIER_LEVELS, [0, 33, 66, 100]);
+    // A reported level maps to its nearest rung, so every level the host can
+    // report lands on a selectable tier.
+    assert_eq!(kbd_tier_index(0), 0);
+    assert_eq!(kbd_tier_index(30), 1);
+    assert_eq!(kbd_tier_index(66), 2);
+    assert_eq!(kbd_tier_index(100), 3);
+    assert_eq!(kbd_tier_index(255), 3);
+}
+
+#[test]
+fn keyboard_backlight_indicator_settles_on_the_active_tier() {
+    let mut indicator = TieredIndicator::at(0);
+    assert!(!indicator.anim_pending(0), "fresh indicator rests on tier 0");
+    // Travel to the top tier; reduced motion resolves in a single frame.
+    indicator.advance(3, 1.0 / 60.0, true);
+    assert!(!indicator.anim_pending(3), "reduced motion resolves in one frame");
+    assert!((indicator.spring.value - 3.0).abs() < 1e-3);
+}
+
+#[test]
 fn mpris_mock_handle_state_and_commands() {
     let handle = mpris::MediaHandle::mock();
     let snap = handle.snapshot();
