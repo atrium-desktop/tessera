@@ -350,8 +350,6 @@ pub struct Dock {
     pub(crate) autohide_dwell_threshold: f32,
     /// Continuous hover dwell time in seconds on the collapsed indicator before expanding.
     pub(crate) autohide_dwell: f32,
-    /// Whether dwell was stepped in `prepare_backdrop` during the current frame cycle.
-    pub(crate) dwell_stepped_in_prepass: bool,
     /// Whether the user engaged with the Dock during the current reveal session
     /// (e.g. tooltip dwell, menu open, icon click, or drag).
     pub(crate) dock_interacted: bool,
@@ -360,6 +358,10 @@ pub struct Dock {
     /// swapchain slot and backdrop composite image receives the final resting
     /// geometry and purges all transient material footprints.
     pub(crate) settled_drain_frames: u8,
+    /// Whether autohide motion was advanced during `prepare_backdrop` for the current frame.
+    pub(crate) autohide_stepped_in_prepass: bool,
+    /// Whether autohide was moving on the previous frame, used to detect the settle edge.
+    pub(crate) was_autohide_animating: bool,
     /// Previous frame's cursor position used to detect retreat vectors (moving away from dock).
     pub(crate) last_cursor: Option<(f32, f32)>,
     /// Whether a pointer entry may reveal the collapsed Dock. Entering
@@ -475,9 +477,10 @@ impl Dock {
             autohide_timeout: AUTOHIDE_IDLE_TIMEOUT,
             autohide_dwell_threshold: AUTOHIDE_DWELL_THRESHOLD,
             autohide_dwell: 0.0,
-            dwell_stepped_in_prepass: false,
             dock_interacted: false,
             settled_drain_frames: 0,
+            autohide_stepped_in_prepass: false,
+            was_autohide_animating: false,
             last_cursor: None,
             hidden_trigger_armed: true,
             space_use: SpaceUse::Available,

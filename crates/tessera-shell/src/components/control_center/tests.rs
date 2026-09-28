@@ -663,3 +663,50 @@ fn mpris_mock_handle_state_and_commands() {
     let snap = handle.snapshot();
     assert_eq!(snap.title, "Sunlight");
 }
+
+#[test]
+fn quick_controls_grid_is_placed_in_main_panel() {
+    let mut panel = ControlCenter::without_sources();
+    panel.open = true;
+    panel.reveal = 1.0;
+    let display = (1920.0, 1080.0);
+    let workspaces = WorkspaceSnapshot {
+        outputs: Vec::new(),
+    };
+    let windows = Vec::new();
+    let i18n = Localizer::default();
+    let mut out = ChromeEvents::default();
+
+    let mut ui = lens::Ui::headless().unwrap();
+    let mut input = Input::new(display, 0.05);
+
+    let mut render_step = |input: &Input, out: &mut ChromeEvents| {
+        ui.frame(input, |f| {
+            panel.render(f, input, &windows, &workspaces, &i18n, out);
+        });
+        let snap = ui.snapshot().unwrap();
+        ui.activate(&snap).unwrap();
+    };
+
+    // Initial neutral frame to resolve layout
+    render_step(&input, &mut out);
+
+    // Hovering near top-left (20, 20) must NOT hit the quick controls grid
+    input.set_cursor(20.0, 20.0);
+    render_step(&input, &mut out);
+    assert!(out.system_actions.is_empty(), "quick controls must not drift to top-left (0, 0)");
+
+    // Clicking inside the body area of the main panel targets the Wi-Fi toggle correctly.
+    input.set_cursor(850.0, 380.0);
+    input.set_mouse_down(lens::MouseButton::Left, true);
+    input.set_mouse_pressed(lens::MouseButton::Left, true);
+    input.set_mouse_released(lens::MouseButton::Left, false);
+    render_step(&input, &mut out);
+
+    input.set_mouse_down(lens::MouseButton::Left, false);
+    input.set_mouse_pressed(lens::MouseButton::Left, false);
+    input.set_mouse_released(lens::MouseButton::Left, true);
+    render_step(&input, &mut out);
+
+    assert!(!out.system_actions.is_empty(), "quick controls receives clicks at its placed location");
+}

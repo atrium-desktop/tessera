@@ -46,6 +46,12 @@ impl Chrome for Dock {
         let dock_obscured = self.obscured_by_windows(windows, (disp.x, disp.y));
         self.set_dock_obscured(dock_obscured);
 
+        if !self.autohide_stepped_in_prepass {
+            let drag_active = self.press.as_ref().is_some_and(|press| press.dragging);
+            self.step_autohide_motion(dt, (cursor.x, cursor.y), (disp.x, disp.y), drag_active);
+        }
+        self.autohide_stepped_in_prepass = false;
+
         let menu_was_open = self.app_menu.is_open();
 
         // The Launchpad tile always leads the strip (macOS-style), followed by
@@ -346,6 +352,7 @@ impl Chrome for Dock {
         // Pointer activation band for magnification. A visible hover surface
         // independently keeps autohide revealed and preserves magnification
         // while the pointer travels from the icon into a live preview card.
+        let over_hover_surface = self.hover_surface_contains(cursor.x, cursor.y);
         let over_rest_bounds = cursor.x >= rest_bounds.x
             && cursor.y >= rest_bounds.y
             && cursor.x < rest_bounds.x + rest_bounds.w
@@ -359,106 +366,7 @@ impl Chrome for Dock {
             && (over_rest_bounds || over_hover_surface)
             && (!effective_autohide || self.autohide_reveal >= 0.2);
 
-        let capsule_entry =
-            if self.collapse_pending || !effective_autohide || self.autohide_reveal >= 0.2 {
-                if self.autohide_reveal >= 0.2 {
-                    self.autohide_dwell = 0.0;
-                }
-                self.dwell_stepped_in_prepass = false;
-                false
-            } else if self.dwell_stepped_in_prepass {
-                self.dwell_stepped_in_prepass = false;
-                self.autohide_dwell >= self.autohide_dwell_threshold
-            } else {
-                let confirmed = Self::step_hidden_reveal(
-                    position,
-                    &mut self.hidden_trigger_armed,
-                    &mut self.autohide_dwell,
-                    self.autohide_dwell_threshold,
-                    (cursor.x, cursor.y),
-                    (disp.x, disp.y),
-                    dt,
-                );
-                if self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold
-                {
-                    self.anim_active = true;
-                }
-                confirmed
-            };
-
-        let over_dock_trigger = !self.collapse_pending
-            && Self::pointer_keeps_revealed(
-                effective_autohide,
-                self.autohide_reveal,
-                capsule_entry,
-                (cursor.x, cursor.y),
-                current_panel,
-                rest_bounds,
-                position,
-                (disp.x, disp.y),
-            );
-
-        // Vector retreat cancellation: during reveal transition, if the cursor retreats
-        // toward the client work area away from the anchored edge, abort the reveal immediately.
-        let retreating = effective_autohide
-            && self.autohide_reveal > 0.001
-            && self.autohide_reveal < 0.999
-            && detect_cursor_retreat(
-                position,
-                (cursor.x, cursor.y),
-                self.last_cursor,
-                rest_bounds,
-            );
-        self.last_cursor = Some((cursor.x, cursor.y));
-
-        let keeps_revealed = (over_dock_trigger || over_hover_surface) && !retreating;
-        let menu_open = self.app_menu.is_open();
-
-        // A held drag gesture keeps the Dock revealed even when the cursor
-        // leaves the trigger corridor (an edge drag travels to another edge).
-        if effective_autohide {
-            if keeps_revealed || menu_open || drag_active {
-                self.autohide_idle = 0.0;
-            } else if retreating {
-                self.autohide_idle = self.autohide_timeout;
-            } else {
-                self.autohide_idle += dt;
-            }
-        }
-
-        let idle_timeout = if self.dock_interacted {
-            self.autohide_timeout
-        } else {
-            AUTOHIDE_QUICK_DISMISS_TIMEOUT
-        };
-
-        let target_reveal = if effective_autohide {
-            if self.autohide_idle >= idle_timeout && !menu_open {
-                0.0
-            } else {
-                1.0
-            }
-        } else {
-            1.0
-        };
-
-        if self.reduced_motion {
-            self.autohide_reveal = target_reveal;
-        } else {
-            let blend = 1.0 - (-12.0 * dt.min(1.0 / 30.0)).exp();
-            self.autohide_reveal += (target_reveal - self.autohide_reveal) * blend;
-            if (target_reveal - self.autohide_reveal).abs() < 0.002 {
-                self.autohide_reveal = target_reveal;
-            }
-        }
-        let autohide_moving = (target_reveal - self.autohide_reveal).abs() > 0.002;
-        if self.collapse_pending && target_reveal == 0.0 && self.autohide_reveal <= 0.002 {
-            self.autohide_reveal = 0.0;
-            self.collapse_pending = false;
-        }
-        if self.autohide_reveal <= 0.002 && target_reveal == 0.0 {
-            self.dock_interacted = false;
-        }
+        let autohide_moving = self.was_autohide_animating;
 
         // ---- contiguous reflow layout -------------------------------------
         // Unlike a fixed-rest dock, the bar widens to fit the magnified tiles
@@ -1184,35 +1092,11 @@ impl Chrome for Dock {
         let obscured = self.obscured_by_windows(windows, display);
         self.set_dock_obscured(obscured);
 
-        // Resolve capsule hover before backdrop and damage policy are queried.
-        // A forced maximize/collision collapse remains latched until the
-        // pointer exits, preserving its anti-reopen contract.
-        if !self.effective_autohide() || self.collapse_pending || self.autohide_reveal >= 0.2 {
-            self.dwell_stepped_in_prepass = false;
-            return;
-        }
         let dt = raw.dt_seconds.max(0.0);
-        let requested = Self::step_hidden_reveal(
-            self.position,
-            &mut self.hidden_trigger_armed,
-            &mut self.autohide_dwell,
-            self.autohide_dwell_threshold,
-            (raw.cursor.x, raw.cursor.y),
-            display,
-            dt,
-        );
-        self.dwell_stepped_in_prepass = true;
-        if self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold {
-            self.anim_active = true;
-        }
-        if requested {
-            self.autohide_idle = 0.0;
-            self.dock_interacted = false;
-            self.anim_active = true;
-            if self.reduced_motion {
-                self.autohide_reveal = 1.0;
-            }
-        }
+        let cursor = (raw.cursor.x, raw.cursor.y);
+        let drag_active = self.press.as_ref().is_some_and(|p| p.dragging);
+        self.step_autohide_motion(dt, cursor, display, drag_active);
+        self.autohide_stepped_in_prepass = true;
     }
 
     fn backdrop_blur_sigma(&self) -> f32 {
@@ -1455,6 +1339,143 @@ impl Chrome for Dock {
 }
 
 impl Dock {
+    pub(crate) fn step_autohide_motion(
+        &mut self,
+        dt: f32,
+        cursor: (f32, f32),
+        display: (f32, f32),
+        drag_active: bool,
+    ) {
+        if self.fullscreen_locked() {
+            return;
+        }
+        let position = self.position;
+        let effective_autohide = self.effective_autohide();
+        let tiles = Self::frame_tiles(
+            &self.tile_cache,
+            &self.apps,
+            &self.all_apps,
+            &self.icons,
+            self.catalog_revision,
+            &self.all_windows,
+            None,
+        );
+        let pinned_count = tiles.iter().filter(|t| t.pinned).count();
+        let rest_bounds = Self::rest_bounds(tiles.len(), pinned_count, position, display);
+        let vertical = position.is_vertical();
+        let rest_len = if vertical {
+            rest_bounds.h
+        } else {
+            rest_bounds.w
+        };
+        let current_panel = if effective_autohide {
+            Self::collapsed_panel_rect(position, display, rest_len, self.autohide_reveal)
+        } else {
+            rest_bounds
+        };
+        let over_hover_surface = self.hover_surface_contains(cursor.0, cursor.1);
+
+        let capsule_entry =
+            if self.collapse_pending || !effective_autohide || self.autohide_reveal >= 0.2 {
+                if self.autohide_reveal >= 0.2 {
+                    self.autohide_dwell = 0.0;
+                }
+                false
+            } else {
+                let confirmed = Self::step_hidden_reveal(
+                    position,
+                    &mut self.hidden_trigger_armed,
+                    &mut self.autohide_dwell,
+                    self.autohide_dwell_threshold,
+                    cursor,
+                    display,
+                    dt,
+                );
+                if self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold {
+                    self.anim_active = true;
+                }
+                confirmed
+            };
+
+        let over_dock_trigger = !self.collapse_pending
+            && Self::pointer_keeps_revealed(
+                effective_autohide,
+                self.autohide_reveal,
+                capsule_entry,
+                cursor,
+                current_panel,
+                rest_bounds,
+                position,
+                display,
+            );
+
+        let retreating = effective_autohide
+            && self.autohide_reveal > 0.001
+            && self.autohide_reveal < 0.999
+            && detect_cursor_retreat(
+                position,
+                cursor,
+                self.last_cursor,
+                rest_bounds,
+            );
+        self.last_cursor = Some(cursor);
+
+        let keeps_revealed = (over_dock_trigger || over_hover_surface) && !retreating;
+        let menu_open = self.app_menu.is_open();
+
+        if effective_autohide {
+            if keeps_revealed || menu_open || drag_active {
+                self.autohide_idle = 0.0;
+            } else if retreating {
+                self.autohide_idle = self.autohide_timeout;
+            } else if self.autohide_reveal > 0.001 {
+                self.autohide_idle += dt;
+            }
+        }
+
+        let idle_timeout = if self.dock_interacted {
+            self.autohide_timeout
+        } else {
+            AUTOHIDE_QUICK_DISMISS_TIMEOUT
+        };
+
+        let target_reveal = if effective_autohide {
+            if self.autohide_idle >= idle_timeout && !menu_open {
+                0.0
+            } else {
+                1.0
+            }
+        } else {
+            1.0
+        };
+
+        let was_moving = self.was_autohide_animating;
+        if self.reduced_motion {
+            self.autohide_reveal = target_reveal;
+        } else {
+            let blend = 1.0 - (-12.0 * dt.min(1.0 / 30.0)).exp();
+            self.autohide_reveal += (target_reveal - self.autohide_reveal) * blend;
+            if (target_reveal - self.autohide_reveal).abs() < 0.002 {
+                self.autohide_reveal = target_reveal;
+            }
+        }
+        let autohide_moving = (target_reveal - self.autohide_reveal).abs() > 0.002;
+        if self.collapse_pending && target_reveal == 0.0 && self.autohide_reveal <= 0.002 {
+            self.autohide_reveal = 0.0;
+            self.collapse_pending = false;
+        }
+        if self.autohide_reveal <= 0.002 && target_reveal == 0.0 {
+            self.dock_interacted = false;
+        }
+        self.was_autohide_animating = autohide_moving;
+        if was_moving && !autohide_moving {
+            self.settled_drain_frames = 3;
+        }
+        if autohide_moving {
+            self.anim_active = true;
+        }
+    }
+
     /// Retain the workspace-global window set the tile strip is built from.
     /// Preview cards are validated against this list (not the visible set) so
     /// a preview of a window on another workspace survives workspace switches
