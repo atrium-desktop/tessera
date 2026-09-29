@@ -14,10 +14,14 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.72] - 2026-09-29
+
 ### Added
 - Bluetooth parity with Wi-Fi (ADR-0175): a daemon-neutral Bluetooth subsystem with a BlueZ (`org.bluez`) bridge and a deterministic mock; the Control Center's Bluetooth tile expands into a device list with scan, pair, connect, disconnect, and forget; the HUD shows a themed on/off glyph plus the connected peripheral's name.
 
 ### Changed
+- Retired the Control Center's 16σ backdrop blur and scrim cover in favour of the panel's own painted canvas (ADR-0176): the reveal is a bounded, paint-only fade on a `transit` spring, and the settled canvas drains the swapchain ring before the chrome layer is released (`[INV-ARCH-52]`–`[INV-ARCH-54]`). `BackdropCover` is removed; the security dialogs and app picker keep `modal_scrim_backdrop`.
+- Keyboard backlight granularity now comes from the hardware (ADR-0168 amendment): `SystemStatus` gains `kbd_brightness_levels`, probed as `max_brightness + 1`, so the tiered selector renders the device's real rungs and the documented four-rung ladder is confined to the stepping action's fallback. The indicator spring is retuned under-damped so the highlight actually settles with a bounce.
 - The HUD status row now groups its cells: the gutter between cells widened from 2px to 10px while the icon↔label gap inside a cell stays tight, so network, Bluetooth, speaker, and battery read as distinct groups.
 
 ## [0.0.71] - 2026-09-28
