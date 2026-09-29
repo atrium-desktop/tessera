@@ -64,7 +64,9 @@ fn kind_from_icon(icon: &str) -> Option<BluetoothKind> {
         Some(BluetoothKind::Phone)
     } else if icon.starts_with("computer") {
         Some(BluetoothKind::Computer)
-    } else if icon.starts_with("printer") || icon.starts_with("scanner") || icon.starts_with("camera")
+    } else if icon.starts_with("printer")
+        || icon.starts_with("scanner")
+        || icon.starts_with("camera")
     {
         Some(BluetoothKind::Imaging)
     } else if icon.starts_with("watch") {
@@ -245,7 +247,11 @@ fn sort_devices(devices: &mut [BluetoothDevice]) {
         } else {
             2
         };
-        (rank, device.name.to_ascii_lowercase(), device.address.clone())
+        (
+            rank,
+            device.name.to_ascii_lowercase(),
+            device.address.clone(),
+        )
     });
 }
 
@@ -345,8 +351,10 @@ impl BluetoothBackend for BluezBackend {
                 adapter.as_str(),
                 Some(ADAPTER_IFACE),
                 "RemoveDevice",
-                &(zbus::zvariant::ObjectPath::try_from(self.device_path(address)?)
-                    .map_err(|e| format!("invalid device path: {e}"))?,),
+                &(
+                    zbus::zvariant::ObjectPath::try_from(self.device_path(address)?)
+                        .map_err(|e| format!("invalid device path: {e}"))?,
+                ),
             )
             .map_err(|e| format!("bluez RemoveDevice failed: {e}"))?;
         let _ = self.refresh();

@@ -454,8 +454,8 @@ pub(super) fn render_kbd_backlight_tiers(
                     // The keyboard-backlight glyph (keyboard outline with three
                     // illumination rays); falls back to the built-in key icon if
                     // runtime SVG registration is unavailable.
-                    let icon = kbd_backlight_icon()
-                        .unwrap_or(lens::sys::lens_icon_id::LENS_ICON_KEY);
+                    let icon =
+                        kbd_backlight_icon().unwrap_or(lens::sys::lens_icon_id::LENS_ICON_KEY);
                     f.icon_raw(icon, 18.0);
                     display_label(f, label, type_scale.body);
                     f.flex(1.0);

@@ -1225,92 +1225,94 @@ impl CompositorRuntime<'_> {
                 .discard_for_actor(&request.actor, &request.token);
         }
         while let Ok(request) = self.actor_action_rx.try_recv() {
-            let result: Result<tessera_protocol::ActorActionReceipt, String> = if self.server.session_locked()
-                || !self.host.is_active()
-            {
-                self.observations.discard(&request.intent.observation);
-                Err("session is locked or inactive".into())
-            } else {
-                (|| {
-                    let current_scope = match self.live.revalidate_actor_action_scope(
-                        request.scope_name.as_deref(),
-                        &request.actor,
-                        &request.scope,
-                        request.intent.interaction_domain,
-                    ) {
-                        Ok(scope) => scope,
-                        Err(error) => {
-                            self.observations.discard(&request.intent.observation);
-                            return Err(error);
+            let result: Result<tessera_protocol::ActorActionReceipt, String> =
+                if self.server.session_locked() || !self.host.is_active() {
+                    self.observations.discard(&request.intent.observation);
+                    Err("session is locked or inactive".into())
+                } else {
+                    (|| {
+                        let current_scope = match self.live.revalidate_actor_action_scope(
+                            request.scope_name.as_deref(),
+                            &request.actor,
+                            &request.scope,
+                            request.intent.interaction_domain,
+                        ) {
+                            Ok(scope) => scope,
+                            Err(error) => {
+                                self.observations.discard(&request.intent.observation);
+                                return Err(error);
+                            }
+                        };
+                        let current = match self.server.interaction_domain_observation_snapshot(
+                            request.intent.interaction_domain,
+                        ) {
+                            Ok(current) => current,
+                            Err(error) => {
+                                self.observations.discard(&request.intent.observation);
+                                return Err(error.to_string());
+                            }
+                        };
+                        let validated = self.observations.consume(
+                            &request.actor,
+                            &request.intent,
+                            &current,
+                            |window| current_scope.permits_window(window),
+                        )?;
+                        let interaction_domain_snapshot = self.server.interaction_domain_snapshot();
+                        let interaction_domain_label = interaction_domain_snapshot
+                            .interaction_domains
+                            .iter()
+                            .find(|interaction_domain| {
+                                interaction_domain.id == request.intent.interaction_domain
+                            })
+                            .map(|interaction_domain| interaction_domain.label.clone())
+                            .unwrap_or_else(|| {
+                                format!("InteractionDomain {}", request.intent.interaction_domain.0)
+                            });
+                        let seat = interaction_domain_snapshot
+                            .seats
+                            .iter()
+                            .find(|seat| {
+                                seat.interaction_domain == request.intent.interaction_domain
+                                    && seat.enabled
+                            })
+                            .map(|seat| seat.id)
+                            .ok_or_else(|| "InteractionDomain has no active seat".to_owned())?;
+                        let events = self
+                            .server
+                            .prepare_agent_synthetic_input(
+                                seat,
+                                validated.window,
+                                &request.intent.actions,
+                            )
+                            .ok_or_else(|| {
+                                "action became invalid before input preparation".to_owned()
+                            })?;
+                        self.server
+                            .forward_agent_input_to(seat, validated.window, &events)
+                            .map_err(|error| error.to_string())?;
+                        let cursor_shape = self.server.seat_cursor_shape(seat);
+                        for activity in agent_activities_from_applied_input(
+                            request.intent.interaction_domain,
+                            &interaction_domain_label,
+                            validated.window,
+                            &request.intent.actions,
+                            &events,
+                            &mut self.agent_activity_sequence,
+                            cursor_shape,
+                        ) {
+                            self.shell.report_agent_activity(activity);
                         }
-                    };
-                    let current = match self
-                        .server
-                        .interaction_domain_observation_snapshot(request.intent.interaction_domain)
-                    {
-                        Ok(current) => current,
-                        Err(error) => {
-                            self.observations.discard(&request.intent.observation);
-                            return Err(error.to_string());
-                        }
-                    };
-                    let validated = self.observations.consume(
-                        &request.actor,
-                        &request.intent,
-                        &current,
-                        |window| current_scope.permits_window(window),
-                    )?;
-                    let interaction_domain_snapshot = self.server.interaction_domain_snapshot();
-                    let interaction_domain_label = interaction_domain_snapshot
-                        .interaction_domains
-                        .iter()
-                        .find(|interaction_domain| {
-                            interaction_domain.id == request.intent.interaction_domain
+                        Ok(tessera_protocol::ActorActionReceipt {
+                            action_id: validated.action_id,
+                            interaction_domain: request.intent.interaction_domain,
+                            target_window: validated.window,
+                            authority_revision: validated.authority_revision,
+                            actions_applied: request.intent.actions.len() as u32,
+                            committed_mono_ms: self.start.elapsed().as_millis() as u64,
                         })
-                        .map(|interaction_domain| interaction_domain.label.clone())
-                        .unwrap_or_else(|| {
-                            format!("InteractionDomain {}", request.intent.interaction_domain.0)
-                        });
-                    let seat = interaction_domain_snapshot
-                        .seats
-                        .iter()
-                        .find(|seat| {
-                            seat.interaction_domain == request.intent.interaction_domain
-                                && seat.enabled
-                        })
-                        .map(|seat| seat.id)
-                        .ok_or_else(|| "InteractionDomain has no active seat".to_owned())?;
-                    let events = self
-                        .server
-                        .prepare_agent_synthetic_input(seat, validated.window, &request.intent.actions)
-                        .ok_or_else(|| {
-                            "action became invalid before input preparation".to_owned()
-                        })?;
-                    self.server
-                        .forward_agent_input_to(seat, validated.window, &events)
-                        .map_err(|error| error.to_string())?;
-                    let cursor_shape = self.server.seat_cursor_shape(seat);
-                    for activity in agent_activities_from_applied_input(
-                        request.intent.interaction_domain,
-                        &interaction_domain_label,
-                        validated.window,
-                        &request.intent.actions,
-                        &events,
-                        &mut self.agent_activity_sequence,
-                        cursor_shape,
-                    ) {
-                        self.shell.report_agent_activity(activity);
-                    }
-                    Ok(tessera_protocol::ActorActionReceipt {
-                        action_id: validated.action_id,
-                        interaction_domain: request.intent.interaction_domain,
-                        target_window: validated.window,
-                        authority_revision: validated.authority_revision,
-                        actions_applied: request.intent.actions.len() as u32,
-                        committed_mono_ms: self.start.elapsed().as_millis() as u64,
-                    })
-                })()
-            };
+                    })()
+                };
             let ts = result.as_ref().map_or_else(
                 |_| self.start.elapsed().as_millis() as u64,
                 |receipt| receipt.committed_mono_ms,
@@ -1329,7 +1331,11 @@ impl CompositorRuntime<'_> {
                 tessera_protocol::JournalMutation::ActorAction {
                     action_id: result.as_ref().ok().map(|receipt| receipt.action_id),
                     interaction_domain: request.intent.interaction_domain,
-                    target_window: result.as_ref().map_or(request.intent.target_window, |receipt| receipt.target_window),
+                    target_window: result
+                        .as_ref()
+                        .map_or(request.intent.target_window, |receipt| {
+                            receipt.target_window
+                        }),
                     input: tessera_protocol::journal::audit_input_actions(&request.intent.actions),
                     actions_truncated: false,
                     authority_revision: result
@@ -1510,26 +1516,27 @@ impl CompositorRuntime<'_> {
                     .find(|entry| entry.id == *desktop_id)
                 {
                     Some(entry) => {
-                        let launched = (|| -> Result<tessera_launch_services::ManagedLaunch, String> {
-                            let portal = self
-                                .server
-                                .prepare_interaction_domain_portal(*interaction_domain)
-                                .map_err(|error| error.to_string())?;
-                            let wayland_listener = portal
-                                .try_clone_listener()
-                                .map_err(|error| error.to_string())?;
-                            let wayland_socket_path = portal.path().to_path_buf();
-                            let sandbox_policy = self
-                                .config
-                                .as_ref()
-                                .map(|config| {
-                                    config.interaction_domain_sandbox.policy_for(&entry.id)
-                                })
-                                .unwrap_or_else(|| {
-                                    tessera_config::InteractionDomainSandboxConfig::default()
-                                        .policy_for(&entry.id)
-                                });
-                            let opts = tessera_launch_services::LaunchOpts {
+                        let launched =
+                            (|| -> Result<tessera_launch_services::ManagedLaunch, String> {
+                                let portal = self
+                                    .server
+                                    .prepare_interaction_domain_portal(*interaction_domain)
+                                    .map_err(|error| error.to_string())?;
+                                let wayland_listener = portal
+                                    .try_clone_listener()
+                                    .map_err(|error| error.to_string())?;
+                                let wayland_socket_path = portal.path().to_path_buf();
+                                let sandbox_policy = self
+                                    .config
+                                    .as_ref()
+                                    .map(|config| {
+                                        config.interaction_domain_sandbox.policy_for(&entry.id)
+                                    })
+                                    .unwrap_or_else(|| {
+                                        tessera_config::InteractionDomainSandboxConfig::default()
+                                            .policy_for(&entry.id)
+                                    });
+                                let opts = tessera_launch_services::LaunchOpts {
                                 sandbox: Some(tessera_launch_services::InteractionDomainSandbox {
                                     interaction_domain_id: interaction_domain.0,
                                     wayland_listener,
@@ -1543,13 +1550,13 @@ impl CompositorRuntime<'_> {
                                 }),
                                 ..Default::default()
                             };
-                            let launch = tessera_launch_services::launch_managed(entry, &opts)
-                                .map_err(|error| error.to_string())?;
-                            self.server
-                                .activate_interaction_domain_portal(portal)
-                                .map_err(|error| error.to_string())?;
-                            Ok(launch)
-                        })();
+                                let launch = tessera_launch_services::launch_managed(entry, &opts)
+                                    .map_err(|error| error.to_string())?;
+                                self.server
+                                    .activate_interaction_domain_portal(portal)
+                                    .map_err(|error| error.to_string())?;
+                                Ok(launch)
+                            })();
                         match launched {
                             Ok(launch) => {
                                 log::info!(

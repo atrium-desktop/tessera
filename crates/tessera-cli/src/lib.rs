@@ -104,7 +104,14 @@ fn dispatch_command(socket: &Path, cli: Cli) -> Result<String, CliError> {
             .ok_or_else(|| CliError::Io(format!("invalid arithmetic expression: {expression}"))),
         Cmd::Query { query } => {
             let i18n = tessera_i18n::Localizer::from_env();
-            let items = tessera_launch_services::IntentEngine::query(&query, &[], &[], |_| false, &[], &i18n);
+            let items = tessera_launch_services::IntentEngine::query(
+                &query,
+                &[],
+                &[],
+                |_| false,
+                &[],
+                &i18n,
+            );
             if json {
                 let rows: Vec<_> = items.iter().map(|item| serde_json::json!({
                     "title": item.title, "subtitle": item.subtitle,

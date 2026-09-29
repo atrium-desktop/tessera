@@ -42,6 +42,6 @@ impl InputAccumulator {
 mod engine;
 mod registry;
 
-mod host_system;
 pub mod bluetooth;
+mod host_system;
 pub mod wireless;

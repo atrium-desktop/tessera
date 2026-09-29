@@ -300,7 +300,11 @@ pub(super) fn render_status_cell(
             &LayoutOpts {
                 width: rect.w,
                 height: rect.h,
-                gap: if label.is_empty() { 0.0 } else { STATUS_LABEL_GAP },
+                gap: if label.is_empty() {
+                    0.0
+                } else {
+                    STATUS_LABEL_GAP
+                },
                 cross: Align::Center,
                 ..Default::default()
             },
@@ -341,11 +345,7 @@ pub(super) fn render_status_cell(
 pub(super) fn bluetooth_cell_glyph(enabled: bool) -> CellGlyph {
     match crate::widgets::icons::bluetooth(enabled) {
         Some(id) => CellGlyph::Registered(id),
-        None => CellGlyph::Builtin(if enabled {
-            Icon::Radio
-        } else {
-            Icon::Slash
-        }),
+        None => CellGlyph::Builtin(if enabled { Icon::Radio } else { Icon::Slash }),
     }
 }
 

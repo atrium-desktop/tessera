@@ -1353,7 +1353,10 @@ mod tests {
             tessera_design::Design::light(),
         ] {
             let region = modal_scrim_backdrop((1920.0, 1080.0), &design);
-            assert_eq!((region.x, region.y, region.w, region.h), (0.0, 0.0, 1920.0, 1080.0));
+            assert_eq!(
+                (region.x, region.y, region.w, region.h),
+                (0.0, 0.0, 1920.0, 1080.0)
+            );
             assert_eq!(region.opacity, 1.0, "an instant modal covers at full body");
             let wash = region.wash.expect("the cover declares its scrim wash");
             assert!(wash.strength > 0.0, "the scrim carries a visible veil");

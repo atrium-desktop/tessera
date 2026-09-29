@@ -162,12 +162,7 @@ impl HostSystem for LiveHostSystem {
         last_wifi_enabled: Option<bool>,
         last_wifi_ssid: Option<String>,
     ) -> SystemStatus {
-        detect_system_status_lightweight(
-            last_volume,
-            last_muted,
-            last_wifi_enabled,
-            last_wifi_ssid,
-        )
+        detect_system_status_lightweight(last_volume, last_muted, last_wifi_enabled, last_wifi_ssid)
     }
 
     fn detect_forked_status(&self) -> (Option<u8>, bool, Option<bool>, Option<String>) {
@@ -750,10 +745,19 @@ mod tests {
 
         // Power actions record in mock state without touching host
         assert!(mock.suspend().is_ok());
-        assert_eq!(mock.state().lock().unwrap().last_power_action.as_deref(), Some("suspend"));
+        assert_eq!(
+            mock.state().lock().unwrap().last_power_action.as_deref(),
+            Some("suspend")
+        );
         assert!(mock.reboot().is_ok());
-        assert_eq!(mock.state().lock().unwrap().last_power_action.as_deref(), Some("reboot"));
+        assert_eq!(
+            mock.state().lock().unwrap().last_power_action.as_deref(),
+            Some("reboot")
+        );
         assert!(mock.power_off().is_ok());
-        assert_eq!(mock.state().lock().unwrap().last_power_action.as_deref(), Some("power_off"));
+        assert_eq!(
+            mock.state().lock().unwrap().last_power_action.as_deref(),
+            Some("power_off")
+        );
     }
 }

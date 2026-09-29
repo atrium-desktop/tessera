@@ -166,7 +166,9 @@ pub(super) fn apply_system_action(
         }
         SystemAction::ForgetBluetooth { address } => {
             bluetooth.forget(address.clone());
-            status.bluetooth_devices.retain(|device| device.address != address);
+            status
+                .bluetooth_devices
+                .retain(|device| device.address != address);
         }
         SystemAction::SetDoNotDisturb { enabled } => {
             notifications.lock().unwrap().set_do_not_disturb(enabled);

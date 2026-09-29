@@ -334,9 +334,13 @@ pub(super) fn decode_icons(
         symbolic_names.push(format!("battery-level-{level}-charging-symbolic"));
     }
     for name in symbolic_names {
-        let Some(path) =
-            tessera_launch_services::resolve_icon_scaled(&name, Some(icon_theme), &[], 24, icon_scale.max(1))
-        else {
+        let Some(path) = tessera_launch_services::resolve_icon_scaled(
+            &name,
+            Some(icon_theme),
+            &[],
+            24,
+            icon_scale.max(1),
+        ) else {
             log::debug!("hud icon: '{name}' was not found in theme '{icon_theme}'");
             continue;
         };

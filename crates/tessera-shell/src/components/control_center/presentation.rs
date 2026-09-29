@@ -398,7 +398,9 @@ impl ControlCenter {
                 "appearance" => lens_icon_id::LENS_ICON_IMAGE,
                 "dock" => lens_icon_id::LENS_ICON_LAYOUT,
                 "power" => lens_icon_id::LENS_ICON_BATTERY_CHARGING,
-                "input" | "touchpad" | "mouse" | "keyboard" => lens_icon_id::LENS_ICON_MOUSE_POINTER,
+                "input" | "touchpad" | "mouse" | "keyboard" => {
+                    lens_icon_id::LENS_ICON_MOUSE_POINTER
+                }
                 "keybindings" => lens_icon_id::LENS_ICON_EDIT,
                 "users" | "persona" => lens_icon_id::LENS_ICON_USERS,
                 "window-rules" => lens_icon_id::LENS_ICON_GRID,
@@ -911,11 +913,11 @@ impl ControlCenter {
         let fader_h = 72.0;
 
         let wifi_active = status.wifi_enabled.unwrap_or(false);
-        let wifi_sub = status.wifi_ssid.as_deref().unwrap_or(if wifi_active {
-            "On"
-        } else {
-            "Off"
-        });
+        let wifi_sub =
+            status
+                .wifi_ssid
+                .as_deref()
+                .unwrap_or(if wifi_active { "On" } else { "Off" });
 
         let bt_active = status.bluetooth_enabled.unwrap_or(false);
         let bt_sub = Self::bluetooth_tile_subtitle(&status, i18n);
@@ -946,17 +948,18 @@ impl ControlCenter {
                             .show(|f| {
                                 // Wi-Fi (2 cols x 1 row)
                                 f.col_span(2);
-                                let (wifi_toggle, wifi_expand) = render_expandable_quick_toggle_tile(
-                                    f,
-                                    "tessera-hud-quick-wifi",
-                                    i18n.text(Message::Wifi),
-                                    wifi_sub,
-                                    lens::sys::lens_icon_id::LENS_ICON_WIFI,
-                                    wifi_active,
-                                    (tile_w, tile_h),
-                                    hud,
-                                    type_scale,
-                                );
+                                let (wifi_toggle, wifi_expand) =
+                                    render_expandable_quick_toggle_tile(
+                                        f,
+                                        "tessera-hud-quick-wifi",
+                                        i18n.text(Message::Wifi),
+                                        wifi_sub,
+                                        lens::sys::lens_icon_id::LENS_ICON_WIFI,
+                                        wifi_active,
+                                        (tile_w, tile_h),
+                                        hud,
+                                        type_scale,
+                                    );
                                 if wifi_toggle {
                                     out.system_actions.push(SystemAction::SetWifi {
                                         enabled: !wifi_active,
@@ -971,7 +974,13 @@ impl ControlCenter {
                                 // MPRIS Now Playing (2 cols x 2 rows, ADR-0104 / ADR-0169)
                                 f.col_span(2);
                                 f.row_span(2);
-                                self.render_bento_media_card(f, (tile_w, bento_h), hud, type_scale, i18n);
+                                self.render_bento_media_card(
+                                    f,
+                                    (tile_w, bento_h),
+                                    hud,
+                                    type_scale,
+                                    i18n,
+                                );
 
                                 // Bluetooth (2 cols x 1 row, auto-placed under Wi-Fi in the 4-column grid)
                                 f.col_span(2);
@@ -1063,7 +1072,8 @@ impl ControlCenter {
                                     type_scale,
                                 );
                                 if let Some(level) = bright_level {
-                                    out.system_actions.push(SystemAction::SetBrightness { level });
+                                    out.system_actions
+                                        .push(SystemAction::SetBrightness { level });
                                 }
 
                                 // Sound Volume (4 cols x 1 row)
@@ -1682,9 +1692,7 @@ impl ControlCenter {
             None => i18n.text(Message::Unavailable).to_owned(),
             Some(false) => i18n.text(Message::Off).to_owned(),
             Some(true) => match status.bluetooth_state {
-                tessera_desktop::system::BluetoothLinkState::Scanning => {
-                    "Scanning…".to_owned()
-                }
+                tessera_desktop::system::BluetoothLinkState::Scanning => "Scanning…".to_owned(),
                 _ => i18n.text(Message::On).to_owned(),
             },
         }
@@ -2620,9 +2628,7 @@ impl ControlCenter {
                                 bg: Color::TRANSPARENT,
                                 ..Default::default()
                             },
-                            |f, _| {
-                                f.centered(36.0, 36.0, |f| f.icon(Icon::SkipForward, 17.0))
-                            },
+                            |f, _| f.centered(36.0, 36.0, |f| f.icon(Icon::SkipForward, 17.0)),
                         );
                         if next.clicked && snapshot.can_next {
                             command = Some(MediaCommand::Next);

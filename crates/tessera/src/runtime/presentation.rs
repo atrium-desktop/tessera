@@ -706,10 +706,11 @@ impl CompositorRuntime<'_> {
                             h: shadow.h,
                         })
                         .collect();
-                let soft_shadow_layer =
-                    (!soft_shadow_entries.is_empty()).then_some(tessera_composite::SoftShadowLayer {
+                let soft_shadow_layer = (!soft_shadow_entries.is_empty()).then_some(
+                    tessera_composite::SoftShadowLayer {
                         entries: soft_shadow_entries.as_slice(),
-                    });
+                    },
+                );
                 // Restrict the backdrop capture to the union of the declared
                 // blur regions (plus the blur footprint): the offscreen pass
                 // re-renders the scene every frame, so covering only what the
@@ -1380,8 +1381,7 @@ impl CompositorRuntime<'_> {
                                         client_cursor,
                                         client_cursor
                                             .then(|| {
-                                                frozen_trigger_cursor
-                                                    .map(|cursor| cursor.position)
+                                                frozen_trigger_cursor.map(|cursor| cursor.position)
                                             })
                                             .flatten(),
                                     )
@@ -1502,11 +1502,9 @@ impl CompositorRuntime<'_> {
                     }
                 } else if capture_covers_output
                     && refreshed
-                    && self.backdrop_graph.draw_capture_opaque(
-                        &active,
-                        frame_slot,
-                        physical_size,
-                    )
+                    && self
+                        .backdrop_graph
+                        .draw_capture_opaque(&active, frame_slot, physical_size)
                 {
                     // The capture pass already rendered this exact
                     // desktop.  Reuse it as the base output rather than
@@ -1846,7 +1844,7 @@ impl CompositorRuntime<'_> {
                         &mut self.ipc_idle_inhibits,
                         &mut self.idle_process,
                         &self.wireless,
-                    &self.bluetooth,
+                        &self.bluetooth,
                         &*self.host_system,
                         action,
                     )
@@ -2153,7 +2151,7 @@ impl CompositorRuntime<'_> {
                             &mut self.ipc_idle_inhibits,
                             &mut self.idle_process,
                             &self.wireless,
-                    &self.bluetooth,
+                            &self.bluetooth,
                             &*self.host_system,
                             action,
                         ) {

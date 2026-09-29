@@ -143,6 +143,6 @@ jobs:
           cargo check --locked -p tessera --no-default-features --features chrome-hud
           cargo check --locked -p tessera --no-default-features --features chrome-control-center
           cargo check --locked -p tessera --no-default-features \
-            --features chrome-dock,chrome-prism
+            --features chrome-dock,chrome-pivot
       - name: Build release binaries
         run: cargo build --locked --release --workspace

@@ -44,7 +44,9 @@ fn toggle_opens_and_closes_the_panel() {
             .backdrop_regions(
                 (1920.0, 1080.0),
                 &[],
-                &WorkspaceSnapshot { outputs: Vec::new() },
+                &WorkspaceSnapshot {
+                    outputs: Vec::new()
+                },
             )
             .is_empty()
     );
@@ -112,7 +114,10 @@ fn the_settle_drain_keeps_the_panel_active_for_the_ring_depth() {
         panel.advance(0.016);
     }
     assert!(!panel.anim_pending());
-    assert!(!panel.active(), "the chrome layer is released after the drain");
+    assert!(
+        !panel.active(),
+        "the chrome layer is released after the drain"
+    );
 }
 
 #[test]
@@ -211,15 +216,7 @@ fn cluster_bounds_stay_inside_small_displays() {
     for display in [(320.0, 480.0), (800.0, 600.0), (1920.0, 1080.0)] {
         let (profile, main, notifications, clock, tray, work_mode, power) =
             CommandPanel::cluster_bounds(display);
-        for rect in [
-            profile,
-            main,
-            notifications,
-            clock,
-            tray,
-            work_mode,
-            power,
-        ] {
+        for rect in [profile, main, notifications, clock, tray, work_mode, power] {
             assert!(rect.x >= 0.0 && rect.y >= 0.0);
             assert!(rect.x + rect.w <= display.0 + 0.01);
             assert!(rect.y + rect.h <= display.1 + 0.01);
@@ -498,8 +495,9 @@ fn animated_frames_localize_damage_to_the_moving_bands() {
     assert!(notif.origin.x + notif.size.w <= (notifications.x + notifications.w).ceil() as i32);
 
     // The tray-scrollbar reveal covers only the tray column.
-    let tray_region = animated_damage_region(display, false, false, false, true, false, false, false)
-        .expect("tray reveal states its footprint");
+    let tray_region =
+        animated_damage_region(display, false, false, false, true, false, false, false)
+            .expect("tray reveal states its footprint");
     assert!(tray_region.origin.x >= tray.x as i32);
     assert!(tray_region.origin.x + tray_region.size.w <= (tray.x + tray.w).ceil() as i32);
 
@@ -515,14 +513,16 @@ fn animated_frames_localize_damage_to_the_moving_bands() {
         .expect("work mode tooltip states localized footprint");
     assert!(tip.size.w < full.size.w && tip.size.h < full.size.h);
 
-    let session_tip = animated_damage_region(display, false, false, false, false, false, false, true)
-        .expect("session tooltip states localized footprint");
+    let session_tip =
+        animated_damage_region(display, false, false, false, false, false, false, true)
+            .expect("session tooltip states localized footprint");
     assert!(session_tip.size.w < full.size.w && session_tip.size.h < full.size.h);
     assert!(session_tip.origin.x >= power.x as i32);
 
     // Independent signals union, so simultaneous motion still stays bounded
     // to the moving bands rather than the whole screen.
-    let union = animated_damage_region(display, false, true, true, true, true, false, false).unwrap();
+    let union =
+        animated_damage_region(display, false, true, true, true, true, false, false).unwrap();
     assert!(union.size.w < full.size.w && union.size.h < full.size.h);
 }
 
@@ -631,11 +631,17 @@ fn wifi_key_char_typing_and_connect() {
     assert_eq!(panel.wifi_input_passphrase, "abc");
 
     // Backspace pops 'c'
-    panel.key_char(&kc(tessera_primitives::input::XKB_KEY_BackSpace, None), &mut out);
+    panel.key_char(
+        &kc(tessera_primitives::input::XKB_KEY_BackSpace, None),
+        &mut out,
+    );
     assert_eq!(panel.wifi_input_passphrase, "ab");
 
     // Enter submits ConnectWifi action
-    panel.key_char(&kc(tessera_primitives::input::XKB_KEY_Return, None), &mut out);
+    panel.key_char(
+        &kc(tessera_primitives::input::XKB_KEY_Return, None),
+        &mut out,
+    );
     assert_eq!(panel.wifi_input_ssid, None);
     assert!(panel.wifi_input_passphrase.is_empty());
     assert_eq!(out.system_actions.len(), 1);
@@ -761,7 +767,11 @@ fn bluetooth_detail_actions_validate() {
         address: "AC:12:34:56:78:9A".to_string(),
     });
     assert_eq!(out.system_actions.len(), 5);
-    assert!(out.system_actions.iter().all(|action| action.validate().is_ok()));
+    assert!(
+        out.system_actions
+            .iter()
+            .all(|action| action.validate().is_ok())
+    );
 }
 
 #[test]
@@ -871,10 +881,16 @@ fn keyboard_backlight_policy_follows_hardware_granularity() {
 #[test]
 fn keyboard_backlight_indicator_settles_on_the_active_tier() {
     let mut indicator = TieredIndicator::at(0);
-    assert!(!indicator.anim_pending(0), "fresh indicator rests on tier 0");
+    assert!(
+        !indicator.anim_pending(0),
+        "fresh indicator rests on tier 0"
+    );
     // Travel to the top tier; reduced motion resolves in a single frame.
     indicator.advance(3, 1.0 / 60.0, true);
-    assert!(!indicator.anim_pending(3), "reduced motion resolves in one frame");
+    assert!(
+        !indicator.anim_pending(3),
+        "reduced motion resolves in one frame"
+    );
     assert!((indicator.spring.value - 3.0).abs() < 1e-3);
 }
 
@@ -883,10 +899,12 @@ fn indicator_spring_actually_overshoots() {
     // Regression: the indicator was tuned critically damped (ζ = 1.0), so the
     // "bounce" the comments and docs promised could not occur. The under-damped
     // tuning must cross its target before settling.
-    assert!(
-        crate::widgets::tiered::INDICATOR_SPRING.damping < 1.0,
-        "the indicator must be under-damped to overshoot"
-    );
+    const {
+        assert!(
+            crate::widgets::tiered::INDICATOR_SPRING.damping < 1.0,
+            "the indicator must be under-damped to overshoot"
+        )
+    };
     let mut indicator = TieredIndicator::at(0);
     let mut overshot = false;
     for _ in 0..600 {
@@ -948,7 +966,10 @@ fn quick_controls_grid_is_placed_in_main_panel() {
     // Hovering near top-left (20, 20) must NOT hit the quick controls grid
     input.set_cursor(20.0, 20.0);
     render_step(&input, &mut out);
-    assert!(out.system_actions.is_empty(), "quick controls must not drift to top-left (0, 0)");
+    assert!(
+        out.system_actions.is_empty(),
+        "quick controls must not drift to top-left (0, 0)"
+    );
 
     // Clicking inside the body area of the main panel targets the Wi-Fi toggle correctly.
     input.set_cursor(850.0, 380.0);
@@ -962,5 +983,8 @@ fn quick_controls_grid_is_placed_in_main_panel() {
     input.set_mouse_released(lens::MouseButton::Left, true);
     render_step(&input, &mut out);
 
-    assert!(!out.system_actions.is_empty(), "quick controls receives clicks at its placed location");
+    assert!(
+        !out.system_actions.is_empty(),
+        "quick controls receives clicks at its placed location"
+    );
 }

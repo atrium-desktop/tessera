@@ -7,9 +7,9 @@ use std::ffi::c_void;
 use lens::{Align, Color, Frame, Icon, LayoutOpts, Rect};
 use tessera_design::materials::{chrome_place, surface_layout};
 use tessera_design::{Design, materials};
-use tessera_launch_services::{IntentEngine, IntentKind, SystemCmd};
 use tessera_desktop::app::Entry;
 use tessera_desktop::window::Window;
+use tessera_launch_services::{IntentEngine, IntentKind, SystemCmd};
 
 use crate::component::{IconSet, Localizer, Message, ellipsize};
 use crate::widgets::geom::contains;
@@ -83,7 +83,8 @@ pub fn panel_rect(
         x: (display.0 - width) * 0.5,
         y: top(display) - (1.0 - progress.clamp(0.0, 1.0)) * 14.0,
         w: width,
-        h: (SEARCH_HEIGHT + content_height).min((display.1 - top(display) - PANEL_SIDE_MARGIN).max(1.0)),
+        h: (SEARCH_HEIGHT + content_height)
+            .min((display.1 - top(display) - PANEL_SIDE_MARGIN).max(1.0)),
     }
 }
 
@@ -324,7 +325,9 @@ pub fn render_pivot(
                 },
             );
         } else {
-            let selection_clamped = state.search_selection.min(search_items.len().saturating_sub(1));
+            let selection_clamped = state
+                .search_selection
+                .min(search_items.len().saturating_sub(1));
             for (visible_pos, item) in search_items[range].iter().enumerate() {
                 let row = Rect {
                     x: panel.x,

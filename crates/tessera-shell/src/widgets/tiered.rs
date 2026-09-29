@@ -182,10 +182,7 @@ pub fn tiered_control(
 
     // The spring position is clamped to the segment range so an overshoot never
     // paints outside the well.
-    let spring_pos = indicator
-        .spring
-        .value
-        .clamp(0.0, (tiers.len() - 1) as f32);
+    let spring_pos = indicator.spring.value.clamp(0.0, (tiers.len() - 1) as f32);
 
     let mut selected = None;
     f.stack().width(size.0).height(size.1).show(|f| {
@@ -376,4 +373,3 @@ mod tests {
         assert_eq!(outcome, TieredOutcome::default());
     }
 }
-

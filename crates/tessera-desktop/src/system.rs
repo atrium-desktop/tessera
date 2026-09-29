@@ -396,12 +396,8 @@ impl SystemAction {
             Self::SetKeyboardBrightness { level } if *level > 100 => {
                 Err("keyboard brightness is outside 0..=100")
             }
-            Self::ConnectWifi { ssid, .. } if ssid.trim().is_empty() => {
-                Err("ssid cannot be empty")
-            }
-            Self::ForgetWifi { ssid } if ssid.trim().is_empty() => {
-                Err("ssid cannot be empty")
-            }
+            Self::ConnectWifi { ssid, .. } if ssid.trim().is_empty() => Err("ssid cannot be empty"),
+            Self::ForgetWifi { ssid } if ssid.trim().is_empty() => Err("ssid cannot be empty"),
             Self::SetWifiAutoConnect { ssid, .. } if ssid.trim().is_empty() => {
                 Err("ssid cannot be empty")
             }
@@ -525,7 +521,10 @@ mod tests {
                 address: String::new(),
             },
         ] {
-            assert!(action.validate().is_err(), "{action:?} must reject an empty address");
+            assert!(
+                action.validate().is_err(),
+                "{action:?} must reject an empty address"
+            );
         }
         assert!(SystemAction::ScanBluetooth.validate().is_ok());
         assert!(
@@ -651,9 +650,21 @@ mod tests {
                 .validate()
                 .is_ok()
         );
-        assert!(SystemAction::SetKeyboardBrightness { level: 101 }.validate().is_err());
-        assert!(SystemAction::SetKeyboardBrightness { level: 100 }.validate().is_ok());
-        assert!(SystemAction::SetKeyboardBrightness { level: 0 }.validate().is_ok());
+        assert!(
+            SystemAction::SetKeyboardBrightness { level: 101 }
+                .validate()
+                .is_err()
+        );
+        assert!(
+            SystemAction::SetKeyboardBrightness { level: 100 }
+                .validate()
+                .is_ok()
+        );
+        assert!(
+            SystemAction::SetKeyboardBrightness { level: 0 }
+                .validate()
+                .is_ok()
+        );
         assert!(SystemAction::StepKeyboardBrightness.validate().is_ok());
     }
 

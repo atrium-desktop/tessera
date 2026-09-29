@@ -934,8 +934,9 @@ impl Chrome for Hud {
         // Every animated HUD element (chip fades, the workspace pager
         // slide) lives inside the top status band; one chip tall is the
         // whole band regardless of how many chips are visible.
-        (!self.dormant())
-            .then(|| tessera_primitives::Rect::new(0, 0, display.0.max(1.0) as i32, HUD_HEIGHT as i32))
+        (!self.dormant()).then(|| {
+            tessera_primitives::Rect::new(0, 0, display.0.max(1.0) as i32, HUD_HEIGHT as i32)
+        })
     }
 
     fn requires_composition(&self) -> bool {

@@ -588,9 +588,7 @@ fn left_chip_grows_for_each_labeled_status_cell() {
     }];
     let with_bt_name = bar.chip_layout((1920.0, 1080.0), &workspaces, 0, 0, 0);
     let bt_name_growth = icon_label_cell_w("Sony WH-1000XM5", footnote) - CELL_ICON;
-    assert!(
-        (with_bt_name.chips[LEFT].w - with_bt.chips[LEFT].w - bt_name_growth).abs() < 0.01
-    );
+    assert!((with_bt_name.chips[LEFT].w - with_bt.chips[LEFT].w - bt_name_growth).abs() < 0.01);
 
     // Speaker: a whole new cell appears with the level beside the glyph.
     bar.status.volume = Some(42);

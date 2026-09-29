@@ -133,7 +133,10 @@ impl BluetoothBackend for MockBluetoothBackend {
             .find(|device| device.address == address)
             .ok_or_else(|| format!("device '{address}' not found"))?;
         device.paired = true;
-        self.paired.lock().unwrap().insert(address.to_string(), true);
+        self.paired
+            .lock()
+            .unwrap()
+            .insert(address.to_string(), true);
         Ok(())
     }
 

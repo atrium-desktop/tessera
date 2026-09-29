@@ -740,9 +740,11 @@ impl ControlCenter {
         // swapchain slot overwrites the pre-open desktop under the opaque canvas
         // (ADR-0171 `[INV-ARCH-03]`).
         let was_animating = self.reveal_animating_value();
-        self.reveal
-            .advance(target, REVEAL_SPRING, dt, reduced);
-        if !self.reveal.settled(target, REVEAL_SETTLE_VALUE_EPS, REVEAL_SETTLE_VELOCITY_EPS) {
+        self.reveal.advance(target, REVEAL_SPRING, dt, reduced);
+        if !self
+            .reveal
+            .settled(target, REVEAL_SETTLE_VALUE_EPS, REVEAL_SETTLE_VELOCITY_EPS)
+        {
             self.settled_drain_frames = 0;
         } else if was_animating {
             self.reveal.snap_to(target);
@@ -752,11 +754,8 @@ impl ControlCenter {
         }
         // Segmented-control indicator: an under-damped spring gives the
         // switch its slight overshoot ("弹力") without ringing.
-        self.work_mode_indicator.advance(
-            mode_index as usize,
-            dt,
-            reduced,
-        );
+        self.work_mode_indicator
+            .advance(mode_index as usize, dt, reduced);
         // Keyboard backlight tier indicator (ADR-0168). The ladder is the
         // standard hardware stepping sequence; the active tier is the one the
         // reported level maps to.
@@ -991,15 +990,7 @@ impl ControlCenter {
             h: (display.1 - main_y - margin_y).min(main_h).max(1.0),
         };
 
-        (
-            profile,
-            main,
-            notifications,
-            clock,
-            tray,
-            work_mode,
-            power,
-        )
+        (profile, main, notifications, clock, tray, work_mode, power)
     }
 
     /// Clone the notification queue, memoized on the queue's revision: an
@@ -1457,10 +1448,7 @@ impl Chrome for ControlCenter {
                     }
                 }
             }
-            ChromeCommand::CloseControlCenter
-            | ChromeCommand::DismissModal
-                if self.open =>
-            {
+            ChromeCommand::CloseControlCenter | ChromeCommand::DismissModal if self.open => {
                 self.close();
             }
             _ => {}
