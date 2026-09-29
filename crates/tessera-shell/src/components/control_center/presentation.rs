@@ -1,11 +1,68 @@
 use super::*;
 
-use lens::Icon;
+use lens::{Band, Icon};
 use tessera_design::materials::{chrome_place, sized, transparent};
 
 // ---- rendering -----------------------------------------------------------
 
+/// The painted canvas's alpha for a reveal progress, `0..=255` (ADR-0176).
+///
+/// Pure so the drain behaviour is unit-testable without a GPU: zero at a
+/// hidden panel, fully opaque at a presented one, proportional in between, so
+/// the canvas drains with the reveal instead of popping at teardown.
+pub(super) fn canvas_alpha(reveal: f32) -> u8 {
+    (reveal.clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
 impl ControlCenter {
+    /// The opaque scheme-adaptive canvas under the whole panel (ADR-0176).
+    ///
+    /// A full-display solid fill in the `Backdrop` band — below every chrome
+    /// surface — faded by the panel's reveal spring. It is the panel's own
+    /// painted background: the dark scheme paints the near-black grouped
+    /// canvas, the light scheme the pale grouped canvas. It replaces the
+    /// retired full-screen backdrop blur + scrim cover, so the panel no longer
+    /// captures, blurs, or composites the desktop behind it.
+    ///
+    /// `reveal` is the eased reveal progress: the canvas alpha scales with it,
+    /// so an exit drains the canvas with the cluster it backs instead of
+    /// popping out at teardown. The `Backdrop` band keeps it under `Chrome`
+    /// surfaces regardless of build order.
+    pub(super) fn render_canvas(
+        hud: &ControlCenterColors,
+        f: &mut Frame,
+        display: (f32, f32),
+        reveal: f32,
+    ) {
+        let alpha = canvas_alpha(reveal);
+        if alpha == 0 || display.0 <= 0.0 || display.1 <= 0.0 {
+            return;
+        }
+        let rect = Rect {
+            x: 0.0,
+            y: 0.0,
+            w: display.0,
+            h: display.1,
+        };
+        f.place(
+            "tessera-hud-canvas",
+            &PlaceOpts {
+                band: Band::Backdrop,
+                mode: PlaceMode::Exact,
+                rect,
+                layout: LayoutOpts {
+                    bg: hud.background.with_alpha(alpha),
+                    pad: 0.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            |f| {
+                f.row_ex(&sized(rect.w, rect.h), |_| {});
+            },
+        );
+    }
+
     /// Bounds of the currently open dbusmenu popover, if any.
     pub(super) fn open_popover_bounds(&mut self, display: (f32, f32)) -> Option<Rect> {
         let key = self.menu_open_for.clone()?;
@@ -832,6 +889,10 @@ impl ControlCenter {
             self.render_wifi_detail_view(f, area, i18n, out);
             return;
         }
+        if self.bluetooth_expanded {
+            self.render_bluetooth_detail_view(f, area, i18n, out);
+            return;
+        }
 
         let hud = self.panel_colors();
         let type_scale = self.design.typography;
@@ -857,7 +918,7 @@ impl ControlCenter {
         });
 
         let bt_active = status.bluetooth_enabled.unwrap_or(false);
-        let bt_sub = if bt_active { "On" } else { "Off" };
+        let bt_sub = Self::bluetooth_tile_subtitle(&status, i18n);
 
         let dnd_active = status.do_not_disturb;
         let dnd_sub = if dnd_active { "On" } else { "Off" };
@@ -903,6 +964,7 @@ impl ControlCenter {
                                 }
                                 if wifi_expand {
                                     self.wifi_expanded = true;
+                                    self.bluetooth_expanded = false;
                                     out.system_actions.push(SystemAction::ScanWifi);
                                 }
 
@@ -913,20 +975,25 @@ impl ControlCenter {
 
                                 // Bluetooth (2 cols x 1 row, auto-placed under Wi-Fi in the 4-column grid)
                                 f.col_span(2);
-                                if render_quick_toggle_tile(
+                                let (bt_toggle, bt_expand) = render_expandable_quick_toggle_tile(
                                     f,
                                     "tessera-hud-quick-bluetooth",
                                     i18n.text(Message::Bluetooth),
-                                    bt_sub,
+                                    &bt_sub,
                                     lens::sys::lens_icon_id::LENS_ICON_BLUETOOTH,
                                     bt_active,
                                     (tile_w, tile_h),
                                     hud,
                                     type_scale,
-                                ) {
+                                );
+                                if bt_toggle {
                                     out.system_actions.push(SystemAction::SetBluetooth {
                                         enabled: !bt_active,
                                     });
+                                }
+                                if bt_expand {
+                                    self.bluetooth_expanded = true;
+                                    out.system_actions.push(SystemAction::ScanBluetooth);
                                 }
 
                                 // Do Not Disturb (2 cols x 1 row)
@@ -1045,8 +1112,10 @@ impl ControlCenter {
                                             .iter()
                                             .map(|level| Tier::new(format!("{level}%"), *level))
                                             .collect();
-                                        let active = status.kbd_brightness_tier_index();
-                                        if let Some(index) = render_kbd_backlight_tiers(
+                                        let active = self
+                                            .kbd_backlight_preview
+                                            .unwrap_or_else(|| status.kbd_brightness_tier_index());
+                                        let outcome = render_kbd_backlight_tiers(
                                             f,
                                             "tessera-hud-quick-kbd-brightness",
                                             i18n.text(Message::Keyboard),
@@ -1056,7 +1125,18 @@ impl ControlCenter {
                                             (area.w, fader_h),
                                             hud,
                                             type_scale,
-                                        ) && let Some(level) = tiers.get(index).map(|t| t.value)
+                                        );
+                                        // A held press scrubs the highlight across
+                                        // rungs as the pointer moves; releasing
+                                        // off the control cancels the preview
+                                        // (like a slider released off its track).
+                                        if outcome.dragging {
+                                            self.kbd_backlight_preview = outcome.hovered;
+                                        } else {
+                                            self.kbd_backlight_preview = None;
+                                        }
+                                        if let Some(index) = outcome.clicked
+                                            && let Some(level) = tiers.get(index).map(|t| t.value)
                                         {
                                             out.system_actions.push(
                                                 SystemAction::SetKeyboardBrightness { level },
@@ -1573,6 +1653,366 @@ impl ControlCenter {
                                                             self.wifi_input_ssid = None;
                                                             self.wifi_input_passphrase.clear();
                                                         }
+                                                    },
+                                                );
+                                            }
+                                        }
+                                    },
+                                );
+                            });
+                        }
+                    },
+                );
+            },
+        );
+        f.set_theme(original);
+    }
+
+    /// The Bluetooth tile's subtitle: the connected peripheral's name when a
+    /// link is up, otherwise the radio state (ADR-0175).
+    pub(super) fn bluetooth_tile_subtitle(status: &SystemStatus, i18n: &Localizer) -> String {
+        // A live link names the device; an off radio never does, even if a
+        // stale `connected` flag lingers host-side mid-disconnect.
+        if let Some(device) = status.bluetooth_devices.iter().find(|d| d.connected)
+            && status.bluetooth_enabled == Some(true)
+        {
+            return device.name.clone();
+        }
+        match status.bluetooth_enabled {
+            None => i18n.text(Message::Unavailable).to_owned(),
+            Some(false) => i18n.text(Message::Off).to_owned(),
+            Some(true) => match status.bluetooth_state {
+                tessera_desktop::system::BluetoothLinkState::Scanning => {
+                    "Scanning…".to_owned()
+                }
+                _ => i18n.text(Message::On).to_owned(),
+            },
+        }
+    }
+
+    /// Expanded Bluetooth detail view (ADR-0175): the paired/known peripherals
+    /// and the in-range ones, with per-device connect/disconnect/pair/forget
+    /// actions — the parity of [`Self::render_wifi_detail_view`].
+    pub(super) fn render_bluetooth_detail_view(
+        &mut self,
+        f: &mut Frame,
+        area: Rect,
+        i18n: &Localizer,
+        out: &mut ChromeEvents,
+    ) {
+        let hud = self.panel_colors();
+        let type_scale = self.design.typography;
+        let original = f.theme();
+        let status = self.status.clone();
+        let bt_active = status.bluetooth_enabled.unwrap_or(false);
+
+        f.set_theme(themes::hud(&hud));
+        f.place(
+            "tessera-hud-bluetooth-detail",
+            &chrome_place(area, transparent()),
+            |f| {
+                f.column_ex(
+                    &LayoutOpts {
+                        width: area.w,
+                        height: area.h,
+                        gap: 12.0,
+                        cross: Align::Stretch,
+                        ..Default::default()
+                    },
+                    |f| {
+                        // Header row: [< Back] Title  [↻ Scan] [On/Off]
+                        f.row_ex(
+                            &LayoutOpts {
+                                width: area.w,
+                                height: 36.0,
+                                cross: Align::Center,
+                                gap: 8.0,
+                                ..Default::default()
+                            },
+                            |f| {
+                                let (back_resp, _) = f.pressable_row(
+                                    "tessera-bluetooth-back-btn",
+                                    "Back",
+                                    &LayoutOpts {
+                                        width: 80.0,
+                                        height: 36.0,
+                                        radius: 10.0,
+                                        pad: 6.0,
+                                        gap: 4.0,
+                                        bg: hud.surface_recessed,
+                                        cross: Align::Center,
+                                        ..Default::default()
+                                    },
+                                    |f, _| {
+                                        f.icon_raw(
+                                            lens::sys::lens_icon_id::LENS_ICON_CHEVRON_LEFT,
+                                            16.0,
+                                        );
+                                        display_label(f, "Back", type_scale.body);
+                                    },
+                                );
+                                if back_resp.clicked {
+                                    self.bluetooth_expanded = false;
+                                }
+
+                                f.spacer(4.0);
+                                display_label(f, i18n.text(Message::Bluetooth), type_scale.headline);
+
+                                f.flex(1.0);
+                                f.spacer(0.0);
+
+                                // Refresh / Scan button
+                                let (refresh_resp, _) = f.pressable_row(
+                                    "tessera-bluetooth-refresh-btn",
+                                    "Scan",
+                                    &LayoutOpts {
+                                        width: 36.0,
+                                        height: 36.0,
+                                        radius: 18.0,
+                                        cross: Align::Center,
+                                        bg: hud.surface_recessed,
+                                        ..Default::default()
+                                    },
+                                    |f, _| {
+                                        f.flex(1.0);
+                                        f.spacer(0.0);
+                                        f.icon_raw(
+                                            lens::sys::lens_icon_id::LENS_ICON_REFRESH_CW,
+                                            16.0,
+                                        );
+                                        f.flex(1.0);
+                                        f.spacer(0.0);
+                                    },
+                                );
+                                if refresh_resp.clicked {
+                                    out.system_actions.push(SystemAction::ScanBluetooth);
+                                }
+
+                                // Radio toggle
+                                let (toggle_resp, _) = f.pressable_row(
+                                    "tessera-bluetooth-power-btn",
+                                    "Power",
+                                    &LayoutOpts {
+                                        width: 54.0,
+                                        height: 32.0,
+                                        radius: 16.0,
+                                        cross: Align::Center,
+                                        bg: if bt_active {
+                                            hud.accent
+                                        } else {
+                                            hud.surface_recessed
+                                        },
+                                        ..Default::default()
+                                    },
+                                    |f, _| {
+                                        f.flex(1.0);
+                                        f.spacer(0.0);
+                                        let text_color = if bt_active {
+                                            Color::rgba(255, 255, 255, 255)
+                                        } else {
+                                            hud.text_muted
+                                        };
+                                        f.set_theme(themes::hud(&hud).with_fg(text_color));
+                                        display_label(
+                                            f,
+                                            if bt_active { "On" } else { "Off" },
+                                            type_scale.caption,
+                                        );
+                                        f.flex(1.0);
+                                        f.spacer(0.0);
+                                    },
+                                );
+                                if toggle_resp.clicked {
+                                    out.system_actions.push(SystemAction::SetBluetooth {
+                                        enabled: !bt_active,
+                                    });
+                                }
+                            },
+                        );
+
+                        // Body list
+                        let list_h = (area.h - 48.0).max(1.0);
+                        if !bt_active {
+                            f.column_ex(
+                                &LayoutOpts {
+                                    width: area.w,
+                                    height: list_h,
+                                    cross: Align::Center,
+                                    ..Default::default()
+                                },
+                                |f| {
+                                    f.flex(1.0);
+                                    f.spacer(0.0);
+                                    display_label(f, "Bluetooth is turned off", type_scale.body);
+                                    f.flex(1.0);
+                                    f.spacer(0.0);
+                                },
+                            );
+                        } else if status.bluetooth_devices.is_empty() {
+                            f.column_ex(
+                                &LayoutOpts {
+                                    width: area.w,
+                                    height: list_h,
+                                    cross: Align::Center,
+                                    ..Default::default()
+                                },
+                                |f| {
+                                    f.flex(1.0);
+                                    f.spacer(0.0);
+                                    if status.bluetooth_state
+                                        == tessera_desktop::system::BluetoothLinkState::Scanning
+                                    {
+                                        display_label(
+                                            f,
+                                            "Scanning for devices…",
+                                            type_scale.body,
+                                        );
+                                    } else {
+                                        display_label(f, "No devices found", type_scale.body);
+                                    }
+                                    f.flex(1.0);
+                                    f.spacer(0.0);
+                                },
+                            );
+                        } else {
+                            f.scroll("tessera-bluetooth-devices-scroll", |f| {
+                                f.column_ex(
+                                    &LayoutOpts {
+                                        width: area.w,
+                                        gap: 8.0,
+                                        cross: Align::Stretch,
+                                        ..Default::default()
+                                    },
+                                    |f| {
+                                        for (idx, device) in
+                                            status.bluetooth_devices.iter().enumerate()
+                                        {
+                                            let (connect_resp, _) = f.pressable_row(
+                                                &format!("tessera-bluetooth-device-{idx}"),
+                                                &device.name,
+                                                &LayoutOpts {
+                                                    width: area.w,
+                                                    height: 48.0,
+                                                    pad: 8.0,
+                                                    radius: 12.0,
+                                                    bg: hud.surface_recessed,
+                                                    cross: Align::Center,
+                                                    gap: 8.0,
+                                                    ..Default::default()
+                                                },
+                                                |f, _| {
+                                                    f.set_theme(
+                                                        themes::hud(&hud).with_fg(if device.connected {
+                                                            hud.accent
+                                                        } else {
+                                                            hud.text
+                                                        }),
+                                                    );
+                                                    f.icon_raw(
+                                                        lens::sys::lens_icon_id::LENS_ICON_BLUETOOTH,
+                                                        18.0,
+                                                    );
+                                                    f.set_theme(themes::hud(&hud).with_fg(hud.text));
+                                                    display_label(f, &device.name, type_scale.body);
+                                                    f.flex(1.0);
+                                                    f.spacer(0.0);
+                                                    if device.connected {
+                                                        let (d, _) = f.pressable_row(
+                                                            &format!("tessera-bluetooth-disconnect-{idx}"),
+                                                            "Disconnect",
+                                                            &LayoutOpts {
+                                                                width: 84.0,
+                                                                height: 28.0,
+                                                                radius: 8.0,
+                                                                bg: hud.surface,
+                                                                cross: Align::Center,
+                                                                ..Default::default()
+                                                            },
+                                                            |f, _| {
+                                                                f.flex(1.0);
+                                                                f.spacer(0.0);
+                                                                display_label(
+                                                                    f,
+                                                                    "Disconnect",
+                                                                    type_scale.footnote,
+                                                                );
+                                                                f.flex(1.0);
+                                                                f.spacer(0.0);
+                                                            },
+                                                        );
+                                                        if d.clicked {
+                                                            out.system_actions.push(
+                                                                SystemAction::DisconnectBluetooth {
+                                                                    address: device.address.clone(),
+                                                                },
+                                                            );
+                                                        }
+                                                    } else if !device.paired {
+                                                        let (p, _) = f.pressable_row(
+                                                            &format!("tessera-bluetooth-pair-{idx}"),
+                                                            "Pair",
+                                                            &LayoutOpts {
+                                                                width: 56.0,
+                                                                height: 28.0,
+                                                                radius: 8.0,
+                                                                bg: hud.surface,
+                                                                cross: Align::Center,
+                                                                ..Default::default()
+                                                            },
+                                                            |f, _| {
+                                                                f.flex(1.0);
+                                                                f.spacer(0.0);
+                                                                display_label(f, "Pair", type_scale.footnote);
+                                                                f.flex(1.0);
+                                                                f.spacer(0.0);
+                                                            },
+                                                        );
+                                                        if p.clicked {
+                                                            out.system_actions.push(
+                                                                SystemAction::PairBluetooth {
+                                                                    address: device.address.clone(),
+                                                                },
+                                                            );
+                                                        }
+                                                    }
+                                                    if device.paired {
+                                                        let (b, _) = f.pressable_row(
+                                                            &format!("tessera-bluetooth-forget-{idx}"),
+                                                            "Forget",
+                                                            &LayoutOpts {
+                                                                width: 60.0,
+                                                                height: 28.0,
+                                                                radius: 8.0,
+                                                                bg: hud.surface,
+                                                                cross: Align::Center,
+                                                                ..Default::default()
+                                                            },
+                                                            |f, _| {
+                                                                f.flex(1.0);
+                                                                f.spacer(0.0);
+                                                                f.set_theme(
+                                                                    themes::hud(&hud)
+                                                                        .with_fg(hud.text_muted),
+                                                                );
+                                                                display_label(f, "Forget", type_scale.footnote);
+                                                                f.flex(1.0);
+                                                                f.spacer(0.0);
+                                                            },
+                                                        );
+                                                        if b.clicked {
+                                                            out.system_actions.push(
+                                                                SystemAction::ForgetBluetooth {
+                                                                    address: device.address.clone(),
+                                                                },
+                                                            );
+                                                        }
+                                                    }
+                                                },
+                                            );
+                                            if connect_resp.clicked {
+                                                out.system_actions.push(
+                                                    SystemAction::ConnectBluetooth {
+                                                        address: device.address.clone(),
                                                     },
                                                 );
                                             }
@@ -2448,7 +2888,9 @@ impl ControlCenter {
                     },
                     |f, _| {
                         f.centered(lock_rect.w, lock_rect.h, |f| {
-                            f.icon(Icon::Shield, 18.0);
+                            // A padlock, not a shield: this locks the session,
+                            // it does not vouch for security posture (ADR-0080).
+                            f.icon_raw(lens::sys::lens_icon_id::LENS_ICON_LOCK, 18.0);
                         });
                     },
                 );
@@ -2487,7 +2929,9 @@ impl ControlCenter {
                     },
                     |f, _| {
                         f.centered(power_rect.w, power_rect.h, |f| {
-                            f.icon(Icon::Zap, 18.0);
+                            // The universal power glyph, not a lightning bolt:
+                            // Zap reads as "energy/charging", not "shut down".
+                            f.icon_raw(lens::sys::lens_icon_id::LENS_ICON_POWER, 18.0);
                         });
                     },
                 );

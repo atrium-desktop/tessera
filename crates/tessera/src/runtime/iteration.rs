@@ -598,6 +598,16 @@ impl CompositorRuntime<'_> {
             detected.wifi_state = wireless_snap.state;
             detected.wifi_ssid = wireless_snap.active_ssid;
             detected.wifi_networks = wireless_snap.networks;
+            // The subsystem reports adapter power when a Bluetooth service
+            // answered; when none did, the host's rfkill probe is the fallback
+            // (`enabled()` is stably `None` only in that case, so the two never
+            // alternate between ticks).
+            let bluetooth_snap = self.bluetooth.snapshot();
+            detected.bluetooth_enabled = bluetooth_snap
+                .enabled
+                .or_else(crate::host_system::detect_bluetooth_radio);
+            detected.bluetooth_state = bluetooth_snap.state;
+            detected.bluetooth_devices = bluetooth_snap.devices;
             if detected != self.system_status {
                 self.system_status = detected;
                 publish_system_status_parts(
@@ -629,6 +639,31 @@ impl CompositorRuntime<'_> {
             wireless_changed = true;
         }
         if wireless_changed {
+            publish_system_status_parts(
+                &self.system_status,
+                &mut self.shell,
+                &self.live,
+                &self.ipc,
+            );
+            self.damage.chrome_dirty = true;
+        }
+
+        // Reconcile real-time asynchronous Bluetooth state changes (ADR-0175):
+        // discovery results, pairing, and link state move without a command,
+        // so the HUD and the panel follow the subsystem each tick.
+        let bluetooth_snap = self.bluetooth.snapshot();
+        let mut bluetooth_changed = false;
+        // Only the subsystem-owned fields reconcile here; `bluetooth_enabled`
+        // comes from the host probe, matching how `wifi_enabled` is owned.
+        if self.system_status.bluetooth_state != bluetooth_snap.state {
+            self.system_status.bluetooth_state = bluetooth_snap.state;
+            bluetooth_changed = true;
+        }
+        if self.system_status.bluetooth_devices != bluetooth_snap.devices {
+            self.system_status.bluetooth_devices = bluetooth_snap.devices;
+            bluetooth_changed = true;
+        }
+        if bluetooth_changed {
             publish_system_status_parts(
                 &self.system_status,
                 &mut self.shell,
@@ -1379,6 +1414,7 @@ impl CompositorRuntime<'_> {
                     &mut self.ipc_idle_inhibits,
                     &mut self.idle_process,
                     &self.wireless,
+                    &self.bluetooth,
                     &*self.host_system,
                     action,
                 )
@@ -1443,6 +1479,7 @@ impl CompositorRuntime<'_> {
                     &mut self.ipc_idle_inhibits,
                     &mut self.idle_process,
                     &self.wireless,
+                    &self.bluetooth,
                     &*self.host_system,
                     action.clone(),
                 ) {

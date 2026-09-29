@@ -43,4 +43,5 @@ mod engine;
 mod registry;
 
 mod host_system;
+pub mod bluetooth;
 pub mod wireless;

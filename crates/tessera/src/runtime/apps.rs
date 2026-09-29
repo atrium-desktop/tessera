@@ -38,6 +38,8 @@ pub(super) const HUD_SYMBOLIC_ICON_NAMES: &[&str] = &[
     "network-wired-symbolic",
     "network-offline-symbolic",
     "bluetooth-symbolic",
+    "bluetooth-active-symbolic",
+    "bluetooth-disabled-symbolic",
     "preferences-system-notifications-symbolic",
     "preferences-system-symbolic",
     "window-close-symbolic",

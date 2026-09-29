@@ -13,10 +13,11 @@ and desktop preferences. It is not a console for the compositor itself.
 Two frosted chips float over the desktop along the top edge:
 
 - **Left** — network status (the associated Wi-Fi network's name when the
-  live link is wireless), Bluetooth with its on/off word, the speaker's
-  level (or "Muted"), and battery, the StatusNotifierItem tray row (excess
-  items collapse into a `+N` indicator), then the clock and the
-  notification count.
+  live link is wireless), Bluetooth (a themed on/off glyph, plus the connected
+  peripheral's name while a link is up — the radio state is carried by the
+  glyph, so the label slot names *which* device), the speaker's level (or
+  "Muted"), and battery, the StatusNotifierItem tray row (excess items collapse
+  into a `+N` indicator), then the clock and the notification count.
 - **Center** — one dot per workspace; the active workspace's dot is larger
   and brighter.
 
@@ -103,7 +104,7 @@ Long tab bodies scroll inside the main panel.
 
 Open the panel and select the **System** tab. Controls are arranged in an ergonomic **2D Bento Grid** (ADR-0169):
 
-- **Bento Top Cluster**: Network tiles (expandable Wi-Fi on top, Bluetooth below) paired directly beside the integrated **MPRIS Now Playing card** (album art, track title, artist, and transport controls: Previous, Play/Pause, Next);
+- **Bento Top Cluster**: Network tiles (expandable Wi-Fi on top, expandable Bluetooth below) paired directly beside the integrated **MPRIS Now Playing card** (album art, track title, artist, and transport controls: Previous, Play/Pause, Next);
 - **Quick Action Toggles**: Do Not Disturb and Dark Mode arranged side-by-side;
 - **Continuous Faders**: Display brightness slider, sound volume slider with mute toggle, and an adaptive keyboard backlight slider (when supported by hardware, ADR-0168). Controls a host cannot serve read as unavailable or omit their fader entirely.
 
@@ -117,6 +118,19 @@ Under the **System** tab, the Connectivity group features an expandable Wi-Fi ti
 - **Forget Saved Profile**: Saved networks display an inline **Forget** button. Activating it purges credentials and profiles from `/var/lib/iwd/`. If actively connected, the link disconnects immediately.
 - **Auto-Connect Toggle**: Saved profiles provide an **Auto** toggle pill. Disabling it prevents the daemon from automatically connecting when in range (useful for metered mobile hotspots).
 - **Radio Power**: The header switch enables or disables the wireless radio interface without discarding configured networks.
+
+## Manage Bluetooth Devices
+
+Under the **System** tab, the Connectivity group features an expandable Bluetooth tile (ADR-0175):
+
+- **Expand Details**: Click the chevron (`>`) on the Bluetooth tile to reveal the inline device list. Connected peripherals sort first, then paired ones, then in-range-only discoveries.
+- **Scan**: Click the refresh button (`↻`) in the header row to start a bounded (20-second) discovery scan through the host Bluetooth daemon (BlueZ). Discovery auto-stops when the window closes.
+- **Connect / Disconnect**: Click a device to connect; the connected device shows a **Disconnect** button. Connecting to a trusted, already-paired device re-establishes its link.
+- **Pair**: An in-range, unpaired device offers a **Pair** button. Pairing trusts the peripheral so BlueZ may reconnect it automatically on proximity.
+- **Forget**: A paired device offers **Forget**, which removes its host-side pairing keys. If it is connected, the link drops immediately.
+- **Radio Power**: The header switch powers the adapter on or off through the host Bluetooth daemon. Devices are not forgotten when the radio is off.
+
+Opening the Wi-Fi and Bluetooth detail views is mutually exclusive: the quick-controls body hosts one at a time, and `Escape` peels the open detail view before it closes the panel.
 
 ## Edit Persistent Settings
 

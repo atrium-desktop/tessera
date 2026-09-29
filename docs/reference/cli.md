@@ -113,7 +113,7 @@ persistent compositor settings.
 | `tessera system volume <0..100>` | Set the default audio-sink volume percentage. |
 | `tessera system brightness <1..100>` | Set the backlight percentage. |
 | `tessera system wifi <on\|off>` | Enable or disable Wi-Fi. |
-| `tessera system bluetooth <on\|off>` | Enable or disable Bluetooth radios. |
+| `tessera system bluetooth <on\|off>` | Enable or disable the Bluetooth adapter (ADR-0175). |
 | `tessera system do-not-disturb <on\|off>` | Enable or disable notification suppression. |
 | `tessera system power-mode <balanced\|awake\|secure>` | Select the session power mode (ADR-0140): which idle stages stay armed. Session-scoped; not persisted. |
 

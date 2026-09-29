@@ -34,9 +34,6 @@ pub trait HostSystem: Send + Sync {
     /// Step keyboard backlight brightness through supported hardware tiers (ADR-0168).
     fn step_keyboard_brightness(&self) -> Result<(), String>;
 
-    /// Enable or disable bluetooth radio.
-    fn set_bluetooth_enabled(&self, enabled: bool) -> Result<(), String>;
-
     /// Dispatch session suspend.
     fn suspend(&self) -> Result<(), String>;
 
@@ -142,13 +139,6 @@ impl HostSystem for LiveHostSystem {
         };
         self.set_keyboard_brightness(next)
     }
-    fn set_bluetooth_enabled(&self, enabled: bool) -> Result<(), String> {
-        spawn_host_command(
-            "rfkill",
-            &[if enabled { "unblock" } else { "block" }, "bluetooth"],
-        )
-    }
-
     fn suspend(&self) -> Result<(), String> {
         spawn_host_command("systemctl", &["suspend"])
     }
@@ -292,22 +282,33 @@ impl HostSystem for MockHostSystem {
     fn step_keyboard_brightness(&self) -> Result<(), String> {
         let mut st = self.state.lock().unwrap();
         let cur = st.kbd_brightness.unwrap_or(0);
-        let next = if cur >= 90 {
-            0
-        } else if cur >= 60 {
-            100
-        } else if cur >= 30 {
-            66
-        } else {
-            33
+        // Advance through the simulated hardware's own ladder when it is
+        // stepped, mirroring the live backend.
+        let next = match st.kbd_brightness_levels.filter(|n| *n >= 2) {
+            Some(levels) => {
+                let last = (levels - 1) as u32;
+                let rung = (0..levels as u32)
+                    .min_by_key(|step| {
+                        let percent = (step * 100 + last / 2) / last;
+                        (percent as i32 - cur as i32).unsigned_abs()
+                    })
+                    .unwrap_or(0);
+                let next_rung = (rung + 1) % levels as u32;
+                ((next_rung * 100 + last / 2) / last) as u8
+            }
+            None => {
+                if cur >= 90 {
+                    0
+                } else if cur >= 60 {
+                    100
+                } else if cur >= 30 {
+                    66
+                } else {
+                    33
+                }
+            }
         };
         st.kbd_brightness = Some(next);
-        Ok(())
-    }
-
-    fn set_bluetooth_enabled(&self, enabled: bool) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap();
-        st.bluetooth_enabled = Some(enabled);
         Ok(())
     }
 
@@ -346,6 +347,10 @@ impl HostSystem for MockHostSystem {
             },
             wifi_networks: Vec::new(),
             bluetooth_enabled: st.bluetooth_enabled,
+            // The Bluetooth subsystem (ADR-0175) overlays state/devices from
+            // the mock backend each tick; the mock host only owns the boolean.
+            bluetooth_state: tessera_desktop::system::BluetoothLinkState::Disabled,
+            bluetooth_devices: Vec::new(),
             brightness: st.brightness,
             kbd_brightness: st.kbd_brightness,
             kbd_brightness_levels: st.kbd_brightness_levels,
@@ -397,6 +402,10 @@ fn detect_system_status() -> SystemStatus {
         wifi_state,
         wifi_networks: Vec::new(),
         bluetooth_enabled: detect_bluetooth_radio(),
+        // The Bluetooth subsystem (ADR-0175) overlays these from BlueZ each
+        // tick; the rfkill probe above is only the fallback for the boolean.
+        bluetooth_state: tessera_desktop::system::BluetoothLinkState::Disabled,
+        bluetooth_devices: Vec::new(),
         brightness: detect_brightness(),
         kbd_brightness: kbd_level,
         kbd_brightness_levels: kbd_levels,
@@ -437,6 +446,9 @@ fn detect_system_status_lightweight(
         wifi_state,
         wifi_networks: Vec::new(),
         bluetooth_enabled: detect_bluetooth_radio(),
+        // Overlaid from the Bluetooth subsystem each tick (ADR-0175).
+        bluetooth_state: tessera_desktop::system::BluetoothLinkState::Disabled,
+        bluetooth_devices: Vec::new(),
         brightness: detect_brightness(),
         kbd_brightness: kbd_level,
         kbd_brightness_levels: kbd_levels,
@@ -538,7 +550,11 @@ fn detect_wifi_radio() -> Option<bool> {
     None
 }
 
-fn detect_bluetooth_radio() -> Option<bool> {
+/// The rfkill soft-block state of the Bluetooth radio, or `None` when the
+/// host has no Bluetooth rfkill entry. The Bluetooth subsystem (ADR-0175)
+/// owns the authoritative radio state; this probe is the fallback for a host
+/// with no BlueZ service, where the soft-block is the only honest signal.
+pub(crate) fn detect_bluetooth_radio() -> Option<bool> {
     let entries = fs::read_dir("/sys/class/rfkill").ok()?;
     for entry in entries.flatten() {
         let path = entry.path();
@@ -718,11 +734,13 @@ mod tests {
         // Brightness and Bluetooth
         assert!(mock.set_brightness(95).is_ok());
         assert_eq!(mock.detect_status().brightness, Some(95));
-        assert!(mock.set_bluetooth_enabled(false).is_ok());
-        assert_eq!(mock.detect_status().bluetooth_enabled, Some(false));
+        // Bluetooth power is owned by the subsystem (ADR-0175): the host
+        // probe only reports the rfkill reading and no longer exposes a
+        // `rfkill block/unblock` write path.
 
         // Keyboard backlight
         assert_eq!(mock.detect_status().kbd_brightness, Some(66));
+        assert_eq!(mock.detect_status().kbd_brightness_levels, Some(4));
         assert!(mock.set_keyboard_brightness(100).is_ok());
         assert_eq!(mock.detect_status().kbd_brightness, Some(100));
         assert!(mock.step_keyboard_brightness().is_ok());

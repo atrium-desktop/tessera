@@ -484,12 +484,40 @@ fn volume_label_names_the_level_or_the_mute() {
 }
 
 #[test]
-fn bluetooth_label_names_the_radio_state() {
-    let zh = Localizer::new("zh_CN.UTF-8");
-    assert_eq!(bluetooth_label(true, &zh), "开");
-    assert_eq!(bluetooth_label(false, &zh), "关");
-    let en = Localizer::new("en_US.UTF-8");
-    assert_eq!(bluetooth_label(false, &en), "Off");
+fn bluetooth_label_names_the_connected_device() {
+    // No radio service: the cell is absent entirely.
+    let mut status = SystemStatus::default();
+    assert_eq!(bluetooth_label(&status), None);
+
+    // Radio on but nothing connected: an empty label (bare glyph).
+    status.bluetooth_enabled = Some(true);
+    assert_eq!(bluetooth_label(&status), Some(String::new()));
+
+    // A live link names the peripheral (ADR-0175): the HUD shows *which*
+    // device, not an on/off word — the glyph carries the radio state.
+    status.bluetooth_devices = vec![
+        tessera_desktop::system::BluetoothDevice {
+            address: "10:20:30:40:50:60".into(),
+            name: "Keychron K3".into(),
+            connected: false,
+            paired: true,
+            ..Default::default()
+        },
+        tessera_desktop::system::BluetoothDevice {
+            address: "AC:12:34:56:78:9A".into(),
+            name: "Sony WH-1000XM5".into(),
+            connected: true,
+            paired: true,
+            ..Default::default()
+        },
+    ];
+    assert_eq!(bluetooth_label(&status), Some("Sony WH-1000XM5".into()));
+
+    // Radio off: still no fabricated name, and the glyph is the disabled one.
+    status.bluetooth_enabled = Some(false);
+    assert_eq!(bluetooth_label(&status), Some(String::new()));
+    assert_eq!(bluetooth_icon_name(false), "bluetooth-disabled-symbolic");
+    assert_eq!(bluetooth_icon_name(true), "bluetooth-active-symbolic");
 }
 
 #[test]
@@ -544,15 +572,29 @@ fn left_chip_grows_for_each_labeled_status_cell() {
     let ssid_growth = icon_label_cell_w("Homelab-5G", footnote) - CELL_ICON;
     assert!((with_ssid.chips[LEFT].w - baseline.chips[LEFT].w - ssid_growth).abs() < 0.01);
 
-    // Bluetooth: a new icon+on/off cell appears beside the network cell.
+    // Bluetooth: a new bare-glyph cell appears beside the network cell
+    // (nothing connected yet), then grows to icon+name when a link is up.
     bar.status.bluetooth_enabled = Some(true);
     let with_bt = bar.chip_layout((1920.0, 1080.0), &workspaces, 0, 0, 0);
-    let bt_growth = icon_label_cell_w(&bluetooth_label(true, &bar.i18n), footnote) + CELL_GAP;
-    assert!((with_bt.chips[LEFT].w - with_ssid.chips[LEFT].w - bt_growth).abs() < 0.01);
+    let bt_bare_growth = CELL_ICON + CELL_GAP;
+    assert!((with_bt.chips[LEFT].w - with_ssid.chips[LEFT].w - bt_bare_growth).abs() < 0.01);
+
+    bar.status.bluetooth_devices = vec![tessera_desktop::system::BluetoothDevice {
+        address: "AC:12:34:56:78:9A".into(),
+        name: "Sony WH-1000XM5".into(),
+        connected: true,
+        paired: true,
+        ..Default::default()
+    }];
+    let with_bt_name = bar.chip_layout((1920.0, 1080.0), &workspaces, 0, 0, 0);
+    let bt_name_growth = icon_label_cell_w("Sony WH-1000XM5", footnote) - CELL_ICON;
+    assert!(
+        (with_bt_name.chips[LEFT].w - with_bt.chips[LEFT].w - bt_name_growth).abs() < 0.01
+    );
 
     // Speaker: a whole new cell appears with the level beside the glyph.
     bar.status.volume = Some(42);
     let with_volume = bar.chip_layout((1920.0, 1080.0), &workspaces, 0, 0, 0);
     let vol_growth = icon_label_cell_w("42%", footnote) + CELL_GAP;
-    assert!((with_volume.chips[LEFT].w - with_bt.chips[LEFT].w - vol_growth).abs() < 0.01);
+    assert!((with_volume.chips[LEFT].w - with_bt_name.chips[LEFT].w - vol_growth).abs() < 0.01);
 }

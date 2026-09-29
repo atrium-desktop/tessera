@@ -14,6 +14,12 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Added
+- Bluetooth parity with Wi-Fi (ADR-0175): a daemon-neutral Bluetooth subsystem with a BlueZ (`org.bluez`) bridge and a deterministic mock; the Control Center's Bluetooth tile expands into a device list with scan, pair, connect, disconnect, and forget; the HUD shows a themed on/off glyph plus the connected peripheral's name.
+
+### Changed
+- The HUD status row now groups its cells: the gutter between cells widened from 2px to 10px while the icon↔label gap inside a cell stays tight, so network, Bluetooth, speaker, and battery read as distinct groups.
+
 ## [0.0.71] - 2026-09-28
 
 ### Changed

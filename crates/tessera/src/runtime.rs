@@ -567,6 +567,25 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
     let mut system_status = host_system.detect_status();
     system_status.wifi_networks = wireless.snapshot().networks;
+    let bluetooth = if is_preview {
+        log::info!("bluetooth subsystem: running preview session; using mock backend");
+        let mock = crate::bluetooth::MockBluetoothBackend::new();
+        // Seed a live link so preview shows the HUD's connected-device name
+        // and the detail view's "connected" row without host hardware.
+        let _ = mock.connect("AC:12:34:56:78:9A");
+        crate::bluetooth::BluetoothHandle::spawn_with_backend(mock)
+    } else {
+        crate::bluetooth::BluetoothHandle::spawn_auto()
+    };
+    // The subsystem reports adapter power when a Bluetooth service answered;
+    // otherwise the host's rfkill probe is the fallback, exactly as it seeds
+    // `bluetooth_enabled` in `detect_status`.
+    let bluetooth_snapshot = bluetooth.snapshot();
+    system_status.bluetooth_enabled = bluetooth_snapshot
+        .enabled
+        .or_else(crate::host_system::detect_bluetooth_radio);
+    system_status.bluetooth_state = bluetooth_snapshot.state;
+    system_status.bluetooth_devices = bluetooth_snapshot.devices;
     system_status.input = input_status;
     system_status.display = tessera_desktop::settings::DisplayStatus {
         configurable: host.name() == "drm",
@@ -1108,6 +1127,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         keymap,
         system_status,
         wireless,
+        bluetooth,
         status_rx,
         status_refresh_tx,
         config_writer,

@@ -1,5 +1,7 @@
 use super::*;
 
+use super::presentation::canvas_alpha;
+
 fn escape() -> KeyChar {
     KeyChar {
         keysym: tessera_primitives::input::XKB_KEY_Escape,
@@ -30,15 +32,28 @@ fn toggle_opens_and_closes_the_panel() {
     assert!(panel.modal_active());
     assert!(panel.exclusive_presentation_active());
     assert!(panel.requires_composition());
-    assert!(!panel.anim_pending());
-    assert_eq!(
-        panel.backdrop_blur_sigma(),
-        crate::component::BackdropCover::BLUR_SIGMA
+    // The settle drain keeps the ring alive for FLUX_MAX_FRAMES_IN_FLIGHT
+    // frames even with reduced motion, so the opaque canvas reaches every slot.
+    assert!(panel.anim_pending());
+
+    // The panel paints its own opaque full-screen canvas; it declares no
+    // backdrop capture, blur, or frost (ADR-0176).
+    assert_eq!(panel.backdrop_blur_sigma(), 0.0);
+    assert!(
+        panel
+            .backdrop_regions(
+                (1920.0, 1080.0),
+                &[],
+                &WorkspaceSnapshot { outputs: Vec::new() },
+            )
+            .is_empty()
     );
 
     panel.toggle_command_panel(&mut out);
     assert!(!panel.open);
-    panel.advance(0.016);
+    for _ in 0..(SETTLED_DRAIN_FRAMES + 1) {
+        panel.advance(0.016);
+    }
     assert!(!panel.command_panel_active());
     assert!(!panel.exclusive_presentation_active());
     assert_eq!(panel.backdrop_blur_sigma(), 0.0);
@@ -50,14 +65,54 @@ fn reveal_eases_instead_of_snapping_without_reduced_motion() {
     let mut out = ChromeEvents::default();
     panel.toggle_command_panel(&mut out);
     panel.advance(0.016);
-    let early = panel.reveal;
+    let early = panel.reveal();
     assert!(early > 0.0 && early < 1.0);
     assert!(panel.anim_pending());
     for _ in 0..240 {
         panel.advance(0.016);
     }
-    assert_eq!(panel.reveal, 1.0);
+    assert_eq!(panel.reveal(), 1.0);
     assert!(!panel.anim_pending());
+}
+
+#[test]
+fn the_settle_drain_keeps_the_panel_active_for_the_ring_depth() {
+    // The opaque full-screen canvas must overwrite the pre-open desktop in
+    // every swapchain ring slot; on the frame the reveal settles the panel
+    // primes FLUX_MAX_FRAMES_IN_FLIGHT (3) drain frames of full-output damage
+    // before releasing the chrome layer (ADR-0171 `[INV-ARCH-03]`).
+    let mut panel = CommandPanel::without_sources();
+    let mut out = ChromeEvents::default();
+    panel.toggle_command_panel(&mut out);
+    panel.reveal.snap_to(1.0);
+
+    // Close: the reveal travels to 0, then the settle edge primes the drain.
+    panel.toggle_command_panel(&mut out);
+    assert!(!panel.open);
+    let mut drain_primed = false;
+    for _ in 0..240 {
+        panel.advance(0.016);
+        if panel.reveal() == 0.0 && !panel.reveal_animating() && panel.settled_drain_frames > 0 {
+            drain_primed = true;
+            break;
+        }
+    }
+    assert!(drain_primed, "the settle edge primes the ring drain");
+    assert!(panel.active(), "the drain keeps the chrome layer");
+    assert!(panel.anim_pending(), "the drain keeps the frame loop alive");
+    assert!(
+        panel.damage_region(&[], (1920.0, 1080.0)).is_none(),
+        "the drain forces a full-output repaint"
+    );
+
+    // Exactly FLUX_MAX_FRAMES_IN_FLIGHT further frames drain the ring, then the
+    // panel releases the chrome layer.
+    for _ in 0..SETTLED_DRAIN_FRAMES {
+        assert!(panel.active());
+        panel.advance(0.016);
+    }
+    assert!(!panel.anim_pending());
+    assert!(!panel.active(), "the chrome layer is released after the drain");
 }
 
 #[test]
@@ -66,17 +121,21 @@ fn reduced_motion_snaps_reveal_to_its_target() {
     let mut out = ChromeEvents::default();
     panel.toggle_command_panel(&mut out);
     panel.set_reduced_motion(true);
-    assert_eq!(panel.reveal, 1.0);
+    assert_eq!(panel.reveal(), 1.0);
     panel.set_reduced_motion(false);
     panel.toggle_command_panel(&mut out);
     panel.set_reduced_motion(true);
-    assert_eq!(panel.reveal, 0.0);
+    assert_eq!(panel.reveal(), 0.0);
 }
 
 #[test]
 fn a_playing_avatar_keeps_the_panel_frame_loop_alive_after_reveal() {
-    assert!(presentation_anim_pending(1.0, 1.0, true, false));
-    assert!(!presentation_anim_pending(1.0, 1.0, false, false));
+    let settled = Spring::new(1.0);
+    assert!(presentation_anim_pending(&settled, 1.0, true, false));
+    assert!(!presentation_anim_pending(&settled, 1.0, false, false));
+    // A reveal still in flight keeps the loop alive even with no avatar.
+    let moving = Spring::new(0.2);
+    assert!(presentation_anim_pending(&moving, 1.0, false, false));
 }
 
 #[test]
@@ -139,7 +198,11 @@ fn a_fullscreen_window_closes_the_panel() {
     panel.update_windows(&[fullscreen_window()]);
     assert!(!panel.open);
     assert!(panel.menu_open_for.is_none());
-    panel.advance(0.016);
+    // The panel keeps the chrome layer for the ring drain after closing, then
+    // releases it.
+    for _ in 0..(SETTLED_DRAIN_FRAMES + 1) {
+        panel.advance(0.016);
+    }
     assert!(!panel.command_panel_active());
 }
 
@@ -237,7 +300,7 @@ fn stagger_delays_the_content_panel_behind_the_menu() {
 }
 
 #[test]
-fn control_center_requests_unified_backdrop_cover() {
+fn control_center_paints_its_own_canvas_and_declares_no_backdrop() {
     let mut panel = ControlCenter::without_sources();
     let display = (1920.0, 1080.0);
     let workspaces = WorkspaceSnapshot {
@@ -245,52 +308,43 @@ fn control_center_requests_unified_backdrop_cover() {
     };
     let mut out = ChromeEvents::default();
 
-    // No hidden-state effect declarations.
+    // The panel never declares a backdrop capture, blur, frost, or analytic
+    // glass — its background is painted chrome (ADR-0176).
     assert!(
         panel
             .liquid_glass_regions(display, &[], &workspaces)
             .is_empty()
     );
-    assert!(panel.backdrop_regions(display, &[], &workspaces).is_empty());
     assert_eq!(panel.backdrop_blur_sigma(), 0.0);
+    assert!(panel.backdrop_regions(display, &[], &workspaces).is_empty());
 
-    // Opening activates the unified BackdropCover depth-of-field blur and
-    // wash at full strength.
+    // Opening leaves the backdrop declarations empty: no full-screen blur is
+    // ever requested, so the compositor's desktop capture/effect graph stays
+    // off for the panel's whole lifecycle.
     panel.toggle_command_panel(&mut out);
-    panel.reveal = 1.0;
+    panel.reveal.snap_to(1.0);
     assert_eq!(
         panel.backdrop_blur_sigma(),
-        crate::component::BackdropCover::BLUR_SIGMA
+        0.0,
+        "the panel must not request a full-screen blur"
     );
-    let regions = panel.backdrop_regions(display, &[], &workspaces);
-    assert_eq!(regions.len(), 1);
-    assert_eq!(regions[0].w, display.0);
-    assert_eq!(regions[0].h, display.1);
-    assert!(regions[0].wash.is_some());
-    assert_eq!(regions[0].opacity, 1.0);
+    assert!(panel.backdrop_regions(display, &[], &workspaces).is_empty());
+}
 
-    // The exit fade drains the cover with the reveal: the scrim wash and
-    // the frost body both ease out, so the close animation no longer holds
-    // a gray plate at full strength and then vanishes in one frame.
-    panel.toggle_command_panel(&mut out);
-    panel.reveal = 0.5;
-    let mid = panel.backdrop_regions(display, &[], &workspaces);
-    assert_eq!(mid.len(), 1, "the cover stays declared mid-fade");
+#[test]
+fn canvas_alpha_tracks_the_reveal_and_paints_nothing_at_zero() {
+    // The painted canvas is opaque at full reveal and drains to nothing at the
+    // start of an open / the end of a close, so it never pops.
+    assert_eq!(canvas_alpha(0.0), 0, "a drained canvas paints nothing");
+    assert_eq!(canvas_alpha(1.0), 255, "the settled canvas is opaque");
     assert!(
-        mid[0].opacity > 0.0 && mid[0].opacity < 1.0,
-        "the frost body is mid-fade: {}",
-        mid[0].opacity
+        canvas_alpha(0.5) > 0 && canvas_alpha(0.5) < 255,
+        "the canvas rides the reveal: {}",
+        canvas_alpha(0.5)
     );
-    assert!(mid[0].wash.is_some());
-    assert!(
-        mid[0].wash.unwrap().strength < regions[0].wash.unwrap().strength,
-        "the wash drains with the fade"
-    );
-    assert_eq!(
-        panel.backdrop_blur_sigma(),
-        crate::component::BackdropCover::BLUR_SIGMA,
-        "the radius stays constant mid-fade (no capture teardown)"
-    );
+    // Out-of-range progress clamps rather than overflowing the byte.
+    assert_eq!(canvas_alpha(-0.5), 0);
+    assert_eq!(canvas_alpha(1.5), 255);
 }
 
 #[test]
@@ -634,6 +688,122 @@ fn wifi_forget_and_autoconnect_actions_validate() {
 }
 
 #[test]
+fn bluetooth_collapsed_and_expanded_state_lifecycle() {
+    let mut panel = CommandPanel::without_sources();
+    let mut out = ChromeEvents::default();
+
+    panel.toggle_command_panel(&mut out);
+    assert!(panel.open);
+    assert!(!panel.bluetooth_expanded);
+
+    // Expand Bluetooth
+    panel.bluetooth_expanded = true;
+    assert!(panel.bluetooth_expanded);
+
+    // Closing the panel collapses the detail view.
+    panel.close();
+    assert!(!panel.open);
+    assert!(!panel.bluetooth_expanded);
+}
+
+#[test]
+fn bluetooth_and_wifi_detail_views_are_mutually_exclusive() {
+    // The quick-controls body hosts one detail view at a time; opening either
+    // tile's chevron clears the other.
+    let mut panel = CommandPanel::without_sources();
+    panel.open = true;
+
+    panel.wifi_expanded = true;
+    panel.select_tab(Tab::Settings(ModuleId::new("display")));
+    // A tab switch clears both (the tile is not visible on a settings tab).
+    assert!(!panel.wifi_expanded);
+    assert!(!panel.bluetooth_expanded);
+}
+
+#[test]
+fn bluetooth_escape_peels_expanded_view_first() {
+    let mut panel = CommandPanel::without_sources();
+    let mut out = ChromeEvents::default();
+
+    panel.open = true;
+    panel.bluetooth_expanded = true;
+
+    let kc = |keysym| KeyChar {
+        keysym,
+        ch: None,
+        mods: tessera_primitives::input::Mods(0),
+    };
+
+    // First escape collapses the Bluetooth detail, leaves the panel open.
+    panel.key_char(&kc(tessera_primitives::input::XKB_KEY_Escape), &mut out);
+    assert!(panel.open);
+    assert!(!panel.bluetooth_expanded);
+
+    // Second escape closes the panel.
+    panel.key_char(&kc(tessera_primitives::input::XKB_KEY_Escape), &mut out);
+    assert!(!panel.open);
+}
+
+#[test]
+fn bluetooth_detail_actions_validate() {
+    let mut out = ChromeEvents::default();
+    out.system_actions.push(SystemAction::ScanBluetooth);
+    out.system_actions.push(SystemAction::PairBluetooth {
+        address: "AC:12:34:56:78:9A".to_string(),
+    });
+    out.system_actions.push(SystemAction::ConnectBluetooth {
+        address: "AC:12:34:56:78:9A".to_string(),
+    });
+    out.system_actions.push(SystemAction::DisconnectBluetooth {
+        address: "AC:12:34:56:78:9A".to_string(),
+    });
+    out.system_actions.push(SystemAction::ForgetBluetooth {
+        address: "AC:12:34:56:78:9A".to_string(),
+    });
+    assert_eq!(out.system_actions.len(), 5);
+    assert!(out.system_actions.iter().all(|action| action.validate().is_ok()));
+}
+
+#[test]
+fn bluetooth_tile_subtitle_prioritizes_the_connected_device() {
+    let i18n = Localizer::default();
+
+    // No radio service: unavailable, never a fabricated "Off".
+    assert_eq!(
+        CommandPanel::bluetooth_tile_subtitle(&SystemStatus::default(), &i18n),
+        i18n.text(Message::Unavailable)
+    );
+
+    // Radio off.
+    let off = SystemStatus {
+        bluetooth_enabled: Some(false),
+        ..SystemStatus::default()
+    };
+    assert_eq!(
+        CommandPanel::bluetooth_tile_subtitle(&off, &i18n),
+        i18n.text(Message::Off)
+    );
+
+    // Radio on with a live link names the device.
+    let connected = SystemStatus {
+        bluetooth_enabled: Some(true),
+        bluetooth_state: tessera_desktop::system::BluetoothLinkState::Connected,
+        bluetooth_devices: vec![tessera_desktop::system::BluetoothDevice {
+            address: "AC:12:34:56:78:9A".to_string(),
+            name: "Sony WH-1000XM5".to_string(),
+            connected: true,
+            paired: true,
+            ..Default::default()
+        }],
+        ..SystemStatus::default()
+    };
+    assert_eq!(
+        CommandPanel::bluetooth_tile_subtitle(&connected, &i18n),
+        "Sony WH-1000XM5"
+    );
+}
+
+#[test]
 fn keyboard_backlight_actions_validate() {
     let mut out = ChromeEvents::default();
     out.system_actions
@@ -673,16 +843,29 @@ fn quick_controls_grid_fits_the_main_panel_body() {
 }
 
 #[test]
-fn keyboard_backlight_tier_ladder_matches_adr_0168() {
-    // The control commits exactly the documented hardware ladder.
-    assert_eq!(KBD_TIER_LEVELS, [0, 33, 66, 100]);
-    // A reported level maps to its nearest rung, so every level the host can
-    // report lands on a selectable tier.
-    assert_eq!(kbd_tier_index(0), 0);
-    assert_eq!(kbd_tier_index(30), 1);
-    assert_eq!(kbd_tier_index(66), 2);
-    assert_eq!(kbd_tier_index(100), 3);
-    assert_eq!(kbd_tier_index(255), 3);
+fn keyboard_backlight_policy_follows_hardware_granularity() {
+    // Stepped hardware (e.g. a 3-rung backlight) yields a real ladder and maps
+    // a reported level to its nearest rung.
+    let stepped = SystemStatus {
+        kbd_brightness: Some(50),
+        kbd_brightness_levels: Some(3),
+        ..SystemStatus::default()
+    };
+    assert_eq!(stepped.kbd_brightness_tiers(), Some(vec![0, 50, 100]));
+    assert_eq!(stepped.kbd_brightness_tier_index(), 1);
+
+    // Fine-grained hardware (max_brightness = 255) is not a stepped selector;
+    // chrome falls back to a continuous fader.
+    let fine = SystemStatus {
+        kbd_brightness: Some(42),
+        kbd_brightness_levels: Some(255),
+        ..SystemStatus::default()
+    };
+    assert_eq!(fine.kbd_brightness_tiers(), None);
+
+    // No backlight at all: nothing renders.
+    let none = SystemStatus::default();
+    assert_eq!(none.kbd_brightness_tiers(), None);
 }
 
 #[test]
@@ -693,6 +876,27 @@ fn keyboard_backlight_indicator_settles_on_the_active_tier() {
     indicator.advance(3, 1.0 / 60.0, true);
     assert!(!indicator.anim_pending(3), "reduced motion resolves in one frame");
     assert!((indicator.spring.value - 3.0).abs() < 1e-3);
+}
+
+#[test]
+fn indicator_spring_actually_overshoots() {
+    // Regression: the indicator was tuned critically damped (ζ = 1.0), so the
+    // "bounce" the comments and docs promised could not occur. The under-damped
+    // tuning must cross its target before settling.
+    assert!(
+        crate::widgets::tiered::INDICATOR_SPRING.damping < 1.0,
+        "the indicator must be under-damped to overshoot"
+    );
+    let mut indicator = TieredIndicator::at(0);
+    let mut overshot = false;
+    for _ in 0..600 {
+        indicator.advance(3, 1.0 / 120.0, false);
+        if indicator.spring.value > 3.0 + 1e-3 {
+            overshot = true;
+        }
+    }
+    assert!(overshot, "an under-damped indicator must cross its target");
+    assert!(!indicator.anim_pending(3), "and still settle on it");
 }
 
 #[test]
@@ -718,7 +922,7 @@ fn mpris_mock_handle_state_and_commands() {
 fn quick_controls_grid_is_placed_in_main_panel() {
     let mut panel = ControlCenter::without_sources();
     panel.open = true;
-    panel.reveal = 1.0;
+    panel.reveal.snap_to(1.0);
     let display = (1920.0, 1080.0);
     let workspaces = WorkspaceSnapshot {
         outputs: Vec::new(),

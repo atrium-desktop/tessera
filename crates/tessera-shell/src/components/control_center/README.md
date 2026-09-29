@@ -24,7 +24,10 @@ pointer input. The interactions it used to host live here instead — a
 full-screen modal overlay in a personal-info HUD language over an opaque,
 scheme-adaptive canvas. Solid elevated surfaces use grouped grays, quiet
 separators, and system-blue interaction states, with bold sans-serif display
-typography. The panel does not request backdrop blur or liquid glass. It opens
+typography. The panel paints that canvas itself — a full-screen solid fill in
+the lens `Backdrop` band, faded by the reveal — and requests no backdrop
+capture, blur, frost, or liquid glass (ADR-0176), so its enter/exit is a
+paint-only fade that never composites the desktop. It opens
 through the `Super+S` keybinding or a four-finger touchpad swipe down (both
 dispatched by the compositor's main loop), and closes on Escape, a click on
 the background, the same keybinding, or a four-finger swipe up.
@@ -33,10 +36,11 @@ Surfaces:
 
 - **Quick Controls tab (first)** — the daily toggles: volume (+ mute),
   brightness, always-on (the session idle inhibitor), and do-not-disturb,
-  emitted as `SystemAction`s. The remaining quick settings (Wi-Fi and
-  Bluetooth radios, tiled layout, Agent Workspaces status, Lock Now) are
-  held out of the panel for now; they return through the settings module
-  tabs.
+  emitted as `SystemAction`s. The Wi-Fi and Bluetooth tiles sit at the top
+  of the Bento grid as expandable connectivity cards: each exposes a chevron
+  that opens an inline detail view (network/device list with scan, connect,
+  disconnect, and forget/pair actions) rooted in the daemon-neutral wireless
+  and Bluetooth subsystems (ADR-0162, ADR-0175).
 - **Settings module tabs** — one tab per available settings module
   (display, input, appearance, power), rendered from the registry inside
   the main panel; their `SettingsAction`s leave through

@@ -67,10 +67,41 @@ pub(super) fn volume_label(volume: Option<u8>, muted: bool, i18n: &Localizer) ->
     })
 }
 
-/// The Bluetooth cell label: the localized on/off word beside the glyph.
-pub(super) fn bluetooth_label(enabled: bool, i18n: &Localizer) -> String {
-    i18n.text(if enabled { Message::On } else { Message::Off })
-        .to_owned()
+/// The Bluetooth cell label: the connected peripheral's name, or empty when
+/// a link is down. `None` when no Bluetooth radio answered at all — the cell
+/// is then absent, exactly like the audio cell.
+///
+/// The on/off word is deliberately gone (ADR-0175 §3): the HUD speaks in
+/// glyphs, and [`bluetooth_icon_name`] carries the radio state for on/off,
+/// so the label slot is free for the only genuinely informative string —
+/// *which* device is connected.
+pub(super) fn bluetooth_label(status: &SystemStatus) -> Option<String> {
+    let enabled = status.bluetooth_enabled?;
+    // An off radio names no device, even if a stale `connected` flag lingers:
+    // the label is the live link's identity, not a historical one.
+    let name = if enabled {
+        status
+            .bluetooth_devices
+            .iter()
+            .find(|device| device.connected)
+            .map(|device| device.name.clone())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    Some(name)
+}
+
+/// The themed glyph for the Bluetooth radio state: an active glyph when the
+/// radio is on, a struck-through one when it is off. Both are Adwaita's
+/// standard status names; a theme that lacks them falls back to the generic
+/// `bluetooth-symbolic`.
+pub(super) fn bluetooth_icon_name(enabled: bool) -> &'static str {
+    if enabled {
+        "bluetooth-active-symbolic"
+    } else {
+        "bluetooth-disabled-symbolic"
+    }
 }
 
 /// The Wi-Fi cell label: the associated network's name. `None` when the
@@ -242,6 +273,16 @@ pub(super) fn render_text(
     });
 }
 
+/// The vector glyph a status cell draws when the themed raster set is
+/// unavailable for it.
+#[derive(Clone, Copy)]
+pub(super) enum CellGlyph {
+    /// A built-in lens vector glyph.
+    Builtin(Icon),
+    /// A runtime-registered lens icon id (e.g. the Bluetooth rune).
+    Registered(lens::sys::lens_icon_id),
+}
+
 /// One display-only status cell: a themed raster icon (or vector fallback)
 /// plus an optional compact label. The frame opacity fades the raster tint
 /// with the chip theme and the compositor glass body.
@@ -251,7 +292,7 @@ pub(super) fn render_status_cell(
     id: &str,
     rect: Rect,
     themed_icon: Option<*mut c_void>,
-    fallback: Icon,
+    fallback: CellGlyph,
     label: &str,
 ) {
     f.place(id, &chrome_place(rect, centered_layer()), |f| {
@@ -259,7 +300,7 @@ pub(super) fn render_status_cell(
             &LayoutOpts {
                 width: rect.w,
                 height: rect.h,
-                gap: if label.is_empty() { 0.0 } else { 4.0 },
+                gap: if label.is_empty() { 0.0 } else { STATUS_LABEL_GAP },
                 cross: Align::Center,
                 ..Default::default()
             },
@@ -277,7 +318,10 @@ pub(super) fn render_status_cell(
                     },
                     None => {
                         f.push_style(hud_glyph_outline(design));
-                        f.icon(fallback, 15.0);
+                        match fallback {
+                            CellGlyph::Builtin(icon) => f.icon(icon, 16.0),
+                            CellGlyph::Registered(id) => f.icon_raw(id, 16.0),
+                        }
                         f.pop_style();
                     }
                 }
@@ -289,6 +333,20 @@ pub(super) fn render_status_cell(
             },
         );
     });
+}
+
+/// The Bluetooth radio glyph: the runtime-registered rune when available,
+/// else a built-in placeholder. The placeholder only paints when the SVG
+/// registry itself failed — an unlikely host fault, not a normal path.
+pub(super) fn bluetooth_cell_glyph(enabled: bool) -> CellGlyph {
+    match crate::widgets::icons::bluetooth(enabled) {
+        Some(id) => CellGlyph::Registered(id),
+        None => CellGlyph::Builtin(if enabled {
+            Icon::Radio
+        } else {
+            Icon::Slash
+        }),
+    }
 }
 
 pub(super) fn hud_contour_color(design: &Design) -> Color {

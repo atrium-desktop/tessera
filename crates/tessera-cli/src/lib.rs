@@ -1393,8 +1393,14 @@ fn format_system_status(status: &tessera_protocol::SystemStatus) -> String {
         .brightness
         .map(|level| format!("{level}%"))
         .unwrap_or_else(|| "unavailable".into());
+    let bluetooth_device = status
+        .bluetooth_devices
+        .iter()
+        .find(|device| device.connected)
+        .map(|device| format!("\nbluetooth device: {}", device.name))
+        .unwrap_or_default();
     format!(
-        "audio: {volume} ({})\nnetwork: {network}; wifi: {}; bluetooth: {}\n\
+        "audio: {volume} ({})\nnetwork: {network}; wifi: {}; bluetooth: {}{bluetooth_device}\n\
          battery: {battery}; brightness: {brightness}\n\
          do not disturb: {}",
         if status.muted { "muted" } else { "unmuted" },

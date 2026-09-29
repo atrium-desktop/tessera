@@ -13,7 +13,7 @@ pub(super) use crate::widgets::motion::ease_out_cubic;
 pub(super) use crate::widgets::motion::stagger;
 pub(super) use crate::widgets::shapes::render_disc;
 pub(super) use crate::widgets::shapes::render_ring;
-pub(super) use crate::widgets::tiered::{Tier, TieredIndicator, tiered_control};
+pub(super) use crate::widgets::tiered::{Tier, TieredIndicator, TieredOutcome, tiered_control};
 
 /// Two settings actions are the same kind when they mutate the same
 /// settings section; the queue keeps only the newest draft of each kind
@@ -407,7 +407,8 @@ pub(super) fn render_horizontal_fader(
 /// instead of a continuous trough. Used for controls whose hardware exposes
 /// fixed steps (keyboard backlight, ADR-0168).
 ///
-/// Returns the selected tier index when the user picks a new tier this frame.
+/// Returns the frame's [`TieredOutcome`]: the caller decides whether to commit
+/// (`clicked`), preview a drag (`dragging` + `hovered`), or ignore it.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn render_kbd_backlight_tiers(
     f: &mut Frame,
@@ -419,13 +420,13 @@ pub(super) fn render_kbd_backlight_tiers(
     size: (f32, f32),
     hud: ControlCenterColors,
     type_scale: TypeScale,
-) -> Option<usize> {
+) -> TieredOutcome {
     let original = f.theme();
     let pad = 10.0;
     let inner_w = (size.0 - pad * 2.0).max(1.0);
     let theme = themes::hud(&hud).with_fg(hud.text);
     f.set_theme(theme);
-    let mut selected = None;
+    let mut outcome = TieredOutcome::default();
 
     f.column_ex(
         &LayoutOpts {
@@ -470,7 +471,7 @@ pub(super) fn render_kbd_backlight_tiers(
                 },
             );
 
-            selected = tiered_control(
+            outcome = tiered_control(
                 f,
                 id,
                 tiers,
@@ -483,7 +484,7 @@ pub(super) fn render_kbd_backlight_tiers(
         },
     );
     f.set_theme(original);
-    selected
+    outcome
 }
 
 // ---- dbusmenu popover helpers -------------------------------------------

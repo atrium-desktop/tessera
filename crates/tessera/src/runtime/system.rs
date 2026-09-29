@@ -28,6 +28,7 @@ pub(super) fn apply_system_action(
     idle_inhibits: &mut super::idle::IdleInhibits,
     idle_process: &mut super::session::IdleProcess,
     wireless: &crate::wireless::WirelessHandle,
+    bluetooth: &crate::bluetooth::BluetoothHandle,
     host_system: &dyn HostSystem,
     action: tessera_desktop::system::SystemAction,
 ) -> Result<(), String> {
@@ -72,7 +73,7 @@ pub(super) fn apply_system_action(
             // stepped; otherwise fall back to the documented default ladder.
             let ladder = status
                 .kbd_brightness_tiers()
-                .unwrap_or_else(|| vec![0, 33, 66, 100]);
+                .unwrap_or_else(|| tessera_desktop::system::KBD_BRIGHTNESS_FALLBACK_TIERS.to_vec());
             let cur = status.kbd_brightness.unwrap_or(0);
             let index = ladder
                 .iter()
@@ -128,8 +129,44 @@ pub(super) fn apply_system_action(
             }
         }
         SystemAction::SetBluetooth { enabled } => {
-            host_system.set_bluetooth_enabled(enabled)?;
+            // Parity with `SetWifi`: the write goes only through the subsystem
+            // (BlueZ owns the adapter's rfkill soft-block itself), never a
+            // forked host command.
+            bluetooth.set_enabled(enabled);
             status.bluetooth_enabled = Some(enabled);
+            if !enabled {
+                status.bluetooth_state = tessera_desktop::system::BluetoothLinkState::Disabled;
+                for device in &mut status.bluetooth_devices {
+                    device.connected = false;
+                }
+            } else if status.bluetooth_state
+                == tessera_desktop::system::BluetoothLinkState::Disabled
+            {
+                status.bluetooth_state = tessera_desktop::system::BluetoothLinkState::Idle;
+            }
+        }
+        SystemAction::ScanBluetooth => {
+            bluetooth.request_scan();
+            status.bluetooth_state = tessera_desktop::system::BluetoothLinkState::Scanning;
+        }
+        SystemAction::PairBluetooth { address } => {
+            bluetooth.pair(address);
+        }
+        SystemAction::ConnectBluetooth { address } => {
+            bluetooth.connect(address);
+        }
+        SystemAction::DisconnectBluetooth { address } => {
+            bluetooth.disconnect(address.clone());
+            for device in &mut status.bluetooth_devices {
+                if device.address == address {
+                    device.connected = false;
+                }
+            }
+            status.bluetooth_state = tessera_desktop::system::BluetoothLinkState::Idle;
+        }
+        SystemAction::ForgetBluetooth { address } => {
+            bluetooth.forget(address.clone());
+            status.bluetooth_devices.retain(|device| device.address != address);
         }
         SystemAction::SetDoNotDisturb { enabled } => {
             notifications.lock().unwrap().set_do_not_disturb(enabled);

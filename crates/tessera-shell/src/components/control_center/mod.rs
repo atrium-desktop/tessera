@@ -2,8 +2,16 @@
 //! language (ADR-0080). The presentation uses an opaque, scheme-adaptive
 //! canvas with solid elevated surfaces: pale grouped grays and white panels
 //! in light mode, near-black grouped grays in dark mode, and system blue for
-//! shared interactive emphasis. It does not request backdrop blur or analytic
-//! liquid glass.
+//! shared interactive emphasis.
+//!
+//! The canvas is the panel's *own* painted background (ADR-0176): a full-screen
+//! solid fill in the lens `Backdrop` band, faded by the reveal spring. The
+//! panel declares no backdrop capture, blur, frost, or analytic liquid glass, so
+//! its enter/exit never captures or composites the desktop behind it — the
+//! reveal is a paint-only fade. This is the panel's documented rendering budget
+//! made real: the full-screen 16σ Gaussian blur + scrim cover it used to declare
+//! forced a full-resolution effect recompute and a full-output repaint on every
+//! frame of the open and close.
 //!
 //! One centered cluster of surfaces: a frameless user identity block with
 //! the avatar, display name, `@username · groups`, and the hostname on the
@@ -52,8 +60,9 @@ use crate::components::settings::builtin_settings_modules;
 use crate::components::settings::module::{
     ModuleAvailability, ModuleEvents, ModuleId, ModuleRegistry,
 };
+use crate::widgets::motion::{Spring, SpringParams};
 use crate::widgets::tiered::TieredIndicator;
-use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
+use lens::{Align, Color, Frame, Input, LayoutOpts, PlaceMode, PlaceOpts, Rect};
 use tessera_authority::interaction_domain::InteractionDomainSnapshot;
 use tessera_avatar::persona::{Portrait, PortraitConfig, PortraitWatcher, Profile};
 use tessera_design::tokens::TypeScale;
@@ -140,6 +149,11 @@ const SESSION_BUTTON_GAP: f32 = 6.0;
 // keyboard-backlight selector share it, so every segmented control in the shell
 // settles identically.
 
+// The keyboard-backlight tier ladder is derived from the hardware's own
+// `max_brightness` via `SystemStatus::kbd_brightness_tiers` (ADR-0168
+// amendment); the documented four-rung default lives in `tessera-desktop` as
+// `KBD_BRIGHTNESS_FALLBACK_TIERS` and is only used by the stepping action.
+
 /// The command panel explicitly owns its VRM composition. Keeping the
 /// parameters here lets another host choose a different crop without changing
 /// the VRM renderer or the shared portrait source policy.
@@ -154,13 +168,33 @@ const MENU_HEADER_HEIGHT: f32 = 23.0;
 const MENU_SEP_GAP: f32 = 4.0;
 const MENU_SEPARATOR_HEIGHT: f32 = MENU_SEP_GAP * 2.0 + 1.0;
 
+/// Reveal spring tuning (ADR-0176). The panel's enter/exit travels on a
+/// critically damped spring (ζ = 1.0) so the full-screen canvas fade approaches
+/// its endpoint from one side only — an under-damped reveal would overshoot the
+/// opaque canvas past full opacity, reading as a flash at the end of every open.
+/// `stiffness` 300 (ω₀ ≈ 17.3 rad/s) settles inside ≈0.25 s: a bounded,
+/// provable convergence window, unlike the unbounded exponential follow it
+/// replaces (ADR-0172 `[INV-ARCH-44]`).
+const REVEAL_SPRING: SpringParams = SpringParams::new(300.0, 1.0);
+/// Value/velocity tolerances at which the reveal spring is considered at rest.
+const REVEAL_SETTLE_VALUE_EPS: f32 = 0.002;
+const REVEAL_SETTLE_VELOCITY_EPS: f32 = 0.02;
+
+/// Frames the panel keeps reporting full-output damage after its reveal settles
+/// (ADR-0171 `[INV-ARCH-03]`, ADR-0176). The panel's canvas is opaque and
+/// full-screen, so every swapchain ring slot must overwrite the pre-open
+/// desktop pixels it covered; `FLUX_MAX_FRAMES_IN_FLIGHT` (3) drains the ring.
+const SETTLED_DRAIN_FRAMES: u8 = 3;
+
 fn presentation_anim_pending(
-    reveal: f32,
+    reveal: &Spring,
     target: f32,
     avatar_playing: bool,
     avatar_reload_pending: bool,
 ) -> bool {
-    (reveal - target).abs() > 0.004 || avatar_playing || avatar_reload_pending
+    !reveal.settled(target, REVEAL_SETTLE_VALUE_EPS, REVEAL_SETTLE_VELOCITY_EPS)
+        || avatar_playing
+        || avatar_reload_pending
 }
 
 /// The main panel's tabs: the Quick Controls tab plus one tab per available
@@ -227,9 +261,18 @@ struct MenuSnapshotCache {
 /// The modal control center.
 pub struct ControlCenter {
     open: bool,
-    /// Eased reveal amount; kept while closing so the surfaces fade and
-    /// slide out instead of vanishing in one frame.
-    reveal: f32,
+    /// Reveal spring (0 = hidden, 1 = fully presented) driving the enter/exit
+    /// fade of the opaque full-screen canvas and its cluster. Kept while
+    /// closing so the surfaces fade and slide out instead of vanishing in one
+    /// frame. A spring, not an exponential follow, so convergence is bounded
+    /// and the frame loop can prove when it has settled (ADR-0172/ADR-0176).
+    reveal: Spring,
+    /// Frames remaining in the swapchain ring drain after the reveal settles
+    /// (ADR-0171 `[INV-ARCH-03]`). The opaque full-screen canvas must overwrite
+    /// the pre-open desktop in every in-flight ring slot, exactly as the dock
+    /// drains its transient morph; while non-zero the panel keeps reporting
+    /// full-output damage even though no value is still moving.
+    settled_drain_frames: u8,
     /// The main panel's active tab.
     tab: Tab,
     /// Settings module registry behind the module tabs; modules own their
@@ -293,6 +336,11 @@ pub struct ControlCenter {
     work_mode_indicator: TieredIndicator,
     /// Spring driving the keyboard-backlight tier indicator (ADR-0168).
     kbd_backlight_indicator: TieredIndicator,
+    /// Segment the pointer is scrubbing over during a press-and-drag on the
+    /// keyboard-backlight selector, if any. Drives a live preview: the highlight
+    /// and the header value follow the pointer before release, then snap back to
+    /// the committed tier if the drag is cancelled off-target.
+    kbd_backlight_preview: Option<usize>,
     /// 0..1 hover reveal of the notification stream's scrollbar; wheel
     /// activity pushes it to 1, idle decays it back to 0.
     notif_scrollbar_reveal: f32,
@@ -317,6 +365,9 @@ pub struct ControlCenter {
     pub(super) wifi_expanded: bool,
     pub(super) wifi_input_ssid: Option<String>,
     pub(super) wifi_input_passphrase: String,
+    /// Bluetooth detail view open (ADR-0175). Mutually exclusive with the
+    /// Wi-Fi detail view: the quick-controls body hosts one at a time.
+    pub(super) bluetooth_expanded: bool,
 }
 
 pub type CommandPanel = ControlCenter;
@@ -458,7 +509,8 @@ impl ControlCenter {
         }
         ControlCenter {
             open: open_on_start,
-            reveal: if open_on_start { 1.0 } else { 0.0 },
+            reveal: Spring::new(if open_on_start { 1.0 } else { 0.0 }),
+            settled_drain_frames: 0,
             tab: initial_tab,
             modules: builtin_settings_modules(),
             settings: None,
@@ -468,6 +520,7 @@ impl ControlCenter {
             status: SystemStatus::default(),
             work_mode_indicator: TieredIndicator::at(0),
             kbd_backlight_indicator: TieredIndicator::default(),
+            kbd_backlight_preview: None,
             notif_scrollbar_reveal: 0.0,
             tray_scrollbar_reveal: 0.0,
             work_mode_hover: None,
@@ -507,6 +560,7 @@ impl ControlCenter {
             wifi_expanded: false,
             wifi_input_ssid: None,
             wifi_input_passphrase: String::new(),
+            bluetooth_expanded: false,
         }
     }
 
@@ -517,7 +571,8 @@ impl ControlCenter {
         let (notifications, _) = (Arc::new(Mutex::new(NotificationQueue::new(3_600_000))), ());
         ControlCenter {
             open: false,
-            reveal: 0.0,
+            reveal: Spring::new(0.0),
+            settled_drain_frames: 0,
             tab: Tab::QuickControls,
             modules: builtin_settings_modules(),
             settings: None,
@@ -527,6 +582,7 @@ impl ControlCenter {
             status: SystemStatus::default(),
             work_mode_indicator: TieredIndicator::at(0),
             kbd_backlight_indicator: TieredIndicator::default(),
+            kbd_backlight_preview: None,
             notif_scrollbar_reveal: 0.0,
             tray_scrollbar_reveal: 0.0,
             work_mode_hover: None,
@@ -562,13 +618,28 @@ impl ControlCenter {
             wifi_expanded: false,
             wifi_input_ssid: None,
             wifi_input_passphrase: String::new(),
+            bluetooth_expanded: false,
         }
     }
 
-    /// Whether the panel currently owns the chrome layer: open, or still
-    /// animating closed.
+    /// Whether the panel is visually presented or mid reveal/close: it owns the
+    /// modal layer, captures input, and suppresses other chrome.
+    fn presented(&self) -> bool {
+        self.open || self.reveal.value > 0.005
+    }
+
+    /// Whether the panel still owes the compositor work: presented, or draining
+    /// the swapchain ring after the reveal settled. The drain is invisible (the
+    /// canvas is already at zero), so it never captures input or holds the modal
+    /// layer — only render, damage, and composition follow it.
     fn active(&self) -> bool {
-        self.open || self.reveal > 0.005
+        self.presented() || self.settled_drain_frames > 0
+    }
+
+    /// The panel's eased reveal progress in `[0, 1]`, sampled by the canvas
+    /// paint, the per-section staggers, and the damage policy.
+    fn reveal(&self) -> f32 {
+        self.reveal.value.clamp(0.0, 1.0)
     }
 
     /// Advance the panel's animation clocks and hot-reload watcher before
@@ -664,9 +735,20 @@ impl ControlCenter {
         // `approach`/`decay`/`Spring::advance` all take the flag, so the whole
         // panel resolves without a duplicated per-field snap branch.
         let reduced = self.reduced_motion;
-        self.reveal = crate::widgets::motion::approach(self.reveal, target, 18.0, dt, reduced);
-        if (target - self.reveal).abs() < 0.004 {
-            self.reveal = target;
+        // The reveal travels on a bounded spring (ADR-0176). On the frame the
+        // spring first reports settled, prime the ring drain so every in-flight
+        // swapchain slot overwrites the pre-open desktop under the opaque canvas
+        // (ADR-0171 `[INV-ARCH-03]`).
+        let was_animating = self.reveal_animating_value();
+        self.reveal
+            .advance(target, REVEAL_SPRING, dt, reduced);
+        if !self.reveal.settled(target, REVEAL_SETTLE_VALUE_EPS, REVEAL_SETTLE_VELOCITY_EPS) {
+            self.settled_drain_frames = 0;
+        } else if was_animating {
+            self.reveal.snap_to(target);
+            self.settled_drain_frames = SETTLED_DRAIN_FRAMES;
+        } else if self.settled_drain_frames > 0 {
+            self.settled_drain_frames -= 1;
         }
         // Segmented-control indicator: an under-damped spring gives the
         // switch its slight overshoot ("弹力") without ringing.
@@ -679,7 +761,11 @@ impl ControlCenter {
         // standard hardware stepping sequence; the active tier is the one the
         // reported level maps to.
         if self.status.kbd_brightness.is_some() {
-            let index = self.status.kbd_brightness_tier_index();
+            // A live drag previews its target rung; otherwise the indicator
+            // rests on the committed tier.
+            let index = self
+                .kbd_backlight_preview
+                .unwrap_or_else(|| self.status.kbd_brightness_tier_index());
             self.kbd_backlight_indicator.advance(index, dt, reduced);
         }
         // Wheel-activity reveals decay once the stream is left alone.
@@ -723,10 +809,13 @@ impl ControlCenter {
 
     /// Whether the keyboard-backlight tier indicator is still settling.
     fn kbd_backlight_anim_pending(&self) -> bool {
-        self.status.kbd_brightness.is_some()
-            && self
-                .kbd_backlight_indicator
-                .anim_pending(self.status.kbd_brightness_tier_index())
+        if self.status.kbd_brightness.is_none() {
+            return false;
+        }
+        let index = self
+            .kbd_backlight_preview
+            .unwrap_or_else(|| self.status.kbd_brightness_tier_index());
+        self.kbd_backlight_indicator.anim_pending(index)
     }
 
     /// Whether the segmented power-mode indicator spring is still settling.
@@ -745,10 +834,18 @@ impl ControlCenter {
             || self.avatar_reload_pending()
     }
 
+    /// Whether the reveal spring is still travelling, measured against the
+    /// panel's current open/closed target.
+    fn reveal_animating_value(&self) -> bool {
+        let target = if self.open { 1.0 } else { 0.0 };
+        !self
+            .reveal
+            .settled(target, REVEAL_SETTLE_VALUE_EPS, REVEAL_SETTLE_VELOCITY_EPS)
+    }
+
     /// Whether the panel is mid reveal/close transition.
     fn reveal_animating(&self) -> bool {
-        let target = if self.open { 1.0 } else { 0.0 };
-        (self.reveal - target).abs() > 0.004
+        self.reveal_animating_value()
     }
 
     /// Close the panel, also dismissing any open dbusmenu popover and
@@ -760,6 +857,7 @@ impl ControlCenter {
         self.power_pending_confirm = None;
         self.wifi_expanded = false;
         self.wifi_input_ssid = None;
+        self.bluetooth_expanded = false;
         if let Some(key) = self.menu_open_for.take() {
             self.menu_path.clear();
             self.menu_just_opened = false;
@@ -772,6 +870,7 @@ impl ControlCenter {
             self.tab = tab;
             self.wifi_expanded = false;
             self.wifi_input_ssid = None;
+            self.bluetooth_expanded = false;
             // A tab switch drops an open tray popover even though the tray
             // itself stays visible in the side column, matching the old
             // section-switch semantics.
@@ -1193,7 +1292,7 @@ impl Chrome for ControlCenter {
             log::warn!("control-center: avatar advance failed: {error}");
             self.avatar_warned = true;
         }
-        let reveal = self.reveal.clamp(0.0, 1.0);
+        let reveal = self.reveal();
         let (
             profile_rect,
             main_rect,
@@ -1245,6 +1344,14 @@ impl Chrome for ControlCenter {
         let content_progress = ease_out_cubic(stagger(reveal, CONTENT_STAGGER));
         let side_progress = ease_out_cubic(stagger(reveal, SIDE_STAGGER));
 
+        // The opaque scheme-adaptive canvas under the whole cluster: the
+        // panel's own painted background, faded by the same reveal that drives
+        // every section (ADR-0176). This replaces the retired full-screen
+        // backdrop blur + scrim cover: the panel is a solid grouped surface,
+        // not a glass sheet over the live desktop, so it never captures,
+        // blurs, or composites the desktop behind it.
+        Self::render_canvas(&self.panel_colors(), f, display, reveal);
+
         // Display typography is per-call (`display_label`, bold sans at the
         // amplified HUD sizes), so no context-wide scope is needed here.
         // Lens stamps each built node with the context opacity, so one
@@ -1277,7 +1384,7 @@ impl Chrome for ControlCenter {
     }
 
     fn captures_keyboard(&self) -> bool {
-        self.active()
+        self.presented()
     }
 
     fn key_char(&mut self, kc: &KeyChar, out: &mut ChromeEvents) {
@@ -1321,12 +1428,14 @@ impl Chrome for ControlCenter {
             return;
         }
         // Escape peels the innermost surface first: an open tray menu, then
-        // an expanded Wi-Fi view, then the panel itself.
+        // an expanded Wi-Fi or Bluetooth view, then the panel itself.
         if let Some(key) = self.menu_open_for.clone() {
             self.close_menu(key);
         } else if self.wifi_expanded {
             self.wifi_expanded = false;
             self.wifi_input_ssid = None;
+        } else if self.bluetooth_expanded {
+            self.bluetooth_expanded = false;
         } else {
             self.close();
         }
@@ -1358,46 +1467,12 @@ impl Chrome for ControlCenter {
         }
     }
 
-    fn backdrop_blur_sigma(&self) -> f32 {
-        // Constant for the whole session, including the exit fade: easing the
-        // radius per frame forces a capture teardown + effect rebuild on every
-        // frame of the fade (the launcher's documented "bright flash" failure
-        // mode). The frost body itself fades through the region's `opacity`.
-        if self.active() {
-            crate::component::BackdropCover::BLUR_SIGMA
-        } else {
-            0.0
-        }
-    }
-
-    fn backdrop_regions(
-        &self,
-        display: (f32, f32),
-        _windows: &[Window],
-        _workspaces: &WorkspaceSnapshot,
-    ) -> Vec<crate::component::BackdropRegion> {
-        if self.active() {
-            // The full-screen cover carries the panel's exit fade: the scrim
-            // wash and the frosted body drain with the same eased reveal the
-            // lens content fades by. Without this the cover held full strength
-            // until `active()` flipped, then vanished in one frame — a gray
-            // pop at the tail of the close animation.
-            vec![crate::component::BackdropCover::region(
-                display,
-                &self.design,
-                ease_out_cubic(self.reveal.clamp(0.0, 1.0)),
-            )]
-        } else {
-            Vec::new()
-        }
-    }
-
     fn control_center_active(&self) -> bool {
-        self.active()
+        self.presented()
     }
 
     fn command_panel_active(&self) -> bool {
-        self.active()
+        self.presented()
     }
 
     fn captures_pointer(
@@ -1409,16 +1484,17 @@ impl Chrome for ControlCenter {
         _workspaces: &WorkspaceSnapshot,
     ) -> bool {
         // Modal: the whole screen belongs to the panel (scrim click-away
-        // included) while it is open or animating.
-        self.active()
+        // included) while it is presented or animating — never during the
+        // invisible ring drain that follows.
+        self.presented()
     }
 
     fn modal_active(&self) -> bool {
-        self.active()
+        self.presented()
     }
 
     fn exclusive_presentation_active(&self) -> bool {
-        self.active()
+        self.presented()
     }
 
     /// The panel renders while modal — it *is* the modal component.
@@ -1434,7 +1510,7 @@ impl Chrome for ControlCenter {
         _windows: &[Window],
         _workspaces: &WorkspaceSnapshot,
     ) -> Option<CursorShape> {
-        self.active().then_some(CursorShape::Pointer)
+        self.presented().then_some(CursorShape::Pointer)
     }
 
     fn update(&mut self, update: ChromeUpdate<'_>) {
@@ -1463,7 +1539,14 @@ impl Chrome for ControlCenter {
             ChromeUpdate::ReducedMotion(reduced) => {
                 self.reduced_motion = reduced;
                 if reduced {
-                    self.reveal = if self.open { 1.0 } else { 0.0 };
+                    let target = if self.open { 1.0 } else { 0.0 };
+                    // Only a snap that actually moves the reveal needs the ring
+                    // drain: a panel that is already at its resting value has
+                    // nothing to overwrite.
+                    if (self.reveal.value - target).abs() > 0.0 {
+                        self.reveal.snap_to(target);
+                        self.settled_drain_frames = SETTLED_DRAIN_FRAMES;
+                    }
                 }
             }
             _ => {}
@@ -1473,21 +1556,22 @@ impl Chrome for ControlCenter {
     fn anim_pending(&self) -> bool {
         let target = if self.open { 1.0 } else { 0.0 };
         presentation_anim_pending(
-            self.reveal,
+            &self.reveal,
             target,
             self.open && self.avatar.as_ref().is_some_and(Portrait::is_animated),
             self.avatar_reload_pending(),
-        ) || self.interaction_anim_pending()
+        ) || self.settled_drain_frames > 0
+            || self.interaction_anim_pending()
     }
 
     /// The union of the panel's animated footprints — the region a frame
     /// driven purely by the panel's in-flight animation can touch.
     ///
     /// The compositor turns an animation-driven frame into a partial repaint
-    /// of exactly this rectangle instead of a full-output composite. Only the
-    /// micro-interactions are localized: the reveal/close transition slides
-    /// several whole panels (each with its own soft edges), so it stays
-    /// full-output via `None`.
+    /// of exactly this rectangle instead of a full-output composite. The
+    /// reveal/close transition animates the opaque full-screen canvas, and the
+    /// settle drain must overwrite a full screen of ring slots, so both stay
+    /// full-output via `None`; only the micro-interactions localize.
     fn damage_region(
         &self,
         _windows: &[Window],
@@ -1498,10 +1582,11 @@ impl Chrome for ControlCenter {
         }
         animated_damage_region(
             display,
-            // The reveal/close transition animates the full-screen backdrop
-            // cover, so it stays full-output via `None`. Tooltip reveals are
-            // localized to their cluster anchor bands.
-            self.reveal_animating(),
+            // The reveal/close transition animates the opaque full-screen
+            // canvas; the settle drain repaints the full output for
+            // FLUX_MAX_FRAMES_IN_FLIGHT slots. Both stay full-output via
+            // `None`. Tooltip reveals are localized to their anchor bands.
+            self.reveal_animating() || self.settled_drain_frames > 0,
             // The always-on bands are exact single-rect footprints: the
             // segmented indicator moves within the work-mode control, each
             // scrollbar fades within its own scrolling surface, and the avatar

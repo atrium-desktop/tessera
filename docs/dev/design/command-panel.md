@@ -135,10 +135,12 @@ default family is already sans-serif; no serif voice enters the panel.
 
 ## Rendering Budget
 
-The command panel paints through Lens only. Its `Chrome` implementation uses
-the default zero blur and empty backdrop-effect declarations even while open.
-This keeps the modal presentation to the normal chrome composition pass and
-avoids paying for both a full-screen blur and per-surface Liquid Glass.
+The command panel paints through Lens only. It paints its own opaque
+scheme-adaptive canvas — a full-screen solid fill in the lens `Backdrop` band,
+faded by the reveal — and its `Chrome` implementation keeps the default zero
+blur and empty backdrop-effect declarations for its entire lifecycle (ADR-0176).
+The modal presentation therefore stays in the normal chrome composition pass: the
+panel never captures, blurs, or composites the desktop behind it.
 
 ## Motion
 
@@ -148,7 +150,13 @@ The cluster reveals with clean HUD motion:
 - The network monitor slides in from the right, staggered behind the main panel.
 - The center main control panel rises upward into place.
 - The solid background canvas's opacity rides the same reveal.
-- Reduced motion resolves directly to the end state.
+- The reveal travels on a critically damped `transit` spring, so it converges in
+  bounded time (no exponential tail) and never overshoots the opaque canvas past
+  full opacity.
+- On settle the panel drains the swapchain ring (`FLUX_MAX_FRAMES_IN_FLIGHT`
+  frames of full-output damage) so every ring slot overwrites the pre-open
+  desktop under the opaque canvas.
+- Reduced motion resolves directly to the end state (and still drains the ring).
 
 ## Material Rules
 

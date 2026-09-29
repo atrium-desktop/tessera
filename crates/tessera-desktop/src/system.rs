@@ -8,6 +8,18 @@ use crate::power::PowerMode;
 use crate::settings::DisplayStatus;
 use tessera_primitives::input::InputStatus;
 
+/// Link and radio state of the Bluetooth adapter (ADR-0175).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BluetoothLinkState {
+    #[default]
+    Disabled,
+    Unavailable,
+    Idle,
+    Scanning,
+    Connected,
+}
+
 /// Coarse connectivity state shown by desktop status surfaces.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -56,6 +68,48 @@ pub struct WifiNetwork {
     /// Center frequency in MHz (e.g. 2412 for 2.4 GHz, 5180 for 5 GHz), if known (ADR-0167).
     #[cfg_attr(feature = "serde", serde(default))]
     pub frequency_mhz: Option<u32>,
+}
+
+/// Device class of a Bluetooth peripheral (ADR-0175).
+///
+/// Mapped from the host's device class/icon vocabulary into a daemon-neutral
+/// enum, so presentation never sees BlueZ's `Icon` strings or class bitfield
+/// (`[INV-NET-DAEMON-NEUTRAL]`).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BluetoothKind {
+    #[default]
+    Other,
+    Audio,
+    Input,
+    Phone,
+    Computer,
+    Imaging,
+    Wearable,
+}
+
+/// One observed Bluetooth peripheral, paired or merely in range (ADR-0175).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BluetoothDevice {
+    /// Stable transport address (e.g. `AC:12:34:56:78:9A`). The identity a
+    /// pair/connect/disconnect/forget intent names, because an alias is
+    /// user-editable and need not be unique.
+    pub address: String,
+    /// Human-readable alias. Empty until the host resolves one (a freshly
+    /// discovered peripheral may advertise none).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub name: String,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub kind: BluetoothKind,
+    /// True while an ACL link to this peripheral is up.
+    pub connected: bool,
+    /// True when credentials are stored host-side: the entry survives the
+    /// peripheral leaving range and may reconnect without re-pairing.
+    pub paired: bool,
+    /// True when the host is allowed to connect without confirmation.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub trusted: bool,
 }
 
 /// Battery state read from the host power service.
@@ -133,6 +187,13 @@ pub struct SystemStatus {
     pub wifi_networks: Vec<WifiNetwork>,
     /// `None` means no Bluetooth radio service is available.
     pub bluetooth_enabled: Option<bool>,
+    /// Fine-grained Bluetooth link state (ADR-0175).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub bluetooth_state: BluetoothLinkState,
+    /// Known and discovered Bluetooth peripherals (ADR-0175). Presentation
+    /// shows paired peripherals first, then in-range ones by recency.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub bluetooth_devices: Vec<BluetoothDevice>,
     /// Backlight level in percent, or `None` without a controllable backlight.
     pub brightness: Option<u8>,
     /// Keyboard backlight level in percent, or `None` without a controllable keyboard backlight (ADR-0168).
@@ -270,6 +331,24 @@ pub enum SystemAction {
     SetBluetooth {
         enabled: bool,
     },
+    /// Request an active Bluetooth discovery scan (ADR-0175).
+    ScanBluetooth,
+    /// Initiate or accept a connection to a peripheral by address (ADR-0175).
+    ConnectBluetooth {
+        address: String,
+    },
+    /// Tear down the ACL link to a peripheral by address (ADR-0175).
+    DisconnectBluetooth {
+        address: String,
+    },
+    /// Pair with a discovered peripheral by address (ADR-0175).
+    PairBluetooth {
+        address: String,
+    },
+    /// Remove host-side pairing keys for a peripheral by address (ADR-0175).
+    ForgetBluetooth {
+        address: String,
+    },
     SetDoNotDisturb {
         enabled: bool,
     },
@@ -325,6 +404,14 @@ impl SystemAction {
             }
             Self::SetWifiAutoConnect { ssid, .. } if ssid.trim().is_empty() => {
                 Err("ssid cannot be empty")
+            }
+            Self::ConnectBluetooth { address }
+            | Self::DisconnectBluetooth { address }
+            | Self::PairBluetooth { address }
+            | Self::ForgetBluetooth { address }
+                if address.trim().is_empty() =>
+            {
+                Err("bluetooth address cannot be empty")
             }
             _ => Ok(()),
         }
@@ -392,6 +479,17 @@ impl SystemStatus {
 /// excluding fine-grained PWM dimmers (`max_brightness` in the tens to 255).
 pub const KBD_BRIGHTNESS_MAX_STEPS: u8 = 5;
 
+/// The documented default keyboard-backlight ladder (ADR-0168 §1): the standard
+/// laptop illumination sequence, evenly spaced with the endpoints pinned. For
+/// four rungs that is `0% → 33% → 67% → 100%` — the rung percentages use the
+/// same rounding the host uses to normalize a raw `brightness`/`max_brightness`
+/// reading (2/3 = 67%), so the fallback and a hardware-derived ladder agree.
+///
+/// This is the fallback the tier-stepping action uses when the host does not
+/// report a stepped granularity. When [`SystemStatus::kbd_brightness_tiers`]
+/// returns `Some`, that hardware-derived ladder supersedes this one.
+pub const KBD_BRIGHTNESS_FALLBACK_TIERS: [u8; 4] = [0, 33, 67, 100];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -406,6 +504,92 @@ mod tests {
         assert_eq!(status.wifi_state, WifiLinkState::Disabled);
         assert!(status.wifi_networks.is_empty());
         assert_eq!(status.bluetooth_enabled, None);
+        assert_eq!(status.bluetooth_state, BluetoothLinkState::Disabled);
+        assert!(status.bluetooth_devices.is_empty());
+        assert_eq!(status.kbd_brightness_levels, None);
+    }
+
+    #[test]
+    fn bluetooth_actions_validate_their_address() {
+        for action in [
+            SystemAction::ConnectBluetooth {
+                address: "  ".to_string(),
+            },
+            SystemAction::DisconnectBluetooth {
+                address: String::new(),
+            },
+            SystemAction::PairBluetooth {
+                address: "\t".to_string(),
+            },
+            SystemAction::ForgetBluetooth {
+                address: String::new(),
+            },
+        ] {
+            assert!(action.validate().is_err(), "{action:?} must reject an empty address");
+        }
+        assert!(SystemAction::ScanBluetooth.validate().is_ok());
+        assert!(
+            SystemAction::ConnectBluetooth {
+                address: "AC:12:34:56:78:9A".to_string(),
+            }
+            .validate()
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn keyboard_backlight_tiers_derive_from_the_reported_step_count() {
+        // A three-rung backlight spaces evenly with pinned endpoints.
+        let status = SystemStatus {
+            kbd_brightness: Some(50),
+            kbd_brightness_levels: Some(3),
+            ..SystemStatus::default()
+        };
+        assert_eq!(status.kbd_brightness_tiers(), Some(vec![0, 50, 100]));
+        assert_eq!(status.kbd_brightness_tier_index(), 1);
+
+        // Four rungs reproduce the documented ADR-0168 ladder. The rung
+        // percentages use the same rounding the host uses to normalize a raw
+        // `brightness`/`max_brightness` reading, so a derived tier always equals
+        // the percentage the hardware reports (2/3 = 67%, hence 67 not 66).
+        let status = SystemStatus {
+            kbd_brightness: Some(67),
+            kbd_brightness_levels: Some(4),
+            ..SystemStatus::default()
+        };
+        assert_eq!(status.kbd_brightness_tiers(), Some(vec![0, 33, 67, 100]));
+        assert_eq!(status.kbd_brightness_tier_index(), 2);
+
+        // A two-rung on/off backlight is the degenerate but valid case.
+        let status = SystemStatus {
+            kbd_brightness: Some(0),
+            kbd_brightness_levels: Some(2),
+            ..SystemStatus::default()
+        };
+        assert_eq!(status.kbd_brightness_tiers(), Some(vec![0, 100]));
+        assert_eq!(status.kbd_brightness_tier_index(), 0);
+    }
+
+    #[test]
+    fn keyboard_backlight_tiers_reject_fine_grained_and_absent_hardware() {
+        // Fine-grained dimmers are continuous, not stepped.
+        for levels in [KBD_BRIGHTNESS_MAX_STEPS + 1, 255] {
+            let status = SystemStatus {
+                kbd_brightness: Some(50),
+                kbd_brightness_levels: Some(levels),
+                ..SystemStatus::default()
+            };
+            assert_eq!(status.kbd_brightness_tiers(), None, "levels={levels}");
+        }
+        // A step count without a level is meaningless.
+        let status = SystemStatus {
+            kbd_brightness: None,
+            kbd_brightness_levels: Some(4),
+            ..SystemStatus::default()
+        };
+        assert_eq!(status.kbd_brightness_tiers(), None);
+        // No hardware at all.
+        assert_eq!(SystemStatus::default().kbd_brightness_tiers(), None);
     }
 
     #[test]

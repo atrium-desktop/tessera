@@ -316,6 +316,8 @@ chrome and external IPC clients:
 | `battery` | optional `{ percent, charging }` | Battery state when a battery is present. |
 | `wifi_enabled` | optional boolean | Wi-Fi radio state; absent when its service is unavailable. |
 | `bluetooth_enabled` | optional boolean | Bluetooth radio state; absent when its service is unavailable. |
+| `bluetooth_state` | `Disabled`, `Unavailable`, `Idle`, `Scanning`, or `Connected` | Fine-grained Bluetooth adapter/link state (ADR-0175); additive with a `Disabled` default. |
+| `bluetooth_devices` | array of `{ address, name, kind, connected, paired, trusted }` | Known and discovered Bluetooth peripherals (ADR-0175), ordered connected → paired → in-range; additive with an empty default. |
 | `brightness` | optional percentage | Backlight level; absent without a controllable backlight. |
 | `do_not_disturb` | boolean | Current notification suppression state. |
 | `tiled` | boolean | Layout mode for the current workspace. |
@@ -332,7 +334,12 @@ chrome and external IPC clients:
 | `SetVolume` | `level` | Percentage from 0 through 100. |
 | `SetBrightness` | `level` | Percentage from 1 through 100. |
 | `SetWifi` | `enabled` | Enable or disable the Wi-Fi radio. |
-| `SetBluetooth` | `enabled` | Unblock or block Bluetooth radios. |
+| `SetBluetooth` | `enabled` | Power the Bluetooth adapter on or off (ADR-0175) through the BlueZ adapter's `Powered` property; no host command is spawned. |
+| `ScanBluetooth` | — | Start a bounded (20 s) Bluetooth discovery scan through BlueZ (ADR-0175). |
+| `PairBluetooth` | `address` | Pair with a discovered peripheral and trust it for reconnect (ADR-0175). |
+| `ConnectBluetooth` | `address` | Initiate a connection to a known peripheral (ADR-0175). |
+| `DisconnectBluetooth` | `address` | Tear down the link to a peripheral (ADR-0175). |
+| `ForgetBluetooth` | `address` | Remove host-side pairing keys for a peripheral (ADR-0175). |
 | `SetDoNotDisturb` | `enabled` | Change notification suppression. |
 | `SetTiling` | `enabled` | Set the current workspace layout mode. |
 | `SetOutputPower` | `powered` | Power all physical outputs on or off. Power-off is accepted only after a secure lock frame is confirmed; wake is always safe. Used by `tessera-idle`. |

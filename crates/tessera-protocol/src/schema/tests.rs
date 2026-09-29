@@ -490,6 +490,79 @@ fn system_status_carries_the_session_power_mode_with_a_default() {
 }
 
 #[test]
+fn system_status_carries_the_keyboard_backlight_step_count_additively() {
+    // Additive field (ADR-0168 amendment, ADR-0140 precedent): a peer that
+    // predates it deserializes the same status without the key, so no protocol
+    // bump is required.
+    let status = SystemStatus {
+        kbd_brightness: Some(66),
+        kbd_brightness_levels: Some(4),
+        ..SystemStatus::default()
+    };
+    let json = serde_json::to_string(&status).unwrap();
+    assert!(json.contains(r#""kbd_brightness_levels":4"#), "{json}");
+    let legacy_json = json.replace(r#","kbd_brightness_levels":4"#, "");
+    let parsed: SystemStatus = serde_json::from_str(&legacy_json).unwrap();
+    assert_eq!(parsed.kbd_brightness_levels, None);
+    assert_eq!(parsed.kbd_brightness, Some(66));
+    assert_eq!(
+        serde_json::from_str::<SystemStatus>(&json)
+            .unwrap()
+            .kbd_brightness_levels,
+        Some(4)
+    );
+}
+
+#[test]
+fn system_status_carries_bluetooth_devices_additively() {
+    // Additive fields (ADR-0175, ADR-0140 precedent): a peer that predates the
+    // Bluetooth subsystem deserializes the same status without the keys, so no
+    // protocol bump is required. The device list is the interesting case — it
+    // nests `BluetoothDevice` records, so each of its own later fields must
+    // also default rather than fail the whole list.
+    let status = SystemStatus {
+        bluetooth_enabled: Some(true),
+        bluetooth_state: tessera_desktop::system::BluetoothLinkState::Connected,
+        bluetooth_devices: vec![tessera_desktop::system::BluetoothDevice {
+            address: "AC:12:34:56:78:9A".to_string(),
+            name: "Sony WH-1000XM5".to_string(),
+            kind: tessera_desktop::system::BluetoothKind::Audio,
+            connected: true,
+            paired: true,
+            trusted: true,
+        }],
+        ..SystemStatus::default()
+    };
+    let json = serde_json::to_string(&status).unwrap();
+    assert!(json.contains(r#""bluetooth_state":"Connected""#), "{json}");
+    assert!(json.contains(r#""bluetooth_devices":[{"#), "{json}");
+    assert!(json.contains(r#""address":"AC:12:34:56:78:9A""#), "{json}");
+
+    // A legacy peer drops the three new keys and still parses, landing on the
+    // honest "no Bluetooth service" default rather than an error.
+    let legacy_json = json
+        .replace(r#","bluetooth_state":"Connected""#, "")
+        .replace(
+            r#","bluetooth_devices":[{"address":"AC:12:34:56:78:9A","name":"Sony WH-1000XM5","kind":"Audio","connected":true,"paired":true,"trusted":true}]"#,
+            "",
+        );
+    let parsed: SystemStatus = serde_json::from_str(&legacy_json).unwrap();
+    assert_eq!(
+        parsed.bluetooth_state,
+        tessera_desktop::system::BluetoothLinkState::Disabled
+    );
+    assert!(parsed.bluetooth_devices.is_empty());
+
+    // The full round-trip preserves the device record.
+    let round = serde_json::from_str::<SystemStatus>(&json).unwrap();
+    assert_eq!(
+        round.bluetooth_state,
+        tessera_desktop::system::BluetoothLinkState::Connected
+    );
+    assert_eq!(round.bluetooth_devices, status.bluetooth_devices);
+}
+
+#[test]
 fn move_to_workspace_command_round_trips() {
     let cmd = Command::MoveToWorkspace {
         window: WindowId(42),

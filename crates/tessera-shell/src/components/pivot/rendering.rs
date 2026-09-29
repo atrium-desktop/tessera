@@ -34,6 +34,8 @@ pub const BROWSE_COLS: usize = 6;
 pub enum ItemIcon {
     App(Option<*mut c_void>),
     System(Icon),
+    /// A built-in lens glyph the Rust [`Icon`] enum does not bind.
+    Raw(lens::sys::lens_icon_id),
     Math,
     Agent,
 }
@@ -85,13 +87,19 @@ pub fn panel_rect(
     }
 }
 
-pub fn cmd_to_icon(cmd: SystemCmd) -> Icon {
+/// The glyph for a system command in the Pivot surface.
+///
+/// Uses the raw lens ids for the padlock and power symbols because the Rust
+/// [`Icon`] enum binds only a subset of the built-in table; `Shield` (security
+/// posture) and `X` (dismiss) misrepresent "lock session" and "power off".
+pub fn cmd_to_icon(cmd: SystemCmd) -> ItemIcon {
+    use lens::sys::lens_icon_id;
     match cmd {
-        SystemCmd::Lock => Icon::Shield,
-        SystemCmd::Screenshot => Icon::Zap,
-        SystemCmd::Suspend => Icon::Clock,
-        SystemCmd::Restart => Icon::RotateCw,
-        SystemCmd::PowerOff => Icon::X,
+        SystemCmd::Lock => ItemIcon::Raw(lens_icon_id::LENS_ICON_LOCK),
+        SystemCmd::Screenshot => ItemIcon::Raw(lens_icon_id::LENS_ICON_CROP),
+        SystemCmd::Suspend => ItemIcon::Raw(lens_icon_id::LENS_ICON_MOON),
+        SystemCmd::Restart => ItemIcon::Raw(lens_icon_id::LENS_ICON_REFRESH_CW),
+        SystemCmd::PowerOff => ItemIcon::Raw(lens_icon_id::LENS_ICON_POWER),
     }
 }
 
@@ -139,7 +147,7 @@ pub fn build_search_items(
             let icon = match &it.kind {
                 IntentKind::App { app_id } => ItemIcon::App(app_icon_by_id(icons, app_id)),
                 IntentKind::Window { app_id, .. } => ItemIcon::App(app_icon_by_id(icons, app_id)),
-                IntentKind::System(cmd) => ItemIcon::System(cmd_to_icon(*cmd)),
+                IntentKind::System(cmd) => cmd_to_icon(*cmd),
                 IntentKind::Math => ItemIcon::Math,
                 IntentKind::Agent => ItemIcon::Agent,
             };
@@ -381,6 +389,9 @@ pub fn render_pivot(
                                     ItemIcon::App(ptr) => render_icon(frame, *ptr, progress),
                                     ItemIcon::System(ic) => {
                                         frame.icon(*ic, 22.0);
+                                    }
+                                    ItemIcon::Raw(id) => {
+                                        frame.icon_raw(*id, 22.0);
                                     }
                                     ItemIcon::Math => {
                                         frame.icon(Icon::Sliders, 22.0);

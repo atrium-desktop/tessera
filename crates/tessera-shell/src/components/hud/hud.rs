@@ -3,8 +3,9 @@
 //!
 //! What used to be the interactive status bar is now two floating frosted
 //! chips composited over the desktop: system status — network (with the
-//! associated Wi-Fi network's name), Bluetooth (with its on/off word),
-//! speaker level, battery — the StatusNotifierItem tray row, the clock,
+//! associated Wi-Fi network's name), Bluetooth (a themed on/off glyph plus
+//! the connected peripheral's name when a link is up), speaker level,
+//! battery — the StatusNotifierItem tray row, the clock,
 //! and the notification count on the left; workspace markers in the center.
 //! The top-right belongs to the frameless notification toast strip
 //! (ADR-0083), and the Agent Workspaces status moved to the command panel
@@ -49,10 +50,14 @@ const CHIP_TOP: f32 = 8.0;
 const CHIP_SIDE: f32 = 8.0;
 const CHIP_PAD_X: f32 = 10.0;
 const CHIP_HEIGHT: f32 = HUD_HEIGHT;
-const CELL_ICON: f32 = 22.0;
+const CELL_ICON: f32 = 16.0;
 const CELL_BATTERY: f32 = 52.0;
 const CELL_CLOCK: f32 = 50.0;
-const CELL_GAP: f32 = 2.0;
+/// Gutter between two cells in the left chip. Deliberately larger than the
+/// intra-cell icon↔label gap ([`STATUS_LABEL_GAP`]) so each status reads as
+/// its own group: an icon sits closer to its own label than to the next
+/// cell's glyph.
+const CELL_GAP: f32 = 10.0;
 const TRAY_CELL_W: f32 = 24.0;
 const MAX_TRAY_ITEMS: usize = 5;
 const CLOCK_POLL_INTERVAL: Duration = Duration::from_secs(15);
@@ -380,10 +385,7 @@ impl Hud {
         // painted label and the chip geometry agree.
         let footnote = self.design.typography.footnote;
         let ssid = wifi_label(&self.status);
-        let bt_label = self
-            .status
-            .bluetooth_enabled
-            .map(|enabled| bluetooth_label(enabled, &self.i18n));
+        let bt_label = bluetooth_label(&self.status);
         let vol_label = volume_label(self.status.volume, self.status.muted, &self.i18n);
         let mut width = 0.0;
         let mut cells = 0usize;
@@ -397,7 +399,13 @@ impl Hud {
         };
         cells += 1;
         if let Some(label) = &bt_label {
-            width += icon_label_cell_w(label, footnote);
+            // Bare glyph while nothing is connected (ADR-0175 §3): the
+            // icon alone carries the on/off state.
+            width += if label.is_empty() {
+                CELL_ICON
+            } else {
+                icon_label_cell_w(label, footnote)
+            };
             cells += 1;
         }
         if let Some(label) = &vol_label {
@@ -638,71 +646,43 @@ impl Chrome for Hud {
                 "tessera-hud-network",
                 rect,
                 self.themed_icon(network_icon_name(self.status.network)),
-                Icon::Globe,
+                CellGlyph::Builtin(Icon::Globe),
                 &wifi_text,
             );
-            // Bluetooth cell: the themed glyph (lens has no Bluetooth vector
-            // glyph) beside the localized on/off word, dimmed to a whisper
-            // while the radio is off.
+            // Bluetooth cell: the themed on/off glyph beside the connected
+            // peripheral's name when a link is up, and a bare glyph
+            // otherwise (ADR-0175 §3). No on/off word — the glyph carries it,
+            // and the label slot is reserved for the device name. Dimmed to a
+            // whisper while the radio is off.
             if let Some(enabled) = self.status.bluetooth_enabled {
-                let label = bluetooth_label(enabled, i18n);
-                let bt_fade = fade * if enabled { 1.0 } else { 0.35 };
-                match self.themed_icon("bluetooth-symbolic") {
-                    Some(icon) => {
-                        let rect = cell(icon_label_cell_w(&label, design.typography.footnote));
-                        f.set_opacity(bt_fade);
-                        f.place(
-                            "tessera-hud-bluetooth",
-                            &chrome_place(rect, centered_layer()),
-                            |f| {
-                                f.row_ex(
-                                    &LayoutOpts {
-                                        width: rect.w,
-                                        height: rect.h,
-                                        gap: STATUS_LABEL_GAP,
-                                        cross: Align::Center,
-                                        ..Default::default()
-                                    },
-                                    |f| unsafe {
-                                        f.push_style(hud_glyph_outline(&design));
-                                        f.image_tinted(
-                                            icon as *mut lens::sys::flux_image,
-                                            16.0,
-                                            16.0,
-                                            design.hud_foreground.primary,
-                                        );
-                                        f.pop_style();
-                                        if !label.is_empty() {
-                                            f.push_style(hud_text_outline(&design));
-                                            f.label_compact_sized(
-                                                &label,
-                                                design.typography.footnote,
-                                            );
-                                            f.pop_style();
-                                        }
-                                    },
-                                );
-                            },
-                        );
-                        f.set_opacity(fade);
-                    }
-                    // No themed raster: the label still paints in the same
-                    // cell geometry so the chip's width does not depend on
-                    // the icon cache hit.
-                    None => {
-                        let rect = cell(icon_label_cell_w(&label, design.typography.footnote));
-                        f.set_opacity(bt_fade);
-                        render_text(
-                            f,
-                            &design,
-                            "tessera-hud-bluetooth",
-                            rect,
-                            &label,
-                            design.typography.footnote,
-                        );
-                        f.set_opacity(fade);
-                    }
-                }
+                let label = bluetooth_label(&self.status).unwrap_or_default();
+                let cell_w = if label.is_empty() {
+                    CELL_ICON
+                } else {
+                    icon_label_cell_w(&label, design.typography.footnote)
+                };
+                let rect = cell(cell_w);
+                let bt_fade = fade * if enabled { 1.0 } else { 0.4 };
+                let text = ellipsize(
+                    f,
+                    &label,
+                    design.typography.footnote,
+                    (cell_w - CELL_ICON - STATUS_LABEL_GAP).max(0.0),
+                );
+                let themed = self
+                    .themed_icon(bluetooth_icon_name(enabled))
+                    .or_else(|| self.themed_icon("bluetooth-symbolic"));
+                f.set_opacity(bt_fade);
+                render_status_cell(
+                    f,
+                    &design,
+                    "tessera-hud-bluetooth",
+                    rect,
+                    themed,
+                    bluetooth_cell_glyph(enabled),
+                    &text,
+                );
+                f.set_opacity(fade);
             }
             // Speaker cell: the sink's level (or the localized "Muted"
             // word) beside a tiered volume glyph. Absent entirely when no
@@ -715,7 +695,7 @@ impl Chrome for Hud {
                     "tessera-hud-volume",
                     rect,
                     self.themed_icon(volume_icon_name(self.status.volume, self.status.muted)),
-                    volume_icon(self.status.volume, self.status.muted),
+                    CellGlyph::Builtin(volume_icon(self.status.volume, self.status.muted)),
                     &label,
                 );
             }
@@ -727,7 +707,7 @@ impl Chrome for Hud {
                     "tessera-hud-battery",
                     rect,
                     self.themed_icon(&battery_icon_name(battery)),
-                    Icon::Zap,
+                    CellGlyph::Builtin(Icon::Zap),
                     &format!("{}%", battery.percent),
                 );
             }
@@ -818,7 +798,7 @@ impl Chrome for Hud {
                 "tessera-hud-bell",
                 rect,
                 self.themed_icon("preferences-system-notifications-symbolic"),
-                Icon::Bell,
+                CellGlyph::Builtin(Icon::Bell),
                 &count,
             );
             f.set_opacity(1.0);

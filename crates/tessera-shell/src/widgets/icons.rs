@@ -41,6 +41,36 @@ pub fn keyboard_backlight() -> Option<lens_icon_id> {
     *KEYBOARD_BACKLIGHT.get_or_init(|| lens::register_svg_icon(KEYBOARD_BACKLIGHT_SVG))
 }
 
+/// The Bluetooth rune — the standard mark for the Bluetooth radio (ADR-0175).
+///
+/// Lens has no Bluetooth vector glyph (`Icon` covers no `Bluetooth` variant),
+/// so the HUD's fallback path needs one registered at runtime, exactly like
+/// the keyboard-backlight glyph above. Drawn as the conventional polyline at
+/// the same 2/24 stroke weight as the built-in set.
+const BLUETOOTH_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<polyline points="5.5 6 18.5 17.5 12 23 12 1 18.5 6.5 5.5 18"/>
+</svg>"##;
+
+/// The Bluetooth rune struck through — the radio-off mark (ADR-0175).
+const BLUETOOTH_DISABLED_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<polyline points="5.5 6 18.5 17.5 12 23 12 1 18.5 6.5 5.5 18"/>
+<line x1="3" y1="3" x2="21" y2="21"/>
+</svg>"##;
+
+static BLUETOOTH: OnceLock<Option<lens_icon_id>> = OnceLock::new();
+static BLUETOOTH_DISABLED: OnceLock<Option<lens_icon_id>> = OnceLock::new();
+
+/// The Bluetooth radio glyph id: active when `enabled`, struck through when
+/// not. Registers the SVG on first use; `None` if the parser rejected it, in
+/// which case callers fall back to a built-in id.
+pub fn bluetooth(enabled: bool) -> Option<lens_icon_id> {
+    if enabled {
+        *BLUETOOTH.get_or_init(|| lens::register_svg_icon(BLUETOOTH_SVG))
+    } else {
+        *BLUETOOTH_DISABLED.get_or_init(|| lens::register_svg_icon(BLUETOOTH_DISABLED_SVG))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

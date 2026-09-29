@@ -11,7 +11,8 @@ every interaction the bar once hosted moved to the control center
 
 - Draw two compact frosted chips composited over the desktop: system
   status — network with the associated Wi-Fi network's name, Bluetooth
-  with its on/off word, speaker level (or the localized "Muted" word),
+  with a themed on/off glyph and the connected peripheral's name when a
+  link is up, speaker level (or the localized "Muted" word),
   battery — the StatusNotifierItem tray row, the clock, and the
   notification count on the left; workspace dots in the center. The
   top-right belongs to the frameless notification toast strip (ADR-0083).
