@@ -336,25 +336,11 @@ authorship otherwise.
 By combining the squashed feature diff and the dependency upgrade in one
 commit, **every single commit on `main` remains 100% buildable and bisectable**.
 
-### Step 4: Archive Dev History, Reset Dev, and Seamlessly Resume
+### Step 4: Reset Dev and Seamlessly Resume
 
 Notice that **`tessera-dev` never touched or disabled its `.cargo/config.toml`**.
 Your local development environment remains fully configured throughout the entire
 promotion and release sequence.
-
-Before moving the `dev` pointer, preserve the fine-grained iteration history
-with a dated archive tag. `git reset --hard` only moves the branch pointer—
-the commit objects remain reachable through the tag and through
-`dev@{1}` reflog (~90 days) and are free of extra disk cost (both worktrees
-share one object store)—but the tag makes them permanently findable for
-bisecting, archaeology, and cherry-picking:
-
-```bash
-# In projects/tessera-dev/ (development worktree, branch dev):
-cd ../tessera-dev
-git tag -a archive/dev-YYYYMMDD-<feature-slug> -m "Archive dev history before promotion" dev
-git push origin archive/dev-YYYYMMDD-<feature-slug>   # optional, offsite backup
-```
 
 #### Synchronizing dev with main
 
@@ -365,8 +351,14 @@ correct, conflict-free synchronization:
 
 ```bash
 # In projects/tessera-dev/ (development worktree, branch dev):
+cd ../tessera-dev
 git reset --hard main
 ```
+
+*(Optional History Archival)*: `git reset --hard` moves the branch pointer while
+Git's reflog (`dev@{1}`) retains the unpromoted iteration commit objects locally
+for ~90 days without cluttering repository tags. If long-term archival of raw WIP
+commits is specifically desired, a local tag or branch may be set prior to reset.
 
 At this moment, `dev` and `main` point to the **exact same commit SHA**. The
 working tree inherits the clean, canonical lockfile from `main`.
@@ -399,18 +391,40 @@ safely using lease protection (never bare `--force`):
 git push --force-with-lease origin dev
 ```
 
-### Workspace Package Release and Synchronization
+### Workspace Package Release, Tagging, and Synchronization
 
-When promoting a milestone to an official package release (`0.0.X` bump):
+When promoting a milestone to an official package release (`v0.0.X` bump):
 
 1. **Perform Version Bump on Main**: In `../tessera/` (`main`), update
    `workspace.package.version` in `Cargo.toml`, update `CHANGELOG.md`, regenerate
-   the canonical `Cargo.lock` with `cargo check --locked --workspace`, and commit
-   `chore(release): vX.Y.Z`.
-2. **Synchronize dev Worktree**: In `../tessera-dev/` (`dev`), run
-   `git reset --hard main && cargo check -p tessera`.
-   This ensures `dev` immediately builds upon the newly released package
-   version baseline while keeping local Optics overrides intact.
+   the canonical `Cargo.lock` with `cargo check --locked --workspace`, and commit:
+   ```bash
+   # In projects/tessera/ (primary worktree, branch main):
+   git add Cargo.toml Cargo.lock CHANGELOG.md
+   git commit -m "chore(release): vX.Y.Z"
+   ```
+2. **Create Signed Release Tag on Main**:
+   Tag the canonical release commit on `main` following semantic versioning:
+   ```bash
+   # In projects/tessera/ (primary worktree, branch main):
+   git tag -a vX.Y.Z -m "vX.Y.Z"
+   ```
+3. **Publish Canonical Release and Tags**:
+   Push the canonical release commit and the release tag to upstream:
+   ```bash
+   # In projects/tessera/ (primary worktree, branch main):
+   git push origin main --follow-tags
+   ```
+4. **Synchronize dev Worktree**:
+   In `../tessera-dev/` (`dev`), align `dev` with the newly tagged release and
+   restore local Optics overrides:
+   ```bash
+   # In projects/tessera-dev/ (development worktree, branch dev):
+   git reset --hard main
+   cargo check -p tessera
+   ```
+   This guarantees `dev` immediately builds upon the newly released package
+   version baseline while keeping local Optics path overrides fully intact.
 
 ## Automated Git Hook Guards (.githooks/pre-commit)
 
