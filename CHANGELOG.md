@@ -14,6 +14,13 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.73] - 2026-10-02
+
+### Added
+- Adopted Optics `v0.0.54` across workspace manifests and canonical lockfile, consuming upstream `transit::smoothstep` motion easing in shell widgets (ADR-0178).
+- Dock transit spring unification and anti-oscillation latch (ADR-0177): unifies dock magnification and layout animation on `transit` springs with zero oscillation.
+- Codified cross-repository engineering architecture in `docs/dev/cross-repository-development.md`, establishing the Atomic Promotion Protocol, tracked pre-commit hook defenses, and `xtask optics --set <TAG>` automation.
+
 ## [0.0.72] - 2026-09-29
 
 ### Added

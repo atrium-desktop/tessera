@@ -336,10 +336,11 @@ authorship otherwise.
 By combining the squashed feature diff and the dependency upgrade in one
 commit, **every single commit on `main` remains 100% buildable and bisectable**.
 
-### Step 4: Archive Dev History, Reset Dev, and Continue
+### Step 4: Archive Dev History, Reset Dev, and Seamlessly Resume
 
 Notice that **`tessera-dev` never touched or disabled its `.cargo/config.toml`**.
-Your local development environment remained active throughout the merge.
+Your local development environment remains fully configured throughout the entire
+promotion and release sequence.
 
 Before moving the `dev` pointer, preserve the fine-grained iteration history
 with a dated archive tag. `git reset --hard` only moves the branch pointer—
@@ -351,23 +352,28 @@ bisecting, archaeology, and cherry-picking:
 ```bash
 # In projects/tessera-dev/ (development worktree, branch dev):
 cd ../tessera-dev
-git tag archive/dev-YYYYMMDD-<feature-slug> dev
+git tag -a archive/dev-YYYYMMDD-<feature-slug> -m "Archive dev history before promotion" dev
 git push origin archive/dev-YYYYMMDD-<feature-slug>   # optional, offsite backup
 ```
 
-Then reset `dev` onto the freshly promoted `main`. Do **not** rebase here:
-the dev content already lives inside the squash commit, so rebasing yields
-empty commits and conflicts—`reset --hard main` is the only correct
-operation:
+#### Synchronizing dev with main
+
+Reset `dev` onto the freshly promoted (or release-bumped) `main`. Do **not**
+rebase here: the dev content already lives inside the squash commit on `main`,
+so rebasing yields empty commits and conflicts—`reset --hard main` is the only
+correct, conflict-free synchronization:
 
 ```bash
 # In projects/tessera-dev/ (development worktree, branch dev):
 git reset --hard main
 ```
 
-`Cargo.lock` now holds the canonical git-tag state. Simply run any Cargo
-command to rewrite it into the local path-patched form; no manual
-`git restore Cargo.lock` is needed:
+At this moment, `dev` and `main` point to the **exact same commit SHA**. The
+working tree inherits the clean, canonical lockfile from `main`.
+
+#### Seamless Resumption of Local Development
+
+To transition back to active development with zero friction:
 
 ```bash
 # In projects/tessera-dev/ (development worktree, branch dev):
@@ -375,13 +381,36 @@ cargo check -p tessera
 cargo tree -i flux   # confirm ../optics/bindings/ paths reappear
 ```
 
-If `dev` was previously pushed, force-update the remote branch after the
-reset (never with bare `--force`; the lease protects concurrent updates):
+Running `cargo check` instantly rewrites the local `Cargo.lock` to reconnect to
+sibling `../optics` via `.cargo/config.toml`. 
+
+**The cycle is now complete and frictionless**:
+- `dev` is 100% synchronized with `main`'s latest release state;
+- Sibling local path resolution is live;
+- The `.githooks/pre-commit` guard is actively protecting the dirty lockfile;
+- The developer can immediately begin writing the next feature, running tests,
+  and committing—with zero manual cleanup or configuration juggling.
+
+If `dev` was previously pushed to remote, update the remote branch pointer
+safely using lease protection (never bare `--force`):
 
 ```bash
 # In projects/tessera-dev/ (development worktree, branch dev):
 git push --force-with-lease origin dev
 ```
+
+### Workspace Package Release and Synchronization
+
+When promoting a milestone to an official package release (`0.0.X` bump):
+
+1. **Perform Version Bump on Main**: In `../tessera/` (`main`), update
+   `workspace.package.version` in `Cargo.toml`, update `CHANGELOG.md`, regenerate
+   the canonical `Cargo.lock` with `cargo check --locked --workspace`, and commit
+   `chore(release): vX.Y.Z`.
+2. **Synchronize dev Worktree**: In `../tessera-dev/` (`dev`), run
+   `git reset --hard main && cargo check -p tessera`.
+   This ensures `dev` immediately builds upon the newly released package
+   version baseline while keeping local Optics overrides intact.
 
 ## Automated Git Hook Guards (.githooks/pre-commit)
 
