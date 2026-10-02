@@ -748,16 +748,16 @@ checksum = "98de4bbd547a563b716d8dfa9aad1cb19bfab00f4fa09a6a4ed21dbcf44ce9c4"
 
 [[package]]
 name = "flux"
-version = "0.0.53"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.53#ad8c9175100409db31311951f0d69566848d565d"
+version = "0.0.54"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.54#b40ba926e4b6ffafb100db30a2120dece4d25360"
 dependencies = [
  "flux-sys",
 ]
 
 [[package]]
 name = "flux-sys"
-version = "0.0.53"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.53#ad8c9175100409db31311951f0d69566848d565d"
+version = "0.0.54"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.54#b40ba926e4b6ffafb100db30a2120dece4d25360"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -1135,8 +1135,8 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
 name = "lens"
-version = "0.0.53"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.53#ad8c9175100409db31311951f0d69566848d565d"
+version = "0.0.54"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.54#b40ba926e4b6ffafb100db30a2120dece4d25360"
 dependencies = [
  "flux",
  "lens-sys",
@@ -1144,8 +1144,8 @@ dependencies = [
 
 [[package]]
 name = "lens-sys"
-version = "0.0.53"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.53#ad8c9175100409db31311951f0d69566848d565d"
+version = "0.0.54"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.54#b40ba926e4b6ffafb100db30a2120dece4d25360"
 dependencies = [
  "bindgen",
  "flux-sys",
@@ -1482,8 +1482,8 @@ dependencies = [
 
 [[package]]
 name = "prism"
-version = "0.0.53"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.53#ad8c9175100409db31311951f0d69566848d565d"
+version = "0.0.54"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.54#b40ba926e4b6ffafb100db30a2120dece4d25360"
 dependencies = [
  "flux",
  "flux-sys",
@@ -1492,8 +1492,8 @@ dependencies = [
 
 [[package]]
 name = "prism-sys"
-version = "0.0.53"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.53#ad8c9175100409db31311951f0d69566848d565d"
+version = "0.0.54"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.54#b40ba926e4b6ffafb100db30a2120dece4d25360"
 dependencies = [
  "bindgen",
  "flux-sys",
@@ -2521,16 +2521,16 @@ dependencies = [
 
 [[package]]
 name = "transit"
-version = "0.0.53"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.53#ad8c9175100409db31311951f0d69566848d565d"
+version = "0.0.54"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.54#b40ba926e4b6ffafb100db30a2120dece4d25360"
 dependencies = [
  "transit-sys",
 ]
 
 [[package]]
 name = "transit-sys"
-version = "0.0.53"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.53#ad8c9175100409db31311951f0d69566848d565d"
+version = "0.0.54"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.54#b40ba926e4b6ffafb100db30a2120dece4d25360"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -2624,8 +2624,8 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vista"
-version = "0.0.53"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.53#ad8c9175100409db31311951f0d69566848d565d"
+version = "0.0.54"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.54#b40ba926e4b6ffafb100db30a2120dece4d25360"
 dependencies = [
  "flux",
  "gltf",
@@ -2635,8 +2635,8 @@ dependencies = [
 
 [[package]]
 name = "vista-sys"
-version = "0.0.53"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.53#ad8c9175100409db31311951f0d69566848d565d"
+version = "0.0.54"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.54#b40ba926e4b6ffafb100db30a2120dece4d25360"
 dependencies = [
  "bindgen",
  "flux-sys",

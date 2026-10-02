@@ -1211,16 +1211,27 @@ pub trait Chrome {
         false
     }
 
-    /// Prepare geometry/visibility that the backdrop capture must consume in
-    /// the same frame as [`Chrome::render`]. Components with cursor-driven
-    /// glass animations use this prepass so their SDF opacity never trails
-    /// foreground content by one frame.
-    fn prepare_backdrop(
+    /// Advance animation clocks and query watchers whose results must be
+    /// known before [`Chrome::backdrop_blur_sigma`],
+    /// [`Chrome::backdrop_regions`], and [`Chrome::damage_region`] are
+    /// resolved for this frame (ADR-0171, ADR-0178).
+    fn prepare_frame(
         &mut self,
         _input: &Input,
         _windows: &[Window],
         _workspaces: &WorkspaceSnapshot,
     ) {
+    }
+
+    /// Compatibility alias for [`Chrome::prepare_frame`].
+    #[inline]
+    fn prepare_backdrop(
+        &mut self,
+        input: &Input,
+        windows: &[Window],
+        workspaces: &WorkspaceSnapshot,
+    ) {
+        self.prepare_frame(input, windows, workspaces);
     }
 
     /// Edge space this component reserves; tiled windows avoid it (ADR-0024).

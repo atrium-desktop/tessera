@@ -22,7 +22,7 @@
 #[allow(unused_imports)]
 pub use transit::{
     approach, decay, dt_clamp, ease_in_cubic, ease_in_out_cubic, ease_out_back, ease_out_cubic,
-    Hysteresis, Smoother, Spring, SpringParams,
+    smoothstep, Hysteresis, Smoother, Spring, SpringParams,
 };
 
 /// One frame's delta time clamped to the range an animation may integrate
@@ -45,18 +45,6 @@ pub fn frame_dt(dt_seconds: f32) -> f32 {
 #[inline]
 pub fn blend(rate: f32, dt_seconds: f32, reduced_motion: bool) -> f32 {
     approach(0.0, 1.0, rate, dt_seconds, reduced_motion)
-}
-
-/// Hermite smoothstep ($f(t) = t^2(3 - 2t)$): zero velocity at both ends.
-///
-/// This is the shape a dock-family morph applies to a reveal spring's
-/// output — the spring decides *when* the value travels, smoothstep gives
-/// the visible geometry a soft start and a soft landing so the surface
-/// never arrives at either end of the morph with a hard stop.
-#[inline]
-pub fn smoothstep(value: f32) -> f32 {
-    let t = value.clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
 }
 
 /// Calculate a staggered reveal progress: returns 0.0 until `reveal` exceeds `delay`,

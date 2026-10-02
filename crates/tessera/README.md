@@ -81,7 +81,7 @@ cargo run --locked -p tessera
 The repository [Quick Start](../../README.md#quick-start) contains the full
 dependency build sequence. Contributors editing both repositories should
 follow
-[Optics Development Worktree Workflow](../../docs/dev/optics-dev-worktree.md).
+[Cross-Repository Development](../../docs/dev/cross-repository-development.md).
 
 ## Related Documentation
 

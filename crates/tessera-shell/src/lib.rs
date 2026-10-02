@@ -1035,9 +1035,10 @@ impl Shell {
             .fold(0.0_f32, f32::max)
     }
 
-    /// Run the backdrop prepass for the components eligible to render this
-    /// frame. Call once after input is built and before querying blur regions.
-    pub fn prepare_backdrop(&mut self, input: &Input) {
+    /// Run the animation clock and geometry prepass for components eligible
+    /// to render this frame (ADR-0171, ADR-0178). Call once after input is built
+    /// and before querying damage or backdrop regions.
+    pub fn prepare_frame(&mut self, input: &Input) {
         let modal_active = self
             .components
             .iter()
@@ -1053,9 +1054,15 @@ impl Shell {
                 window_switcher_active,
                 exclusive_presentation_active,
             ) {
-                component.prepare_backdrop(input, &self.windows, &self.workspaces);
+                component.prepare_frame(input, &self.windows, &self.workspaces);
             }
         }
+    }
+
+    /// Compatibility alias for [`Shell::prepare_frame`].
+    #[inline]
+    pub fn prepare_backdrop(&mut self, input: &Input) {
+        self.prepare_frame(input);
     }
 
     /// Aggregate every component's resting minimize-flight targets (the

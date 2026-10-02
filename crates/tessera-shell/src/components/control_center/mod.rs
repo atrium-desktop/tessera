@@ -168,17 +168,17 @@ const MENU_HEADER_HEIGHT: f32 = 23.0;
 const MENU_SEP_GAP: f32 = 4.0;
 const MENU_SEPARATOR_HEIGHT: f32 = MENU_SEP_GAP * 2.0 + 1.0;
 
-/// Reveal spring tuning (ADR-0176). The panel's enter/exit travels on a
+/// Reveal spring tuning (ADR-0176, ADR-0178). The panel's enter/exit travels on a
 /// critically damped spring (ζ = 1.0) so the full-screen canvas fade approaches
 /// its endpoint from one side only — an under-damped reveal would overshoot the
 /// opaque canvas past full opacity, reading as a flash at the end of every open.
-/// `stiffness` 300 (ω₀ ≈ 17.3 rad/s) settles inside ≈0.25 s: a bounded,
-/// provable convergence window, unlike the unbounded exponential follow it
-/// replaces (ADR-0172 `[INV-ARCH-44]`).
-const REVEAL_SPRING: SpringParams = SpringParams::new(300.0, 1.0);
+/// `stiffness` 480 (ω₀ ≈ 21.9 rad/s) settles cleanly within ≈0.22 s, delivering
+/// a snappy, responsive transition while eliminating the previous sluggish 0.48 s
+/// tail of full-output repaints (ADR-0172 `[INV-ARCH-44]`, ADR-0178).
+const REVEAL_SPRING: SpringParams = SpringParams::new(480.0, 1.0);
 /// Value/velocity tolerances at which the reveal spring is considered at rest.
-const REVEAL_SETTLE_VALUE_EPS: f32 = 0.002;
-const REVEAL_SETTLE_VELOCITY_EPS: f32 = 0.02;
+const REVEAL_SETTLE_VALUE_EPS: f32 = 0.004;
+const REVEAL_SETTLE_VELOCITY_EPS: f32 = 0.04;
 
 /// Frames the panel keeps reporting full-output damage after its reveal settles
 /// (ADR-0171 `[INV-ARCH-03]`, ADR-0176). The panel's canvas is opaque and
@@ -1239,7 +1239,7 @@ impl ControlCenter {
 
 mod presentation;
 impl Chrome for ControlCenter {
-    fn prepare_backdrop(
+    fn prepare_frame(
         &mut self,
         input: &Input,
         _windows: &[Window],

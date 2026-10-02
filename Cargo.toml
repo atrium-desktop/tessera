@@ -25,21 +25,21 @@ tessera-audit = { path = "crates/tessera-audit" }
 # development worktree can patch these sources through
 # .cargo/optics-local.toml without making a sibling checkout mandatory for CI
 # or downstream packagers.
-flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.53" }
-flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.53" }
-vista = { git = "https://github.com/ming2k/optics", tag = "v0.0.53" }
-vista-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.53" }
+flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.54" }
+flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.54" }
+vista = { git = "https://github.com/ming2k/optics", tag = "v0.0.54" }
+vista-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.54" }
 # Renderer-neutral offscreen DAG planning above Flux image operators.
-lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.53" }
-lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.53" }
+lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.54" }
+lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.54" }
 # prism (material library; ADR-0063) carries the liquid-glass compositor.
 # Canonical resolution needs an optics tag containing prism-rs.
-prism = { git = "https://github.com/ming2k/optics", tag = "v0.0.53" }
-prism-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.53" }
+prism = { git = "https://github.com/ming2k/optics", tag = "v0.0.54" }
+prism-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.54" }
 # transit (motion vocabulary; ADR-0172) provides analytic springs and easing;
 # v0.0.53 adds the explicit `reduced_motion` flag to every advance entry point.
-transit = { git = "https://github.com/ming2k/optics", tag = "v0.0.53" }
-transit-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.53" }
+transit = { git = "https://github.com/ming2k/optics", tag = "v0.0.54" }
+transit-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.54" }
 
 # Observability: crates emit through the `log` facade; each binary installs a
 # `tracing`-based subscriber through the shared `tessera-env` crate, which

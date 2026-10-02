@@ -256,7 +256,7 @@ impl CompositorRuntime<'_> {
         // plane assignment. An input-only hidden Dock can therefore turn a
         // bottom-edge entry into visible animation even while the previous
         // frames were direct-scanned-out and no canvas pass was running.
-        self.shell.prepare_backdrop(&input);
+        self.shell.prepare_frame(&input);
         let assessed_damage = self.assess_frame_damage(DamageAssessment {
             had_input,
             input_pointer_only,

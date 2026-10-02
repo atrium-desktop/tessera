@@ -1,4 +1,5 @@
 use super::*;
+pub(crate) use super::motion::detect_cursor_retreat;
 
 impl Chrome for Dock {
     fn render(
@@ -14,7 +15,6 @@ impl Chrome for Dock {
         let dt = input.as_raw().dt_seconds.max(0.0);
         let cursor = input.as_raw().cursor;
         let down = input.as_raw().mouse_down.first().copied().unwrap_or(false);
-        let was_animating = self.anim_active;
         self.last_display = Some((disp.x, disp.y));
 
         // A fullscreen client owns the whole output edge: no animation,
@@ -122,6 +122,7 @@ impl Chrome for Dock {
                     };
                 }
                 if press.dragging {
+                    self.dock_interacted = true;
                     self.anim_active = true;
                     match &press.target {
                         PressTarget::PinnedTile(key) => {
@@ -343,6 +344,7 @@ impl Chrome for Dock {
                 self.hover_surface_bounds = None;
                 self.hover_owner_bounds = None;
                 self.hovered_preview = None;
+                self.dismiss_latched = true;
                 self.autohide_idle = self.autohide_timeout;
                 self.autohide_dwell = 0.0;
                 self.anim_active = true;
@@ -862,6 +864,7 @@ impl Chrome for Dock {
                 PressTarget::Panel => false,
             };
             if pressed_this_tile {
+                self.dock_interacted = true;
                 let t = &tiles[i];
                 if t.launchpad {
                     out.toggle_pivot = true;
@@ -884,6 +887,7 @@ impl Chrome for Dock {
             && self.press.is_none()
             && let Some(i) = hit
         {
+            self.dock_interacted = true;
             let tile = &tiles[i];
             if !tile.launchpad {
                 let pin_action = if let Some(ai) = tile.app {
@@ -936,6 +940,7 @@ impl Chrome for Dock {
         } else {
             let wants_tooltip = self.hovered_tile.is_some() && self.hover_elapsed >= TOOLTIP_DWELL;
             if wants_tooltip {
+                self.dock_interacted = true;
                 self.tooltip_tile.clone_from(&self.hovered_tile);
             }
             let target = if wants_tooltip { 1.0 } else { 0.0 };
@@ -1021,19 +1026,6 @@ impl Chrome for Dock {
         self.app_menu.render(f, input, &self.all_windows, i18n, out);
         if !self.app_menu.is_open() {
             self.menu_tile = None;
-        }
-
-        let is_animating = self.anim_active;
-        if was_animating && !is_animating {
-            // Animation just settled this frame. Prime the swapchain ring drain
-            // counter so all FLUX_MAX_FRAMES_IN_FLIGHT (3) slots present the
-            // final settled geometry with full damage, purging all transient
-            // material footprints from the ring.
-            self.settled_drain_frames = 3;
-        } else if !is_animating && self.settled_drain_frames > 0 {
-            self.settled_drain_frames -= 1;
-        } else if is_animating {
-            self.settled_drain_frames = 0;
         }
 
         self.prev_down = down;
@@ -1139,8 +1131,7 @@ impl Chrome for Dock {
         if matches!(key_action(key.keysym, key.ch), KeyAction::Escape) {
             self.dismiss_transient_ui();
             if self.effective_autohide() && self.autohide_reveal > 0.0 {
-                self.autohide_idle = self.autohide_timeout;
-                self.autohide_dwell = 0.0;
+                self.request_dismiss();
                 self.anim_active = true;
             }
         }
@@ -1170,10 +1161,8 @@ impl Chrome for Dock {
         };
         let dwell_active =
             self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold;
-        self.anim_active
-            || dwell_active
-            || (effective_autohide && (target - self.autohide_reveal).abs() > 0.002)
-            || self.settled_drain_frames > 0
+        let drag_active = self.press.as_ref().is_some_and(|p| p.dragging);
+        self.motion.anim_pending(target, dwell_active, drag_active)
     }
 
     fn damage_region(
@@ -1315,7 +1304,7 @@ impl Chrome for Dock {
         display: (f32, f32),
         out: &mut Vec<(tessera_desktop::window::WindowId, tessera_primitives::Rect)>,
     ) {
-        out.extend(self.minimize_targets(display));
+        out.extend(Dock::minimize_targets(self, display));
     }
 
     fn cursor_shape_at(
@@ -1340,6 +1329,9 @@ impl Dock {
     ) {
         if self.fullscreen_locked() {
             return;
+        }
+        if (self.autohide_reveal - self.motion.reveal_value()).abs() > 0.002 {
+            self.motion.reveal = SpringState::new(self.autohide_reveal);
         }
         let position = self.position;
         let effective_autohide = self.effective_autohide();
@@ -1368,7 +1360,7 @@ impl Dock {
         let over_hover_surface = self.hover_surface_contains(cursor.0, cursor.1);
 
         let capsule_entry =
-            if self.collapse_pending || !effective_autohide || self.autohide_reveal >= 0.2 {
+            if self.collapse_pending || self.dismiss_latched || !effective_autohide || self.autohide_reveal >= 0.2 {
                 if self.autohide_reveal >= 0.2 {
                     self.autohide_dwell = 0.0;
                 }
@@ -1390,6 +1382,7 @@ impl Dock {
             };
 
         let over_dock_trigger = !self.collapse_pending
+            && !self.dismiss_latched
             && Self::pointer_keeps_revealed(
                 effective_autohide,
                 self.autohide_reveal,
@@ -1420,6 +1413,7 @@ impl Dock {
                 self.autohide_idle = 0.0;
             } else if retreating {
                 self.autohide_idle = self.autohide_timeout;
+                self.dismiss_latched = true;
             } else if self.autohide_reveal > 0.001 {
                 self.autohide_idle += dt;
             }
@@ -1441,121 +1435,28 @@ impl Dock {
             1.0
         };
 
-        let was_moving = self.was_autohide_animating;
-        self.autohide_reveal = crate::widgets::motion::approach(
-            self.autohide_reveal,
-            target_reveal,
-            AUTOHIDE_REVEAL_RATE,
-            dt,
-            self.reduced_motion,
-        );
-        if (target_reveal - self.autohide_reveal).abs() < 0.002 {
-            self.autohide_reveal = target_reveal;
-        }
-        let autohide_moving = (target_reveal - self.autohide_reveal).abs() > 0.002;
-        if self.collapse_pending && target_reveal == 0.0 && self.autohide_reveal <= 0.002 {
-            self.autohide_reveal = 0.0;
-            self.collapse_pending = false;
-        }
-        if self.autohide_reveal <= 0.002 && target_reveal == 0.0 {
+        self.motion
+            .advance_reveal(target_reveal, dt, self.reduced_motion);
+        self.autohide_reveal = self.motion.reveal_value();
+        self.settled_drain_frames = self.motion.settled_drain_frames;
+
+        let is_settled = !self.motion.reveal_animating(target_reveal);
+        if is_settled && target_reveal == 0.0 {
             self.dock_interacted = false;
-        }
-        self.was_autohide_animating = autohide_moving;
-        if was_moving && !autohide_moving {
-            self.settled_drain_frames = 3;
-        }
-        if autohide_moving {
-            self.anim_active = true;
-        }
-    }
-
-    /// Retain the workspace-global window set the tile strip is built from.
-    /// Preview cards are validated against this list (not the visible set) so
-    /// a preview of a window on another workspace survives workspace switches
-    /// and is dismissed only when the window actually goes away.
-    pub(crate) fn update_all_windows(&mut self, windows: &[Window]) {
-        if self.live_preview.as_ref().is_some_and(|presentation| {
-            presentation
-                .cards
-                .iter()
-                .any(|card| !windows.iter().any(|window| window.id == card.window))
-        }) {
-            self.dismiss_hover_surface();
-        }
-        self.all_windows = windows.to_vec();
-    }
-
-    pub(crate) fn update_windows(&mut self, windows: &[Window]) {
-        let space_use = SpaceUse::from_windows(windows);
-        let previous_space_use = self.space_use;
-        self.space_use = space_use;
-        if space_use == SpaceUse::Fullscreen {
-            // Lock immediately; fullscreen must not expose even the
-            // hidden-dock edge trigger between snapshot and render.
-            self.dismiss_transient_ui();
-            self.autohide_reveal = 0.0;
-            self.autohide_idle = self.autohide_timeout;
-            self.hidden_trigger_armed = false;
-            self.collapse_pending = false;
-            self.anim_active = false;
-            return;
-        }
-
-        if let Some(display) = self.last_display {
-            let obscured = self.obscured_by_windows(windows, display);
-            self.set_dock_obscured(obscured);
-        }
-        if space_use == SpaceUse::Maximized && previous_space_use != SpaceUse::Maximized {
-            // Maximized mode gains the complete work area by default. Start
-            // one uninterrupted collapse so a stationary pointer inside the
-            // old Dock rectangle cannot cancel the transition.
-            self.dismiss_transient_ui();
-            self.autohide_idle = self.autohide_timeout;
-            self.hidden_trigger_armed = false;
-            self.collapse_pending = true;
-            self.anim_active = true;
-        }
-        if space_use == SpaceUse::Available
-            && previous_space_use != SpaceUse::Available
-            && !self.dock_obscured
-        {
-            self.collapse_pending = false;
-            self.anim_active = true;
-            if !self.autohide {
-                self.autohide_idle = 0.0;
-                self.hidden_trigger_armed = true;
+            if !self.dock_obscured && self.space_use != SpaceUse::Maximized {
+                self.collapse_pending = false;
+            }
+            if !Self::collapsed_indicator_contains(position, cursor, display) {
+                self.dismiss_latched = false;
             }
         }
-    }
-
-    pub(crate) fn update_app_catalog(&mut self, catalog: &AppCatalog) {
-        self.app_menu.dismiss();
-        self.menu_tile = None;
-        self.dismiss_hover_surface();
-        self.all_apps = catalog.apps.clone();
-        self.apps = catalog
-            .pinned
-            .iter()
-            .map(|e| DockApp {
-                entry: e.clone(),
-                keys: e.match_keys(),
-            })
-            .collect();
-        self.icons = catalog.icons.clone();
-        self.catalog_revision = self.catalog_revision.wrapping_add(1);
-        // The push reconciles an optimistic drag reorder: the locally applied
-        // order and the pushed order are the same list by construction.
-        self.pending_order = None;
-        // An edge drag in flight owns the live position; the catalog catches
-        // up when the gesture ends.
-        if !self
-            .press
-            .as_ref()
-            .is_some_and(|press| press.dragging && matches!(press.target, PressTarget::Panel))
-        {
-            self.set_position(catalog.position);
+        self.was_autohide_animating = !is_settled;
+        if !is_settled {
+            self.anim_active = true;
         }
     }
+
+
     /// Resolve the single animated Dock body once for both capture bounds and
     /// the analytic glass pass. The foreground material uses the same radius
     /// through `collapsing_dock_material`, eliminating the old two-rectangle
@@ -1744,25 +1645,6 @@ pub(super) fn entry_matches_app_id(entry: &Entry, app_id: &str) -> bool {
             .icon
             .as_deref()
             .is_some_and(|icon| icon.eq_ignore_ascii_case(app_id))
-}
-
-/// Check if the cursor is retreating away from the anchored screen edge toward the
-/// client work area while situated outside the full resting dock footprint.
-/// Cursors moving inside `rest_bounds` are navigating toward dock tiles and are never aborted.
-pub(crate) fn detect_cursor_retreat(
-    position: DockPosition,
-    cursor: (f32, f32),
-    last_cursor: Option<(f32, f32)>,
-    rest_bounds: Rect,
-) -> bool {
-    let Some((last_x, last_y)) = last_cursor else {
-        return false;
-    };
-    match position {
-        DockPosition::Bottom => cursor.1 < rest_bounds.y && cursor.1 < last_y,
-        DockPosition::Left => cursor.0 > rest_bounds.x + rest_bounds.w && cursor.0 > last_x,
-        DockPosition::Right => cursor.0 < rest_bounds.x && cursor.0 < last_x,
-    }
 }
 
 /// A fixed-size, transparent container used to force a placed surface (whose

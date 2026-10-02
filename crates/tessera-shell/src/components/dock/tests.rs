@@ -1966,3 +1966,138 @@ fn autohide_collapse_settle_drains_swapchain_ring_frames() {
     assert_eq!(dock.settled_drain_frames, 0);
     assert!(!dock.anim_pending(), "all 3 ring slots drained, dock at complete rest");
 }
+
+#[test]
+fn dismiss_latch_prevents_rebound_oscillation_during_collapse() {
+    let mut dock = Dock::new();
+    dock.set_autohide(true);
+    dock.autohide_reveal = 1.0;
+    dock.autohide_idle = 0.0;
+    let display = (1920.0, 1080.0);
+    let workspaces = workspace_snapshot();
+    let windows = Vec::new();
+    let i18n = Localizer::default();
+    let mut out = ChromeEvents::default();
+
+    let mut ui = lens::Ui::headless().unwrap();
+    // Cursor parked in the terminal area above the expanded dock
+    let mut input = Input::new(display, 0.016);
+    input.set_cursor(display.0 * 0.5, 950.0);
+
+    // Click outside to trigger Escape hatch dismiss
+    input.set_mouse_down(lens::MouseButton::Left, true);
+    ui.frame(&input, |f| {
+        dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
+    });
+    assert!(dock.dismiss_latched, "click outside engages dismiss latch");
+
+    input.set_mouse_down(lens::MouseButton::Left, false);
+
+    // Advance collapse partially. While collapsing, move cursor into the morphing panel area.
+    for _ in 0..5 {
+        dock.prepare_backdrop(&input, &windows, &workspaces);
+        ui.frame(&input, |f| {
+            dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
+        });
+    }
+    assert!(dock.autohide_reveal < 0.9 && dock.autohide_reveal > 0.05);
+
+    // Cursor moves inside the active panel area (which previously caused rebound loop)
+    let indicator = Dock::collapsed_indicator_bounds(DockPosition::Bottom, display);
+    input.set_cursor(indicator.x + indicator.w * 0.5, display.1 - 2.0);
+
+    for _ in 0..30 {
+        dock.prepare_backdrop(&input, &windows, &workspaces);
+        ui.frame(&input, |f| {
+            dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
+        });
+        if (dock.autohide_reveal - 0.0).abs() <= 0.002 {
+            break;
+        }
+    }
+
+    assert_eq!(dock.autohide_reveal, 0.0, "dock must collapse completely without rebounding");
+
+    // Move cursor away into client work area: latch clears
+    input.set_cursor(display.0 * 0.5, 500.0);
+    dock.prepare_backdrop(&input, &windows, &workspaces);
+    assert!(!dock.dismiss_latched, "latch clears once rested and cursor departs");
+}
+
+#[test]
+fn obscured_dock_retains_collapse_pending_until_window_leaves() {
+    let mut dock = Dock::new();
+    let display = (1920.0, 1080.0);
+    let workspaces = workspace_snapshot();
+    let i18n = Localizer::default();
+    let mut out = ChromeEvents::default();
+    let mut ui = lens::Ui::headless().unwrap();
+
+    // A window overlapping the bottom resting dock area
+    let mut invading = window(10, "terminal", true);
+    invading.position = tessera_primitives::Point {
+        x: 100,
+        y: (display.1 - 60.0) as i32,
+    };
+    invading.size = tessera_primitives::Size { w: 1000, h: 200 };
+
+    let mut input = Input::new(display, 0.016);
+    input.set_cursor(display.0 * 0.5, 500.0);
+
+    dock.prepare_backdrop(&input, std::slice::from_ref(&invading), &workspaces);
+    assert!(dock.dock_obscured, "window overlapping dock sets obscured");
+    assert!(dock.collapse_pending, "obscured dock initiates collapse_pending");
+
+    // Advance until fully collapsed
+    for _ in 0..40 {
+        dock.prepare_backdrop(&input, std::slice::from_ref(&invading), &workspaces);
+        ui.frame(&input, |f| {
+            dock.render(f, &input, std::slice::from_ref(&invading), &workspaces, &i18n, &mut out);
+        });
+        if (dock.autohide_reveal - 0.0).abs() <= 0.002 {
+            break;
+        }
+    }
+    assert_eq!(dock.autohide_reveal, 0.0);
+    assert!(
+        dock.collapse_pending,
+        "collapse_pending must STAY true while window is still obscuring dock"
+    );
+
+    // Now window moves away
+    invading.position = tessera_primitives::Point { x: 100, y: 100 };
+    dock.prepare_backdrop(&input, std::slice::from_ref(&invading), &workspaces);
+    assert!(!dock.dock_obscured, "window moved away: no longer obscured");
+    assert!(!dock.collapse_pending, "collapse_pending clears when window leaves");
+}
+
+#[test]
+fn dock_interaction_sets_interacted_flag_and_standard_timeout() {
+    let mut dock = dock_with(vec![app("term.desktop")]);
+    dock.set_autohide(true);
+    dock.autohide_reveal = 1.0;
+    dock.autohide_idle = 0.0;
+    let display = (1920.0, 1080.0);
+    let workspaces = workspace_snapshot();
+    let windows = Vec::new();
+    let i18n = Localizer::default();
+    let mut out = ChromeEvents::default();
+    let mut ui = lens::Ui::headless().unwrap();
+
+    assert!(!dock.dock_interacted);
+
+    // Hover over a tile and dwell
+    let mut input = Input::new(display, 0.016);
+    let rest_bounds = Dock::rest_bounds(2, 1, DockPosition::Bottom, display);
+    input.set_cursor(rest_bounds.x + 30.0, rest_bounds.y + 30.0);
+
+    for _ in 0..30 {
+        dock.prepare_backdrop(&input, &windows, &workspaces);
+        ui.frame(&input, |f| {
+            dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
+        });
+    }
+
+    assert!(dock.dock_interacted, "hover dwell / interaction sets dock_interacted");
+}
+
