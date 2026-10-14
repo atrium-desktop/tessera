@@ -14,6 +14,15 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.74] - 2026-10-14
+
+### Added
+- Zero-redundancy presentation pipeline and localized geometry transition damage (ADR-0179): window flights (Genie minimize, restore, open, close) report exact bounding damage and no longer force full-screen backdrop invalidations when disjoined from chrome blur regions.
+- Attachment and filter mask bucketing to 128-pixel boundaries (`[INV-ARCH-58]`): eliminates per-frame Vulkan image creations during dynamic geometric sweeps.
+- Independent multi-window shadow isolation: `WindowShadowRenderer` manages dedicated `flux::ShadowFilter` instances and bucketed mask pools per window, preventing cross-window texture stomping and dangling output pointers.
+- Sub-millisecond KMS atomic flip retry pacing (`[INV-ARCH-60]`): replaces the 16.6ms EBUSY backoff penalty with 1ms micro-retries to eliminate dropped refresh intervals during cursor/plane contention.
+- Adopted Optics `v0.0.56` with motion sub-stepping integration (`transit_spring_advance_substep`) and extent bucketing helpers across shell components.
+
 ## [0.0.73] - 2026-10-02
 
 ### Added
