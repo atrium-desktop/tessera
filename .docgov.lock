@@ -1,13 +1,13 @@
 # Generated automatically by docgov. Do not edit manually.
-protocol_version: '6.0'
+protocol_version: 0.0.4
 upstream:
-  source: https://github.com/ming2k/docs-governance
-  ref: v0.0.5
-  synced_at: 2026-09-28T11:18:56Z
+  source: https://github.com/ming2k/docgov
+  ref: v0.0.4
+  synced_at: 2026-10-14T05:09:33Z
 artifacts:
   agent_directives:
     target: AGENTS.md
-    hash: sha256:88899a39d7a5b0ffde0a3b9f8c4a8e719d30ecaf2a00e1cb07c003869b854bb2
+    hash: sha256:bc92f47238b0cfde904d2fe51d069c23be25c88efe81bbfcb953b10e371ea802
   governance_docs:
     target: docs/governance/documentation
-    hash: sha256:59490cd9cf98e048d559e7c8d9c61383446b862ce7b3cdfa11e2f208f8e3ab5e
+    hash: sha256:c9861ec486a01ef0a745e28637560bda23cc5cfd22ca7cc18875277b9e22b6a3

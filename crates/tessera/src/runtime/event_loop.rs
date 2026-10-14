@@ -332,7 +332,12 @@ impl CompositorRuntime<'_> {
                     now,
                     refresh_interval,
                 ),
-                PresentationOutcome::Retry => self.presentation.retry_at(now + refresh_interval),
+                PresentationOutcome::Retry => {
+                    // Fast retry for transient EBUSY / page-flip in flight: retry in 1ms rather than
+                    // skipping an entire refresh interval (which drops from 60fps to 30fps).
+                    self.presentation
+                        .retry_at(now + std::time::Duration::from_millis(1))
+                }
             }
         }
 

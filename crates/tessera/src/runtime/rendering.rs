@@ -752,8 +752,14 @@ impl BackdropCacheKey {
             scene_overlays.push(0);
         }
         Self {
-            capture_origin,
-            capture_extent,
+            capture_origin: (
+                (capture_origin.0 / 64) * 64,
+                (capture_origin.1 / 64) * 64,
+            ),
+            capture_extent: (
+                flux::bucket_extent(capture_extent.0, 128),
+                flux::bucket_extent(capture_extent.1, 128),
+            ),
             physical_size,
             sigma: sigma.to_bits(),
             scale: scale.to_bits(),
@@ -948,9 +954,11 @@ impl BackdropGraphExecutor {
             }
         };
 
+        let raw_w = extent.0.div_ceil(BACKDROP_DOWNSAMPLE).max(1);
+        let raw_h = extent.1.div_ceil(BACKDROP_DOWNSAMPLE).max(1);
         let size = (
-            extent.0.div_ceil(BACKDROP_DOWNSAMPLE).max(1),
-            extent.1.div_ceil(BACKDROP_DOWNSAMPLE).max(1),
+            flux::bucket_extent(raw_w, 128),
+            flux::bucket_extent(raw_h, 128),
         );
         if self.captures.len() <= slot {
             self.captures.resize_with(slot + 1, || None);
@@ -1370,6 +1378,9 @@ impl BackdropGraphExecutor {
         let Some(config) = self.config.as_ref() else {
             return false;
         };
+        let (img_w, img_h) = capture.size;
+        let u_span = (extent.0.min(img_w) as f32) / (img_w.max(1) as f32);
+        let v_span = (extent.1.min(img_h) as f32) / (img_h.max(1) as f32);
         for (layer, regions) in capture.layers.iter().zip(&config.layer_regions) {
             for region in regions {
                 canvas.save();
@@ -1379,12 +1390,16 @@ impl BackdropGraphExecutor {
                     region.extent.0 as f32,
                     region.extent.1 as f32,
                 );
-                canvas.draw_image(
+                canvas.draw_image_sub(
                     &layer.composite,
                     origin.0 as f32,
                     origin.1 as f32,
                     extent.0 as f32,
                     extent.1 as f32,
+                    0.0,
+                    0.0,
+                    u_span,
+                    v_span,
                 );
                 canvas.restore();
             }
@@ -1403,7 +1418,20 @@ impl BackdropGraphExecutor {
         let Some(capture) = self.captures.get(slot).and_then(Option::as_ref) else {
             return false;
         };
-        canvas.draw_image_opaque(&capture.image, 0.0, 0.0, extent.0 as f32, extent.1 as f32);
+        let (img_w, img_h) = capture.size;
+        let u_span = (extent.0.min(img_w) as f32) / (img_w.max(1) as f32);
+        let v_span = (extent.1.min(img_h) as f32) / (img_h.max(1) as f32);
+        canvas.draw_image_opaque_sub(
+            &capture.image,
+            0.0,
+            0.0,
+            extent.0 as f32,
+            extent.1 as f32,
+            0.0,
+            0.0,
+            u_span,
+            v_span,
+        );
         true
     }
 
@@ -2264,14 +2292,15 @@ mod tests;
 /// windows move), so no cache invalidation tracking is needed beyond the
 /// compositor's own damage (any geometry change already forces a full
 /// repaint through the window signature).
-pub(super) struct WindowShadowRenderer {
+struct WindowShadowEntry {
     filter: flux::ShadowFilter,
-    /// One mask render target per frame-in-flight slot (ADR-0074 slot
-    /// isolation; sizes vary per window so entries are rebuilt on extent
-    /// change by the filter's own slot logic — the mask target here only
-    /// needs a per-slot image because the canvas writes it inside this
-    /// frame's recording).
     masks: Vec<Option<flux::Image>>,
+}
+
+pub(super) struct WindowShadowRenderer {
+    /// Independent shadow filters and mask targets per window.
+    /// Eliminates cross-window filter thrashing and dangling raw output pointers.
+    entries: std::collections::HashMap<tessera_desktop::window::WindowId, WindowShadowEntry>,
 }
 
 /// A rendered shadow ready for compositing: the borrowed filter output for
@@ -2295,10 +2324,9 @@ pub(super) struct RenderedShadow {
 }
 
 impl WindowShadowRenderer {
-    pub(super) fn new(device: &flux::Device) -> Result<Self, flux::Error> {
+    pub(super) fn new(_device: &flux::Device) -> Result<Self, flux::Error> {
         Ok(Self {
-            filter: flux::ShadowFilter::new(device)?,
-            masks: Vec::new(),
+            entries: std::collections::HashMap::new(),
         })
     }
 
@@ -2321,6 +2349,15 @@ impl WindowShadowRenderer {
         }
         let slot = frame.index() as usize;
         let mut out = Vec::new();
+
+        // Evict masks and filters for closed/unshadowed windows
+        let live_shadow_windows: std::collections::HashSet<_> = windows
+            .iter()
+            .filter(|w| tessera_composite::window_casts_shadow(w))
+            .map(|w| w.id)
+            .collect();
+        self.entries.retain(|win_id, _| live_shadow_windows.contains(win_id));
+
         for window in windows
             .iter()
             .filter(|w| tessera_composite::window_casts_shadow(w))
@@ -2334,20 +2371,38 @@ impl WindowShadowRenderer {
             let px_h = (window.size.h as f32 * scale + margin * 2.0)
                 .ceil()
                 .max(1.0) as u32;
-            if self.masks.len() <= slot {
-                self.masks.resize_with(slot + 1, || None);
+            let bucket_w = flux::bucket_extent(px_w, 128);
+            let bucket_h = flux::bucket_extent(px_h, 128);
+
+            let entry = match self.entries.entry(window.id) {
+                std::collections::hash_map::Entry::Occupied(occ) => occ.into_mut(),
+                std::collections::hash_map::Entry::Vacant(vac) => {
+                    let Ok(filter) = flux::ShadowFilter::new(device) else {
+                        continue;
+                    };
+                    vac.insert(WindowShadowEntry {
+                        filter,
+                        masks: Vec::new(),
+                    })
+                }
+            };
+
+            if entry.masks.len() <= slot {
+                entry.masks.resize_with(slot + 1, || None);
             }
-            let rebuild = !matches!(&self.masks[slot],
-                Some(existing) if existing.size().0 == px_w && existing.size().1 == px_h);
+            let rebuild = !matches!(
+                &entry.masks[slot],
+                Some(existing) if existing.size().0 == bucket_w && existing.size().1 == bucket_h
+            );
             if rebuild {
                 let Ok(image) =
-                    flux::Image::render_target(device, px_w, px_h, flux::Format::Rgba8Unorm)
+                    flux::Image::render_target(device, bucket_w, bucket_h, flux::Format::Rgba8Unorm)
                 else {
                     continue;
                 };
-                self.masks[slot] = Some(image);
+                entry.masks[slot] = Some(image);
             }
-            let Some(mask) = self.masks[slot].as_mut() else {
+            let Some(mask) = entry.masks[slot].as_mut() else {
                 continue;
             };
 
@@ -2399,14 +2454,14 @@ impl WindowShadowRenderer {
                     SHADOW_ALPHA_IDLE
                 },
             };
-            match self.filter.apply(frame, mask, params) {
+            match entry.filter.apply(frame, mask, params) {
                 Ok(shadow) => out.push(RenderedShadow {
                     window: window.id,
                     raw: shadow.as_raw(),
                     x: window.position.x as f32 * scale - margin,
                     y: window.position.y as f32 * scale - margin,
-                    w: px_w as f32,
-                    h: px_h as f32,
+                    w: mask.size().0 as f32,
+                    h: mask.size().1 as f32,
                 }),
                 Err(error) => {
                     log::debug!("window shadow: filter apply failed ({error}); skipping");

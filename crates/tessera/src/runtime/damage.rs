@@ -138,6 +138,8 @@ impl CompositorRuntime<'_> {
             // frame after each minute rollover.
             || self.damage.last_present_minute != Some(wall_clock_minute());
 
+        let transition_rects = self.server.transition_damage_rects();
+
         // Only conditions that change pixels in the desktop scene sampled by
         // a backdrop belong here. Pure shell/input/clock/notification damage
         // still repaints the output, but must not invalidate the expensive
@@ -145,7 +147,7 @@ impl CompositorRuntime<'_> {
         let backdrop_full = self.frame_count == 0
             || self.damage.force_full_redraw
             || session_locked != self.damage.last_session_locked
-            || self.server.transitions_pending()
+            || self.server.workspace_slide_pending()
             || (!session_locked
                 && !self.server.visible_fullscreen_window()
                 && self.wallpaper.as_ref().is_some_and(|w| {
@@ -251,10 +253,19 @@ impl CompositorRuntime<'_> {
         let backdrop_source = if backdrop_full {
             FrameDamage::Full
         } else {
-            client
+            let base = client
                 .clone()
                 .unwrap_or(ClientDamage::None)
-                .into_frame_damage(scale, physical_size)
+                .into_frame_damage(scale, physical_size);
+            if transition_rects.is_empty() {
+                base
+            } else {
+                let trans = logical_rects_to_frame(transition_rects.clone(), scale, physical_size);
+                match base {
+                    FrameDamage::Full => FrameDamage::Full,
+                    other => union_frame_damage(trans, other),
+                }
+            }
         };
         let output = if output_full {
             FrameDamage::Full
@@ -269,6 +280,9 @@ impl CompositorRuntime<'_> {
             }
             if let Some(rects) = input_damage {
                 extra.extend(rects);
+            }
+            if !transition_rects.is_empty() {
+                extra.extend(transition_rects);
             }
             let base = client
                 .unwrap_or(ClientDamage::None)

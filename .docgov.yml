@@ -1,4 +1,4 @@
-version: "6.0"
+version: "0.0.4"
 
 # [INV-LINT-01] Root Location Sanitization
 root_sanitization:

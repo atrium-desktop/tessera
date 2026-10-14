@@ -740,7 +740,8 @@ impl ControlCenter {
         // swapchain slot overwrites the pre-open desktop under the opaque canvas
         // (ADR-0171 `[INV-ARCH-03]`).
         let was_animating = self.reveal_animating_value();
-        self.reveal.advance(target, REVEAL_SPRING, dt, reduced);
+        self.reveal
+            .advance_substep(target, REVEAL_SPRING, dt, 1.0 / 60.0, reduced);
         if !self
             .reveal
             .settled(target, REVEAL_SETTLE_VALUE_EPS, REVEAL_SETTLE_VELOCITY_EPS)

@@ -1,29 +1,38 @@
 # Entity: Incident Postmortem
 
-Intent: conduct blameless post-incident forensics to identify systemic defense failures, detection gaps, and binding preventative action items.
+Intent: Conduct blameless post-incident forensics to identify systemic defense failures, detection gaps, and binding preventative action items.
 
 ---
 
-## 1. Non-Negotiable Invariants
+## 1. Intent & Escalation Scope
 
-- **`[INV-OPS-01]` Blameless Postmortem Structure**:
-  Post-incident reviews must focus strictly on timeline reconstruction, detection gaps, and systemic engineering defenses. Attribution of human error, negligence, or blame is strictly prohibited.
-- **`[INV-OPS-02]` Escalation Layering**:
-  Recurring mitigation steps must be codified into operational runbooks. If the root cause requires structural code or protocol redesign, an ADR must be authored to ratify the permanent invariant change.
-- **`[INV-TEMP-03]` No Direct Deletion**:
-  Postmortems are archived permanently under `docs/dev/postmortems/`. They must never be deleted.
+Postmortems capture forensic truth following outages, data corruption, or severe SLA degradations. Operational knowledge escalates as follows:
+- **Mitigation**: Immediate restoration steps belong in operational runbooks (`docs/dev/runbooks/`).
+- **Forensics**: Systematic timeline and root-cause analysis belong in postmortems (`docs/dev/postmortems/`).
+- **Architectural Ratification**: If preventing recurrence requires structural protocol or boundary redesign, an ADR must be authored under `docs/adr/`.
 
 ---
 
-## 2. Directory Setup & File Naming
+## 2. Normative Invariants
 
-Postmortems live in cold storage under `docs/dev/postmortems/`:
-- Format: `docs/dev/postmortems/YYYY-MM-DD-<slug>.md` (e.g., `2026-04-12-wal-corruption.md`).
-- A registry index must exist at `docs/dev/postmortems/index.md`.
+- **`[INV-AGENT-03]` Blameless Postmortem Structure**:
+  Post-incident reviews must focus strictly on timeline reconstruction, detection gaps, and systemic defense failures. Attribution of personal human error, negligence, or blame is strictly prohibited.
+- **`[INV-LINT-02]` Contributor Firewall**:
+  Postmortems reside under `docs/dev/postmortems/` behind the contributor firewall. Public user-facing documentation must never contain relative links into postmortems.
+- **Permanent Cold Retention**:
+  Postmortems are permanent cold-tier forensic records. They must never be deleted or truncated.
 
 ---
 
-## 3. Authoritative Postmortem Template
+## 3. Directory Setup & File Naming
+
+Postmortems reside in cold storage under `docs/dev/postmortems/`:
+- **File Naming**: `docs/dev/postmortems/YYYY-MM-DD-<slug>.md` (e.g., `2026-04-12-wal-corruption.md`).
+- **Registry Index**: Maintain a chronological registry at `docs/dev/postmortems/index.md`.
+
+---
+
+## 4. Authoritative Postmortem Template
 
 ```markdown
 # Postmortem: [Incident Title]
@@ -38,7 +47,7 @@ Postmortems live in cold storage under `docs/dev/postmortems/`:
 
 ## 1. Executive Summary
 
-A 2-3 sentence overview of what broke, the user-visible impact, and the key fix deployed.
+A 2–3 sentence overview of what broke, the user-visible impact, and the key fix deployed.
 
 ## 2. Incident Timeline (UTC)
 
@@ -53,23 +62,22 @@ Chronological reconstruction of events from trigger to recovery:
 
 1. *Why did the service crash?* Buffer overflowed under sudden traffic spike.
 2. *Why did the buffer overflow?* Backpressure signaling was disabled on worker threads.
-3. *Why was backpressure disabled?* Feature flag introduced during last sprint had inverted boolean logic.
+3. *Why was backpressure disabled?* Feature flag introduced during last release had inverted boolean logic.
 4. *Why was the inverted logic not caught in CI?* Integration tests ran with backpressure pre-mocked.
 5. *Why was it pre-mocked?* Test fixture lacked end-to-end backpressure validation.
 
 ## 4. Detection & Response Gaps
 
-- What alert should have fired earlier?
-- Was operational runbook documentation accurate and immediately reachable?
-- Did telemetry metrics provide sufficient diagnostic resolution?
+- **Time to Detect (TTD)**: [e.g., 14 minutes from trigger to alert].
+- **Monitoring Gap**: Alert threshold was configured on 15-minute rolling average rather than instantaneous drop.
+- **Response Friction**: Runbook lacked explicit command to drain worker pools safely.
 
-## 5. Preventative Action Items
+## 5. Preventative Action Items (Systemic Defense)
 
-Every action item must have a ticket link, an assigned owner, and an explicit target date:
-
-| Action Item | Type | Owner | Target Date | Tracking Ticket |
-| :--- | :--- | :--- | :--- | :--- |
-| Add E2E backpressure integration test | Prevent | @alice | 2026-05-01 | Issue #104 |
-| Add high-watermark buffer alert | Detect | @bob | 2026-04-20 | Issue #105 |
-| Update operational triage runbook | Mitigate | @carol | 2026-04-18 | Issue #106 |
+| Action Item | Type | Owner | Tracking Issue / ADR |
+| :--- | :--- | :--- | :--- |
+| Add E2E backpressure integration test | Test | @engineer | #412 |
+| Rewrite alert rule to trigger on P99 spike | Monitoring | @sre | #415 |
+| Document graceful worker pool drain command | Runbook | @maintainer | #418 |
+| Evaluate strict typed feature-flag configuration | Architecture | @architect | ADR-0012 |
 ```

@@ -2,16 +2,20 @@
 
 Domain capability profile governing architectural decision lifecycles, living system blueprints, and pre-decision proposals.
 
-Activate this profile in `contracts.md` under `## 1. Activated Profiles`:
-```markdown
-- [x] `architecture` (Architecture decision records: ADR lifecycle, blueprints, RFCs)
+Activate this profile in `.docgov.yml` under `architecture`:
+```yaml
+architecture:
+  adr_path: "docs/adr"
+  require_frontmatter:
+    status_enum: ["draft", "accepted", "superseded", "rejected"]
+    mandatory_fields: ["id", "title", "status", "date"]
 ```
 
 ---
 
 ## The Three Architecture Entities
 
-This profile provides three tightly coupled vertical entities:
+This profile establishes three vertical entities across the lifecycle:
 
 ```text
 ┌──────────────────────────────┐
@@ -21,22 +25,22 @@ This profile provides three tightly coupled vertical entities:
                │ Reaches consensus
                ▼
 ┌──────────────────────────────┐
-│ Ratified ADR (`adr.md`)      │  Immutable Decision Covenant (WARM)
+│ Ratified ADR (`adr.md`)      │  Immutable Decision Covenant (WARM / COLD)
 │ Decision, trade-offs, rules  │  Location: `docs/adr/NNNN-*.md`
 └──────────────┬───────────────┘
-               │ Compaction cycle
+               │ Distillation & synthesis
                ▼
 ┌──────────────────────────────┐
-│ Living Snapshot (`living-    │  Current System Truth (HOT)
-│ snapshot.md`)                │  Location: `docs/architecture/*.md`
+│ Living Snapshot              │  Current System Truth (HOT)
+│ (`living-snapshot.md`)       │  Location: `docs/architecture/*.md`
 └──────────────────────────────┘
 ```
 
-| Entity File | Purpose | Document Surface | Temperature Tier |
+| Entity File | Purpose | Document Surface | Temperature |
 | :--- | :--- | :--- | :--- |
-| [ADR Entity](adr.md) | Immutable decision records and negative knowledge | `docs/adr/` | **WARM** (Cold when archived) |
-| [RFC Entity](rfc.md) | Optional pre-decision debate and alternatives exploration | `docs/rfc/` | **WARM** (Cold when archived) |
-| [Living Snapshot Entity](living-snapshot.md) | Authoritative current system blueprints & ADR compaction | `docs/architecture/` | **HOT** |
+| [ADR Entity](adr.md) | Immutable decision records, rationale, and negative knowledge | `docs/adr/` | **WARM** (`accepted`) / **COLD** (`superseded \| rejected`) |
+| [RFC Entity](rfc.md) | Optional pre-decision debate and alternative evaluation | `docs/rfc/` | **WARM** (`draft \| under_review`) / **COLD** (`accepted \| withdrawn`) |
+| [Living Snapshot](living-snapshot.md) | Living subsystem state blueprints, invariants, and ADR synthesis | `docs/architecture/` | **HOT** |
 
 ---
 
@@ -44,22 +48,10 @@ This profile provides three tightly coupled vertical entities:
 
 When the `architecture` profile is active, the repository establishes:
 
-| Surface | Path | Required | Temperature | Purpose |
+| Surface | Path | Required | Temperature | Lifecycle Model |
 | :--- | :--- | :--- | :--- | :--- |
-| Active ADRs | `docs/adr/` | Yes | **WARM** | Active architectural decision records |
-| Archived ADRs | `docs/adr/archive/` | Yes | **COLD** | Compacted, superseded, and deprecated records |
-| Living Architecture | `docs/architecture/` | Yes | **HOT** | Current subsystem state blueprints and invariants |
-| In-Flight RFCs | `docs/rfc/` | Optional | **WARM** | Active multi-stakeholder proposals |
-| Archived RFCs | `docs/rfc/archive/` | Optional | **COLD** | Concluded and withdrawn proposals |
+| **ADRs** | `docs/adr/` | Yes | **WARM** / **COLD** | In-place frontmatter progression (`[INV-LINT-03]`) |
+| **Living Architecture** | `docs/architecture/` | Recommended | **HOT** | Living ground truth synchronized with code (`[INV-LINT-04]`) |
+| **RFC Proposals** | `docs/rfc/` | Optional | **WARM** / **COLD** | In-place frontmatter progression (`status: draft \| accepted \| withdrawn`) |
 
----
-
-## Governance Invariant Cross-Reference
-
-- `[INV-ARCH-01]`: ADR Immutability Contract.
-- `[INV-ARCH-02]`: Negative Knowledge Requirement.
-- `[INV-ARCH-03]`: RFC Misuse Isolation (No raw RFCs in AI context).
-- `[INV-ARCH-04]`: RFC Terminal Closure Mandate (Distill or withdraw).
-- `[INV-ARCH-05]`: Snapshot Compaction Integrity.
-- `[INV-ARCH-06]`: Architectural Significance Threshold (Anti-triviality firewall).
-- `[INV-TEMP-02]`: Archival Firewall (AI agents default-exclude `**/archive/**`).
+*Zero Physical Archival*: Retired records are never moved into an `archive/` subfolder. They remain in-place to preserve stable file paths, Git blame history, and cross-references.

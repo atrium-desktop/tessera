@@ -418,7 +418,7 @@ impl Server {
         });
     }
 
-    pub(crate) fn workspace_slide_pending(&self) -> bool {
+    pub fn workspace_slide_pending(&self) -> bool {
         self.state
             .workspace_slide
             .as_ref()
@@ -597,6 +597,36 @@ impl Server {
             || self.state.live_surfaces().any(|p| unsafe {
                 !(*p).xdg_toplevel.is_null() && self.transition_render_rect(&*p).is_some()
             })
+    }
+
+    /// Bounding damage rectangles of all window geometry transitions currently
+    /// in flight (closing ghosts, minimize/restore, and open transitions).
+    pub fn transition_damage_rects(&self) -> Vec<tessera_primitives::Rect> {
+        let mut rects = Vec::new();
+        let now = self.now_ms();
+        for frame in &self.state.closing_frames {
+            if frame.transition.is_active_at(now) {
+                if let Some(r) = frame.transition.rect_at(frame.rect, now) {
+                    rects.push(r.union(frame.rect));
+                } else {
+                    rects.push(frame.rect);
+                }
+            }
+        }
+        for p in self.state.live_surfaces() {
+            unsafe {
+                if !(*p).xdg_toplevel.is_null() {
+                    let target = tessera_primitives::Rect {
+                        origin: (*p).position,
+                        size: (*p).window.size,
+                    };
+                    if let Some(r) = self.transition_render_rect(&*p) {
+                        rects.push(r.union(target));
+                    }
+                }
+            }
+        }
+        rects
     }
 
     /// Reconcile connector identities and geometries reported by the backend.

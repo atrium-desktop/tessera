@@ -32,6 +32,19 @@ pub fn frame_dt(dt_seconds: f32) -> f32 {
     transit::dt_clamp(dt_seconds)
 }
 
+/// Advance a spring toward `target` using bounded sub-steps (each <= 1/60 s)
+/// to prevent discrete jumps under irregular frame delivery (ADR-0108 / ADR-0179).
+#[inline]
+pub fn spring_advance_substep(
+    spring: &mut Spring,
+    target: f32,
+    params: SpringParams,
+    dt_seconds: f32,
+    reduced_motion: bool,
+) -> f32 {
+    spring.advance_substep(target, params, dt_seconds, 1.0 / 60.0, reduced_motion)
+}
+
 /// The fraction of the remaining distance an exponential follower covers this
 /// frame: `1 - e^(-rate·dt)`, frame-rate independent and clamped to `[0, 1]`.
 ///

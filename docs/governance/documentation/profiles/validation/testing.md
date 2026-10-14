@@ -1,30 +1,35 @@
 # Entity: Programmatic Implementation Testing
 
-Intent: document automated test execution, suite categories, environment prerequisites, and test fixture topologies to guarantee reproducible mechanical verification.
+Intent: Document automated test runner commands, suite categories, environment prerequisites, and fixture topologies to guarantee reproducible mechanical verification.
 
 ---
 
-## 1. Non-Negotiable Invariants
+## 1. Intent & Scope
 
-- **`[INV-VAL-02]` Deterministic Test Reproducibility**:
-  Every automated test command listed in `docs/dev/testing.md` must execute deterministically without hidden local fixtures, undeclared environment variables, or reliance on unversioned network assets.
-- **`[INV-TEMP-01]` Hot Data Synchronization**:
-  When test runner commands, environment flags, or CI test matrices change, `docs/dev/testing.md` must be updated in the same Pull Request.
-- **`[INV-CORE-01]` Contributor Firewall**:
-  `docs/dev/testing.md` resides in `docs/dev/` and must not be linked from user-facing documentation.
+Implementation testing provides fast inner-loop feedback for developers:
+- **Inner-Loop Focus**: Verifies that components, algorithms, and interfaces behave correctly in isolation and integration.
+- **Deterministic Execution**: Tests must run deterministically on clean developer workstations and CI runners without undeclared external state.
 
 ---
 
-## 2. Document Structure Requirements
+## 2. Normative Invariants
+
+- **Deterministic Reproducibility**: Automated test commands documented in `docs/dev/testing.md` must execute predictably without unversioned network dependencies, hidden local caches, or undeclared environment variables.
+- **`[INV-LINT-04]` Code-Doc Synchronization**: When test runner commands, environment flags, or CI test topologies change, `docs/dev/testing.md` must be updated in the same Pull Request.
+- **`[INV-LINT-02]` Contributor Firewall**: `docs/dev/testing.md` resides in `docs/dev/` behind the contributor firewall; user-facing documentation must not link directly into it.
+
+---
+
+## 3. Document Structure Requirements
 
 Every `docs/dev/testing.md` document must provide:
-1. **Automated Suite Command Table**: Precise commands for running unit, integration, and end-to-end test suites.
-2. **Environment & Fixture Matrix**: Explanation of test data, mock services, and cleanup procedures.
-3. **CI/CD Integration**: Description of how tests run in the continuous integration pipeline.
+1. **Quick Test Commands**: Direct commands to execute unit, integration, and full suites.
+2. **Test Suite Matrix**: Tabular breakdown of scopes, runtimes, commands, and CI gates.
+3. **Environment & Fixture Isolation**: Setup requirements, mock strategies, and teardown behavior.
 
 ---
 
-## 3. Authoritative Testing Template (`docs/dev/testing.md`)
+## 4. Authoritative Testing Template
 
 ```markdown
 # Testing Guide
@@ -35,17 +40,20 @@ This document defines automated test commands, suite categories, and verificatio
 
 ## 1. Quick Test Commands
 
-Run tests from the repository root:
+Run test suites from the repository root:
 
 ```bash
-# Run full automated test suite
-python3 -m unittest discover -s tests -v
+# Run standard workspace test suite
+cargo test --workspace
 
 # Run targeted unit tests
-python3 -m unittest tests/test_core.py
+cargo test -p <package> --lib
 
-# Run with warnings treated as errors
-python3 -W error -m unittest discover -s tests -v
+# Run integration tests
+cargo test --test <integration_test_name>
+
+# Run linting with warnings treated as errors
+cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 ---
@@ -54,16 +62,16 @@ python3 -W error -m unittest discover -s tests -v
 
 | Suite | Scope | Execution Command | Target Runtime | CI Enforcement |
 | :--- | :--- | :--- | :--- | :--- |
-| **Unit** | Isolated functions & classes | `pytest tests/unit` | < 5s | Mandatory (blocks PR) |
-| **Integration** | Multi-component interactions | `pytest tests/integration` | < 30s | Mandatory (blocks PR) |
-| **E2E / Regression** | Full system execution | `pytest tests/e2e` | < 2m | Mandatory (blocks PR) |
-| **Benchmark** | Latency & throughput SLAs | `pytest tests/bench` | < 5m | Nightly / Release gate |
+| **Unit** | Isolated functions and modules | `cargo test --lib` | < 5s | Mandatory (blocks PR) |
+| **Integration** | Multi-component subsystem interactions | `cargo test --tests` | < 30s | Mandatory (blocks PR) |
+| **E2E / CLI** | Full binary execution and filesystem outputs | `cargo test --test cli_tests` | < 2m | Mandatory (blocks PR) |
+| **Lint & Typecheck** | AST invariants, style, compiler warnings | `cargo clippy -- -D warnings` | < 15s | Mandatory (blocks PR) |
 
 ---
 
-## 3. Test Fixtures & Data Topology
+## 3. Environment & Fixture Management
 
-- **Unit Fixtures**: In-memory, stateless mocks located in `tests/fixtures/`.
-- **Golden Files**: Expected serialized outputs located in `tests/golden/`.
-- **Teardown Invariant**: All tests creating temporary directories or sockets must cleanly remove them upon test completion.
+- **Isolated Temporary Directories**: Tests that perform filesystem I/O must allocate isolated temporary directories (e.g., via `tempfile`) and clean them up upon completion.
+- **Hermetic Mocking**: Network requests and external system dependencies must be hermetically mocked or stubbed during unit and integration test runs.
+- **Zero Undeclared State**: Tests must not rely on pre-existing host environment variables unless explicitly documented under Prerequisites.
 ```

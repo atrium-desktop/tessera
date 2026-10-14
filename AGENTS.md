@@ -59,35 +59,36 @@ canonical lockfile on pushes to `main` and `dev`.
   - Never touch user home or global state paths; always isolate using `tempfile::tempdir()` and local sandbox roots.
 
 <!-- BEGIN DOCGOV DIRECTIVES -->
-## Documentation Governance Directives
+<!-- CRITICAL: MANAGED BY DOCGOV. DO NOT MODIFY, MOVE, OR REMOVE DELIMITER TAGS. -->
+## Documentation Governance Directives <!-- @docgov-anchor -->
 
-You are bound by repository invariants. Violations will fail CI (`docgov check`).
+All modifications must adhere to repository invariants and pass `docgov check`.
 
-### 1. Machine Invariants (Pre-Submit Checklist)
-- `[INV-LINT-01] Location Sanitization`: Never create arbitrary Markdown files at the repository root.
-- `[INV-LINT-02] Contributor Firewall`: Public docs (`docs/{tutorials,how-to,reference,explanation}/`) must NEVER link into internal docs (`docs/dev/`).
-- `[INV-LINT-03] Frontmatter Schema`: ADRs must contain valid Frontmatter with standardized status enum.
-- `[INV-LINT-04] Code-Doc Sync`: Modifying monitored paths in `src/` requires updating `docs/` in the same change.
-- `[INV-LINT-05] Agent Directives Binding`: Ensure this docgov directives block is retained in agent configuration.
+### 1. Hard Constraints (Zero-Tolerance Invariants)
+- `[INV-LINT-01] Root Whitelist`: Never create arbitrary Markdown files at the repository root. Only whitelisted files (`README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `AGENTS.md`, `LICENSE.md`, `SECURITY.md`) are allowed.
+- `[INV-LINT-02] Scope Boundary`: Public documentation (`docs/{tutorials,how-to,reference,explanation}/`) MUST NEVER link to internal contributor docs (`docs/dev/**`).
+- `[INV-LINT-03] Frontmatter Schema`: Every ADR in `docs/adr/` must declare valid YAML frontmatter (`id`, `title`, `status`, `date`).
+- `[INV-LINT-04] Code-Doc Sync`: Modifying monitored paths in `src/` requires updating corresponding `docs/` in the same change.
+- `[INV-LINT-05] Directives Integrity`: Never remove, reformat, or strip boundary delimiters (`<!-- BEGIN/END DOCGOV DIRECTIVES -->`) when modifying agent configuration files.
 
-### 2. Cognitive & Architecture Protocols (Thinking Framework)
-- `[INV-AGENT-01] Negative Knowledge`: Every new ADR MUST contain a 'Rejected Alternatives' section explaining why discarded options were not chosen.
-- `[INV-AGENT-02] Context Routing & Chesterton's Fence`:
-  - In feature generation: NEVER use docs marked `status: superseded` or `status: rejected` as active designs (prevents resurrecting dead patterns).
-  - In refactoring/investigation: MUST retrieve `superseded` docs as negative constraints (learn from historical failure modes).
-- `[INV-AGENT-03] Blameless Postmortem`: Postmortems MUST analyze system defense failures and detection gaps. Attribution of personal human blame is strictly prohibited.
+### 2. Architectural Decision Standards (Reasoning Principles)
+- `[INV-AGENT-01] Rejected Alternatives`: Every new ADR MUST document discarded options and their specific failure modes.
+- `[INV-AGENT-02] Historical State Routing`:
+  - New implementations: DO NOT use `superseded` or `rejected` ADRs as active patterns.
+  - Refactoring & investigations: MUST inspect `superseded` ADRs to learn from historical failure modes.
+- `[INV-AGENT-03] Blameless Postmortems`: Incident postmortems must focus strictly on timeline, detection gaps, and systemic defense failures, prohibiting personal human blame.
+- `[INV-AGENT-04] Architectural Significance Threshold`: Only author ADRs for decisions with high reversal cost or cross-boundary blast radius (skip localized or trivial refactorings).
 
-### 3. Canonical Governance Knowledge & Context
+### 3. Reference Specifications (Authoritative Standards)
 Before drafting or restructuring documentation, inspect the local governance specifications:
-- 4D Coordinate Tensor: `docs/governance/documentation/core/taxonomy.md`
-- System Invariants Constitution: `docs/governance/documentation/core/invariants.md`
-- Technical Voice & Link Contracts: `docs/governance/documentation/core/style.md`
-- ADR & Architecture RFC Standard: `docs/governance/documentation/profiles/architecture/adr.md`
-- Quality & Verification Guides: `docs/governance/documentation/profiles/validation/testing.md`
+- Taxonomy & Layout (Diátaxis): `docs/governance/documentation/core/taxonomy.md`
+- System Invariants: `docs/governance/documentation/core/invariants.md`
+- Style & Hyperlink Rules: `docs/governance/documentation/core/style.md`
+- ADR & RFC Standards: `docs/governance/documentation/profiles/architecture/adr.md`
+- Quality & Verification: `docs/governance/documentation/profiles/validation/testing.md`
 
-### 4. Fast Verification
-Before completing any task, run:
-```bash
-docgov check
-```
+### 4. Verification & Advisory Gate (On-Demand / Lazy)
+`docgov` is an on-demand verification tool, not an unconditional mandatory step for every turn. Apply a lazy strategy:
+- **Skip (No-op)**: Pure discussions, architecture Q&A, intermediate edits, or internal code changes that do not touch documentation or governance boundaries.
+- **Run (Targeted Verification)**: Execute `docgov check` before final hand-off only when modifying `docs/`, `spec/`, ADRs (`docs/adr/`), or files affecting code-doc sync (`[INV-LINT-04]`). Prioritize static self-review over blind tool invocation.
 <!-- END DOCGOV DIRECTIVES -->

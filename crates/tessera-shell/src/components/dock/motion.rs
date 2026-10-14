@@ -157,7 +157,7 @@ impl DockMotion {
     pub fn advance_reveal(&mut self, target: f32, dt: f32, reduced_motion: bool) {
         let was_animating = self.reveal_animating(target);
         self.reveal
-            .advance(target, DOCK_REVEAL_SPRING, dt, reduced_motion);
+            .advance_substep(target, DOCK_REVEAL_SPRING, dt, 1.0 / 60.0, reduced_motion);
         if (self.reveal.value - target).abs() <= REVEAL_SETTLE_VALUE_EPS {
             self.reveal.snap_to(target);
         }
@@ -187,7 +187,7 @@ impl DockMotion {
         dt: f32,
         reduced_motion: bool,
     ) -> f32 {
-        spring.advance(target, DOCK_SPRING, dt, reduced_motion)
+        spring.advance_substep(target, DOCK_SPRING, dt, 1.0 / 60.0, reduced_motion)
     }
 
     /// Advance the tooltip fade towards `target` (`0.0` or `1.0`).

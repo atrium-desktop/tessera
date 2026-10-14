@@ -271,14 +271,14 @@ meson compile -C build
 
 ### Step 2: Switch to Main Worktree and Fast-Forward
 
-Switch to the primary `tessera/` worktree (`branch main`). Because `main`
-deliberately lacks `.cargo/config.toml`, it operates natively in canonical
-mode without disabling or toggling any local configurations.
+Navigate to the primary `tessera/` worktree. Because the primary worktree is
+permanently bound to `branch main` and deliberately lacks `.cargo/config.toml`,
+it operates natively in canonical mode without disabling or toggling any local
+configurations or switching branches.
 
 ```bash
 # In projects/tessera/ (primary worktree, branch main):
 cd ../tessera
-git switch main
 git pull --ff-only
 ```
 
