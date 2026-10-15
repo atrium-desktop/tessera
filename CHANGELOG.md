@@ -14,6 +14,14 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.75] - 2026-10-15
+
+### Added
+- Single-pass chrome fades, high-water backdrop allocation decoupling, and dock pre-pass coherence (ADR-0180): eliminates per-node offscreen pass explosion and mid-fade cache thrashing across shell components.
+- Decoupled logical content extent from high-water bucketed GPU allocations in `BackdropGraphExecutor`, preventing double-image ghosting (`重影`) and eliminating attachment churn when regions shrink.
+- Dock interaction resilience: unconditionally clears `collapse_pending` at rest to prevent post-obscurity expansion deadlocks, expands trigger corridor continuity during reveal springs, and unifies magnification spring advancement in pre-pass (`step_sizes_in_prepass`) with swapchain-wide hover damage draining.
+- Adopted Optics `v0.0.58` with command-level premultiplied opacity, scissor-bounded offscreen layers, and glyph run batching (Optics ADR-0109).
+
 ## [0.0.74] - 2026-10-14
 
 ### Added
