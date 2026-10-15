@@ -980,7 +980,7 @@ impl Chrome for Hud {
         _windows: &[Window],
         _workspaces: &WorkspaceSnapshot,
     ) -> Vec<LiquidGlassRegion> {
-        if self.dormant() {
+        if !self.requires_composition() {
             return Vec::new();
         }
         self.layout
@@ -989,20 +989,23 @@ impl Chrome for Hud {
             .zip(self.layout.visible.iter())
             .zip(self.chip_fade.iter())
             .enumerate()
-            .filter(|(_, ((_, visible), fade))| **visible && **fade > 0.01)
+            .filter(|(_, ((_, visible), _))| **visible)
             .map(|(index, ((chip, _), fade))| {
                 let id = if index == LEFT {
                     liquid_glass_region_id("tessera-hud-chip-left")
                 } else {
                     liquid_glass_region_id("tessera-hud-chip-center")
                 };
+                let bounds = BackdropRegion::from(*chip);
+                let opacity = if *fade > 0.01 { *fade } else { 0.0 };
                 LiquidGlassRegion::from_role(
                     &self.design,
                     GlassRole::Chip,
-                    BackdropRegion::from(*chip),
+                    bounds,
                     self.design.radii.chip,
-                    *fade,
+                    opacity,
                 )
+                .with_capture_bounds(bounds)
                 .with_id(id)
             })
             .collect()

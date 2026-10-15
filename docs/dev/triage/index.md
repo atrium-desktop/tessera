@@ -26,6 +26,7 @@ responsibility boundary this follows.
 |------|---------------|
 | [Cursor Issue Triage](cursor.md) | Cursor appearance and behavior: client vs compositor attribution |
 | [Popup Positioning Issue Triage](popup-positioning.md) | Popup, card, and transient window placement: client vs compositor attribution |
+| [Chrome Animation, Backdrop Coherence, and Dock State-Machine Triage](chrome-animation-and-backdrop-coherence.md) | Frame drops during fades, liquid-glass double-edge ghosting, swapchain ring flickering, and Dock autohide/dwell deadlocks |
 
 ## Adding a case
 

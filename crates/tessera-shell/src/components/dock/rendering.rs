@@ -340,14 +340,21 @@ impl Chrome for Dock {
                 self.hover_elapsed = 0.0;
                 self.tooltip_tile = None;
                 self.tooltip_alpha = 0.0;
+                if let Some(bounds) = self.hover_surface_bounds.take() {
+                    Self::record_hover_surface_damage(
+                        &mut self.hover_damage_rect,
+                        &mut self.hover_drain_frames,
+                        bounds,
+                    );
+                }
                 self.live_preview = None;
-                self.hover_surface_bounds = None;
                 self.hover_owner_bounds = None;
                 self.hovered_preview = None;
                 self.dismiss_latched = true;
                 self.autohide_idle = self.autohide_timeout;
                 self.autohide_dwell = 0.0;
                 self.anim_active = true;
+                self.motion.anim_active = true;
             }
         }
 
@@ -407,24 +414,31 @@ impl Chrome for Dock {
             cursor_axis,
         );
 
+        let prestepped = self.sizes_stepped_in_prepass;
+        self.sizes_stepped_in_prepass = false;
+
         for (i, t) in tiles.iter().enumerate() {
             let target = Self::magnification_target(
                 in_band,
                 magnify_axis,
                 Self::rest_centre_estimate(i, n, pinned_count, axis_disp),
             );
+            let mut newly_inserted = false;
             // Look up before inserting so an existing tile does not pay a
             // key clone every frame.
             let state = match self.sizes.get_mut(&t.key) {
                 Some(state) => state,
-                None => self.sizes.entry(t.key.clone()).or_insert(SpringState {
-                    value: if menu_was_open {
-                        DOCK_TILE
-                    } else {
-                        DOCK_TILE_BIRTH
-                    },
-                    velocity: 0.0,
-                }),
+                None => {
+                    newly_inserted = true;
+                    self.sizes.entry(t.key.clone()).or_insert(SpringState {
+                        value: if menu_was_open {
+                            DOCK_TILE
+                        } else {
+                            DOCK_TILE_BIRTH
+                        },
+                        velocity: 0.0,
+                    })
+                }
             };
             // A context menu must not become a moving target. Freeze the
             // complete wave exactly where it was opened; once the menu closes,
@@ -434,18 +448,30 @@ impl Chrome for Dock {
                 eased.push(state.value);
                 continue;
             }
-            eased.push(Self::spring(state, target, dt, self.reduced_motion));
+            if !prestepped || newly_inserted {
+                eased.push(Self::spring(state, target, dt, self.reduced_motion));
+            } else {
+                eased.push(state.value);
+            }
             // A spring is still animating while it is meaningfully off its
             // target or still moving. Sub-pixel drift is ignored so we don't
             // tick forever chasing float noise.
             let drifting = (state.value - target).abs() > 0.15 || state.velocity.abs() > 0.5;
             unsettled |= drifting;
         }
+        if !prestepped {
+            if self.was_magnific_animating && !unsettled {
+                self.motion.settled_drain_frames = SETTLED_DRAIN_FRAMES;
+                self.settled_drain_frames = SETTLED_DRAIN_FRAMES;
+            }
+            self.was_magnific_animating = unsettled;
+        }
         // An active drag keeps frames ticking: the preview follows the cursor
         // even when every spring has rested. Continuous dwell accumulation also ticks frames.
         let dwell_active =
             self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold;
         self.anim_active = unsettled || autohide_moving || drag_active || dwell_active;
+        self.motion.anim_active = self.anim_active;
 
         // Sum the eased widths (plus the inter-tile gap) to get the live bar
         // length along the strip axis. Ordinary neighbours sit one tile gap
@@ -803,8 +829,14 @@ impl Chrome for Dock {
             self.hover_elapsed = 0.0;
             self.tooltip_tile = None;
             self.tooltip_alpha = 0.0;
+            if let Some(bounds) = self.hover_surface_bounds.take() {
+                Self::record_hover_surface_damage(
+                    &mut self.hover_damage_rect,
+                    &mut self.hover_drain_frames,
+                    bounds,
+                );
+            }
             self.live_preview = None;
-            self.hover_surface_bounds = None;
             self.hover_owner_bounds = None;
             self.hovered_preview = None;
         }
@@ -922,8 +954,14 @@ impl Chrome for Dock {
             self.hover_elapsed = 0.0;
             self.tooltip_tile = None;
             self.tooltip_alpha = 0.0;
+            if let Some(bounds) = self.hover_surface_bounds.take() {
+                Self::record_hover_surface_damage(
+                    &mut self.hover_damage_rect,
+                    &mut self.hover_drain_frames,
+                    bounds,
+                );
+            }
             self.live_preview = None;
-            self.hover_surface_bounds = None;
             self.hover_owner_bounds = None;
             self.hovered_preview = None;
         } else if self.hovered_tile.is_some() && !self.app_menu.is_open() {
@@ -933,8 +971,14 @@ impl Chrome for Dock {
         if self.app_menu.is_open() {
             self.tooltip_tile = None;
             self.tooltip_alpha = 0.0;
+            if let Some(bounds) = self.hover_surface_bounds.take() {
+                Self::record_hover_surface_damage(
+                    &mut self.hover_damage_rect,
+                    &mut self.hover_drain_frames,
+                    bounds,
+                );
+            }
             self.live_preview = None;
-            self.hover_surface_bounds = None;
             self.hover_owner_bounds = None;
             self.hovered_preview = None;
         } else {
@@ -984,6 +1028,11 @@ impl Chrome for Dock {
                     side,
                 );
                 self.hover_surface_bounds = Some(rect);
+                Self::record_hover_surface_damage(
+                    &mut self.hover_damage_rect,
+                    &mut self.hover_drain_frames,
+                    rect,
+                );
                 self.live_preview = None;
                 self.hovered_preview = None;
                 render_tooltip(f, &self.design, &tile.label, rect, self.tooltip_alpha);
@@ -996,7 +1045,13 @@ impl Chrome for Dock {
                     self.tooltip_alpha,
                     position,
                 );
-                self.hover_surface_bounds = Some(to_lens_rect(presentation.panel));
+                let panel_rect = to_lens_rect(presentation.panel);
+                self.hover_surface_bounds = Some(panel_rect);
+                Self::record_hover_surface_damage(
+                    &mut self.hover_damage_rect,
+                    &mut self.hover_drain_frames,
+                    panel_rect,
+                );
                 let previous_hovered_preview = self.hovered_preview;
                 self.hovered_preview =
                     live_preview_hit(&presentation, cursor.x, cursor.y).filter(|id| {
@@ -1017,10 +1072,22 @@ impl Chrome for Dock {
                 self.live_preview = Some(presentation);
             }
         } else {
+            if let Some(bounds) = self.hover_surface_bounds.take() {
+                Self::record_hover_surface_damage(
+                    &mut self.hover_damage_rect,
+                    &mut self.hover_drain_frames,
+                    bounds,
+                );
+            }
             self.live_preview = None;
-            self.hover_surface_bounds = None;
             self.hover_owner_bounds = None;
             self.hovered_preview = None;
+            if self.hover_drain_frames > 0 {
+                self.hover_drain_frames -= 1;
+                if self.hover_drain_frames == 0 {
+                    self.hover_damage_rect = None;
+                }
+            }
         }
         self.app_menu.set_design(self.design);
         self.app_menu.render(f, input, &self.all_windows, i18n, out);
@@ -1028,6 +1095,7 @@ impl Chrome for Dock {
             self.menu_tile = None;
         }
 
+        self.motion.anim_active = self.anim_active;
         self.prev_down = down;
     }
 
@@ -1161,8 +1229,17 @@ impl Chrome for Dock {
         };
         let dwell_active =
             self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold;
+        let idle_counting = effective_autohide
+            && self.autohide_reveal > 0.001
+            && self.autohide_idle > 0.0
+            && self.autohide_idle < idle_timeout
+            && !self.app_menu.is_open();
         let drag_active = self.press.as_ref().is_some_and(|p| p.dragging);
-        self.motion.anim_pending(target, dwell_active, drag_active)
+        self.anim_active
+            || idle_counting
+            || self.settled_drain_frames > 0
+            || self.hover_drain_frames > 0
+            || self.motion.anim_pending(target, dwell_active, drag_active)
     }
 
     fn damage_region(
@@ -1198,6 +1275,9 @@ impl Chrome for Dock {
                 (y1 - y0).max(0.0) as i32,
             )
         };
+        if let Some(hover_rect) = self.hover_damage_rect {
+            region = region.union(hover_rect);
+        }
         // A live-preview panel animates open above the strip (or beside it
         // for a side dock); its panel rect is computed for presentation each
         // frame, so the union with the strip covers both the panel and the
@@ -1335,18 +1415,37 @@ impl Dock {
         }
         let position = self.position;
         let effective_autohide = self.effective_autohide();
-        let tiles = Self::frame_tiles(
-            &self.tile_cache,
-            &self.apps,
-            &self.all_apps,
-            &self.icons,
-            self.catalog_revision,
-            &self.all_windows,
-            None,
-        );
-        let pinned_count = tiles.iter().filter(|t| t.pinned).count();
-        let rest_bounds = Self::rest_bounds(tiles.len(), pinned_count, position, display);
         let vertical = position.is_vertical();
+        let axis_disp = if vertical { display.1 } else { display.0 };
+        let cursor_axis = if vertical { cursor.1 } else { cursor.0 };
+        let (n, pinned_count, rest_bounds, owner_centre, tile_keys) = {
+            let tiles = Self::frame_tiles(
+                &self.tile_cache,
+                &self.apps,
+                &self.all_apps,
+                &self.icons,
+                self.catalog_revision,
+                &self.all_windows,
+                None,
+            );
+            let n = tiles.len();
+            let pinned_count = tiles.iter().filter(|t| t.pinned).count();
+            let rest_bounds = Self::rest_bounds(n, pinned_count, position, display);
+            let owner_centre = self
+                .tooltip_tile
+                .as_ref()
+                .or(self.hovered_tile.as_ref())
+                .and_then(|key| tiles.iter().position(|t| &t.key == key))
+                .map(|owner_idx| {
+                    Self::rest_centre_estimate(owner_idx, n, pinned_count, axis_disp)
+                });
+            let keys = if self.sizes.is_empty() {
+                Vec::new()
+            } else {
+                tiles.iter().map(|t| t.key.clone()).collect()
+            };
+            (n, pinned_count, rest_bounds, owner_centre, keys)
+        };
         let rest_len = if vertical {
             rest_bounds.h
         } else {
@@ -1358,6 +1457,11 @@ impl Dock {
             rest_bounds
         };
         let over_hover_surface = self.hover_surface_contains(cursor.0, cursor.1);
+
+        if !Self::collapsed_indicator_contains(position, cursor, display) {
+            self.hidden_trigger_armed = true;
+            self.autohide_dwell = 0.0;
+        }
 
         let capsule_entry =
             if self.collapse_pending || self.dismiss_latched || !effective_autohide || self.autohide_reveal >= 0.2 {
@@ -1381,9 +1485,21 @@ impl Dock {
                 confirmed
             };
 
+        let idle_timeout = if self.dock_interacted {
+            self.autohide_timeout
+        } else {
+            AUTOHIDE_QUICK_DISMISS_TIMEOUT
+        };
+
+        let expanding = effective_autohide
+            && self.autohide_reveal > 0.001
+            && self.autohide_idle < idle_timeout
+            && !self.collapse_pending
+            && !self.dismiss_latched;
+
         let over_dock_trigger = !self.collapse_pending
             && !self.dismiss_latched
-            && Self::pointer_keeps_revealed(
+            && (Self::pointer_keeps_revealed(
                 effective_autohide,
                 self.autohide_reveal,
                 capsule_entry,
@@ -1392,7 +1508,8 @@ impl Dock {
                 rest_bounds,
                 position,
                 display,
-            );
+            ) || (expanding
+                && Self::expanded_trigger_contains(position, cursor, rest_bounds, display)));
 
         let retreating = effective_autohide
             && self.autohide_reveal > 0.001
@@ -1419,12 +1536,6 @@ impl Dock {
             }
         }
 
-        let idle_timeout = if self.dock_interacted {
-            self.autohide_timeout
-        } else {
-            AUTOHIDE_QUICK_DISMISS_TIMEOUT
-        };
-
         let target_reveal = if effective_autohide {
             if self.autohide_idle >= idle_timeout && !menu_open {
                 0.0
@@ -1440,20 +1551,79 @@ impl Dock {
         self.autohide_reveal = self.motion.reveal_value();
         self.settled_drain_frames = self.motion.settled_drain_frames;
 
+        if self.collapse_pending
+            || self.dismiss_latched
+            || (effective_autohide && self.autohide_reveal < 0.2)
+        {
+            if self.hover_surface_bounds.is_some() || self.live_preview.is_some() {
+                self.dismiss_hover_surface();
+            }
+            self.tooltip_tile = None;
+            self.tooltip_alpha = 0.0;
+        }
+
         let is_settled = !self.motion.reveal_animating(target_reveal);
         if is_settled && target_reveal == 0.0 {
             self.dock_interacted = false;
-            if !self.dock_obscured && self.space_use != SpaceUse::Maximized {
-                self.collapse_pending = false;
-            }
+            self.collapse_pending = false;
             if !Self::collapsed_indicator_contains(position, cursor, display) {
                 self.dismiss_latched = false;
             }
         }
         self.was_autohide_animating = !is_settled;
-        if !is_settled {
-            self.anim_active = true;
+
+        // Advance tile magnification springs in the pre-pass whenever tiles are
+        // already initialized so `liquid_glass_region` (`visual_panel_bounds`)
+        // and `damage_region` observe the exact same frame-T geometry as `render`.
+        let mut unsettled = false;
+        if !tile_keys.is_empty() {
+            let over_rest_bounds = cursor.0 >= rest_bounds.x
+                && cursor.1 >= rest_bounds.y
+                && cursor.0 < rest_bounds.x + rest_bounds.w
+                && cursor.1 < rest_bounds.y + rest_bounds.h;
+            let in_band = !self.collapse_pending
+                && !drag_active
+                && (over_rest_bounds || over_hover_surface)
+                && (!effective_autohide || self.autohide_reveal >= 0.2);
+            let magnify_axis = Self::magnification_axis(
+                over_hover_surface,
+                over_rest_bounds,
+                if over_hover_surface && !over_rest_bounds {
+                    owner_centre
+                } else {
+                    None
+                },
+                cursor_axis,
+            );
+            for (i, key) in tile_keys.iter().enumerate() {
+                let target = Self::magnification_target(
+                    in_band,
+                    magnify_axis,
+                    Self::rest_centre_estimate(i, n, pinned_count, axis_disp),
+                );
+                if let Some(state) = self.sizes.get_mut(key) {
+                    if menu_open {
+                        state.velocity = 0.0;
+                        continue;
+                    }
+                    Self::spring(state, target, dt, self.reduced_motion);
+                    let drifting =
+                        (state.value - target).abs() > 0.15 || state.velocity.abs() > 0.5;
+                    unsettled |= drifting;
+                }
+            }
+            if self.was_magnific_animating && !unsettled {
+                self.motion.settled_drain_frames = SETTLED_DRAIN_FRAMES;
+                self.settled_drain_frames = SETTLED_DRAIN_FRAMES;
+            }
+            self.was_magnific_animating = unsettled;
+            self.sizes_stepped_in_prepass = true;
         }
+
+        let dwell_active =
+            self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold;
+        self.anim_active = !is_settled || unsettled || dwell_active || drag_active;
+        self.motion.anim_active = self.anim_active;
     }
 
 

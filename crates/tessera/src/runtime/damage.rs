@@ -193,32 +193,41 @@ impl CompositorRuntime<'_> {
                 // The union of the previous and current cursor footprints —
                 // a moving sprite leaves stale pixels at its old position
                 // that must repaint even though nothing draws there anymore.
-                let extent = cursor_extent.max(1.0);
-                let swept = |position: (f32, f32)| {
-                    let x0 = (position.0 - extent).max(0.0).floor() as i32;
-                    let y0 = (position.1 - extent).max(0.0).floor() as i32;
-                    let x1 = (position.0 + extent).min(display.0).ceil() as i32;
-                    let y1 = (position.1 + extent).min(display.1).ceil() as i32;
-                    tessera_primitives::Rect::new(x0, y0, (x1 - x0).max(0), (y1 - y0).max(0))
+                // Only a software cursor paints into the primary framebuffer;
+                // a hardware cursor plane commits out-of-band without dirtying
+                // composite output pixels.
+                let cursor_rect = if software_cursor {
+                    let extent = cursor_extent.max(1.0);
+                    let swept = |position: (f32, f32)| {
+                        let x0 = (position.0 - extent).max(0.0).floor() as i32;
+                        let y0 = (position.1 - extent).max(0.0).floor() as i32;
+                        let x1 = (position.0 + extent).min(display.0).ceil() as i32;
+                        let y1 = (position.1 + extent).min(display.1).ceil() as i32;
+                        tessera_primitives::Rect::new(x0, y0, (x1 - x0).max(0), (y1 - y0).max(0))
+                    };
+                    let mut rect = swept(cursor_position);
+                    if let Some(previous) = self.damage.last_presented_cursor_position {
+                        // The baseline stores physical pixels; the swept
+                        // footprint here is logical. Convert back.
+                        let logical = (
+                            previous.0 as f32 / scale.max(0.001),
+                            previous.1 as f32 / scale.max(0.001),
+                        );
+                        rect = rect.union(swept(logical));
+                    }
+                    Some(rect)
+                } else {
+                    None
                 };
-                let mut rect = swept(cursor_position);
-                if let Some(previous) = self.damage.last_presented_cursor_position {
-                    // The baseline stores physical pixels; the swept
-                    // footprint here is logical. Convert back.
-                    let logical = (
-                        previous.0 as f32 / scale.max(0.001),
-                        previous.1 as f32 / scale.max(0.001),
-                    );
-                    rect = rect.union(swept(logical));
-                }
                 // Chrome hover state can change anywhere along the pointer's
                 // path; union the animated-chrome footprint when one is
                 // known, and the pointer-capture band when it is not (the
                 // shell reports no footprint only when it cannot localize,
                 // which then falls back to full below).
-                match chrome_anim_region {
-                    Some(region) => Some(vec![rect.union(region)]),
-                    None => {
+                match (chrome_anim_region, cursor_rect) {
+                    (Some(region), Some(rect)) => Some(vec![rect.union(region)]),
+                    (Some(region), None) => Some(vec![region]),
+                    (None, cursor_rect) => {
                         if self.shell.captures_pointer_at(
                             cursor_position.0,
                             cursor_position.1,
@@ -228,7 +237,7 @@ impl CompositorRuntime<'_> {
                             // localize its animation: conservative full.
                             None
                         } else {
-                            Some(vec![rect])
+                            Some(cursor_rect.into_iter().collect())
                         }
                     }
                 }

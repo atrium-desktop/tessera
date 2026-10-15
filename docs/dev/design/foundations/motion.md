@@ -53,5 +53,8 @@ still distributed. Promote repeated timing only when it represents the same
 semantic transition across components. Add interruption and reduced-motion
 cases whenever a motion pattern becomes shared.
 
-See [ADR-0029](../../../adr/0029-animation-and-effect-policy.md) and
-[ADR-0139](../../../adr/0139-animation-effect-placement.md).
+See [ADR-0029](../../../adr/0029-animation-and-effect-policy.md),
+[ADR-0139](../../../adr/0139-animation-effect-placement.md),
+[ADR-0179](../../../adr/0179-zero-redundancy-presentation-pipeline-substepped-motion-and-render-target-bucketing.md),
+[ADR-0180](../../../adr/0180-single-pass-chrome-fades-backdrop-allocation-decoupling-and-dock-prepass-coherence.md),
+and [Chrome Animation and Backdrop Coherence Triage](../../triage/chrome-animation-and-backdrop-coherence.md).

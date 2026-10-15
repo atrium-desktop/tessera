@@ -2025,7 +2025,7 @@ fn dismiss_latch_prevents_rebound_oscillation_during_collapse() {
 }
 
 #[test]
-fn obscured_dock_retains_collapse_pending_until_window_leaves() {
+fn obscured_dock_clears_collapse_pending_once_rested_so_dwell_can_reopen() {
     let mut dock = Dock::new();
     let display = (1920.0, 1080.0);
     let workspaces = workspace_snapshot();
@@ -2060,15 +2060,33 @@ fn obscured_dock_retains_collapse_pending_until_window_leaves() {
     }
     assert_eq!(dock.autohide_reveal, 0.0);
     assert!(
-        dock.collapse_pending,
-        "collapse_pending must STAY true while window is still obscuring dock"
+        dock.dock_obscured,
+        "dock_obscured remains true while window overlaps resting dock bounds"
+    );
+    assert!(
+        !dock.collapse_pending,
+        "collapse_pending clears once initial collapse to 0.0 completes so dwell can reopen"
+    );
+
+    // Dwelling on the collapsed indicator while still obscured must expand the dock
+    let indicator = Dock::collapsed_indicator_bounds(DockPosition::Bottom, display);
+    input.set_cursor(indicator.x + indicator.w * 0.5, indicator.y + indicator.h * 0.5);
+    for _ in 0..15 {
+        dock.prepare_backdrop(&input, std::slice::from_ref(&invading), &workspaces);
+        ui.frame(&input, |f| {
+            dock.render(f, &input, std::slice::from_ref(&invading), &workspaces, &i18n, &mut out);
+        });
+    }
+    assert!(
+        dock.autohide_reveal > 0.05,
+        "obscured dock must re-expand when pointer dwells on collapsed indicator"
     );
 
     // Now window moves away
     invading.position = tessera_primitives::Point { x: 100, y: 100 };
     dock.prepare_backdrop(&input, std::slice::from_ref(&invading), &workspaces);
     assert!(!dock.dock_obscured, "window moved away: no longer obscured");
-    assert!(!dock.collapse_pending, "collapse_pending clears when window leaves");
+    assert!(!dock.collapse_pending, "collapse_pending stays clear when window leaves");
 }
 
 #[test]

@@ -649,6 +649,18 @@ impl ControlCenter {
         let dt = raw.dt_seconds.max(0.0);
         self.advance(dt);
         self.reload_avatar_if_ready();
+        // Advance the animated VRM avatar during the pre-pass (before the main
+        // output canvas session and deferred upload batch open) so offscreen
+        // portrait submissions never interleave with active output render passes.
+        if self.open
+            && self.avatar.as_ref().is_some_and(Portrait::is_animated)
+            && let Some(avatar) = &mut self.avatar
+            && let Err(error) = avatar.advance(dt)
+            && !self.avatar_warned
+        {
+            log::warn!("control-center: avatar advance failed: {error}");
+            self.avatar_warned = true;
+        }
         self.frame_prepared = true;
     }
 
@@ -1263,7 +1275,6 @@ impl Chrome for ControlCenter {
         }
         self.frame_prepared = false;
         let raw = input.as_raw();
-        let dt = raw.dt_seconds.max(0.0);
         let display = (raw.display_size.x, raw.display_size.y);
         let cursor = (raw.cursor.x, raw.cursor.y);
         let down = raw.mouse_down.first().copied().unwrap_or(false);
@@ -1271,18 +1282,6 @@ impl Chrome for ControlCenter {
         if !self.active() {
             self.prev_down = down;
             return;
-        }
-        // An animated avatar advances with the panel's frames; static
-        // avatars and the initials fallback do no GPU work, so the panel
-        // stays event-driven off `anim_pending`.
-        if self.open
-            && self.avatar.as_ref().is_some_and(Portrait::is_animated)
-            && let Some(avatar) = &mut self.avatar
-            && let Err(error) = avatar.advance(dt)
-            && !self.avatar_warned
-        {
-            log::warn!("control-center: avatar advance failed: {error}");
-            self.avatar_warned = true;
         }
         let reveal = self.reveal();
         let (

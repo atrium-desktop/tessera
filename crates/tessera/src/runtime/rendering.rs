@@ -579,7 +579,10 @@ pub(super) struct BackdropCapture {
     /// feeds another layer also owns a resolved source image containing its
     /// input plus this composite.
     layers: Vec<BackdropLayerCapture>,
+    /// Active content extent (`capture_extent / BACKDROP_DOWNSAMPLE`).
     size: (u32, u32),
+    /// Physical allocated texture extent (bucketed high-water mark).
+    allocated_size: (u32, u32),
     format: flux::Format,
     valid: bool,
 }
@@ -956,9 +959,18 @@ impl BackdropGraphExecutor {
 
         let raw_w = extent.0.div_ceil(BACKDROP_DOWNSAMPLE).max(1);
         let raw_h = extent.1.div_ceil(BACKDROP_DOWNSAMPLE).max(1);
-        let size = (
+        let content_size = (raw_w, raw_h);
+        let bucket_size = (
             flux::bucket_extent(raw_w, 128),
             flux::bucket_extent(raw_h, 128),
+        );
+        let max_w = flux::bucket_extent(
+            config.physical_size.0.div_ceil(BACKDROP_DOWNSAMPLE).max(1),
+            128,
+        );
+        let max_h = flux::bucket_extent(
+            config.physical_size.1.div_ceil(BACKDROP_DOWNSAMPLE).max(1),
+            128,
         );
         if self.captures.len() <= slot {
             self.captures.resize_with(slot + 1, || None);
@@ -980,7 +992,10 @@ impl BackdropGraphExecutor {
             }
         }
         let target_stale = self.captures[slot].as_ref().is_none_or(|capture| {
-            capture.size != size
+            capture.allocated_size.0 < bucket_size.0
+                || capture.allocated_size.1 < bucket_size.1
+                || capture.allocated_size.0 > max_w
+                || capture.allocated_size.1 > max_h
                 || capture.format != format
                 || capture.layers.len() != layers.len()
                 || capture
@@ -990,14 +1005,31 @@ impl BackdropGraphExecutor {
                     .any(|(capture, needed)| capture.resolved.is_some() != *needed)
         });
         if target_stale {
+            let alloc_size = self.captures[slot].as_ref().map_or(bucket_size, |prev| {
+                (
+                    prev.allocated_size.0.max(bucket_size.0).min(max_w),
+                    prev.allocated_size.1.max(bucket_size.1).min(max_h),
+                )
+            });
             let allocated = (|| -> Result<BackdropCapture, flux::Error> {
-                let image = flux::Image::render_target(device, size.0, size.1, format)?;
+                let image =
+                    flux::Image::render_target(device, alloc_size.0, alloc_size.1, format)?;
                 let mut layer_targets = Vec::with_capacity(layers.len());
                 for needed in &resolved_needed {
                     layer_targets.push(BackdropLayerCapture {
-                        composite: flux::Image::render_target(device, size.0, size.1, format)?,
+                        composite: flux::Image::render_target(
+                            device,
+                            alloc_size.0,
+                            alloc_size.1,
+                            format,
+                        )?,
                         resolved: if *needed {
-                            Some(flux::Image::render_target(device, size.0, size.1, format)?)
+                            Some(flux::Image::render_target(
+                                device,
+                                alloc_size.0,
+                                alloc_size.1,
+                                format,
+                            )?)
                         } else {
                             None
                         },
@@ -1006,7 +1038,8 @@ impl BackdropGraphExecutor {
                 Ok(BackdropCapture {
                     image,
                     layers: layer_targets,
-                    size,
+                    size: content_size,
+                    allocated_size: alloc_size,
                     format,
                     valid: false,
                 })
@@ -1021,6 +1054,8 @@ impl BackdropGraphExecutor {
                     return BackdropPlan::Direct;
                 }
             }
+        } else if let Some(capture) = self.captures[slot].as_mut() {
+            capture.size = content_size;
         }
         let missed =
             union_frame_damage(self.source_slot_damage[slot].clone(), source_damage.clone());
@@ -1238,8 +1273,8 @@ impl BackdropGraphExecutor {
                                 &session,
                                 0.0,
                                 0.0,
-                                capture.size.0 as f32,
-                                capture.size.1 as f32,
+                                capture.allocated_size.0 as f32,
+                                capture.allocated_size.1 as f32,
                             );
                         } else {
                             for frost in &work.fallback {
@@ -1254,8 +1289,8 @@ impl BackdropGraphExecutor {
                                     &session,
                                     0.0,
                                     0.0,
-                                    capture.size.0 as f32,
-                                    capture.size.1 as f32,
+                                    capture.allocated_size.0 as f32,
+                                    capture.allocated_size.1 as f32,
                                 );
                                 session.restore();
                             }
@@ -1290,8 +1325,8 @@ impl BackdropGraphExecutor {
                             input,
                             0.0,
                             0.0,
-                            capture.size.0 as f32,
-                            capture.size.1 as f32,
+                            capture.allocated_size.0 as f32,
+                            capture.allocated_size.1 as f32,
                         );
                         for material_region in &work.regions {
                             session.save();
@@ -1305,8 +1340,8 @@ impl BackdropGraphExecutor {
                                 &current.composite,
                                 0.0,
                                 0.0,
-                                capture.size.0 as f32,
-                                capture.size.1 as f32,
+                                capture.allocated_size.0 as f32,
+                                capture.allocated_size.1 as f32,
                             );
                             session.restore();
                         }
@@ -1378,9 +1413,10 @@ impl BackdropGraphExecutor {
         let Some(config) = self.config.as_ref() else {
             return false;
         };
-        let (img_w, img_h) = capture.size;
-        let u_span = (extent.0.min(img_w) as f32) / (img_w.max(1) as f32);
-        let v_span = (extent.1.min(img_h) as f32) / (img_h.max(1) as f32);
+        let (img_w, img_h) = capture.allocated_size;
+        let (raw_w, raw_h) = capture.size;
+        let u_span = (raw_w.min(img_w) as f32) / (img_w.max(1) as f32);
+        let v_span = (raw_h.min(img_h) as f32) / (img_h.max(1) as f32);
         for (layer, regions) in capture.layers.iter().zip(&config.layer_regions) {
             for region in regions {
                 canvas.save();
@@ -1418,9 +1454,10 @@ impl BackdropGraphExecutor {
         let Some(capture) = self.captures.get(slot).and_then(Option::as_ref) else {
             return false;
         };
-        let (img_w, img_h) = capture.size;
-        let u_span = (extent.0.min(img_w) as f32) / (img_w.max(1) as f32);
-        let v_span = (extent.1.min(img_h) as f32) / (img_h.max(1) as f32);
+        let (img_w, img_h) = capture.allocated_size;
+        let (raw_w, raw_h) = capture.size;
+        let u_span = (raw_w.min(img_w) as f32) / (img_w.max(1) as f32);
+        let v_span = (raw_h.min(img_h) as f32) / (img_h.max(1) as f32);
         canvas.draw_image_opaque_sub(
             &capture.image,
             0.0,

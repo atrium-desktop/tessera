@@ -155,8 +155,12 @@ pub struct Dock {
     pub settled_drain_frames: u8,
     /// Whether autohide was advanced during `prepare_backdrop` for the current frame.
     pub autohide_stepped_in_prepass: bool,
+    /// Whether tile magnification springs were advanced during `prepare_backdrop` for the current frame.
+    pub sizes_stepped_in_prepass: bool,
     /// Whether autohide was moving on the previous frame.
     pub was_autohide_animating: bool,
+    /// Whether the tile magnification wave was moving on the previous frame.
+    pub was_magnific_animating: bool,
     /// Whether any animation is currently in flight.
     pub anim_active: bool,
     /// Previous mouse down state.
@@ -172,6 +176,10 @@ pub struct Dock {
     pub hover_surface_bounds: Option<Rect>,
     pub hover_owner_bounds: Option<Rect>,
     pub hovered_preview: Option<tessera_desktop::window::WindowId>,
+    /// Retained damage footprint for active or recently dismissed hover surfaces (tooltip / preview).
+    pub hover_damage_rect: Option<tessera_primitives::Rect>,
+    /// Swapchain ring drain frames remaining after a hover surface closes or moves.
+    pub hover_drain_frames: u8,
     pub reduced_motion: bool,
     pub(crate) tile_cache: RefCell<TileCache>,
     pub all_windows: Vec<Window>,
@@ -217,7 +225,9 @@ impl Dock {
             autohide_reveal: reveal_val,
             settled_drain_frames: 0,
             autohide_stepped_in_prepass: false,
+            sizes_stepped_in_prepass: false,
             was_autohide_animating: false,
+            was_magnific_animating: false,
             anim_active: false,
             prev_down: false,
             app_menu: AppMenu::new("tessera-dock-context-menu", true),
@@ -230,6 +240,8 @@ impl Dock {
             hover_surface_bounds: None,
             hover_owner_bounds: None,
             hovered_preview: None,
+            hover_damage_rect: None,
+            hover_drain_frames: 0,
             reduced_motion: false,
             tile_cache: RefCell::new(TileCache {
                 signature: None,
@@ -721,10 +733,37 @@ impl Dock {
         self.dismiss_hover_surface();
     }
 
+    /// Record damage footprint for a hover surface (tooltip or live preview)
+    /// so all swapchain ring slots repaint its area when it moves or closes.
+    pub(crate) fn record_hover_surface_damage(
+        hover_damage_rect: &mut Option<tessera_primitives::Rect>,
+        hover_drain_frames: &mut u8,
+        bounds: Rect,
+    ) {
+        let pad = 48;
+        let padded = tessera_primitives::Rect::new(
+            (bounds.x.floor() as i32 - pad).max(0),
+            (bounds.y.floor() as i32 - pad).max(0),
+            bounds.w.ceil().max(1.0) as i32 + pad * 2,
+            bounds.h.ceil().max(1.0) as i32 + pad * 2,
+        );
+        *hover_damage_rect = Some(match *hover_damage_rect {
+            Some(existing) if *hover_drain_frames > 0 => existing.union(padded),
+            _ => padded,
+        });
+        *hover_drain_frames = SETTLED_DRAIN_FRAMES;
+    }
+
     /// Dismiss active preview popover.
     pub fn dismiss_hover_surface(&mut self) {
+        if let Some(bounds) = self.hover_surface_bounds.take() {
+            Self::record_hover_surface_damage(
+                &mut self.hover_damage_rect,
+                &mut self.hover_drain_frames,
+                bounds,
+            );
+        }
         self.live_preview = None;
-        self.hover_surface_bounds = None;
         self.hover_owner_bounds = None;
         self.hovered_preview = None;
     }
