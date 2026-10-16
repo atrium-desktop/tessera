@@ -1,3 +1,11 @@
+---
+id: ADR-0148
+title: "Activation operates on transient trees"
+status: draft
+date: 2026-09-08
+superseded_by: null
+---
+
 # ADR-0148: Activation operates on transient trees
 
 - Status: Proposed

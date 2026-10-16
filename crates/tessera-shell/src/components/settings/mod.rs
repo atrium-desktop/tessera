@@ -85,7 +85,14 @@ mod tests {
                 .filter(|module| module.availability == ModuleAvailability::Available)
                 .map(|module| module.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["display", "input", "appearance", "accessibility", "dock", "power"]
+            vec![
+                "display",
+                "input",
+                "appearance",
+                "accessibility",
+                "dock",
+                "power"
+            ]
         );
     }
 }

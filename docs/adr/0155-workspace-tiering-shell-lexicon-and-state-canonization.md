@@ -1,3 +1,11 @@
+---
+id: ADR-0155
+title: "Workspace tiering, physical Panels/Design lexicon, and State purity"
+status: draft
+date: 2026-09-15
+superseded_by: null
+---
+
 # ADR-0155: Workspace tiering, physical Panels/Design lexicon, and State purity
 
 - Status: Proposed

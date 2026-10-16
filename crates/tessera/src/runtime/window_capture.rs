@@ -133,7 +133,8 @@ pub(super) fn draw_window_tree(
         canvas.scale(scale, scale);
     }
     let origin = geometry.origin;
-    let map = move |_: Option<tessera_desktop::window::WindowId>, natural: tessera_primitives::Rect| {
+    let map = move |_: Option<tessera_desktop::window::WindowId>,
+                    natural: tessera_primitives::Rect| {
         tessera_primitives::Rect::new(
             natural.origin.x - origin.x,
             natural.origin.y - origin.y,

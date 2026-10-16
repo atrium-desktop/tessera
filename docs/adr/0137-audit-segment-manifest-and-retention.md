@@ -1,3 +1,11 @@
+---
+id: ADR-0137
+title: "Audit segment manifest and explicit retention"
+status: accepted
+date: 2026-08-22
+superseded_by: null
+---
+
 # ADR-0137: Audit segment manifest and explicit retention
 
 - Status: Accepted

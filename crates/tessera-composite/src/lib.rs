@@ -14,8 +14,8 @@ use std::os::fd::BorrowedFd;
 
 use tessera_primitives::SurfaceDmabuf;
 use tessera_primitives::SurfacePixels;
-use tessera_primitives::dmabuf as drm_fmt;
 use tessera_primitives::Transform;
+use tessera_primitives::dmabuf as drm_fmt;
 
 /// Convenience aliases for the shared DRM fourccs in [`tessera_primitives::dmabuf`].
 const DRM_FORMAT_ARGB8888: u32 = drm_fmt::DRM_FORMAT_ARGB8888;
@@ -37,7 +37,9 @@ fn drm_format_to_flux(drm: u32) -> Option<flux::Format> {
 /// Map a `wp_color_management_v1` parametric image description onto a flux
 /// color space. `None` when the pair is not representable (flux validates:
 /// sane primaries, gamma > 0 for power curves).
-fn flux_color_space(color: &tessera_primitives::color::ParametricColor) -> Option<flux::ColorSpace> {
+fn flux_color_space(
+    color: &tessera_primitives::color::ParametricColor,
+) -> Option<flux::ColorSpace> {
     use tessera_primitives::color::ContentPrimaries;
     use tessera_primitives::color::ContentTransfer;
     use tessera_primitives::color::NamedPrimaries;
@@ -583,7 +585,10 @@ enum OrderedSurfaceSource {
     Dmabuf(usize),
 }
 
-type WindowMap<'a> = dyn Fn(Option<tessera_desktop::window::WindowId>, tessera_primitives::Rect) -> tessera_primitives::Rect
+type WindowMap<'a> = dyn Fn(
+        Option<tessera_desktop::window::WindowId>,
+        tessera_primitives::Rect,
+    ) -> tessera_primitives::Rect
     + 'a;
 
 /// Appearance applied to every image in one mapped surface subtree.
@@ -1820,7 +1825,8 @@ impl Renderer {
                         // opaque at ingest, so SRC-replace is pixel-correct here
                         // too. Opaque-region mapping is only well-defined without
                         // a buffer transform.
-                        let can_split = f.geometry.transform == tessera_primitives::Transform::Normal;
+                        let can_split =
+                            f.geometry.transform == tessera_primitives::Transform::Normal;
                         let (opaque, blended) = split_opaque_blit(
                             (x, y, dst_w, dst_h),
                             surface_logical,

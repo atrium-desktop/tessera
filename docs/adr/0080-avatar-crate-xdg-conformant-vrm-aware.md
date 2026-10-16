@@ -1,3 +1,11 @@
+---
+id: ADR-0080
+title: "Avatar as an independent crate, XDG-conformant, VRM-aware"
+status: superseded
+date: 2026-07-30
+superseded_by: ADR-0106
+---
+
 # ADR-0080: Avatar as an independent crate, XDG-conformant, VRM-aware
 
 - Status: Superseded by ADR-0106

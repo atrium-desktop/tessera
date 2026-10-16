@@ -436,10 +436,7 @@ impl LiveState {
         }
     }
 
-    pub(super) fn set_windows(
-        &self,
-        windows: Vec<tessera_desktop::window::Window>,
-    ) {
+    pub(super) fn set_windows(&self, windows: Vec<tessera_desktop::window::Window>) {
         *self.windows.write().unwrap() = windows;
     }
 

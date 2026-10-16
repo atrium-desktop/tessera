@@ -1,3 +1,11 @@
+---
+id: ADR-0158
+title: "Clean-break workspace boundaries"
+status: accepted
+date: 2026-09-17
+superseded_by: null
+---
+
 # 0158. Clean-break workspace boundaries
 
 - Status: Accepted

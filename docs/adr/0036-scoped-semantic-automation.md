@@ -1,3 +1,11 @@
+---
+id: ADR-0036
+title: "Scoped semantic geometry and target-local input"
+status: accepted
+date: 2026-07-16
+superseded_by: null
+---
+
 # ADR-0036: Scoped semantic geometry and target-local input
 
 - Status: Accepted

@@ -1158,10 +1158,12 @@ impl Server {
             if !(*rec).window.minimized {
                 return;
             }
-            let saved = (*rec).saved_floating_rect.unwrap_or(tessera_primitives::Rect {
-                origin: tessera_primitives::Point { x: 100, y: 100 },
-                size: tessera_primitives::Size { w: 800, h: 600 },
-            });
+            let saved = (*rec)
+                .saved_floating_rect
+                .unwrap_or(tessera_primitives::Rect {
+                    origin: tessera_primitives::Point { x: 100, y: 100 },
+                    size: tessera_primitives::Size { w: 800, h: 600 },
+                });
             let window_id = (*rec).window.id;
             // The flight leaves from the same dock icon (or stub point)
             // the minimize flight landed on.
@@ -1273,7 +1275,10 @@ impl Server {
 
     /// Forward a host touchpad gesture to gesture objects belonging to the
     /// client that held pointer focus when the gesture began.
-    pub fn pointer_gesture_event(&mut self, event: &tessera_primitives::input::PointerGestureEvent) {
+    pub fn pointer_gesture_event(
+        &mut self,
+        event: &tessera_primitives::input::PointerGestureEvent,
+    ) {
         use tessera_primitives::input::PointerGestureEvent::*;
         unsafe {
             match *event {

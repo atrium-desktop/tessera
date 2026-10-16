@@ -1,3 +1,11 @@
+---
+id: ADR-0101
+title: "Dual presentation paths and conservative KMS plane allocation"
+status: accepted
+date: 2026-08-03
+superseded_by: null
+---
+
 # ADR-0101: Dual presentation paths and conservative KMS plane allocation
 
 - Status: Accepted

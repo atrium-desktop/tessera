@@ -1,3 +1,11 @@
+---
+id: ADR-0041
+title: "Sealed file-descriptor pixel transport"
+status: accepted
+date: 2026-07-18
+superseded_by: null
+---
+
 # ADR-0041: Sealed file-descriptor pixel transport
 
 - Status: Accepted

@@ -459,9 +459,7 @@ impl Shell {
 
     /// Whether the control center is currently open.
     pub fn control_center_active(&self) -> bool {
-        self.components
-            .iter()
-            .any(|c| c.control_center_active())
+        self.components.iter().any(|c| c.control_center_active())
     }
 
     /// Open the compositor-owned Super+Tab preview strip.
@@ -1059,10 +1057,38 @@ impl Shell {
         }
     }
 
-    /// Compatibility alias for [`Shell::prepare_frame`].
-    #[inline]
-    pub fn prepare_backdrop(&mut self, input: &Input) {
-        self.prepare_frame(input);
+    /// Whether any participating component completely occludes the desktop
+    /// scene with an opaque full-output canvas this frame.
+    pub fn occludes_desktop(&self) -> bool {
+        let modal_active = self
+            .components
+            .iter()
+            .any(|component| component.modal_active());
+        let window_switcher_active = self.window_switcher_active();
+        let exclusive_presentation_active = self.exclusive_presentation_active();
+        self.components
+            .iter()
+            .filter(|component| {
+                participates_in_shell_pass(
+                    component.as_ref(),
+                    self.screenshot_freeze,
+                    modal_active,
+                    window_switcher_active,
+                    exclusive_presentation_active,
+                )
+            })
+            .any(|component| component.occludes_desktop())
+    }
+
+    /// Whether any modal or exclusive presentation surface is currently active.
+    pub fn modal_or_exclusive_active(&self) -> bool {
+        self.screenshot_freeze
+            || self.window_switcher_active()
+            || self.exclusive_presentation_active()
+            || self
+                .components
+                .iter()
+                .any(|component| component.modal_active())
     }
 
     /// Aggregate every component's resting minimize-flight targets (the

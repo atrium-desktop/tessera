@@ -840,10 +840,12 @@ impl DrmBackend {
             .displays
             .scanout_formats
             .iter()
-            .map(|(&fourcc, modifiers)| tessera_primitives::dmabuf::DmabufFormat {
-                fourcc,
-                modifiers: modifiers.clone(),
-            })
+            .map(
+                |(&fourcc, modifiers)| tessera_primitives::dmabuf::DmabufFormat {
+                    fourcc,
+                    modifiers: modifiers.clone(),
+                },
+            )
             .collect::<Vec<_>>();
         formats.sort_by_key(|format| format.fourcc);
         formats

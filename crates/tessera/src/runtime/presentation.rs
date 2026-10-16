@@ -25,12 +25,15 @@ impl CompositorRuntime<'_> {
     /// cursor, session locked, sprite unavailable, or the plane hidden) —
     /// callers must not treat that as an error, the composite path repaints
     /// the software cursor as before.
-    pub(super) fn present_pointer_cursor(&mut self, state: &FrameState) -> bool {
-        if state.session_locked || !self.host.supports_hardware_cursor() || !self.host.is_active() {
+    pub(super) fn present_pointer_cursor(
+        &mut self,
+        session_locked: bool,
+        cursor_hidden: bool,
+        cursor_shape: u32,
+    ) -> bool {
+        if session_locked || !self.host.supports_hardware_cursor() || !self.host.is_active() {
             return false;
         }
-        let cursor_hidden = state.cursor_hidden;
-        let cursor_shape = state.cursor_shape;
         if cursor_hidden {
             // Hiding is itself a cursor-plane commit the render path
             // performs (FB_ID 0); a hidden cursor needs no position update.
@@ -122,7 +125,6 @@ impl CompositorRuntime<'_> {
             had_input,
             input_pointer_only,
             cursor_fast_path: _,
-            cursor_plane_piggyback: _,
             mut pending_screenshots,
         } = state;
         // Scene colors track the desktop appearance: the shell's design
@@ -1479,98 +1481,154 @@ impl CompositorRuntime<'_> {
                     }
                 }
 
-                let active = begin_desktop_output(
-                    self.canvas,
-                    self.device,
-                    &mut frame,
-                    &mut self.wallpaper,
-                    logical_size,
-                    scale,
-                    self.clear,
-                    output_render_area,
-                    model_active && !self.screenshot_freeze.active(),
-                )?;
-                if self.screenshot_freeze.active() {
-                    if let Some(image) = self.screenshot_freeze.image() {
-                        active.draw_image(
-                            image,
-                            0.0,
-                            0.0,
-                            physical_size.0 as f32,
-                            physical_size.1 as f32,
-                        );
-                    }
-                } else if capture_covers_output
-                    && refreshed
-                    && self
-                        .backdrop_graph
-                        .draw_capture_opaque(&active, frame_slot, physical_size)
-                {
-                    // The capture pass already rendered this exact
-                    // desktop.  Reuse it as the base output rather than
-                    // acquiring every client dma-buf and drawing the
-                    // complete scene a second time in the same frame.
-                } else {
-                    // A local capture has no pixels for the rest of the
-                    // output (or the effect failed), so draw the normal
-                    // desktop base once before overlaying the effect.
-                    draw_direct_desktop_scene(
-                        &active,
-                        self.device,
-                        self.renderer,
-                        self.server,
-                        render_geometry,
-                        overview_active,
-                        overview_progress,
-                        window_switcher.as_ref(),
-                        color_scheme,
-                        soft_shadow_layer.as_ref(),
-                        shadow_style,
+                // When a participating full-screen surface (e.g. an open
+                // Control Center at full reveal opacity) completely occludes
+                // the desktop and no consumer of the desktop scene is live,
+                // skip the redundant base desktop pass and render the shell
+                // directly into a single clearing stencil pass.
+                //
+                // The consumer list below is exhaustive and load-bearing: every
+                // surface that draws scene-derived content outside
+                // `Shell::backdrop_layers` (overview thumbnails, the interactive
+                // screenshot picker's scrim, the window switcher, live window
+                // previews) must appear here, or it renders over the clear
+                // colour instead of the desktop (ADR-0181, [INV-ARCH-65]).
+                let desktop_occluded = shell_requires_composition
+                    && self.shell.occludes_desktop()
+                    && !capture_active
+                    && !overview_active
+                    && !self.shell.screenshot_active()
+                    && !self.screenshot_freeze.active()
+                    && !session_locked
+                    && window_switcher.is_none()
+                    && live_previews.is_empty();
+
+                let overlay_session = if desktop_occluded {
+                    let s = self.canvas.begin_session(
+                        &mut frame,
+                        flux::CanvasPassOptions {
+                            clear: Some(self.clear),
+                            antialias: flux::CanvasAntialias::None,
+                            render_area: output_render_area,
+                            skip_stencil: false,
+                        },
                     )?;
-                }
-                if has_cached_effects && !self.screenshot_freeze.active() {
-                    self.backdrop_graph.draw_cached(
-                        &active,
-                        frame_slot,
-                        capture_origin,
-                        capture_extent,
-                    );
-                }
-                let base_session = active;
-
-                if !session_locked && !self.screenshot_freeze.active() {
-                    if let Some(presentation) = window_switcher.as_ref() {
-                        draw_window_switcher_cards(
-                            &base_session,
-                            self.device,
-                            self.renderer,
-                            self.server,
-                            scale,
-                            presentation,
-                        );
-                    } else {
-                        draw_live_preview_scenes(
-                            &base_session,
-                            self.device,
-                            self.renderer,
-                            self.server,
-                            scale,
-                            &live_previews,
-                        );
-                    }
-                }
-
-                let overlay_session = if shell_requires_composition
-                    && (!self.screenshot_freeze.active() || self.screenshot_freeze.opened)
-                {
-                    base_session.end()?;
-                    let s =
-                        begin_stencil_frame_overlay(self.canvas, &mut frame, output_render_area)?;
                     let _uploads = self.device.uploads_begin();
-                    unsafe { self.shell.render(s.as_raw() as *mut _, &input)? };
+                    // A shell draw failure must not abort the frame: the canvas
+                    // session is still open and the compositor can still present
+                    // the desktop scene, exactly as the screenshot path below
+                    // degrades. Propagating here would drop a live
+                    // `CanvasSession` mid-pass and forfeit the whole frame.
+                    if let Err(error) = unsafe { self.shell.render(s.as_raw() as *mut _, &input) } {
+                        log::warn!("compositor: shell chrome render failed: {error}");
+                    }
                     s
                 } else {
-                    base_session
+                    let active = begin_desktop_output(
+                        self.canvas,
+                        self.device,
+                        &mut frame,
+                        &mut self.wallpaper,
+                        logical_size,
+                        scale,
+                        self.clear,
+                        output_render_area,
+                        model_active && !self.screenshot_freeze.active(),
+                    )?;
+                    if self.screenshot_freeze.active() {
+                        if let Some(image) = self.screenshot_freeze.image() {
+                            active.draw_image(
+                                image,
+                                0.0,
+                                0.0,
+                                physical_size.0 as f32,
+                                physical_size.1 as f32,
+                            );
+                        }
+                    } else if capture_covers_output
+                        && refreshed
+                        && self.backdrop_graph.draw_capture_opaque(
+                            &active,
+                            frame_slot,
+                            physical_size,
+                        )
+                    {
+                        // The capture pass already rendered this exact
+                        // desktop.  Reuse it as the base output rather than
+                        // acquiring every client dma-buf and drawing the
+                        // complete scene a second time in the same frame.
+                    } else {
+                        // A local capture has no pixels for the rest of the
+                        // output (or the effect failed), so draw the normal
+                        // desktop base once before overlaying the effect.
+                        draw_direct_desktop_scene(
+                            &active,
+                            self.device,
+                            self.renderer,
+                            self.server,
+                            render_geometry,
+                            overview_active,
+                            overview_progress,
+                            window_switcher.as_ref(),
+                            color_scheme,
+                            soft_shadow_layer.as_ref(),
+                            shadow_style,
+                        )?;
+                    }
+                    if has_cached_effects && !self.screenshot_freeze.active() {
+                        self.backdrop_graph.draw_cached(
+                            &active,
+                            frame_slot,
+                            capture_origin,
+                            capture_extent,
+                        );
+                    }
+                    let base_session = active;
+
+                    if !session_locked && !self.screenshot_freeze.active() {
+                        if let Some(presentation) = window_switcher.as_ref() {
+                            draw_window_switcher_cards(
+                                &base_session,
+                                self.device,
+                                self.renderer,
+                                self.server,
+                                scale,
+                                presentation,
+                            );
+                        } else {
+                            draw_live_preview_scenes(
+                                &base_session,
+                                self.device,
+                                self.renderer,
+                                self.server,
+                                scale,
+                                &live_previews,
+                            );
+                        }
+                    }
+
+                    if shell_requires_composition
+                        && (!self.screenshot_freeze.active() || self.screenshot_freeze.opened)
+                    {
+                        base_session.end()?;
+                        let s = begin_stencil_frame_overlay(
+                            self.canvas,
+                            &mut frame,
+                            output_render_area,
+                        )?;
+                        let _uploads = self.device.uploads_begin();
+                        // See the occluded branch above: a shell chrome draw
+                        // failure degrades to a chrome-less frame instead of
+                        // dropping the still-open overlay session.
+                        if let Err(error) =
+                            unsafe { self.shell.render(s.as_raw() as *mut _, &input) }
+                        {
+                            log::warn!("compositor: shell chrome render failed: {error}");
+                        }
+                        s
+                    } else {
+                        base_session
+                    }
                 };
 
                 // Protocol overlays sit above ordinary shell chrome. A modal

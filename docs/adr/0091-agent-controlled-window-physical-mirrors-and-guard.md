@@ -1,3 +1,11 @@
+---
+id: ADR-0091
+title: "Agent-controlled window physical mirrors and guard"
+status: accepted
+date: 2026-08-01
+superseded_by: null
+---
+
 # ADR-0091: Agent-controlled window physical mirrors and guard
 
 - Status: Accepted

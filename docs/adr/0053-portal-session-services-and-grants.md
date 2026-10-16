@@ -1,3 +1,11 @@
+---
+id: ADR-0053
+title: "Portal backend ABI ownership and scoped session services"
+status: superseded
+date: 2026-07-29
+superseded_by: ADR-0075
+---
+
 # ADR-0053: Portal backend ABI ownership and scoped session services
 
 - Status: Superseded by ADR-0075

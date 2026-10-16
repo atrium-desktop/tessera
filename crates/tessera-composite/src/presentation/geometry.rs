@@ -14,8 +14,9 @@ pub fn clamp_logical_region(
     let y0 = i64::from(rect.origin.y).clamp(0, i64::from(height));
     let x1 = right.clamp(x0, i64::from(width));
     let y1 = bottom.clamp(y0, i64::from(height));
-    (x1 > x0 && y1 > y0)
-        .then(|| tessera_primitives::Rect::new(x0 as i32, y0 as i32, (x1 - x0) as i32, (y1 - y0) as i32))
+    (x1 > x0 && y1 > y0).then(|| {
+        tessera_primitives::Rect::new(x0 as i32, y0 as i32, (x1 - x0) as i32, (y1 - y0) as i32)
+    })
 }
 
 /// Convert a compositor-logical crop rectangle to physical output pixels.

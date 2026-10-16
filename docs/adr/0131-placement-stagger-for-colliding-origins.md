@@ -1,3 +1,11 @@
+---
+id: ADR-0131
+title: "Session-scoped placement stagger for colliding origins"
+status: accepted
+date: 2026-08-19
+superseded_by: null
+---
+
 # ADR-0131: Session-scoped placement stagger for colliding origins
 
 - Status: Accepted

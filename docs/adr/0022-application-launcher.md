@@ -1,3 +1,11 @@
+---
+id: ADR-0022
+title: "Application launcher via freedesktop.org desktop entries"
+status: accepted
+date: 2026-06-20
+superseded_by: null
+---
+
 # ADR-0022: Application launcher via freedesktop.org desktop entries
 
 - Status: Accepted

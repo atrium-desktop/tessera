@@ -1,3 +1,11 @@
+---
+id: ADR-0018
+title: "Wallpaper as an independent crate"
+status: accepted
+date: 2026-06-18
+superseded_by: null
+---
+
 # ADR-0018: Wallpaper as an independent crate
 
 - Status: Accepted

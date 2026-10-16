@@ -1,3 +1,11 @@
+---
+id: ADR-0015
+title: "Per-commit damage tracking"
+status: accepted
+date: 2026-06-18
+superseded_by: null
+---
+
 # ADR-0015: Per-commit damage tracking
 
 - Status: Accepted

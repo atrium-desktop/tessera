@@ -1,3 +1,11 @@
+---
+id: ADR-0050
+title: "fuji agent product and the aegis-fuji bridge rename (amends ADR-0047)"
+status: accepted
+date: 2026-07-23
+superseded_by: null
+---
+
 # ADR-0050: fuji agent product and the aegis-fuji bridge rename (amends ADR-0047)
 
 - Status: Accepted

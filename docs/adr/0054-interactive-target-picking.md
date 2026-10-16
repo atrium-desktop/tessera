@@ -1,3 +1,11 @@
+---
+id: ADR-0054
+title: "Interactive target picking and window-scoped stream targets"
+status: draft
+date: 2026-07-25
+superseded_by: null
+---
+
 # ADR-0054: Interactive target picking and window-scoped stream targets
 
 - Status: Proposed

@@ -1,10 +1,19 @@
+---
+id: ADR-0055
+title: "Zero-copy dmabuf export for ScreenCast and frame capture"
+status: deprecated
+date: 2026-07-25
+superseded_by: null
+---
+
 # ADR-0055: Zero-copy dmabuf export for ScreenCast and frame capture
 
-- Status: Superseded — the shipped design is the dmabuf slot-ring of
-  protocol 25 (compositor side, IPC `StreamOutputStart` negotiation) plus the
-  portal-side pool-buffer binding recorded in the xdg-desktop-portal-aegis
-  repository's ADR-0005/0006. This record's per-frame `DmabufBufferSpec`
-  wire format was not implemented.
+- Status: Deprecated — superseded by an out-of-tree design, not by a
+  subsequent record in this registry: the shipped design is the dmabuf
+  slot-ring of protocol 25 (compositor side, IPC `StreamOutputStart`
+  negotiation) plus the portal-side pool-buffer binding recorded in the
+  xdg-desktop-portal-aegis repository's ADR-0005/0006. This record's per-frame
+  `DmabufBufferSpec` wire format was not implemented.
 - Date: 2026-07-25
 
 ## Context

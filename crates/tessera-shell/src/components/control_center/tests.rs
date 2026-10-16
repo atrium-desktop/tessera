@@ -345,6 +345,47 @@ fn canvas_alpha_tracks_the_reveal_and_paints_nothing_at_zero() {
 }
 
 #[test]
+fn desktop_occlusion_is_asserted_only_at_full_opacity() {
+    // `Chrome::occludes_desktop` is what lets the compositor elide the base
+    // desktop pass, so it must be exactly as strict as the painted canvas:
+    // opaque only once the reveal reaches an alpha of 255, and never while the
+    // panel is closed (ADR-0181, [INV-ARCH-65]).
+    let mut panel = ControlCenter::without_sources();
+    assert!(!panel.occludes_desktop(), "a closed panel occludes nothing");
+
+    // Mid-reveal the canvas is translucent: the desktop must still be drawn
+    // beneath it.
+    panel.open = true;
+    panel.reveal.value = 0.5;
+    assert!(panel.presented());
+    assert_eq!(canvas_alpha(panel.reveal()), 128);
+    assert!(
+        !panel.occludes_desktop(),
+        "a translucent canvas does not occlude the desktop"
+    );
+
+    // The threshold is the alpha byte saturating, not an arbitrary fraction.
+    panel.reveal.value = 0.99;
+    assert!(canvas_alpha(panel.reveal()) < 255);
+    assert!(!panel.occludes_desktop());
+
+    panel.reveal.value = 1.0;
+    assert_eq!(canvas_alpha(panel.reveal()), 255);
+    assert!(
+        panel.occludes_desktop(),
+        "the fully opaque canvas occludes the desktop"
+    );
+
+    // A drained panel (closed, reveal back to zero) stops occluding even
+    // though the drain keeps it composited for the ring.
+    panel.open = false;
+    panel.reveal.value = 1.0;
+    assert!(panel.occludes_desktop());
+    panel.reveal.value = 0.0;
+    assert!(!panel.occludes_desktop());
+}
+
+#[test]
 fn control_center_palette_tracks_the_live_appearance() {
     let mut panel = ControlCenter::without_sources();
     let dark = panel.panel_colors();

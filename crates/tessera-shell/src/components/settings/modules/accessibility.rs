@@ -75,11 +75,17 @@ impl SettingsModule for AccessibilityModule {
                 frame.flex(1.0);
             });
 
-            if frame.checkbox("Invert colors", &mut preferences.accessibility.visual.invert_colors) {
+            if frame.checkbox(
+                "Invert colors",
+                &mut preferences.accessibility.visual.invert_colors,
+            ) {
                 changed = true;
             }
 
-            if frame.checkbox("High contrast mode", &mut preferences.accessibility.visual.high_contrast) {
+            if frame.checkbox(
+                "High contrast mode",
+                &mut preferences.accessibility.visual.high_contrast,
+            ) {
                 changed = true;
             }
 
@@ -112,9 +118,8 @@ impl SettingsModule for AccessibilityModule {
 
         if changed {
             self.preferences = preferences.clone();
-            out.actions.push(SettingsAction::SetDesktopPreferences {
-                preferences,
-            });
+            out.actions
+                .push(SettingsAction::SetDesktopPreferences { preferences });
         }
     }
 

@@ -770,7 +770,10 @@ fn enumerate_outputs_is_query_gated_and_strips_the_rich_fields() {
                 assert!(outputs.iter().all(|output| output.geometry.is_some()));
                 assert_eq!(outputs[0].connector, "HDMI-A-1");
                 assert!(outputs[0].primary);
-                assert_eq!(outputs[0].rect, tessera_primitives::Rect::new(0, 0, 1920, 1080));
+                assert_eq!(
+                    outputs[0].rect,
+                    tessera_primitives::Rect::new(0, 0, 1920, 1080)
+                );
             }
             other => panic!("expected Outputs, got {other:?}"),
         }
@@ -785,7 +788,10 @@ fn enumerate_outputs_is_query_gated_and_strips_the_rich_fields() {
                 }
                 assert_eq!(outputs[0].connector, "HDMI-A-1");
                 assert!(outputs[0].primary);
-                assert_eq!(outputs[0].rect, tessera_primitives::Rect::new(0, 0, 1920, 1080));
+                assert_eq!(
+                    outputs[0].rect,
+                    tessera_primitives::Rect::new(0, 0, 1920, 1080)
+                );
                 assert_eq!(outputs[1].connector, "DP-1");
                 assert!(!outputs[1].primary);
                 assert_eq!(

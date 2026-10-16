@@ -1,3 +1,11 @@
+---
+id: ADR-0108
+title: "Agent Workspaces presentation naming"
+status: superseded
+date: 2026-08-04
+superseded_by: ADR-0113
+---
+
 # ADR-0108: Agent Workspaces presentation naming
 
 - Status: Superseded by [ADR-0113](0113-platform-ai-backend-and-agent-product-removal.md)

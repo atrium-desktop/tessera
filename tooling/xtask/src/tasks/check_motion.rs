@@ -101,10 +101,7 @@ mod tests {
     fn detects_the_exponential_follow_idiom() {
         assert_eq!(violations_in("let b = 1.0 - (-r * dt).exp();"), vec![1]);
         assert_eq!(violations_in("self.x += 0.0;"), Vec::<usize>::new());
-        assert_eq!(
-            violations_in("ok\nbad = 1.0 - (-r * dt).exp();\n"),
-            vec![2]
-        );
+        assert_eq!(violations_in("ok\nbad = 1.0 - (-r * dt).exp();\n"), vec![2]);
     }
 
     #[test]

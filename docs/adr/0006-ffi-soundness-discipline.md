@@ -1,3 +1,11 @@
+---
+id: ADR-0006
+title: "FFI soundness discipline for hand-rolled protocol handlers"
+status: accepted
+date: 2026-06-18
+superseded_by: null
+---
+
 # ADR-0006: FFI soundness discipline for hand-rolled protocol handlers
 
 - Status: Accepted

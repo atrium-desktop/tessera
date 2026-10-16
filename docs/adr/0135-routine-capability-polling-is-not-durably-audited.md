@@ -1,3 +1,11 @@
+---
+id: ADR-0135
+title: "Routine capability polling is not durably audited"
+status: accepted
+date: 2026-08-22
+superseded_by: null
+---
+
 # ADR-0135: Routine capability polling is not durably audited
 
 - Status: Accepted

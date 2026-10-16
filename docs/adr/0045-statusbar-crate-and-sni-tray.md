@@ -1,3 +1,11 @@
+---
+id: ADR-0045
+title: "Status bar as a component crate with a host-rendered StatusNotifierItem tray"
+status: accepted
+date: 2026-07-21
+superseded_by: null
+---
+
 # ADR-0045: Status bar as a component crate with a host-rendered StatusNotifierItem tray
 
 - Status: Accepted

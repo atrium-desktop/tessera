@@ -1,3 +1,11 @@
+---
+id: ADR-0130
+title: "Stream-paced presentation and scanout exclusion for output streams"
+status: accepted
+date: 2026-08-17
+superseded_by: null
+---
+
 # ADR-0130: Stream-paced presentation and scanout exclusion for output streams
 
 - Status: Accepted

@@ -1,3 +1,11 @@
+---
+id: ADR-0126
+title: "Damage-driven stream pacing and stream renegotiation"
+status: accepted
+date: 2026-08-16
+superseded_by: null
+---
+
 # ADR-0126: Damage-driven stream pacing and stream renegotiation
 
 - Status: Accepted (Decision 1 superseded by [ADR-0130](0130-stream-paced-presentation-and-scanout-exclusion.md))

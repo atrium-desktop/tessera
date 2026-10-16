@@ -1,3 +1,11 @@
+---
+id: ADR-0021
+title: "Chrome component trait (pure core shell)"
+status: accepted
+date: 2026-06-18
+superseded_by: null
+---
+
 # ADR-0021: Chrome component trait (pure core shell)
 
 - Status: Accepted

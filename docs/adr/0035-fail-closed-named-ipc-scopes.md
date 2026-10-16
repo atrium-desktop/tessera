@@ -1,3 +1,11 @@
+---
+id: ADR-0035
+title: "Fail-closed named IPC scope resolution"
+status: accepted
+date: 2026-07-16
+superseded_by: null
+---
+
 # ADR-0035: Fail-closed named IPC scope resolution
 
 - Status: Accepted

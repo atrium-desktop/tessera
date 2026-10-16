@@ -1,3 +1,11 @@
+---
+id: ADR-0133
+title: "First-Map Focus Policy and ext-data-control-v1"
+status: accepted
+date: 2026-08-19
+superseded_by: null
+---
+
 # ADR-0133: First-Map Focus Policy and ext-data-control-v1
 
 - Status: Accepted

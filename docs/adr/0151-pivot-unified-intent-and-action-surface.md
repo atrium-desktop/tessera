@@ -1,3 +1,11 @@
+---
+id: ADR-0151
+title: "Pivot: Unified system intent and action surface"
+status: draft
+date: 2026-09-12
+superseded_by: null
+---
+
 # ADR-0151: Pivot: Unified system intent and action surface
 
 - Status: Proposed

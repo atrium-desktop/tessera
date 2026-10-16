@@ -121,17 +121,19 @@ fn capture_output_requires_control_and_an_explicit_scope_op() {
 }
 
 fn stream_frame(stream_id: u64, sequence: u64) -> tessera_primitives::stream::StreamFramePayload {
-    tessera_primitives::stream::StreamFramePayload::Pixels(tessera_primitives::stream::StreamPixelFrame {
-        stream_id,
-        sequence,
-        width: 2,
-        height: 2,
-        stride: 8,
-        format: tessera_protocol::StreamPixelFormat::Bgra8,
-        damage: vec![tessera_primitives::Rect::new(0, 0, 2, 2)],
-        dropped: 0,
-        pixels: Arc::from(&[7u8; 16][..]),
-    })
+    tessera_primitives::stream::StreamFramePayload::Pixels(
+        tessera_primitives::stream::StreamPixelFrame {
+            stream_id,
+            sequence,
+            width: 2,
+            height: 2,
+            stride: 8,
+            format: tessera_protocol::StreamPixelFormat::Bgra8,
+            damage: vec![tessera_primitives::Rect::new(0, 0, 2, 2)],
+            dropped: 0,
+            pixels: Arc::from(&[7u8; 16][..]),
+        },
+    )
 }
 
 #[test]
@@ -563,7 +565,12 @@ fn interaction_domain_actions_require_an_observation_and_return_commit_receipts(
         .expect("interaction domain observation");
     let target_window = WindowId(1);
     assert_eq!(
-        observation.snapshot.window(target_window).unwrap().title.as_deref(),
+        observation
+            .snapshot
+            .window(target_window)
+            .unwrap()
+            .title
+            .as_deref(),
         Some("first")
     );
 

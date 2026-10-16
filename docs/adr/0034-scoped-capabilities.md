@@ -1,3 +1,11 @@
+---
+id: ADR-0034
+title: "Scoped capabilities"
+status: superseded
+date: 2026-06-24
+superseded_by: ADR-0035
+---
+
 # ADR-0034: Scoped capabilities
 
 - Status: Superseded by ADR-0035

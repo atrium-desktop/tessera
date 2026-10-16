@@ -851,15 +851,12 @@ impl DrmBackend {
         if self.pending_resize.is_some() {
             return Err(DrmError::Reconfigured);
         }
-        frame.present()?;
         let dmabuf = if self.explicit_sync {
             surface.export_dmabuf_explicit()?
         } else {
             surface.export_dmabuf()?
         };
-        // Retain an independent descriptor of the frame going to scanout so
-        // zero-copy stream consumers can import exactly what is on screen.
-        self.presented_composite = match dmabuf.fd.try_clone() {
+        let presented_composite = match dmabuf.fd.try_clone() {
             Ok(fd) => Some(PresentedComposite {
                 fd,
                 width: dmabuf.width,
@@ -879,6 +876,12 @@ impl DrmBackend {
             .transpose()?;
         let scanout = self.import_scanout(dmabuf)?;
         self.commit_scanout(scanout, damage, PrimaryPlaneFrame::Composited)?;
+        // Advance the offscreen ring slot only after KMS accepts the atomic flip;
+        // if commit_scanout returns EBUSY or fails, SubmittedFrame::drop abandons
+        // the frame without advancing current_frame so the next retry reuses this
+        // free backbuffer slot instead of rotating into the live scanout buffer.
+        frame.present()?;
+        self.presented_composite = presented_composite;
         Ok(completion_fence)
     }
 

@@ -1,3 +1,11 @@
+---
+id: ADR-0071
+title: "Worktree-isolated Aegis and Optics development"
+status: accepted
+date: 2026-07-29
+superseded_by: null
+---
+
 # ADR-0071: Worktree-isolated Aegis and Optics development
 
 - Status: Accepted

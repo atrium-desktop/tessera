@@ -1,3 +1,11 @@
+---
+id: ADR-0076
+title: "Linux-dmabuf device feedback and reusable-buffer synchronization"
+status: accepted
+date: 2026-07-29
+superseded_by: null
+---
+
 # ADR-0076: Linux-dmabuf device feedback and reusable-buffer synchronization
 
 - Status: Accepted

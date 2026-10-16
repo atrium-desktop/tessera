@@ -2,11 +2,7 @@
 
 fn main() {
     let mut local_optics_dirs = Vec::new();
-    for var in [
-        "DEP_LENS_RPATHS",
-        "DEP_FLUX_RPATHS",
-        "DEP_VISTA_RPATHS",
-    ] {
+    for var in ["DEP_LENS_RPATHS", "DEP_FLUX_RPATHS", "DEP_VISTA_RPATHS"] {
         if let Ok(rpaths) = std::env::var(var) {
             for dir in rpaths.split(';').filter(|path| !path.is_empty()) {
                 if !local_optics_dirs.iter().any(|existing| existing == dir) {

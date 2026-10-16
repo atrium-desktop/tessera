@@ -92,7 +92,10 @@ pub fn request_frame_readback(
     })
 }
 
-fn translate_cursor_to_region(cursor: &mut Option<CaptureCursor>, region: tessera_primitives::Rect) {
+fn translate_cursor_to_region(
+    cursor: &mut Option<CaptureCursor>,
+    region: tessera_primitives::Rect,
+) {
     if let Some(cursor) = cursor.as_mut() {
         cursor.x = cursor.x.saturating_sub(region.origin.x);
         cursor.y = cursor.y.saturating_sub(region.origin.y);
@@ -579,7 +582,8 @@ mod tests {
     fn capture_keeps_unpremultiply_and_physical_crop_semantics() {
         let rgba = vec![9, 8, 7, 255, 32, 64, 128, 128, 77, 88, 99, 0];
         let (w, h, png) =
-            encode_rgba_capture(3, 1, rgba, Some(tessera_primitives::Rect::new(1, 0, 2, 1))).unwrap();
+            encode_rgba_capture(3, 1, rgba, Some(tessera_primitives::Rect::new(1, 0, 2, 1)))
+                .unwrap();
         assert_eq!((w, h), (2, 1));
         let decoded = image::load_from_memory(&png).unwrap().into_rgba8();
         assert_eq!(decoded.as_raw(), &[64, 128, 255, 128, 77, 88, 99, 0]);

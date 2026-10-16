@@ -1,3 +1,11 @@
+---
+id: ADR-0084
+title: "Session-scoped always-on-top window band"
+status: accepted
+date: 2026-07-31
+superseded_by: null
+---
+
 # ADR-0084: Session-scoped always-on-top window band
 
 - Status: Accepted

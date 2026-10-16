@@ -1,3 +1,11 @@
+---
+id: ADR-0010
+title: "Keyboard pipeline and xkbcommon ownership"
+status: superseded
+date: 2026-06-18
+superseded_by: ADR-0040
+---
+
 # ADR-0010: Keyboard pipeline and xkbcommon ownership
 
 - Status: Superseded by [ADR-0040](0040-realms-seats-and-transferable-interaction-authority.md)

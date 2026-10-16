@@ -1,3 +1,11 @@
+---
+id: ADR-0161
+title: "Rename tessera-backend to tessera-platform"
+status: accepted
+date: 2026-09-17
+superseded_by: null
+---
+
 # ADR-0161: Rename tessera-backend to tessera-platform
 
 - Status: Accepted

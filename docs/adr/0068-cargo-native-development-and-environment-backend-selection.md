@@ -1,3 +1,11 @@
+---
+id: ADR-0068
+title: "Cargo-native development and environment-only backend selection"
+status: superseded
+date: 2026-07-29
+superseded_by: ADR-0069
+---
+
 # ADR-0068: Cargo-native development and environment-only backend selection
 
 - Status: Superseded by ADR-0069

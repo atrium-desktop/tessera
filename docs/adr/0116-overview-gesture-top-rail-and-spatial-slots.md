@@ -1,3 +1,11 @@
+---
+id: ADR-0116
+title: "Overview gesture, top workspace rail, and spatial slot assignment"
+status: accepted
+date: 2026-08-09
+superseded_by: null
+---
+
 # ADR-0116: Overview gesture, top workspace rail, and spatial slot assignment
 
 - Status: Accepted

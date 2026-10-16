@@ -1,3 +1,11 @@
+---
+id: ADR-0057
+title: "System Settings canonical namespace"
+status: superseded
+date: 2026-07-26
+superseded_by: ADR-0059
+---
+
 # ADR-0057: System Settings canonical namespace
 
 - Status: Superseded by ADR-0059

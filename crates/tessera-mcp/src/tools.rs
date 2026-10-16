@@ -13,13 +13,13 @@ use tessera_desktop::workspace::LaunchPlacement;
 use tessera_desktop::workspace::Switch;
 use tessera_desktop::workspace::WorkspaceId;
 use tessera_ipc::Client;
+use tessera_primitives::Point;
+use tessera_primitives::Rect;
+use tessera_primitives::input::SyntheticInputAction;
 use tessera_protocol::{
     ActorCapability, Command, ConnectionCapabilities, Effect, InteractionDomainAction,
     InteractionDomainActionResult, JournalMutation, ObservationToken, Scope,
 };
-use tessera_primitives::Point;
-use tessera_primitives::Rect;
-use tessera_primitives::input::SyntheticInputAction;
 
 use crate::BridgeConfig;
 use tessera_ipc::{InteractionDomainSession, ManagedInteractionDomain};

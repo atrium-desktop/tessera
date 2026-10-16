@@ -286,7 +286,11 @@ impl Server {
         self.post_motion_to_focus(time);
     }
 
-    pub(crate) fn pointer_button(&mut self, button: u32, state: tessera_primitives::input::ButtonState) {
+    pub(crate) fn pointer_button(
+        &mut self,
+        button: u32,
+        state: tessera_primitives::input::ButtonState,
+    ) {
         if self.state.session_lock_phase.is_active() {
             if state.is_pressed() && !self.state.pointer_focus.is_null() {
                 self.change_keyboard_focus(self.state.pointer_focus);
@@ -652,9 +656,13 @@ impl Server {
         // can be added if profiling ever shows it matters.
         let now = std::time::Instant::now();
         let filter_outcome = if state.is_pressed() {
-            self.state.keyboard_accessibility.process_press(evdev_code, now)
+            self.state
+                .keyboard_accessibility
+                .process_press(evdev_code, now)
         } else {
-            self.state.keyboard_accessibility.process_release(evdev_code, now)
+            self.state
+                .keyboard_accessibility
+                .process_release(evdev_code, now)
         };
         if filter_outcome == crate::server::input::accessibility::FilterOutcome::Reject {
             return None;
@@ -743,9 +751,13 @@ impl Server {
             return matched;
         }
         if state.is_pressed()
-            && !crate::server::input::accessibility::KeyboardAccessibilityFilter::is_modifier(evdev_code)
+            && !crate::server::input::accessibility::KeyboardAccessibilityFilter::is_modifier(
+                evdev_code,
+            )
         {
-            self.state.keyboard_accessibility.consume_latched_modifiers();
+            self.state
+                .keyboard_accessibility
+                .consume_latched_modifiers();
         }
         let time = self.epoch.elapsed().as_millis() as u32;
         if unsafe {
@@ -1004,10 +1016,12 @@ impl Server {
                     {
                         let rect = fold_nudged_origin(
                             &*rec,
-                            (*rec).saved_floating_rect.unwrap_or(tessera_primitives::Rect {
-                                origin: (*rec).position,
-                                size: (*rec).window.size,
-                            }),
+                            (*rec)
+                                .saved_floating_rect
+                                .unwrap_or(tessera_primitives::Rect {
+                                    origin: (*rec).position,
+                                    size: (*rec).window.size,
+                                }),
                         );
                         if rect.size.w > 0 && rect.size.h > 0 {
                             let ws_idx = self.state.workspace_number_for_window((*rec).window.id);

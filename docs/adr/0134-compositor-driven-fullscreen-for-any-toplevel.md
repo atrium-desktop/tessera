@@ -1,3 +1,11 @@
+---
+id: ADR-0134
+title: "Compositor-driven fullscreen for any toplevel"
+status: accepted
+date: 2026-08-22
+superseded_by: null
+---
+
 # ADR-0134: Compositor-driven fullscreen for any toplevel
 
 - Status: Accepted

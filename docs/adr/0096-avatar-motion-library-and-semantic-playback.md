@@ -1,3 +1,11 @@
+---
+id: ADR-0096
+title: "Avatar motion library and semantic playback"
+status: accepted
+date: 2026-08-02
+superseded_by: null
+---
+
 # ADR-0096: Avatar motion library and semantic playback
 
 - Status: Accepted

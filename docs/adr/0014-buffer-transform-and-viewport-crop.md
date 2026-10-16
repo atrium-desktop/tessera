@@ -1,3 +1,11 @@
+---
+id: ADR-0014
+title: "Buffer transform (CPU staging) and viewport crop"
+status: accepted
+date: 2026-06-18
+superseded_by: null
+---
+
 # ADR-0014: Buffer transform (CPU staging) and viewport crop
 
 - Status: Accepted (buffer-scale portion superseded by [ADR-0020](0020-buffer-scale-applied-at-composite.md))

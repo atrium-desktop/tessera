@@ -1,3 +1,11 @@
+---
+id: ADR-0052
+title: "Scoped output frame streaming"
+status: accepted
+date: 2026-07-24
+superseded_by: null
+---
+
 # ADR-0052: Scoped output frame streaming
 
 - Status: Accepted (stream pacing superseded by ADR-0126)

@@ -1,3 +1,11 @@
+---
+id: ADR-0044
+title: "Dock and Control Center as component crates"
+status: accepted
+date: 2026-07-19
+superseded_by: null
+---
+
 # ADR-0044: Dock and Control Center as component crates
 
 - Status: Accepted

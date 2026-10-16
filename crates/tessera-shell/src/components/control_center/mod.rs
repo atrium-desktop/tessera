@@ -1591,6 +1591,10 @@ impl Chrome for ControlCenter {
     fn requires_composition(&self) -> bool {
         self.active()
     }
+
+    fn occludes_desktop(&self) -> bool {
+        self.active() && presentation::canvas_alpha(self.reveal()) == 255
+    }
 }
 
 /// The union of the panel's animated footprints, from the individual

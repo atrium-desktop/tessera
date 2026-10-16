@@ -1,3 +1,11 @@
+---
+id: ADR-0078
+title: "Out-of-process idle policy and session lock"
+status: accepted
+date: 2026-07-29
+superseded_by: null
+---
+
 # ADR-0078: Out-of-process idle policy and session lock
 
 - Status: Accepted

@@ -384,7 +384,8 @@ impl SettingsAction {
                     return Err("keyboard repeat rate is above 150 repeats per second");
                 }
                 if config.keyboard.repeat_delay_ms == 0
-                    || config.keyboard.repeat_delay_ms > tessera_primitives::input::MAX_REPEAT_DELAY_MS
+                    || config.keyboard.repeat_delay_ms
+                        > tessera_primitives::input::MAX_REPEAT_DELAY_MS
                 {
                     return Err("keyboard repeat delay is outside 1..=2000 ms");
                 }

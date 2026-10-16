@@ -1,3 +1,11 @@
+---
+id: ADR-0098
+title: "Textured VRM materials"
+status: accepted
+date: 2026-08-02
+superseded_by: null
+---
+
 # ADR-0098: Textured VRM materials
 
 - Status: Accepted

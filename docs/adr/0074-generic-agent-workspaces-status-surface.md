@@ -1,3 +1,11 @@
+---
+id: ADR-0074
+title: "Generic Agent Workspaces status surface"
+status: superseded
+date: 2026-07-29
+superseded_by: ADR-0103
+---
+
 # ADR-0074: Generic Agent Workspaces status surface
 
 - Status: Superseded by [ADR-0103](0103-actor-authority-and-interaction-domain-architecture.md)

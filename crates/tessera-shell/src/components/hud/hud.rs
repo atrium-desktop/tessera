@@ -902,7 +902,7 @@ impl Chrome for Hud {
         }
     }
 
-    fn prepare_backdrop(
+    fn prepare_frame(
         &mut self,
         input: &Input,
         _windows: &[Window],

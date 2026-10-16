@@ -1,3 +1,11 @@
+---
+id: ADR-0079
+title: "Tracing-based observability seam"
+status: accepted
+date: 2026-07-30
+superseded_by: null
+---
+
 # ADR-0079: Tracing-based observability seam
 
 - Status: Accepted

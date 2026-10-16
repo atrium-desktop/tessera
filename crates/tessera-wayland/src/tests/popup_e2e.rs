@@ -288,7 +288,10 @@ fn grabbed_menu_popup_receives_hover_click_and_outside_dismiss() {
     server.forward_input(
         &[
             tessera_primitives::input::InputEvent::pointer_move_to(hover.0 as f32, hover.1 as f32),
-            tessera_primitives::input::InputEvent::pointer_move_to(hover.0 as f32 + 1.0, hover.1 as f32),
+            tessera_primitives::input::InputEvent::pointer_move_to(
+                hover.0 as f32 + 1.0,
+                hover.1 as f32,
+            ),
         ],
         &keymap(),
     );
@@ -938,7 +941,10 @@ fn qt_context_menu_click_round(scale: f32, tag: &str) {
     let center = (origin.x + size.w / 2, origin.y + size.h / 2);
     server.forward_input(
         &[
-            tessera_primitives::input::InputEvent::pointer_move_to(center.0 as f32, center.1 as f32),
+            tessera_primitives::input::InputEvent::pointer_move_to(
+                center.0 as f32,
+                center.1 as f32,
+            ),
             tessera_primitives::input::InputEvent::PointerButton {
                 button: 0x111,
                 state: tessera_primitives::input::ButtonState::Pressed,
@@ -971,7 +977,10 @@ fn qt_context_menu_click_round(scale: f32, tag: &str) {
     server.forward_input(
         &[
             tessera_primitives::input::InputEvent::pointer_move_to(item.0 as f32, item.1 as f32),
-            tessera_primitives::input::InputEvent::pointer_move_to(item.0 as f32 + 2.0, item.1 as f32),
+            tessera_primitives::input::InputEvent::pointer_move_to(
+                item.0 as f32 + 2.0,
+                item.1 as f32,
+            ),
             tessera_primitives::input::InputEvent::PointerButton {
                 button: 0x110,
                 state: tessera_primitives::input::ButtonState::Pressed,

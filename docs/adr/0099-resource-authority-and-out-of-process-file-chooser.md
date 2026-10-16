@@ -1,3 +1,11 @@
+---
+id: ADR-0099
+title: "Resource authority and out-of-process FileChooser"
+status: accepted
+date: 2026-08-02
+superseded_by: null
+---
+
 # ADR-0099: Resource authority and out-of-process FileChooser
 
 - Status: Accepted

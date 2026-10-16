@@ -1,3 +1,11 @@
+---
+id: ADR-0070
+title: "SVG cursors with a bundled Bibata fallback"
+status: superseded
+date: 2026-07-29
+superseded_by: ADR-0122
+---
+
 # ADR-0070: SVG cursors with a bundled Bibata fallback
 
 - Status: Superseded by ADR-0122

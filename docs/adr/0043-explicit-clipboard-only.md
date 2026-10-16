@@ -1,3 +1,11 @@
+---
+id: ADR-0043
+title: "Explicit clipboard only; reject Primary Selection"
+status: accepted
+date: 2026-07-18
+superseded_by: null
+---
+
 # ADR-0043: Explicit clipboard only; reject Primary Selection
 
 - Status: Accepted

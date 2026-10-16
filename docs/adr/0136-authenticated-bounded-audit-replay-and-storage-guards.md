@@ -1,3 +1,11 @@
+---
+id: ADR-0136
+title: "Authenticated bounded audit replay and storage guards"
+status: accepted
+date: 2026-08-22
+superseded_by: null
+---
+
 # ADR-0136: Authenticated bounded audit replay and storage guards
 
 - Status: Accepted

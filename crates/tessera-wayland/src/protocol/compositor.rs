@@ -156,7 +156,10 @@ fn damage_bbox(rects: &[tessera_primitives::Rect]) -> Option<tessera_primitives:
 /// Add `rect` to an exact, disjoint damage region. Subtracting existing
 /// coverage from the new rectangle avoids both duplicate work and the false
 /// dirty pixels introduced by a bounding-box union.
-fn insert_damage_rect(region: &mut Vec<tessera_primitives::Rect>, rect: tessera_primitives::Rect) -> bool {
+fn insert_damage_rect(
+    region: &mut Vec<tessera_primitives::Rect>,
+    rect: tessera_primitives::Rect,
+) -> bool {
     let Some(rect) = normalise_damage_rect(rect) else {
         return false;
     };
@@ -274,7 +277,9 @@ fn valid_policy_size(size: tessera_primitives::Size) -> Option<tessera_primitive
 /// main-window size: doing it from `set_app_id` races the transient
 /// relationship, while doing it after the first buffer maps visibly resizes
 /// the window.
-pub(crate) unsafe fn initial_toplevel_size(rec: *mut SurfaceRec) -> Option<tessera_primitives::Size> {
+pub(crate) unsafe fn initial_toplevel_size(
+    rec: *mut SurfaceRec,
+) -> Option<tessera_primitives::Size> {
     unsafe {
         if rec.is_null() || (*rec).state.is_null() {
             return None;
@@ -614,7 +619,11 @@ pub(crate) unsafe fn reposition_toplevel_with_popups(
 
 /// Recursively shift every live transient child anchored to `rec`, keeping
 /// dialogs and prompters centered / relative to their parent window.
-unsafe fn shift_transient_subtree(rec: *mut SurfaceRec, delta: tessera_primitives::Point, depth: u32) {
+unsafe fn shift_transient_subtree(
+    rec: *mut SurfaceRec,
+    delta: tessera_primitives::Point,
+    depth: u32,
+) {
     unsafe {
         if rec.is_null() || depth >= 32 || (*rec).state.is_null() {
             return;
@@ -1900,7 +1909,10 @@ pub(crate) const MAX_PENDING_DAMAGE_RECTS: usize = 1024;
 
 /// Append a damage rectangle to a between-commits accumulator, collapsing to
 /// the bounding box once the rectangle budget is exhausted.
-pub(crate) fn push_pending_damage(list: &mut Vec<tessera_primitives::Rect>, rect: tessera_primitives::Rect) {
+pub(crate) fn push_pending_damage(
+    list: &mut Vec<tessera_primitives::Rect>,
+    rect: tessera_primitives::Rect,
+) {
     if list.len() < MAX_PENDING_DAMAGE_RECTS {
         list.push(rect);
         return;
@@ -2081,10 +2093,12 @@ unsafe extern "C" fn surface_resource_destroy(resource: *mut ffi::wl_resource) {
             {
                 let rect = fold_nudged_origin(
                     &*rec,
-                    (*rec).saved_floating_rect.unwrap_or(tessera_primitives::Rect {
-                        origin: (*rec).position,
-                        size: (*rec).window.size,
-                    }),
+                    (*rec)
+                        .saved_floating_rect
+                        .unwrap_or(tessera_primitives::Rect {
+                            origin: (*rec).position,
+                            size: (*rec).window.size,
+                        }),
                 );
                 if rect.size.w > 0 && rect.size.h > 0 {
                     let ws_idx = state.workspace_number_for_window((*rec).window.id);
@@ -2254,7 +2268,10 @@ pub(crate) const MAX_REGION_RECTS: usize = 1024;
 
 /// Append a rectangle to a `wl_region`, collapsing to the bounding box once
 /// the rectangle budget is exhausted.
-pub(crate) fn push_region_rect(rects: &mut Vec<tessera_primitives::Rect>, rect: tessera_primitives::Rect) {
+pub(crate) fn push_region_rect(
+    rects: &mut Vec<tessera_primitives::Rect>,
+    rect: tessera_primitives::Rect,
+) {
     if rects.len() < MAX_REGION_RECTS {
         rects.push(rect);
         return;

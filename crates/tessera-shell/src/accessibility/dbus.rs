@@ -43,7 +43,9 @@ impl ShellA11yService {
 
         // Resolve Unix PID of sender via org.freedesktop.DBus
         let dbus_proxy = fdo::DBusProxy::new(conn).await?;
-        let pid = dbus_proxy.get_connection_unix_process_id(sender.as_str().try_into()?).await?;
+        let pid = dbus_proxy
+            .get_connection_unix_process_id(sender.as_str().try_into()?)
+            .await?;
 
         if !self.authenticator.is_authorized_pid(pid) {
             return Err(fdo::Error::AccessDenied(
@@ -65,7 +67,10 @@ impl ShellA11yService {
     ) -> fdo::Result<String> {
         self.authenticate_caller(conn, &header).await?;
 
-        let tree = self.tree.read().map_err(|_| fdo::Error::Failed("lock poisoned".into()))?;
+        let tree = self
+            .tree
+            .read()
+            .map_err(|_| fdo::Error::Failed("lock poisoned".into()))?;
         let root = tree.get_node(tree.root_id());
         Ok(root.and_then(|n| n.safe_name()).unwrap_or("").to_string())
     }
@@ -78,9 +83,15 @@ impl ShellA11yService {
     ) -> fdo::Result<String> {
         self.authenticate_caller(conn, &header).await?;
 
-        let tree = self.tree.read().map_err(|_| fdo::Error::Failed("lock poisoned".into()))?;
+        let tree = self
+            .tree
+            .read()
+            .map_err(|_| fdo::Error::Failed("lock poisoned".into()))?;
         let root = tree.get_node(tree.root_id());
-        Ok(root.and_then(|n| n.description.as_deref()).unwrap_or("").to_string())
+        Ok(root
+            .and_then(|n| n.description.as_deref())
+            .unwrap_or("")
+            .to_string())
     }
 
     /// Mapped numeric AT-SPI role.
@@ -91,8 +102,14 @@ impl ShellA11yService {
     ) -> fdo::Result<u32> {
         self.authenticate_caller(conn, &header).await?;
 
-        let tree = self.tree.read().map_err(|_| fdo::Error::Failed("lock poisoned".into()))?;
-        let role = tree.get_node(tree.root_id()).map(|n| n.role).unwrap_or(AccessibleRole::Unknown);
+        let tree = self
+            .tree
+            .read()
+            .map_err(|_| fdo::Error::Failed("lock poisoned".into()))?;
+        let role = tree
+            .get_node(tree.root_id())
+            .map(|n| n.role)
+            .unwrap_or(AccessibleRole::Unknown);
         Ok(role as u32)
     }
 
@@ -104,8 +121,14 @@ impl ShellA11yService {
     ) -> fdo::Result<i32> {
         self.authenticate_caller(conn, &header).await?;
 
-        let tree = self.tree.read().map_err(|_| fdo::Error::Failed("lock poisoned".into()))?;
-        let count = tree.get_node(tree.root_id()).map(|n| n.children.len()).unwrap_or(0);
+        let tree = self
+            .tree
+            .read()
+            .map_err(|_| fdo::Error::Failed("lock poisoned".into()))?;
+        let count = tree
+            .get_node(tree.root_id())
+            .map(|n| n.children.len())
+            .unwrap_or(0);
         Ok(count as i32)
     }
 }
@@ -150,7 +173,10 @@ impl ShellA11yService {
             return Ok(false);
         }
 
-        let tree = self.tree.read().map_err(|_| fdo::Error::Failed("lock poisoned".into()))?;
+        let tree = self
+            .tree
+            .read()
+            .map_err(|_| fdo::Error::Failed("lock poisoned".into()))?;
         let root_id = tree.root_id();
 
         // Enforce action barrier

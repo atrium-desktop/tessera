@@ -291,18 +291,12 @@ mod tests {
         state.open();
 
         let mut events = ChromeEvents::default();
-        state.execute_action(
-            PivotAction::SystemCommand(SystemCmd::Lock),
-            &mut events,
-        );
+        state.execute_action(PivotAction::SystemCommand(SystemCmd::Lock), &mut events);
         assert!(events.lock);
         assert!(!state.is_open());
 
         state.open();
-        state.execute_action(
-            PivotAction::CopyCalculation("42".into()),
-            &mut events,
-        );
+        state.execute_action(PivotAction::CopyCalculation("42".into()), &mut events);
         assert_eq!(events.clipboard_copy.as_deref(), Some("42"));
         assert!(!state.is_open());
     }

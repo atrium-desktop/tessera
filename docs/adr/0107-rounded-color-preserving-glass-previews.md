@@ -1,3 +1,11 @@
+---
+id: ADR-0107
+title: "Rounded, color-preserving glass previews"
+status: accepted
+date: 2026-08-03
+superseded_by: null
+---
+
 # ADR-0107: Rounded, color-preserving glass previews
 
 - Status: Accepted

@@ -868,7 +868,7 @@ impl Chrome for ScreenshotSelector {
         self.active
     }
 
-    fn prepare_backdrop(
+    fn prepare_frame(
         &mut self,
         input: &Input,
         windows: &[Window],
@@ -1045,7 +1045,10 @@ mod tests {
         s.update_pointer(Point { x: 20.0, y: 30.0 }, true, false);
         s.update_pointer(Point { x: 80.0, y: 90.0 }, false, false);
         s.update_pointer(Point { x: 110.0, y: 70.0 }, false, true);
-        assert_eq!(s.confirmed, Some(tessera_primitives::Rect::new(20, 30, 90, 40)));
+        assert_eq!(
+            s.confirmed,
+            Some(tessera_primitives::Rect::new(20, 30, 90, 40))
+        );
         assert!(s.active(), "release must keep the selector open");
         assert!(s.anchor.is_none());
     }

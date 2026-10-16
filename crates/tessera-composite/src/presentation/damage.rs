@@ -1,7 +1,7 @@
+use tessera_primitives::Rect;
 use tessera_primitives::SurfaceDmabuf;
 use tessera_primitives::SurfaceGeometry;
 use tessera_primitives::SurfacePixels;
-use tessera_primitives::Rect;
 
 /// Hard bound for damage carried across swapchain-slot history. Wayland
 /// surface commits are independently capped upstream, but combining many

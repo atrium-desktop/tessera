@@ -1,3 +1,11 @@
+---
+id: ADR-0027
+title: "IPC and introspection seam"
+status: accepted
+date: 2026-06-23
+superseded_by: null
+---
+
 # ADR-0027: IPC and introspection seam
 
 - Status: Accepted

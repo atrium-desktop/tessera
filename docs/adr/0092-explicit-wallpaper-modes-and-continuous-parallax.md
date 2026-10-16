@@ -1,3 +1,11 @@
+---
+id: ADR-0092
+title: "Explicit wallpaper modes and continuous pointer parallax"
+status: accepted
+date: 2026-08-01
+superseded_by: null
+---
+
 # ADR-0092: Explicit wallpaper modes and continuous pointer parallax
 
 - Status: Accepted

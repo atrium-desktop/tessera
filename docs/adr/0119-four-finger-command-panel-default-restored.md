@@ -1,3 +1,11 @@
+---
+id: ADR-0119
+title: "Four-finger command panel default restored"
+status: accepted
+date: 2026-08-11
+superseded_by: null
+---
+
 # ADR-0119: Four-finger command panel default restored
 
 - Status: Accepted

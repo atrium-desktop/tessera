@@ -1,3 +1,11 @@
+---
+id: ADR-0069
+title: "Documentation-owned installation and throwaway development staging"
+status: accepted
+date: 2026-07-29
+superseded_by: null
+---
+
 # ADR-0069: Documentation-owned installation and throwaway development staging
 
 - Status: Accepted

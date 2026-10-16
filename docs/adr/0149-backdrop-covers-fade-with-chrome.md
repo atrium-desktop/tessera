@@ -1,3 +1,11 @@
+---
+id: ADR-0149
+title: "Backdrop covers fade with the chrome they back"
+status: accepted
+date: 2026-09-07
+superseded_by: null
+---
+
 # ADR-0149: Backdrop covers fade with the chrome they back
 
 - Status: Accepted

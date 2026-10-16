@@ -1,3 +1,11 @@
+---
+id: ADR-0087
+title: "aegis-mcp as the standalone platform bridge crate (amends ADR-0050 and ADR-0066)"
+status: accepted
+date: 2026-07-30
+superseded_by: null
+---
+
 # ADR-0087: aegis-mcp as the standalone platform bridge crate (amends ADR-0050 and ADR-0066)
 
 - Status: Accepted

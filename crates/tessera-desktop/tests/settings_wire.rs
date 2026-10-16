@@ -113,7 +113,10 @@ fn set_wallpaper_action_round_trips_with_the_expected_tag() {
     };
     let action = SettingsAction::SetWallpaper { settings };
     let json = serde_json::to_string(&action).unwrap();
-    assert!(json.contains("\"SetWallpaper\""), "tagged union tag: {json}");
+    assert!(
+        json.contains("\"SetWallpaper\""),
+        "tagged union tag: {json}"
+    );
     let back: SettingsAction = serde_json::from_str(&json).unwrap();
     assert_eq!(back, action);
 }

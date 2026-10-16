@@ -1,3 +1,11 @@
+---
+id: ADR-0124
+title: "Window open/close fade transitions"
+status: accepted
+date: 2026-08-16
+superseded_by: null
+---
+
 # ADR-0124: Window open/close fade transitions
 
 - Status: Accepted

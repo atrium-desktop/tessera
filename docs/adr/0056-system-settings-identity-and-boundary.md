@@ -1,3 +1,11 @@
+---
+id: ADR-0056
+title: "System Settings identity and Control Center boundary"
+status: superseded
+date: 2026-07-26
+superseded_by: ADR-0057
+---
+
 # ADR-0056: System Settings identity and Control Center boundary
 
 - Status: Superseded by ADR-0057

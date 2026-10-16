@@ -1,3 +1,11 @@
+---
+id: ADR-0153
+title: "Continuous synthetic input primitives for drag-and-drop and modifier chording"
+status: draft
+date: 2026-09-09
+superseded_by: null
+---
+
 # ADR-0153: Continuous synthetic input primitives for drag-and-drop and modifier chording
 
 - Status: Proposed

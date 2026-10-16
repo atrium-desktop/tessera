@@ -1,3 +1,11 @@
+---
+id: ADR-0020
+title: "Apply buffer_scale at composite time"
+status: accepted
+date: 2026-06-18
+superseded_by: null
+---
+
 # ADR-0020: Apply buffer_scale at composite time
 
 - Status: Accepted

@@ -1,3 +1,11 @@
+---
+id: ADR-0156
+title: "Engine consolidation and zero-glue display server architecture"
+status: superseded
+date: 2026-09-15
+superseded_by: ADR-0158
+---
+
 # ADR-0156: Engine consolidation and zero-glue display server architecture
 
 - Status: Superseded by [ADR-0158](0158-clean-break-workspace-boundaries.md) and [ADR-0159](0159-package-boundaries-follow-capabilities.md)

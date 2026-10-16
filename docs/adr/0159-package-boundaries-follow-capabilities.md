@@ -1,3 +1,11 @@
+---
+id: ADR-0159
+title: "Package boundaries follow capabilities"
+status: accepted
+date: 2026-09-17
+superseded_by: null
+---
+
 # ADR-0159: Package boundaries follow capabilities
 
 - Status: Accepted

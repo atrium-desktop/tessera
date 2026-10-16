@@ -92,6 +92,7 @@ impl CompositorRuntime<'_> {
         );
         let base_full = self.frame_count == 0
             || self.damage.force_full_redraw
+            || self.screenshot_freeze.needs_capture()
             || session_locked != self.damage.last_session_locked
             || (software_cursor
                 && self.damage.last_presented_cursor != Some((cursor_shape, cursor_hidden)))

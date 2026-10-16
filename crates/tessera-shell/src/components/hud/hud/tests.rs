@@ -286,7 +286,7 @@ fn backdrop_prepass_advances_glass_and_content_on_the_same_frame() {
     let mut input = Input::new((1920.0, 1080.0), 0.016);
     input.set_cursor(10.0, 10.0);
 
-    bar.prepare_backdrop(&input, &[], &workspaces);
+    bar.prepare_frame(&input, &[], &workspaces);
 
     assert!(bar.frame_prepared);
     assert!(bar.chip_fade[LEFT] < 1.0 && bar.chip_fade[LEFT] > 0.0);

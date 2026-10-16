@@ -1,3 +1,11 @@
+---
+id: ADR-0075
+title: "Independent portal package and backend contract"
+status: superseded
+date: 2026-07-29
+superseded_by: ADR-0095
+---
+
 # ADR-0075: Independent portal package and backend contract
 
 - Status: Superseded by ADR-0095

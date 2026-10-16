@@ -1,3 +1,11 @@
+---
+id: ADR-0112
+title: "Native portal Secret with a hardened vault and Portal-owned prompts"
+status: accepted
+date: 2026-08-06
+superseded_by: null
+---
+
 # ADR-0112: Native portal Secret with a hardened vault and Portal-owned prompts
 
 - Status: Accepted

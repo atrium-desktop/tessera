@@ -358,10 +358,7 @@ mod tests {
         let km =
             Keymap::defaults().with_overrides(vec![kb(Mods::SUPER, 0x20, Action::TogglePivot)]);
         // Override present.
-        assert_eq!(
-            km.match_key(Mods::SUPER, 0x20),
-            Some(Action::TogglePivot)
-        );
+        assert_eq!(km.match_key(Mods::SUPER, 0x20), Some(Action::TogglePivot));
         // Defaults still present.
         assert_eq!(
             km.match_key(Mods::SUPER, XKB_KEY_Tab),

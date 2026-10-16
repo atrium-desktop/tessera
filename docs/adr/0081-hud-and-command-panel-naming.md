@@ -1,3 +1,11 @@
+---
+id: ADR-0081
+title: "HUD and command panel naming"
+status: accepted
+date: 2026-07-30
+superseded_by: null
+---
+
 # ADR-0081: HUD and command panel naming
 
 - Status: Accepted

@@ -1,3 +1,11 @@
+---
+id: ADR-0038
+title: "Frame pacing — event-driven loop with presentation throttling"
+status: accepted
+date: 2026-07-18
+superseded_by: null
+---
+
 # ADR-0038: Frame pacing — event-driven loop with presentation throttling
 
 - Status: Accepted

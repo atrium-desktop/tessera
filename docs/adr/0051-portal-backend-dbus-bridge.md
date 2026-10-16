@@ -1,3 +1,11 @@
+---
+id: ADR-0051
+title: "xdg-desktop-portal backend as an out-of-process D-Bus bridge"
+status: superseded
+date: 2026-07-24
+superseded_by: ADR-0075
+---
+
 # ADR-0051: xdg-desktop-portal backend as an out-of-process D-Bus bridge
 
 - Status: Superseded by ADR-0075

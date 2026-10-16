@@ -1,3 +1,11 @@
+---
+id: ADR-0122
+title: "Original MIT cursor theme replaces the bundled Bibata fallback"
+status: accepted
+date: 2026-08-15
+superseded_by: null
+---
+
 # ADR-0122: Original MIT cursor theme replaces the bundled Bibata fallback
 
 - Status: Accepted

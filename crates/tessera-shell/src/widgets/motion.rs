@@ -21,8 +21,8 @@
 
 #[allow(unused_imports)]
 pub use transit::{
-    approach, decay, dt_clamp, ease_in_cubic, ease_in_out_cubic, ease_out_back, ease_out_cubic,
-    smoothstep, Hysteresis, Smoother, Spring, SpringParams,
+    Hysteresis, Smoother, Spring, SpringParams, approach, decay, dt_clamp, ease_in_cubic,
+    ease_in_out_cubic, ease_out_back, ease_out_cubic, smoothstep,
 };
 
 /// One frame's delta time clamped to the range an animation may integrate

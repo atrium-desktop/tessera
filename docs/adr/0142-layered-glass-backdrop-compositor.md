@@ -1,3 +1,11 @@
+---
+id: ADR-0142
+title: "Layered glass — the backdrop compositor owns the frost→glass nesting"
+status: superseded
+date: 2026-08-25
+superseded_by: ADR-0143
+---
+
 # ADR-0142: Layered glass — the backdrop compositor owns the frost→glass nesting
 
 - Status: Superseded by ADR-0143

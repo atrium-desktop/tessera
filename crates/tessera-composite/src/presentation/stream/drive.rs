@@ -162,7 +162,8 @@ impl OutputStreams {
                 x: (geometry.origin.x as f32 * scale).floor() as i32,
                 y: (geometry.origin.y as f32 * scale).floor() as i32,
             };
-            let cursor_draw = (stream.cursor == tessera_primitives::stream::StreamCursorMode::Embedded)
+            let cursor_draw = (stream.cursor
+                == tessera_primitives::stream::StreamCursorMode::Embedded)
                 .then_some(cursor_state.as_ref())
                 .flatten()
                 .and_then(|state| {
@@ -324,21 +325,22 @@ impl OutputStreams {
                     continue;
                 }
                 let (width, height) = stream.size;
-                let payload = StreamFramePayload::Slot(tessera_primitives::stream::StreamSlotFrame {
-                    stream_id,
-                    sequence: pending.sequence,
-                    width,
-                    height,
-                    stride: dmabuf.slot_stride,
-                    format: tessera_primitives::stream::StreamPixelFormat::Dmabuf {
-                        drm_format: DRM_FORMAT_XRGB8888,
-                        modifier: dmabuf.modifier,
-                    },
-                    damage: damage_in_target(&pending.damage, (width, height)),
-                    dropped: pending.dropped,
-                    slot: pending.slot as u32,
-                    byte_len: dmabuf.slot_bytes,
-                });
+                let payload =
+                    StreamFramePayload::Slot(tessera_primitives::stream::StreamSlotFrame {
+                        stream_id,
+                        sequence: pending.sequence,
+                        width,
+                        height,
+                        stride: dmabuf.slot_stride,
+                        format: tessera_primitives::stream::StreamPixelFormat::Dmabuf {
+                            drm_format: DRM_FORMAT_XRGB8888,
+                            modifier: dmabuf.modifier,
+                        },
+                        damage: damage_in_target(&pending.damage, (width, height)),
+                        dropped: pending.dropped,
+                        slot: pending.slot as u32,
+                        byte_len: dmabuf.slot_bytes,
+                    });
                 let delivered = deliver(payload);
                 dmabuf.ring.fence_signaled(pending.slot, delivered);
                 if delivered {

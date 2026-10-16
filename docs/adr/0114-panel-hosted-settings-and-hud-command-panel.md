@@ -1,3 +1,11 @@
+---
+id: ADR-0114
+title: "Panel-hosted settings and the HUD command panel"
+status: accepted
+date: 2026-08-07
+superseded_by: null
+---
+
 # ADR-0114: Panel-hosted settings and the HUD command panel
 
 - Status: Accepted

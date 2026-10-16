@@ -265,30 +265,26 @@ impl CompositorRuntime<'_> {
                 }
             };
             // Pointer-motion fast path (ADR-0101): land the cursor on its
-            // KMS plane immediately, out-of-band from the render schedule.
-            // The backend's cursor-only atomic commit does not wait for an
-            // in-flight primary-plane flip, so a moving pointer stays at
-            // input cadence even while the compositor is mid-frame or while
-            // KMS still owns the previous composite — the exact intervals
-            // where cursor lag was most visible (busy animations, streams,
-            // continuously updating clients). The render transaction below
-            // still runs when its gate opens; with no other damage it
-            // restates an already-current cursor and completes frame
-            // callbacks as before.
-            //
-            // `cursor_plane_piggyback` extends the same out-of-band commit
-            // to motion captured by modal chrome (a command panel): the
-            // hover state still forces the composite frame, but the cursor
-            // plane is independent of the primary flip and the sprite must
-            // not inherit the full-output repaint rate — on a 3072x1920@120
-            // display that inheritance read as visible cursor stutter
-            // inside the panel. The render path's identical-state baseline
-            // skip keeps the two commits consistent.
-            if frame.cursor_fast_path || frame.cursor_plane_piggyback {
-                self.present_pointer_cursor(&frame);
-            }
+            // KMS plane out-of-band only while a previous primary-plane flip
+            // is still in flight (`!self.presentation.can_redraw()`). When the
+            // scheduler gate is open, `render_and_present` immediately below
+            // executes either the `cursor_only_eligible` commit or a combined
+            // primary+cursor atomic commit; issuing a separate NONBLOCK
+            // cursor commit right before `render_and_present` would occupy the
+            // CRTC's non-blocking commit slot and force the primary flip into
+            // a spurious `EBUSY` retry.
+            let is_cursor_fast_path = frame.cursor_fast_path;
             self.queue_frame_state(frame);
             if !self.presentation.can_redraw() {
+                if is_cursor_fast_path && let Some(pending) = self.pending_frame.as_ref() {
+                    let (session_locked, cursor_hidden, cursor_shape) = (
+                        pending.session_locked,
+                        pending.cursor_hidden,
+                        pending.cursor_shape,
+                    );
+                    let _ =
+                        self.present_pointer_cursor(session_locked, cursor_hidden, cursor_shape);
+                }
                 continue;
             }
             self.presentation.begin_redraw();

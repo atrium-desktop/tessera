@@ -1,3 +1,11 @@
+---
+id: ADR-0017
+title: "Server-side decorations via flux-ui overlays"
+status: superseded
+date: 2026-06-18
+superseded_by: ADR-0063
+---
+
 # ADR-0017: Server-side decorations via flux-ui overlays
 
 - Status: Superseded by ADR-0063

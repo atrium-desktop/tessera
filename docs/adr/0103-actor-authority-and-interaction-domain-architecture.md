@@ -1,3 +1,11 @@
+---
+id: ADR-0103
+title: "Actor authority kernel and Interaction Domain architecture"
+status: accepted
+date: 2026-08-03
+superseded_by: null
+---
+
 # ADR-0103: Actor authority kernel and Interaction Domain architecture
 
 - Status: Accepted

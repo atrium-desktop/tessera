@@ -1,3 +1,11 @@
+---
+id: ADR-0106
+title: "Shared identity portrait contract and VRM renderer boundary"
+status: accepted
+date: 2026-08-03
+superseded_by: null
+---
+
 # ADR-0106: Shared identity portrait contract and VRM renderer boundary
 
 - Status: Accepted

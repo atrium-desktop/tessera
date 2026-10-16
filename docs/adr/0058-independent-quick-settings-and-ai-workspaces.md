@@ -1,3 +1,11 @@
+---
+id: ADR-0058
+title: "Independent Quick Settings and AI Workspaces applications"
+status: superseded
+date: 2026-07-26
+superseded_by: ADR-0060
+---
+
 # ADR-0058: Independent Quick Settings and AI Workspaces applications
 
 - Status: Superseded by ADR-0060

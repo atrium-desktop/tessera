@@ -851,7 +851,7 @@ fn backdrop_prepass_reveals_only_from_the_capsule_body() {
     let indicator = Dock::collapsed_indicator_bounds(DockPosition::Bottom, display);
     let mut outside = Input::new(display, 0.016);
     outside.set_cursor(indicator.x - 30.0, display.1 - 1.0);
-    dock.prepare_backdrop(&outside, std::slice::from_ref(&maximized), &workspaces);
+    dock.prepare_frame(&outside, std::slice::from_ref(&maximized), &workspaces);
     assert_eq!(dock.autohide_idle, dock.autohide_timeout);
     assert!(dock.requires_composition());
 
@@ -862,7 +862,7 @@ fn backdrop_prepass_reveals_only_from_the_capsule_body() {
         indicator.x + indicator.w * 0.5,
         indicator.y + indicator.h * 0.5,
     );
-    dock.prepare_backdrop(&capsule, std::slice::from_ref(&maximized), &workspaces);
+    dock.prepare_frame(&capsule, std::slice::from_ref(&maximized), &workspaces);
     assert!(
         dock.anim_pending(),
         "dwell accumulation keeps animation ticking"
@@ -878,7 +878,7 @@ fn backdrop_prepass_reveals_only_from_the_capsule_body() {
         indicator.x + indicator.w * 0.5,
         indicator.y + indicator.h * 0.5,
     );
-    dock.prepare_backdrop(&sustained_capsule, &[maximized], &workspaces);
+    dock.prepare_frame(&sustained_capsule, &[maximized], &workspaces);
     assert_eq!(
         dock.autohide_idle, 0.0,
         "sustained dwell confirms reveal intent"
@@ -1711,7 +1711,7 @@ fn multi_frame_continuous_dwell_expands_dock_from_hidden_state() {
 
     // Dwell for 10 frames (160ms < 180ms threshold)
     for _ in 0..10 {
-        dock.prepare_backdrop(&input, &[], &workspaces);
+        dock.prepare_frame(&input, &[], &workspaces);
         assert!(
             dock.anim_pending(),
             "dwell accumulation keeps animation ticking"
@@ -1721,8 +1721,8 @@ fn multi_frame_continuous_dwell_expands_dock_from_hidden_state() {
     assert!(dock.autohide_dwell > 0.15 && dock.autohide_dwell < dock.autohide_dwell_threshold);
 
     // Next 2 frames (accumulating to > 180ms)
-    dock.prepare_backdrop(&input, &[], &workspaces);
-    dock.prepare_backdrop(&input, &[], &workspaces);
+    dock.prepare_frame(&input, &[], &workspaces);
+    dock.prepare_frame(&input, &[], &workspaces);
     assert_eq!(
         dock.autohide_idle, 0.0,
         "sustained multi-frame dwell confirms reveal intent"
@@ -1744,7 +1744,7 @@ fn physical_screen_edge_hover_dwell_expands_dock() {
     input.set_cursor(display.0 * 0.5, display.1 - 1.0);
 
     for _ in 0..12 {
-        dock.prepare_backdrop(&input, &[], &workspaces);
+        dock.prepare_frame(&input, &[], &workspaces);
     }
     assert_eq!(
         dock.autohide_idle, 0.0,
@@ -1932,7 +1932,7 @@ fn autohide_collapse_settle_drains_swapchain_ring_frames() {
 
     // Advance collapse over several frames until it settles to 0.0
     for _ in 0..60 {
-        dock.prepare_backdrop(&input, &windows, &workspaces);
+        dock.prepare_frame(&input, &windows, &workspaces);
         ui.frame(&input, |f| {
             dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
         });
@@ -1964,7 +1964,10 @@ fn autohide_collapse_settle_drains_swapchain_ring_frames() {
         dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
     });
     assert_eq!(dock.settled_drain_frames, 0);
-    assert!(!dock.anim_pending(), "all 3 ring slots drained, dock at complete rest");
+    assert!(
+        !dock.anim_pending(),
+        "all 3 ring slots drained, dock at complete rest"
+    );
 }
 
 #[test]
@@ -1995,7 +1998,7 @@ fn dismiss_latch_prevents_rebound_oscillation_during_collapse() {
 
     // Advance collapse partially. While collapsing, move cursor into the morphing panel area.
     for _ in 0..5 {
-        dock.prepare_backdrop(&input, &windows, &workspaces);
+        dock.prepare_frame(&input, &windows, &workspaces);
         ui.frame(&input, |f| {
             dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
         });
@@ -2007,7 +2010,7 @@ fn dismiss_latch_prevents_rebound_oscillation_during_collapse() {
     input.set_cursor(indicator.x + indicator.w * 0.5, display.1 - 2.0);
 
     for _ in 0..30 {
-        dock.prepare_backdrop(&input, &windows, &workspaces);
+        dock.prepare_frame(&input, &windows, &workspaces);
         ui.frame(&input, |f| {
             dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
         });
@@ -2016,12 +2019,18 @@ fn dismiss_latch_prevents_rebound_oscillation_during_collapse() {
         }
     }
 
-    assert_eq!(dock.autohide_reveal, 0.0, "dock must collapse completely without rebounding");
+    assert_eq!(
+        dock.autohide_reveal, 0.0,
+        "dock must collapse completely without rebounding"
+    );
 
     // Move cursor away into client work area: latch clears
     input.set_cursor(display.0 * 0.5, 500.0);
-    dock.prepare_backdrop(&input, &windows, &workspaces);
-    assert!(!dock.dismiss_latched, "latch clears once rested and cursor departs");
+    dock.prepare_frame(&input, &windows, &workspaces);
+    assert!(
+        !dock.dismiss_latched,
+        "latch clears once rested and cursor departs"
+    );
 }
 
 #[test]
@@ -2044,15 +2053,25 @@ fn obscured_dock_clears_collapse_pending_once_rested_so_dwell_can_reopen() {
     let mut input = Input::new(display, 0.016);
     input.set_cursor(display.0 * 0.5, 500.0);
 
-    dock.prepare_backdrop(&input, std::slice::from_ref(&invading), &workspaces);
+    dock.prepare_frame(&input, std::slice::from_ref(&invading), &workspaces);
     assert!(dock.dock_obscured, "window overlapping dock sets obscured");
-    assert!(dock.collapse_pending, "obscured dock initiates collapse_pending");
+    assert!(
+        dock.collapse_pending,
+        "obscured dock initiates collapse_pending"
+    );
 
     // Advance until fully collapsed
     for _ in 0..40 {
-        dock.prepare_backdrop(&input, std::slice::from_ref(&invading), &workspaces);
+        dock.prepare_frame(&input, std::slice::from_ref(&invading), &workspaces);
         ui.frame(&input, |f| {
-            dock.render(f, &input, std::slice::from_ref(&invading), &workspaces, &i18n, &mut out);
+            dock.render(
+                f,
+                &input,
+                std::slice::from_ref(&invading),
+                &workspaces,
+                &i18n,
+                &mut out,
+            );
         });
         if (dock.autohide_reveal - 0.0).abs() <= 0.002 {
             break;
@@ -2070,11 +2089,21 @@ fn obscured_dock_clears_collapse_pending_once_rested_so_dwell_can_reopen() {
 
     // Dwelling on the collapsed indicator while still obscured must expand the dock
     let indicator = Dock::collapsed_indicator_bounds(DockPosition::Bottom, display);
-    input.set_cursor(indicator.x + indicator.w * 0.5, indicator.y + indicator.h * 0.5);
+    input.set_cursor(
+        indicator.x + indicator.w * 0.5,
+        indicator.y + indicator.h * 0.5,
+    );
     for _ in 0..15 {
-        dock.prepare_backdrop(&input, std::slice::from_ref(&invading), &workspaces);
+        dock.prepare_frame(&input, std::slice::from_ref(&invading), &workspaces);
         ui.frame(&input, |f| {
-            dock.render(f, &input, std::slice::from_ref(&invading), &workspaces, &i18n, &mut out);
+            dock.render(
+                f,
+                &input,
+                std::slice::from_ref(&invading),
+                &workspaces,
+                &i18n,
+                &mut out,
+            );
         });
     }
     assert!(
@@ -2084,9 +2113,12 @@ fn obscured_dock_clears_collapse_pending_once_rested_so_dwell_can_reopen() {
 
     // Now window moves away
     invading.position = tessera_primitives::Point { x: 100, y: 100 };
-    dock.prepare_backdrop(&input, std::slice::from_ref(&invading), &workspaces);
+    dock.prepare_frame(&input, std::slice::from_ref(&invading), &workspaces);
     assert!(!dock.dock_obscured, "window moved away: no longer obscured");
-    assert!(!dock.collapse_pending, "collapse_pending stays clear when window leaves");
+    assert!(
+        !dock.collapse_pending,
+        "collapse_pending stays clear when window leaves"
+    );
 }
 
 #[test]
@@ -2110,12 +2142,150 @@ fn dock_interaction_sets_interacted_flag_and_standard_timeout() {
     input.set_cursor(rest_bounds.x + 30.0, rest_bounds.y + 30.0);
 
     for _ in 0..30 {
-        dock.prepare_backdrop(&input, &windows, &workspaces);
+        dock.prepare_frame(&input, &windows, &workspaces);
         ui.frame(&input, |f| {
             dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
         });
     }
 
-    assert!(dock.dock_interacted, "hover dwell / interaction sets dock_interacted");
+    assert!(
+        dock.dock_interacted,
+        "hover dwell / interaction sets dock_interacted"
+    );
 }
 
+/// The pre-pass and `render` must resolve the *same* strip geometry: if they
+/// disagree about which tile the cursor is over, the pre-pass tears down a
+/// tooltip that `render` believes is still live (or vice versa), which is the
+/// one-frame flicker this pre-pass exists to prevent (ADR-0171, ADR-0180).
+#[test]
+fn prepass_and_render_agree_on_the_hovered_tile() {
+    let display = (1920.0, 1080.0);
+    let mut dock = dock_with(vec![
+        app("one.desktop"),
+        app("two.desktop"),
+        app("three.desktop"),
+    ]);
+    dock.autohide_reveal = 1.0;
+    let workspaces = workspace_snapshot();
+    let windows = Vec::new();
+    let i18n = Localizer::default();
+    let mut out = ChromeEvents::default();
+    let mut ui = lens::Ui::headless().unwrap();
+
+    // First frame primes the tile spring table; the pre-pass intentionally
+    // skips an empty table so a never-shown Dock does not allocate springs.
+    let mut input = Input::new(display, 0.016);
+    input.set_cursor(display.0 * 0.5, display.1 - 20.0);
+    dock.prepare_frame(&input, &windows, &workspaces);
+    ui.frame(&input, |f| {
+        dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
+    });
+
+    let tiles = dock.tiles(&dock.all_windows);
+    let keys: Vec<String> = tiles.iter().map(|tile| tile.key.clone()).collect();
+    assert!(keys.len() >= 3, "three pinned apps plus the launchpad");
+    let pinned_count = tiles.iter().filter(|tile| tile.pinned).count();
+
+    // Resolve the strip at rest width — the exact geometry the pre-pass
+    // publishes — and aim at the centre of tile 1.
+    let eased = vec![DOCK_TILE; keys.len()];
+    let order: Vec<usize> = (0..keys.len()).collect();
+    let geometry = dock.resolve_strip_geometry(&eased, &order, pinned_count, display.0, display);
+    let target = geometry.icon_rects[1];
+    let cursor = (target.x + target.w * 0.5, target.y + target.h * 0.5);
+
+    // Model a tooltip already open over tile 1.
+    dock.hovered_tile = Some(keys[1].clone());
+    dock.tooltip_tile = Some(keys[1].clone());
+    dock.tooltip_alpha = 1.0;
+    dock.hover_owner_bounds = Some(target);
+    dock.hover_surface_bounds = Some(lens::Rect {
+        x: target.x,
+        y: target.y,
+        w: target.w,
+        h: target.h,
+    });
+
+    let mut input = Input::new(display, 0.016);
+    input.set_cursor(cursor.0, cursor.1);
+    dock.prepare_frame(&input, &windows, &workspaces);
+    assert_eq!(
+        dock.tooltip_tile.as_deref(),
+        Some(keys[1].as_str()),
+        "the pre-pass hit-test must keep the tooltip on the tile under the cursor",
+    );
+
+    ui.frame(&input, |f| {
+        dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
+    });
+    assert_eq!(
+        dock.tooltip_tile.as_deref(),
+        Some(keys[1].as_str()),
+        "render must agree with the pre-pass about the hovered tile",
+    );
+}
+
+/// `resolve_strip_geometry` is the single source of truth for the strip
+/// layout: at rest it must land every tile centre and icon rect exactly on the
+/// interaction model's resting geometry, on every edge (ADR-0171, ADR-0180).
+#[test]
+fn resolved_strip_geometry_lands_icons_on_the_resting_model() {
+    let display = (1920.0, 1080.0);
+    let mut dock = dock_with(vec![
+        app("one.desktop"),
+        app("two.desktop"),
+        app("three.desktop"),
+    ]);
+    // One transient running window so the section gap participates.
+    let windows = vec![window(1, "org.example.Transient.desktop", true)];
+    let tiles = dock.tiles(&windows);
+    let n = tiles.len();
+    let pinned_count = tiles.iter().filter(|tile| tile.pinned).count();
+    assert!(
+        pinned_count < n,
+        "a transient tile must exercise the section boundary"
+    );
+
+    for position in [
+        DockPosition::Bottom,
+        DockPosition::Left,
+        DockPosition::Right,
+    ] {
+        dock.set_position(position);
+        let vertical = position.is_vertical();
+        let axis_disp = if vertical { display.1 } else { display.0 };
+        let eased = vec![DOCK_TILE; n];
+        let order: Vec<usize> = (0..n).collect();
+        let geometry =
+            dock.resolve_strip_geometry(&eased, &order, pinned_count, axis_disp, display);
+
+        let bar_len = n as f32 * DOCK_TILE
+            + (n as f32 - 1.0) * DOCK_TILE_GAP
+            + (DOCK_SECTION_GAP - DOCK_TILE_GAP)
+            + 2.0 * DOCK_PAD;
+        let expected_panel = Dock::panel_rect_for(position, bar_len, display);
+        assert_eq!(geometry.panel_rect, expected_panel);
+        assert_eq!(geometry.section_gap, DOCK_SECTION_GAP);
+
+        for i in 0..n {
+            let rest = Dock::rest_centre_estimate(i, n, pinned_count, axis_disp);
+            assert!(
+                (geometry.centres[i] - rest).abs() < 1e-3,
+                "{position:?} tile {i}: centre {} != rest estimate {rest}",
+                geometry.centres[i]
+            );
+            let rect = geometry.icon_rects[i];
+            let centre = if vertical {
+                rect.y + rect.h * 0.5
+            } else {
+                rect.x + rect.w * 0.5
+            };
+            assert!(
+                (centre - rest).abs() < 1e-3,
+                "{position:?} tile {i}: icon centre {centre} != rest estimate {rest}"
+            );
+            assert!((rect.w - DOCK_TILE).abs() < 1e-3 && (rect.h - DOCK_TILE).abs() < 1e-3);
+        }
+    }
+}

@@ -1,3 +1,11 @@
+---
+id: ADR-0066
+title: "Canonical Aegis namespace"
+status: accepted
+date: 2026-07-28
+superseded_by: null
+---
+
 # ADR-0066: Canonical Aegis namespace
 
 - Status: Accepted

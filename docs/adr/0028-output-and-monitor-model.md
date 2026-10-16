@@ -1,3 +1,11 @@
+---
+id: ADR-0028
+title: "Output and monitor model"
+status: accepted
+date: 2026-06-23
+superseded_by: null
+---
+
 # ADR-0028: Output and monitor model
 
 - Status: Accepted

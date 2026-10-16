@@ -1,3 +1,11 @@
+---
+id: ADR-0082
+title: "Configurable touchpad swipe bindings"
+status: accepted
+date: 2026-07-30
+superseded_by: null
+---
+
 # ADR-0082: Configurable touchpad swipe bindings
 
 - Status: Accepted

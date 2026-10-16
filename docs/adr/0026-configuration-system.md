@@ -1,3 +1,11 @@
+---
+id: ADR-0026
+title: "Configuration system — one declarative file with live reload"
+status: accepted
+date: 2026-06-23
+superseded_by: null
+---
+
 # ADR-0026: Configuration system — one declarative file with live reload
 
 - Status: Accepted

@@ -1,3 +1,11 @@
+---
+id: ADR-0033
+title: "The mutation journal"
+status: accepted
+date: 2026-06-24
+superseded_by: null
+---
+
 # ADR-0033: The mutation journal
 
 - Status: Accepted

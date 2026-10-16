@@ -19,15 +19,6 @@ pub(super) struct FrameState {
     /// on its KMS plane out-of-band, independent of the composite frame
     /// schedule.
     pub(super) cursor_fast_path: bool,
-    /// Pointer motion qualifies for an out-of-band cursor-plane update
-    /// even though the composite frame still has to run — the pointer is
-    /// over chrome that captures it (a modal panel), so the fast path
-    /// cannot suppress the frame (hover state must repaint), but the KMS
-    /// cursor plane is independent of the primary-plane flip and the
-    /// sprite must not inherit the composite frame's pacing. Without this
-    /// a modal overlay ties pointer motion to the full-output repaint
-    /// rate, which is exactly where cursor stutter is most visible.
-    pub(super) cursor_plane_piggyback: bool,
     pub(super) pending_screenshots: Vec<PendingScreenshot>,
 }
 
@@ -64,7 +55,8 @@ fn keybinding_invocation(
 fn is_modal_escape_chord(key: Option<tessera_primitives::input::KeyChar>) -> bool {
     key.is_some_and(|key| {
         key.keysym == tessera_primitives::input::XKB_KEY_Escape
-            && key.mods == tessera_primitives::input::Mods::CTRL | tessera_primitives::input::Mods::ALT
+            && key.mods
+                == tessera_primitives::input::Mods::CTRL | tessera_primitives::input::Mods::ALT
     })
 }
 
@@ -117,10 +109,6 @@ impl FrameState {
         // earlier fast-path decision ride along into the render state.
         self.input_pointer_only &= newer.input_pointer_only;
         self.cursor_fast_path &= newer.cursor_fast_path;
-        // Same latching discipline as cursor_fast_path: the out-of-band
-        // commit fires per iteration before this merge, so only the latest
-        // iteration's qualification may carry into the render state.
-        self.cursor_plane_piggyback &= newer.cursor_plane_piggyback;
         self.pending_screenshots.extend(newer.pending_screenshots);
     }
 
@@ -950,7 +938,9 @@ impl CompositorRuntime<'_> {
                         }
                         let super_held_at_event = prepared_key_events[event_index]
                             .and_then(|prepared| prepared.key_char())
-                            .is_some_and(|key| key.mods.has(tessera_primitives::input::Mods::SUPER));
+                            .is_some_and(|key| {
+                                key.mods.has(tessera_primitives::input::Mods::SUPER)
+                            });
                         if !state.is_pressed()
                             && matches!(
                                 code,
@@ -970,7 +960,9 @@ impl CompositorRuntime<'_> {
                         }
                         let super_held_at_event = prepared_key_events[event_index]
                             .and_then(|prepared| prepared.key_char())
-                            .is_some_and(|key| key.mods.has(tessera_primitives::input::Mods::SUPER));
+                            .is_some_and(|key| {
+                                key.mods.has(tessera_primitives::input::Mods::SUPER)
+                            });
                         let super_released = !state.is_pressed()
                             && matches!(
                                 code,
@@ -1020,10 +1012,12 @@ impl CompositorRuntime<'_> {
                             );
                         if self.synthetic_pointer_active {
                             if !captured {
-                                forwarded.push(tessera_primitives::input::InputEvent::pointer_move_to(
-                                    route_cursor.0,
-                                    route_cursor.1,
-                                ));
+                                forwarded.push(
+                                    tessera_primitives::input::InputEvent::pointer_move_to(
+                                        route_cursor.0,
+                                        route_cursor.1,
+                                    ),
+                                );
                             }
                             self.synthetic_pointer_active = false;
                         }
@@ -1046,10 +1040,12 @@ impl CompositorRuntime<'_> {
                             // forwarding it because the enter-side motion was
                             // consumed while chrome owned the pointer.
                             if self.chrome_pointer_captured {
-                                forwarded.push(tessera_primitives::input::InputEvent::pointer_move_to(
-                                    route_cursor.0,
-                                    route_cursor.1,
-                                ));
+                                forwarded.push(
+                                    tessera_primitives::input::InputEvent::pointer_move_to(
+                                        route_cursor.0,
+                                        route_cursor.1,
+                                    ),
+                                );
                             }
                             forwarded.push(ev);
                         }
@@ -1064,10 +1060,12 @@ impl CompositorRuntime<'_> {
                             );
                         if self.synthetic_pointer_active {
                             if !captured {
-                                forwarded.push(tessera_primitives::input::InputEvent::pointer_move_to(
-                                    route_cursor.0,
-                                    route_cursor.1,
-                                ));
+                                forwarded.push(
+                                    tessera_primitives::input::InputEvent::pointer_move_to(
+                                        route_cursor.0,
+                                        route_cursor.1,
+                                    ),
+                                );
                             }
                             self.synthetic_pointer_active = false;
                         }
@@ -1077,10 +1075,12 @@ impl CompositorRuntime<'_> {
                             }
                         } else {
                             if self.chrome_pointer_captured {
-                                forwarded.push(tessera_primitives::input::InputEvent::pointer_move_to(
-                                    route_cursor.0,
-                                    route_cursor.1,
-                                ));
+                                forwarded.push(
+                                    tessera_primitives::input::InputEvent::pointer_move_to(
+                                        route_cursor.0,
+                                        route_cursor.1,
+                                    ),
+                                );
                             }
                             forwarded.push(ev);
                         }
@@ -1097,7 +1097,8 @@ impl CompositorRuntime<'_> {
                         // Re-hit-test at the physical contact before routing
                         // the down event after a synthetic pointer move.
                         self.synthetic_pointer_active = false;
-                        forwarded.push(tessera_primitives::input::InputEvent::pointer_move_to(x, y));
+                        forwarded
+                            .push(tessera_primitives::input::InputEvent::pointer_move_to(x, y));
                         forwarded.push(ev);
                     }
                     _ => forwarded.push(ev),
@@ -1321,14 +1322,6 @@ impl CompositorRuntime<'_> {
             self.input_acc.display_size,
         );
         let cursor_plane_only = cursor_motion_plain && !chrome_captures;
-        // Modal chrome (a command panel) owns pointer routing but not the
-        // cursor plane: the composite frame still repaints for hover state,
-        // yet the sprite itself moves at input cadence via an out-of-band
-        // commit — the same independence from the flip schedule the plain
-        // fast path already guarantees over client content. The render path
-        // restates the cursor in its own commit and its identical-state
-        // baseline skip keeps the two paths consistent.
-        let cursor_plane_piggyback = cursor_motion_plain && chrome_captures;
         if cursor_plane_only {
             had_input = false;
         }
@@ -1451,7 +1444,6 @@ impl CompositorRuntime<'_> {
             had_input,
             input_pointer_only: pointer_motion_only && !non_cursor_input,
             cursor_fast_path: cursor_plane_only,
-            cursor_plane_piggyback,
             pending_screenshots,
         })
     }
@@ -1476,7 +1468,6 @@ mod tests {
             had_input,
             input_pointer_only: false,
             cursor_fast_path: false,
-            cursor_plane_piggyback: false,
             pending_screenshots: Vec::new(),
         }
     }
@@ -1517,7 +1508,6 @@ mod tests {
         first.merge(third);
         assert!(first.input_pointer_only);
         assert!(first.cursor_fast_path);
-        assert!(!first.cursor_plane_piggyback);
     }
 
     #[test]

@@ -1,3 +1,11 @@
+---
+id: ADR-0046
+title: "Product design system as a data-only crate"
+status: accepted
+date: 2026-07-22
+superseded_by: null
+---
+
 # ADR-0046: Product design system as a data-only crate
 
 - Status: Accepted

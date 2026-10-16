@@ -1,3 +1,11 @@
+---
+id: ADR-0002
+title: "Hand-rolled Wayland server on raw libwayland"
+status: accepted
+date: 2026-06-04
+superseded_by: null
+---
+
 # ADR-0002: Hand-rolled Wayland server on raw libwayland
 
 - Status: Accepted

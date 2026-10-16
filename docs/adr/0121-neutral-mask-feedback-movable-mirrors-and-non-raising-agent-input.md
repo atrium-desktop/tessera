@@ -1,3 +1,11 @@
+---
+id: ADR-0121
+title: "Neutral mask feedback, movable mirrors, and non-raising Agent input (amends [0048](0048-compositor-owned-agent-operation-feedback.md), [0091](0091-agent-controlled-window-physical-mirrors-and-guard.md))"
+status: accepted
+date: 2026-08-11
+superseded_by: null
+---
+
 # ADR-0121: Neutral mask feedback, movable mirrors, and non-raising Agent input (amends [0048](0048-compositor-owned-agent-operation-feedback.md), [0091](0091-agent-controlled-window-physical-mirrors-and-guard.md))
 
 - Status: Accepted

@@ -1,3 +1,11 @@
+---
+id: ADR-0083
+title: "Frameless transient toasts and HUD consolidation"
+status: accepted
+date: 2026-07-31
+superseded_by: null
+---
+
 # ADR-0083: Frameless transient toasts and HUD consolidation
 
 - Status: Accepted

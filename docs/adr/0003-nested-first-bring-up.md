@@ -1,3 +1,11 @@
+---
+id: ADR-0003
+title: "Nested-first bring-up, DRM/KMS later"
+status: accepted
+date: 2026-06-04
+superseded_by: null
+---
+
 # ADR-0003: Nested-first bring-up, DRM/KMS later
 
 - Status: Accepted

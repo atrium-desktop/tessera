@@ -1,3 +1,11 @@
+---
+id: ADR-0138
+title: "The Input settings domain"
+status: accepted
+date: 2026-08-22
+superseded_by: null
+---
+
 # ADR-0138: The Input settings domain
 
 - Status: Accepted

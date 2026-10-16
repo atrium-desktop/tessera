@@ -1,3 +1,11 @@
+---
+id: ADR-0060
+title: "Status bar system controls and live-system IPC"
+status: accepted
+date: 2026-07-26
+superseded_by: null
+---
+
 # ADR-0060: Status bar system controls and live-system IPC
 
 - Status: Accepted

@@ -739,7 +739,10 @@ fn surface_logical_size(surface: &SurfaceRec) -> tessera_primitives::Size {
     }
 }
 
-fn intersect_rect(a: tessera_primitives::Rect, b: tessera_primitives::Rect) -> Option<tessera_primitives::Rect> {
+fn intersect_rect(
+    a: tessera_primitives::Rect,
+    b: tessera_primitives::Rect,
+) -> Option<tessera_primitives::Rect> {
     let ax1 = i64::from(a.origin.x) + i64::from(a.size.w.max(0));
     let ay1 = i64::from(a.origin.y) + i64::from(a.size.h.max(0));
     let bx1 = i64::from(b.origin.x) + i64::from(b.size.w.max(0));
@@ -748,8 +751,9 @@ fn intersect_rect(a: tessera_primitives::Rect, b: tessera_primitives::Rect) -> O
     let y0 = i64::from(a.origin.y).max(i64::from(b.origin.y));
     let x1 = ax1.min(bx1);
     let y1 = ay1.min(by1);
-    (x1 > x0 && y1 > y0)
-        .then(|| tessera_primitives::Rect::new(x0 as i32, y0 as i32, (x1 - x0) as i32, (y1 - y0) as i32))
+    (x1 > x0 && y1 > y0).then(|| {
+        tessera_primitives::Rect::new(x0 as i32, y0 as i32, (x1 - x0) as i32, (y1 - y0) as i32)
+    })
 }
 
 /// Clip, deduplicate and bound one Interaction Domain's damage metadata. The compositor
@@ -1345,7 +1349,11 @@ impl ClosingFrame {
 
 /// Shrink `rect` by `dx`/`dy` on every side, keeping a minimum 2×2 extent so
 /// the interpolation always has a visible target.
-pub(crate) fn inset_rect(rect: tessera_primitives::Rect, dx: i32, dy: i32) -> tessera_primitives::Rect {
+pub(crate) fn inset_rect(
+    rect: tessera_primitives::Rect,
+    dx: i32,
+    dy: i32,
+) -> tessera_primitives::Rect {
     let w = (rect.size.w - dx * 2).max(2);
     let h = (rect.size.h - dy * 2).max(2);
     let lost_w = rect.size.w.saturating_sub(w);

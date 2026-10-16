@@ -1,3 +1,11 @@
+---
+id: ADR-0154
+title: "Unified interaction grab architecture, touch drag-and-drop, and xdg-toplevel-drag"
+status: draft
+date: 2026-09-10
+superseded_by: null
+---
+
 # ADR-0154: Unified interaction grab architecture, touch drag-and-drop, and xdg-toplevel-drag
 
 - Status: Proposed

@@ -1,3 +1,11 @@
+---
+id: ADR-0113
+title: "Platform AI backend and agent product removal"
+status: accepted
+date: 2026-08-07
+superseded_by: null
+---
+
 # ADR-0113: Platform AI backend and agent product removal
 
 - Status: Accepted

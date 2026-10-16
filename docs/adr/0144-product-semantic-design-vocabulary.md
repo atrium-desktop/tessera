@@ -1,3 +1,11 @@
+---
+id: ADR-0144
+title: "Product-semantic design vocabulary"
+status: accepted
+date: 2026-08-25
+superseded_by: null
+---
+
 # ADR-0144: Product-semantic design vocabulary
 
 - Status: Accepted

@@ -1,3 +1,11 @@
+---
+id: ADR-0031
+title: "The agent as a scoped IPC client (M10 framing)"
+status: accepted
+date: 2026-06-24
+superseded_by: null
+---
+
 # ADR-0031: The agent as a scoped IPC client (M10 framing)
 
 - Status: Accepted

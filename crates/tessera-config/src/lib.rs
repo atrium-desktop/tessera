@@ -1187,7 +1187,8 @@ impl Config {
             ));
         }
         if !cfg.input.touchpad.scroll_speed.is_finite()
-            || !tessera_primitives::input::SCROLL_SPEED_RANGE.contains(&cfg.input.touchpad.scroll_speed)
+            || !tessera_primitives::input::SCROLL_SPEED_RANGE
+                .contains(&cfg.input.touchpad.scroll_speed)
         {
             diagnostics.push(Diagnostic::new(
                 Some("input.touchpad.scroll_speed".into()),
@@ -1203,7 +1204,8 @@ impl Config {
             ));
         }
         if !cfg.input.mouse.scroll_speed.is_finite()
-            || !tessera_primitives::input::SCROLL_SPEED_RANGE.contains(&cfg.input.mouse.scroll_speed)
+            || !tessera_primitives::input::SCROLL_SPEED_RANGE
+                .contains(&cfg.input.mouse.scroll_speed)
         {
             diagnostics.push(Diagnostic::new(
                 Some("input.mouse.scroll_speed".into()),
@@ -1864,12 +1866,13 @@ fn apply_desktop_preferences(document: &mut DocumentMut, preferences: &DesktopPr
         toml_edit::value(preferences.accessibility.visual.invert_colors);
     a11y["visual"]["high_contrast"] =
         toml_edit::value(preferences.accessibility.visual.high_contrast);
-    a11y["visual"]["daltonism"] = toml_edit::value(match preferences.accessibility.visual.daltonism {
-        DaltonismMode::None => "none",
-        DaltonismMode::Protanopia => "protanopia",
-        DaltonismMode::Deuteranopia => "deuteranopia",
-        DaltonismMode::Tritanopia => "tritanopia",
-    });
+    a11y["visual"]["daltonism"] =
+        toml_edit::value(match preferences.accessibility.visual.daltonism {
+            DaltonismMode::None => "none",
+            DaltonismMode::Protanopia => "protanopia",
+            DaltonismMode::Deuteranopia => "deuteranopia",
+            DaltonismMode::Tritanopia => "tritanopia",
+        });
 
     if !a11y.get("keyboard").is_some_and(toml_edit::Item::is_table) {
         a11y["keyboard"] = toml_edit::Item::Table(toml_edit::Table::new());
@@ -1881,7 +1884,10 @@ fn apply_desktop_preferences(document: &mut DocumentMut, preferences: &DesktopPr
     a11y["keyboard"]["bounce_keys_ms"] =
         toml_edit::value(i64::from(preferences.accessibility.keyboard.bounce_keys_ms));
 
-    if !a11y.get("screen_reader").is_some_and(toml_edit::Item::is_table) {
+    if !a11y
+        .get("screen_reader")
+        .is_some_and(toml_edit::Item::is_table)
+    {
         a11y["screen_reader"] = toml_edit::Item::Table(toml_edit::Table::new());
     }
     a11y["screen_reader"]["enabled"] =
@@ -1898,12 +1904,11 @@ fn apply_dock_minimize_animation(
     document["dock"]["minimize_animation"] = toml_edit::value(style.name());
 }
 
-fn apply_wallpaper_edit(
-    document: &mut DocumentMut,
-    mode: WallpaperMode,
-    source: Option<String>,
-) {
-    if !document.get("wallpaper").is_some_and(toml_edit::Item::is_table) {
+fn apply_wallpaper_edit(document: &mut DocumentMut, mode: WallpaperMode, source: Option<String>) {
+    if !document
+        .get("wallpaper")
+        .is_some_and(toml_edit::Item::is_table)
+    {
         document["wallpaper"] = toml_edit::Item::Table(toml_edit::Table::new());
     }
     let mode_str = match mode {

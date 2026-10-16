@@ -1,3 +1,11 @@
+---
+id: ADR-0095
+title: "Independent portal repository and component workspace"
+status: superseded
+date: 2026-08-02
+superseded_by: ADR-0099
+---
+
 # ADR-0095: Independent portal repository and component workspace
 
 - Status: Superseded by [ADR-0099](0099-resource-authority-and-out-of-process-file-chooser.md)

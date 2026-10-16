@@ -376,7 +376,8 @@ pub(super) fn begin_interaction_domain_capture(
                 flux_last_error_detail()
             )
         })?;
-    let full_region = tessera_primitives::Rect::new(0, 0, output.width as i32, output.height as i32);
+    let full_region =
+        tessera_primitives::Rect::new(0, 0, output.width as i32, output.height as i32);
     Ok(PreparedInteractionDomainCapture {
         readback: PendingReadback {
             width: physical_size.0,

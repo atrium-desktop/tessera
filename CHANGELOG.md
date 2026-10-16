@@ -14,6 +14,17 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Added
+- Canonical chrome pre-pass seam, occlusion-eliding base pass, and deferred-scanout frame ownership (ADR-0181):
+  - `Chrome::prepare_frame` is the sole pre-pass seam; the `prepare_backdrop` compatibility alias is removed. `ScreenshotSelector`, `Dock`, `Hud`, and `Pivot` pre-passes now actually run, restoring region screenshot dragging/confirm (`截图不可用`) and Dock/Pivot frame-T geometry.
+  - `Chrome::occludes_desktop` + `Shell::occludes_desktop()` skip the redundant base desktop pass when an opaque full-output chrome surface covers the scene and no desktop-scene consumer is live: declared backdrop/glass capture, the overview thumbnails, the interactive screenshot picker, the screenshot freeze, session lock, the window switcher, and live window previews.
+  - KMS cursor plane has a single writer per frame: `cursor_plane_piggyback` is removed and the out-of-band cursor commit is gated on `!can_redraw()`, eliminating the `EBUSY` micro-retry loop that caused full-output tearing over modal chrome.
+  - `DrmBackend::present` commits scanout before `frame.present()` and abandons the frame on failure (Optics `flux_frame_abandon`), so a rejected atomic flip retries on the same free backbuffer instead of a buffer under scanout.
+  - `assess_frame_damage` treats a pending screenshot freeze capture as full damage.
+  - `BackdropCacheKey` stores `capture_origin`/`capture_extent` unquantized, removing the residual `重影` from origin flooring and extent bucketing.
+  - Dock: `Dock::resolve_strip_geometry` is the single layout source for the pre-pass and `render`; `Dock::apply_pending_order` runs in both pre-pass and `render`; hover popovers drain their damage across all swapchain slots.
+- Adopted Optics `v0.0.58+` frame-slot abandonment (`flux_frame_abandon`) and region-clamped backdrop sampling (Optics ADR-0110).
+
 ## [0.0.75] - 2026-10-15
 
 ### Added

@@ -1,3 +1,11 @@
+---
+id: ADR-0152
+title: "Observability-first keystroke casting and operation visualization for Agent Interaction Domains"
+status: draft
+date: 2026-09-09
+superseded_by: null
+---
+
 # ADR-0152: Observability-first keystroke casting and operation visualization for Agent Interaction Domains
 
 - Status: Proposed

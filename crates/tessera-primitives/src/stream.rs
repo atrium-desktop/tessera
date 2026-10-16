@@ -1,6 +1,6 @@
 //! Capture stream negotiation and owned frame payloads, independent of transport.
-use std::sync::Arc;
 use crate::WindowId;
+use std::sync::Arc;
 
 /// The memory byte order of one stream frame pixel blob. Four
 /// bytes per pixel, tightly packed rows of `stride` bytes.

@@ -1,3 +1,11 @@
+---
+id: ADR-0120
+title: "Glass material roles and region-level backdrop adaptation"
+status: accepted
+date: 2026-08-12
+superseded_by: null
+---
+
 # ADR-0120: Glass material roles and region-level backdrop adaptation
 
 - Status: Accepted

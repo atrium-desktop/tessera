@@ -1,3 +1,11 @@
+---
+id: ADR-0150
+title: "Dual-track standard XDG cursor themes and unified asset pipeline for Agent feedback"
+status: draft
+date: 2026-09-09
+superseded_by: null
+---
+
 # ADR-0150: Dual-track standard XDG cursor themes and unified asset pipeline for Agent feedback
 
 - Status: Proposed

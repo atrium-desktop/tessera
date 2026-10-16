@@ -1,5 +1,5 @@
-use super::*;
 pub(crate) use super::motion::detect_cursor_retreat;
+use super::*;
 
 impl Chrome for Dock {
     fn render(
@@ -33,15 +33,7 @@ impl Chrome for Dock {
         // The optimistic half of a reorder commit: apply the dragged order
         // locally so the strip never waits on the catalog round-trip. The
         // reconciling catalog push clears the flag in `update_app_catalog`.
-        if let Some(order) = self.pending_order.take() {
-            self.apps.sort_by_key(|app| {
-                order
-                    .iter()
-                    .position(|id| id == &app.entry.id)
-                    .unwrap_or(usize::MAX)
-            });
-            self.catalog_revision = self.catalog_revision.wrapping_add(1);
-        }
+        self.apply_pending_order();
 
         let dock_obscured = self.obscured_by_windows(windows, (disp.x, disp.y));
         self.set_dock_obscured(dock_obscured);
@@ -473,12 +465,6 @@ impl Chrome for Dock {
         self.anim_active = unsettled || autohide_moving || drag_active || dwell_active;
         self.motion.anim_active = self.anim_active;
 
-        // Sum the eased widths (plus the inter-tile gap) to get the live bar
-        // length along the strip axis. Ordinary neighbours sit one tile gap
-        // apart; the section boundary replaces that gap with the wider
-        // section gap. Centred on the dock's edge.
-        let total_tiles: f32 = eased.iter().sum();
-
         // The drop-preview permutation: during a tile drag the dragged tile
         // still occupies a strip slot (the bar length is unchanged), but the
         // other tiles shift aside to open the insertion gap at the preview
@@ -506,84 +492,15 @@ impl Chrome for Dock {
             }
             _ => ((0..n).collect(), pinned_count),
         };
-        let live_section_gap = if section_slot < order.len() {
-            DOCK_SECTION_GAP
-        } else {
-            0.0
-        };
-        let bar_len = total_tiles
-            + (n as f32 - 1.0) * DOCK_TILE_GAP
-            + (live_section_gap - DOCK_TILE_GAP).max(0.0)
-            + 2.0 * DOCK_PAD;
-        let bar_axis_origin = (axis_disp - bar_len) * 0.5;
-
-        // The running axis offset of each tile's centre, first to last in
-        // preview order, from the shared strip geometry helper below.
-        let centres = strip_centres(
-            &eased,
-            &order,
-            bar_axis_origin,
-            section_slot,
-            live_section_gap,
-        );
-        let centre = |i: usize| centres[i];
-
-        let surface_progress = if effective_autohide {
-            Self::collapse_surface_progress(self.autohide_reveal)
-        } else {
-            1.0
-        };
-        let content_progress = if effective_autohide {
-            Self::collapse_content_progress(self.autohide_reveal)
-        } else {
-            1.0
-        };
-        let panel_rect = if effective_autohide {
-            Self::collapsed_panel_rect(position, (disp.x, disp.y), bar_len, self.autohide_reveal)
-        } else {
-            Self::panel_rect_for(position, bar_len, (disp.x, disp.y))
-        };
-
-        // Icons are anchored to the baseline strip on the panel's inner side
-        // and grow toward the screen centre; as content drains into the
-        // collapsed handle they converge on the same edge-centre sink as the
-        // panel and their size reaches zero before the stadium settles.
-        let icon_baseline = match position {
-            DockPosition::Bottom => {
-                panel_rect.y + panel_rect.h - DOCK_BASELINE_INSET * content_progress
-            }
-            DockPosition::Left => panel_rect.x + DOCK_BASELINE_INSET * content_progress,
-            DockPosition::Right => {
-                panel_rect.x + panel_rect.w - DOCK_BASELINE_INSET * content_progress
-            }
-        };
-        let mut icon_rects: Vec<Rect> = (0..n)
-            .map(|i| {
-                let s = (eased[i] * content_progress).max(0.0);
-                let centre_axis =
-                    axis_disp * 0.5 + (centre(i) - axis_disp * 0.5) * content_progress;
-                match position {
-                    DockPosition::Bottom => Rect {
-                        x: centre_axis - s * 0.5,
-                        y: icon_baseline - s,
-                        w: s,
-                        h: s,
-                    },
-                    DockPosition::Left => Rect {
-                        x: icon_baseline,
-                        y: centre_axis - s * 0.5,
-                        w: s,
-                        h: s,
-                    },
-                    DockPosition::Right => Rect {
-                        x: icon_baseline - s,
-                        y: centre_axis - s * 0.5,
-                        w: s,
-                        h: s,
-                    },
-                }
-            })
-            .collect();
+        let geometry =
+            self.resolve_strip_geometry(&eased, &order, section_slot, axis_disp, (disp.x, disp.y));
+        let live_section_gap = geometry.section_gap;
+        let centre = |i: usize| geometry.centres[i];
+        let surface_progress = geometry.surface_progress;
+        let content_progress = geometry.content_progress;
+        let panel_rect = geometry.panel_rect;
+        let icon_baseline = geometry.icon_baseline;
+        let mut icon_rects: Vec<Rect> = geometry.icon_rects;
 
         // During a reorder drag the dragged tile leaves its slot and floats
         // at the cursor, slightly enlarged; the permutation opened the gap.
@@ -1129,7 +1046,7 @@ impl Chrome for Dock {
         }
     }
 
-    fn prepare_backdrop(
+    fn prepare_frame(
         &mut self,
         input: &Input,
         windows: &[Window],
@@ -1138,6 +1055,11 @@ impl Chrome for Dock {
         if self.fullscreen_locked() {
             return;
         }
+        // Apply the optimistic reorder here too: the pre-pass builds the tile
+        // strip and the hover hit-test from `self.apps`, so a pending order that
+        // only `render` applied would make the pre-pass publish frame-T geometry
+        // for the *previous* ordering on the frame after a drag commit.
+        self.apply_pending_order();
         let raw = input.as_raw();
         let display = (raw.display_size.x, raw.display_size.y);
         self.last_display = Some(display);
@@ -1400,6 +1322,121 @@ impl Chrome for Dock {
 }
 
 impl Dock {
+    /// Apply the optimistic half of a reorder commit: re-sort the pinned/live
+    /// app list locally so the strip never waits on the catalog round-trip.
+    ///
+    /// Called from both the pre-pass and `render` so the tile order the two
+    /// observe is identical on the frame after a drag commit. The reconciling
+    /// catalog push clears `pending_order` in `update_app_catalog`; the idempotent
+    /// `take` makes a second call a no-op.
+    fn apply_pending_order(&mut self) {
+        if let Some(order) = self.pending_order.take() {
+            self.apps.sort_by_key(|app| {
+                order
+                    .iter()
+                    .position(|id| id == &app.entry.id)
+                    .unwrap_or(usize::MAX)
+            });
+            self.catalog_revision = self.catalog_revision.wrapping_add(1);
+        }
+    }
+
+    /// Resolve the live Dock strip layout (see [`StripGeometry`]).
+    ///
+    /// `order` maps preview slot → tile index, and `section_slot` is the slot
+    /// where the transient section begins. Callers pass the drag permutation
+    /// when a reorder drag is in flight, otherwise the identity order with the
+    /// pinned boundary.
+    pub(super) fn resolve_strip_geometry(
+        &self,
+        eased: &[f32],
+        order: &[usize],
+        section_slot: usize,
+        axis_disp: f32,
+        display: (f32, f32),
+    ) -> StripGeometry {
+        let position = self.position;
+        let effective_autohide = self.effective_autohide();
+        let n = eased.len();
+        // The section boundary replaces the ordinary tile gap with the wider
+        // section gap; the boundary slot is inert once it falls past the strip.
+        let section_gap = if section_slot < order.len() {
+            DOCK_SECTION_GAP
+        } else {
+            0.0
+        };
+        let bar_len = eased.iter().sum::<f32>()
+            + (n as f32 - 1.0) * DOCK_TILE_GAP
+            + (section_gap - DOCK_TILE_GAP).max(0.0)
+            + 2.0 * DOCK_PAD;
+        let bar_axis_origin = (axis_disp - bar_len) * 0.5;
+        let centres = strip_centres(eased, order, bar_axis_origin, section_slot, section_gap);
+        let surface_progress = if effective_autohide {
+            Self::collapse_surface_progress(self.autohide_reveal)
+        } else {
+            1.0
+        };
+        let content_progress = if effective_autohide {
+            Self::collapse_content_progress(self.autohide_reveal)
+        } else {
+            1.0
+        };
+        let panel_rect = if effective_autohide {
+            Self::collapsed_panel_rect(position, display, bar_len, self.autohide_reveal)
+        } else {
+            Self::panel_rect_for(position, bar_len, display)
+        };
+        // Icons are anchored to the baseline strip on the panel's inner side
+        // and grow toward the screen centre; as content drains into the
+        // collapsed handle they converge on the same edge-centre sink as the
+        // panel and their size reaches zero before the stadium settles.
+        let icon_baseline = match position {
+            DockPosition::Bottom => {
+                panel_rect.y + panel_rect.h - DOCK_BASELINE_INSET * content_progress
+            }
+            DockPosition::Left => panel_rect.x + DOCK_BASELINE_INSET * content_progress,
+            DockPosition::Right => {
+                panel_rect.x + panel_rect.w - DOCK_BASELINE_INSET * content_progress
+            }
+        };
+        let icon_rects: Vec<Rect> = (0..n)
+            .map(|i| {
+                let s = (eased[i] * content_progress).max(0.0);
+                let centre_axis =
+                    axis_disp * 0.5 + (centres[i] - axis_disp * 0.5) * content_progress;
+                match position {
+                    DockPosition::Bottom => Rect {
+                        x: centre_axis - s * 0.5,
+                        y: icon_baseline - s,
+                        w: s,
+                        h: s,
+                    },
+                    DockPosition::Left => Rect {
+                        x: icon_baseline,
+                        y: centre_axis - s * 0.5,
+                        w: s,
+                        h: s,
+                    },
+                    DockPosition::Right => Rect {
+                        x: icon_baseline - s,
+                        y: centre_axis - s * 0.5,
+                        w: s,
+                        h: s,
+                    },
+                }
+            })
+            .collect();
+        StripGeometry {
+            section_gap,
+            centres,
+            surface_progress,
+            content_progress,
+            panel_rect,
+            icon_baseline,
+            icon_rects,
+        }
+    }
+
     pub(crate) fn step_autohide_motion(
         &mut self,
         dt: f32,
@@ -1436,9 +1473,7 @@ impl Dock {
                 .as_ref()
                 .or(self.hovered_tile.as_ref())
                 .and_then(|key| tiles.iter().position(|t| &t.key == key))
-                .map(|owner_idx| {
-                    Self::rest_centre_estimate(owner_idx, n, pinned_count, axis_disp)
-                });
+                .map(|owner_idx| Self::rest_centre_estimate(owner_idx, n, pinned_count, axis_disp));
             let keys = if self.sizes.is_empty() {
                 Vec::new()
             } else {
@@ -1463,27 +1498,30 @@ impl Dock {
             self.autohide_dwell = 0.0;
         }
 
-        let capsule_entry =
-            if self.collapse_pending || self.dismiss_latched || !effective_autohide || self.autohide_reveal >= 0.2 {
-                if self.autohide_reveal >= 0.2 {
-                    self.autohide_dwell = 0.0;
-                }
-                false
-            } else {
-                let confirmed = Self::step_hidden_reveal(
-                    position,
-                    &mut self.hidden_trigger_armed,
-                    &mut self.autohide_dwell,
-                    self.autohide_dwell_threshold,
-                    cursor,
-                    display,
-                    dt,
-                );
-                if self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold {
-                    self.anim_active = true;
-                }
-                confirmed
-            };
+        let capsule_entry = if self.collapse_pending
+            || self.dismiss_latched
+            || !effective_autohide
+            || self.autohide_reveal >= 0.2
+        {
+            if self.autohide_reveal >= 0.2 {
+                self.autohide_dwell = 0.0;
+            }
+            false
+        } else {
+            let confirmed = Self::step_hidden_reveal(
+                position,
+                &mut self.hidden_trigger_armed,
+                &mut self.autohide_dwell,
+                self.autohide_dwell_threshold,
+                cursor,
+                display,
+                dt,
+            );
+            if self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold {
+                self.anim_active = true;
+            }
+            confirmed
+        };
 
         let idle_timeout = if self.dock_interacted {
             self.autohide_timeout
@@ -1514,12 +1552,7 @@ impl Dock {
         let retreating = effective_autohide
             && self.autohide_reveal > 0.001
             && self.autohide_reveal < 0.999
-            && detect_cursor_retreat(
-                position,
-                cursor,
-                self.last_cursor,
-                rest_bounds,
-            );
+            && detect_cursor_retreat(position, cursor, self.last_cursor, rest_bounds);
         self.last_cursor = Some(cursor);
 
         let keeps_revealed = (over_dock_trigger || over_hover_surface) && !retreating;
@@ -1572,6 +1605,13 @@ impl Dock {
         }
         self.was_autohide_animating = !is_settled;
 
+        // The dismissal block above may have cleared `hover_surface_bounds`.
+        // `render` recomputes `over_hover_surface` after its equivalent
+        // teardown for exactly this reason; the pre-pass must observe the same
+        // post-dismissal value or the two disagree about `in_band` and the
+        // magnification wave desyncs for a frame (ADR-0171, ADR-0180).
+        let over_hover_surface = self.hover_surface_contains(cursor.0, cursor.1);
+
         // Advance tile magnification springs in the pre-pass whenever tiles are
         // already initialized so `liquid_glass_region` (`visual_panel_bounds`)
         // and `damage_region` observe the exact same frame-T geometry as `render`.
@@ -1595,21 +1635,65 @@ impl Dock {
                 },
                 cursor_axis,
             );
+            let mut eased = Vec::with_capacity(tile_keys.len());
             for (i, key) in tile_keys.iter().enumerate() {
                 let target = Self::magnification_target(
                     in_band,
                     magnify_axis,
                     Self::rest_centre_estimate(i, n, pinned_count, axis_disp),
                 );
-                if let Some(state) = self.sizes.get_mut(key) {
-                    if menu_open {
-                        state.velocity = 0.0;
-                        continue;
+                // A key absent from the spring table only happens when the tile
+                // set changed since the table was primed. Seed it with the same
+                // birth value `render` uses so the pre-pass geometry matches the
+                // frame this tile is first painted, instead of a rest-sized
+                // placeholder that would misplace the hover hit-test.
+                let state = self.sizes.entry(key.clone()).or_insert(SpringState {
+                    value: if menu_open {
+                        DOCK_TILE
+                    } else {
+                        DOCK_TILE_BIRTH
+                    },
+                    velocity: 0.0,
+                });
+                if menu_open {
+                    state.velocity = 0.0;
+                    eased.push(state.value);
+                    continue;
+                }
+                eased.push(Self::spring(state, target, dt, self.reduced_motion));
+                let drifting = (state.value - target).abs() > 0.15 || state.velocity.abs() > 0.5;
+                unsettled |= drifting;
+            }
+            if !drag_active && self.tooltip_tile.is_some() {
+                let order: Vec<usize> = (0..n).collect();
+                let geometry =
+                    self.resolve_strip_geometry(&eased, &order, pinned_count, axis_disp, display);
+                let hit = hit_test_tiles(
+                    cursor,
+                    rest_bounds,
+                    geometry.panel_rect,
+                    geometry.content_progress,
+                    &geometry.icon_rects,
+                    vertical,
+                );
+                let hovered_tile = hit.map(|i| tile_keys[i].as_str()).or_else(|| {
+                    over_hover_surface
+                        .then_some(self.tooltip_tile.as_deref())
+                        .flatten()
+                });
+                if menu_open || hovered_tile != self.tooltip_tile.as_deref() {
+                    if let Some(bounds) = self.hover_surface_bounds.take() {
+                        Self::record_hover_surface_damage(
+                            &mut self.hover_damage_rect,
+                            &mut self.hover_drain_frames,
+                            bounds,
+                        );
                     }
-                    Self::spring(state, target, dt, self.reduced_motion);
-                    let drifting =
-                        (state.value - target).abs() > 0.15 || state.velocity.abs() > 0.5;
-                    unsettled |= drifting;
+                    self.tooltip_tile = None;
+                    self.tooltip_alpha = 0.0;
+                    self.live_preview = None;
+                    self.hover_owner_bounds = None;
+                    self.hovered_preview = None;
                 }
             }
             if self.was_magnific_animating && !unsettled {
@@ -1625,7 +1709,6 @@ impl Dock {
         self.anim_active = !is_settled || unsettled || dwell_active || drag_active;
         self.motion.anim_active = self.anim_active;
     }
-
 
     /// Resolve the single animated Dock body once for both capture bounds and
     /// the analytic glass pass. The foreground material uses the same radius
@@ -1708,6 +1791,24 @@ impl Dock {
             .with_focus(focus),
         )
     }
+}
+
+/// Frame-stable Dock strip geometry, resolved once from the eased tile
+/// widths, a preview `order` permutation, and the section boundary.
+///
+/// Both the compositor pre-pass ([`Dock::step_autohide_motion`], which must
+/// publish frame-T geometry to `damage_region` and `liquid_glass_regions`) and
+/// `render` (which paints it) derive their layout from
+/// [`Dock::resolve_strip_geometry`], so the panel rect, tile centres, icon
+/// rects, and drain progress can never disagree (ADR-0171, ADR-0180).
+pub(super) struct StripGeometry {
+    pub(super) section_gap: f32,
+    pub(super) centres: Vec<f32>,
+    pub(super) surface_progress: f32,
+    pub(super) content_progress: f32,
+    pub(super) panel_rect: Rect,
+    pub(super) icon_baseline: f32,
+    pub(super) icon_rects: Vec<Rect>,
 }
 
 /// The running axis offset of each tile's centre, first to last in preview

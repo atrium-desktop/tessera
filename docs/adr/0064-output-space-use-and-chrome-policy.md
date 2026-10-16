@@ -1,3 +1,11 @@
+---
+id: ADR-0064
+title: "Output space-use state and chrome policy"
+status: accepted
+date: 2026-07-28
+superseded_by: null
+---
+
 # ADR-0064: Output space-use state and chrome policy
 
 - Status: Accepted

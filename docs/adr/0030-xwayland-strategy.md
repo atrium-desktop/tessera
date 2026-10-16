@@ -1,3 +1,11 @@
+---
+id: ADR-0030
+title: "XWayland strategy"
+status: accepted
+date: 2026-06-23
+superseded_by: null
+---
+
 # ADR-0030: XWayland strategy
 
 - Status: Accepted

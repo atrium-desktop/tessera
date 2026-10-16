@@ -1,3 +1,11 @@
+---
+id: ADR-0088
+title: "Agent capability borrowing and runtime grants (amends ADR-0031, ADR-0034, ADR-0047, ADR-0087)"
+status: superseded
+date: 2026-07-31
+superseded_by: ADR-0090
+---
+
 # ADR-0088: Agent capability borrowing and runtime grants (amends ADR-0031, ADR-0034, ADR-0047, ADR-0087)
 
 - Status: Superseded by [ADR-0090](0090-native-capability-broker-and-stateless-mcp-edge.md)

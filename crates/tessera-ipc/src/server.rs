@@ -60,11 +60,11 @@ pub struct CaptureWindowPayload {
     pub png: Vec<u8>,
 }
 
-#[cfg(test)]
-use tessera_protocol::schema::StreamPixelFormat;
 use tessera_primitives::stream::{StreamFramePayload, StreamInfo, StreamSlotTable};
 #[cfg(test)]
 use tessera_primitives::stream::{StreamPixelFrame, StreamSlotFrame};
+#[cfg(test)]
+use tessera_protocol::schema::StreamPixelFormat;
 
 /// Frames a single stream may have queued to its connection writer before
 /// the producer starts dropping (ADR-0052: bounded lanes, drop never block).

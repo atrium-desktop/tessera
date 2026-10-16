@@ -1,3 +1,11 @@
+---
+id: ADR-0042
+title: "Mount-scoped Realm portals and cgroup sandboxes"
+status: accepted
+date: 2026-07-18
+superseded_by: null
+---
+
 # ADR-0042: Mount-scoped Realm portals and cgroup sandboxes
 
 - Status: Accepted

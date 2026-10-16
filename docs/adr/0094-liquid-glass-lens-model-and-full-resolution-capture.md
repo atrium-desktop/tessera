@@ -1,3 +1,11 @@
+---
+id: ADR-0094
+title: "Liquid glass lens model and full-resolution backdrop capture"
+status: accepted
+date: 2026-08-01
+superseded_by: null
+---
+
 # ADR-0094: Liquid glass lens model and full-resolution backdrop capture
 
 - Status: Accepted

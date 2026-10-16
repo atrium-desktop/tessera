@@ -1,3 +1,11 @@
+---
+id: ADR-0105
+title: "Single-body Liquid Glass interaction focus"
+status: accepted
+date: 2026-08-03
+superseded_by: null
+---
+
 # ADR-0105: Single-body Liquid Glass interaction focus
 
 - Status: Accepted

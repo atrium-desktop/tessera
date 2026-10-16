@@ -1,3 +1,11 @@
+---
+id: ADR-0019
+title: "macOS-style dock via a bottom-center overlay"
+status: accepted
+date: 2026-06-18
+superseded_by: null
+---
+
 # ADR-0019: macOS-style dock via a bottom-center overlay
 
 - Status: Accepted

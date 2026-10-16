@@ -1,3 +1,11 @@
+---
+id: ADR-0109
+title: "Module-first security and presentation-identity boundaries"
+status: accepted
+date: 2026-08-04
+superseded_by: null
+---
+
 # ADR-0109: Module-first security and presentation-identity boundaries
 
 - Status: Accepted

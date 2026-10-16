@@ -189,10 +189,14 @@ impl From<&Command> for AuditedCommand {
                             pointer_moves += 1;
                         }
                         tessera_primitives::input::SyntheticInputAction::Click { .. }
-                        | tessera_primitives::input::SyntheticInputAction::PointerButton { .. } => {
+                        | tessera_primitives::input::SyntheticInputAction::PointerButton {
+                            ..
+                        } => {
                             clicks += 1;
                         }
-                        tessera_primitives::input::SyntheticInputAction::Scroll { .. } => scrolls += 1,
+                        tessera_primitives::input::SyntheticInputAction::Scroll { .. } => {
+                            scrolls += 1
+                        }
                         tessera_primitives::input::SyntheticInputAction::KeyPress { .. }
                         | tessera_primitives::input::SyntheticInputAction::Key { .. } => {
                             key_presses += 1;

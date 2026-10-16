@@ -1,3 +1,11 @@
+---
+id: ADR-0072
+title: "Desktop preference authority and toolkit compatibility"
+status: accepted
+date: 2026-07-29
+superseded_by: null
+---
+
 # ADR-0072: Desktop preference authority and toolkit compatibility
 
 - Status: Accepted

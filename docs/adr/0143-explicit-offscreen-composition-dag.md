@@ -1,3 +1,11 @@
+---
+id: ADR-0143
+title: "Explicit offscreen composition DAG for cumulative layers"
+status: accepted
+date: 2026-08-25
+superseded_by: null
+---
+
 # ADR-0143: Explicit offscreen composition DAG for cumulative layers
 
 - Status: Accepted

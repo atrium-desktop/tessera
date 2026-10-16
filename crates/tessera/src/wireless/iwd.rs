@@ -297,10 +297,7 @@ impl WirelessBackend for IwdBackend {
             )
             .map_err(|e| format!("GetOrderedNetworks failed: {e}"))?;
 
-        type OrderedNet = (
-            zbus::zvariant::OwnedObjectPath,
-            HashMap<String, OwnedValue>,
-        );
+        type OrderedNet = (zbus::zvariant::OwnedObjectPath, HashMap<String, OwnedValue>);
         let ordered: Vec<OrderedNet> = reply
             .body()
             .deserialize()
@@ -384,7 +381,11 @@ impl WirelessBackend for IwdBackend {
                 device.as_str(),
                 Some("org.freedesktop.DBus.Properties"),
                 "Set",
-                &(DEVICE_IFACE, "Powered", zbus::zvariant::Value::Bool(enabled)),
+                &(
+                    DEVICE_IFACE,
+                    "Powered",
+                    zbus::zvariant::Value::Bool(enabled),
+                ),
             )
             .map_err(|e| format!("failed to set device powered state: {e}"))?;
 

@@ -1,3 +1,11 @@
+---
+id: ADR-0011
+title: "Subsurface tree model and z-split rendering"
+status: superseded
+date: 2026-06-18
+superseded_by: ADR-0061
+---
+
 # ADR-0011: Subsurface tree model and z-split rendering
 
 - Status: Superseded by ADR-0061

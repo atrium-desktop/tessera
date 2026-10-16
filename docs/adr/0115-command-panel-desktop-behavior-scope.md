@@ -1,3 +1,11 @@
+---
+id: ADR-0115
+title: "Command panel scope — desktop-computer behavior, not compositor internals"
+status: accepted
+date: 2026-08-09
+superseded_by: null
+---
+
 # ADR-0115: Command panel scope — desktop-computer behavior, not compositor internals
 
 - Status: Accepted

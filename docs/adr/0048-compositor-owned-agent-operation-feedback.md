@@ -1,3 +1,11 @@
+---
+id: ADR-0048
+title: "Compositor-owned Agent operation feedback (amends ADR-0040)"
+status: accepted
+date: 2026-07-22
+superseded_by: null
+---
+
 # ADR-0048: Compositor-owned Agent operation feedback (amends ADR-0040)
 
 - Status: Accepted

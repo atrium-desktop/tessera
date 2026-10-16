@@ -1,3 +1,11 @@
+---
+id: ADR-0005
+title: "flux core binding crate in the flux repo"
+status: superseded
+date: 2026-06-04
+superseded_by: ADR-0023
+---
+
 # ADR-0005: flux core binding crate in the flux repo
 
 - Status: Superseded by [ADR-0023](0023-split-flux-lens-stack.md)

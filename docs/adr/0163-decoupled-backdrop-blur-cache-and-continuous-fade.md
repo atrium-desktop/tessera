@@ -15,6 +15,7 @@ negative_knowledge: true
 - Deciders: Tessera Graphics & Shell Architects
 - Consulted: Compositor & Rendering Team
 - Informed: System Team
+- Amended by: [ADR-0181](0181-canonical-chrome-prepass-seam-occlusion-elision-and-deferred-scanout-ownership.md) — the pre-pass this record names `prepare_backdrop` is canonically `Chrome::prepare_frame`; the alias was removed ([INV-ARCH-64]). `[INV-CHROME-01]` remains in force.
 
 ---
 

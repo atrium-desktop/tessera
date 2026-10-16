@@ -1,3 +1,11 @@
+---
+id: ADR-0117
+title: "Per-window content capture"
+status: accepted
+date: 2026-08-10
+superseded_by: null
+---
+
 # ADR-0117: Per-window content capture
 
 - Status: Accepted

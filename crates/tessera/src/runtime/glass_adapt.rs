@@ -65,8 +65,13 @@ impl GlassAdaptation {
                 // Exponential follow, delegated to transit so the mechanism
                 // (frame-rate independence, NaN/dt clamping) stays in one place
                 // rather than a hand-rolled `1 - e^(-rate·dt)` per caller.
-                state.luminance =
-                    transit::approach(state.luminance, luminance, SMOOTHING_RATE, dt_seconds, false);
+                state.luminance = transit::approach(
+                    state.luminance,
+                    luminance,
+                    SMOOTHING_RATE,
+                    dt_seconds,
+                    false,
+                );
                 state.energy =
                     transit::approach(state.energy, energy, SMOOTHING_RATE, dt_seconds, false);
                 state.emitted.plate_luminance =

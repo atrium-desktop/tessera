@@ -1,3 +1,11 @@
+---
+id: ADR-0129
+title: "Color management — wp_color_management_v1 server, uniform framebuffer encoding, KMS HDR signaling"
+status: accepted
+date: 2026-08-16
+superseded_by: null
+---
+
 # ADR-0129: Color management — wp_color_management_v1 server, uniform framebuffer encoding, KMS HDR signaling
 
 - Status: Accepted

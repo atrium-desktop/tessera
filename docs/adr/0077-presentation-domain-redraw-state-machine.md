@@ -1,3 +1,11 @@
+---
+id: ADR-0077
+title: "Presentation-domain redraw state machine"
+status: accepted
+date: 2026-07-29
+superseded_by: null
+---
+
 # ADR-0077: Presentation-domain redraw state machine
 
 - Status: Accepted

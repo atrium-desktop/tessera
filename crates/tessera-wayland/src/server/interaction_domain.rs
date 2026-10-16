@@ -247,7 +247,8 @@ impl Server {
     pub fn interaction_domain_observation_snapshot(
         &self,
         interaction_domain: InteractionDomainId,
-    ) -> Result<tessera_authority::authority::ObservationSnapshot, InteractionDomainRuntimeError> {
+    ) -> Result<tessera_authority::authority::ObservationSnapshot, InteractionDomainRuntimeError>
+    {
         const MAX_OBSERVED_WINDOWS: usize = 1_024;
         const MAX_WINDOW_LABEL_BYTES: usize = 1_024;
         use tessera_authority::authority::{ObservationSnapshot, ObservedWindow};
@@ -274,9 +275,11 @@ impl Server {
             .collect::<Vec<_>>();
         let placements = self.interaction_domain_window_placements(interaction_domain);
         if placements.len() > MAX_OBSERVED_WINDOWS {
-            return Err(InteractionDomainRuntimeError::AccessibilityObservationTooLarge {
-                limit: MAX_OBSERVED_WINDOWS,
-            });
+            return Err(
+                InteractionDomainRuntimeError::AccessibilityObservationTooLarge {
+                    limit: MAX_OBSERVED_WINDOWS,
+                },
+            );
         }
         let bounded_label = |value: Option<String>| {
             value.map(|mut value| {

@@ -1,3 +1,11 @@
+---
+id: ADR-0100
+title: "Strict KMS and Vulkan physical-device affinity"
+status: accepted
+date: 2026-08-03
+superseded_by: null
+---
+
 # ADR-0100: Strict KMS and Vulkan physical-device affinity
 
 - Status: Accepted

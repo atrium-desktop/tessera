@@ -1,3 +1,11 @@
+---
+id: ADR-0012
+title: "Toplevel metadata and state machine (M3 partial)"
+status: accepted
+date: 2026-06-18
+superseded_by: null
+---
+
 # ADR-0012: Toplevel metadata and state machine (M3 partial)
 
 - Status: Accepted

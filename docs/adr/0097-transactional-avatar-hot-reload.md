@@ -1,3 +1,11 @@
+---
+id: ADR-0097
+title: "Transactional avatar hot reload"
+status: accepted
+date: 2026-08-02
+superseded_by: null
+---
+
 # ADR-0097: Transactional avatar hot reload
 
 - Status: Accepted

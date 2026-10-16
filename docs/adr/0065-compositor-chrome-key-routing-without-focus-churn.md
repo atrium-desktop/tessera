@@ -1,3 +1,11 @@
+---
+id: ADR-0065
+title: "Compositor chrome key routing without focus churn"
+status: accepted
+date: 2026-07-28
+superseded_by: null
+---
+
 # ADR-0065: Compositor chrome key routing without focus churn
 
 - Status: Accepted

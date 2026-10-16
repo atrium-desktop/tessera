@@ -14,6 +14,7 @@ negative_knowledge: true
 - Date: 2026-09-28
 - Deciders: Tessera Maintainers & Core Architects
 - Amends: [ADR-0021](0021-chrome-component-trait.md), [ADR-0029](0029-animation-and-effect-policy.md), [ADR-0077](0077-presentation-domain-redraw-state-machine.md), [ADR-0146](0146-dock-intent-dwell-and-anti-trapping-interaction.md), [ADR-0169](0169-control-center-bento-grid-and-mpris-absorption.md)
+- Amended by: [ADR-0181](0181-canonical-chrome-prepass-seam-occlusion-elision-and-deferred-scanout-ownership.md) — the pre-pass this record names `prepare_backdrop` is canonically `Chrome::prepare_frame`; the alias was removed after it silently disabled the pre-pass for every component that kept the old name ([INV-ARCH-64]). `[INV-ARCH-02]`'s settle-integrity requirement is unchanged.
 
 ---
 

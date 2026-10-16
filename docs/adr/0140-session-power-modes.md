@@ -1,3 +1,11 @@
+---
+id: ADR-0140
+title: "Session power modes over the staged idle pipeline"
+status: accepted
+date: 2026-08-23
+superseded_by: null
+---
+
 # ADR-0140: Session power modes over the staged idle pipeline
 
 - Status: Accepted

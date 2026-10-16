@@ -1163,7 +1163,7 @@ pub trait Chrome {
     }
 
     /// Return a live client-preview popover prepared by this component.
-    /// Geometry is read after [`Chrome::prepare_backdrop`] and shared by the
+    /// Geometry is read after [`Chrome::prepare_frame`] and shared by the
     /// compositor preview pass, analytic glass declarations, shell rendering,
     /// and pointer hit-testing.
     fn live_preview_presentation(&self) -> Option<LivePreviewPresentation> {
@@ -1223,15 +1223,13 @@ pub trait Chrome {
     ) {
     }
 
-    /// Compatibility alias for [`Chrome::prepare_frame`].
-    #[inline]
-    fn prepare_backdrop(
-        &mut self,
-        input: &Input,
-        windows: &[Window],
-        workspaces: &WorkspaceSnapshot,
-    ) {
-        self.prepare_frame(input, windows, workspaces);
+    /// Whether this component's rendered surface completely occludes the
+    /// underlying desktop wallpaper and client windows at full opacity this
+    /// frame (e.g. an open Control Center once its opaque canvas reaches
+    /// `alpha == 255`). Allows the compositor to skip the redundant base
+    /// desktop pass when no backdrop effect samples the scene.
+    fn occludes_desktop(&self) -> bool {
+        false
     }
 
     /// Edge space this component reserves; tiled windows avoid it (ADR-0024).

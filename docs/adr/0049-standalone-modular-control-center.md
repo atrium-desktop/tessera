@@ -1,3 +1,11 @@
+---
+id: ADR-0049
+title: "Standalone modular Control Center with revisioned settings IPC"
+status: superseded
+date: 2026-07-22
+superseded_by: ADR-0056
+---
+
 # ADR-0049: Standalone modular Control Center with revisioned settings IPC
 
 - Status: Superseded by ADR-0056

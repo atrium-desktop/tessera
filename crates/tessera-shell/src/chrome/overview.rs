@@ -151,8 +151,12 @@ impl Chrome for Overview {
         out: &mut ChromeEvents,
     ) {
         let raw = input.as_raw();
-        let display =
-            tessera_primitives::Rect::new(0, 0, raw.display_size.x as i32, raw.display_size.y as i32);
+        let display = tessera_primitives::Rect::new(
+            0,
+            0,
+            raw.display_size.x as i32,
+            raw.display_size.y as i32,
+        );
         let cursor = raw.cursor;
         let down = raw.mouse_down.first().copied().unwrap_or(false);
         let pressed = down && !self.prev_down;
@@ -199,18 +203,19 @@ impl Chrome for Overview {
         // Closest-slot assignment: the same pairing the compositor's
         // thumbnail pass computes, so hover and click land on the cell the
         // user actually sees under the cursor.
-        let window_rects: Vec<(tessera_desktop::window::WindowId, tessera_primitives::Rect)> = windows
-            .iter()
-            .map(|w| {
-                (
-                    w.id,
-                    tessera_primitives::Rect {
-                        origin: w.position,
-                        size: w.size,
-                    },
-                )
-            })
-            .collect();
+        let window_rects: Vec<(tessera_desktop::window::WindowId, tessera_primitives::Rect)> =
+            windows
+                .iter()
+                .map(|w| {
+                    (
+                        w.id,
+                        tessera_primitives::Rect {
+                            origin: w.position,
+                            size: w.size,
+                        },
+                    )
+                })
+                .collect();
         let slots: Vec<tessera_primitives::Rect> = geom::assign_slots(area, &window_rects)
             .into_iter()
             .map(|(_, slot)| slot)
@@ -631,7 +636,11 @@ fn contains_rect(rect: tessera_primitives::Rect, x: f32, y: f32) -> bool {
 /// The cell a window's thumbnail occupies this frame: the shared fly-in
 /// interpolation from the window's real geometry to its aspect-fitted grid
 /// slot, keyed on the same progress the compositor's thumbnail pass used.
-fn animated_cell(slot: tessera_primitives::Rect, window: &Window, t: f32) -> tessera_primitives::Rect {
+fn animated_cell(
+    slot: tessera_primitives::Rect,
+    window: &Window,
+    t: f32,
+) -> tessera_primitives::Rect {
     geom::animated_cell(
         slot,
         tessera_primitives::Rect {

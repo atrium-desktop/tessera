@@ -30,12 +30,8 @@ pub fn update_optics_tags_in_content(content: &str, new_tag: &str) -> Result<(St
                 let tag_val_start = start_idx + "tag = \"".len();
                 if let Some(end_quote) = line[tag_val_start..].find('"') {
                     let end_idx = tag_val_start + end_quote;
-                    let new_line = format!(
-                        "{}{}{}",
-                        &line[..tag_val_start],
-                        new_tag,
-                        &line[end_idx..]
-                    );
+                    let new_line =
+                        format!("{}{}{}", &line[..tag_val_start], new_tag, &line[end_idx..]);
                     updated_lines.push(new_line);
                     count += 1;
                     continue;
@@ -55,8 +51,7 @@ pub fn update_optics_tags_in_content(content: &str, new_tag: &str) -> Result<(St
     }
 
     // Validate TOML syntax
-    let toml_val: Value =
-        toml::from_str(&new_content).context("validating modified Cargo.toml")?;
+    let toml_val: Value = toml::from_str(&new_content).context("validating modified Cargo.toml")?;
     let workspace_deps = toml_val
         .get("workspace")
         .and_then(|w| w.get("dependencies"))
@@ -172,8 +167,16 @@ lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.50" }
         let (updated, count) =
             update_optics_tags_in_content(sample, "v0.0.55").expect("update failed");
         assert_eq!(count, 2);
-        assert!(updated.contains(r#"flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.55" }"#));
-        assert!(updated.contains(r#"lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.55" }"#));
+        assert!(
+            updated.contains(
+                r#"flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.55" }"#
+            )
+        );
+        assert!(
+            updated.contains(
+                r#"lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.55" }"#
+            )
+        );
         assert!(updated.contains(r#"other = "1.0""#));
     }
 

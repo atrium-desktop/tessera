@@ -273,7 +273,6 @@ impl Transform {
     }
 }
 
-
 // --- Surface Geometry & Mapping ---
 
 /// Common geometry/metadata carried alongside every surface's pixels, whether
@@ -590,197 +589,194 @@ pub struct SurfaceDmabuf {
     pub color: Option<crate::color::ContentColor>,
 }
 
-
 #[cfg(test)]
 mod surface_tests {
     use super::*;
-#[cfg(test)]
-mod tests {
-    use super::*;
+    #[cfg(test)]
+    mod tests {
+        use super::*;
 
-    #[test]
-    fn buffer_rect_to_logical_maps_fractional_scale_viewport() {
-        // Chrome on a 2× HiDPI output: buffer 2400×1600 behind a
-        // wp_viewport destination of 1200×800 logical px, buffer_scale 1.
-        // A 16×16 cursor-adjacent damage rect in buffer px must land in
-        // logical px (outward-rounded), not force full damage.
-        let geometry = SurfaceGeometry {
-            viewport_dst: Some(Size { w: 1200, h: 800 }),
-            ..Default::default()
-        };
-        let mapped = geometry.buffer_rect_to_logical(Rect::new(100, 60, 16, 16), 2400, 1600);
-        // 100/2400*1200 = 50 exactly; 60/1600*800 = 30 exactly; the 16px
-        // span rounds outward to 8+1 logical px per axis.
-        assert_eq!(mapped.origin.x, 50);
-        assert_eq!(mapped.origin.y, 30);
-        assert!(mapped.size.w >= 8 && mapped.size.w <= 9);
-        assert!(mapped.size.h >= 8 && mapped.size.h <= 9);
-    }
-
-    #[test]
-    fn buffer_rect_to_logical_viewport_crop_offsets() {
-        // viewport src crops the buffer: damage inside the crop maps with
-        // the crop offset removed and stretched to the destination.
-        let geometry = SurfaceGeometry {
-            viewport_src: Some(Rect::new(100, 50, 400, 400)),
-            viewport_dst: Some(Size { w: 200, h: 200 }),
-            ..Default::default()
-        };
-        let mapped = geometry.buffer_rect_to_logical(Rect::new(100, 50, 400, 400), 800, 600);
-        assert_eq!(mapped.origin.x, 0);
-        assert_eq!(mapped.origin.y, 0);
-        assert_eq!(mapped.size.w, 200);
-        assert_eq!(mapped.size.h, 200);
-    }
-
-    #[test]
-    fn buffer_rect_to_logical_round_trips_logical_to_buffer_scale() {
-        // No viewport: the mapping degenerates to the buffer-scale division
-        // (`buffer_damage_to_surface` semantics) with outward rounding.
-        let geometry = SurfaceGeometry {
-            buffer_scale: 2,
-            ..Default::default()
-        };
-        let mapped = geometry.buffer_rect_to_logical(Rect::new(3, 5, 8, 10), 200, 200);
-        // Outward-rounded division by the buffer scale, matching
-        // `buffer_damage_to_surface`: x: floor(3/2)=1..ceil(11/2)=6 → w=5;
-        // y: floor(5/2)=2..ceil(15/2)=8 → h=6.
-        assert_eq!(mapped, Rect::new(1, 2, 5, 6));
-    }
-
-    #[test]
-    fn buffer_rect_to_logical_outward_rounds_partial_spans() {
-        let geometry = SurfaceGeometry {
-            viewport_dst: Some(Size { w: 1199, h: 799 }),
-            ..Default::default()
-        };
-        // 1 buffer px at 2400→1199 does not land on an integer logical px;
-        // outward rounding must cover the partial span on both axes.
-        let mapped = geometry.buffer_rect_to_logical(Rect::new(0, 0, 1, 1), 2400, 1600);
-        assert_eq!(mapped.origin, Point { x: 0, y: 0 });
-        assert!(mapped.size.w >= 1 && mapped.size.h >= 1);
-    }
-
-    #[test]
-    fn rect_contains_inclusive_origin_exclusive_far_corner() {
-        let r = Rect::new(10, 20, 100, 50);
-        assert!(r.contains(Point { x: 10, y: 20 })); // top-left inclusive
-        assert!(r.contains(Point { x: 109, y: 69 })); // bottom-right - 1
-        assert!(!r.contains(Point { x: 110, y: 20 })); // right edge exclusive
-        assert!(!r.contains(Point { x: 10, y: 70 })); // bottom edge exclusive
-        assert!(!r.contains(Point { x: 9, y: 20 })); // left of origin
-        assert!(!r.contains(Point { x: 10, y: 19 })); // above origin
-    }
-
-    #[test]
-    fn transform_swap_axes_matches_90_and_270_only() {
-        let should_swap = [
-            Transform::Rotate90,
-            Transform::Rotate270,
-            Transform::FlipRotate90,
-            Transform::FlipRotate270,
-        ];
-        let should_not_swap = [
-            Transform::Normal,
-            Transform::Rotate180,
-            Transform::FlipHorizontal,
-            Transform::FlipRotate180,
-        ];
-        for t in should_swap {
-            assert!(t.swap_axes(), "{t:?} should swap axes");
+        #[test]
+        fn buffer_rect_to_logical_maps_fractional_scale_viewport() {
+            // Chrome on a 2× HiDPI output: buffer 2400×1600 behind a
+            // wp_viewport destination of 1200×800 logical px, buffer_scale 1.
+            // A 16×16 cursor-adjacent damage rect in buffer px must land in
+            // logical px (outward-rounded), not force full damage.
+            let geometry = SurfaceGeometry {
+                viewport_dst: Some(Size { w: 1200, h: 800 }),
+                ..Default::default()
+            };
+            let mapped = geometry.buffer_rect_to_logical(Rect::new(100, 60, 16, 16), 2400, 1600);
+            // 100/2400*1200 = 50 exactly; 60/1600*800 = 30 exactly; the 16px
+            // span rounds outward to 8+1 logical px per axis.
+            assert_eq!(mapped.origin.x, 50);
+            assert_eq!(mapped.origin.y, 30);
+            assert!(mapped.size.w >= 8 && mapped.size.w <= 9);
+            assert!(mapped.size.h >= 8 && mapped.size.h <= 9);
         }
-        for t in should_not_swap {
-            assert!(!t.swap_axes(), "{t:?} should not swap axes");
+
+        #[test]
+        fn buffer_rect_to_logical_viewport_crop_offsets() {
+            // viewport src crops the buffer: damage inside the crop maps with
+            // the crop offset removed and stretched to the destination.
+            let geometry = SurfaceGeometry {
+                viewport_src: Some(Rect::new(100, 50, 400, 400)),
+                viewport_dst: Some(Size { w: 200, h: 200 }),
+                ..Default::default()
+            };
+            let mapped = geometry.buffer_rect_to_logical(Rect::new(100, 50, 400, 400), 800, 600);
+            assert_eq!(mapped.origin.x, 0);
+            assert_eq!(mapped.origin.y, 0);
+            assert_eq!(mapped.size.w, 200);
+            assert_eq!(mapped.size.h, 200);
         }
-    }
 
-    #[test]
-    fn transform_maps_buffer_damage_to_the_renderer_surface_orientation() {
-        let rect = Rect::new(10, 15, 20, 10);
-        let dims = (100, 60);
-        let expected = [
-            (Transform::Normal, Rect::new(10, 15, 20, 10)),
-            (Transform::Rotate90, Rect::new(35, 10, 10, 20)),
-            (Transform::Rotate180, Rect::new(70, 35, 20, 10)),
-            (Transform::Rotate270, Rect::new(15, 70, 10, 20)),
-            (Transform::FlipHorizontal, Rect::new(70, 15, 20, 10)),
-            (Transform::FlipRotate90, Rect::new(15, 10, 10, 20)),
-            (Transform::FlipRotate180, Rect::new(10, 35, 20, 10)),
-            (Transform::FlipRotate270, Rect::new(35, 70, 10, 20)),
-        ];
+        #[test]
+        fn buffer_rect_to_logical_round_trips_logical_to_buffer_scale() {
+            // No viewport: the mapping degenerates to the buffer-scale division
+            // (`buffer_damage_to_surface` semantics) with outward rounding.
+            let geometry = SurfaceGeometry {
+                buffer_scale: 2,
+                ..Default::default()
+            };
+            let mapped = geometry.buffer_rect_to_logical(Rect::new(3, 5, 8, 10), 200, 200);
+            // Outward-rounded division by the buffer scale, matching
+            // `buffer_damage_to_surface`: x: floor(3/2)=1..ceil(11/2)=6 → w=5;
+            // y: floor(5/2)=2..ceil(15/2)=8 → h=6.
+            assert_eq!(mapped, Rect::new(1, 2, 5, 6));
+        }
 
-        for (transform, mapped) in expected {
+        #[test]
+        fn buffer_rect_to_logical_outward_rounds_partial_spans() {
+            let geometry = SurfaceGeometry {
+                viewport_dst: Some(Size { w: 1199, h: 799 }),
+                ..Default::default()
+            };
+            // 1 buffer px at 2400→1199 does not land on an integer logical px;
+            // outward rounding must cover the partial span on both axes.
+            let mapped = geometry.buffer_rect_to_logical(Rect::new(0, 0, 1, 1), 2400, 1600);
+            assert_eq!(mapped.origin, Point { x: 0, y: 0 });
+            assert!(mapped.size.w >= 1 && mapped.size.h >= 1);
+        }
+
+        #[test]
+        fn rect_contains_inclusive_origin_exclusive_far_corner() {
+            let r = Rect::new(10, 20, 100, 50);
+            assert!(r.contains(Point { x: 10, y: 20 })); // top-left inclusive
+            assert!(r.contains(Point { x: 109, y: 69 })); // bottom-right - 1
+            assert!(!r.contains(Point { x: 110, y: 20 })); // right edge exclusive
+            assert!(!r.contains(Point { x: 10, y: 70 })); // bottom edge exclusive
+            assert!(!r.contains(Point { x: 9, y: 20 })); // left of origin
+            assert!(!r.contains(Point { x: 10, y: 19 })); // above origin
+        }
+
+        #[test]
+        fn transform_swap_axes_matches_90_and_270_only() {
+            let should_swap = [
+                Transform::Rotate90,
+                Transform::Rotate270,
+                Transform::FlipRotate90,
+                Transform::FlipRotate270,
+            ];
+            let should_not_swap = [
+                Transform::Normal,
+                Transform::Rotate180,
+                Transform::FlipHorizontal,
+                Transform::FlipRotate180,
+            ];
+            for t in should_swap {
+                assert!(t.swap_axes(), "{t:?} should swap axes");
+            }
+            for t in should_not_swap {
+                assert!(!t.swap_axes(), "{t:?} should not swap axes");
+            }
+        }
+
+        #[test]
+        fn transform_maps_buffer_damage_to_the_renderer_surface_orientation() {
+            let rect = Rect::new(10, 15, 20, 10);
+            let dims = (100, 60);
+            let expected = [
+                (Transform::Normal, Rect::new(10, 15, 20, 10)),
+                (Transform::Rotate90, Rect::new(35, 10, 10, 20)),
+                (Transform::Rotate180, Rect::new(70, 35, 20, 10)),
+                (Transform::Rotate270, Rect::new(15, 70, 10, 20)),
+                (Transform::FlipHorizontal, Rect::new(70, 15, 20, 10)),
+                (Transform::FlipRotate90, Rect::new(15, 10, 10, 20)),
+                (Transform::FlipRotate180, Rect::new(10, 35, 20, 10)),
+                (Transform::FlipRotate270, Rect::new(35, 70, 10, 20)),
+            ];
+
+            for (transform, mapped) in expected {
+                assert_eq!(
+                    transform.map_buffer_rect_to_surface(rect, dims),
+                    mapped,
+                    "{transform:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn transform_maps_a_full_buffer_to_the_full_transformed_extent() {
+            let full = Rect::new(0, 0, 100, 60);
+            for transform in [
+                Transform::Normal,
+                Transform::Rotate180,
+                Transform::FlipHorizontal,
+                Transform::FlipRotate180,
+            ] {
+                assert_eq!(
+                    transform.map_buffer_rect_to_surface(full, (100, 60)),
+                    Rect::new(0, 0, 100, 60),
+                    "{transform:?}"
+                );
+            }
+            for transform in [
+                Transform::Rotate90,
+                Transform::Rotate270,
+                Transform::FlipRotate90,
+                Transform::FlipRotate270,
+            ] {
+                assert_eq!(
+                    transform.map_buffer_rect_to_surface(full, (100, 60)),
+                    Rect::new(0, 0, 60, 100),
+                    "{transform:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn transform_name_round_trips_through_from_name() {
+            let all = [
+                Transform::Normal,
+                Transform::Rotate90,
+                Transform::Rotate180,
+                Transform::Rotate270,
+                Transform::FlipHorizontal,
+                Transform::FlipRotate90,
+                Transform::FlipRotate180,
+                Transform::FlipRotate270,
+            ];
+            for t in all {
+                assert_eq!(Transform::from_name(t.name()), Some(t), "{t:?}");
+            }
+        }
+
+        #[test]
+        fn transform_from_name_accepts_underscore_aliases_only() {
             assert_eq!(
-                transform.map_buffer_rect_to_surface(rect, dims),
-                mapped,
-                "{transform:?}"
+                Transform::from_name("flipped_90"),
+                Some(Transform::FlipRotate90)
             );
-        }
-    }
-
-    #[test]
-    fn transform_maps_a_full_buffer_to_the_full_transformed_extent() {
-        let full = Rect::new(0, 0, 100, 60);
-        for transform in [
-            Transform::Normal,
-            Transform::Rotate180,
-            Transform::FlipHorizontal,
-            Transform::FlipRotate180,
-        ] {
             assert_eq!(
-                transform.map_buffer_rect_to_surface(full, (100, 60)),
-                Rect::new(0, 0, 100, 60),
-                "{transform:?}"
+                Transform::from_name("flipped_270"),
+                Some(Transform::FlipRotate270)
             );
-        }
-        for transform in [
-            Transform::Rotate90,
-            Transform::Rotate270,
-            Transform::FlipRotate90,
-            Transform::FlipRotate270,
-        ] {
-            assert_eq!(
-                transform.map_buffer_rect_to_surface(full, (100, 60)),
-                Rect::new(0, 0, 60, 100),
-                "{transform:?}"
-            );
+            // Exact lowercase matching: no case folding, no invented synonyms.
+            assert_eq!(Transform::from_name("Normal"), None);
+            assert_eq!(Transform::from_name("rotate90"), None);
+            assert_eq!(Transform::from_name("upside-down"), None);
+            assert_eq!(Transform::from_name(""), None);
         }
     }
-
-    #[test]
-    fn transform_name_round_trips_through_from_name() {
-        let all = [
-            Transform::Normal,
-            Transform::Rotate90,
-            Transform::Rotate180,
-            Transform::Rotate270,
-            Transform::FlipHorizontal,
-            Transform::FlipRotate90,
-            Transform::FlipRotate180,
-            Transform::FlipRotate270,
-        ];
-        for t in all {
-            assert_eq!(Transform::from_name(t.name()), Some(t), "{t:?}");
-        }
-    }
-
-    #[test]
-    fn transform_from_name_accepts_underscore_aliases_only() {
-        assert_eq!(
-            Transform::from_name("flipped_90"),
-            Some(Transform::FlipRotate90)
-        );
-        assert_eq!(
-            Transform::from_name("flipped_270"),
-            Some(Transform::FlipRotate270)
-        );
-        // Exact lowercase matching: no case folding, no invented synonyms.
-        assert_eq!(Transform::from_name("Normal"), None);
-        assert_eq!(Transform::from_name("rotate90"), None);
-        assert_eq!(Transform::from_name("upside-down"), None);
-        assert_eq!(Transform::from_name(""), None);
-    }
-}
-
-
 }

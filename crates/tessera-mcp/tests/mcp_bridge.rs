@@ -588,7 +588,10 @@ fn stdio_discovers_manages_captures_and_revokes_interaction_domain() {
     let input = report.visual.input_probe.expect("input probe evidence");
     assert_eq!(input.window_id, 7);
     assert_eq!(input.action, "pointer_move");
-    assert_eq!(input.local_position, tessera_primitives::Point { x: 160, y: 90 });
+    assert_eq!(
+        input.local_position,
+        tessera_primitives::Point { x: 160, y: 90 }
+    );
     assert!(input.applied);
     assert!(input.window_restored_to_human);
     assert_eq!(

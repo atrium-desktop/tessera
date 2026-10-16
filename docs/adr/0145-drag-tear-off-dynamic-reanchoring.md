@@ -1,3 +1,11 @@
+---
+id: ADR-0145
+title: "Drag tear-off dynamic re-anchoring for maximized and fullscreen toplevels"
+status: accepted
+date: 2026-04-18
+superseded_by: null
+---
+
 # ADR-0145: Drag tear-off dynamic re-anchoring for maximized and fullscreen toplevels
 
 - Status: Accepted

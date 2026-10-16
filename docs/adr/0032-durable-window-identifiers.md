@@ -1,3 +1,11 @@
+---
+id: ADR-0032
+title: "Durable window identifiers"
+status: accepted
+date: 2026-06-24
+superseded_by: null
+---
+
 # ADR-0032: Durable window identifiers
 
 - Status: Accepted

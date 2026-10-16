@@ -646,7 +646,10 @@ fn stale_commit_during_restore_does_not_latch_the_maximized_size() {
     // arms the commit guard with it.
     rec.window.state.maximized = true;
     let _ = unsafe { apply_state_geometry(&mut rec) };
-    assert_eq!(rec.window.size, tessera_primitives::Size { w: 1920, h: 1080 });
+    assert_eq!(
+        rec.window.size,
+        tessera_primitives::Size { w: 1920, h: 1080 }
+    );
     rec.window.state.maximized = false;
     let _ = unsafe { apply_state_geometry(&mut rec) };
     assert_eq!(rec.window.size, tessera_primitives::Size { w: 800, h: 600 });
@@ -687,7 +690,10 @@ fn stale_commit_during_restore_does_not_latch_the_maximized_size() {
     assert_eq!(rec.restore_pending_size, None);
     rec.window_geometry = Some(tessera_primitives::Rect::new(0, 0, 1024, 768));
     unsafe { apply_committed_window_size(&mut rec) };
-    assert_eq!(rec.window.size, tessera_primitives::Size { w: 1024, h: 768 });
+    assert_eq!(
+        rec.window.size,
+        tessera_primitives::Size { w: 1024, h: 768 }
+    );
 }
 
 /// An explicit size configure (tiling, IPC set-geometry, interactive resize)
@@ -727,7 +733,10 @@ fn explicit_size_configure_supersedes_a_pending_restore() {
     // With the guard retired, commits latch normally again.
     rec.window_geometry = Some(tessera_primitives::Rect::new(0, 0, 1024, 768));
     unsafe { apply_committed_window_size(&mut rec) };
-    assert_eq!(rec.window.size, tessera_primitives::Size { w: 1024, h: 768 });
+    assert_eq!(
+        rec.window.size,
+        tessera_primitives::Size { w: 1024, h: 768 }
+    );
 }
 
 /// The IPC `set_window_geometry` path replaces the floating geometry
@@ -779,7 +788,10 @@ fn replacing_floating_geometry_consumes_the_saved_restore_rect() {
     rec.window.state.maximized = false;
     let _ = unsafe { apply_state_geometry(&mut rec) };
     assert_eq!(rec.position, tessera_primitives::Point { x: 60, y: 60 });
-    assert_eq!(rec.window.size, tessera_primitives::Size { w: 1100, h: 700 });
+    assert_eq!(
+        rec.window.size,
+        tessera_primitives::Size { w: 1100, h: 700 }
+    );
     assert_eq!(rec.saved_floating_rect, None);
 }
 
@@ -804,7 +816,10 @@ fn restore_of_a_zero_sized_capture_does_not_arm_the_commit_guard() {
 
     rec.window.state.maximized = true;
     let _ = unsafe { apply_state_geometry(&mut rec) };
-    assert_eq!(rec.window.size, tessera_primitives::Size { w: 1920, h: 1080 });
+    assert_eq!(
+        rec.window.size,
+        tessera_primitives::Size { w: 1920, h: 1080 }
+    );
 
     rec.window.state.maximized = false;
     let _ = unsafe { apply_state_geometry(&mut rec) };
@@ -844,7 +859,10 @@ fn maximized_tear_off_drag_reanchors_to_cursor() {
         rec.saved_floating_rect,
         Some(tessera_primitives::Rect::new(100, 100, 800, 600))
     );
-    assert_eq!(rec.window.size, tessera_primitives::Size { w: 1920, h: 1080 });
+    assert_eq!(
+        rec.window.size,
+        tessera_primitives::Size { w: 1920, h: 1080 }
+    );
 
     // Drag from the right side of the maximized window titlebar: (1536, 25) - 80% across
     unsafe {
@@ -904,7 +922,10 @@ fn fullscreen_tear_off_drag_reanchors_to_cursor() {
     }
 
     assert!(!rec.window.state.fullscreen);
-    assert_eq!(rec.window.size, tessera_primitives::Size { w: 1000, h: 600 });
+    assert_eq!(
+        rec.window.size,
+        tessera_primitives::Size { w: 1000, h: 600 }
+    );
     // Re-anchored: ratio_x = 0.5 -> 960 - 500 = 460.
     // delta_y = 540 < 600 -> 540 - 540 = 0.
     assert_eq!(rec.position, tessera_primitives::Point { x: 460, y: 0 });
@@ -1319,10 +1340,16 @@ fn moving_a_toplevel_carries_its_popup_subtree() {
     ];
 
     unsafe {
-        reposition_toplevel_with_popups(toplevel.as_mut(), tessera_primitives::Point { x: 240, y: 260 });
+        reposition_toplevel_with_popups(
+            toplevel.as_mut(),
+            tessera_primitives::Point { x: 240, y: 260 },
+        );
     }
 
-    assert_eq!(toplevel.position, tessera_primitives::Point { x: 240, y: 260 });
+    assert_eq!(
+        toplevel.position,
+        tessera_primitives::Point { x: 240, y: 260 }
+    );
     assert_eq!(
         menu.position,
         tessera_primitives::Point { x: 260, y: 270 },
@@ -1342,7 +1369,10 @@ fn moving_a_toplevel_carries_its_popup_subtree() {
     // An unmapped popup is skipped: it will be re-positioned when it maps.
     menu.mapped = false;
     unsafe {
-        reposition_toplevel_with_popups(toplevel.as_mut(), tessera_primitives::Point { x: 0, y: 0 });
+        reposition_toplevel_with_popups(
+            toplevel.as_mut(),
+            tessera_primitives::Point { x: 0, y: 0 },
+        );
     }
     assert_eq!(
         menu.position,
@@ -1746,7 +1776,11 @@ fn nudged_origin_resolves_exact_collisions_diagonally() {
     // An exact collision steps diagonally by 32 to the first free origin.
     let occupied = [tessera_primitives::Point { x: 60, y: 60 }];
     assert_eq!(
-        nudged_origin_if_colliding(tessera_primitives::Point { x: 60, y: 60 }, &occupied, output),
+        nudged_origin_if_colliding(
+            tessera_primitives::Point { x: 60, y: 60 },
+            &occupied,
+            output
+        ),
         Some(tessera_primitives::Point { x: 92, y: 92 })
     );
 
@@ -1756,7 +1790,11 @@ fn nudged_origin_resolves_exact_collisions_diagonally() {
         tessera_primitives::Point { x: 92, y: 92 },
     ];
     assert_eq!(
-        nudged_origin_if_colliding(tessera_primitives::Point { x: 60, y: 60 }, &occupied, output),
+        nudged_origin_if_colliding(
+            tessera_primitives::Point { x: 60, y: 60 },
+            &occupied,
+            output
+        ),
         Some(tessera_primitives::Point { x: 124, y: 124 })
     );
 
@@ -1781,7 +1819,11 @@ fn nudged_origin_resolves_exact_collisions_diagonally() {
         })
         .collect();
     assert_eq!(
-        nudged_origin_if_colliding(tessera_primitives::Point { x: 60, y: 60 }, &occupied, output),
+        nudged_origin_if_colliding(
+            tessera_primitives::Point { x: 60, y: 60 },
+            &occupied,
+            output
+        ),
         None
     );
 }
@@ -1953,7 +1995,10 @@ fn shifting_parent_toplevel_moves_transient_children_synchronously() {
     state.surfaces = vec![root.as_mut(), child.as_mut()];
 
     unsafe {
-        reposition_toplevel_with_popups(root.as_mut(), tessera_primitives::Point { x: 200, y: 250 });
+        reposition_toplevel_with_popups(
+            root.as_mut(),
+            tessera_primitives::Point { x: 200, y: 250 },
+        );
     }
 
     assert_eq!(root.position, tessera_primitives::Point { x: 200, y: 250 });

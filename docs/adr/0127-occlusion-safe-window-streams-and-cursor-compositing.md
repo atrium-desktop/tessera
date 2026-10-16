@@ -1,3 +1,11 @@
+---
+id: ADR-0127
+title: "Occlusion-safe window streams and stream cursor compositing"
+status: accepted
+date: 2026-08-16
+superseded_by: null
+---
+
 # ADR-0127: Occlusion-safe window streams and stream cursor compositing
 
 - Status: Accepted

@@ -1,3 +1,11 @@
+---
+id: ADR-0162
+title: "Wireless Network Subsystem Abstraction and iwd Bridge"
+status: accepted
+date: 2026-09-18
+superseded_by: null
+---
+
 # ADR-0162: Wireless Network Subsystem Abstraction and iwd Bridge
 
 - Status: Accepted

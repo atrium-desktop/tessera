@@ -1,3 +1,11 @@
+---
+id: ADR-0102
+title: "Actor-scoped semantic observation and transactional actions"
+status: accepted
+date: 2026-08-03
+superseded_by: null
+---
+
 # ADR-0102: Actor-scoped semantic observation and transactional actions
 
 - Status: Accepted

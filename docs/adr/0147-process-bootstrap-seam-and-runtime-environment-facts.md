@@ -1,3 +1,11 @@
+---
+id: ADR-0147
+title: "Process bootstrap seam and shared runtime-environment facts"
+status: accepted
+date: 2026-08-30
+superseded_by: null
+---
+
 # ADR-0147: Process bootstrap seam and shared runtime-environment facts
 
 - Status: Accepted

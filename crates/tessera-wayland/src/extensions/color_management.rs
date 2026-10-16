@@ -1483,7 +1483,10 @@ mod tests {
         let sdr = ColorPipeline::Sdr.output_color();
         assert_eq!(sdr.primaries, ContentColor::SRGB.primaries);
         assert_eq!(sdr.transfer, ContentColor::SRGB.transfer);
-        assert_eq!(sdr.luminances, Some(tessera_primitives::color::Luminances::SDR));
+        assert_eq!(
+            sdr.luminances,
+            Some(tessera_primitives::color::Luminances::SDR)
+        );
         let deep = ColorPipeline::SdrDeepColor.output_color();
         assert_eq!(deep, sdr);
         let hdr = ColorPipeline::Hdr.output_color();
@@ -1492,6 +1495,9 @@ mod tests {
             ContentPrimaries::Named(NamedPrimaries::Bt2020)
         );
         assert_eq!(hdr.transfer, ContentTransfer::Named(NamedTransfer::Pq));
-        assert_eq!(hdr.luminances, Some(tessera_primitives::color::Luminances::HDR));
+        assert_eq!(
+            hdr.luminances,
+            Some(tessera_primitives::color::Luminances::HDR)
+        );
     }
 }

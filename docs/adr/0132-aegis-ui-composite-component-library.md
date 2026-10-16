@@ -1,3 +1,11 @@
+---
+id: ADR-0132
+title: "aegis-ui Composite Component Library and Chrome Scaffolding"
+status: accepted
+date: 2026-08-19
+superseded_by: null
+---
+
 # ADR-0132: aegis-ui Composite Component Library and Chrome Scaffolding
 
 - Status: Accepted

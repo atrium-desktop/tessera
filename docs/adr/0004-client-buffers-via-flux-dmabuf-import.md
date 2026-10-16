@@ -1,3 +1,11 @@
+---
+id: ADR-0004
+title: "Client buffers via flux dmabuf import"
+status: accepted
+date: 2026-06-04
+superseded_by: null
+---
+
 # ADR-0004: Client buffers via flux dmabuf import
 
 - Status: Accepted

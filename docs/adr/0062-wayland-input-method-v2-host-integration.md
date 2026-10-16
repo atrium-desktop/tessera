@@ -1,3 +1,11 @@
+---
+id: ADR-0062
+title: "Wayland input-method-v2 host integration"
+status: accepted
+date: 2026-07-28
+superseded_by: null
+---
+
 # ADR-0062: Wayland input-method-v2 host integration
 
 - Status: Accepted

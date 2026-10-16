@@ -4,9 +4,9 @@
 //! them out or outlive the engine. The engine controls teardown order, including
 //! the nested host's Vulkan surface and the device that created it.
 
+use tessera_composite::Renderer;
 use tessera_platform::Backend;
 use tessera_platform::host::Host;
-use tessera_composite::Renderer;
 use tessera_wayland::Server;
 
 pub struct Engine {

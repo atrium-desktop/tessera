@@ -1,3 +1,11 @@
+---
+id: ADR-0104
+title: "Actor sessions, exact resource grants, and accessibility adapter"
+status: accepted
+date: 2026-08-03
+superseded_by: null
+---
+
 # ADR-0104: Actor sessions, exact resource grants, and accessibility adapter
 
 - Status: Accepted

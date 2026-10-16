@@ -31,11 +31,7 @@ impl DaltonismMode {
     #[must_use]
     pub const fn daltonization_matrix(&self) -> [[f32; 3]; 3] {
         match self {
-            Self::None => [
-                [1.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0],
-                [0.0, 0.0, 1.0],
-            ],
+            Self::None => [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
             // Protanopia compensation (reallocates red signal into green and blue)
             Self::Protanopia => [
                 [0.0, 1.05118294, -0.05116099],

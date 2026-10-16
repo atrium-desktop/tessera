@@ -1,3 +1,11 @@
+---
+id: ADR-0146
+title: "Dock Intent Dwell, Dynamic Bounds, and Anti-Trapping Interaction"
+status: accepted
+date: 2026-06-18
+superseded_by: null
+---
+
 # ADR-0146: Dock Intent Dwell, Dynamic Bounds, and Anti-Trapping Interaction
 
 - Status: Accepted

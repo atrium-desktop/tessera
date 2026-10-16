@@ -1,3 +1,11 @@
+---
+id: ADR-0089
+title: "aegis-agent Crate, CLI, and Fuji Identity Preservation (amends ADR-0050 & ADR-0066)"
+status: accepted
+date: 2026-08-01
+superseded_by: null
+---
+
 # ADR-0089: aegis-agent Crate, CLI, and Fuji Identity Preservation (amends ADR-0050 & ADR-0066)
 
 - Status: Accepted

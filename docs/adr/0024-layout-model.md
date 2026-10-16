@@ -1,3 +1,11 @@
+---
+id: ADR-0024
+title: "Layout model — floating base with an optional tiling policy"
+status: accepted
+date: 2026-06-23
+superseded_by: null
+---
+
 # ADR-0024: Layout model — floating base with an optional tiling policy
 
 - Status: Accepted

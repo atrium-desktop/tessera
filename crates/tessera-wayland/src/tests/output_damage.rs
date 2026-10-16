@@ -207,8 +207,12 @@ fn surface_damage_region_subtracts_overlap_without_inventing_bbox_pixels() {
         false,
     );
 
-    assert!(tessera_primitives::Rect::new(0, 0, 10, 10).fully_covered_by(&surface.committed_damage));
-    assert!(tessera_primitives::Rect::new(5, 5, 10, 10).fully_covered_by(&surface.committed_damage));
+    assert!(
+        tessera_primitives::Rect::new(0, 0, 10, 10).fully_covered_by(&surface.committed_damage)
+    );
+    assert!(
+        tessera_primitives::Rect::new(5, 5, 10, 10).fully_covered_by(&surface.committed_damage)
+    );
     assert!(
         !surface
             .committed_damage

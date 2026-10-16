@@ -395,8 +395,9 @@ impl SettingsModule for AppearanceModule {
                                     val => Some(val.to_owned()),
                                 },
                             };
-                            out.actions
-                                .push(SettingsAction::SetWallpaper { settings: wallpaper_settings });
+                            out.actions.push(SettingsAction::SetWallpaper {
+                                settings: wallpaper_settings,
+                            });
                             self.dirty = false;
                             self.invalid = false;
                         }

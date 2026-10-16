@@ -1,3 +1,11 @@
+---
+id: ADR-0093
+title: "Unified domain-oriented Aegis command surface"
+status: accepted
+date: 2026-08-01
+superseded_by: null
+---
+
 # ADR-0093: Unified domain-oriented Aegis command surface
 
 - Status: Accepted

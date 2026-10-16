@@ -1,3 +1,11 @@
+---
+id: ADR-0061
+title: "Window-tree-atomic client surface compositing"
+status: accepted
+date: 2026-07-28
+superseded_by: null
+---
+
 # ADR-0061: Window-tree-atomic client surface compositing
 
 - Status: Accepted

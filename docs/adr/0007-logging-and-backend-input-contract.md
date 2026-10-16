@@ -1,3 +1,11 @@
+---
+id: ADR-0007
+title: "Logging facade and the `Backend` input contract"
+status: accepted
+date: 2026-06-18
+superseded_by: null
+---
+
 # ADR-0007: Logging facade and the `Backend` input contract
 
 - Status: Accepted

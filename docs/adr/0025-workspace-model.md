@@ -1,3 +1,11 @@
+---
+id: ADR-0025
+title: "Workspace model — dynamic and per-output"
+status: accepted
+date: 2026-06-23
+superseded_by: null
+---
+
 # ADR-0025: Workspace model — dynamic and per-output
 
 - Status: Accepted

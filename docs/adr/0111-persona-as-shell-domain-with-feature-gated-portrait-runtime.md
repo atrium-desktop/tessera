@@ -1,3 +1,11 @@
+---
+id: ADR-0111
+title: "Persona as a shell domain with a feature-gated portrait runtime"
+status: accepted
+date: 2026-08-04
+superseded_by: null
+---
+
 # ADR-0111: Persona as a shell domain with a feature-gated portrait runtime
 
 - Status: Accepted

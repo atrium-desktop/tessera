@@ -47,8 +47,8 @@ pub use motion::{
     PREVIEW_CARD_GAP, PREVIEW_CARD_MAX_WIDTH, PREVIEW_CARD_MIN_WIDTH, PREVIEW_LABEL_HEIGHT,
     PREVIEW_PANEL_GAP, PREVIEW_PANEL_PAD, PREVIEW_SCREEN_MARGIN, REVEAL_SETTLE_VALUE_EPS,
     REVEAL_SETTLE_VELOCITY_EPS, SETTLED_DRAIN_FRAMES, SPRING_DAMPING, SPRING_OVERSHOOT_MARGIN,
-    SPRING_STIFFNESS, TOOLTIP_BAND, TOOLTIP_DWELL, TOOLTIP_FADE_SPEED, TOOLTIP_GAP,
-    TOOLTIP_HEIGHT, detect_cursor_retreat,
+    SPRING_STIFFNESS, TOOLTIP_BAND, TOOLTIP_DWELL, TOOLTIP_FADE_SPEED, TOOLTIP_GAP, TOOLTIP_HEIGHT,
+    detect_cursor_retreat,
 };
 pub use state::{DockApp, DockState, DropSection, PressState, PressTarget};
 
@@ -153,9 +153,9 @@ pub struct Dock {
     pub autohide_reveal: f32,
     /// Number of swapchain drain frames remaining.
     pub settled_drain_frames: u8,
-    /// Whether autohide was advanced during `prepare_backdrop` for the current frame.
+    /// Whether autohide was advanced during `prepare_frame` for the current frame.
     pub autohide_stepped_in_prepass: bool,
-    /// Whether tile magnification springs were advanced during `prepare_backdrop` for the current frame.
+    /// Whether tile magnification springs were advanced during `prepare_frame` for the current frame.
     pub sizes_stepped_in_prepass: bool,
     /// Whether autohide was moving on the previous frame.
     pub was_autohide_animating: bool,
@@ -773,9 +773,8 @@ impl Dock {
         let Some(surface) = self.hover_surface_bounds else {
             return false;
         };
-        let contains = |rect: Rect| {
-            x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h
-        };
+        let contains =
+            |rect: Rect| x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
         if contains(surface) {
             return true;
         }

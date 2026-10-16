@@ -63,6 +63,11 @@ impl CompositorRuntime<'_> {
             self.host
                 .supports_scanout(candidate.drm_format, candidate.modifier)
         });
-        tessera_composite::presentation::plan_scanout(facts, physical_size, candidate, plane_supported)
+        tessera_composite::presentation::plan_scanout(
+            facts,
+            physical_size,
+            candidate,
+            plane_supported,
+        )
     }
 }

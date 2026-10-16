@@ -1,3 +1,11 @@
+---
+id: ADR-0016
+title: "Shell ↔ server window-management bridge"
+status: accepted
+date: 2026-06-18
+superseded_by: null
+---
+
 # ADR-0016: Shell ↔ server window-management bridge
 
 - Status: Accepted

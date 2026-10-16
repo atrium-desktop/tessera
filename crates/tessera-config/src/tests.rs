@@ -1377,7 +1377,10 @@ fn output_policies_resolve_and_later_duplicate_wins() {
     let dp = &policies["DP-1"];
     assert_eq!(dp.scale, Some(1.5));
     assert_eq!(dp.mode, "2560x1440@144".parse().ok());
-    assert_eq!(dp.position, Some(tessera_primitives::Point { x: 1920, y: 0 }));
+    assert_eq!(
+        dp.position,
+        Some(tessera_primitives::Point { x: 1920, y: 0 })
+    );
     assert_eq!(dp.transform, Some(tessera_primitives::Transform::Rotate180));
     assert!(dp.primary);
     // The later HDMI-A-1 entry replaces the earlier one wholesale.
@@ -1546,7 +1549,10 @@ fn config_store_persists_output_atomically_and_keeps_unrelated_fields() {
         Some(tessera_primitives::Point { x: 120, y: -40 })
     );
     assert!(policy.primary);
-    assert_eq!(policy.transform, Some(tessera_primitives::Transform::Rotate180));
+    assert_eq!(
+        policy.transform,
+        Some(tessera_primitives::Transform::Rotate180)
+    );
     assert!(
         std::fs::read_dir(&directory)
             .unwrap()

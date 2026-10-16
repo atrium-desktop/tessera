@@ -42,6 +42,10 @@ pub struct Pivot {
     pub prev_down: bool,
     pub reduced_motion: bool,
     pub design: Design,
+    /// Set once the compositor pre-pass has advanced this frame's reveal
+    /// spring. `render` consults it so the same `dt` is never integrated
+    /// twice when both the pre-pass and a direct `render` call run.
+    pub frame_prepared: bool,
 }
 
 impl Deref for Pivot {
@@ -68,7 +72,26 @@ impl Pivot {
             prev_down: false,
             reduced_motion: false,
             design: Design::dark(),
+            frame_prepared: false,
         }
+    }
+
+    /// Advance the progressive-disclosure spring for the current frame.
+    ///
+    /// The compositor runs [`Chrome::prepare_frame`] before damage assessment,
+    /// backdrop capture, and `render`, so `motion.visibility` must already
+    /// reflect this frame's `dt` when [`Chrome::backdrop_regions`] and
+    /// [`Chrome::liquid_glass_regions`] are queried — otherwise the glass body
+    /// and its wash sample frame T-1 geometry while the foreground panel draws
+    /// frame T (ADR-0171, ADR-0178).
+    fn prepare_frame_state(&mut self, input: &Input) {
+        let target = if self.state.is_open() { 1.0 } else { 0.0 };
+        self.motion.advance(
+            target,
+            input.as_raw().dt_seconds.max(0.0),
+            self.reduced_motion,
+        );
+        self.frame_prepared = true;
     }
 
     /// Whether Pivot is currently active (open or animating).
@@ -117,6 +140,15 @@ impl Default for Pivot {
 impl Chrome for Pivot {
     fn anim_pending(&self) -> bool {
         self.motion.anim_active
+    }
+
+    fn prepare_frame(
+        &mut self,
+        input: &Input,
+        _windows: &[Window],
+        _workspaces: &WorkspaceSnapshot,
+    ) {
+        self.prepare_frame_state(input);
     }
 
     fn pivot_active(&self) -> bool {
@@ -332,9 +364,11 @@ impl Chrome for Pivot {
                     &dummy_windows,
                     &Localizer::from_env(),
                 );
-                if let Some(item) =
-                    items.get(self.state.search_selection.min(items.len().saturating_sub(1)))
-                {
+                if let Some(item) = items.get(
+                    self.state
+                        .search_selection
+                        .min(items.len().saturating_sub(1)),
+                ) {
                     self.state.execute_action(item.action.clone(), out);
                     self.motion.anim_active = true;
                     return;
@@ -375,10 +409,11 @@ impl Chrome for Pivot {
             .collect();
         self.state.brain.set_running(running);
 
-        let target = if self.state.is_open() { 1.0 } else { 0.0 };
-        let progress = self
-            .motion
-            .advance(target, raw.dt_seconds.max(0.0), self.reduced_motion);
+        if !self.frame_prepared {
+            self.prepare_frame_state(input);
+        }
+        self.frame_prepared = false;
+        let progress = self.motion.visibility;
         if !self.state.is_open() && progress <= 0.001 {
             self.prev_down = down;
             return;

@@ -1,3 +1,11 @@
+---
+id: ADR-0029
+title: "Animation and effect policy"
+status: accepted
+date: 2026-06-23
+superseded_by: null
+---
+
 # ADR-0029: Animation and effect policy
 
 - Status: Accepted

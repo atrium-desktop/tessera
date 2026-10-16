@@ -755,14 +755,8 @@ impl BackdropCacheKey {
             scene_overlays.push(0);
         }
         Self {
-            capture_origin: (
-                (capture_origin.0 / 64) * 64,
-                (capture_origin.1 / 64) * 64,
-            ),
-            capture_extent: (
-                flux::bucket_extent(capture_extent.0, 128),
-                flux::bucket_extent(capture_extent.1, 128),
-            ),
+            capture_origin,
+            capture_extent,
             physical_size,
             sigma: sigma.to_bits(),
             scale: scale.to_bits(),
@@ -1012,8 +1006,7 @@ impl BackdropGraphExecutor {
                 )
             });
             let allocated = (|| -> Result<BackdropCapture, flux::Error> {
-                let image =
-                    flux::Image::render_target(device, alloc_size.0, alloc_size.1, format)?;
+                let image = flux::Image::render_target(device, alloc_size.0, alloc_size.1, format)?;
                 let mut layer_targets = Vec::with_capacity(layers.len());
                 for needed in &resolved_needed {
                     layer_targets.push(BackdropLayerCapture {
@@ -1224,9 +1217,7 @@ impl BackdropGraphExecutor {
                 // removes stale pixels when a body's live geometry shrinks
                 // inside its declared capture envelope.
                 if !material_regions.is_empty() {
-                    let blurred = if !force_blur
-                        && let Ok(cached) = operator.blur.current(frame)
-                    {
+                    let blurred = if !force_blur && let Ok(cached) = operator.blur.current(frame) {
                         cached
                     } else {
                         operator
@@ -2247,7 +2238,8 @@ fn draw_preview_card_scene(
     let base = window.position;
     let window_size = window.size;
     let target = window.id;
-    let map = move |id: Option<tessera_desktop::window::WindowId>, natural: tessera_primitives::Rect| {
+    let map = move |id: Option<tessera_desktop::window::WindowId>,
+                    natural: tessera_primitives::Rect| {
         if id != Some(target) {
             return tessera_primitives::Rect::new(-100_000, -100_000, 1, 1);
         }
@@ -2393,7 +2385,8 @@ impl WindowShadowRenderer {
             .filter(|w| tessera_composite::window_casts_shadow(w))
             .map(|w| w.id)
             .collect();
-        self.entries.retain(|win_id, _| live_shadow_windows.contains(win_id));
+        self.entries
+            .retain(|win_id, _| live_shadow_windows.contains(win_id));
 
         for window in windows
             .iter()
@@ -2432,9 +2425,12 @@ impl WindowShadowRenderer {
                 Some(existing) if existing.size().0 == bucket_w && existing.size().1 == bucket_h
             );
             if rebuild {
-                let Ok(image) =
-                    flux::Image::render_target(device, bucket_w, bucket_h, flux::Format::Rgba8Unorm)
-                else {
+                let Ok(image) = flux::Image::render_target(
+                    device,
+                    bucket_w,
+                    bucket_h,
+                    flux::Format::Rgba8Unorm,
+                ) else {
                     continue;
                 };
                 entry.masks[slot] = Some(image);

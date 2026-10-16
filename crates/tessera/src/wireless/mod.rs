@@ -91,28 +91,26 @@ impl WirelessHandle {
                 loop {
                     // Drain all pending commands non-blockingly or wait on first
                     match cmd_rx.recv_timeout(Duration::from_millis(500)) {
-                        Ok(cmd) => {
-                            match cmd {
-                                WirelessCommand::Scan => {
-                                    let _ = backend.scan();
-                                }
-                                WirelessCommand::Connect { ssid, passphrase } => {
-                                    let _ = backend.connect(&ssid, passphrase.as_deref());
-                                }
-                                WirelessCommand::Disconnect => {
-                                    let _ = backend.disconnect();
-                                }
-                                WirelessCommand::SetEnabled(enabled) => {
-                                    let _ = backend.set_enabled(enabled);
-                                }
-                                WirelessCommand::Forget { ssid } => {
-                                    let _ = backend.forget(&ssid);
-                                }
-                                WirelessCommand::SetAutoConnect { ssid, auto_connect } => {
-                                    let _ = backend.set_auto_connect(&ssid, auto_connect);
-                                }
+                        Ok(cmd) => match cmd {
+                            WirelessCommand::Scan => {
+                                let _ = backend.scan();
                             }
-                        }
+                            WirelessCommand::Connect { ssid, passphrase } => {
+                                let _ = backend.connect(&ssid, passphrase.as_deref());
+                            }
+                            WirelessCommand::Disconnect => {
+                                let _ = backend.disconnect();
+                            }
+                            WirelessCommand::SetEnabled(enabled) => {
+                                let _ = backend.set_enabled(enabled);
+                            }
+                            WirelessCommand::Forget { ssid } => {
+                                let _ = backend.forget(&ssid);
+                            }
+                            WirelessCommand::SetAutoConnect { ssid, auto_connect } => {
+                                let _ = backend.set_auto_connect(&ssid, auto_connect);
+                            }
+                        },
                         Err(mpsc::RecvTimeoutError::Timeout) => {}
                         Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     }
@@ -148,7 +146,9 @@ impl WirelessHandle {
 
     /// Dispatch an asynchronous connect request.
     pub fn connect(&self, ssid: String, passphrase: Option<String>) {
-        let _ = self.cmd_tx.send(WirelessCommand::Connect { ssid, passphrase });
+        let _ = self
+            .cmd_tx
+            .send(WirelessCommand::Connect { ssid, passphrase });
     }
 
     /// Dispatch an asynchronous disconnect request.
@@ -168,14 +168,13 @@ impl WirelessHandle {
 
     /// Dispatch an asynchronous auto-connect preference update (ADR-0167).
     pub fn set_auto_connect(&self, ssid: String, auto_connect: bool) {
-        let _ = self.cmd_tx.send(WirelessCommand::SetAutoConnect { ssid, auto_connect });
+        let _ = self
+            .cmd_tx
+            .send(WirelessCommand::SetAutoConnect { ssid, auto_connect });
     }
 
     /// Read the latest snapshot without blocking.
     pub fn snapshot(&self) -> WirelessSnapshot {
-        self.snapshot
-            .lock()
-            .map(|s| s.clone())
-            .unwrap_or_default()
+        self.snapshot.lock().map(|s| s.clone()).unwrap_or_default()
     }
 }

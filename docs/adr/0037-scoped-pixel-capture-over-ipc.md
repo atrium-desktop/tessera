@@ -1,3 +1,11 @@
+---
+id: ADR-0037
+title: "Scoped pixel capture over the IPC"
+status: superseded
+date: 2026-07-17
+superseded_by: ADR-0041
+---
+
 # ADR-0037: Scoped pixel capture over the IPC
 
 - Status: Superseded by ADR-0041

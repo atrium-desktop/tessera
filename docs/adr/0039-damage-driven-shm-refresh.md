@@ -1,3 +1,11 @@
+---
+id: ADR-0039
+title: "Damage-driven shm snapshot and texture refresh (amends ADR-0015)"
+status: accepted
+date: 2026-07-18
+superseded_by: null
+---
+
 # ADR-0039: Damage-driven shm snapshot and texture refresh (amends ADR-0015)
 
 - Status: Accepted

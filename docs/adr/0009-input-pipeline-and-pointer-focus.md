@@ -1,3 +1,11 @@
+---
+id: ADR-0009
+title: "Input pipeline and pointer focus model"
+status: superseded
+date: 2026-06-18
+superseded_by: ADR-0040
+---
+
 # ADR-0009: Input pipeline and pointer focus model
 
 - Status: Superseded by [ADR-0040](0040-realms-seats-and-transferable-interaction-authority.md)

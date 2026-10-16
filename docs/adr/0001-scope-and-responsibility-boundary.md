@@ -1,3 +1,11 @@
+---
+id: ADR-0001
+title: "Scope and responsibility boundary"
+status: accepted
+date: 2026-06-04
+superseded_by: null
+---
+
 # ADR-0001: Scope and responsibility boundary
 
 - Status: Accepted

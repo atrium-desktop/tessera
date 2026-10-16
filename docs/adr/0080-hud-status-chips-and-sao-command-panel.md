@@ -1,3 +1,11 @@
+---
+id: ADR-0080
+title: "HUD status chips and the SAO command panel"
+status: accepted
+date: 2026-07-30
+superseded_by: null
+---
+
 # ADR-0080: HUD status chips and the SAO command panel
 
 - Status: Accepted

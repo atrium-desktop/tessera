@@ -1,3 +1,11 @@
+---
+id: ADR-0073
+title: "Prism search and explicit application shortcuts"
+status: accepted
+date: 2026-07-29
+superseded_by: null
+---
+
 # ADR-0073: Prism search and explicit application shortcuts
 
 - Status: Accepted

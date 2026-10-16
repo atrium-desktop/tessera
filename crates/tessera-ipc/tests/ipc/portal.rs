@@ -275,7 +275,10 @@ fn enumerate_outputs_returns_the_lean_capture_addressing_form() {
     }
     assert_eq!(outputs[0].connector, "HDMI-A-1");
     assert!(outputs[0].primary);
-    assert_eq!(outputs[0].rect, tessera_primitives::Rect::new(0, 0, 1920, 1080));
+    assert_eq!(
+        outputs[0].rect,
+        tessera_primitives::Rect::new(0, 0, 1920, 1080)
+    );
     assert_eq!(outputs[1].connector, "DP-1");
     assert!(!outputs[1].primary);
     assert_eq!(

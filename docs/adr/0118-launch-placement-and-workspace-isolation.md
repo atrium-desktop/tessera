@@ -1,3 +1,11 @@
+---
+id: ADR-0118
+title: "Launch placement and workspace isolation"
+status: accepted
+date: 2026-08-09
+superseded_by: null
+---
+
 # ADR-0118: Launch placement and workspace isolation
 
 - Status: Accepted

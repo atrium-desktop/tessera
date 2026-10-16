@@ -1,3 +1,11 @@
+---
+id: ADR-0067
+title: "Remote Optics dependencies with local development overrides"
+status: superseded
+date: 2026-07-28
+superseded_by: ADR-0071
+---
+
 # ADR-0067: Remote Optics dependencies with local development overrides
 
 - Status: Superseded by ADR-0071

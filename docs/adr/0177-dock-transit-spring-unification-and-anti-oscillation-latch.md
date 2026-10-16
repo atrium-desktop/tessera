@@ -14,6 +14,7 @@ negative_knowledge: true
 - Date: 2026-09-30
 - Deciders: Tessera Maintainers & Shell Core Architects
 - Amends: [ADR-0021](0021-chrome-component-trait.md), [ADR-0029](0029-animation-and-effect-policy.md), [ADR-0146](0146-dock-intent-dwell-and-anti-trapping-interaction.md), [ADR-0171](0171-chrome-animation-pre-pass-synchronization-and-surface-placement-invariants.md), [ADR-0172](0172-adopt-optics-transit-motion-vocabulary.md), [ADR-0174](0174-universal-model-motion-view-chrome-architecture.md), [ADR-0176](0176-control-center-painted-canvas-beyond-backdrop-cover.md)
+- Amended by: [ADR-0181](0181-canonical-chrome-prepass-seam-occlusion-elision-and-deferred-scanout-ownership.md) — the pre-pass this record names `prepare_backdrop` is canonically `Chrome::prepare_frame`; the alias was removed ([INV-ARCH-64]). Settle management remains exclusively in the pre-pass, now via `Dock::resolve_strip_geometry`.
 
 ---
 

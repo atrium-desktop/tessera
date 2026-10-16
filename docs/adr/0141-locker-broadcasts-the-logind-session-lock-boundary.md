@@ -1,3 +1,11 @@
+---
+id: ADR-0141
+title: "The locker broadcasts the logind session-lock boundary"
+status: accepted
+date: 2026-08-23
+superseded_by: null
+---
+
 # ADR-0141: The locker broadcasts the logind session-lock boundary
 
 - Status: Accepted

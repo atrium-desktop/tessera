@@ -1,3 +1,11 @@
+---
+id: ADR-0123
+title: "Chrome enter/exit fades go through lens opacity"
+status: accepted
+date: 2026-08-15
+superseded_by: null
+---
+
 # ADR-0123: Chrome enter/exit fades go through lens opacity
 
 - Status: Accepted

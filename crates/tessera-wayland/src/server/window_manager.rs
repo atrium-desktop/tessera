@@ -575,7 +575,10 @@ impl Server {
 
     /// The rect a surface renders at this frame: `Some(interpolated)` while
     /// its transition is in flight, `None` at the model target (ADR-0029).
-    pub(crate) fn transition_render_rect(&self, s: &SurfaceRec) -> Option<tessera_primitives::Rect> {
+    pub(crate) fn transition_render_rect(
+        &self,
+        s: &SurfaceRec,
+    ) -> Option<tessera_primitives::Rect> {
         let target = tessera_primitives::Rect {
             origin: s.position,
             size: s.window.size,

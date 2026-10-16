@@ -1,3 +1,11 @@
+---
+id: ADR-0090
+title: "Native capability broker and stateless MCP edge"
+status: accepted
+date: 2026-08-01
+superseded_by: null
+---
+
 # ADR-0090: Native capability broker and stateless MCP edge
 
 - Status: Accepted

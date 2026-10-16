@@ -1,3 +1,11 @@
+---
+id: ADR-0063
+title: "Compositor-owned borderless decoration policy"
+status: accepted
+date: 2026-07-28
+superseded_by: null
+---
+
 # ADR-0063: Compositor-owned borderless decoration policy
 
 - Status: Accepted

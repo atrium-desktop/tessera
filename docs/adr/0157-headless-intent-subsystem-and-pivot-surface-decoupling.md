@@ -1,3 +1,11 @@
+---
+id: ADR-0157
+title: "Headless intent subsystem and Pivot surface decoupling"
+status: draft
+date: 2026-09-15
+superseded_by: null
+---
+
 # ADR-0157: Headless intent subsystem and Pivot surface decoupling
 
 - Status: Proposed

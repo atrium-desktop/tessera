@@ -1,3 +1,11 @@
+---
+id: ADR-0059
+title: "First-party application installation and development staging"
+status: superseded
+date: 2026-07-26
+superseded_by: ADR-0069
+---
+
 # ADR-0059: First-party application installation and development staging
 
 - Status: Superseded by ADR-0069

@@ -92,7 +92,8 @@ mod tests {
         node1.name = Some("Shell Root".into());
         node1.children = vec![2];
 
-        let mut node2 = AccessibleNode::new(2, AccessibleRole::PushButton, Rect::new(10, 10, 100, 30));
+        let mut node2 =
+            AccessibleNode::new(2, AccessibleRole::PushButton, Rect::new(10, 10, 100, 30));
         node2.name = Some("Launchpad".into());
 
         tree.apply_update(SemanticTreeUpdate {
@@ -103,7 +104,10 @@ mod tests {
 
         assert_eq!(tree.len(), 2);
         assert_eq!(tree.root_id(), 1);
-        assert_eq!(tree.get_node(2).and_then(|n| n.safe_name()), Some("Launchpad"));
+        assert_eq!(
+            tree.get_node(2).and_then(|n| n.safe_name()),
+            Some("Launchpad")
+        );
         assert!(tree.can_execute_action(2));
     }
 
@@ -124,7 +128,13 @@ mod tests {
             removed_ids: vec![],
         });
 
-        assert!(!tree.can_execute_action(1), "disabled button must reject action");
-        assert!(!tree.can_execute_action(2), "password field must reject blind action execution");
+        assert!(
+            !tree.can_execute_action(1),
+            "disabled button must reject action"
+        );
+        assert!(
+            !tree.can_execute_action(2),
+            "password field must reject blind action execution"
+        );
     }
 }

@@ -1,3 +1,11 @@
+---
+id: ADR-0128
+title: "Peer-identity-bound built-in scopes and the capture indicator"
+status: accepted
+date: 2026-08-16
+superseded_by: null
+---
+
 # ADR-0128: Peer-identity-bound built-in scopes and the capture indicator
 
 - Status: Accepted

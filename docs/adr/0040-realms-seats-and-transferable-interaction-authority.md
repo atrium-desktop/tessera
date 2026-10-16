@@ -1,3 +1,11 @@
+---
+id: ADR-0040
+title: "Realms, seats, and transferable interaction authority"
+status: superseded
+date: 2026-07-18
+superseded_by: ADR-0103
+---
+
 # ADR-0040: Realms, seats, and transferable interaction authority
 
 - Status: Superseded by [ADR-0103](0103-actor-authority-and-interaction-domain-architecture.md)

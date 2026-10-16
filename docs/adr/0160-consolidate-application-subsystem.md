@@ -1,3 +1,11 @@
+---
+id: ADR-0160
+title: "Consolidate application subsystem into tessera-apps"
+status: accepted
+date: 2026-09-17
+superseded_by: null
+---
+
 # ADR-0160: Consolidate application subsystem into tessera-apps
 
 - Status: Accepted

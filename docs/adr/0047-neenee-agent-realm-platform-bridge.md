@@ -1,3 +1,11 @@
+---
+id: ADR-0047
+title: "Neenee Agent Realm platform bridge (amends ADR-0031)"
+status: accepted
+date: 2026-07-22
+superseded_by: null
+---
+
 # ADR-0047: Neenee Agent Realm platform bridge (amends ADR-0031)
 
 - Status: Accepted

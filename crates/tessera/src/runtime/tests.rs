@@ -68,7 +68,12 @@ fn nested_output_geometry_preserves_logical_size_at_fractional_scale() {
 #[test]
 fn logical_capture_region_scales_to_physical_pixels() {
     assert_eq!(
-        logical_rect_to_physical(tessera_primitives::Rect::new(10, 20, 100, 80), 2.0, 3840, 2160),
+        logical_rect_to_physical(
+            tessera_primitives::Rect::new(10, 20, 100, 80),
+            2.0,
+            3840,
+            2160
+        ),
         tessera_primitives::Rect::new(20, 40, 200, 160)
     );
 }
@@ -104,7 +109,12 @@ fn logical_capture_region_scales_endpoints_and_clamps() {
         tessera_primitives::Rect::new(0, 15, 30, 25)
     );
     assert_eq!(
-        logical_rect_to_physical(tessera_primitives::Rect::new(10, 20, 100, 80), 0.0, 200, 200),
+        logical_rect_to_physical(
+            tessera_primitives::Rect::new(10, 20, 100, 80),
+            0.0,
+            200,
+            200
+        ),
         tessera_primitives::Rect::new(10, 20, 100, 80)
     );
 }

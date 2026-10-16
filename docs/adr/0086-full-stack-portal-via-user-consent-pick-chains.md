@@ -1,3 +1,11 @@
+---
+id: ADR-0086
+title: "Full-stack portal via user-consent pick chains"
+status: superseded
+date: 2026-07-31
+superseded_by: ADR-0099
+---
+
 # ADR-0086: Full-stack portal via user-consent pick chains
 
 - Status: Superseded by [ADR-0099](0099-resource-authority-and-out-of-process-file-chooser.md)

@@ -1,3 +1,11 @@
+---
+id: ADR-0125
+title: "IPC primitive families and the shared IPC client library"
+status: accepted
+date: 2026-08-16
+superseded_by: null
+---
+
 # ADR-0125: IPC primitive families and the shared IPC client library
 
 - Status: Accepted

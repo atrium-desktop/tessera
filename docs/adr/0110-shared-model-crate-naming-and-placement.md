@@ -1,3 +1,11 @@
+---
+id: ADR-0110
+title: "Shared model crate naming and placement"
+status: accepted
+date: 2026-08-04
+superseded_by: null
+---
+
 # ADR-0110: Shared model crate naming and placement
 
 - Status: Accepted

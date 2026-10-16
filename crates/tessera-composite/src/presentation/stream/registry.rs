@@ -41,7 +41,12 @@ pub struct SampledDamage {
 /// unavailable (a forced/liveness frame, a moved crop origin, or damage
 /// that never intersected the target): over-reporting is always safe.
 pub fn full_target_damage(size: (u32, u32)) -> Vec<tessera_primitives::Rect> {
-    vec![tessera_primitives::Rect::new(0, 0, size.0 as i32, size.1 as i32)]
+    vec![tessera_primitives::Rect::new(
+        0,
+        0,
+        size.0 as i32,
+        size.1 as i32,
+    )]
 }
 
 /// Translate a sampled desktop-space damage into one stream's target
@@ -49,7 +54,10 @@ pub fn full_target_damage(size: (u32, u32)) -> Vec<tessera_primitives::Rect> {
 /// extent. Falls back to the full target rect when nothing precise
 /// survives — including when every accumulated rect lay outside the crop,
 /// which keeps the wire contract free of empty damage lists.
-pub fn damage_in_target(sampled: &SampledDamage, size: (u32, u32)) -> Vec<tessera_primitives::Rect> {
+pub fn damage_in_target(
+    sampled: &SampledDamage,
+    size: (u32, u32),
+) -> Vec<tessera_primitives::Rect> {
     let Some(rects) = sampled.damage.area_rects() else {
         return full_target_damage(size);
     };
@@ -535,7 +543,11 @@ impl OutputStreams {
     /// accumulator itself is NOT reset here; it clears on delivery
     /// ([`OutputStream::note_delivered`]) so a dropped frame's regions stay
     /// accumulated for the next one.
-    pub fn sample_damage(&mut self, stream_id: u64, origin: tessera_primitives::Point) -> SampledDamage {
+    pub fn sample_damage(
+        &mut self,
+        stream_id: u64,
+        origin: tessera_primitives::Point,
+    ) -> SampledDamage {
         let Some(stream) = self.streams.get_mut(&stream_id) else {
             return SampledDamage {
                 origin,

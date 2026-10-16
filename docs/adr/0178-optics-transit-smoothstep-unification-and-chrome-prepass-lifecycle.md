@@ -14,6 +14,7 @@ negative_knowledge: true
 - Date: 2026-10-02
 - Deciders: Tessera Maintainers & Optics Graphics Team
 - Amends: [ADR-0021](0021-chrome-component-trait.md), [ADR-0171](0171-chrome-animation-pre-pass-synchronization-and-surface-placement-invariants.md), [ADR-0172](0172-adopt-optics-transit-motion-vocabulary.md), [ADR-0176](0176-control-center-painted-canvas-beyond-backdrop-cover.md)
+- Amended by: [ADR-0181](0181-canonical-chrome-prepass-seam-occlusion-elision-and-deferred-scanout-ownership.md) — **decision 3's `Chrome::prepare_backdrop` compatibility alias was removed.** The alias defaulted to delegating `prepare_backdrop → prepare_frame` while `Shell::prepare_frame` dispatched `component.prepare_frame`, so every component that implemented only `prepare_backdrop` (`ScreenshotSelector`, `Dock`, `Hud`) never ran its pre-pass. `prepare_frame` is now the sole canonical seam; see `[INV-ARCH-64]`.
 
 ---
 
