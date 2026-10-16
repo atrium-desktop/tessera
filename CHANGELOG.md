@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.76] - 2026-10-16
+
 ### Added
 - Canonical chrome pre-pass seam, occlusion-eliding base pass, and deferred-scanout frame ownership (ADR-0181):
   - `Chrome::prepare_frame` is the sole pre-pass seam; the `prepare_backdrop` compatibility alias is removed. `ScreenshotSelector`, `Dock`, `Hud`, and `Pivot` pre-passes now actually run, restoring region screenshot dragging/confirm (`截图不可用`) and Dock/Pivot frame-T geometry.
@@ -23,7 +25,11 @@ project cuts a tagged release.
   - `assess_frame_damage` treats a pending screenshot freeze capture as full damage.
   - `BackdropCacheKey` stores `capture_origin`/`capture_extent` unquantized, removing the residual `重影` from origin flooring and extent bucketing.
   - Dock: `Dock::resolve_strip_geometry` is the single layout source for the pre-pass and `render`; `Dock::apply_pending_order` runs in both pre-pass and `render`; hover popovers drain their damage across all swapchain slots.
-- Adopted Optics `v0.0.58+` frame-slot abandonment (`flux_frame_abandon`) and region-clamped backdrop sampling (Optics ADR-0110).
+- Adopted Optics `v0.0.59` with frame-slot abandonment (`flux_frame_abandon`) and region-clamped backdrop sampling (Optics ADR-0110).
+- Backfilled governance frontmatter for ADR-0001 through ADR-0162, bringing `docgov check` to zero errors.
+
+### Changed
+- Normalized `rustfmt` across the workspace; `cargo fmt --all --check` is now clean.
 
 ## [0.0.75] - 2026-10-15
 
