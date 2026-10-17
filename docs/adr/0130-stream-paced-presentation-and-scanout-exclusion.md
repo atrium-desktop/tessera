@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-08-17
+- Amended by: [ADR-0182](0182-fullscreen-frame-pacing-and-direct-scanout-fidelity.md) — client direct-scanout framebuffers are cached rather than re-imported per frame; scanout exclusion for live streams is unchanged.
 
 ## Context
 

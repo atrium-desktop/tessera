@@ -348,7 +348,7 @@ Agent products live out of tree; Tessera ships the platform bridge and the
 authority backend, never an agent runtime or frontend. Voice activation and
 shell-native conversation chrome remain follow-up product surfaces
 ([ADR-0047](../adr/0047-neenee-agent-realm-platform-bridge.md),
-[ADR-0087](../adr/0087-tessera-mcp-standalone-platform-bridge-crate.md),
+[ADR-0087](../adr/0087-aegis-mcp-standalone-platform-bridge-crate.md),
 [ADR-0113](../adr/0113-platform-ai-backend-and-agent-product-removal.md)).
 
 ## Sequencing Rationale

@@ -388,6 +388,20 @@ fn xdg_unmap_requires_a_fresh_initial_configure() {
     assert!(surface.pending_xdg_configures.is_empty());
 }
 
+/// [INV-ARCH-70]: only a buffer already owned by a presented frame may be
+/// deferred to the next presentation epoch. An unpresented buffer superseded
+/// mid-vblank by a newer commit must be released immediately, or an uncapped
+/// client's fixed swapchain deadlocks in `get_back_bo`.
+#[test]
+fn test_inv_arch_70_unpresented_buffers_release_immediately() {
+    assert_eq!(
+        buffer_retirement(false),
+        BufferRetirement::ReleaseNow,
+        "an unpresented buffer must not wait on vblank"
+    );
+    assert_eq!(buffer_retirement(true), BufferRetirement::Defer);
+}
+
 #[test]
 fn test_persist_app_geometry_saves_state() {
     let temp_dir =

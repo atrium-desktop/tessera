@@ -254,6 +254,17 @@ impl CompositorRuntime<'_> {
             .flatten();
         let failed_human_freeze = human_screenshot_session && self.screenshot_freeze.failed;
         let mut capturing_frozen_screenshot = false;
+        // Synchronize server model snapshots (windows, global strip,
+        // workspaces, outputs, and Interaction Domains) AND the output scale
+        // into the shell and IPC mirror BEFORE `Shell::prepare_frame`,
+        // `assess_frame_damage`, and `plan_primary_plane` run. Entering
+        // fullscreen therefore puts HUD and Dock into dormancy on the very
+        // same frame, allowing direct scanout without a one-frame composite
+        // lag.
+        self.sync_shell_and_ipc_snapshots();
+        // Report the output scale so lens rasterises chrome crisply on a
+        // HiDPI host; layout and input stay in logical pixels.
+        self.shell.set_scale(scale);
         // Resolve chrome's next-frame geometry before damage assessment and
         // plane assignment. An input-only hidden Dock can therefore turn a
         // bottom-edge entry into visible animation even while the previous
@@ -273,6 +284,7 @@ impl CompositorRuntime<'_> {
         });
         let mut damage = assessed_damage.output;
         let backdrop_source_damage = assessed_damage.backdrop_source;
+        let sampled_surface_ids = assessed_damage.sampled_surface_ids;
         let cursor_plane_changed = self.host.supports_hardware_cursor()
             && (self.damage.last_presented_cursor != Some((cursor_shape, cursor_hidden))
                 || (!cursor_hidden
@@ -373,6 +385,7 @@ impl CompositorRuntime<'_> {
         let was_scanout = self.primary_plane_state.is_direct();
         let primary_plane_plan = self.plan_primary_plane(
             physical_size,
+            logical_size,
             cursor_hidden,
             frame_capture.is_some() || self.streams.any_output_live(),
         );
@@ -404,7 +417,11 @@ impl CompositorRuntime<'_> {
                     // a stopped stream's leftover damage still accumulates
                     // for the next captured frame (ADR-0127).
                     self.streams.accumulate_damage(&damage);
-                    self.server.acknowledge_presented_surface_damage();
+                    // Direct scanout samples exactly one buffer — the
+                    // candidate that is now on the primary plane — so the
+                    // damage pass's sampled set is authoritative here.
+                    self.server
+                        .acknowledge_presented_surface_damage(sampled_surface_ids.iter(), false);
                     if self.server.retired_buffers_pending() {
                         self.server.release_retired_buffers(
                             completion_fence.as_ref().map(AsRawFd::as_raw_fd),
@@ -645,10 +662,25 @@ impl CompositorRuntime<'_> {
                     .iter()
                     .map(|layer| layer.blur_sigma)
                     .fold(0.0_f32, f32::max);
-                let model_active = self
-                    .wallpaper
-                    .as_ref()
-                    .is_some_and(wallpaper::Wallpaper::has_model);
+                // When an unoccluded fullscreen surface owns the output with
+                // no active transition, workspace slide, or overview, the
+                // wallpaper (both 2D background and 3D model) cannot reach any
+                // output pixel and is elided.
+                let wallpaper_occluded = {
+                    let overview_progress = self.shell.overview_progress();
+                    let overview_live = self.shell.overview_active() || overview_progress > 0.001;
+                    !overview_live
+                        && !session_locked
+                        && !self.screenshot_freeze.active()
+                        && !self.server.workspace_slide_pending()
+                        && !self.server.transitions_pending()
+                        && self.server.visible_fullscreen_window()
+                };
+                let model_active = !wallpaper_occluded
+                    && self
+                        .wallpaper
+                        .as_ref()
+                        .is_some_and(wallpaper::Wallpaper::has_model);
                 // Once frozen, the immutable screenshot image is the backdrop
                 // source even if the live wallpaper owns a 3D model. Keep the
                 // effect capture local to the glass footprint in that state.
@@ -672,6 +704,12 @@ impl CompositorRuntime<'_> {
                 // record the shadow passes at this pass boundary, before any
                 // output pass opens. The borrowed filter outputs are placed
                 // by `tessera-composite` inside the client-scene pass below.
+                // Exclude occluded windows so floating windows covered by a
+                // fullscreen or maximized surface never record offscreen masks
+                // or Gaussian blur compute dispatches. Overview replaces the
+                // client scene with a thumbnail grid that draws every window
+                // (occluded ones included), and it does not consume this layer
+                // at all, so the occlusion filter applies only outside it.
                 let shadow_style = self
                     .config
                     .as_ref()
@@ -679,7 +717,11 @@ impl CompositorRuntime<'_> {
                     .unwrap_or_default();
                 let rendered_shadows =
                     if shadow_style == tessera_desktop::window::WindowShadowStyle::Soft {
-                        let windows = self.server.render_windows();
+                        let windows = if overview_active {
+                            self.server.render_windows()
+                        } else {
+                            self.server.unoccluded_render_windows()
+                        };
                         self.window_shadows.prepare(
                             self.device,
                             self.canvas,
@@ -1156,115 +1198,27 @@ impl CompositorRuntime<'_> {
                 let has_cached_effects = refreshed;
                 output_render_area = frame_damage_render_area(&repaint);
 
-                // Hand the shell a snapshot of live toplevels so the chrome's
-                // window list reflects the current set. The shell reads
-                // title/app_id/activated off each Window to draw its buttons.
-                // The same snapshot is mirrored to the IPC (ADR-0027) so the
-                // chrome and external tools read identical state, and a
-                // change broadcasts `WindowsChanged` to subscribers.
-                //
-                // Every snapshot below is rebuilt only when its cheap
-                // revision/signature moves; chrome and IPC keep the copy
-                // pushed last time otherwise, so steady state pays no clone.
-                let windows_hash = self.server.windows_signature();
-                if self.last_windows_hash != Some(windows_hash) {
-                    self.last_windows_hash = Some(windows_hash);
-                    let win_snapshot = self.server.windows();
-                    let sig: WindowEventSignature = win_snapshot
-                        .iter()
-                        .map(|w| {
-                            (
-                                w.id,
-                                w.state.activated,
-                                w.state.maximized,
-                                w.state.fullscreen,
-                                w.minimized,
-                                w.always_on_top,
-                                w.title.clone(),
-                            )
-                        })
-                        .collect();
-                    if self.last_win_sig.as_ref() != Some(&sig) {
-                        self.last_win_sig = Some(sig);
-                        if let Some(s) = self.ipc.as_ref() {
-                            s.broadcast(tessera_protocol::Event::WindowsChanged);
-                        }
-                    }
-                    let space_use = tessera_desktop::window::SpaceUse::from_windows(&win_snapshot);
-                    if self.last_space_use != Some(space_use) {
-                        self.last_space_use = Some(space_use);
-                        if let Some(s) = self.ipc.as_ref() {
-                            s.broadcast(tessera_protocol::Event::SpaceUseChanged {
-                                state: space_use,
-                            });
-                        }
-                    }
-                    self.live.set_windows(win_snapshot.clone());
-                    self.shell.set_windows(win_snapshot);
-                }
-                // The dock's strip is workspace-global: it additionally
-                // receives every mapped toplevel, gated on its own hash so the
-                // overview, switcher, IPC mirror, and SpaceUse above keep the
-                // visible-set snapshot untouched.
-                let all_windows_hash = self.server.all_windows_signature();
-                if self.last_all_windows_hash != Some(all_windows_hash) {
-                    self.last_all_windows_hash = Some(all_windows_hash);
-                    let all_windows = self.server.all_windows();
-                    // The window-capture delivery recheck reads the same
-                    // workspace-global set from the IPC live state.
-                    self.live.set_all_windows(all_windows.clone());
-                    self.shell.set_all_windows(all_windows);
-                }
+                // [INV-ARCH-70]: the frame sampled client dma-bufs beyond the
+                // visible desktop set whenever it drew overview thumbnails,
+                // the window switcher's live cards, the workspace rail's live
+                // miniatures, or a workspace-slide source page. Those buffers
+                // are owned by this frame too, so the acknowledgement cannot be
+                // restricted to the damage pass's own set (see
+                // `Server::acknowledge_presented_surface_damage`).
+                let drew_preview_sources = overview_active
+                    || window_switcher.is_some()
+                    || !live_previews.is_empty()
+                    || self.server.workspace_slide_pending();
+
                 // Minimize flight targets follow the dock's resting tile
-                // layout; pushing them every frame keeps even
+                // layout; pushing them every composite keeps even
                 // client-initiated minimizes aimed at the real icon.
                 let targets = self.shell.minimize_targets(self.input_acc.display_size);
                 self.server.set_minimize_targets(targets);
-                // Mirror the workspace snapshot and broadcast `WorkspaceChanged`
-                // on any model mutation (switch, place, remove, reap).
-                let ws_sig = self.server.workspace_signature();
-                if self.last_ws_sig != Some(ws_sig) {
-                    self.last_ws_sig = Some(ws_sig);
-                    let ws_snap = self.server.workspace_snapshot();
-                    self.live.set_workspaces(ws_snap.clone());
-                    self.shell.set_workspaces(ws_snap);
-                    if let Some(s) = self.ipc.as_ref() {
-                        s.broadcast(tessera_protocol::Event::WorkspaceChanged);
-                    }
-                }
-                let outputs_revision = self.server.outputs_revision();
-                if self.last_outputs_revision != Some(outputs_revision) {
-                    self.last_outputs_revision = Some(outputs_revision);
-                    let output_snapshot = self.server.output_infos();
-                    self.live.set_outputs(output_snapshot.clone());
-                    let display_changed = self.system_status.display.configurable
-                        != (self.host.name() == "drm")
-                        || self.system_status.display.outputs != output_snapshot;
-                    if display_changed {
-                        self.system_status.display.configurable = self.host.name() == "drm";
-                        self.system_status.display.outputs = output_snapshot;
-                        publish_system_status_parts(
-                            &self.system_status,
-                            &mut self.shell,
-                            &self.live,
-                            &self.ipc,
-                        );
-                    }
-                }
-                let interaction_domain_revision = self.server.interaction_domain_revision();
-                if self.last_interaction_domain_revision != Some(interaction_domain_revision) {
-                    self.last_interaction_domain_revision = Some(interaction_domain_revision);
-                    let interaction_domain_snapshot = self.server.interaction_domain_snapshot();
-                    self.live
-                        .set_interaction_domains(interaction_domain_snapshot.clone());
-                    self.shell
-                        .set_interaction_domains(interaction_domain_snapshot);
-                    if let Some(s) = self.ipc.as_ref() {
-                        s.broadcast(tessera_protocol::Event::InteractionDomainsChanged {
-                            revision: interaction_domain_revision,
-                        });
-                    }
-                }
+                // The do-not-disturb indicator is drawn by chrome and is part
+                // of the composite; publish it here (after `assess_frame_damage`
+                // consumed the change as full damage) so both the fan-out and
+                // the repaint observe the same transition.
                 let do_not_disturb = self.notif_queue.lock().unwrap().do_not_disturb();
                 if self.system_status.do_not_disturb != do_not_disturb {
                     self.system_status.do_not_disturb = do_not_disturb;
@@ -1275,9 +1229,6 @@ impl CompositorRuntime<'_> {
                         &self.ipc,
                     );
                 }
-                // Report the output scale so lens rasterises chrome crisply on
-                // a HiDPI host; layout and input stay in logical pixels.
-                self.shell.set_scale(scale);
 
                 let shell_requires_composition = self.shell.requires_composition();
 
@@ -1534,6 +1485,7 @@ impl CompositorRuntime<'_> {
                         self.clear,
                         output_render_area,
                         model_active && !self.screenshot_freeze.active(),
+                        wallpaper_occluded,
                     )?;
                     if self.screenshot_freeze.active() {
                         if let Some(image) = self.screenshot_freeze.image() {
@@ -2646,7 +2598,10 @@ impl CompositorRuntime<'_> {
                 if dmabuf_stream_capture_due {
                     self.blit_dmabuf_stream_frames(completion_fence.as_ref());
                 }
-                self.server.acknowledge_presented_surface_damage();
+                self.server.acknowledge_presented_surface_damage(
+                    sampled_surface_ids.iter(),
+                    drew_preview_sources,
+                );
                 if self.server.lock_confirmation_pending() {
                     match self.host.wait_presented(self.device) {
                         Ok(()) => self.server.presentation_complete(),
@@ -2774,6 +2729,96 @@ impl CompositorRuntime<'_> {
 
         Ok(PresentationOutcome::Submitted)
     }
+
+    /// Synchronize server model snapshots (windows, global window strip,
+    /// workspaces, outputs, and Interaction Domains) into the shell and IPC
+    /// mirror before `Shell::prepare_frame`, `assess_frame_damage`, and
+    /// `plan_primary_plane` run.
+    ///
+    /// Does not mutate `self.last_*` revision baselines — `assess_frame_damage`
+    /// consumes the delta to flag full scene/backdrop damage and then advances
+    /// those baselines for both direct-scanout and composited frames.
+    fn sync_shell_and_ipc_snapshots(&mut self) {
+        let windows_hash = self.server.windows_signature();
+        if self.last_windows_hash != Some(windows_hash) {
+            let win_snapshot = self.server.windows();
+            let sig: WindowEventSignature = win_snapshot
+                .iter()
+                .map(|w| {
+                    (
+                        w.id,
+                        w.state.activated,
+                        w.state.maximized,
+                        w.state.fullscreen,
+                        w.minimized,
+                        w.always_on_top,
+                        w.title.clone(),
+                    )
+                })
+                .collect();
+            if self.last_win_sig.as_ref() != Some(&sig) {
+                self.last_win_sig = Some(sig);
+                if let Some(s) = self.ipc.as_ref() {
+                    s.broadcast(tessera_protocol::Event::WindowsChanged);
+                }
+            }
+            let space_use = tessera_desktop::window::SpaceUse::from_windows(&win_snapshot);
+            if self.last_space_use != Some(space_use) {
+                self.last_space_use = Some(space_use);
+                if let Some(s) = self.ipc.as_ref() {
+                    s.broadcast(tessera_protocol::Event::SpaceUseChanged { state: space_use });
+                }
+            }
+            self.live.set_windows(win_snapshot.clone());
+            self.shell.set_windows(win_snapshot);
+        }
+        let all_windows_hash = self.server.all_windows_signature();
+        if self.last_all_windows_hash != Some(all_windows_hash) {
+            let all_windows = self.server.all_windows();
+            self.live.set_all_windows(all_windows.clone());
+            self.shell.set_all_windows(all_windows);
+        }
+        let ws_sig = self.server.workspace_signature();
+        if self.last_ws_sig != Some(ws_sig) {
+            let ws_snap = self.server.workspace_snapshot();
+            self.live.set_workspaces(ws_snap.clone());
+            self.shell.set_workspaces(ws_snap);
+            if let Some(s) = self.ipc.as_ref() {
+                s.broadcast(tessera_protocol::Event::WorkspaceChanged);
+            }
+        }
+        let outputs_revision = self.server.outputs_revision();
+        if self.last_outputs_revision != Some(outputs_revision) {
+            let output_snapshot = self.server.output_infos();
+            self.live.set_outputs(output_snapshot.clone());
+            let display_changed = self.system_status.display.configurable
+                != (self.host.name() == "drm")
+                || self.system_status.display.outputs != output_snapshot;
+            if display_changed {
+                self.system_status.display.configurable = self.host.name() == "drm";
+                self.system_status.display.outputs = output_snapshot;
+                publish_system_status_parts(
+                    &self.system_status,
+                    &mut self.shell,
+                    &self.live,
+                    &self.ipc,
+                );
+            }
+        }
+        let interaction_domain_revision = self.server.interaction_domain_revision();
+        if self.last_interaction_domain_revision != Some(interaction_domain_revision) {
+            let interaction_domain_snapshot = self.server.interaction_domain_snapshot();
+            self.live
+                .set_interaction_domains(interaction_domain_snapshot.clone());
+            self.shell
+                .set_interaction_domains(interaction_domain_snapshot);
+            if let Some(s) = self.ipc.as_ref() {
+                s.broadcast(tessera_protocol::Event::InteractionDomainsChanged {
+                    revision: interaction_domain_revision,
+                });
+            }
+        }
+    }
 }
 
 pub(super) fn capture_cursor_snapshot(
@@ -2803,6 +2848,7 @@ fn begin_desktop_output<'c, 'surface>(
     clear: u32,
     render_area: Option<flux::CanvasRenderArea>,
     model_active: bool,
+    wallpaper_occluded: bool,
 ) -> Result<flux::CanvasSession<'c, &'c mut flux::Frame<'surface>>, flux::Error> {
     if model_active {
         let s = canvas.begin_session(
@@ -2814,7 +2860,9 @@ fn begin_desktop_output<'c, 'surface>(
                 skip_stencil: true,
             },
         )?;
-        draw_wallpaper_background(&s, device, wallpaper, logical_size, scale);
+        if !wallpaper_occluded {
+            draw_wallpaper_background(&s, device, wallpaper, logical_size, scale);
+        }
         s.end()?;
         if let Some(w) = wallpaper.as_mut() {
             w.draw_model(device, frame);
@@ -2838,7 +2886,9 @@ fn begin_desktop_output<'c, 'surface>(
                 skip_stencil: true,
             },
         )?;
-        draw_wallpaper_background(&s, device, wallpaper, logical_size, scale);
+        if !wallpaper_occluded {
+            draw_wallpaper_background(&s, device, wallpaper, logical_size, scale);
+        }
         Ok(s)
     }
 }

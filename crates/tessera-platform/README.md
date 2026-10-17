@@ -19,7 +19,7 @@ operating system platform interfaces, and development host targets.
 
 `tessera-platform` does not implement the Wayland client protocol server, composite
 client buffers, draw chrome, or choose window-management policy. Those concerns
-belong to `tessera-wayland`, `tessera-render`, `tessera-shell`, and `tessera-desktop`.
+belong to `tessera-wayland`, `tessera-composite`, `tessera-shell`, and `tessera-desktop`.
 
 ## Runtime Effect
 

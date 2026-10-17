@@ -539,13 +539,17 @@ enum ScanoutOwnership {
     /// An uncacheable compositor output import. It is destroyed when the
     /// scanout retires but does not use client `wl_buffer` release semantics.
     TransientCompositor,
-    /// A client direct-scanout import belongs to this one presentation and is
-    /// destroyed when the scanout retires or its atomic commit fails.
+    /// An uncacheable client direct-scanout import (when `fstat` identity is
+    /// unavailable). Destroyed when the scanout retires or its commit fails.
     TransientClient,
     /// A compositor-output import is owned by the backend cache. Scanout
     /// retirement only drops this reference; the cache destroys the DRM
     /// framebuffer and GEM handle after invalidation and the last reference.
     Cached(CompositeFbKey),
+    /// A client direct-scanout import owned by the bounded client scanout
+    /// cache, avoiding per-frame `PRIME_FD_TO_HANDLE` + `ADDFB2` + `RMFB` +
+    /// `GEM_CLOSE` ioctl churn across swapchain rotations.
+    CachedClient(ClientFbKey),
 }
 
 impl ScanoutOwnership {
@@ -555,7 +559,10 @@ impl ScanoutOwnership {
             (
                 Self::TransientCompositor | Self::Cached(_),
                 PrimaryPlaneFrame::Composited
-            ) | (Self::TransientClient, PrimaryPlaneFrame::DirectClient)
+            ) | (
+                Self::TransientClient | Self::CachedClient(_),
+                PrimaryPlaneFrame::DirectClient
+            )
         )
     }
 }
@@ -585,6 +592,17 @@ struct CompositeFbKey {
     modifier: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct ClientFbKey {
+    identity: DmabufIdentity,
+    width: u32,
+    height: u32,
+    stride: u32,
+    offset: u32,
+    fourcc: u32,
+    modifier: u64,
+}
+
 #[derive(Debug)]
 struct CachedCompositeFb {
     framebuffer: control::framebuffer::Handle,
@@ -597,6 +615,17 @@ struct CachedCompositeFb {
     /// is invalidated. Non-reusable entries are destroyed at users == 0.
     reusable: bool,
 }
+
+#[derive(Debug)]
+struct CachedClientFb {
+    framebuffer: control::framebuffer::Handle,
+    gem: BufferHandle,
+    users: u32,
+    reusable: bool,
+    last_used: u64,
+}
+
+const MAX_CLIENT_SCANOUT_FBS: usize = 16;
 
 #[derive(Debug)]
 struct CursorBuffer {
@@ -751,7 +780,6 @@ pub struct DrmBackend {
     current: Option<Scanout>,
     retiring: Option<Scanout>,
     /// KMS framebuffer imports for Flux compositor-output swapchain images.
-    /// Direct client scanout deliberately bypasses this cache.
     composite_fb_cache: HashMap<CompositeFbKey, CachedCompositeFb>,
     /// Generation of the live Flux surface/storage. Resize and recreation
     /// advance it before the next exported frame can be imported.
@@ -759,6 +787,11 @@ pub struct DrmBackend {
     /// Reused scratch storage for cache reaping; invalidation is rare, but it
     /// should not require a fresh allocation every time.
     composite_fb_reap: Vec<CompositeFbKey>,
+    /// Bounded LRU cache of KMS framebuffer imports for directly scanned-out
+    /// client dma-bufs.
+    client_fb_cache: HashMap<ClientFbKey, CachedClientFb>,
+    client_fb_reap: Vec<ClientFbKey>,
+    client_fb_clock: u64,
     cursor_buffers: Vec<CursorBuffer>,
     cursor_state: Option<CursorState>,
     /// Whether the last successful atomic commit left any cursor plane
@@ -1356,6 +1389,27 @@ mod tests {
         );
         assert!(ScanoutOwnership::TransientClient.matches_frame(PrimaryPlaneFrame::DirectClient));
         assert!(!ScanoutOwnership::TransientClient.matches_frame(PrimaryPlaneFrame::Composited));
+    }
+
+    /// [INV-ARCH-70]: a cached client direct-scanout import must satisfy the
+    /// same primary-plane source contract as the uncached transient form, so a
+    /// cache hit can never be paired with a composited frame (and vice versa).
+    #[test]
+    fn cached_client_ownership_is_direct_client_only() {
+        let cached = ScanoutOwnership::CachedClient(ClientFbKey {
+            identity: DmabufIdentity {
+                device: 1,
+                inode: 2,
+            },
+            width: 4,
+            height: 4,
+            stride: 16,
+            offset: 0,
+            fourcc: 0,
+            modifier: 0,
+        });
+        assert!(cached.matches_frame(PrimaryPlaneFrame::DirectClient));
+        assert!(!cached.matches_frame(PrimaryPlaneFrame::Composited));
     }
 
     #[test]

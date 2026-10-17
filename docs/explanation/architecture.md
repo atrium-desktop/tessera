@@ -22,7 +22,7 @@ The current architecture is recorded by [ADR-0158](../adr/0158-clean-break-works
             (Intent & exec)│               │(Render pass scene)
                            ▼               ▼
       ┌───────────────────────┐         ┌─────────────────────────┐
-      │tessera-launch-services│         │     tessera-render      │  [GPU Optics & Composition]
+      │tessera-launch-services│         │    tessera-composite    │  [GPU Optics & Composition]
       │(XDG apps/icons/bwrap) │         │(Vulkan / Kawase / Prism)│
       └───────────┬───────────┘         └────────────┬────────────┘
                   │                                  │
@@ -73,7 +73,7 @@ Durable integrity-checked event storage lives in `tessera-audit`.
 `tessera-wayland` owns Wayland object lifecycle, while
 `tessera-wayland-protocols` contains generated protocol tables.
 `tessera-platform` owns DRM/KMS, nested display, seat, and input adapters.
-`tessera-render` owns buffer import, composition, damage, scanout, stream
+`tessera-composite` owns buffer import, composition, damage, scanout, stream
 production, and GPU readback capture encoding.
 
 Presentation code receives delivery and security decisions through session

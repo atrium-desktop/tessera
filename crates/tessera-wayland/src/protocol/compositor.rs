@@ -247,6 +247,25 @@ unsafe extern "C" fn surface_attach(
     }
 }
 
+/// Whether a superseded `wl_buffer` must be released immediately or deferred
+/// to the next presentation epoch. `[INV-ARCH-70]`: only a buffer already
+/// sampled by a presented frame (or retained by a closing transition) may be
+/// deferred; an unpresented buffer must be released now so uncapped / mailbox
+/// clients never exhaust their swapchain waiting for vblank.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BufferRetirement {
+    ReleaseNow,
+    Defer,
+}
+
+pub(crate) fn buffer_retirement(presented: bool) -> BufferRetirement {
+    if presented {
+        BufferRetirement::Defer
+    } else {
+        BufferRetirement::ReleaseNow
+    }
+}
+
 unsafe fn retire_surface_buffer(rec: *mut SurfaceRec) {
     unsafe {
         if rec.is_null() || (*rec).state.is_null() {
@@ -255,13 +274,35 @@ unsafe fn retire_surface_buffer(rec: *mut SurfaceRec) {
         let buffer = std::mem::replace(&mut (*rec).current_buffer, std::ptr::null_mut());
         let explicit_release =
             std::mem::replace(&mut (*rec).current_explicit_release, std::ptr::null_mut());
-        if !buffer.is_null() || !explicit_release.is_null() {
-            (*(*rec).state)
-                .retired_buffer_releases
-                .push(RetiredBufferRelease {
-                    buffer,
-                    explicit_release,
-                });
+        let presented = std::mem::replace(&mut (*rec).current_buffer_presented, false);
+        if buffer.is_null() && explicit_release.is_null() {
+            return;
+        }
+        match buffer_retirement(presented) {
+            BufferRetirement::Defer => {
+                (*(*rec).state)
+                    .retired_buffer_releases
+                    .push(RetiredBufferRelease {
+                        buffer,
+                        explicit_release,
+                    });
+            }
+            BufferRetirement::ReleaseNow => {
+                // The buffer was superseded before any presentation
+                // transaction sampled or scanned it out. Release it
+                // immediately so uncapped / mailbox clients never exhaust
+                // their swapchain waiting for vblank.
+                if !buffer.is_null() {
+                    ffi::wl_resource_post_event(buffer, ffi::WL_BUFFER_RELEASE);
+                }
+                if !explicit_release.is_null() {
+                    ffi::wl_resource_post_event(
+                        explicit_release,
+                        ffi::ZWP_LINUX_BUFFER_RELEASE_V1_IMMEDIATE_RELEASE,
+                    );
+                    ffi::wl_resource_destroy(explicit_release);
+                }
+            }
         }
     }
 }
@@ -1188,6 +1229,7 @@ pub(crate) unsafe extern "C" fn surface_commit(
                         &mut (*rec).committed_explicit_release,
                         std::ptr::null_mut(),
                     );
+                    (*rec).current_buffer_presented = false;
                 }
                 (*rec).pending_buffer = std::ptr::null_mut();
             } else {

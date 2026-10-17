@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-07-29
+- Amended by: [ADR-0182](0182-fullscreen-frame-pacing-and-direct-scanout-fidelity.md) — a non-input presentation wakeup is neutral for the coalesced frame's pointer-only/fast-path classification; it no longer clears them.
 
 ## Context
 

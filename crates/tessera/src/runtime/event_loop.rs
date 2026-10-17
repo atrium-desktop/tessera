@@ -173,6 +173,11 @@ impl CompositorRuntime<'_> {
                 .unwrap_or(MAINTENANCE_INTERVAL)
                 .min(MAINTENANCE_INTERVAL);
         };
+        if self.server.session_locked() || self.server.visible_fullscreen_window() {
+            return stream_wait
+                .unwrap_or(MAINTENANCE_INTERVAL)
+                .min(MAINTENANCE_INTERVAL);
+        }
         let mut wait = wallpaper.next_frame_in().unwrap_or(MAINTENANCE_INTERVAL);
         if wallpaper.has_model() {
             wait = wait

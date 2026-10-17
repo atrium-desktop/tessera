@@ -156,6 +156,15 @@ impl DrmBackend {
                 }
                 self.reap_composite_fb_cache();
             }
+            ScanoutOwnership::CachedClient(key) => {
+                if let Some(entry) = self.client_fb_cache.get_mut(&key) {
+                    debug_assert!(entry.users > 0, "cached client scanout released twice");
+                    entry.users = entry.users.saturating_sub(1);
+                } else {
+                    log::warn!("drm: cached client scanout record disappeared before retirement");
+                }
+                self.reap_client_fb_cache();
+            }
         }
     }
 

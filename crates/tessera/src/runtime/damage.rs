@@ -32,7 +32,12 @@ impl CompositorRuntime<'_> {
     /// Every presentation-visible surface class the scene draw pulls feeds
     /// the tracker: toplevels, subsurfaces, overlays (including the client
     /// cursor surface), and lock surfaces, in both SHM and dma-buf form.
-    fn client_damage(&mut self) -> ClientDamage {
+    ///
+    /// Also returns the resource ids of every surface sampled this pass. These
+    /// are exactly the surfaces whose damage baseline the frame consumes, so
+    /// they — and only they — may be marked presented after a successful
+    /// submission (`[INV-ARCH-70]`).
+    fn client_damage(&mut self) -> (ClientDamage, Vec<usize>) {
         let server = &self.server;
         // Share one visibility/occlusion snapshot across the SHM and dma-buf
         // client lists (see `Server::desktop_frame_sets`): the damage pass
@@ -43,7 +48,10 @@ impl CompositorRuntime<'_> {
         let lock = server.lock_frames();
         let overlay_dmabuf = server.overlay_dmabuf_frames();
         let lock_dmabuf = server.lock_dmabuf_frames();
-        self.damage.client_damage.assess(
+        let mut sampled = Vec::with_capacity(
+            client_sets.shm.len() + overlay.len() + lock.len() + client_sets.dmabuf.len(),
+        );
+        let damage = self.damage.client_damage.assess(
             client_sets
                 .shm
                 .iter()
@@ -52,8 +60,10 @@ impl CompositorRuntime<'_> {
                 .chain(lock.iter().map(as_damage_frame))
                 .chain(client_sets.dmabuf.iter().map(as_damage_frame))
                 .chain(overlay_dmabuf.iter().map(as_damage_frame))
-                .chain(lock_dmabuf.iter().map(as_damage_frame)),
-        )
+                .chain(lock_dmabuf.iter().map(as_damage_frame))
+                .inspect(|frame| sampled.push(frame.id())),
+        );
+        (damage, sampled)
     }
 
     /// Assess this frame's output damage from every change signal the
@@ -90,6 +100,11 @@ impl CompositorRuntime<'_> {
             self.shell.captures_keyboard(),
             self.shell.screenshot_active(),
         );
+        let windows_hash = self.server.windows_signature();
+        let all_windows_hash = self.server.all_windows_signature();
+        let ws_sig = self.server.workspace_signature();
+        let outputs_revision = self.server.outputs_revision();
+        let interaction_domain_revision = self.server.interaction_domain_revision();
         let base_full = self.frame_count == 0
             || self.damage.force_full_redraw
             || self.screenshot_freeze.needs_capture()
@@ -119,13 +134,13 @@ impl CompositorRuntime<'_> {
                     }))
             // Server-side topology: window list/geometry, workspace, output,
             // and Interaction Domain model changes all feed both the scene and the chrome.
-            || self.last_windows_hash != Some(self.server.windows_signature())
+            || self.last_windows_hash != Some(windows_hash)
             // The dock's workspace-global strip follows its own hash; a change
             // on a hidden workspace (map/unmap/title) moves only this one.
-            || self.last_all_windows_hash != Some(self.server.all_windows_signature())
-            || self.last_ws_sig != Some(self.server.workspace_signature())
-            || self.last_outputs_revision != Some(self.server.outputs_revision())
-            || self.last_interaction_domain_revision != Some(self.server.interaction_domain_revision())
+            || self.last_all_windows_hash != Some(all_windows_hash)
+            || self.last_ws_sig != Some(ws_sig)
+            || self.last_outputs_revision != Some(outputs_revision)
+            || self.last_interaction_domain_revision != Some(interaction_domain_revision)
             // Toasts and the do-not-disturb indicator follow the notification
             // queue (arrivals, dismissals, expiry).
             || self.damage.last_notif_revision != Some(notif_revision)
@@ -156,10 +171,10 @@ impl CompositorRuntime<'_> {
                         || w.next_frame_in()
                             .is_some_and(|remaining| remaining.is_zero())
                 }))
-            || self.last_windows_hash != Some(self.server.windows_signature())
-            || self.last_ws_sig != Some(self.server.workspace_signature())
-            || self.last_outputs_revision != Some(self.server.outputs_revision())
-            || self.last_interaction_domain_revision != Some(self.server.interaction_domain_revision())
+            || self.last_windows_hash != Some(windows_hash)
+            || self.last_ws_sig != Some(ws_sig)
+            || self.last_outputs_revision != Some(outputs_revision)
+            || self.last_interaction_domain_revision != Some(interaction_domain_revision)
             // The switcher/live-preview scene is captured below chrome and is
             // therefore backdrop source content, unlike ordinary shell UI.
             || self.shell.window_switcher_active()
@@ -242,6 +257,15 @@ impl CompositorRuntime<'_> {
                         }
                     }
                 }
+            } else if !self.shell.requires_composition() && !self.shell.captures_keyboard() {
+                // Non-pointer input (keys, buttons, scroll) routed to a client
+                // while no shell chrome is visible or capturing keyboard
+                // cannot dirty compositor-owned pixels on its own. If the
+                // event changed window focus, stacking, or state, the window
+                // signature in `base_full` above already flags full damage;
+                // otherwise only the client's subsequent buffer commit
+                // produces damage.
+                Some(Vec::new())
             } else {
                 None
             }
@@ -250,6 +274,11 @@ impl CompositorRuntime<'_> {
         };
         let output_full = base_full || input_damage.is_none() && had_input;
 
+        self.last_windows_hash = Some(windows_hash);
+        self.last_all_windows_hash = Some(all_windows_hash);
+        self.last_ws_sig = Some(ws_sig);
+        self.last_outputs_revision = Some(outputs_revision);
+        self.last_interaction_domain_revision = Some(interaction_domain_revision);
         self.damage.last_session_locked = session_locked;
         self.damage.last_notif_revision = Some(notif_revision);
         self.damage.last_chrome_mode = Some(chrome_mode);
@@ -259,7 +288,11 @@ impl CompositorRuntime<'_> {
         // unless the backdrop source itself is already known to be full. This
         // keeps the effect invalidation precise and advances surface baselines
         // instead of rediscovering old client commits on a later frame.
-        let client = (!backdrop_full).then(|| self.client_damage());
+        let collected = (!backdrop_full).then(|| self.client_damage());
+        let (client, sampled_surface_ids) = match collected {
+            Some((damage, ids)) => (Some(damage), ids),
+            None => (None, Vec::new()),
+        };
         let backdrop_source = if backdrop_full {
             FrameDamage::Full
         } else {
@@ -310,6 +343,7 @@ impl CompositorRuntime<'_> {
         AssessedFrameDamage {
             output,
             backdrop_source,
+            sampled_surface_ids,
         }
     }
 }

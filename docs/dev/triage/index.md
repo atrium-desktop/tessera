@@ -27,6 +27,7 @@ responsibility boundary this follows.
 | [Cursor Issue Triage](cursor.md) | Cursor appearance and behavior: client vs compositor attribution |
 | [Popup Positioning Issue Triage](popup-positioning.md) | Popup, card, and transient window placement: client vs compositor attribution |
 | [Chrome Animation, Backdrop Coherence, and Dock State-Machine Triage](chrome-animation-and-backdrop-coherence.md) | Frame drops during fades, liquid-glass double-edge ghosting, swapchain ring flickering, and Dock autohide/dwell deadlocks |
+| [Fullscreen and Uncapped Client Frame-Pacing Triage](fullscreen-frame-pacing.md) | Low frame rate in a fullscreen or V-Sync-off client: buffer-release starvation, scanout rejection, and redundant GPU work under an opaque surface |
 
 ## Adding a case
 

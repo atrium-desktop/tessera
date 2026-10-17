@@ -15,6 +15,7 @@ negative_knowledge: true
 - Deciders: Tessera Maintainers & Optics Graphics Team
 - Amends: [ADR-0029](0029-animation-and-effect-policy.md), [ADR-0077](0077-presentation-domain-redraw-state-machine.md), [ADR-0139](0139-animation-effect-placement.md), [ADR-0142](0142-layered-glass-backdrop-compositor.md), [ADR-0171](0171-chrome-animation-pre-pass-synchronization-and-surface-placement-invariants.md), [ADR-0177](0177-dock-transit-spring-unification-and-anti-oscillation-latch.md), [ADR-0178](0178-optics-transit-smoothstep-unification-and-chrome-prepass-lifecycle.md)
 - Extends: Optics ADR-0108 (Motion Sub-stepping and Render Target Bucket Allocation)
+- Amended by: [ADR-0182](0182-fullscreen-frame-pacing-and-direct-scanout-fidelity.md) — window-shadow outputs are reused per frame slot keyed by window-local `(size, scale, activated)`, and occluded windows no longer record shadow/blur passes at all.
 
 ---
 

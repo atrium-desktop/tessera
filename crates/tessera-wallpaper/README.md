@@ -81,5 +81,5 @@ remain effective.
 - [Wallpaper decision](../../docs/adr/0018-wallpaper-crate.md)
 - [Wallpaper modes and parallax](../../docs/adr/0092-explicit-wallpaper-modes-and-continuous-parallax.md)
 - [Wallpaper configuration](../../docs/reference/config.md#wallpaper)
-- [Per-frame data flow](../../docs/explanation/architecture.md#per-frame-data-flow)
+- [Per-frame data flow](../../docs/explanation/architecture.md#platform-and-presentation)
 - [Workspace layout](../../docs/dev/project-layout.md)

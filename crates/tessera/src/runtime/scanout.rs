@@ -16,6 +16,7 @@ impl CompositorRuntime<'_> {
     pub(super) fn plan_primary_plane(
         &self,
         physical_size: (u32, u32),
+        logical_size: (u32, u32),
         cursor_hidden: bool,
         frame_capture_pending: bool,
     ) -> PrimaryPlanePlan {
@@ -66,6 +67,7 @@ impl CompositorRuntime<'_> {
         tessera_composite::presentation::plan_scanout(
             facts,
             physical_size,
+            logical_size,
             candidate,
             plane_supported,
         )

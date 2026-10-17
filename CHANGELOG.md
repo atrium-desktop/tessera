@@ -14,6 +14,41 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Fixed
+- Fullscreen and uncapped clients no longer have their frame rate throttled by
+  the compositor. A `wl_buffer` superseded before any presented frame sampled it
+  is released on that commit rather than deferred to the next vblank, so mailbox
+  and `EGL_SWAP_INTERVAL=0` clients no longer block in `get_back_bo()`. Direct
+  scanout now accepts an identity `wp_viewport` (fractional-scale clients) and a
+  `wp_viewport` ARGB client's destination-space `opaque_region`; ARGB viewport
+  blits honour the declared opaque region; direct-scanout client framebuffers are
+  cached across swapchain rotations; occluded windows and an occluded wallpaper
+  no longer record shadow, blur, or wallpaper GPU work under a fullscreen
+  surface; the HUD/Dock stand-down lands on the same frame as a fullscreen
+  configure; and pointer motion plus client-bound input no longer manufacture
+  full-output composites (`ADR-0182`).
+
+### Changed
+- Documented the client buffer-release contract and client framebuffer caching in
+  the [Rendering and KMS Plane Reference](docs/reference/rendering.md), and added
+  [Fullscreen and Uncapped Client Frame-Pacing Triage](docs/dev/triage/fullscreen-frame-pacing.md)
+  for attributing a low-frame-rate fullscreen client between the compositor, the
+  Wayland buffer lifecycle, and the Optics deferred-import path.
+- Propagated the `tessera-render` → `tessera-composite` rename (`ADR-0173`) through
+  `docs/explanation/architecture.md`, `docs/explanation/agent-phase.md`, and the
+  `tessera-platform` and `tessera-wayland` crate READMEs, and corrected stale
+  documentation anchors and dead ADR links across `docs/`.
+- Replaced the external `docgov` documentation-governance framework with a flat
+  in-repo engineering standards suite under `docs/dev/standards/`
+  (architecture, invariants, ADRs, RFCs, taxonomy, style, workflow, and
+  postmortems). Removed `docs/governance/` and `.docgov.yml`/`.docgov.lock`, and
+  rewrote `AGENTS.md` around the standard directives and the Optics
+  cross-repository workflow.
+- `docs/dev/standards/workflow.md` now routes code-to-doc synchronization to the
+  repository's real gates: `cargo fmt`, `crate-ci/typos`, and the `xtask`
+  `package-conformity`, `check-boundaries`, `check-bootstrap-admission`, and
+  `check-motion` checks.
+
 ## [0.0.76] - 2026-10-16
 
 ### Added
@@ -26,7 +61,7 @@ project cuts a tagged release.
   - `BackdropCacheKey` stores `capture_origin`/`capture_extent` unquantized, removing the residual `重影` from origin flooring and extent bucketing.
   - Dock: `Dock::resolve_strip_geometry` is the single layout source for the pre-pass and `render`; `Dock::apply_pending_order` runs in both pre-pass and `render`; hover popovers drain their damage across all swapchain slots.
 - Adopted Optics `v0.0.59` with frame-slot abandonment (`flux_frame_abandon`) and region-clamped backdrop sampling (Optics ADR-0110).
-- Backfilled governance frontmatter for ADR-0001 through ADR-0162, bringing `docgov check` to zero errors.
+- Backfilled governance frontmatter for ADR-0001 through ADR-0162, bringing the ADR frontmatter check to zero errors.
 
 ### Changed
 - Normalized `rustfmt` across the workspace; `cargo fmt --all --check` is now clean.

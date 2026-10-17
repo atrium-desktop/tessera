@@ -10,14 +10,14 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-08-19
-- Extends: [ADR-0021](0021-chrome-component-trait.md), [ADR-0046](0046-design-system-crate.md), [ADR-0080](0080-hud-status-chips-and-sao-command-panel.md), [ADR-0088](0088-agent-runtime-interaction-grants.md), [ADR-0114](0114-panel-hosted-settings-and-hud-command-panel.md)
+- Extends: [ADR-0021](0021-chrome-component-trait.md), [ADR-0046](0046-design-system-crate.md), [ADR-0080](0080-hud-status-chips-and-sao-command-panel.md), [ADR-0088](0088-agent-capability-borrowing-and-runtime-grants.md), [ADR-0114](0114-panel-hosted-settings-and-hud-command-panel.md)
 
 ## Context
 
 [ADR-0046](0046-design-system-crate.md) established `aegis-design` as a data-only design token and material crate, while intentionally deferring a shared widget crate until repeated structure, layout, and interaction patterns appeared across at least three product surfaces.
 
 As the desktop evolved:
-1. Modal security prompts ([ADR-0088](0088-agent-runtime-interaction-grants.md), `ConfirmPrompt`, `SecretPrompt`, `BatteryAlert`, `CapabilityPrompt`, `AppPicker`) independently implemented identical scrim placement, centered Liquid Glass panel math, button hover/press states, and four-tier grant action button strips.
+1. Modal security prompts ([ADR-0088](0088-agent-capability-borrowing-and-runtime-grants.md), `ConfirmPrompt`, `SecretPrompt`, `BatteryAlert`, `CapabilityPrompt`, `AppPicker`) independently implemented identical scrim placement, centered Liquid Glass panel math, button hover/press states, and four-tier grant action button strips.
 2. Settings modules ([ADR-0114](0114-panel-hosted-settings-and-hud-command-panel.md)) across `aegis-settings` and `aegis-command-panel` duplicated card containers, section headers, setting row layouts, and unavailable state placeholders.
 3. Chrome surfaces across `aegis-hud`, `aegis-command-panel`, `aegis-shell`, and `aegis-prism` duplicated geometric hit-testing (`contains`), motion curves (`ease_out_cubic`, `stagger`), concentric shapes (`render_disc`, `render_ring`), status chips, and popup menu metrics.
 

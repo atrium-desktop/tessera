@@ -101,14 +101,35 @@ impl FrameState {
         self.session_locked = newer.session_locked;
         self.cursor_hidden = newer.cursor_hidden;
         self.cursor_shape = newer.cursor_shape;
+        // [INV-ARCH-71]: Merging a non-input wakeup (e.g. a DRM page-flip
+        // completion or client commit with `had_input == false`) must preserve
+        // an earlier iteration's pointer-only/fast-path classification rather
+        // than clearing it to `false` and escalating pointer motion into
+        // full-output damage. Two input-bearing iterations still intersect, so
+        // a later iteration that captured the pointer disqualifies the batch.
+        let merge_classification =
+            |accumulated: bool, accumulated_had_input: bool, newer: bool, newer_had_input: bool| {
+                match (accumulated_had_input, newer_had_input) {
+                    (true, true) => accumulated && newer,
+                    (true, false) => accumulated,
+                    (false, true) => newer,
+                    (false, false) => false,
+                }
+            };
+        let had_input_before = self.had_input;
+        self.input_pointer_only = merge_classification(
+            self.input_pointer_only,
+            had_input_before,
+            newer.input_pointer_only,
+            newer.had_input,
+        );
+        self.cursor_fast_path = merge_classification(
+            self.cursor_fast_path,
+            had_input_before,
+            newer.cursor_fast_path,
+            newer.had_input,
+        );
         self.had_input |= newer.had_input;
-        // The out-of-band cursor commit fires per input iteration, before
-        // this merge runs, so the accumulated frame's flag reflects only
-        // whether the *latest* iteration qualified — a later iteration that
-        // captured the pointer (button, chrome hover, drag) must not let an
-        // earlier fast-path decision ride along into the render state.
-        self.input_pointer_only &= newer.input_pointer_only;
-        self.cursor_fast_path &= newer.cursor_fast_path;
         self.pending_screenshots.extend(newer.pending_screenshots);
     }
 
@@ -1299,14 +1320,15 @@ impl CompositorRuntime<'_> {
         let cursor_hidden = current_cursor.hidden;
         let cursor_shape = current_cursor.shape;
         // With a KMS cursor plane, plain pointer motion over client content
-        // changes no compositor pixels. Let presentation issue a cursor-only
-        // atomic commit instead of turning every mouse report into a full
+        // changes no compositor pixels (even when the clamped absolute cursor
+        // pins at an output edge during locked 3D camera rotation). Let
+        // presentation issue a cursor-only atomic commit when the visible
+        // sprite moved instead of turning every mouse report into a full
         // Vulkan frame. Chrome hover, drags, client cursor surfaces, locks,
         // and every non-motion input remain conservative full-damage signals.
         let cursor_motion_plain = had_input
             && !non_cursor_input
             && pointer_motion_only
-            && pointer_before != self.input_acc.cursor
             && self.host.supports_hardware_cursor()
             && !session_locked
             && self.server.interactive().is_none()
@@ -1325,6 +1347,8 @@ impl CompositorRuntime<'_> {
         if cursor_plane_only {
             had_input = false;
         }
+        let cursor_fast_path =
+            cursor_plane_only && !cursor_hidden && pointer_before != self.input_acc.cursor;
         if cursor_hidden != self.last_cursor_hidden
             || (!cursor_hidden && cursor_shape != self.last_cursor_shape)
         {
@@ -1443,7 +1467,7 @@ impl CompositorRuntime<'_> {
             cursor_shape,
             had_input,
             input_pointer_only: pointer_motion_only && !non_cursor_input,
-            cursor_fast_path: cursor_plane_only,
+            cursor_fast_path,
             pending_screenshots,
         })
     }
@@ -1508,6 +1532,29 @@ mod tests {
         first.merge(third);
         assert!(first.input_pointer_only);
         assert!(first.cursor_fast_path);
+    }
+
+    /// [INV-ARCH-71]: a non-input wakeup (a page-flip completion, client commit,
+    /// or capture-worker event with `had_input == false`) must not erase an
+    /// earlier iteration's pointer-only classification. Doing so escalated
+    /// plain pointer motion into a full-output composite.
+    #[test]
+    fn test_inv_arch_71_merge_preserves_pointer_only_across_a_non_input_wakeup() {
+        let mut first = frame(
+            tessera_shell::component::Input::new((100.0, 80.0), 0.0),
+            true,
+        );
+        first.input_pointer_only = true;
+        first.cursor_fast_path = true;
+
+        // A wakeup that carried no input at all cannot reclassify the batch.
+        first.merge(frame(
+            tessera_shell::component::Input::new((100.0, 80.0), 0.0),
+            false,
+        ));
+        assert!(first.input_pointer_only);
+        assert!(first.cursor_fast_path);
+        assert!(first.had_input);
     }
 
     #[test]

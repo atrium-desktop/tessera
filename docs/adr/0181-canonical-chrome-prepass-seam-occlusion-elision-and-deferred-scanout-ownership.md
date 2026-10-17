@@ -13,8 +13,9 @@ negative_knowledge: true
 - Status: Accepted
 - Date: 2026-10-15
 - Deciders: Tessera Maintainers & Optics Graphics Team
-- Amends: [ADR-0021](0021-chrome-component-trait.md), [ADR-0101](0101-cursor-plane-commit-independence.md), [ADR-0077](0077-presentation-domain-redraw-state-machine.md), [ADR-0171](0171-chrome-animation-pre-pass-synchronization-and-surface-placement-invariants.md), [ADR-0178](0178-optics-transit-smoothstep-unification-and-chrome-prepass-lifecycle.md), [ADR-0179](0179-zero-redundancy-presentation-pipeline-substepped-motion-and-render-target-bucketing.md), [ADR-0180](0180-single-pass-chrome-fades-backdrop-allocation-decoupling-and-dock-prepass-coherence.md)
+- Amends: [ADR-0021](0021-chrome-component-trait.md), [ADR-0101](0101-dual-presentation-paths-and-conservative-kms-plane-allocation.md), [ADR-0077](0077-presentation-domain-redraw-state-machine.md), [ADR-0171](0171-chrome-animation-pre-pass-synchronization-and-surface-placement-invariants.md), [ADR-0178](0178-optics-transit-smoothstep-unification-and-chrome-prepass-lifecycle.md), [ADR-0179](0179-zero-redundancy-presentation-pipeline-substepped-motion-and-render-target-bucketing.md), [ADR-0180](0180-single-pass-chrome-fades-backdrop-allocation-decoupling-and-dock-prepass-coherence.md)
 - Extends: Optics [ADR-0110](https://github.com/ming2k/optics/blob/main/docs/adr/0110-frame-slot-abandonment-without-ring-advance.md)
+- Amended by: [ADR-0182](0182-fullscreen-frame-pacing-and-direct-scanout-fidelity.md) — schema snapshots (windows, scale, IPC fan-out) now resolve before the plane decision at the top of `render_and_present` rather than after the output pass.
 
 ---
 

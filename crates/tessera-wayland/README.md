@@ -8,6 +8,10 @@ for tessera.
 - Create the Wayland display socket and advertise supported globals.
 - Own protocol objects, surface commits, buffers, seats, clipboard state, and
   extension lifecycles.
+- Own the client buffer-release contract: a `wl_buffer` a presented frame has
+  not sampled is released on the commit that supersedes it, so an uncapped
+  client is never throttled by the compositor's vblank (`[INV-ARCH-70]`,
+  [ADR-0182](../../docs/adr/0182-fullscreen-frame-pacing-and-direct-scanout-fidelity.md)).
 - Own Interaction Domain authority routing, private launch listeners, virtual outputs, and
   read-only observation filtering.
 - Maintain window, focus, workspace, output, interactive move/resize state,
@@ -64,7 +68,7 @@ The executable creates one `Server`, publishes its socket name through
 
 1. Dispatches pending client requests.
 2. Forwards input from `tessera-platform`.
-3. Reads surface and window snapshots for `tessera-render` and `tessera-shell`.
+3. Reads surface and window snapshots for `tessera-composite` and `tessera-shell`.
    Client rendering pairs `client_surface_frames` and
    `client_surface_dmabuf_frames` with the authoritative
    `client_surface_frame_order` so each toplevel, popup, and subsurface tree
@@ -76,6 +80,7 @@ This crate is an integration mechanism, not a standalone server binary.
 ## Related Documentation
 
 - [Architecture](../../docs/explanation/architecture.md)
+- [Fullscreen frame pacing and direct-scanout decision](../../docs/adr/0182-fullscreen-frame-pacing-and-direct-scanout-fidelity.md)
 - [Wayland server decision](../../docs/adr/0002-hand-rolled-wayland-server.md)
 - [Wayland input-method decision](../../docs/adr/0062-wayland-input-method-v2-host-integration.md)
 - [Client surface compositing decision](../../docs/adr/0061-window-tree-atomic-client-surface-compositing.md)

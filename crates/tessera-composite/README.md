@@ -7,6 +7,9 @@ composites the surface tree into the current output frame.
 
 - Upload `wl_shm` pixels and import supported dma-buf buffers.
 - Apply buffer scale, transform, viewport, and subsurface geometry.
+- Evaluate direct-scanout eligibility from physical identity: buffer extent,
+  transform, and origin, plus an identity `wp_viewport` and a
+  destination-space `opaque_region` where one applies.
 - Draw mapped surfaces in compositor z-order.
 - Cache textures by surface generation and release unused GPU resources.
 - Create the flux device configuration required by the compositor.
@@ -40,7 +43,9 @@ wallpaper and chrome around the client scene.
 
 ## Related Documentation
 
-- [Per-frame data flow](../../docs/explanation/architecture.md#per-frame-data-flow)
+- [Per-frame data flow](../../docs/explanation/architecture.md#platform-and-presentation)
+- [Rendering and KMS plane reference](../../docs/reference/rendering.md)
+- [Direct-scanout and frame-pacing decision](../../docs/adr/0182-fullscreen-frame-pacing-and-direct-scanout-fidelity.md)
 - [Client-buffer import decision](../../docs/adr/0004-client-buffers-via-flux-dmabuf-import.md)
 - [Client surface compositing decision](../../docs/adr/0061-window-tree-atomic-client-surface-compositing.md)
 - [Workspace layout](../../docs/dev/project-layout.md)

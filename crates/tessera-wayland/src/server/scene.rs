@@ -68,7 +68,7 @@ impl Server {
     /// [`occluded_window_ids`](Self::occluded_window_ids) for callers that
     /// already hold the presentation-visible window set, so the walk is not
     /// recomputed per consumer.
-    fn occluded_window_ids_with(
+    pub(crate) fn occluded_window_ids_with(
         &self,
         visible: &std::collections::HashSet<tessera_desktop::window::WindowId>,
     ) -> std::collections::HashSet<tessera_desktop::window::WindowId> {
@@ -2027,17 +2027,71 @@ impl Server {
         sent
     }
 
-    /// The last submitted frame reached the presentation backend, so every
-    /// surface's accumulated damage is now represented by the renderer's
-    /// retained texture and the scanout baseline.
-    pub fn acknowledge_presented_surface_damage(&mut self) {
+    /// The last submitted frame reached the presentation backend, so the
+    /// accumulated damage of every surface the frame actually sampled is now
+    /// represented by the renderer's retained texture and the scanout
+    /// baseline, and its latched dma-buf `wl_buffer` is now owned by the
+    /// active presentation epoch.
+    ///
+    /// `sampled` yields the surface resource ids the frame drew or scanned
+    /// out, and `drew_preview_sources` reports whether the frame pulled
+    /// additional surfaces outside that set (overview thumbnails, the window
+    /// switcher's live cards, or the workspace rail's live miniatures).
+    ///
+    /// Marking a surface the frame never sampled (hidden workspace, fully
+    /// occluded, minimized) would wrongly defer its `wl_buffer` to the next
+    /// vblank (`[INV-ARCH-70]`), throttling a client whose commits never reach
+    /// the output. Marking one the frame *did* sample is mandatory: the
+    /// compositor only duplicated the client's dma-buf, so the client must not
+    /// reuse that memory until the frame retires.
+    ///
+    /// When `drew_preview_sources` is set, or `sampled` is empty because the
+    /// client damage pass was skipped, the frame owns buffers the caller cannot
+    /// enumerate; the conservative fallback then marks every surface presented.
+    /// Deferring a buffer one extra frame is always safe, whereas releasing a
+    /// buffer the frame is reading or KMS is scanning out is not.
+    pub fn acknowledge_presented_surface_damage<'a>(
+        &mut self,
+        sampled: impl IntoIterator<Item = &'a usize>,
+        drew_preview_sources: bool,
+    ) {
+        if drew_preview_sources {
+            self.acknowledge_all_presented_surfaces();
+            return;
+        }
+        let mut marked_any = false;
+        for id in sampled {
+            let resource = *id as *mut ffi::wl_resource;
+            if resource.is_null() {
+                continue;
+            }
+            let rec = unsafe { ffi::wl_resource_get_user_data(resource) as *mut SurfaceRec };
+            if rec.is_null() {
+                continue;
+            }
+            marked_any = true;
+            let rec = unsafe { &mut *rec };
+            Self::acknowledge_surface_presented(rec);
+        }
+        if !marked_any {
+            self.acknowledge_all_presented_surfaces();
+        }
+    }
+
+    fn acknowledge_all_presented_surfaces(&mut self) {
         for &p in &self.state.surfaces {
             if p.is_null() {
                 continue;
             }
-            let rec = unsafe { &mut *p };
-            rec.committed_damage.clear();
-            rec.committed_damage_full = false;
+            Self::acknowledge_surface_presented(unsafe { &mut *p });
+        }
+    }
+
+    fn acknowledge_surface_presented(rec: &mut SurfaceRec) {
+        rec.committed_damage.clear();
+        rec.committed_damage_full = false;
+        if !rec.current_buffer.is_null() || !rec.current_explicit_release.is_null() {
+            rec.current_buffer_presented = true;
         }
     }
 

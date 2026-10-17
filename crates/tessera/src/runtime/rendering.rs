@@ -2321,9 +2321,26 @@ mod tests;
 /// windows move), so no cache invalidation tracking is needed beyond the
 /// compositor's own damage (any geometry change already forces a full
 /// repaint through the window signature).
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct ShadowSlotKey {
+    window_w: i32,
+    window_h: i32,
+    scale_bits: u32,
+    activated: bool,
+}
+
+#[derive(Clone, Copy)]
+struct ShadowSlotCache {
+    key: ShadowSlotKey,
+    raw: *mut flux::sys::flux_image,
+    w: f32,
+    h: f32,
+}
+
 struct WindowShadowEntry {
     filter: flux::ShadowFilter,
     masks: Vec<Option<flux::Image>>,
+    cached: Vec<Option<ShadowSlotCache>>,
 }
 
 pub(super) struct WindowShadowRenderer {
@@ -2413,6 +2430,7 @@ impl WindowShadowRenderer {
                     vac.insert(WindowShadowEntry {
                         filter,
                         masks: Vec::new(),
+                        cached: Vec::new(),
                     })
                 }
             };
@@ -2420,10 +2438,38 @@ impl WindowShadowRenderer {
             if entry.masks.len() <= slot {
                 entry.masks.resize_with(slot + 1, || None);
             }
+            if entry.cached.len() <= slot {
+                entry.cached.resize_with(slot + 1, || None);
+            }
             let rebuild = !matches!(
                 &entry.masks[slot],
                 Some(existing) if existing.size().0 == bucket_w && existing.size().1 == bucket_h
             );
+            let key = ShadowSlotKey {
+                window_w: window.size.w,
+                window_h: window.size.h,
+                scale_bits: scale.to_bits(),
+                activated: window.state.activated,
+            };
+            // Shadow mask and Gaussian blur output are in window-local
+            // coordinates and depend only on `(size, scale, activated)`.
+            // Reuse the slot's persistent filter output across steady-state
+            // frames and window translations without re-running the offscreen
+            // mask pass or the 3-pass Gaussian blur compute shaders.
+            if !rebuild
+                && let Some(cached) = entry.cached[slot]
+                && cached.key == key
+            {
+                out.push(RenderedShadow {
+                    window: window.id,
+                    raw: cached.raw,
+                    x: window.position.x as f32 * scale - margin,
+                    y: window.position.y as f32 * scale - margin,
+                    w: cached.w,
+                    h: cached.h,
+                });
+                continue;
+            }
             if rebuild {
                 let Ok(image) = flux::Image::render_target(
                     device,
@@ -2434,6 +2480,7 @@ impl WindowShadowRenderer {
                     continue;
                 };
                 entry.masks[slot] = Some(image);
+                entry.cached[slot] = None;
             }
             let Some(mask) = entry.masks[slot].as_mut() else {
                 continue;
@@ -2488,15 +2535,22 @@ impl WindowShadowRenderer {
                 },
             };
             match entry.filter.apply(frame, mask, params) {
-                Ok(shadow) => out.push(RenderedShadow {
-                    window: window.id,
-                    raw: shadow.as_raw(),
-                    x: window.position.x as f32 * scale - margin,
-                    y: window.position.y as f32 * scale - margin,
-                    w: mask.size().0 as f32,
-                    h: mask.size().1 as f32,
-                }),
+                Ok(shadow) => {
+                    let raw = shadow.as_raw();
+                    let w = mask.size().0 as f32;
+                    let h = mask.size().1 as f32;
+                    entry.cached[slot] = Some(ShadowSlotCache { key, raw, w, h });
+                    out.push(RenderedShadow {
+                        window: window.id,
+                        raw,
+                        x: window.position.x as f32 * scale - margin,
+                        y: window.position.y as f32 * scale - margin,
+                        w,
+                        h,
+                    });
+                }
                 Err(error) => {
+                    entry.cached[slot] = None;
                     log::debug!("window shadow: filter apply failed ({error}); skipping");
                 }
             }

@@ -19,7 +19,7 @@ AI-specific lives out of process, on the other side of the introspection
 IPC. The `tessera-mcp` integration follows this boundary while shipping
 the platform adapter in the same distribution
 ([ADR-0047](../adr/0047-neenee-agent-realm-platform-bridge.md),
-[ADR-0087](../adr/0087-tessera-mcp-standalone-platform-bridge-crate.md)).
+[ADR-0087](../adr/0087-aegis-mcp-standalone-platform-bridge-crate.md)).
 Agent products themselves live out of tree
 ([ADR-0113](../adr/0113-platform-ai-backend-and-agent-product-removal.md)).
 
@@ -29,7 +29,7 @@ The stack, from the rendering layer up:
 |-------|-------|-----------------|
 | Rendering and UI | flux, lens (out of tree) | Vulkan presentation; immediate-mode chrome drawing |
 | The domain | `tessera-primitives`, `tessera-desktop`, `tessera-authority` | Foundational primitives, desktop state, window placements, and authority |
-| The platform | `tessera-wayland`, `tessera-platform`, `tessera-render`, `tessera-shell` | Wayland, presentation, and the chrome host |
+| The platform | `tessera-wayland`, `tessera-platform`, `tessera-composite`, `tessera-shell` | Wayland, presentation, and the chrome host |
 | The seam | `tessera-protocol`, `tessera-ipc` | Versioned messages, transport, clients, and server admission |
 | IPC clients | any number, all equal | Native `tessera` commands, the agent, future bridges |
 | Platform adapter | `tessera-mcp` (separate process and crate) | Scoped Tessera tools and one bridge-managed Agent Interaction Domain over MCP |
@@ -236,7 +236,7 @@ without committing to.
   decision.
 - [ADR-0047](../adr/0047-neenee-agent-realm-platform-bridge.md) — the MCP
   platform bridge that remains outside the compositor.
-- [ADR-0087](../adr/0087-tessera-mcp-standalone-platform-bridge-crate.md) —
+- [ADR-0087](../adr/0087-aegis-mcp-standalone-platform-bridge-crate.md) —
   the bridge as the standalone `tessera-mcp` platform crate.
 - [ADR-0113](../adr/0113-platform-ai-backend-and-agent-product-removal.md) —
   the platform-only scope: AI interfaces and the authority backend, never an

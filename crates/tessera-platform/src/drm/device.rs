@@ -141,6 +141,8 @@ impl DrmBackend {
     pub(super) fn forget_composite_fb_cache(&mut self) {
         self.composite_fb_cache.clear();
         self.composite_fb_reap.clear();
+        self.client_fb_cache.clear();
+        self.client_fb_reap.clear();
         self.composite_fb_epoch = self.composite_fb_epoch.wrapping_add(1);
     }
 
@@ -163,6 +165,24 @@ impl DrmBackend {
             }
         }
         self.composite_fb_reap = keys;
+
+        self.client_fb_reap.clear();
+        self.client_fb_reap
+            .extend(self.client_fb_cache.keys().copied());
+        let client_keys = std::mem::take(&mut self.client_fb_reap);
+        for key in &client_keys {
+            if let Some(entry) = self.client_fb_cache.remove(key) {
+                debug_assert_eq!(entry.users, 0, "destroying a referenced client cache entry");
+                let card = self.card();
+                if let Err(error) = card.destroy_framebuffer(entry.framebuffer) {
+                    log::warn!("DRM: failed to destroy cached client framebuffer: {error}");
+                }
+                if let Err(error) = card.close_buffer(entry.gem) {
+                    log::warn!("DRM: failed to close cached client GEM handle: {error}");
+                }
+            }
+        }
+        self.client_fb_reap = client_keys;
     }
 
     pub(super) fn reap_composite_fb_cache(&mut self) {
@@ -184,6 +204,27 @@ impl DrmBackend {
             }
         }
         self.composite_fb_reap = keys;
+    }
+
+    pub(super) fn reap_client_fb_cache(&mut self) {
+        self.client_fb_reap.clear();
+        self.client_fb_reap
+            .extend(self.client_fb_cache.iter().filter_map(|(key, entry)| {
+                composite_fb_reapable(entry.reusable, entry.users).then_some(*key)
+            }));
+        let keys = std::mem::take(&mut self.client_fb_reap);
+        for key in &keys {
+            if let Some(entry) = self.client_fb_cache.remove(key) {
+                let card = self.card();
+                if let Err(error) = card.destroy_framebuffer(entry.framebuffer) {
+                    log::warn!("DRM: failed to destroy stale cached client framebuffer: {error}");
+                }
+                if let Err(error) = card.close_buffer(entry.gem) {
+                    log::warn!("DRM: failed to close stale cached client GEM handle: {error}");
+                }
+            }
+        }
+        self.client_fb_reap = keys;
     }
 
     fn import_composite_framebuffer(
@@ -381,6 +422,9 @@ impl DrmBackend {
             composite_fb_cache: HashMap::new(),
             composite_fb_epoch: 0,
             composite_fb_reap: Vec::new(),
+            client_fb_cache: HashMap::new(),
+            client_fb_reap: Vec::new(),
+            client_fb_clock: 0,
             cursor_buffers: Vec::new(),
             cursor_state: None,
             cursor_plane_active: false,
@@ -796,16 +840,45 @@ impl DrmBackend {
     }
 
     /// Import a client dma-buf as a DRM framebuffer for direct scanout, reusing
-    /// the same prime-import + add_framebuffer path as the composited export but
-    /// honoring the client's real fourcc, modifier, and (possibly non-zero)
-    /// plane offset. `fd` is a caller-duplicated descriptor (the client keeps
-    /// the original); `acquire_fence` is an optional duplicate sync_file.
+    /// a bounded LRU cache keyed by `(DmabufIdentity, ClientScanoutDesc)` so
+    /// steady-state swapchain rotations avoid per-frame `PRIME_FD_TO_HANDLE` +
+    /// `ADDFB2` + `RMFB` + `GEM_CLOSE` ioctl churn.
     fn import_scanout_client(
-        &self,
+        &mut self,
         fd: std::os::fd::BorrowedFd,
         desc: ClientScanoutDesc,
         acquire_fence: Option<OwnedFd>,
     ) -> Result<Scanout, DrmError> {
+        self.client_fb_clock = self.client_fb_clock.wrapping_add(1);
+        let clock = self.client_fb_clock;
+        let key = dmabuf_identity(fd).ok().map(|identity| ClientFbKey {
+            identity,
+            width: desc.width,
+            height: desc.height,
+            stride: desc.stride,
+            offset: desc.offset,
+            fourcc: desc.format as u32,
+            modifier: u64::from(desc.modifier),
+        });
+
+        if let Some(key) = key
+            && let Some(entry) = self.client_fb_cache.get_mut(&key)
+        {
+            entry.reusable = true;
+            // `users` counts live `Scanout` references; the in-flight frame
+            // bound keeps it far below saturation, so saturating is a
+            // belt-and-braces guard rather than a policy.
+            entry.users = entry.users.saturating_add(1);
+            entry.last_used = clock;
+            return Ok(Scanout {
+                framebuffer: entry.framebuffer,
+                gem: entry.gem,
+                slot: 0,
+                acquire_fence,
+                ownership: ScanoutOwnership::CachedClient(key),
+            });
+        }
+
         let card = self.card();
         let gem = card.prime_fd_to_buffer(fd)?;
         let buffer = ImportedBuffer {
@@ -822,13 +895,49 @@ impl DrmBackend {
             FbCmd2Flags::MODIFIERS
         };
         match card.add_planar_framebuffer(&buffer, flags) {
-            Ok(framebuffer) => Ok(Scanout {
-                framebuffer,
-                gem,
-                slot: 0,
-                acquire_fence,
-                ownership: ScanoutOwnership::TransientClient,
-            }),
+            Ok(framebuffer) => {
+                if let Some(key) = key {
+                    if self.client_fb_cache.len() >= MAX_CLIENT_SCANOUT_FBS {
+                        if let Some(evict_key) = self
+                            .client_fb_cache
+                            .iter()
+                            .filter(|(_, entry)| entry.users == 0 && entry.reusable)
+                            .min_by_key(|(_, entry)| entry.last_used)
+                            .map(|(candidate, _)| *candidate)
+                            && let Some(entry) = self.client_fb_cache.get_mut(&evict_key)
+                        {
+                            entry.reusable = false;
+                        }
+                        self.reap_client_fb_cache();
+                    }
+                    if self.client_fb_cache.len() < MAX_CLIENT_SCANOUT_FBS {
+                        self.client_fb_cache.insert(
+                            key,
+                            CachedClientFb {
+                                framebuffer,
+                                gem,
+                                users: 1,
+                                reusable: true,
+                                last_used: clock,
+                            },
+                        );
+                        return Ok(Scanout {
+                            framebuffer,
+                            gem,
+                            slot: 0,
+                            acquire_fence,
+                            ownership: ScanoutOwnership::CachedClient(key),
+                        });
+                    }
+                }
+                Ok(Scanout {
+                    framebuffer,
+                    gem,
+                    slot: 0,
+                    acquire_fence,
+                    ownership: ScanoutOwnership::TransientClient,
+                })
+            }
             Err(error) => {
                 let _ = card.close_buffer(gem);
                 Err(error.into())
@@ -923,13 +1032,10 @@ impl DrmBackend {
             // this frame instead; Flux imports and waits on the same fence.
             return Err(DrmError::ScanoutUnsupported);
         }
-        // Duplicate the client fd and optional acquire fence: the server owns
-        // the originals, which stay live for future commits.
-        let dup_fd = unsafe { libc::dup(client.fd) };
-        if dup_fd < 0 {
+        if client.fd < 0 {
             return Err(DrmError::ScanoutUnsupported);
         }
-        let owned = unsafe { OwnedFd::from_raw_fd(dup_fd) };
+        let borrowed_fd = unsafe { BorrowedFd::borrow_raw(client.fd) };
         let dup_fence = if client.acquire_fence >= 0 {
             // The duplicate is consumed by KMS through IN_FENCE_FD. Failure to
             // duplicate is a direct-scanout rejection, never permission to
@@ -942,7 +1048,7 @@ impl DrmBackend {
             None
         };
         let scanout = self.import_scanout_client(
-            owned.as_fd(),
+            borrowed_fd,
             ClientScanoutDesc {
                 width: client.width as u32,
                 height: client.height as u32,
@@ -1557,6 +1663,61 @@ mod tests {
         assert_eq!(
             dmabuf_identity(first.as_fd()).unwrap(),
             dmabuf_identity(duplicate.as_fd()).unwrap()
+        );
+    }
+
+    /// [INV-ARCH-70]: the shared framebuffer cache (compositor and client)
+    /// must evict into a bounded working set. An entry is only reapable once it
+    /// is both unreferenced and unreusable, which is what keeps a swapchain
+    /// rotation a cache hit while an evicted entry is still in flight.
+    #[test]
+    fn test_inv_arch_70_scanout_cache_reaps_only_unreferenced_unreusable_entries() {
+        assert!(
+            !composite_fb_reapable(true, 0),
+            "reusable entries must persist"
+        );
+        assert!(
+            !composite_fb_reapable(false, 1),
+            "an in-flight reference must pin the entry"
+        );
+        assert!(!composite_fb_reapable(true, 3));
+        assert!(composite_fb_reapable(false, 0));
+    }
+
+    /// A client direct-scanout cache key must distinguish any two frames whose
+    /// backing layout differs; a partial key would alias two distinct buffers
+    /// onto one KMS framebuffer.
+    #[test]
+    fn client_fb_key_discriminates_layout() {
+        let base = ClientFbKey {
+            identity: DmabufIdentity {
+                device: 7,
+                inode: 3,
+            },
+            width: 1920,
+            height: 1080,
+            stride: 7680,
+            offset: 0,
+            fourcc: DrmFourcc::Argb8888 as u32,
+            modifier: u64::from(DrmModifier::Linear),
+        };
+        assert_ne!(base, ClientFbKey { offset: 64, ..base });
+        assert_ne!(
+            base,
+            ClientFbKey {
+                stride: 4096,
+                ..base
+            }
+        );
+        assert_ne!(
+            base,
+            ClientFbKey {
+                identity: DmabufIdentity {
+                    device: 7,
+                    inode: 4
+                },
+                ..base
+            }
         );
     }
 

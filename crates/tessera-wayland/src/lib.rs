@@ -471,6 +471,11 @@ pub struct SurfaceRec {
     dmabuf: Option<DmabufBuffer>,
     current_buffer: *mut ffi::wl_resource,
     current_explicit_release: *mut ffi::wl_resource,
+    /// True once `current_buffer` has been sampled by a presented frame (or
+    /// retained by a closing transition). An unpresented buffer superseded by
+    /// a newer commit in the same vblank interval is released immediately
+    /// (`[INV-ARCH-70]`), preventing mailbox swapchain starvation.
+    current_buffer_presented: bool,
     explicit_sync: *mut c_void,
     committed_acquire_fence: i32,
     committed_explicit_release: *mut ffi::wl_resource,
@@ -654,6 +659,7 @@ impl SurfaceRec {
             dmabuf: None,
             current_buffer: std::ptr::null_mut(),
             current_explicit_release: std::ptr::null_mut(),
+            current_buffer_presented: false,
             explicit_sync: std::ptr::null_mut(),
             committed_acquire_fence: -1,
             committed_explicit_release: std::ptr::null_mut(),

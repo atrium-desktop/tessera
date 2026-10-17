@@ -7,7 +7,8 @@ Thank you for your interest in contributing to **tessera** (*autonomous surface 
 - **Developer Setup**: Read [Development Setup](docs/dev/setup.md) for build prerequisites, system dependencies, and compiling sibling projects.
 - **Distribution Packaging**: Read [Distribution Packaging](docs/dev/packaging.md) for reproducible source preparation, artifact ownership, and system integration.
 - **Architecture**: Review [Architecture Explanation](docs/explanation/architecture.md) and [Architecture Decision Records (ADRs)](docs/adr/index.md) before proposing structural changes.
-- **Documentation Rules**: Read [Documentation Governance](docs/governance/documentation/core/index.md) before writing or modifying documentation.
+- **Engineering Standards**: Read [Engineering Standards](docs/dev/standards/README.md) before structural changes; it routes to the architecture, invariant, ADR, taxonomy, style, workflow, and postmortem standards.
+- **Documentation Rules**: Read [Documentation Taxonomy](docs/dev/standards/taxonomy.md) and [Style](docs/dev/standards/style.md) before writing or modifying documentation.
 
 ## Workflow & Guidelines
 
@@ -21,6 +22,14 @@ Thank you for your interest in contributing to **tessera** (*autonomous surface 
    - Updates to public interfaces or schemas must update corresponding files in `docs/reference/` and `CHANGELOG.md`.
    - Structural design decisions must be recorded in a new ADR under `docs/adr/` starting from `docs/adr/template.md`.
 
-## Governance Policy Note
+## Documentation & Governance Policy Note
 
-The `docs/governance/documentation/` directory contains documentation governance policy. AI assistants and contributors may read it, but updates to governance policy files are reserved for project maintainers.
+Engineering and documentation standards live in `docs/dev/standards/` as a
+flat, code-aligned suite — architecture, invariants, ADRs, RFCs, taxonomy,
+style, workflow, and postmortems. AI assistants and contributors may read
+them, but updates to the standards themselves are reserved for project
+maintainers.
+
+The machine-checked gates these standards describe are implemented by
+`tooling/xtask` and the CI workflow: package conformity, crate dependency
+boundaries, bootstrap admission, chrome motion purity, formatting, and typos.

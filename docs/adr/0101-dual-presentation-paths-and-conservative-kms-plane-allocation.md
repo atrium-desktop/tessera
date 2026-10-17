@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-08-03
+- Amended by: [ADR-0182](0182-fullscreen-frame-pacing-and-direct-scanout-fidelity.md) — direct-scanout eligibility recognises an identity `wp_viewport` and destination-space `opaque_region`, and client direct-scanout framebuffers are cached rather than re-imported per frame.
 
 ## Context
 
@@ -32,7 +33,7 @@ though keyboard focus remains on the original client until the user commits
 the selection.
 
 For the broader presentation model, see
-[Architecture](../explanation/architecture.md#presentation-plans-and-plane-roles).
+[Architecture](../explanation/architecture.md#platform-and-presentation).
 
 ## Decision
 

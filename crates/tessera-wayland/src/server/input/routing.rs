@@ -391,6 +391,19 @@ impl Server {
         self.windows_in_set(&visible)
     }
 
+    /// Enumerate presentation-visible windows that are not completely covered
+    /// by opaque windows above them. Compositor-owned window shadows consume
+    /// this set so background windows occluded by a fullscreen or maximized
+    /// surface never record offscreen shadow masks or Gaussian blur compute
+    /// passes.
+    pub fn unoccluded_render_windows(&self) -> Vec<tessera_desktop::window::Window> {
+        let visible = self.render_visible();
+        let occluded = self.occluded_window_ids_with(&visible);
+        self.windows_filtered(|s| {
+            visible.contains(&s.window.id) && !occluded.contains(&s.window.id)
+        })
+    }
+
     /// Whether a visible, non-minimized toplevel is fullscreen on the
     /// current workspace. A fullscreen window covers the whole output, so
     /// consumers that only matter "under" client content (the animated

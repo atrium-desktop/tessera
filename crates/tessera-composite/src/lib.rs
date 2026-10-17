@@ -1815,7 +1815,40 @@ impl Renderer {
                     }
                     Some(src) => {
                         let (su, sv, sw, sh) = viewport_uv(src, (tw, th), f.geometry.buffer_scale);
-                        canvas.draw_image_sub(img, x, y, dst_w, dst_h, su, sv, sw, sh);
+                        let can_split =
+                            f.geometry.transform == tessera_primitives::Transform::Normal;
+                        let (opaque, blended) = split_opaque_blit(
+                            (x, y, dst_w, dst_h),
+                            surface_logical,
+                            f.opaque_region,
+                            can_split,
+                        );
+                        for b in &opaque {
+                            canvas.draw_image_opaque_sub(
+                                img,
+                                b.dst_x,
+                                b.dst_y,
+                                b.dst_w,
+                                b.dst_h,
+                                su + sw * b.src_u,
+                                sv + sh * b.src_v,
+                                sw * b.src_du,
+                                sh * b.src_dv,
+                            );
+                        }
+                        for b in &blended {
+                            canvas.draw_image_sub(
+                                img,
+                                b.dst_x,
+                                b.dst_y,
+                                b.dst_w,
+                                b.dst_h,
+                                su + sw * b.src_u,
+                                sv + sh * b.src_v,
+                                sw * b.src_du,
+                                sh * b.src_dv,
+                            );
+                        }
                     }
                     None => {
                         // Split on the client's opaque_region so the pixels it
@@ -2188,7 +2221,40 @@ impl Renderer {
                             // never read as alpha and no framebuffer readback occurs.
                             canvas.draw_image_opaque_sub(img, x, y, dst_w, dst_h, su, sv, sw, sh);
                         } else {
-                            canvas.draw_image_sub(img, x, y, dst_w, dst_h, su, sv, sw, sh);
+                            let can_split =
+                                f.geometry.transform == tessera_primitives::Transform::Normal;
+                            let (opaque, blended) = split_opaque_blit(
+                                (x, y, dst_w, dst_h),
+                                surface_logical,
+                                f.opaque_region.as_deref(),
+                                can_split,
+                            );
+                            for b in &opaque {
+                                canvas.draw_image_opaque_sub(
+                                    img,
+                                    b.dst_x,
+                                    b.dst_y,
+                                    b.dst_w,
+                                    b.dst_h,
+                                    su + sw * b.src_u,
+                                    sv + sh * b.src_v,
+                                    sw * b.src_du,
+                                    sh * b.src_dv,
+                                );
+                            }
+                            for b in &blended {
+                                canvas.draw_image_sub(
+                                    img,
+                                    b.dst_x,
+                                    b.dst_y,
+                                    b.dst_w,
+                                    b.dst_h,
+                                    su + sw * b.src_u,
+                                    sv + sh * b.src_v,
+                                    sw * b.src_du,
+                                    sh * b.src_dv,
+                                );
+                            }
                         }
                     }
                     None => {

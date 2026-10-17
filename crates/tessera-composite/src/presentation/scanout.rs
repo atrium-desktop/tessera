@@ -234,6 +234,18 @@ pub fn evaluate_scene(facts: ScanoutSceneFacts) -> Result<(), ScanoutRejectReaso
     Ok(())
 }
 
+fn surface_logical_extent(surface: &tessera_primitives::SurfaceDmabuf) -> (i32, i32) {
+    let scale = surface.geometry.buffer_scale.max(1) as f32;
+    match (surface.geometry.viewport_dst, surface.geometry.viewport_src) {
+        (Some(dst), _) => (dst.w.max(1), dst.h.max(1)),
+        (None, Some(src)) => (src.size.w.max(1), src.size.h.max(1)),
+        (None, None) => (
+            (surface.width as f32 / scale).round().max(1.0) as i32,
+            (surface.height as f32 / scale).round().max(1.0) as i32,
+        ),
+    }
+}
+
 fn surface_is_fully_opaque(surface: &tessera_primitives::SurfaceDmabuf) -> bool {
     if tessera_primitives::dmabuf::is_format_opaque(surface.drm_format) {
         return true;
@@ -241,13 +253,8 @@ fn surface_is_fully_opaque(surface: &tessera_primitives::SurfaceDmabuf) -> bool 
     if surface.width <= 0 || surface.height <= 0 {
         return false;
     }
-    let scale = surface.geometry.buffer_scale.max(1) as f32;
-    let logical = tessera_primitives::Rect::new(
-        0,
-        0,
-        (surface.width as f32 / scale).round().max(1.0) as i32,
-        (surface.height as f32 / scale).round().max(1.0) as i32,
-    );
+    let (logical_w, logical_h) = surface_logical_extent(surface);
+    let logical = tessera_primitives::Rect::new(0, 0, logical_w, logical_h);
     surface
         .opaque_region
         .as_deref()
@@ -257,6 +264,7 @@ fn surface_is_fully_opaque(surface: &tessera_primitives::SurfaceDmabuf) -> bool 
 pub fn evaluate_surface(
     surface: &tessera_primitives::SurfaceDmabuf,
     physical_size: (u32, u32),
+    logical_size: (u32, u32),
     plane_supported: bool,
 ) -> Result<(), ScanoutRejectReason> {
     if surface.geometry.transform != tessera_primitives::Transform::Normal {
@@ -265,7 +273,24 @@ pub fn evaluate_surface(
     if surface.geometry.position != (tessera_primitives::Point { x: 0, y: 0 }) {
         return Err(ScanoutRejectReason::NonZeroOrigin);
     }
-    if surface.geometry.viewport_src.is_some() || surface.geometry.viewport_dst.is_some() {
+    // A `wp_viewport` whose source covers the complete physical buffer at
+    // (0, 0) and whose destination equals the complete logical output (the
+    // canonical `wp_fractional_scale_v1` + `wp_viewporter` shape) is a 1:1
+    // physical-buffer-to-plane identity mapping and requires no GPU scaling or
+    // cropping. Sub-buffer crops and non-output destination sizes still route
+    // through the composite path.
+    if let Some(src) = surface.geometry.viewport_src {
+        let scale = surface.geometry.buffer_scale.max(1);
+        let covers_full_buffer = src.origin == (tessera_primitives::Point { x: 0, y: 0 })
+            && src.size.w.saturating_mul(scale) == surface.width
+            && src.size.h.saturating_mul(scale) == surface.height;
+        if !covers_full_buffer {
+            return Err(ScanoutRejectReason::Viewport);
+        }
+    }
+    if let Some(dst) = surface.geometry.viewport_dst
+        && (dst.w <= 0 || dst.h <= 0 || (dst.w as u32, dst.h as u32) != logical_size)
+    {
         return Err(ScanoutRejectReason::Viewport);
     }
     if surface.width <= 0
@@ -289,6 +314,7 @@ pub fn evaluate_surface(
 pub fn plan_scanout(
     facts: ScanoutSceneFacts,
     physical_size: (u32, u32),
+    logical_size: (u32, u32),
     candidate: Option<tessera_primitives::SurfaceDmabuf>,
     plane_supported: bool,
 ) -> PrimaryPlanePlan {
@@ -305,7 +331,8 @@ pub fn plan_scanout(
             plausible_candidate,
         });
     };
-    if let Err(reason) = evaluate_surface(&candidate, physical_size, plane_supported) {
+    if let Err(reason) = evaluate_surface(&candidate, physical_size, logical_size, plane_supported)
+    {
         return PrimaryPlanePlan::composite(ScanoutRejection {
             reason,
             plausible_candidate,
@@ -432,14 +459,20 @@ mod tests {
         // SurfaceDmabuf contains no xdg fullscreen flag: actual output
         // placement, extent, opacity, and plane support are the entire policy.
         assert_eq!(evaluate_scene(eligible_scene()), Ok(()));
-        assert_eq!(evaluate_surface(&surface, (3072, 1920), true), Ok(()));
+        assert_eq!(
+            evaluate_surface(&surface, (3072, 1920), (1536, 960), true),
+            Ok(())
+        );
     }
 
     #[test]
     fn argb_full_opaque_region_is_scanout_eligible() {
         let mut surface = candidate(tessera_primitives::dmabuf::DRM_FORMAT_ARGB8888);
         surface.opaque_region = Some(vec![tessera_primitives::Rect::new(0, 0, 1536, 960)]);
-        assert_eq!(evaluate_surface(&surface, (3072, 1920), true), Ok(()));
+        assert_eq!(
+            evaluate_surface(&surface, (3072, 1920), (1536, 960), true),
+            Ok(())
+        );
     }
 
     #[test]
@@ -447,7 +480,7 @@ mod tests {
         let mut surface = candidate(tessera_primitives::dmabuf::DRM_FORMAT_ARGB8888);
         surface.opaque_region = Some(vec![tessera_primitives::Rect::new(0, 0, 1535, 960)]);
         assert_eq!(
-            evaluate_surface(&surface, (3072, 1920), true),
+            evaluate_surface(&surface, (3072, 1920), (1536, 960), true),
             Err(ScanoutRejectReason::NotFullyOpaque)
         );
     }
@@ -457,8 +490,67 @@ mod tests {
         let mut surface = candidate(tessera_primitives::dmabuf::DRM_FORMAT_XRGB8888);
         surface.width -= 1;
         assert_eq!(
-            evaluate_surface(&surface, (3072, 1920), true),
+            evaluate_surface(&surface, (3072, 1920), (1536, 960), true),
             Err(ScanoutRejectReason::GeometryMismatch)
+        );
+    }
+
+    #[test]
+    fn viewport_identity_full_buffer_to_logical_is_scanout_eligible() {
+        // The canonical fractional-scale shape — the buffer is the full
+        // physical mode, `viewport_src` covers the whole buffer at (0, 0), and
+        // `viewport_dst` equals the complete logical output — is a 1:1 identity
+        // mapping and must scan out directly.
+        let mut surface = candidate(tessera_primitives::dmabuf::DRM_FORMAT_XRGB8888);
+        surface.geometry.buffer_scale = 1;
+        surface.geometry.viewport_src = Some(tessera_primitives::Rect::new(0, 0, 3072, 1920));
+        surface.geometry.viewport_dst = Some(tessera_primitives::Size { w: 1536, h: 960 });
+        assert_eq!(
+            evaluate_surface(&surface, (3072, 1920), (1536, 960), true),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn viewport_sub_buffer_crop_is_rejected() {
+        let mut surface = candidate(tessera_primitives::dmabuf::DRM_FORMAT_XRGB8888);
+        surface.geometry.buffer_scale = 1;
+        surface.geometry.viewport_src = Some(tessera_primitives::Rect::new(0, 0, 3000, 1920));
+        surface.geometry.viewport_dst = Some(tessera_primitives::Size { w: 1536, h: 960 });
+        assert_eq!(
+            evaluate_surface(&surface, (3072, 1920), (1536, 960), true),
+            Err(ScanoutRejectReason::Viewport)
+        );
+    }
+
+    #[test]
+    fn viewport_destination_must_span_the_logical_output() {
+        let mut surface = candidate(tessera_primitives::dmabuf::DRM_FORMAT_XRGB8888);
+        surface.geometry.buffer_scale = 1;
+        surface.geometry.viewport_src = Some(tessera_primitives::Rect::new(0, 0, 3072, 1920));
+        // A destination that does not equal the complete logical output still
+        // requires GPU scaling and must not be scanned out.
+        surface.geometry.viewport_dst = Some(tessera_primitives::Size { w: 1000, h: 960 });
+        assert_eq!(
+            evaluate_surface(&surface, (3072, 1920), (1536, 960), true),
+            Err(ScanoutRejectReason::Viewport)
+        );
+    }
+
+    #[test]
+    fn viewport_argb_opaque_region_maps_through_the_destination() {
+        // An ARGB buffer under `wp_viewport` declares its opaque region in
+        // destination (logical) coordinates; the opacity check must compare
+        // against the viewport destination extent, not the raw buffer extent
+        // divided by `buffer_scale`.
+        let mut surface = candidate(tessera_primitives::dmabuf::DRM_FORMAT_ARGB8888);
+        surface.geometry.buffer_scale = 1;
+        surface.geometry.viewport_src = Some(tessera_primitives::Rect::new(0, 0, 3072, 1920));
+        surface.geometry.viewport_dst = Some(tessera_primitives::Size { w: 1536, h: 960 });
+        surface.opaque_region = Some(vec![tessera_primitives::Rect::new(0, 0, 1536, 960)]);
+        assert_eq!(
+            evaluate_surface(&surface, (3072, 1920), (1536, 960), true),
+            Ok(())
         );
     }
 

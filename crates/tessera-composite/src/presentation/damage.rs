@@ -116,6 +116,13 @@ fn normalize_damage_rects(mut rects: Vec<Rect>) -> Vec<Rect> {
 pub struct AssessedFrameDamage {
     pub output: FrameDamage,
     pub backdrop_source: FrameDamage,
+    /// Resource ids of the client surfaces this assessment sampled. The
+    /// presented frame consumes exactly these surfaces' damage baselines, so
+    /// they — and only they — may be marked presented after a successful
+    /// submission (`[INV-ARCH-70]`). A surface the frame never sampled
+    /// (hidden workspace, fully occluded, minimized) must keep its latched
+    /// `wl_buffer` releasable immediately rather than deferring it to vblank.
+    pub sampled_surface_ids: Vec<usize>,
 }
 
 #[derive(Debug, Clone, Copy)]

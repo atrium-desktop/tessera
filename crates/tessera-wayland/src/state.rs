@@ -100,6 +100,9 @@ impl State {
                     dropped.id
                 );
             }
+            if frame.dmabuf.is_some() {
+                (*rec).current_buffer_presented = true;
+            }
             self.closing_frames.push(frame);
         }
     }
