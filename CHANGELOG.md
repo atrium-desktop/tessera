@@ -12,7 +12,7 @@ project cuts a tagged release.
 > `atrium-desktop/tessera`. Environment variables use the `TESSERA_*` prefix
 > (previously `AEGIS_*`). The bundled cursor theme uses the `Tessera` name.
 
-## [Unreleased]
+## [0.0.77] - 2026-10-17
 
 ### Fixed
 - Fullscreen and uncapped clients no longer have their frame rate throttled by
@@ -48,6 +48,8 @@ project cuts a tagged release.
   repository's real gates: `cargo fmt`, `crate-ci/typos`, and the `xtask`
   `package-conformity`, `check-boundaries`, `check-bootstrap-admission`, and
   `check-motion` checks.
+- Adopted Optics `v0.0.60` whose deferred dma-buf acquire transition recycles its
+  graphics-family command pool instead of recreating it per import.
 
 ## [0.0.76] - 2026-10-16
 
