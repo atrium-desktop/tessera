@@ -12,7 +12,7 @@ project cuts a tagged release.
 > `atrium-desktop/tessera`. Environment variables use the `TESSERA_*` prefix
 > (previously `AEGIS_*`). The bundled cursor theme uses the `Tessera` name.
 
-## [Unreleased]
+## [0.0.78] - 2026-10-24
 
 ### Changed
 - Automatic output scale is integral (ADR-0184). The recommendation now picks
