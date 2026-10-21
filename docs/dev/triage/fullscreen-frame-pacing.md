@@ -77,7 +77,8 @@ historically over-conservative and had to be narrowed
   `not-fully-opaque` and falls back to compositing.
 
 - **Owner**: `crates/tessera-composite/src/presentation/scanout.rs`
-  (`evaluate_surface`, `surface_is_fully_opaque`, `surface_logical_extent`).
+  (`evaluate_surface`, `surface_is_fully_opaque`), which delegates extent and
+  opacity to `tessera_desktop::presentation::SurfacePresentation`.
 - **Failure Mode**: The path built for fullscreen games never engages for the
   clients that use it, so the compositor pays a full GPU composite every frame.
 
@@ -90,9 +91,10 @@ not run.
 
 - **Wallpaper**: `begin_desktop_output` elides both the 2D background and the 3D
   model pass when `wallpaper_occluded`. The wallpaper clock keeps advancing, so
-  unfullscreening resumes in step. The `assess_frame_damage` wallpaper term must
-  stay consistent with this predicate
-  (`!self.server.visible_fullscreen_window()`).
+  unfullscreening resumes in step. The `assess_frame_damage` wallpaper terms
+  must stay consistent with this predicate
+  (`!self.space_use.client_owns_output()` — the frame's single resolved
+  ownership verdict, ADR-0183).
 - **Window shadows**: `Server::unoccluded_render_windows` feeds the shadow pass so
   covered windows never record an offscreen mask or a Gaussian blur dispatch.
   Shadow outputs are reused per frame slot keyed by window-local
@@ -196,13 +198,82 @@ and recreated per import.
 
 ---
 
+## 8. Client Buffers Must Stay On The Physical Grid (ADR-0184)
+
+An output scale is an integer in the protocol. A client that does not bind
+`wp_fractional_scale_v1` — GLFW, Xwayland, most games — renders every surface at
+`ceil(scale)` times its logical extent. Any fractional scale therefore makes
+such a client allocate a buffer larger than the output mode and guarantees
+`geometry-mismatch` at the scanout gate.
+
+- **Owner**: `crates/tessera-desktop/src/output.rs` (`automatic_scale`),
+  `crates/tessera-wayland/src/protocol/output.rs` (`integer_output_scale`),
+  `crates/tessera-wayland/src/server/window_manager.rs` (fractional override
+  warning).
+- **Failure Mode**: The client renders 1.78× (150%) or 2.56× (125%) the pixels
+  of the mode, downsamples to the output, and is composited forever. The one
+  symptom that identifies it immediately is the client's own reported render
+  resolution exceeding the mode.
+- **Do not** "fix" this by scaling a plane: primary-plane scaling is not
+  universally supported, its filter quality is driver-specific, and the client
+  still pays the fill-rate tax.
+
+## 9. Presentation Ownership Is Geometric (ADR-0183)
+
+`xdg_toplevel.set_fullscreen` is a request. GLFW's Wayland backend — what
+Minecraft and most games ship — emulates fullscreen by resizing to the monitor
+and never sends it. Chrome stand-down, the wallpaper pause, and therefore
+direct-scanout eligibility are resolved from *physical* ownership: a visible,
+opaque surface covering an output.
+
+- **Owner**: `crates/tessera-desktop/src/presentation.rs`
+  (`SurfacePresentation::owns`), `crates/tessera-desktop/src/window.rs`
+  (`SpaceUse::resolve`, which restricts geometric ownership to self-placed,
+  non-maximized windows so auto-hidden work areas cannot stand chrome down for
+  every maximized window), `crates/tessera-wayland/src/server/input/routing.rs`
+  (`Server::space_use`, the single per-frame producer),
+  `crates/tessera-shell/src/lib.rs` (`Shell::set_space_use`).
+- **Failure Mode**: If ownership regresses to the state bit, a borderless game
+  keeps the HUD's glass and blur, the wallpaper, and the backdrop capture every
+  frame, and reports `direct scanout blocked (live-backdrop-effect)` with a
+  perfectly eligible buffer.
+- **Diagnostic**: `tessera window` shows the window's `fullscreen` flag; if it
+  is false *and* scanout is blocked by a shell/backdrop reason, ownership
+  resolution is the suspect, not the client.
+
+## 10. Multi-Output: One Union Presentation Domain (ADR-0185, draft)
+
+The DRM backend renders one framebuffer spanning the union of all outputs and
+commits every CRTC in one atomic batch.
+
+- **Owner**: `crates/tessera-platform/src/drm/output.rs` (`DisplaySet::size`,
+  horizontal layout), `crates/tessera-platform/src/drm/device.rs`
+  (`commit_scanout`, `pending_flips`),
+  `crates/tessera/src/runtime/presentation.rs` (`physical_size =
+  surface.size()`).
+- **Failure Mode (eligibility)**: With a second output attached, a covering
+  client's buffer is the size of *its* mode, never the union, so
+  `evaluate_surface` rejects it `geometry-mismatch` (or `non-zero-origin` on the
+  second output) on every frame. Direct scanout is unreachable, not unlikely.
+- **Failure Mode (pacing)**: The batch retires only when the slowest CRTC flips,
+  so a 165 Hz primary beside a 60 Hz secondary presents at 60 Hz.
+- **Do not** apply a partial fix (per-output plane assignment without per-plane
+  framebuffer reference counting): the `current`/`retiring` pair is sound only
+  because all CRTCs flip together, and a partial commit destroys that argument.
+
+---
+
 ## Quick Symptom-to-Root-Cause Matrix
 
 | Observed Symptom | Primary Suspect | Where to Inspect |
 |------------------|-----------------|------------------|
 | Fullscreen game pinned to the refresh rate (or half) with V-Sync off | A superseded `wl_buffer` deferred to vblank (`[INV-ARCH-70]`), or a blanket acknowledgement throttling a hidden/occluded client | `crates/tessera-wayland/src/protocol/compositor.rs` (`retire_surface_buffer`), `crates/tessera-wayland/src/server/scene.rs` (`acknowledge_presented_surface_damage`) |
 | `direct scanout blocked` with `viewport`, `not-fully-opaque`, or `geometry-mismatch` for a fullscreen game | Identity `wp_viewport` or destination-space `opaque_region` mishandled | `crates/tessera-composite/src/presentation/scanout.rs` (`evaluate_surface`, `surface_is_fully_opaque`) |
-| Fullscreen client's F3 render resolution exceeds the physical mode | `wl_output.scale` rounding (`ceil`) or a non-`1.0` fractional scale driving the logical configure | `crates/tessera-wayland/src/protocol/output.rs` (`integer_output_scale`), `crates/tessera-wayland/src/protocol/xdg_shell.rs` (`apply_state_geometry`) |
+| Fullscreen client's F3 render resolution exceeds the physical mode | `wl_output.scale` rounding (`ceil`) or a fractional automatic scale driving the logical configure (ADR-0184) | `crates/tessera-desktop/src/output.rs` (`automatic_scale`), `crates/tessera-wayland/src/protocol/output.rs` (`integer_output_scale`), `crates/tessera-wayland/src/protocol/xdg_shell.rs` (`apply_state_geometry`) |
+| `direct scanout blocked (live-backdrop-effect)` while the client fills the output and reports `fullscreen = false` | Chrome stand-down keyed on the state bit instead of physical ownership (ADR-0183) | `crates/tessera-wayland/src/server/input/routing.rs` (`Server::space_use`), `crates/tessera-desktop/src/presentation.rs` (`SurfacePresentation::owns`) |
+| `direct scanout blocked (geometry-mismatch)` / `(non-zero-origin)` only when a second display is connected | Union presentation domain: eligibility is measured against the union, not the candidate's output (ADR-0185, not yet implemented) | `crates/tessera-platform/src/drm/output.rs` (`DisplaySet::size`), `crates/tessera/src/runtime/presentation.rs` (`physical_size`) |
+| The client renders steadily but presentation beats against a fixed vblank (visible judder at 55–90 fps) | No VRR support: the backend never programs `VRR_ENABLED` and never uses async flips, so every frame snaps to the fixed refresh interval | `crates/tessera-platform/src/drm/` (no VRR property is discovered or set; a separate decision) |
+| Frame rate pinned to the slowest connected display's refresh rate | One atomic batch spans every CRTC and the domain retires only when the last flips (ADR-0185, not yet implemented) | `crates/tessera-platform/src/drm/device.rs` (`commit_scanout`, `pending_flips`) |
 | Compositor GPU busy on a frame that is entirely a fullscreen client | Wallpaper or occluded-window shadow/blur not elided | `crates/tessera/src/runtime/presentation.rs` (`wallpaper_occluded`), `crates/tessera/src/runtime/rendering.rs` (`WindowShadowRenderer::prepare`) |
 | Steady per-frame KMS ioctl traffic under direct scanout | Client framebuffer cache miss (identity unknown, or unbounded eviction) | `crates/tessera-platform/src/drm/device.rs` (`import_scanout_client`, `reap_client_fb_cache`) |
 | One-frame flicker on entering fullscreen | Scene snapshots pushed after the plane decision | `crates/tessera/src/runtime/presentation.rs` (`sync_shell_and_ipc_snapshots` call order) |

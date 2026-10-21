@@ -684,7 +684,24 @@ impl Dock {
 
     /// Retain workspace windows.
     pub fn update_windows(&mut self, windows: &[Window]) {
-        let space_use = SpaceUse::from_windows(windows);
+        let Some(display) = self.last_display else {
+            return;
+        };
+        // Obscuration is geometric and independent of who owns the output, so it
+        // is recomputed on every window snapshot. While a client owns the output
+        // the Dock is locked out and the flag is *cleared* rather than frozen: a
+        // stale `true` would survive the ownership release and suppress the
+        // restore path in `set_space_use`.
+        let obscured = !self.fullscreen_locked() && self.obscured_by_windows(windows, display);
+        self.set_dock_obscured(obscured);
+    }
+
+    /// Adopt the server-resolved space use (ADR-0183).
+    ///
+    /// The Dock never infers this from the window snapshot: a window that
+    /// covers the output without declaring `xdg_toplevel.set_fullscreen` owns
+    /// the presentation just like one that did.
+    pub fn apply_space_use(&mut self, space_use: SpaceUse) {
         self.set_space_use(space_use);
         if space_use == SpaceUse::Fullscreen {
             self.dismiss_transient_ui();
@@ -696,12 +713,6 @@ impl Dock {
             self.hidden_trigger_armed = false;
             self.collapse_pending = false;
             self.anim_active = false;
-            return;
-        }
-
-        if let Some(display) = self.last_display {
-            let obscured = self.obscured_by_windows(windows, display);
-            self.set_dock_obscured(obscured);
         }
     }
 

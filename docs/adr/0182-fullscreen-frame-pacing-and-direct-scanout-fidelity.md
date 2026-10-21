@@ -14,6 +14,7 @@ negative_knowledge: true
 - Date: 2026-10-17
 - Deciders: Tessera Maintainers & Optics Graphics Team
 - Amends: [ADR-0077](0077-presentation-domain-redraw-state-machine.md), [ADR-0101](0101-dual-presentation-paths-and-conservative-kms-plane-allocation.md), [ADR-0130](0130-stream-paced-presentation-and-scanout-exclusion.md), [ADR-0134](0134-compositor-driven-fullscreen-for-any-toplevel.md), [ADR-0179](0179-zero-redundancy-presentation-pipeline-substepped-motion-and-render-target-bucketing.md), [ADR-0181](0181-canonical-chrome-prepass-seam-occlusion-elision-and-deferred-scanout-ownership.md)
+- Amended by: [ADR-0183](0183-geometric-output-ownership.md) — the chrome stand-down and wallpaper pause are keyed on resolved physical ownership, not the fullscreen state bit; [ADR-0184](0184-integral-automatic-output-scale.md) — the automatic scale no longer produces buffers that miss the mode extent.
 - Extends: Optics [ADR-0110](https://github.com/ming2k/optics/blob/main/docs/adr/0110-frame-slot-abandonment-without-ring-advance.md)
 
 ---
@@ -357,11 +358,6 @@ signature check ahead of it.
   per frame for the workload under test.
 - Shadow-output reuse depends on `(size, scale, activated)` fully describing
   the shadow; a future per-window shadow parameter (e.g. a live blur radius
-  animation) must extend `ShadowSlotKey` or the cache will serve a stale mask.
-- The `wallpaper_occluded` predicate is hand-maintained like
-  `[INV-ARCH-65]`'s consumer list; a new scene-sampling surface under a
-  fullscreen occluder must be added to it.
-ow shadow parameter (e.g. a live blur radius
   animation) must extend `ShadowSlotKey` or the cache will serve a stale mask.
 - The `wallpaper_occluded` predicate is hand-maintained like
   `[INV-ARCH-65]`'s consumer list; a new scene-sampling surface under a

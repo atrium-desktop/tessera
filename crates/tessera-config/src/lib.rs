@@ -754,6 +754,13 @@ pub struct OutputConfig {
     pub connector: String,
     /// Output scale factor. Integer scales advertise through `wl_output`;
     /// fractional scales through `wp_fractional_scale_v1`.
+    ///
+    /// A fractional override is a *user* decision with a cost the compositor
+    /// cannot remove: clients that do not bind `wp_fractional_scale_v1` render
+    /// at `ceil(scale)` times their logical extent (1.78x the pixels at 150%)
+    /// and their buffers can never match the output mode, so direct scanout is
+    /// unavailable for them (ADR-0184). The automatic default never produces a
+    /// fractional scale for exactly that reason.
     #[serde(default)]
     pub scale: Option<f64>,
     /// Requested display mode: `"WxH"` or `"WxH@Hz"` (e.g.

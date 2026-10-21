@@ -10,6 +10,7 @@ pub mod night_light;
 pub mod notify;
 pub mod output;
 pub mod power;
+pub mod presentation;
 pub mod settings;
 pub mod system;
 pub mod transition;

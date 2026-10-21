@@ -10,10 +10,8 @@ fn escape() -> KeyChar {
     }
 }
 
-fn fullscreen_window() -> Window {
-    let mut window = Window::new(tessera_desktop::window::WindowId(7));
-    window.state.fullscreen = true;
-    window
+fn client_owns_output() -> tessera_desktop::window::SpaceUse {
+    tessera_desktop::window::SpaceUse::Fullscreen
 }
 
 #[test]
@@ -200,7 +198,7 @@ fn a_fullscreen_window_closes_the_panel() {
     panel.toggle_command_panel(&mut out);
     panel.menu_open_for = Some("org.example.Tray".to_string());
 
-    panel.update_windows(&[fullscreen_window()]);
+    panel.update_space_use(client_owns_output());
     assert!(!panel.open);
     assert!(panel.menu_open_for.is_none());
     // The panel keeps the chrome layer for the ring drain after closing, then

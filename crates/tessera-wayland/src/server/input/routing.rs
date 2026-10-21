@@ -404,26 +404,48 @@ impl Server {
         })
     }
 
-    /// Whether a visible, non-minimized toplevel is fullscreen on the
-    /// current workspace. A fullscreen window covers the whole output, so
-    /// consumers that only matter "under" client content (the animated
-    /// wallpaper) can suspend their work while this is true — the pixels
-    /// cannot reach the display until the window unfullscreens.
+    /// Resolve who presents the outputs for this frame (ADR-0183).
     ///
-    /// Cheaper than [`Self::render_windows`]: no `Window` clones, just the
-    /// visible-set check over live surfaces.
-    pub fn visible_fullscreen_window(&self) -> bool {
+    /// A visible, non-minimized toplevel owns the presentation when its
+    /// committed surface covers an output and is opaque, or when it declared
+    /// `xdg_toplevel.set_fullscreen`. Chrome space policy
+    /// ([`SpaceUse`](tessera_desktop::window::SpaceUse)), wallpaper suspension,
+    /// and direct-scanout eligibility all consume this one verdict; none of
+    /// them re-derive it.
+    ///
+    /// Cheaper than [`Self::render_windows`]: no `Window` clones, one walk over
+    /// live surfaces that short-circuits on the first owner.
+    pub fn space_use(&self) -> tessera_desktop::window::SpaceUse {
         let visible = self.visible();
-        self.state.live_surfaces().any(|pointer| {
-            // SAFETY: `live_surfaces` yields non-null records owned by this
-            // single-threaded server for the duration of the call.
-            let surface = unsafe { &*pointer };
-            !surface.xdg_toplevel.is_null()
-                && surface.mapped
-                && !surface.window.minimized
-                && surface.window.state.fullscreen
-                && visible.contains(&surface.window.id)
-        })
+        // The presented output geometry — the same rect the occlusion walk,
+        // hit testing, and tiling use. `output_infos` also carries connectors
+        // whose configured positions the compositor does not lay out (ADR-0185),
+        // so testing them would invent an owner the compositor never presents.
+        let output = self.output_logical_rect();
+        tessera_desktop::window::SpaceUse::resolve(self.state.live_surfaces().filter_map(
+            |pointer| {
+                // SAFETY: `live_surfaces` yields non-null records owned by this
+                // single-threaded server for the duration of the call.
+                let surface = unsafe { &*pointer };
+                // Exactly the set chrome is shown: presentation-visible and
+                // observed by the human Interaction Domain. A window handed to
+                // another domain is not the human's presentation and must not
+                // stand the human's chrome down.
+                (surface.mapped
+                    && !surface.xdg_toplevel.is_null()
+                    && visible.contains(&surface.window.id)
+                    && self.state.authority.interaction_domain_observes_window(
+                        HUMAN_INTERACTION_DOMAIN,
+                        surface.window.id,
+                    ))
+                .then(|| {
+                    tessera_desktop::window::SpaceOccupant::new(
+                        &surface.window,
+                        surface_owns_an_output(surface, output),
+                    )
+                })
+            },
+        ))
     }
 
     /// Enumerate every mapped toplevel across all workspaces, not just the

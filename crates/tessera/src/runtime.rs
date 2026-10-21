@@ -1003,7 +1003,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     );
     // Signature of the last broadcast window set, used to detect changes.
     let last_win_sig: Option<WindowEventSignature> = None;
-    let last_space_use = None;
+    let space_use = tessera_desktop::window::SpaceUse::default();
+    let published_space_use = None;
     // Content hashes/revisions of the last fanned-out snapshots. The frame
     // loop rebuilds the owned snapshots only when these move; chrome and IPC
     // keep the previously pushed copy otherwise.
@@ -1170,7 +1171,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         live,
         ipc,
         last_win_sig,
-        last_space_use,
+        space_use,
+        published_space_use,
         last_windows_hash,
         last_all_windows_hash,
         last_ws_sig,

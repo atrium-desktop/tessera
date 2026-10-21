@@ -465,6 +465,11 @@ pub struct SurfaceRec {
     /// True when the committed content is a dma-buf (`dmabuf` holds it),
     /// false when it is the CPU-copied `pixels` from shm.
     content_is_dmabuf: bool,
+    /// Whether the committed shm buffer was an XRGB format, whose padding byte
+    /// is forced opaque at ingest. shm pixels are stored as BGRA8 without a
+    /// format tag, so this is the only record that the content cannot show
+    /// anything through (ADR-0183).
+    shm_opaque: bool,
     /// Compositor-owned duplicate of the committed dma-buf metadata and fd.
     /// The client wl_buffer is released immediately after this duplicate is
     /// made, so its later destruction cannot leave a dangling resource ptr.
@@ -656,6 +661,7 @@ impl SurfaceRec {
             pixels: Vec::new(),
             generation: 0,
             content_is_dmabuf: false,
+            shm_opaque: false,
             dmabuf: None,
             current_buffer: std::ptr::null_mut(),
             current_explicit_release: std::ptr::null_mut(),
@@ -726,23 +732,42 @@ impl SurfaceRec {
     }
 }
 
+/// The committed presentation declaration of one surface (ADR-0183).
+///
+/// The single server-side construction site for
+/// [`tessera_desktop::presentation::SurfacePresentation`]; every extent query,
+/// hit test, occlusion test, and the ownership scan read the rules from that
+/// type instead of re-deriving them from `SurfaceRec` fields.
+pub(crate) fn surface_presentation(
+    surface: &SurfaceRec,
+) -> tessera_desktop::presentation::SurfacePresentation<'_> {
+    tessera_desktop::presentation::SurfacePresentation {
+        position: surface_draw_origin(surface),
+        buffer: tessera_primitives::Size {
+            w: surface.width,
+            h: surface.height,
+        },
+        buffer_scale: surface.buffer_scale,
+        transform: surface.buffer_transform,
+        viewport_src: surface.viewport_src,
+        viewport_dst: surface.viewport_dst,
+        // A dma-buf vouches through its DRM format; an XRGB shm commit is
+        // opaque because the compositor forced every padding byte to 0xff at
+        // ingest, and any other shm format genuinely carries alpha.
+        format_opaque: if surface.content_is_dmabuf {
+            surface.dmabuf.as_ref().is_some_and(|dmabuf| {
+                tessera_primitives::dmabuf::is_format_opaque(dmabuf.drm_format)
+            })
+        } else {
+            surface.shm_opaque
+        },
+        opaque_region: surface.opaque_region.as_deref(),
+    }
+}
+
 fn surface_logical_size(surface: &SurfaceRec) -> tessera_primitives::Size {
-    if let Some(destination) = surface.viewport_dst {
-        return destination;
-    }
-    let scale = surface.buffer_scale.max(1) as f32;
-    if let Some(source) = surface.viewport_src {
-        return source.size;
-    }
-    let (width, height) = if surface.buffer_transform.swap_axes() {
-        (surface.height, surface.width)
-    } else {
-        (surface.width, surface.height)
-    };
-    tessera_primitives::Size {
-        w: (width as f32 / scale).round().max(1.0) as i32,
-        h: (height as f32 / scale).round().max(1.0) as i32,
-    }
+    let (w, h) = surface_presentation(surface).logical_extent();
+    tessera_primitives::Size { w, h }
 }
 
 fn intersect_rect(
@@ -828,6 +853,18 @@ fn surface_draw_origin_depth(surface: &SurfaceRec, depth: u32) -> tessera_primit
         },
         None => surface.position,
     }
+}
+
+/// Whether the surface's committed content alone presents `output`: it must
+/// cover that output completely and must not let anything behind it show
+/// through (ADR-0183). Delegates the extent and opacity rules to
+/// [`tessera_desktop::presentation::SurfacePresentation`] so the server and the
+/// compositor cannot drift.
+pub(crate) fn surface_owns_an_output(
+    surface: &SurfaceRec,
+    output: tessera_primitives::Rect,
+) -> bool {
+    surface_presentation(surface).owns(output)
 }
 
 /// Whether compositor-space `(x, y)` lands on the surface: inside its rect

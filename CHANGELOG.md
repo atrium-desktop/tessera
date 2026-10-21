@@ -12,6 +12,33 @@ project cuts a tagged release.
 > `atrium-desktop/tessera`. Environment variables use the `TESSERA_*` prefix
 > (previously `AEGIS_*`). The bundled cursor theme uses the `Tessera` name.
 
+## [Unreleased]
+
+### Changed
+- Automatic output scale is integral (ADR-0184). The recommendation now picks
+  the largest integer step in 1–4 whose logical density stays at or above
+  105 PPI (internal) / 80 PPI (external), which yields 100% for ordinary
+  panels and 200% for dense ones. Fractional automatic scales made every client without
+  `wp_fractional_scale_v1` — GLFW, Xwayland, most games — render at
+  `ceil(scale)` times the physical grid (1.78× the pixels at 150%, 2.56× at
+  125%) and permanently disqualified those buffers from direct scanout. A
+  configured fractional `[[output]] scale` is still honoured and now logs the
+  concrete cost, including the integer multiplier legacy clients will use.
+- Presentation ownership is resolved from physical coverage instead of the
+  `xdg_toplevel.set_fullscreen` bit (ADR-0183). A visible, opaque window that
+  covers an output owns its presentation, so the HUD/Dock stand down, the
+  wallpaper suspends, and the frame becomes direct-scanout eligible even when
+  the client emulates fullscreen by resizing (GLFW's Wayland backend, which is
+  what most games ship). `SpaceUse::from_windows` is gone: the server resolves
+  `Server::space_use()` once per frame and chrome consumes it as
+  `ChromeUpdate::SpaceUse`.
+- `crates/tessera-composite` no longer carries its own surface-extent and
+  opacity rules; both delegate to `tessera_desktop::presentation::SurfacePresentation`,
+  which the server uses for ownership resolution too.
+
+### Fixed
+- Corrected a duplicated, truncated paragraph at the end of ADR-0182.
+
 ## [0.0.77] - 2026-10-17
 
 ### Fixed

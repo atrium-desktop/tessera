@@ -123,7 +123,7 @@ impl CompositorRuntime<'_> {
             // the display at the animation's frame rate. The source still
             // advances its wall clock, so unfullscreening resumes in step.
             || (!session_locked
-                && !self.server.visible_fullscreen_window()
+                && !self.space_use.client_owns_output()
                 && self
                     .wallpaper
                     .as_ref()
@@ -165,7 +165,7 @@ impl CompositorRuntime<'_> {
             || session_locked != self.damage.last_session_locked
             || self.server.workspace_slide_pending()
             || (!session_locked
-                && !self.server.visible_fullscreen_window()
+                && !self.space_use.client_owns_output()
                 && self.wallpaper.as_ref().is_some_and(|w| {
                     w.has_model()
                         || w.next_frame_in()

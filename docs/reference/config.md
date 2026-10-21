@@ -475,16 +475,27 @@ connector appears. Duplicate entries for one connector resolve
 last-wins.
 
 Direct DRM sessions calculate the backend scale automatically from the
-selected mode and validated EDID physical dimensions. Internal eDP, LVDS,
-and DSI panels target 125 logical PPI; external displays target 110 logical
-PPI. The result is rounded to the nearest 0.25 and clamped to 1.0–4.0.
+selected mode and validated EDID physical dimensions. The recommendation is
+always an **integer** (ADR-0184): the ladder picks the largest step in 1–4
+whose resulting logical density stays at or above 105 PPI for internal eDP,
+LVDS, and DSI panels, or 80 PPI for external displays. That produces 100% for
+ordinary panels and 200% for dense ones — the mainstream desktop defaults.
 Missing, inconsistent, or implausible physical dimensions fall back to 1.0.
 Nested sessions retain the scale reported by the outer compositor.
+
+An integer recommendation is not a cosmetic choice. `wl_output.scale` is an
+integer, and any client that does not bind `wp_fractional_scale_v1` — GLFW (and
+therefore most games), Xwayland, and every toolkit that has not adopted
+fractional scale — renders at `ceil(scale)` times its logical extent. A
+fractional recommendation would make those clients allocate a buffer larger
+than the output mode (1.78× the pixels at 150%, 2.56× at 125%) and would leave
+that buffer geometrically unable to match the mode, so direct scanout could
+never engage for them.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `connector` | string | required | The backend's connector name, as shown by `tessera display` (e.g. `"DP-1"`, `"HDMI-A-1"`, `"nested"`). |
-| `scale` | float | automatic on DRM; host-reported when nested | Output scale override, 0.25–4.0. Integer scales advertise through `wl_output`; fractional scales through `wp_fractional_scale_v1`. Applied live on reload. |
+| `scale` | float | automatic on DRM; host-reported when nested | Output scale override, 0.25–4.0. Integer scales advertise through `wl_output`; fractional scales through `wp_fractional_scale_v1`. A fractional override logs a warning: clients without `wp_fractional_scale_v1` render at `ceil(scale)` and cannot be scanned out directly. Applied live on reload. |
 | `mode` | string | highest pixel count and refresh rate | Requested display mode, `"WxH"` or `"WxH@Hz"` (e.g. `"2560x1440@144"`). Without `@Hz` the highest-refresh mode of that size is used. A mode the connector does not advertise falls back to the highest-pixel mode at its highest refresh rate with a log warning. Direct DRM sessions apply changes live after the current page flip retires; nested sessions remain host-managed. |
 | `position` | table | backend arrangement | Top-left of the output in the global logical layout, written `position = { x = 1920, y = 0 }`. Applied live on reload. |
 | `transform` | string | `normal` | Output transform: `normal`, `90`, `180`, `270`, `flipped`, `flipped-90`, `flipped-180`, `flipped-270` (the `wl_output` underscore spellings are also accepted). Parsed and validated now, but not yet applied: until renderer output-transform support lands, a configured transform logs a warning and the output renders untransformed. |
@@ -497,13 +508,12 @@ Nested sessions retain the scale reported by the outer compositor.
 [[output]]
 connector = "DP-1"
 mode = "2560x1440@144"
-scale = 1.5
 primary = true
 
 [[output]]
 connector = "HDMI-A-1"
 mode = "1920x1080"
-position = { x = 1707, y = 0 }
+position = { x = 2560, y = 0 }
 ```
 
 Run `tessera display` to see the modes each connector advertises; the

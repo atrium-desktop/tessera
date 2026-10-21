@@ -79,6 +79,10 @@ pub struct Shell {
     /// alongside [`Self::windows`] and fanned out as
     /// [`ChromeUpdate::AllWindows`] for workspace-global components (the dock).
     all_windows: Vec<Window>,
+    /// The server-resolved output space use (ADR-0183), fanned out as
+    /// [`ChromeUpdate::SpaceUse`]. Chrome consumes this verdict instead of
+    /// inferring presentation ownership from the window snapshot.
+    space_use: tessera_desktop::window::SpaceUse,
     workspaces: WorkspaceSnapshot,
     i18n: Localizer,
     system_status: SystemStatus,
@@ -125,6 +129,7 @@ impl Shell {
                 ui,
                 windows: Vec::new(),
                 all_windows: Vec::new(),
+                space_use: tessera_desktop::window::SpaceUse::default(),
                 workspaces: WorkspaceSnapshot {
                     outputs: Vec::new(),
                 },
@@ -157,6 +162,7 @@ impl Shell {
         component.update(ChromeUpdate::AppCatalog(&self.catalog));
         component.update(ChromeUpdate::Windows(&self.windows));
         component.update(ChromeUpdate::AllWindows(&self.all_windows));
+        component.update(ChromeUpdate::SpaceUse(self.space_use));
         if let Some(settings) = &self.settings {
             component.update(ChromeUpdate::Settings(settings));
         }
@@ -267,6 +273,18 @@ impl Shell {
         self.all_windows = windows;
         for component in self.components.iter_mut() {
             component.update(ChromeUpdate::AllWindows(&self.all_windows));
+        }
+    }
+
+    /// Adopt the server-resolved output space use for this frame (ADR-0183).
+    ///
+    /// Pushed by the composition root from `Server::space_use()`; chrome never
+    /// derives it, because only the server resolves physical coverage, declared
+    /// opacity, and output layout.
+    pub fn set_space_use(&mut self, space_use: tessera_desktop::window::SpaceUse) {
+        self.space_use = space_use;
+        for component in self.components.iter_mut() {
+            component.update(ChromeUpdate::SpaceUse(space_use));
         }
     }
 

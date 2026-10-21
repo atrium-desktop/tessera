@@ -651,7 +651,24 @@ impl Server {
                 continue;
             };
             if let Some(scale) = policy.scale {
-                output.geometry.scale = tessera_desktop::output::Scale(scale as f32);
+                let configured = tessera_desktop::output::Scale(scale as f32);
+                if configured.as_f32() != configured.as_f32().round() {
+                    // A fractional scale is representable (wp_fractional_scale_v1)
+                    // but every client that does not speak it renders at
+                    // ceil(scale) x its logical extent: a fill-rate tax on the
+                    // whole desktop and a buffer that can never match the output
+                    // mode, so direct scanout is permanently disqualified for
+                    // covering clients. See ADR-0184.
+                    log::warn!(
+                        "[server] output '{}': fractional scale {:.2} makes clients without \
+                         wp_fractional_scale_v1 render at {}x and blocks direct scanout; \
+                         preferred_scale is the only client-opt-in path",
+                        output.connector,
+                        configured.as_f32(),
+                        configured.as_f32().ceil() as i32,
+                    );
+                }
+                output.geometry.scale = configured;
             }
             if let Some(position) = policy.position {
                 output.geometry.logical_origin = position;

@@ -173,7 +173,7 @@ impl CompositorRuntime<'_> {
                 .unwrap_or(MAINTENANCE_INTERVAL)
                 .min(MAINTENANCE_INTERVAL);
         };
-        if self.server.session_locked() || self.server.visible_fullscreen_window() {
+        if self.server.session_locked() || self.space_use.client_owns_output() {
             return stream_wait
                 .unwrap_or(MAINTENANCE_INTERVAL)
                 .min(MAINTENANCE_INTERVAL);

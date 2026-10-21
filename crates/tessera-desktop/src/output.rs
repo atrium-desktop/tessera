@@ -10,10 +10,16 @@
 use tessera_primitives::{Point, Rect, Size, Transform};
 
 const MILLIMETERS_PER_INCH: f32 = 25.4;
-const INTERNAL_TARGET_PPI: f32 = 125.0;
-const EXTERNAL_TARGET_PPI: f32 = 110.0;
-const AUTO_SCALE_STEP: f32 = 0.25;
-const MAX_AUTO_SCALE: f32 = 4.0;
+/// Lowest logical (post-scale) pixel density an automatic recommendation may
+/// produce before it steps up. These floors are the only knob in the ladder:
+/// they bound "the UI got too small", while `MAX_AUTO_SCALE` bounds "the UI
+/// got too large". Internal panels are viewed closer and tolerate a higher
+/// floor; external displays are normally viewed from further away, so they
+/// accept a lower one (which is what makes 4K external panels land on 200%,
+/// the mainstream desktop default, instead of a sub-1.5 fractional step).
+const INTERNAL_MIN_LOGICAL_PPI: f32 = 105.0;
+const EXTERNAL_MIN_LOGICAL_PPI: f32 = 80.0;
+const MAX_AUTO_SCALE: u32 = 4;
 
 /// Physical placement class used to select a comfortable logical density.
 /// Internal panels are normally viewed closer than external displays, so
@@ -184,9 +190,14 @@ impl ColorPipeline {
     }
 }
 
-/// A scale factor. Carries a fractional value so HiDPI hardware that prefers
-/// a non-integer scale (1.5, 1.25) is representable, beyond the integer-only
+/// A scale factor. Carries a fractional value so an explicitly configured
+/// non-integer density (1.5, 1.25) is representable, beyond the integer-only
 /// `wl_surface.set_buffer_scale`. Maps to `wp_fractional_scale_v1`.
+///
+/// [`automatic_scale`] never produces a fractional value: a fractional scale
+/// forces every client that does not speak `wp_fractional_scale_v1` to render
+/// at `ceil(scale)` × its logical extent and disqualifies its buffer from
+/// direct scanout (see that function's contract).
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Scale(pub f32);
@@ -236,22 +247,36 @@ pub fn physical_ppi(mode: OutputMode, physical_size_mm: (u32, u32)) -> Option<f3
 }
 
 /// Recommend an automatic output scale from physical pixel density.
-/// Recommendations use quarter-step fractional scales and never shrink
-/// below 100%. Callers retain an explicit per-output scale as the final
-/// authority and use this only as the hardware-derived default.
+///
+/// Recommendations are **integral only**. An output scale is fundamentally an
+/// integer: `wl_output.scale` is an `i32`, and a client that does not speak
+/// `wp_fractional_scale_v1` renders every surface at `ceil(scale)` × its
+/// logical extent. A fractional recommendation would therefore make such a
+/// client allocate a buffer larger than the output mode (1.78× the pixels at
+/// 1.5, 2.56× at 1.25) — a pure fill-rate tax — and would leave that buffer
+/// geometrically unequal to the mode extent, which permanently disqualifies
+/// it from KMS direct scanout.
+///
+/// The ladder picks the largest integral step whose logical density stays at
+/// or above the display class's floor, never shrinking below 100% and never
+/// exceeding [`MAX_AUTO_SCALE`]. Fractional scales remain representable and
+/// configurable per output (see [`OutputPolicy::scale`]); they are simply
+/// never *recommended*.
 pub fn automatic_scale(
     mode: OutputMode,
     physical_size_mm: (u32, u32),
     kind: OutputKind,
 ) -> Option<Scale> {
     let ppi = physical_ppi(mode, physical_size_mm)?;
-    let target_ppi = match kind {
-        OutputKind::Internal => INTERNAL_TARGET_PPI,
-        OutputKind::External => EXTERNAL_TARGET_PPI,
+    let floor = match kind {
+        OutputKind::Internal => INTERNAL_MIN_LOGICAL_PPI,
+        OutputKind::External => EXTERNAL_MIN_LOGICAL_PPI,
     };
-    let raw = (ppi / target_ppi).clamp(1.0, MAX_AUTO_SCALE);
-    let quantized = (raw / AUTO_SCALE_STEP).round() * AUTO_SCALE_STEP;
-    Some(Scale(quantized.clamp(1.0, MAX_AUTO_SCALE)))
+    let mut scale = 1_u32;
+    while scale < MAX_AUTO_SCALE && ppi / (scale + 1) as f32 >= floor {
+        scale += 1;
+    }
+    Some(Scale(scale as f32))
 }
 
 /// One output's identity + geometry — the wire shape the IPC exposes for an
@@ -458,22 +483,45 @@ mod tests {
     }
 
     #[test]
-    fn automatic_scale_uses_output_kind_and_quarter_steps() {
-        // A typical 15.6-inch 1080p laptop panel is about 141 PPI.
+    fn automatic_scale_uses_output_kind_and_integral_steps() {
+        // A typical 15.6-inch 1080p laptop panel is about 141 PPI: 200% would
+        // drop logical density to 71 PPI, below the internal floor.
         assert_eq!(
             automatic_scale(mode(1920, 1080), (344, 194), OutputKind::Internal),
-            Some(Scale(1.25))
+            Some(Scale(1.0))
         );
         // A 27-inch 4K external display is about 163 PPI and is normally
-        // viewed farther away, yielding a lower target logical density.
+        // viewed farther away, so it steps up to the mainstream 200%.
         assert_eq!(
             automatic_scale(mode(3840, 2160), (598, 336), OutputKind::External),
-            Some(Scale(1.5))
+            Some(Scale(2.0))
         );
         assert_eq!(
             automatic_scale(mode(1920, 1080), (509, 286), OutputKind::External),
             Some(Scale::IDENTITY)
         );
+    }
+
+    #[test]
+    fn test_inv_arch_73_automatic_scale_stays_on_the_integral_grid() {
+        // Sweep a wide PPI range: a fractional recommendation would make every
+        // legacy client render at ceil()x the physical grid and would break the
+        // mode-extent equality direct scanout depends on.
+        for ppi in [60_u32, 90, 109, 130, 141, 163, 190, 220, 250, 282, 340, 440] {
+            for kind in [OutputKind::Internal, OutputKind::External] {
+                let mode = mode(ppi as i32 * 10, ppi as i32 * 10);
+                let mm = 25_400_u64
+                    .checked_div(ppi as u64)
+                    .map(|edge| (edge as u32, edge as u32))
+                    .unwrap();
+                let Some(scale) = automatic_scale(mode, mm, kind) else {
+                    continue;
+                };
+                let raw = scale.as_f32();
+                assert_eq!(raw, raw.round(), "{ppi} PPI {kind:?} -> {raw}");
+                assert!((1.0..=4.0).contains(&raw), "{ppi} PPI {kind:?} -> {raw}");
+            }
+        }
     }
 
     #[test]

@@ -674,7 +674,7 @@ impl CompositorRuntime<'_> {
                         && !self.screenshot_freeze.active()
                         && !self.server.workspace_slide_pending()
                         && !self.server.transitions_pending()
-                        && self.server.visible_fullscreen_window()
+                        && self.space_use.client_owns_output()
                 };
                 let model_active = !wallpaper_occluded
                     && self
@@ -2739,6 +2739,27 @@ impl CompositorRuntime<'_> {
     /// consumes the delta to flag full scene/backdrop damage and then advances
     /// those baselines for both direct-scanout and composited frames.
     fn sync_shell_and_ipc_snapshots(&mut self) {
+        // Resolve presentation ownership before anything else in the frame
+        // (ADR-0183). Chrome is told before it receives the window snapshot, so
+        // a Dock released from ownership recomputes its obscuration against a
+        // verdict that is already current. The verdict is scanned exactly once
+        // and every consumer below reads `self.space_use`.
+        self.space_use = self.server.space_use();
+        if self.published_space_use != Some(self.space_use) {
+            self.published_space_use = Some(self.space_use);
+            self.shell.set_space_use(self.space_use);
+            // The transition itself is unsigned: chrome standing down or back
+            // up neither moves the window signature nor belongs to any client
+            // commit, so without this the HUD's last pixels would survive in
+            // the repaint history (and its returned pixels would never be
+            // drawn) until unrelated damage arrived.
+            self.damage.chrome_dirty = true;
+            if let Some(s) = self.ipc.as_ref() {
+                s.broadcast(tessera_protocol::Event::SpaceUseChanged {
+                    state: self.space_use,
+                });
+            }
+        }
         let windows_hash = self.server.windows_signature();
         if self.last_windows_hash != Some(windows_hash) {
             let win_snapshot = self.server.windows();
@@ -2760,13 +2781,6 @@ impl CompositorRuntime<'_> {
                 self.last_win_sig = Some(sig);
                 if let Some(s) = self.ipc.as_ref() {
                     s.broadcast(tessera_protocol::Event::WindowsChanged);
-                }
-            }
-            let space_use = tessera_desktop::window::SpaceUse::from_windows(&win_snapshot);
-            if self.last_space_use != Some(space_use) {
-                self.last_space_use = Some(space_use);
-                if let Some(s) = self.ipc.as_ref() {
-                    s.broadcast(tessera_protocol::Event::SpaceUseChanged { state: space_use });
                 }
             }
             self.live.set_windows(win_snapshot.clone());

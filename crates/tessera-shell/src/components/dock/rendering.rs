@@ -1245,6 +1245,7 @@ impl Chrome for Dock {
         match update {
             ChromeUpdate::ReducedMotion(reduced) => self.reduced_motion = reduced,
             ChromeUpdate::Windows(windows) => self.update_windows(windows),
+            ChromeUpdate::SpaceUse(space_use) => self.apply_space_use(space_use),
             ChromeUpdate::AllWindows(windows) => self.update_all_windows(windows),
             ChromeUpdate::Scale(scale) => self.scale = scale,
             ChromeUpdate::Appearance(design) => {

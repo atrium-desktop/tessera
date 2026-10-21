@@ -64,10 +64,16 @@ pub struct WindowState {
 /// Strongest way a visible window is consuming the current output's usable
 /// space.
 ///
-/// Maximized and fullscreen are deliberately separate states: maximized
+/// Maximized and fullscreen are deliberately separate classes: maximized
 /// windows still coexist with persistent top chrome and a revealable Dock,
-/// while fullscreen windows own the complete output. Fullscreen has
-/// precedence when several visible windows report different states.
+/// while fullscreen windows own the complete output. Fullscreen has precedence
+/// when several visible windows report different classes.
+///
+/// `Fullscreen` is the *space-use class*, not the `xdg_toplevel` bit: a window
+/// enters it by declaring fullscreen **or** by placing its own geometry over an
+/// output while being opaque (see [`presentation`](crate::presentation) and
+/// ADR-0183). Only the server can resolve that; chrome consumes the pushed
+/// verdict ([`SpaceUse::resolve`]) and never infers it from window snapshots.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -77,24 +83,74 @@ pub enum SpaceUse {
     Available,
     /// At least one visible, non-minimized window is maximized.
     Maximized,
-    /// At least one visible, non-minimized window is fullscreen.
+    /// At least one visible, non-minimized window owns the complete output.
     Fullscreen,
 }
 
+/// One visible window's contribution to [`SpaceUse`].
+///
+/// `covers_output` is the server-resolved ownership verdict for that window
+/// (opaque surface covering an output); it is deliberately a plain bool so the
+/// desktop rule stays free of surface-protocol knowledge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpaceOccupant {
+    pub minimized: bool,
+    pub maximized: bool,
+    /// Whether the window placed its own geometry (`LayoutRole::Floating`)
+    /// rather than being positioned by the tiling policy.
+    pub self_placed: bool,
+    pub fullscreen: bool,
+    pub covers_output: bool,
+}
+
+impl SpaceOccupant {
+    /// Project one window snapshot plus its resolved coverage verdict.
+    #[must_use]
+    pub fn new(window: &Window, covers_output: bool) -> Self {
+        Self {
+            minimized: window.minimized,
+            maximized: window.state.maximized,
+            self_placed: window.layout_role == crate::layout::LayoutRole::Floating,
+            fullscreen: window.state.fullscreen,
+            covers_output,
+        }
+    }
+}
+
 impl SpaceUse {
-    /// Derive output space use from the visible window snapshot delivered to
-    /// shell chrome and IPC consumers.
-    pub fn from_windows(windows: &[Window]) -> SpaceUse {
+    /// Resolve output space use from the visible windows' occupancy facts.
+    ///
+    /// A window owns the output when it declared fullscreen, or when it placed
+    /// *its own* geometry to cover an output and is opaque. The declaration is
+    /// kept because a client that asked for fullscreen owns the presentation
+    /// during the configure round-trip, before its buffer reaches the final
+    /// extent.
+    ///
+    /// Geometric ownership is restricted to self-placed windows on purpose: a
+    /// maximized or tiled window covers the output because the *compositor*
+    /// sized it that way (the work area expands to the full output whenever the
+    /// Dock is auto-hidden), and chrome policy deliberately keeps the HUD for
+    /// those. Only a window that chose to fill the output has taken the output.
+    pub fn resolve(occupants: impl IntoIterator<Item = SpaceOccupant>) -> SpaceUse {
         let mut use_state = SpaceUse::Available;
-        for window in windows.iter().filter(|window| !window.minimized) {
-            if window.state.fullscreen {
+        for occupant in occupants.into_iter().filter(|occupant| !occupant.minimized) {
+            if occupant.fullscreen
+                || (occupant.covers_output && occupant.self_placed && !occupant.maximized)
+            {
                 return SpaceUse::Fullscreen;
             }
-            if window.state.maximized {
+            if occupant.maximized {
                 use_state = SpaceUse::Maximized;
             }
         }
         use_state
+    }
+
+    /// Whether a client owns the output presentation.
+    #[inline]
+    #[must_use]
+    pub fn client_owns_output(self) -> bool {
+        matches!(self, Self::Fullscreen)
     }
 }
 
@@ -476,17 +532,72 @@ mod tests {
     fn visible_space_use_distinguishes_maximized_and_fullscreen() {
         let mut maximized = Window::new(WindowId(1));
         maximized.state.maximized = true;
-        assert_eq!(SpaceUse::from_windows(&[maximized]), SpaceUse::Maximized);
+        assert_eq!(
+            SpaceUse::resolve([SpaceOccupant::new(&maximized, false)]),
+            SpaceUse::Maximized
+        );
 
         let mut fullscreen = Window::new(WindowId(2));
         fullscreen.state.fullscreen = true;
         assert_eq!(
-            SpaceUse::from_windows(&[fullscreen.clone()]),
+            SpaceUse::resolve([SpaceOccupant::new(&fullscreen, false)]),
             SpaceUse::Fullscreen
         );
 
         fullscreen.minimized = true;
-        assert_eq!(SpaceUse::from_windows(&[fullscreen]), SpaceUse::Available);
+        assert_eq!(
+            SpaceUse::resolve([SpaceOccupant::new(&fullscreen, false)]),
+            SpaceUse::Available
+        );
+    }
+
+    #[test]
+    fn a_covering_window_owns_the_output_without_declaring_fullscreen() {
+        // The GLFW/Minecraft case (ADR-0183): the client emulates fullscreen by
+        // resizing to the monitor and never sends `set_fullscreen`.
+        let borderless = Window::new(WindowId(3));
+        assert!(!borderless.state.fullscreen);
+        assert_eq!(
+            SpaceUse::resolve([SpaceOccupant::new(&borderless, true)]),
+            SpaceUse::Fullscreen
+        );
+    }
+
+    #[test]
+    fn test_inv_arch_72_geometric_claim_requires_self_placement() {
+        // The work area expands to the full output whenever the Dock
+        // auto-hides, so a maximized window covers the output without having
+        // asked for it. Chrome stays: the compositor placed that window.
+        let mut maximized = Window::new(WindowId(5));
+        maximized.state.maximized = true;
+        assert_eq!(
+            SpaceUse::resolve([SpaceOccupant::new(&maximized, true)]),
+            SpaceUse::Maximized
+        );
+
+        let mut tiled = Window::new(WindowId(6));
+        tiled.layout_role = crate::layout::LayoutRole::Tiled;
+        assert_eq!(
+            SpaceUse::resolve([SpaceOccupant::new(&tiled, true)]),
+            SpaceUse::Available
+        );
+
+        // Only a window that sized itself over the output has taken it.
+        let floating = Window::new(WindowId(7));
+        assert_eq!(
+            SpaceUse::resolve([SpaceOccupant::new(&floating, true)]),
+            SpaceUse::Fullscreen
+        );
+    }
+
+    #[test]
+    fn a_minimized_covering_window_does_not_own_the_output() {
+        let mut covering = Window::new(WindowId(4));
+        covering.minimized = true;
+        assert_eq!(
+            SpaceUse::resolve([SpaceOccupant::new(&covering, true)]),
+            SpaceUse::Available
+        );
     }
 
     #[test]
@@ -496,7 +607,10 @@ mod tests {
         let mut fullscreen = Window::new(WindowId(2));
         fullscreen.state.fullscreen = true;
         assert_eq!(
-            SpaceUse::from_windows(&[maximized, fullscreen]),
+            SpaceUse::resolve([
+                SpaceOccupant::new(&maximized, false),
+                SpaceOccupant::new(&fullscreen, false),
+            ]),
             SpaceUse::Fullscreen
         );
     }

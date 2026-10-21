@@ -234,31 +234,12 @@ pub fn evaluate_scene(facts: ScanoutSceneFacts) -> Result<(), ScanoutRejectReaso
     Ok(())
 }
 
-fn surface_logical_extent(surface: &tessera_primitives::SurfaceDmabuf) -> (i32, i32) {
-    let scale = surface.geometry.buffer_scale.max(1) as f32;
-    match (surface.geometry.viewport_dst, surface.geometry.viewport_src) {
-        (Some(dst), _) => (dst.w.max(1), dst.h.max(1)),
-        (None, Some(src)) => (src.size.w.max(1), src.size.h.max(1)),
-        (None, None) => (
-            (surface.width as f32 / scale).round().max(1.0) as i32,
-            (surface.height as f32 / scale).round().max(1.0) as i32,
-        ),
-    }
-}
-
+/// Whether nothing behind this surface can show through it. An opaque buffer
+/// format qualifies by construction; an alpha format needs a declared opaque
+/// region covering the whole presented extent. Delegated to the
+/// presentation-domain value type (ADR-0183).
 fn surface_is_fully_opaque(surface: &tessera_primitives::SurfaceDmabuf) -> bool {
-    if tessera_primitives::dmabuf::is_format_opaque(surface.drm_format) {
-        return true;
-    }
-    if surface.width <= 0 || surface.height <= 0 {
-        return false;
-    }
-    let (logical_w, logical_h) = surface_logical_extent(surface);
-    let logical = tessera_primitives::Rect::new(0, 0, logical_w, logical_h);
-    surface
-        .opaque_region
-        .as_deref()
-        .is_some_and(|regions| logical.fully_covered_by(regions))
+    tessera_desktop::presentation::SurfacePresentation::from_dmabuf(surface).is_opaque()
 }
 
 pub fn evaluate_surface(

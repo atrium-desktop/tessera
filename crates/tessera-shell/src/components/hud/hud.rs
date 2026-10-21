@@ -26,7 +26,6 @@ use tessera_design::materials::{chrome_place, sized, sized_fill};
 use tessera_design::{Design, GlassRole};
 use tessera_desktop::notify::Notification;
 use tessera_desktop::notify::NotificationQueue;
-use tessera_desktop::window::SpaceUse;
 use tessera_desktop::window::Window;
 use tessera_desktop::workspace::WorkspaceSnapshot;
 
@@ -119,16 +118,18 @@ fn workspace_indicator_width(slots: usize) -> f32 {
 
 /// The display-only HUD.
 pub struct Hud {
-    /// A visible fullscreen window owns the output presentation. While true
-    /// the HUD is semantically dormant: it draws no pixels, requests no
-    /// backdrop, and advertises no animation/composition work.
-    fullscreen_active: bool,
+    /// A client owns the output presentation (`SpaceUse::Fullscreen`, resolved
+    /// by the server from physical coverage or a fullscreen declaration —
+    /// ADR-0183). While true the HUD is semantically dormant: it draws no
+    /// pixels, requests no backdrop, and advertises no animation/composition
+    /// work, which is what lets the frame reach the KMS primary plane.
+    output_owned: bool,
     /// The full-screen application launcher owns the output (through its
     /// exit fade). The HUD hides for the duration: its chips would float
     /// inside the launcher's blurred, dimmed field — a second frost stacked
     /// on the launcher's backdrop — and its content (workspace dots, tray)
     /// is irrelevant while browsing the app library. Same dormancy contract
-    /// as `fullscreen_active`.
+    /// as `output_owned`.
     launcher_active: bool,
     reduced_motion: bool,
     icons: IconSet,
@@ -192,8 +193,8 @@ struct SniCell {
 
 impl Hud {
     #[cfg(test)]
-    fn update_windows(&mut self, windows: &[Window]) {
-        <Self as Chrome>::update(self, ChromeUpdate::Windows(windows));
+    fn update_space_use(&mut self, space_use: tessera_desktop::window::SpaceUse) {
+        <Self as Chrome>::update(self, ChromeUpdate::SpaceUse(space_use));
     }
 
     #[cfg(test)]
@@ -242,7 +243,7 @@ impl Hud {
         };
         let now = Instant::now();
         Hud {
-            fullscreen_active: false,
+            output_owned: false,
             launcher_active: false,
             reduced_motion: false,
             icons: IconSet::default(),
@@ -264,13 +265,13 @@ impl Hud {
         }
     }
 
-    /// Whether the HUD is fully dormant this frame: a fullscreen window owns
-    /// the output presentation. The launcher instead *fades* the HUD out
+    /// Whether the HUD is fully dormant this frame: a client owns the output
+    /// presentation. The launcher instead *fades* the HUD out
     /// (see [`Self::advance_fade`]), so it only counts as dormant once the
     /// chip fade has settled — `requires_composition` and the backdrop
     /// queries already key on that settled fade.
     fn dormant(&self) -> bool {
-        self.fullscreen_active
+        self.output_owned
             || (self.launcher_active && self.chip_fade.iter().all(|fade| *fade <= 0.01))
     }
 
@@ -884,10 +885,12 @@ impl Chrome for Hud {
         match update {
             ChromeUpdate::AppCatalog(catalog) => self.icons = catalog.icons.clone(),
             ChromeUpdate::SystemStatus(status) => self.status = status.clone(),
-            ChromeUpdate::Windows(windows) => {
-                // Only fullscreen owns the whole output. Maximized windows retain the
-                // HUD, matching the shell's visible chrome policy.
-                self.fullscreen_active = SpaceUse::from_windows(windows) == SpaceUse::Fullscreen;
+            ChromeUpdate::SpaceUse(space_use) => {
+                // A client that owns the output presentation stands the HUD
+                // down, whether it declared fullscreen or simply covers the
+                // output (ADR-0183). Maximized windows retain the HUD, which
+                // is what `SpaceUse::Maximized` reports.
+                self.output_owned = space_use.client_owns_output();
             }
             ChromeUpdate::LauncherActive(active) => self.launcher_active = active,
             ChromeUpdate::ReducedMotion(reduced) => {

@@ -234,8 +234,17 @@ pub(super) struct CompositorRuntime<'engine> {
     pub(super) live: std::sync::Arc<LiveState>,
     pub(super) ipc: Option<tessera_ipc::Server>,
     pub(super) last_win_sig: Option<WindowEventSignature>,
-    /// Last output-space state announced to IPC subscribers.
-    pub(super) last_space_use: Option<tessera_desktop::window::SpaceUse>,
+    /// Presentation ownership resolved for the current frame (ADR-0183).
+    ///
+    /// `Server::space_use()` is scanned exactly once per frame, at the top of
+    /// `sync_shell_and_ipc_snapshots`; every consumer in that frame (chrome,
+    /// the wallpaper terms, direct-scanout eligibility) reads this field rather
+    /// than re-scanning the scene. `[INV-ARCH-72]` is "one resolution", not
+    /// "one resolver called from anywhere".
+    pub(super) space_use: tessera_desktop::window::SpaceUse,
+    /// The verdict last announced to chrome and IPC subscribers, kept only so
+    /// a repeated verdict does not re-broadcast.
+    pub(super) published_space_use: Option<tessera_desktop::window::SpaceUse>,
     /// Content hash of the last fanned-out window snapshot; the full
     /// `Server::windows()` clone only happens when this changes.
     pub(super) last_windows_hash: Option<u64>,

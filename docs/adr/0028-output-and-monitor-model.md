@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-06-23
+- Amended by: [ADR-0184](0184-integral-automatic-output-scale.md) — the automatic output scale is now integral, because a fractional recommendation forces `ceil(scale)`-sized client buffers off the physical grid.
 
 ## Context
 

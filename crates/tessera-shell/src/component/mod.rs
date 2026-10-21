@@ -954,6 +954,16 @@ pub enum ChromeUpdate<'a> {
     /// Device-pixel (HiDPI) scale of the output the chrome renders on, so a
     /// component can snap hairline geometry to the device pixel grid.
     Scale(f32),
+    /// The server-resolved space use of the presentation domain the chrome
+    /// draws on (ADR-0183). Components consume this verdict instead of
+    /// inferring it from [`ChromeUpdate::Windows`]: a window that covers the
+    /// output without declaring `xdg_toplevel.set_fullscreen` owns the
+    /// presentation exactly like one that did, and only the server can resolve
+    /// that (it owns surface geometry, declared opacity, and output layout).
+    ///
+    /// The verdict is desktop-global, because chrome is one canvas with no
+    /// per-output layout; per-output ownership is ADR-0185.
+    SpaceUse(tessera_desktop::window::SpaceUse),
     /// The shell-wide design snapshot for the resolved desktop color scheme.
     /// Components that paint from design tokens retain a copy instead of
     /// constructing one inline; seeded by [`Shell::add`] and broadcast by

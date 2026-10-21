@@ -11,6 +11,7 @@ superseded_by: null
 - Status: Accepted
 - Date: 2026-08-22
 - Amended by: [ADR-0182](0182-fullscreen-frame-pacing-and-direct-scanout-fidelity.md) — the fullscreen stand-down (HUD/Dock dormancy, wallpaper pause) now lands on the same frame as the fullscreen configure, because scene snapshots resolve before the plane decision.
+- Amended by: [ADR-0183](0183-geometric-output-ownership.md) — a window that covers an output and is opaque owns the presentation without `set_fullscreen`; the compositor-driven toggle stays as the explicit user action.
 
 ## Context
 

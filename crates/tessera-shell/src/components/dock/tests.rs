@@ -410,6 +410,42 @@ fn read_only_mirror_has_no_physical_focus_action() {
 }
 
 #[test]
+fn releasing_output_ownership_restores_a_dock_that_was_obscured_before_it() {
+    // Regression for the ownership split: a window that overlaps the Dock and
+    // then takes the output must not leave a frozen `dock_obscured` behind,
+    // because the release path in `set_space_use` refuses to restore while the
+    // flag is set. Production order is ownership first, then the window
+    // snapshot.
+    let mut dock = dock_with(vec![app("org.example.Game.desktop")]);
+    let display = (1920.0, 1080.0);
+    dock.last_display = Some(display);
+    let mut game = window(7, "org.example.Game", true);
+    let bounds = dock.pointer_bounds(display);
+    game.position = tessera_primitives::Point {
+        x: bounds.x.round() as i32 + 10,
+        y: bounds.y.round() as i32 - 10,
+    };
+    game.size = tessera_primitives::Size { w: 120, h: 40 };
+    dock.update_windows(std::slice::from_ref(&game));
+    assert!(dock.dock_obscured, "the window starts on top of the Dock");
+
+    // The client takes the whole output (a bordered-less game growing to the
+    // monitor), then releases it.
+    dock.apply_space_use(SpaceUse::Fullscreen);
+    dock.update_windows(std::slice::from_ref(&game));
+    assert!(!dock.dock_obscured, "ownership clears obscuration");
+    assert!(dock.fullscreen_locked());
+
+    dock.apply_space_use(SpaceUse::Available);
+    assert!(!dock.fullscreen_locked());
+    assert!(!dock.effective_autohide(), "the Dock comes back");
+    assert_eq!(
+        dock.reserved().bottom,
+        (DOCK_PANEL_HEIGHT + DOCK_EDGE_MARGIN) as i32
+    );
+}
+
+#[test]
 fn window_invading_rest_bounds_starts_an_animated_collapse() {
     let mut dock = dock_with(vec![app("org.example.Game.desktop")]);
     let display = (1920.0, 1080.0);
@@ -454,6 +490,7 @@ fn maximized_state_forces_an_animated_collapse_without_geometric_invasion() {
     maximized.position = tessera_primitives::Point { x: 100, y: 100 };
     maximized.size = tessera_primitives::Size { w: 1000, h: 700 };
     dock.update_windows(std::slice::from_ref(&maximized));
+    dock.apply_space_use(SpaceUse::Maximized);
 
     assert_eq!(dock.space_use, SpaceUse::Maximized);
     assert!(!dock.dock_obscured);
@@ -468,6 +505,7 @@ fn maximized_state_forces_an_animated_collapse_without_geometric_invasion() {
     let mut restored = maximized;
     restored.state.maximized = false;
     dock.update_windows(&[restored]);
+    dock.apply_space_use(SpaceUse::Available);
     assert_eq!(dock.space_use, SpaceUse::Available);
     assert!(!dock.effective_autohide());
     assert!(!dock.collapse_pending);
@@ -483,6 +521,7 @@ fn disabling_user_autohide_does_not_override_maximized_collapse() {
     let mut maximized = window(7, "org.example.Game", true);
     maximized.state.maximized = true;
     dock.update_windows(&[maximized]);
+    dock.apply_space_use(SpaceUse::Maximized);
     dock.autohide_reveal = 0.0;
 
     dock.set_autohide(true);
@@ -738,9 +777,7 @@ fn expanded_autohide_dock_keeps_pointer_across_bottom_gap() {
 #[test]
 fn fullscreen_window_locks_dock_hidden_without_hot_edge() {
     let mut dock = Dock::new();
-    let mut fullscreen = window(7, "org.example.Game", true);
-    fullscreen.state.fullscreen = true;
-    dock.update_windows(&[fullscreen]);
+    dock.apply_space_use(SpaceUse::Fullscreen);
 
     assert_eq!(dock.space_use, SpaceUse::Fullscreen);
     assert_eq!(dock.autohide_reveal, 0.0);
@@ -808,6 +845,7 @@ fn settled_maximized_collapse_keeps_the_capsule_composited() {
     let mut maximized = window(7, "org.example.Editor", true);
     maximized.state.maximized = true;
     dock.update_windows(std::slice::from_ref(&maximized));
+    dock.apply_space_use(SpaceUse::Maximized);
     dock.autohide_reveal = 0.0;
     dock.collapse_pending = false;
 
@@ -841,6 +879,7 @@ fn backdrop_prepass_reveals_only_from_the_capsule_body() {
     let mut maximized = window(7, "org.example.Editor", true);
     maximized.state.maximized = true;
     dock.update_windows(std::slice::from_ref(&maximized));
+    dock.apply_space_use(SpaceUse::Maximized);
     dock.autohide_reveal = 0.0;
     dock.collapse_pending = false;
     dock.hidden_trigger_armed = true;
@@ -1036,17 +1075,12 @@ fn hovered_live_preview_uses_one_parent_body_with_an_optical_focus_field() {
 }
 
 #[test]
-fn fullscreen_policy_wins_and_minimized_windows_do_not_hide_dock() {
+fn a_client_owning_the_output_locks_the_dock_and_release_restores_it() {
     let mut dock = Dock::new();
-    let mut maximized = window(7, "org.example.Editor", true);
-    maximized.state.maximized = true;
-    let mut fullscreen = window(8, "org.example.Game", false);
-    fullscreen.state.fullscreen = true;
-    dock.update_windows(&[maximized, fullscreen.clone()]);
+    dock.apply_space_use(SpaceUse::Fullscreen);
     assert_eq!(dock.space_use, SpaceUse::Fullscreen);
 
-    fullscreen.minimized = true;
-    dock.update_windows(&[fullscreen]);
+    dock.apply_space_use(SpaceUse::Available);
     assert_eq!(dock.space_use, SpaceUse::Available);
     assert_eq!(
         dock.reserved().bottom,

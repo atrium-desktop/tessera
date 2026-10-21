@@ -26,6 +26,24 @@ fullscreen client is composited when another visible element is present.
 All active outputs currently form one presentation domain and share one
 desktop framebuffer. A direct-scanout candidate must therefore cover the
 complete physical domain and be accepted by every selected primary plane.
+Replacing that union domain with per-output presentation domains — which is
+what lets a client own one output while another keeps compositing — is
+[ADR-0185](../adr/0185-per-output-presentation-domains.md), still a draft.
+
+## Output Ownership
+
+Direct scanout, chrome stand-down, and wallpaper suspension share one resolved
+verdict (`ADR-0183`): a visible, non-minimized toplevel *that placed its own
+geometry* owns an output when its committed surface covers that output and
+cannot let anything behind it show through. Maximized and tiled windows are
+excluded — the compositor sized them, and chrome stays. `xdg_toplevel.set_fullscreen`
+is an additional *declaration* input, so a client that asked for fullscreen owns
+the presentation during the configure round-trip.
+
+`Server::space_use()` produces the verdict once per frame; chrome receives it as
+`ChromeUpdate::SpaceUse` and never infers it from the window snapshot. This is
+why a game that emulates fullscreen by resizing — rather than sending
+`set_fullscreen` — still reaches the direct plan.
 
 ## Direct-Scanout Eligibility
 
@@ -38,7 +56,7 @@ Every condition in this table must hold for the direct plan.
 | Coverage | Buffer dimensions exactly match the physical presentation domain and its origin is `(0, 0)` |
 | Geometry | Buffer transform is normal. An active `wp_viewport` is allowed only as an identity mapping: its source covers the complete physical buffer at `(0, 0)` and its destination equals the complete logical output |
 | Opacity | The format has no alpha channel, or the declared opaque region covers the complete logical surface. The logical surface is the viewport destination where one is set, otherwise the viewport source size, otherwise the buffer dimensions divided by the buffer scale |
-| Shell | No visible shell pixels, overview, window switcher, transition, or live backdrop effect requires composition |
+| Shell | No visible shell pixels, overview, window switcher, transition, or live backdrop effect requires composition. Chrome stands down when a client owns the output (ADR-0183), so a window that fills the output does not block itself. |
 | Capture | No frame capture, screenshot freeze, or Interaction Domain capture is pending |
 | Session | The session is unlocked and the presentation target is active |
 | Cursor | The cursor is hidden or every active output has a compatible hardware cursor plane |
@@ -54,7 +72,6 @@ support the property.
 
 When one opaque surface covers the whole presentation domain, work that cannot
 reach an output pixel is elided:
-
 - the desktop wallpaper (both the 2D background and a 3D model pass); its clock
   keeps advancing so unfullscreening resumes in step, and
 - compositor window shadows, including their offscreen mask pass and Gaussian

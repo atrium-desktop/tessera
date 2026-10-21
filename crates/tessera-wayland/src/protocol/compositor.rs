@@ -1187,6 +1187,7 @@ pub(crate) unsafe extern "C" fn surface_commit(
             }
             (*rec).pixels.clear();
             (*rec).content_is_dmabuf = false;
+            (*rec).shm_opaque = false;
             (*rec).generation = (*rec).generation.wrapping_add(1);
         } else if !buffer.is_null() {
             let is_dmabuf = ffi::wl_resource_instance_of(
@@ -1362,6 +1363,8 @@ pub(crate) unsafe extern "C" fn surface_commit(
                         retire_surface_buffer(rec);
                         (*rec).dmabuf = None;
                         (*rec).content_is_dmabuf = false;
+                        (*rec).shm_opaque =
+                            tessera_primitives::dmabuf::is_wl_shm_format_xrgb(format);
                         (*rec).width = w;
                         (*rec).height = h;
                         (*rec).generation = (*rec).generation.wrapping_add(1);

@@ -87,17 +87,15 @@ fn the_launcher_modal_fades_the_hud_out_and_away() {
 }
 
 #[test]
-fn fullscreen_window_makes_the_hud_composition_free() {
+fn a_client_owned_output_makes_the_hud_composition_free() {
     let mut bar = Hud::new();
     bar.layout.visible = [true, true];
     bar.chip_fade = [1.0, 0.5];
     bar.chip_target = [0.0, 1.0];
-    let mut fullscreen = Window::new(tessera_desktop::window::WindowId(7));
-    fullscreen.state.fullscreen = true;
-    bar.update_windows(&[fullscreen]);
+    bar.update_space_use(tessera_desktop::window::SpaceUse::Fullscreen);
 
     let workspaces = workspaces_empty();
-    assert!(bar.fullscreen_active);
+    assert!(bar.output_owned);
     assert!(!bar.requires_composition());
     assert_eq!(bar.backdrop_blur_sigma(), 0.0);
     assert!(
@@ -110,8 +108,8 @@ fn fullscreen_window_makes_the_hud_composition_free() {
     );
     assert!(!bar.anim_pending());
 
-    bar.update_windows(&[]);
-    assert!(!bar.fullscreen_active);
+    bar.update_space_use(tessera_desktop::window::SpaceUse::Available);
+    assert!(!bar.output_owned);
 }
 
 #[test]
@@ -120,12 +118,10 @@ fn maximized_window_keeps_the_hud_visible() {
     bar.layout.visible = [true, true];
     bar.chip_fade = [1.0, 0.5];
     bar.chip_target = [0.0, 1.0];
-    let mut maximized = Window::new(tessera_desktop::window::WindowId(7));
-    maximized.state.maximized = true;
-    bar.update_windows(&[maximized]);
+    bar.update_space_use(tessera_desktop::window::SpaceUse::Maximized);
 
     let workspaces = workspaces_empty();
-    assert!(!bar.fullscreen_active);
+    assert!(!bar.output_owned);
     assert!(bar.requires_composition());
     assert_eq!(bar.backdrop_blur_sigma(), BACKDROP_BLUR_SIGMA);
     assert!(
@@ -141,44 +137,30 @@ fn maximized_window_keeps_the_hud_visible() {
 }
 
 #[test]
-fn minimized_immersive_windows_do_not_hide_the_hud() {
+fn test_inv_arch_72_covering_space_use_stands_chrome_down() {
+    // A borderless game that fills the output owns it exactly like a client
+    // that declared fullscreen (ADR-0183 [INV-ARCH-72]): the HUD must report
+    // itself composition-free so the frame can reach the primary plane.
     let mut bar = Hud::new();
-    bar.layout.visible = [true, false];
+    bar.layout.visible = [true, true];
     bar.chip_fade = [1.0, 1.0];
-    bar.chip_target = bar.chip_fade;
+    bar.chip_target = [1.0, 1.0];
+    bar.update_space_use(tessera_desktop::window::SpaceUse::Fullscreen);
 
-    let mut minimized_fullscreen = Window::new(tessera_desktop::window::WindowId(8));
-    minimized_fullscreen.state.fullscreen = true;
-    minimized_fullscreen.minimized = true;
-    let mut minimized_maximized = Window::new(tessera_desktop::window::WindowId(9));
-    minimized_maximized.state.maximized = true;
-    minimized_maximized.minimized = true;
-    bar.update_windows(&[minimized_fullscreen, minimized_maximized]);
-
-    let workspaces = workspaces_empty();
-    assert!(!bar.fullscreen_active);
-    assert!(bar.requires_composition());
-    assert_eq!(bar.backdrop_blur_sigma(), BACKDROP_BLUR_SIGMA);
-    assert!(
-        bar.backdrop_regions((1920.0, 1080.0), &[], &workspaces)
-            .is_empty()
-    );
-    assert_eq!(
-        bar.liquid_glass_regions((1920.0, 1080.0), &[], &workspaces)
-            .len(),
-        1
-    );
+    assert!(bar.output_owned);
+    assert!(!bar.requires_composition());
+    assert_eq!(bar.backdrop_blur_sigma(), 0.0);
 }
 
 #[test]
-fn ordinary_window_preserves_normal_hud_output() {
+fn client_free_space_use_preserves_normal_hud_output() {
     let mut bar = Hud::new();
     bar.layout.visible = [true, false];
     bar.chip_fade = [1.0, 1.0];
     bar.chip_target = bar.chip_fade;
-    bar.update_windows(&[Window::new(tessera_desktop::window::WindowId(10))]);
+    bar.update_space_use(tessera_desktop::window::SpaceUse::Available);
 
-    assert!(!bar.fullscreen_active);
+    assert!(!bar.output_owned);
     assert!(bar.requires_composition());
     assert_eq!(bar.backdrop_blur_sigma(), BACKDROP_BLUR_SIGMA);
 }

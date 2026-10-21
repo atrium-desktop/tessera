@@ -72,7 +72,6 @@ use tessera_desktop::notify::NotificationQueue;
 use tessera_desktop::power::PowerMode;
 use tessera_desktop::settings::SettingsAction;
 use tessera_desktop::settings::SettingsSnapshot;
-use tessera_desktop::window::SpaceUse;
 use tessera_desktop::window::Window;
 use tessera_desktop::workspace::WorkspaceSnapshot;
 use tessera_primitives::input::KeyChar;
@@ -389,8 +388,8 @@ impl ControlCenter {
     }
 
     #[cfg(test)]
-    fn update_windows(&mut self, windows: &[Window]) {
-        <Self as Chrome>::update(self, ChromeUpdate::Windows(windows));
+    fn update_space_use(&mut self, space_use: tessera_desktop::window::SpaceUse) {
+        <Self as Chrome>::update(self, ChromeUpdate::SpaceUse(space_use));
     }
 
     /// Construct the control center. The flux device is borrowed (non-owning, like
@@ -1518,9 +1517,10 @@ impl Chrome for ControlCenter {
                 self.settings = Some(snapshot.clone());
                 self.modules.update_settings(snapshot);
             }
-            ChromeUpdate::Windows(windows) => {
-                // A fullscreen window owns the whole output; get out of its way.
-                if SpaceUse::from_windows(windows) == SpaceUse::Fullscreen && self.open {
+            ChromeUpdate::SpaceUse(space_use) => {
+                // A client that owns the output presentation takes the whole
+                // screen; an open control center must not survive it.
+                if space_use.client_owns_output() && self.open {
                     self.close();
                 }
             }
