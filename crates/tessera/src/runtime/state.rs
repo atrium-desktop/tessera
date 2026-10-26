@@ -118,6 +118,14 @@ pub(super) struct CompositorRuntime<'engine> {
     /// Live output frame streams (ADR-0052) and the in-flight flag bounding
     /// the main-loop → worker stream lane to one frame.
     pub(super) streams: OutputStreams,
+    /// Per-offscreen-stream client-damage baselines (ADR-0187), keyed by
+    /// `stream_id`. Window and virtual-output streams derive their frame
+    /// damage from their own surface tree through these trackers, never from
+    /// the physical desktop accumulator. An entry is dropped when its stream
+    /// stops, freezes, or renegotiates (a rebuilt target reports full damage
+    /// on its first frame).
+    pub(super) offscreen_damage:
+        std::collections::HashMap<u64, tessera_composite::presentation::ClientDamageTracker>,
     pub(super) stream_job_in_flight: bool,
     pub(super) cursor_cache: cursor::CursorCache,
     pub(super) screenshot_dir: std::path::PathBuf,

@@ -15,7 +15,8 @@ pub use backdrop::{
 pub use damage::{
     AssessedFrameDamage, ClientDamage, ClientDamageTracker, DamageAssessment, FrameDamage,
     SurfaceDamageFrame, composite_repaint_for_slot, frame_damage_render_area,
-    logical_rects_to_frame, logical_to_physical, record_composite_present, union_frame_damage,
+    logical_rects_to_frame, logical_to_physical, offscreen_damage_to_target,
+    record_composite_present, union_frame_damage,
 };
 pub use geometry::{clamp_logical_region, crop_rgba, logical_rect_to_physical};
 pub use scanout::{
@@ -29,11 +30,13 @@ pub use stream::{
     BlitFailure, CaptureCursorState, DRM_FORMAT_XRGB8888, DmabufCapture, DmabufStream,
     GeometryAction, LIVENESS_INTERVAL, OutputStream, OutputStreams, PendingSlotFrame,
     PresentedFrameRef, SLOT_FENCE_TIMEOUT, STREAM_SLOT_COUNT, SampledDamage, SlotRing, SlotState,
-    StreamCursorBlit, StreamPainter, WindowDriveEffects, WindowShmTarget, WindowStream,
-    WindowStreamDrive, WindowStreamStage, WindowTreeGeometry, begin_opaque_frame,
-    blit_presented_frame, crop_stream_frame, damage_in_target, enumerate_slot_ring, fence_signaled,
-    full_target_damage, output_cursor_blit, render_window_stream_dmabuf, render_window_stream_shm,
-    resolve_output_rect, submit_capture_frame, window_stream_cursor, window_stream_render_due,
+    StreamCursorBlit, StreamPainter, VirtualOutputGeometry, VirtualOutputStream,
+    VirtualOutputStreamDrive, WindowDriveEffects, WindowShmTarget, WindowStream, WindowStreamDrive,
+    WindowStreamStage, WindowTreeGeometry, begin_opaque_frame, blit_presented_frame,
+    crop_stream_frame, damage_in_target, enumerate_slot_ring, fence_signaled, full_target_damage,
+    output_cursor_blit, render_virtual_output_stream_dmabuf, render_virtual_output_stream_shm,
+    render_window_stream_dmabuf, render_window_stream_shm, resolve_output_rect,
+    submit_capture_frame, window_stream_cursor, window_stream_render_due,
 };
 
 /// The trailing `" (detail)"` suffix for the most recent flux FFI error, or

@@ -66,6 +66,11 @@ normal = ["libc", "log", "tessera-desktop", "tessera-env", "tessera-ipc", "tesse
 build = []
 dev = []
 
+[tessera-cast]
+normal = ["log", "tessera-env", "zbus"]
+build = []
+dev = []
+
 [tessera-ipc]
 normal = ["libc", "serde", "serde_json", "tessera-authority", "tessera-desktop", "tessera-primitives", "tessera-protocol", "thiserror", "zeroize"]
 build = []

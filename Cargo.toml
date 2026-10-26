@@ -25,21 +25,21 @@ tessera-audit = { path = "crates/tessera-audit" }
 # development worktree can patch these sources through
 # .cargo/optics-local.toml without making a sibling checkout mandatory for CI
 # or downstream packagers.
-flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.60" }
-flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.60" }
-vista = { git = "https://github.com/ming2k/optics", tag = "v0.0.60" }
-vista-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.60" }
+flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.61" }
+flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.61" }
+vista = { git = "https://github.com/ming2k/optics", tag = "v0.0.61" }
+vista-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.61" }
 # Renderer-neutral offscreen DAG planning above Flux image operators.
-lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.60" }
-lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.60" }
+lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.61" }
+lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.61" }
 # prism (material library; ADR-0063) carries the liquid-glass compositor.
 # Canonical resolution needs an optics tag containing prism-rs.
-prism = { git = "https://github.com/ming2k/optics", tag = "v0.0.60" }
-prism-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.60" }
+prism = { git = "https://github.com/ming2k/optics", tag = "v0.0.61" }
+prism-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.61" }
 # transit (motion vocabulary; ADR-0172) provides analytic springs and easing;
 # v0.0.53 adds the explicit `reduced_motion` flag to every advance entry point.
-transit = { git = "https://github.com/ming2k/optics", tag = "v0.0.60" }
-transit-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.60" }
+transit = { git = "https://github.com/ming2k/optics", tag = "v0.0.61" }
+transit-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.61" }
 
 # Observability: crates emit through the `log` facade; each binary installs a
 # `tracing`-based subscriber through the shared `tessera-env` crate, which
@@ -129,6 +129,10 @@ tessera-wallpaper = { path = "crates/tessera-wallpaper" }
 # fail-closed authority; these packages are ordinary Wayland clients.
 tessera-lock = { path = "crates/tessera-lock" }
 tessera-idle = { path = "crates/tessera-idle" }
+# Tessera's Miracast caster (ADR-0192): an out-of-process WFD session, staged.
+# It is a ScreenCast portal client and holds no compositor scope; the
+# compositor never links it.
+tessera-cast = { path = "crates/tessera-cast" }
 # Configuration: versioned TOML schema, loader, and live reload (ADR-0026).
 tessera-config = { path = "crates/tessera-config" }
 # Domain-oriented native command implementation used by the `tessera` binary.

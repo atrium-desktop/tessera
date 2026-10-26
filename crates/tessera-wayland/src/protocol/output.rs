@@ -28,6 +28,7 @@ fn interaction_domain_output_info(
             transform: tessera_primitives::Transform::Normal,
             logical_origin: tessera_primitives::Point::default(),
         },
+        kind: tessera_desktop::output::OutputKind::Virtual,
         available_modes: Vec::new(),
         color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
     }
@@ -48,21 +49,45 @@ pub(crate) fn output_interaction_domains_for_window(
         .unwrap_or_else(|| std::iter::once(HUMAN_INTERACTION_DOMAIN).collect())
 }
 
+pub(crate) fn human_output_connector_for_window(
+    state: &State,
+    window: tessera_desktop::window::WindowId,
+) -> Option<&str> {
+    state
+        .workspaces
+        .workspace_of(window)
+        .and_then(|wid| state.workspaces.workspace(wid))
+        .and_then(|ws| state.workspaces.output(ws.output))
+        .map(|output| output.connector.as_str())
+        .or_else(|| {
+            state
+                .output_infos
+                .first()
+                .map(|primary| primary.connector.as_str())
+        })
+}
+
 unsafe fn output_global_matches_interaction_domain(
     state: &State,
     global: *mut OutputGlobal,
     interaction_domain: InteractionDomainId,
+    window: Option<tessera_desktop::window::WindowId>,
 ) -> bool {
     unsafe {
         if global.is_null() || !(*global).active {
             return false;
         }
         if interaction_domain == HUMAN_INTERACTION_DOMAIN {
+            let expected = window
+                .and_then(|id| human_output_connector_for_window(state, id))
+                .or_else(|| {
+                    state
+                        .output_infos
+                        .first()
+                        .map(|primary| primary.connector.as_str())
+                });
             (*global).interaction_domain.is_none()
-                && state
-                    .output_infos
-                    .first()
-                    .is_some_and(|primary| primary.connector == (*global).info.connector)
+                && expected == Some((*global).info.connector.as_str())
         } else {
             (*global).interaction_domain == Some(interaction_domain)
         }
@@ -76,18 +101,59 @@ pub(crate) unsafe fn post_surface_output_event(
     opcode: u32,
 ) {
     unsafe {
-        if surface.is_null() {
+        if surface.is_null() || state.output_resources.is_empty() {
             return;
         }
+        let rec = ffi::wl_resource_get_user_data(surface) as *mut SurfaceRec;
+        let root = if rec.is_null() {
+            std::ptr::null_mut()
+        } else {
+            surface_root_toplevel(rec)
+        };
+        let window = (!root.is_null()).then(|| (*root).window.id);
         let client = ffi::wl_resource_get_client(surface);
         for output in state.output_resources.iter().copied().filter(|output| {
             if output.is_null() || ffi::wl_resource_get_client(*output) != client {
                 return false;
             }
             let global = ffi::wl_resource_get_user_data(*output) as *mut OutputGlobal;
-            output_global_matches_interaction_domain(state, global, interaction_domain)
+            output_global_matches_interaction_domain(state, global, interaction_domain, window)
         }) {
             ffi::wl_resource_post_event(surface, opcode, output);
+        }
+    }
+}
+
+pub(crate) unsafe fn post_window_human_output_transition(
+    state: &State,
+    window: tessera_desktop::window::WindowId,
+    old_connector: Option<&str>,
+    new_connector: Option<&str>,
+) {
+    unsafe {
+        if old_connector == new_connector || state.output_resources.is_empty() {
+            return;
+        }
+        for pointer in state.live_surfaces() {
+            let root = surface_root_toplevel(pointer);
+            if root.is_null() || (*root).window.id != window || !(*pointer).mapped {
+                continue;
+            }
+            let client = ffi::wl_resource_get_client((*pointer).resource);
+            for output in state.output_resources.iter().copied() {
+                if output.is_null() || ffi::wl_resource_get_client(output) != client {
+                    continue;
+                }
+                let global = ffi::wl_resource_get_user_data(output) as *mut OutputGlobal;
+                if global.is_null() || !(*global).active || (*global).interaction_domain.is_some() {
+                    continue;
+                }
+                if Some((*global).info.connector.as_str()) == old_connector {
+                    ffi::wl_resource_post_event((*pointer).resource, ffi::WL_SURFACE_LEAVE, output);
+                } else if Some((*global).info.connector.as_str()) == new_connector {
+                    ffi::wl_resource_post_event((*pointer).resource, ffi::WL_SURFACE_ENTER, output);
+                }
+            }
         }
     }
 }
@@ -384,7 +450,12 @@ unsafe extern "C" fn output_bind(
                 if output_interaction_domains_for_window(state, (*root).window.id)
                     .into_iter()
                     .any(|interaction_domain| {
-                        output_global_matches_interaction_domain(state, global, interaction_domain)
+                        output_global_matches_interaction_domain(
+                            state,
+                            global,
+                            interaction_domain,
+                            Some((*root).window.id),
+                        )
                     })
                 {
                     ffi::wl_resource_post_event((*pointer).resource, ffi::WL_SURFACE_ENTER, res);

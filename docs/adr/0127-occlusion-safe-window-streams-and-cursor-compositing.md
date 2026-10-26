@@ -10,6 +10,8 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-08-16
+- Amended by: [ADR-0186](0186-session-scoped-virtual-extend-outputs-and-offscreen-output-streaming.md) — extends offscreen per-stream rendering (`VirtualOutputStream`) to `OutputKind::Virtual` connectors.
+- Amended by: [ADR-0187](0187-offscreen-stream-damage-from-the-stream-s-own-tree.md) — offscreen stream frame damage comes from the stream's own surface tree, not the physical desktop accumulator (`[INV-ARCH-79]`).
 
 ## Context
 

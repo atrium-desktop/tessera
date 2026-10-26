@@ -45,6 +45,19 @@ pub struct WindowTreeGeometry {
     pub logical_size: Size,
 }
 
+/// Geometry of one human-domain virtual extend output (`VIRTUAL-*`,
+/// ADR-0186), resolved from the live output model for offscreen stream
+/// rendering.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VirtualOutputGeometry {
+    pub connector: String,
+    pub scale_milli: u32,
+    pub physical_width: u32,
+    pub physical_height: u32,
+    pub origin: Point,
+    pub logical_size: Size,
+}
+
 /// Cursor state sampled at a capture trigger instant: logical output
 /// coordinates, the effective theme shape, whether the compositor-owned
 /// cursor was hidden, and whether the visible cursor came from a
@@ -163,6 +176,18 @@ pub trait StreamPainter {
         geometry: &WindowTreeGeometry,
         cursor: Option<(u32, (f32, f32))>,
     );
+
+    /// Paint one virtual-output stream frame (ADR-0186): all visible
+    /// surfaces on `geometry.connector` into `canvas` mapped to `(0, 0)`,
+    /// plus the embedded cursor sprite when `cursor` is set.
+    fn paint_virtual_output_frame(
+        &mut self,
+        _device: &flux::Device,
+        _canvas: &flux::CanvasCommands<'_>,
+        _geometry: &VirtualOutputGeometry,
+        _cursor: Option<(u32, (f32, f32))>,
+    ) {
+    }
 }
 
 /// The cached offscreen readback target of an SHM window stream (ADR-0127):
@@ -541,6 +566,65 @@ pub fn render_window_stream_dmabuf(
     let session = begin_opaque_frame(&mut dmabuf.canvas, &mut frame, clear)
         .map_err(|error| BlitFailure::Retryable(format!("capture pass: {error}")))?;
     painter.paint_window_frame(device, &session, geometry, cursor);
+    session
+        .end()
+        .map_err(|error| BlitFailure::Retryable(format!("capture pass: {error}")))?;
+    submit_capture_frame(dmabuf, frame)
+}
+
+/// Render a virtual output's visible surfaces (plus the negotiated cursor)
+/// into the SHM stream's cached readback target and submit the frame
+/// (ADR-0186).
+pub fn render_virtual_output_stream_shm(
+    device: &flux::Device,
+    target: &mut WindowShmTarget,
+    clear: u32,
+    geometry: &VirtualOutputGeometry,
+    cursor: Option<(u32, (f32, f32))>,
+    painter: &mut dyn StreamPainter,
+) -> Result<(), String> {
+    let mut frame = target.surface.begin_frame().map_err(|error| {
+        format!(
+            "begin virtual-output stream frame: {error}{}",
+            crate::presentation::flux_last_error_detail()
+        )
+    })?;
+    let session = begin_opaque_frame(&mut target.canvas, &mut frame, clear)
+        .map_err(|error| format!("begin virtual-output stream pass: {error}"))?;
+    painter.paint_virtual_output_frame(device, &session, geometry, cursor);
+    session
+        .end()
+        .map_err(|error| format!("end virtual-output stream pass: {error}"))?;
+    frame
+        .request_readback()
+        .map_err(|error| format!("request virtual-output stream readback: {error}"))?;
+    frame
+        .submit()
+        .and_then(flux::SubmittedFrame::present)
+        .map_err(|error| format!("submit virtual-output stream frame: {error}"))?;
+    Ok(())
+}
+
+/// Render a virtual output's visible surfaces (plus the negotiated cursor)
+/// into the dmabuf stream's next capture-surface slot and export it with its
+/// explicit acquire fence (ADR-0186).
+pub fn render_virtual_output_stream_dmabuf(
+    device: &flux::Device,
+    dmabuf: &mut DmabufStream,
+    clear: u32,
+    geometry: &VirtualOutputGeometry,
+    cursor: Option<(u32, (f32, f32))>,
+    painter: &mut dyn StreamPainter,
+) -> Result<(usize, OwnedFd), BlitFailure> {
+    let mut frame = dmabuf.surface.begin_frame().map_err(|error| {
+        BlitFailure::Retryable(format!(
+            "capture begin_frame: {error}{}",
+            crate::presentation::flux_last_error_detail()
+        ))
+    })?;
+    let session = begin_opaque_frame(&mut dmabuf.canvas, &mut frame, clear)
+        .map_err(|error| BlitFailure::Retryable(format!("capture pass: {error}")))?;
+    painter.paint_virtual_output_frame(device, &session, geometry, cursor);
     session
         .end()
         .map_err(|error| BlitFailure::Retryable(format!("capture pass: {error}")))?;

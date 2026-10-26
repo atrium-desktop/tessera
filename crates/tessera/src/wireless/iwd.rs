@@ -450,4 +450,8 @@ impl WirelessBackend for IwdBackend {
     fn active_ssid(&self) -> Option<String> {
         self.cache.lock().unwrap().active_ssid.clone()
     }
+
+    fn available(&self) -> bool {
+        true
+    }
 }

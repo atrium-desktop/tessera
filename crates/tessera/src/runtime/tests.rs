@@ -339,6 +339,40 @@ fn builtin_scopes_are_fail_closed_allowlists() {
     }));
 }
 
+/// The compositor side of the casting contract (ADR-0188) is already a subset
+/// of the identity-bound `atrium-portal` scope: the virtual-output + stream
+/// pair a `ScreenCast` `SourceType::VIRTUAL` session needs, plus output-scoped
+/// input on a virtual connector and nothing on a physical one.
+#[test]
+fn portal_scope_covers_the_cast_contract() {
+    let scopes = builtin_ipc_scopes();
+    let portal = scopes
+        .get(tessera_protocol::LOCAL_PORTAL_SCOPE)
+        .expect("built-in portal scope");
+    let ops = portal
+        .ops
+        .as_ref()
+        .expect("portal scope is an explicit allowlist");
+    assert!(ops.contains(&tessera_protocol::ActorCapability::ManageVirtualOutput));
+    assert!(ops.contains(&tessera_protocol::ActorCapability::StreamOutput));
+
+    // Output-scoped remote input is reachable through `ManageVirtualOutput`
+    // for a virtual connector, and refused for a physical one without the
+    // dedicated input operation (`[INV-ARCH-78]`).
+    assert!(
+        portal.permits(&tessera_protocol::Command::InjectOutputInput {
+            connector: "VIRTUAL-1".into(),
+            actions: vec![],
+        })
+    );
+    assert!(
+        !portal.permits(&tessera_protocol::Command::InjectOutputInput {
+            connector: "eDP-1".into(),
+            actions: vec![],
+        })
+    );
+}
+
 #[test]
 fn interaction_domain_scope_expands_atomic_groups_before_authorizing() {
     let mut model = tessera_authority::interaction_domain::InteractionDomainModel::new();

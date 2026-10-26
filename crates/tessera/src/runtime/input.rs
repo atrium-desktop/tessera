@@ -749,7 +749,14 @@ impl CompositorRuntime<'_> {
             .filter(|s| *s > 0.0)
             .unwrap_or_else(|| self.host.scale());
         let coord_factor = self.host.scale() / effective_scale;
-        if (coord_factor - 1.0).abs() > f32::EPSILON {
+        let has_virtual_outputs = self
+            .server
+            .output_infos()
+            .iter()
+            .any(|output| output.kind.is_virtual());
+        let desktop_bounds = self.server.desktop_logical_bounds();
+        if (coord_factor - 1.0).abs() > f32::EPSILON || has_virtual_outputs {
+            let mut running_cursor = self.input_acc.cursor;
             for ev in &mut events {
                 use tessera_primitives::input::InputEvent::*;
                 use tessera_primitives::input::TabletEvent;
@@ -762,6 +769,20 @@ impl CompositorRuntime<'_> {
                         // channel stays in raw device units by definition.
                         *dx *= f64::from(coord_factor);
                         *dy *= f64::from(coord_factor);
+                        if has_virtual_outputs && (*dx != 0.0 || *dy != 0.0) {
+                            let max_x =
+                                (desktop_bounds.origin.x + desktop_bounds.size.w.max(1) - 1) as f32;
+                            let max_y =
+                                (desktop_bounds.origin.y + desktop_bounds.size.h.max(1) - 1) as f32;
+                            running_cursor.0 = (running_cursor.0 + *dx as f32)
+                                .clamp(desktop_bounds.origin.x as f32, max_x);
+                            running_cursor.1 = (running_cursor.1 + *dy as f32)
+                                .clamp(desktop_bounds.origin.y as f32, max_y);
+                            *x = running_cursor.0;
+                            *y = running_cursor.1;
+                        } else {
+                            running_cursor = (*x, *y);
+                        }
                     }
                     TouchDown { x, y, .. }
                     | TouchMotion { x, y, .. }
@@ -1208,6 +1229,55 @@ impl CompositorRuntime<'_> {
                         }
                     }
                 }
+                tessera_protocol::Command::InjectOutputInput { connector, actions } => {
+                    let prepared = self
+                        .server
+                        .prepare_output_synthetic_input(connector, actions);
+                    if let Some(events) = prepared {
+                        let has_key = events.iter().any(|event| {
+                            matches!(event, tessera_primitives::input::InputEvent::Key { .. })
+                        });
+                        let blocked_by_chrome = (has_key && self.shell.captures_keyboard())
+                            || events.iter().any(|event| {
+                                matches!(
+                                    *event,
+                                    tessera_primitives::input::InputEvent::PointerMotion { x, y, .. }
+                                        if self.shell.captures_pointer_at(
+                                            x,
+                                            y,
+                                            self.input_acc.display_size
+                                        )
+                                )
+                            });
+                        if blocked_by_chrome {
+                            tessera_protocol::Effect::Refused {
+                                reason: "target is covered by compositor chrome".into(),
+                            }
+                        } else {
+                            let no_bindings = tessera_desktop::keybind::Keymap::default();
+                            let actions = self.server.forward_input(&events, &no_bindings);
+                            debug_assert!(actions.is_empty());
+                            if let Some((x, y)) = events.iter().rev().find_map(|event| match *event
+                            {
+                                tessera_primitives::input::InputEvent::PointerMotion {
+                                    x,
+                                    y,
+                                    ..
+                                } => Some((x, y)),
+                                _ => None,
+                            }) {
+                                self.input_acc.cursor = (x, y);
+                                self.synthetic_pointer_active = true;
+                                self.chrome_pointer_captured = false;
+                            }
+                            tessera_protocol::Effect::Applied
+                        }
+                    } else {
+                        tessera_protocol::Effect::Refused {
+                            reason: "invalid, out-of-bounds, or locked output target".into(),
+                        }
+                    }
+                }
                 _ => unreachable!(),
             };
             journal_effect_and_broadcast(&self.journal, &self.ipc, ts, origin, cmd, effect);
@@ -1317,7 +1387,13 @@ impl CompositorRuntime<'_> {
         // HUD/dock controls a pointing hand; leaving chrome restores the
         // focused client's requested cursor (including hidden cursors).
         let current_cursor = self.capture_cursor_state();
-        let cursor_hidden = current_cursor.hidden;
+        // The physical KMS cursor sprite has no CRTC over a virtual extend
+        // output, so it must be hidden while the pointer is there; the virtual
+        // stream's embedded cursor takes over (ADR-0186, `[INV-ARCH-76]`).
+        let cursor_hidden = current_cursor.hidden
+            || self
+                .server
+                .point_over_virtual_output(self.input_acc.cursor.0, self.input_acc.cursor.1);
         let cursor_shape = current_cursor.shape;
         // With a KMS cursor plane, plain pointer motion over client content
         // changes no compositor pixels (even when the clamped absolute cursor

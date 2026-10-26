@@ -37,6 +37,52 @@ pub trait WirelessBackend: Send + Sync {
     fn networks(&self) -> Vec<WifiNetwork>;
     /// Get the SSID of the currently associated network, if any.
     fn active_ssid(&self) -> Option<String>;
+    /// Whether a real wireless service backs this backend. `false` means the
+    /// compositor must report wireless as **unavailable** and must never
+    /// surface the backend's (empty) networks as discovered ones (ADR-0190,
+    /// `[INV-ARCH-82]`). Only a selection placeholder returns `false`; every
+    /// backend that talks to a daemon returns `true`.
+    fn available(&self) -> bool;
+}
+
+/// The wireless backend used when no daemon answered: it fabricates nothing.
+///
+/// Every verb is refused and every read is empty, so the compositor's status
+/// resolves wireless to unavailable (`wifi_enabled = None`, no networks) rather
+/// than to a plausible-looking lie (ADR-0190).
+pub struct UnavailableWirelessBackend;
+
+impl WirelessBackend for UnavailableWirelessBackend {
+    fn scan(&self) -> Result<(), String> {
+        Err("no wireless service is available".into())
+    }
+    fn connect(&self, _ssid: &str, _passphrase: Option<&str>) -> Result<(), String> {
+        Err("no wireless service is available".into())
+    }
+    fn disconnect(&self) -> Result<(), String> {
+        Err("no wireless service is available".into())
+    }
+    fn set_enabled(&self, _enabled: bool) -> Result<(), String> {
+        Err("no wireless service is available".into())
+    }
+    fn forget(&self, _ssid: &str) -> Result<(), String> {
+        Err("no wireless service is available".into())
+    }
+    fn set_auto_connect(&self, _ssid: &str, _auto_connect: bool) -> Result<(), String> {
+        Err("no wireless service is available".into())
+    }
+    fn state(&self) -> WifiLinkState {
+        WifiLinkState::Disconnected
+    }
+    fn networks(&self) -> Vec<WifiNetwork> {
+        Vec::new()
+    }
+    fn active_ssid(&self) -> Option<String> {
+        None
+    }
+    fn available(&self) -> bool {
+        false
+    }
 }
 
 /// Commands routed to the wireless worker thread.
@@ -64,6 +110,10 @@ pub struct WirelessSnapshot {
     pub state: WifiLinkState,
     pub active_ssid: Option<String>,
     pub networks: Vec<WifiNetwork>,
+    /// Whether a real wireless service backs the running backend (ADR-0190).
+    /// `false` tells the compositor to report wireless as unavailable rather
+    /// than show the backend's empty network list as "no networks found".
+    pub available: bool,
 }
 
 /// Non-blocking handle to the wireless subsystem.
@@ -81,6 +131,7 @@ impl WirelessHandle {
             state: backend.state(),
             active_ssid: backend.active_ssid(),
             networks: backend.networks(),
+            available: backend.available(),
         }));
 
         let worker_snapshot = snapshot.clone();
@@ -120,6 +171,7 @@ impl WirelessHandle {
                         snap.state = backend.state();
                         snap.active_ssid = backend.active_ssid();
                         snap.networks = backend.networks();
+                        snap.available = backend.available();
                     }
                 }
             })
@@ -128,14 +180,25 @@ impl WirelessHandle {
         Self { cmd_tx, snapshot }
     }
 
-    /// Try spawning with native iwd backend, falling back to mock if unavailable.
+    /// Select the production wireless backend (ADR-0190). Only a backend that
+    /// talks to a real daemon is a candidate: the native iwd bridge when it
+    /// opens, otherwise the [`UnavailableWirelessBackend`], whose empty reads
+    /// resolve status to unavailable. A mock is **never** a production
+    /// fallback — it is reachable only through the explicit preview entry
+    /// point (`[INV-ARCH-82]`).
     pub fn spawn_auto() -> Self {
-        if let Ok(iwd) = IwdBackend::open() {
-            log::info!("wireless subsystem: initialized native iwd backend");
-            Self::spawn_with_backend(iwd)
-        } else {
-            log::info!("wireless subsystem: iwd not available, using mock fallback");
-            Self::spawn_with_backend(MockWirelessBackend::new())
+        match IwdBackend::open() {
+            Ok(iwd) => {
+                log::info!("wireless subsystem: initialized native iwd backend");
+                Self::spawn_with_backend(iwd)
+            }
+            Err(error) => {
+                log::info!(
+                    "wireless subsystem: no wireless service available ({error}); \
+                     reporting wireless as unavailable"
+                );
+                Self::spawn_with_backend(UnavailableWirelessBackend)
+            }
         }
     }
 

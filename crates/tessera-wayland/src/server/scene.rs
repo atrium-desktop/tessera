@@ -96,12 +96,12 @@ impl Server {
         }
         let mut occluded = std::collections::HashSet::new();
         let mut opaque_coverage: Vec<tessera_primitives::Rect> = Vec::new();
-        let output = self.output_logical_rect();
         for pointer in stacked.iter().rev() {
             let root = unsafe { &**pointer };
             if self.transition_render_rect(root).is_some() {
                 continue;
             }
+            let output = self.state.output_rect_for_window(root.window.id);
 
             let tree = live
                 .iter()
@@ -609,6 +609,175 @@ impl Server {
         frames
     }
 
+    /// Presentation-visible toplevel ids scoped to physical outputs
+    /// (`!output.kind.is_virtual()`, `[INV-ARCH-76]`, ADR-0186). Windows
+    /// residing exclusively on a virtual extend output are excluded from the
+    /// physical union framebuffer and `plan_primary_plane` so they never
+    /// disqualify physical direct scanout.
+    pub(crate) fn physical_render_visible(
+        &self,
+    ) -> std::collections::HashSet<tessera_desktop::window::WindowId> {
+        let mut visible = self.render_visible();
+        let has_virtual = self
+            .state
+            .output_infos
+            .iter()
+            .any(|output| output.kind.is_virtual());
+        let physical_rects: Vec<tessera_primitives::Rect> = self
+            .state
+            .output_infos
+            .iter()
+            .filter(|output| output.kind.is_physical())
+            .map(|output| output.geometry.logical_rect())
+            .collect();
+        if !has_virtual || physical_rects.is_empty() {
+            return visible;
+        }
+        visible.retain(|&window_id| {
+            let on_virtual_ws = human_output_connector_for_window(&self.state, window_id)
+                .is_some_and(|connector| self.is_virtual_output(connector));
+            if !on_virtual_ws {
+                return true;
+            }
+            let rec = self.find_surface_by_window_id(window_id);
+            if rec.is_null() {
+                return false;
+            }
+            let win_rect = unsafe {
+                let s = &*rec;
+                self.transition_render_rect(s)
+                    .unwrap_or(tessera_primitives::Rect {
+                        origin: s.position,
+                        size: if s.window.size.w > 0 && s.window.size.h > 0 {
+                            s.window.size
+                        } else {
+                            surface_logical_size(s)
+                        },
+                    })
+            };
+            physical_rects
+                .iter()
+                .any(|phys| win_rect.intersect(*phys).is_some())
+        });
+        visible
+    }
+
+    /// Presentation-visible toplevel ids on one specific output `connector`
+    /// (ADR-0186): windows on `connector`'s current workspace (plus any active
+    /// workspace slide on `connector`) or intersecting `connector`'s logical
+    /// rectangle.
+    pub fn output_visible_windows(
+        &self,
+        connector: &str,
+    ) -> std::collections::HashSet<tessera_desktop::window::WindowId> {
+        let Some(output_info) = self
+            .state
+            .output_infos
+            .iter()
+            .find(|output| output.connector == connector)
+        else {
+            return std::collections::HashSet::new();
+        };
+        let output_rect = output_info.geometry.logical_rect();
+        let mut visible = self.render_visible();
+        visible.retain(|&window_id| {
+            if human_output_connector_for_window(&self.state, window_id) == Some(connector) {
+                return true;
+            }
+            let rec = self.find_surface_by_window_id(window_id);
+            if rec.is_null() {
+                return false;
+            }
+            let win_rect = unsafe {
+                let s = &*rec;
+                self.transition_render_rect(s)
+                    .unwrap_or(tessera_primitives::Rect {
+                        origin: s.position,
+                        size: if s.window.size.w > 0 && s.window.size.h > 0 {
+                            s.window.size
+                        } else {
+                            surface_logical_size(s)
+                        },
+                    })
+            };
+            win_rect.intersect(output_rect).is_some()
+        });
+        visible
+    }
+
+    /// Mapped SHM client surfaces visible on `connector`, for offscreen
+    /// virtual-output streaming (ADR-0186).
+    pub fn output_capture_frames(&self, connector: &str) -> Vec<SurfacePixels<'_>> {
+        let visible = self.output_visible_windows(connector);
+        let occluded = self.occluded_window_ids_with(&visible);
+        let mut frames = self.toplevel_frames_with(&visible, &occluded);
+        frames.extend(self.subsurface_frames_below_with(&visible, &occluded));
+        frames.extend(self.subsurface_frames_above_with(&visible, &occluded));
+        frames
+    }
+
+    /// Mapped DMA-BUF client surfaces visible on `connector`, for offscreen
+    /// virtual-output streaming (ADR-0186).
+    pub fn output_capture_dmabuf_frames(&self, connector: &str) -> Vec<SurfaceDmabuf> {
+        let visible = self.output_visible_windows(connector);
+        let occluded = self.occluded_window_ids_with(&visible);
+        let mut frames = self.toplevel_dmabuf_frames_with(&visible, &occluded);
+        frames.extend(self.subsurface_dmabuf_frames_below_with(&visible, &occluded));
+        frames.extend(self.subsurface_dmabuf_frames_above_with(&visible, &occluded));
+        frames
+    }
+
+    /// Paint order for client surfaces visible on `connector` (ADR-0186).
+    pub fn output_capture_frame_order(&self, connector: &str) -> Vec<usize> {
+        let visible = self.output_visible_windows(connector);
+        let occluded = self.occluded_window_ids_with(&visible);
+        self.client_surface_frame_order_with(&visible, &occluded)
+    }
+
+    /// Fire `wl_surface.frame` callbacks for surfaces visible on `connector`
+    /// when a virtual-output stream renders a frame offscreen (ADR-0186).
+    pub fn send_output_frame_callbacks(&mut self, connector: &str, time_ms: u32) -> usize {
+        if self.state.session_lock_phase.is_active() {
+            return 0;
+        }
+        let visible = self.output_visible_windows(connector);
+        if visible.is_empty() {
+            return 0;
+        }
+        let occluded = self.occluded_window_ids_with(&visible);
+        let transition_now_ms = self.now_ms();
+        let mut sent = 0;
+        for &p in &self.state.surfaces {
+            if p.is_null() {
+                continue;
+            }
+            let output_visible = unsafe {
+                surface_receives_output_frame_callback(
+                    p,
+                    &visible,
+                    &occluded,
+                    false,
+                    transition_now_ms,
+                )
+            };
+            if !output_visible {
+                continue;
+            }
+            let rec = unsafe { &mut *p };
+            for cb in rec.frame_callbacks.drain(..) {
+                unsafe {
+                    ffi::wl_resource_post_event(cb, ffi::WL_CALLBACK_DONE, time_ms);
+                    ffi::wl_resource_destroy(cb);
+                }
+                sent += 1;
+            }
+        }
+        if sent > 0 {
+            unsafe { ffi::wl_display_flush_clients(self.state.display) };
+        }
+        sent
+    }
+
     /// Both frame sets plus the occlusion verdicts in one pass.
     ///
     /// The damage assessment, scanout planner, and the render pass each need
@@ -620,7 +789,7 @@ impl Server {
     /// after `server.dispatch()`). This accessor computes the shared
     /// visibility/occlusion snapshot once and derives both lists from it.
     pub fn desktop_frame_sets(&self) -> DesktopFrameSets<'_> {
-        let visible = self.render_visible();
+        let visible = self.physical_render_visible();
         let occluded = self.occluded_window_ids_with(&visible);
         let mut shm = self.toplevel_frames_with(&visible, &occluded);
         shm.extend(self.subsurface_frames_below_with(&visible, &occluded));

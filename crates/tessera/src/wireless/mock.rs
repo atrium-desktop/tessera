@@ -199,4 +199,8 @@ impl WirelessBackend for MockWirelessBackend {
     fn active_ssid(&self) -> Option<String> {
         self.state.lock().unwrap().active_ssid.clone()
     }
+
+    fn available(&self) -> bool {
+        true
+    }
 }

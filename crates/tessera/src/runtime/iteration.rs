@@ -102,6 +102,10 @@ impl CompositorRuntime<'_> {
             .set_allowed(!self.server.session_locked() && self.host.is_active());
         let agent_suspended = self.server.session_locked() || !self.host.is_active();
         if agent_suspended && !self.previous_agent_suspended {
+            // `[INV-ARCH-81]` (ADR-0189): suspending presentation must also end
+            // every live stream, or a mirror/cast keeps showing the last
+            // delivered frame after the boundary.
+            self.end_streams_for_suspension();
             self.observations.discard_all();
             let snapshot = self.server.interaction_domain_snapshot();
             for interaction_domain in
@@ -585,9 +589,12 @@ impl CompositorRuntime<'_> {
             // Compositor-owned like `idle_inhibited`: the session power mode
             // (ADR-0140) must survive a host status sample.
             detected.power_mode = self.idle_process.mode();
-            // Compositor-owned like `idle_inhibited`: the live capture
-            // stream count (ADR-0128) must survive a host status sample.
+            // Compositor-owned like `idle_inhibited`: the live capture stream
+            // count and the cast/virtual-display counts (ADR-0128, ADR-0188)
+            // must survive a host status sample.
             detected.capture_streams = self.system_status.capture_streams;
+            detected.virtual_displays = self.system_status.virtual_displays;
+            detected.cast_streams = self.system_status.cast_streams;
             let mut input_status = self.host.input_status();
             // The backend has no keyboard device model; the runtime owns the
             // persisted repeat profile.
@@ -598,6 +605,14 @@ impl CompositorRuntime<'_> {
             detected.wifi_state = wireless_snap.state;
             detected.wifi_ssid = wireless_snap.active_ssid;
             detected.wifi_networks = wireless_snap.networks;
+            // `[INV-ARCH-82]` (ADR-0190): with no wireless service, report
+            // wireless as unavailable instead of presenting an empty network
+            // list as though a scan had simply found nothing.
+            if !wireless_snap.available {
+                detected.wifi_enabled = None;
+                detected.wifi_ssid = None;
+                detected.wifi_networks = Vec::new();
+            }
             // The subsystem reports adapter power when a Bluetooth service
             // answered; when none did, the host's rfkill probe is the fallback
             // (`enabled()` is stably `None` only in that case, so the two never
@@ -626,6 +641,18 @@ impl CompositorRuntime<'_> {
         // Reconcile real-time asynchronous wireless state changes (ADR-0162)
         let wireless_snap = self.wireless.snapshot();
         let mut wireless_changed = false;
+        // `[INV-ARCH-82]` (ADR-0190): the service vanished (or never existed).
+        // Clear the radio view rather than leave last-known or empty networks.
+        if !wireless_snap.available
+            && (self.system_status.wifi_enabled.is_some()
+                || self.system_status.wifi_ssid.is_some()
+                || !self.system_status.wifi_networks.is_empty())
+        {
+            self.system_status.wifi_enabled = None;
+            self.system_status.wifi_ssid = None;
+            self.system_status.wifi_networks = Vec::new();
+            wireless_changed = true;
+        }
         if self.system_status.wifi_state != wireless_snap.state {
             self.system_status.wifi_state = wireless_snap.state;
             wireless_changed = true;
@@ -912,64 +939,142 @@ impl CompositorRuntime<'_> {
                         let (width, height) = self.surface.size();
                         match &target {
                             tessera_protocol::StreamTarget::Output { output } => {
-                                // A connector selector (IPC protocol 29)
-                                // resolves to that output's sub-region of
-                                // the desktop frame; an unknown connector is
-                                // an error, not a fallback.
-                                let region = match output {
-                                    None => Some(tessera_primitives::Rect::new(
-                                        0,
-                                        0,
-                                        width as i32,
-                                        height as i32,
-                                    )),
-                                    Some(connector) => resolve_output_rect(
-                                        &self.server.output_infos(),
-                                        connector,
-                                        output_render_scale(self.server, self.host),
-                                        width,
-                                        height,
-                                    )
-                                    .filter(|rect| rect.size.w > 0 && rect.size.h > 0),
-                                };
-                                match (output, region) {
-                                    (Some(connector), None) => {
-                                        Err(format!("unknown output connector '{connector}'"))
-                                    }
-                                    (_, Some(region)) => {
-                                        let size = (region.size.w as u32, region.size.h as u32);
-                                        // The zero-copy dmabuf transport (protocol 25)
-                                        // needs an exportable presentation surface;
-                                        // every other case announces SHM pixels.
-                                        let mut capture = None;
-                                        if allow_dmabuf {
-                                            match self.create_dmabuf_capture(size.0, size.1) {
-                                                Ok(created) => capture = Some(created),
-                                                Err(reason) => log::warn!(
-                                                    "stream: dmabuf capture unavailable ({reason}); \
-                                                     falling back to shm"
+                                if let Some(connector) = output.as_deref()
+                                    && self.server.is_virtual_output(connector)
+                                {
+                                    // Per-virtual-output independent offscreen
+                                    // rendering (`[INV-ARCH-76]`, ADR-0186).
+                                    match virtual_output_geometry(self.server, connector) {
+                                        Err(reason) => Err(reason),
+                                        Ok(geometry) => {
+                                            let size =
+                                                (geometry.physical_width, geometry.physical_height);
+                                            let virtual_state = |shm| VirtualOutputStream {
+                                                connector: geometry.connector.clone(),
+                                                shm,
+                                                geometry_sig: (
+                                                    self.server.all_windows_signature(),
+                                                    self.server.outputs_revision(),
                                                 ),
+                                                origin: geometry.origin,
+                                                logical_size: geometry.logical_size,
+                                                scale_milli: geometry.scale_milli,
+                                                generations: std::collections::HashMap::new(),
+                                                last_cursor: None,
+                                                dirty: true,
+                                                stage: WindowStreamStage::Idle,
+                                                held_since: None,
+                                            };
+                                            let mut capture = None;
+                                            if allow_dmabuf {
+                                                match self.create_dmabuf_capture(size.0, size.1) {
+                                                    Ok(created) => capture = Some(created),
+                                                    Err(reason) => log::warn!(
+                                                        "stream: dmabuf capture unavailable ({reason}); \
+                                                         falling back to shm"
+                                                    ),
+                                                }
+                                            }
+                                            match capture {
+                                                Some(capture) => {
+                                                    let info = self.streams.start_dmabuf(
+                                                        request.conn_id,
+                                                        max_fps,
+                                                        size,
+                                                        target.clone(),
+                                                        cursor,
+                                                        capture,
+                                                    );
+                                                    self.streams.attach_virtual_output(
+                                                        info.stream_id,
+                                                        virtual_state(None),
+                                                    );
+                                                    Ok(info)
+                                                }
+                                                None => match WindowShmTarget::new(
+                                                    self.device,
+                                                    size.0,
+                                                    size.1,
+                                                ) {
+                                                    Ok(target_shm) => {
+                                                        let info = self.streams.start(
+                                                            request.conn_id,
+                                                            max_fps,
+                                                            size,
+                                                            target.clone(),
+                                                            cursor,
+                                                        );
+                                                        self.streams.attach_virtual_output(
+                                                            info.stream_id,
+                                                            virtual_state(Some(target_shm)),
+                                                        );
+                                                        Ok(info)
+                                                    }
+                                                    Err(reason) => Err(reason),
+                                                },
                                             }
                                         }
-                                        match capture {
-                                            Some(capture) => Ok(self.streams.start_dmabuf(
-                                                request.conn_id,
-                                                max_fps,
-                                                size,
-                                                target.clone(),
-                                                cursor,
-                                                capture,
-                                            )),
-                                            None => Ok(self.streams.start(
-                                                request.conn_id,
-                                                max_fps,
-                                                size,
-                                                target.clone(),
-                                                cursor,
-                                            )),
+                                    }
+                                } else {
+                                    // A physical connector selector (IPC
+                                    // protocol 29) resolves to that output's
+                                    // sub-region of the desktop frame; an
+                                    // unknown connector is an error, not a
+                                    // fallback.
+                                    let region = match output {
+                                        None => Some(tessera_primitives::Rect::new(
+                                            0,
+                                            0,
+                                            width as i32,
+                                            height as i32,
+                                        )),
+                                        Some(connector) => resolve_output_rect(
+                                            &self.server.output_infos(),
+                                            connector,
+                                            output_render_scale(self.server, self.host),
+                                            width,
+                                            height,
+                                        )
+                                        .filter(|rect| rect.size.w > 0 && rect.size.h > 0),
+                                    };
+                                    match (output, region) {
+                                        (Some(connector), None) => {
+                                            Err(format!("unknown output connector '{connector}'"))
+                                        }
+                                        (_, Some(region)) => {
+                                            let size = (region.size.w as u32, region.size.h as u32);
+                                            let mut capture = None;
+                                            if allow_dmabuf {
+                                                match self.create_dmabuf_capture(size.0, size.1) {
+                                                    Ok(created) => capture = Some(created),
+                                                    Err(reason) => log::warn!(
+                                                        "stream: dmabuf capture unavailable ({reason}); \
+                                                         falling back to shm"
+                                                    ),
+                                                }
+                                            }
+                                            match capture {
+                                                Some(capture) => Ok(self.streams.start_dmabuf(
+                                                    request.conn_id,
+                                                    max_fps,
+                                                    size,
+                                                    target.clone(),
+                                                    cursor,
+                                                    capture,
+                                                )),
+                                                None => Ok(self.streams.start(
+                                                    request.conn_id,
+                                                    max_fps,
+                                                    size,
+                                                    target.clone(),
+                                                    cursor,
+                                                )),
+                                            }
+                                        }
+                                        (None, None) => {
+                                            unreachable!("whole-desktop region is sized")
                                         }
                                     }
-                                    (None, None) => unreachable!("whole-desktop region is sized"),
                                 }
                             }
                             tessera_protocol::StreamTarget::Window { window } => {
@@ -1063,26 +1168,197 @@ impl CompositorRuntime<'_> {
                     }
                     let _ = reply.send(result);
                 }
+                StreamControl::Renegotiate {
+                    stream_id,
+                    max_fps,
+                    allow_dmabuf,
+                    reply,
+                } => {
+                    let result = if self.server.session_locked() || !self.host.is_active() {
+                        Err("session is locked or inactive".to_owned())
+                    } else {
+                        let target = self.streams.target_of(stream_id).map(|(target, _)| target);
+                        let is_offscreen = self
+                            .streams
+                            .streams
+                            .get(&stream_id)
+                            .is_some_and(|stream| stream.is_offscreen());
+                        let (width, height) = self.surface.size();
+                        let resolved_size = match &target {
+                            None => Err(format!("unknown stream {stream_id}")),
+                            Some(tessera_protocol::StreamTarget::Output { output: None }) => {
+                                Ok((width, height))
+                            }
+                            Some(tessera_protocol::StreamTarget::Output {
+                                output: Some(connector),
+                            }) => {
+                                if self.server.is_virtual_output(connector) {
+                                    virtual_output_geometry(self.server, connector)
+                                        .map(|geo| (geo.physical_width, geo.physical_height))
+                                } else {
+                                    resolve_output_rect(
+                                        &self.server.output_infos(),
+                                        connector,
+                                        output_render_scale(self.server, self.host),
+                                        width,
+                                        height,
+                                    )
+                                    .filter(|rect| rect.size.w > 0 && rect.size.h > 0)
+                                    .map(|rect| (rect.size.w as u32, rect.size.h as u32))
+                                    .ok_or_else(|| format!("output '{connector}' disconnected"))
+                                }
+                            }
+                            Some(tessera_protocol::StreamTarget::Window { window }) => {
+                                window_tree_geometry(self.server, *window)
+                                    .map(|geo| (geo.physical_width, geo.physical_height))
+                            }
+                        };
+                        match resolved_size {
+                            Err(reason) => Err(reason),
+                            Ok(size) => {
+                                let mut capture = None;
+                                if allow_dmabuf {
+                                    match self.create_dmabuf_capture(size.0, size.1) {
+                                        Ok(created) => capture = Some(created),
+                                        Err(reason) => log::warn!(
+                                            "stream {stream_id}: dmabuf renegotiate unavailable ({reason}); \
+                                             falling back to shm"
+                                        ),
+                                    }
+                                }
+                                let offscreen_shm = if capture.is_none() && is_offscreen {
+                                    match WindowShmTarget::new(self.device, size.0, size.1) {
+                                        Ok(shm) => Some(shm),
+                                        Err(reason) => {
+                                            let _ = reply.send(Err(reason));
+                                            continue;
+                                        }
+                                    }
+                                } else {
+                                    None
+                                };
+                                self.streams.renegotiate(
+                                    request.conn_id,
+                                    stream_id,
+                                    max_fps,
+                                    size,
+                                    capture,
+                                    offscreen_shm,
+                                )
+                            }
+                        }
+                    };
+                    if result.is_ok() {
+                        // The rebuilt target reports full damage on its first
+                        // frame (ADR-0187).
+                        self.offscreen_damage.remove(&stream_id);
+                    }
+                    let _ = reply.send(result);
+                }
+                StreamControl::CreateVirtualOutput { spec, reply } => {
+                    let result = if self.server.session_locked() || !self.host.is_active() {
+                        Err("session is locked or inactive".to_owned())
+                    } else {
+                        match self
+                            .server
+                            .create_virtual_output(Some(request.conn_id), spec)
+                        {
+                            Ok(created) => {
+                                let infos = self.server.output_infos();
+                                self.live.set_outputs(infos.clone());
+                                tessera_protocol::OutputInfo::project(&infos)
+                                    .into_iter()
+                                    .find(|output| output.connector == created.connector)
+                                    .ok_or_else(|| {
+                                        format!(
+                                            "virtual output '{}' missing from projection",
+                                            created.connector
+                                        )
+                                    })
+                            }
+                            Err(reason) => Err(reason),
+                        }
+                    };
+                    self.publish_stream_status();
+                    let _ = reply.send(result);
+                }
+                StreamControl::ResizeVirtualOutput {
+                    connector,
+                    mode,
+                    scale,
+                    logical_origin,
+                    reply,
+                } => {
+                    let result = if self.server.session_locked() || !self.host.is_active() {
+                        Err("session is locked or inactive".to_owned())
+                    } else {
+                        match self.server.resize_virtual_output(
+                            Some(request.conn_id),
+                            &connector,
+                            mode,
+                            scale,
+                            logical_origin,
+                        ) {
+                            Ok(resized) => {
+                                let infos = self.server.output_infos();
+                                self.live.set_outputs(infos.clone());
+                                tessera_protocol::OutputInfo::project(&infos)
+                                    .into_iter()
+                                    .find(|output| output.connector == resized.connector)
+                                    .ok_or_else(|| {
+                                        format!(
+                                            "virtual output '{}' missing from projection",
+                                            resized.connector
+                                        )
+                                    })
+                            }
+                            Err(reason) => Err(reason),
+                        }
+                    };
+                    self.publish_stream_status();
+                    let _ = reply.send(result);
+                }
+                StreamControl::DestroyVirtualOutput { connector, reply } => {
+                    let result = self
+                        .server
+                        .destroy_virtual_output(Some(request.conn_id), &connector)
+                        .map(|()| {
+                            let infos = self.server.output_infos();
+                            self.live.set_outputs(infos);
+                            connector
+                        });
+                    self.publish_stream_status();
+                    let _ = reply.send(result);
+                }
                 StreamControl::Stop { stream_id } => {
                     log::info!("stream {stream_id}: stopped");
                     self.streams.stop(stream_id);
+                    self.offscreen_damage.remove(&stream_id);
                 }
                 StreamControl::ReleaseSlot { stream_id, slot } => {
                     self.streams.release_slot(stream_id, slot);
                 }
                 StreamControl::Disconnect => {
                     self.streams.disconnect(request.conn_id);
+                    self.offscreen_damage
+                        .retain(|stream_id, _| self.streams.streams.contains_key(stream_id));
+                    let reclaimed = self.server.disconnect_virtual_outputs(request.conn_id);
+                    if !reclaimed.is_empty() {
+                        self.live.set_outputs(self.server.output_infos());
+                    }
                 }
             }
         }
-        // Window streams produce independently of presentation (ADR-0127):
-        // geometry re-checks, dirty-driven and liveness renders into each
-        // stream's cached offscreen target.
+        // Window and virtual-output streams produce independently of
+        // physical presentation (ADR-0127/0186): geometry re-checks,
+        // dirty-driven and liveness renders into each stream's cached
+        // offscreen target.
         self.drive_window_streams();
+        self.drive_virtual_output_streams();
         // The recording indicator follows the live stream set after every
         // mutation above (start, stop, disconnect) — the same frame the
         // change drained in, so it paints promptly (ADR-0128).
-        self.publish_capture_stream_count();
+        self.publish_stream_status();
         while let Ok(request) = self.interaction_domain_control_rx.try_recv() {
             let committed_action = request.action.clone();
             let before_revision = self.server.interaction_domain_revision();
@@ -1635,7 +1911,11 @@ impl CompositorRuntime<'_> {
                 journal_effect_and_broadcast(&self.journal, &self.ipc, ts, origin, cmd, effect);
                 continue;
             }
-            if matches!(cmd, tessera_protocol::Command::InjectInput { .. }) {
+            if matches!(
+                cmd,
+                tessera_protocol::Command::InjectInput { .. }
+                    | tessera_protocol::Command::InjectOutputInput { .. }
+            ) {
                 pending_synthetic_input.push((cmd, ts, origin));
                 continue;
             }

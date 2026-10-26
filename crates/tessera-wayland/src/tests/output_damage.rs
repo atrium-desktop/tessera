@@ -44,12 +44,14 @@ fn backend_outputs_reconcile_workspace_connectors_and_geometry() {
         tessera_desktop::output::OutputInfo {
             connector: "DP-1".into(),
             geometry: geometry(0, 1920),
+            kind: tessera_desktop::output::OutputKind::External,
             available_modes: Vec::new(),
             color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
         },
         tessera_desktop::output::OutputInfo {
             connector: "HDMI-A-1".into(),
             geometry: geometry(1920, 2560),
+            kind: tessera_desktop::output::OutputKind::External,
             available_modes: Vec::new(),
             color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
         },
@@ -100,12 +102,14 @@ fn output_policies_apply_scale_position_and_primary() {
         tessera_desktop::output::OutputInfo {
             connector: "DP-1".into(),
             geometry: geometry(0, 1920),
+            kind: tessera_desktop::output::OutputKind::External,
             available_modes: Vec::new(),
             color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
         },
         tessera_desktop::output::OutputInfo {
             connector: "HDMI-A-1".into(),
             geometry: geometry(1920, 2560),
+            kind: tessera_desktop::output::OutputKind::External,
             available_modes: Vec::new(),
             color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
         },
@@ -519,4 +523,380 @@ fn app_geometry_memory_is_bounded_like_the_persisted_store() {
         state.last_app_geometries.len()
     );
     let _ = std::fs::remove_dir_all(temp_dir);
+}
+
+#[test]
+fn test_inv_arch_74_physical_output_always_outranks_virtual_primary() {
+    if std::env::var_os("XDG_RUNTIME_DIR").is_none() {
+        eprintln!("skipping: XDG_RUNTIME_DIR not set");
+        return;
+    }
+    let mut server = Server::new().expect("Server::new");
+    server.set_outputs(vec![tessera_desktop::output::OutputInfo {
+        connector: "eDP-1".into(),
+        geometry: tessera_desktop::output::OutputGeometry {
+            mode: tessera_desktop::output::OutputMode {
+                width: 1920,
+                height: 1080,
+                refresh_mhz: 60_000,
+            },
+            scale: tessera_desktop::output::Scale::IDENTITY,
+            transform: tessera_primitives::Transform::Normal,
+            logical_origin: tessera_primitives::Point { x: 0, y: 0 },
+        },
+        kind: tessera_desktop::output::OutputKind::Internal,
+        available_modes: Vec::new(),
+        color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+    }]);
+    let virt = server
+        .create_virtual_output(
+            Some(42),
+            tessera_desktop::output::VirtualOutputSpec {
+                connector: Some("VIRTUAL-1".into()),
+                mode: tessera_desktop::output::OutputMode {
+                    width: 1920,
+                    height: 1080,
+                    refresh_mhz: 60_000,
+                },
+                scale: tessera_desktop::output::Scale::IDENTITY,
+                logical_origin: None,
+                persistent: false,
+            },
+        )
+        .expect("create VIRTUAL-1");
+    assert_eq!(virt.connector, "VIRTUAL-1");
+    assert_eq!(virt.kind, tessera_desktop::output::OutputKind::Virtual);
+    assert_eq!(
+        virt.geometry.logical_origin,
+        tessera_primitives::Point { x: 1920, y: 0 }
+    );
+
+    // Even if an output policy marks VIRTUAL-1 as `primary = true`, eDP-1 must
+    // remain at index 0 (`[INV-ARCH-74]`).
+    server.set_output_policies(std::collections::HashMap::from([(
+        "VIRTUAL-1".to_owned(),
+        tessera_desktop::output::OutputPolicy {
+            primary: true,
+            ..Default::default()
+        },
+    )]));
+    let infos = server.output_infos();
+    assert_eq!(infos[0].connector, "eDP-1");
+    assert!(infos[0].kind.is_physical());
+    assert_eq!(infos[1].connector, "VIRTUAL-1");
+    assert!(infos[1].kind.is_virtual());
+}
+
+#[test]
+fn test_inv_arch_76_virtual_output_does_not_evict_the_physical_scene() {
+    if std::env::var_os("XDG_RUNTIME_DIR").is_none() {
+        eprintln!("skipping: XDG_RUNTIME_DIR not set");
+        return;
+    }
+    let mut server = Server::new().expect("Server::new");
+    server.set_outputs(vec![tessera_desktop::output::OutputInfo {
+        connector: "eDP-1".into(),
+        geometry: tessera_desktop::output::OutputGeometry {
+            mode: tessera_desktop::output::OutputMode {
+                width: 1920,
+                height: 1080,
+                refresh_mhz: 60_000,
+            },
+            scale: tessera_desktop::output::Scale::IDENTITY,
+            transform: tessera_primitives::Transform::Normal,
+            logical_origin: tessera_primitives::Point { x: 0, y: 0 },
+        },
+        kind: tessera_desktop::output::OutputKind::Internal,
+        available_modes: Vec::new(),
+        color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+    }]);
+    server
+        .create_virtual_output(
+            Some(98),
+            tessera_desktop::output::VirtualOutputSpec {
+                connector: Some("VIRTUAL-1".into()),
+                mode: tessera_desktop::output::OutputMode {
+                    width: 1920,
+                    height: 1080,
+                    refresh_mhz: 60_000,
+                },
+                scale: tessera_desktop::output::Scale::IDENTITY,
+                logical_origin: None,
+                persistent: false,
+            },
+        )
+        .expect("create VIRTUAL-1");
+
+    // One window per output: a physical one and a virtual-output one.
+    let physical_window = tessera_desktop::window::WindowId(31);
+    let virtual_window = tessera_desktop::window::WindowId(32);
+    let client = server.state.authority.register_client(None);
+    server
+        .state
+        .authority
+        .create_interaction_group(
+            client,
+            &[physical_window, virtual_window],
+            HUMAN_INTERACTION_DOMAIN,
+        )
+        .expect("register human window authority");
+
+    let mut physical_rec = Box::new(SurfaceRec::new(0x710usize as *mut ffi::wl_resource));
+    physical_rec.state = server.state.as_mut();
+    physical_rec.xdg_toplevel = 0x711usize as *mut ffi::wl_resource;
+    physical_rec.mapped = true;
+    physical_rec.window.id = physical_window;
+    physical_rec.position = tessera_primitives::Point { x: 100, y: 100 };
+    physical_rec.window.position = physical_rec.position;
+    physical_rec.window.size = tessera_primitives::Size { w: 400, h: 300 };
+    physical_rec.width = 400;
+    physical_rec.height = 300;
+    physical_rec.pixels = vec![0xff; 400 * 300 * 4];
+    server.state.surfaces.push(physical_rec.as_mut());
+
+    let mut virtual_rec = Box::new(SurfaceRec::new(0x720usize as *mut ffi::wl_resource));
+    virtual_rec.state = server.state.as_mut();
+    virtual_rec.xdg_toplevel = 0x721usize as *mut ffi::wl_resource;
+    virtual_rec.mapped = true;
+    virtual_rec.window.id = virtual_window;
+    // Inside VIRTUAL-1's logical rectangle, far from the physical one.
+    virtual_rec.position = tessera_primitives::Point { x: 2100, y: 100 };
+    virtual_rec.window.position = virtual_rec.position;
+    virtual_rec.window.size = tessera_primitives::Size { w: 400, h: 300 };
+    virtual_rec.width = 400;
+    virtual_rec.height = 300;
+    virtual_rec.pixels = vec![0xff; 400 * 300 * 4];
+    server.state.surfaces.push(virtual_rec.as_mut());
+
+    let snapshot = server.workspace_snapshot();
+    let physical_ws = snapshot
+        .outputs
+        .iter()
+        .find(|output| output.connector == "eDP-1")
+        .and_then(|output| output.workspaces.first())
+        .map(|ws| ws.id)
+        .expect("eDP-1 workspace");
+    let virtual_ws = snapshot
+        .outputs
+        .iter()
+        .find(|output| output.connector == "VIRTUAL-1")
+        .and_then(|output| output.workspaces.first())
+        .map(|ws| ws.id)
+        .expect("VIRTUAL-1 workspace");
+    server
+        .state
+        .workspaces
+        .place_toplevel(physical_ws, physical_window);
+    server
+        .state
+        .workspaces
+        .place_toplevel(virtual_ws, virtual_window);
+
+    // `[INV-ARCH-76]` is about *scoping*, not blanket suppression: the
+    // physical scene keeps its own window while the virtual output's window is
+    // excluded. An over-filtering `physical_render_visible` (e.g. dropping
+    // every window whenever a virtual output exists) would fail here.
+    let physical_scene = server.desktop_frame_sets();
+    assert_eq!(
+        physical_scene.shm.len(),
+        1,
+        "the physical window must survive a concurrent virtual output"
+    );
+    assert_eq!(physical_scene.shm[0].window, Some(physical_window));
+    assert!(physical_scene.visible.contains(&physical_window));
+    assert!(!physical_scene.visible.contains(&virtual_window));
+
+    // The virtual output renders only its own window — never the physical one.
+    let virtual_frames = server.output_capture_frames("VIRTUAL-1");
+    assert_eq!(virtual_frames.len(), 1);
+    assert_eq!(virtual_frames[0].window, Some(virtual_window));
+
+    server.state.surfaces.clear();
+}
+
+#[test]
+fn test_inv_arch_75_connection_disconnect_reclaims_virtual_outputs_and_relocates_windows() {
+    if std::env::var_os("XDG_RUNTIME_DIR").is_none() {
+        eprintln!("skipping: XDG_RUNTIME_DIR not set");
+        return;
+    }
+    let mut server = Server::new().expect("Server::new");
+    server.set_outputs(vec![tessera_desktop::output::OutputInfo {
+        connector: "eDP-1".into(),
+        geometry: tessera_desktop::output::OutputGeometry {
+            mode: tessera_desktop::output::OutputMode {
+                width: 1920,
+                height: 1080,
+                refresh_mhz: 60_000,
+            },
+            scale: tessera_desktop::output::Scale::IDENTITY,
+            transform: tessera_primitives::Transform::Normal,
+            logical_origin: tessera_primitives::Point { x: 0, y: 0 },
+        },
+        kind: tessera_desktop::output::OutputKind::Internal,
+        available_modes: Vec::new(),
+        color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+    }]);
+    server
+        .create_virtual_output(
+            Some(99),
+            tessera_desktop::output::VirtualOutputSpec {
+                connector: Some("VIRTUAL-1".into()),
+                mode: tessera_desktop::output::OutputMode {
+                    width: 1920,
+                    height: 1080,
+                    refresh_mhz: 60_000,
+                },
+                scale: tessera_desktop::output::Scale::IDENTITY,
+                logical_origin: None,
+                persistent: false,
+            },
+        )
+        .expect("create VIRTUAL-1");
+
+    // Place a mapped window on VIRTUAL-1's current workspace at (2100, 120).
+    let window_id = tessera_desktop::window::WindowId(17);
+    let client = server.state.authority.register_client(None);
+    server
+        .state
+        .authority
+        .create_interaction_group(client, &[window_id], HUMAN_INTERACTION_DOMAIN)
+        .expect("register human window authority");
+    let mut rec = Box::new(SurfaceRec::new(0x700usize as *mut ffi::wl_resource));
+    rec.state = server.state.as_mut();
+    rec.xdg_toplevel = 0x701usize as *mut ffi::wl_resource;
+    rec.mapped = true;
+    rec.window.id = window_id;
+    rec.position = tessera_primitives::Point { x: 2100, y: 120 };
+    rec.window.position = rec.position;
+    rec.window.size = tessera_primitives::Size { w: 400, h: 300 };
+    rec.width = 400;
+    rec.height = 300;
+    rec.pixels = vec![0xff; 400 * 300 * 4];
+    server.state.surfaces.push(rec.as_mut());
+
+    let virt_ws = server
+        .workspace_snapshot()
+        .outputs
+        .iter()
+        .find(|output| output.connector == "VIRTUAL-1")
+        .and_then(|output| output.workspaces.first())
+        .map(|ws| ws.id)
+        .expect("VIRTUAL-1 workspace");
+    server.state.workspaces.place_toplevel(virt_ws, window_id);
+
+    // `[INV-ARCH-76]`: while on VIRTUAL-1, the window is excluded from the
+    // physical desktop_frame_sets() but present in output_capture_frames("VIRTUAL-1").
+    assert!(server.desktop_frame_sets().shm.is_empty());
+    assert_eq!(server.output_capture_frames("VIRTUAL-1").len(), 1);
+
+    // Disconnecting connection 99 reclaims VIRTUAL-1 and relocates the window
+    // into eDP-1's bounds (`[INV-ARCH-75]`).
+    let reclaimed = server.disconnect_virtual_outputs(99);
+    assert_eq!(reclaimed, vec!["VIRTUAL-1".to_string()]);
+    assert!(!server.is_virtual_output("VIRTUAL-1"));
+    assert_eq!(rec.position, tessera_primitives::Point { x: 180, y: 120 });
+    server.switch_workspace_to(virt_ws);
+    assert_eq!(server.desktop_frame_sets().shm.len(), 1);
+    server.state.surfaces.clear();
+}
+
+#[test]
+fn test_inv_arch_78_output_scoped_input_rejects_out_of_bounds_and_locked_sessions() {
+    if std::env::var_os("XDG_RUNTIME_DIR").is_none() {
+        eprintln!("skipping: XDG_RUNTIME_DIR not set");
+        return;
+    }
+    let mut server = Server::new().expect("Server::new");
+    server.set_outputs(vec![tessera_desktop::output::OutputInfo {
+        connector: "eDP-1".into(),
+        geometry: tessera_desktop::output::OutputGeometry {
+            mode: tessera_desktop::output::OutputMode {
+                width: 1920,
+                height: 1080,
+                refresh_mhz: 60_000,
+            },
+            scale: tessera_desktop::output::Scale::IDENTITY,
+            transform: tessera_primitives::Transform::Normal,
+            logical_origin: tessera_primitives::Point { x: 0, y: 0 },
+        },
+        kind: tessera_desktop::output::OutputKind::Internal,
+        available_modes: Vec::new(),
+        color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+    }]);
+    server
+        .create_virtual_output(
+            Some(1),
+            tessera_desktop::output::VirtualOutputSpec {
+                connector: Some("VIRTUAL-1".into()),
+                mode: tessera_desktop::output::OutputMode {
+                    width: 1280,
+                    height: 720,
+                    refresh_mhz: 60_000,
+                },
+                scale: tessera_desktop::output::Scale::IDENTITY,
+                logical_origin: None,
+                persistent: false,
+            },
+        )
+        .expect("create VIRTUAL-1");
+
+    // In-bounds click at (100, 50) on VIRTUAL-1 translates to global (2020, 50).
+    let events = server
+        .prepare_output_synthetic_input(
+            "VIRTUAL-1",
+            &[tessera_primitives::input::SyntheticInputAction::Click {
+                position: tessera_primitives::Point { x: 100, y: 50 },
+                button: 0x110,
+            }],
+        )
+        .expect("in-bounds output input must succeed");
+    assert!(matches!(
+        events.first(),
+        Some(tessera_primitives::input::InputEvent::PointerMotion { x, y, .. })
+            if (*x - 2020.0).abs() < f32::EPSILON && (*y - 50.0).abs() < f32::EPSILON
+    ));
+
+    // Out-of-bounds coordinates and unknown connectors must be rejected.
+    assert!(
+        server
+            .prepare_output_synthetic_input(
+                "VIRTUAL-1",
+                &[
+                    tessera_primitives::input::SyntheticInputAction::PointerMove {
+                        position: tessera_primitives::Point { x: 1280, y: 50 },
+                    }
+                ],
+            )
+            .is_none()
+    );
+    assert!(
+        server
+            .prepare_output_synthetic_input(
+                "VIRTUAL-99",
+                &[
+                    tessera_primitives::input::SyntheticInputAction::PointerMove {
+                        position: tessera_primitives::Point { x: 10, y: 10 },
+                    }
+                ],
+            )
+            .is_none()
+    );
+
+    // Locked sessions must fail closed.
+    server.state.session_lock_phase = crate::SessionLockPhase::Locked {
+        frame_pending: false,
+    };
+    assert!(
+        server
+            .prepare_output_synthetic_input(
+                "VIRTUAL-1",
+                &[
+                    tessera_primitives::input::SyntheticInputAction::PointerMove {
+                        position: tessera_primitives::Point { x: 10, y: 10 },
+                    }
+                ],
+            )
+            .is_none()
+    );
 }

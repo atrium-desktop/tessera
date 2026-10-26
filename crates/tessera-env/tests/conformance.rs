@@ -22,30 +22,59 @@ use std::sync::{Arc, Mutex};
 use tessera_env::{CleanupFixture, RuntimeDirError};
 
 // ---------------------------------------------------------------------------
-// Env isolation. These tests mutate process state; nextest runs each test
-// in its own process, so the mutations cannot cross-contaminate, but a
-// restore guard keeps each test self-contained.
+// Env isolation. These tests mutate process state. `std::env::set_var` and
+// `remove_var` are `unsafe` in edition 2024 because the environment is shared
+// by every thread: a concurrent reader in the same process can observe a
+// momentarily foreign value. nextest runs each test in its own process, but
+// `cargo test` runs them as threads of one process, so isolation is enforced
+// here by a process-wide lock rather than assumed from the runner.
 // ---------------------------------------------------------------------------
+
+/// Serializes every environment mutation in this test binary.
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+/// Acquire the environment lock. A panicking test poisons the mutex; its
+/// `EnvGuard` already restored the variable, so recovering is correct and
+/// keeps later tests running instead of cascading into spurious failures.
+fn lock_env() -> std::sync::MutexGuard<'static, ()> {
+    ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 struct EnvGuard {
     key: &'static str,
     previous: Option<std::ffi::OsString>,
+    /// Released after `Drop::drop` restores the variable (the custom `Drop`
+    /// impl runs before the fields are dropped), so the restore itself is
+    /// still exclusive.
+    _lock: std::sync::MutexGuard<'static, ()>,
 }
 
 impl EnvGuard {
     fn set(key: &'static str, value: &str) -> Self {
+        let _lock = lock_env();
         let previous = std::env::var_os(key);
-        // SAFETY: nextest executes each test in its own process; there is
-        // no concurrent reader of this variable within the test.
+        // SAFETY: `_lock` makes this the only thread touching the environment
+        // for as long as the guard lives.
         unsafe { std::env::set_var(key, value) };
-        Self { key, previous }
+        Self {
+            key,
+            previous,
+            _lock,
+        }
     }
 
     fn unset(key: &'static str) -> Self {
+        let _lock = lock_env();
         let previous = std::env::var_os(key);
         // SAFETY: as above.
         unsafe { std::env::remove_var(key) };
-        Self { key, previous }
+        Self {
+            key,
+            previous,
+            _lock,
+        }
     }
 }
 
@@ -53,7 +82,7 @@ impl Drop for EnvGuard {
     fn drop(&mut self) {
         match self.previous.take() {
             Some(value) => {
-                // SAFETY: as above.
+                // SAFETY: `_lock` is still held (fields drop after this).
                 unsafe { std::env::set_var(self.key, value) };
             }
             None => {

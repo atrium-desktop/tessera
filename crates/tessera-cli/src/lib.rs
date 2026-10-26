@@ -10,8 +10,8 @@ mod error;
 
 pub use cli::{
     AuditCmd, Cli, Command, ConfigCmd, DisplayCmd, InteractionDomainCmd, JournalCmd,
-    NotificationCmd, OnOff, PermissionsCmd, Region, SystemCmd, WindowCmd, WorkspaceCmd,
-    WorkspaceTarget,
+    NotificationCmd, OnOff, PermissionsCmd, Region, SystemCmd, VirtualDisplayCmd, WindowCmd,
+    WorkspaceCmd, WorkspaceTarget,
 };
 pub use error::CliError;
 
@@ -462,6 +462,101 @@ fn dispatch_display(
                 .screenshot_region(path.clone(), region.map(Into::into))
                 .map_err(io_err)?;
             Ok(receipt(format!("display capture queued → {path}"), json))
+        }
+        DisplayCmd::Virtual { command } => {
+            let to_mode =
+                |spec: tessera_desktop::output::ModeSpec| tessera_desktop::output::OutputMode {
+                    width: spec.width,
+                    height: spec.height,
+                    refresh_mhz: spec.refresh_hz.unwrap_or(60).saturating_mul(1_000),
+                };
+            let parse_mode = |raw: &str| -> Result<tessera_desktop::output::OutputMode, CliError> {
+                let spec: tessera_desktop::output::ModeSpec = raw.parse().map_err(|()| {
+                    CliError::Io(format!(
+                        "invalid display mode '{raw}' (expected WxH or WxH@Hz)"
+                    ))
+                })?;
+                Ok(to_mode(spec))
+            };
+            let mut client = owner_client(socket, control_caps()).map_err(connect_err)?;
+            match command {
+                VirtualDisplayCmd::Create {
+                    connector,
+                    mode,
+                    scale,
+                    x,
+                    y,
+                } => {
+                    let mode = parse_mode(&mode)?;
+                    let logical_origin = match (x, y) {
+                        (Some(x), Some(y)) => Some(tessera_primitives::Point { x, y }),
+                        (Some(x), None) => Some(tessera_primitives::Point { x, y: 0 }),
+                        (None, Some(y)) => Some(tessera_primitives::Point { x: 0, y }),
+                        (None, None) => None,
+                    };
+                    let spec = tessera_desktop::output::VirtualOutputSpec {
+                        connector,
+                        mode,
+                        scale: tessera_desktop::output::Scale(scale),
+                        logical_origin,
+                        persistent: true,
+                    };
+                    if let Err(reason) = spec.validate() {
+                        return Err(CliError::Io(reason.to_owned()));
+                    }
+                    let output = client.create_virtual_output(spec).map_err(io_err)?;
+                    Ok(render(&output, json, |created| {
+                        format!(
+                            "virtual display {} ({}x{}@{}.{:03}Hz)",
+                            created.connector,
+                            mode.width,
+                            mode.height,
+                            mode.refresh_mhz / 1_000,
+                            mode.refresh_mhz % 1_000,
+                        )
+                    }))
+                }
+                VirtualDisplayCmd::Resize {
+                    connector,
+                    mode,
+                    scale,
+                    x,
+                    y,
+                } => {
+                    let mode = parse_mode(&mode)?;
+                    let logical_origin = match (x, y) {
+                        (Some(x), Some(y)) => Some(tessera_primitives::Point { x, y }),
+                        (Some(x), None) => Some(tessera_primitives::Point { x, y: 0 }),
+                        (None, Some(y)) => Some(tessera_primitives::Point { x: 0, y }),
+                        (None, None) => None,
+                    };
+                    let output = client
+                        .resize_virtual_output(
+                            connector,
+                            mode,
+                            scale.map(tessera_desktop::output::Scale),
+                            logical_origin,
+                        )
+                        .map_err(io_err)?;
+                    Ok(render(&output, json, |resized| {
+                        format!(
+                            "virtual display {} resized ({}x{}@{}.{:03}Hz)",
+                            resized.connector,
+                            mode.width,
+                            mode.height,
+                            mode.refresh_mhz / 1_000,
+                            mode.refresh_mhz % 1_000,
+                        )
+                    }))
+                }
+                VirtualDisplayCmd::Destroy { connector } => {
+                    let destroyed = client.destroy_virtual_output(connector).map_err(io_err)?;
+                    Ok(receipt(
+                        format!("destroyed virtual display {destroyed}"),
+                        json,
+                    ))
+                }
+            }
         }
     }
 }
@@ -1322,9 +1417,19 @@ fn format_outputs(outs: &[tessera_desktop::output::OutputInfo]) -> String {
     for o in outs {
         let g = &o.geometry;
         let logical = g.logical_size();
+        // Surface the output's class (ADR-0188): a `VIRTUAL-*` extend display
+        // and an internal panel are what a user needs to tell apart from an
+        // ordinary external monitor. `External` is the default and stays
+        // unmarked so the common line is unchanged.
+        let kind = match o.kind {
+            tessera_desktop::output::OutputKind::External => "",
+            tessera_desktop::output::OutputKind::Internal => " [internal]",
+            tessera_desktop::output::OutputKind::Virtual => " [virtual]",
+        };
         out.push_str(&format!(
-            "{} {}x{}@{}.{:03}Hz scale {:.2} {:?} → logical {}x{}\n",
+            "{}{} {}x{}@{}.{:03}Hz scale {:.2} {:?} → logical {}x{}\n",
             o.connector,
+            kind,
             g.mode.width,
             g.mode.height,
             g.mode.refresh_mhz / 1000,

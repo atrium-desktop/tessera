@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted (stream pacing superseded by ADR-0126)
 - Date: 2026-07-24
+- Amended by: [ADR-0186](0186-session-scoped-virtual-extend-outputs-and-offscreen-output-streaming.md) — virtual-output streams render offscreen per stream rather than reading back the primary physical surface.
 
 ## Context
 

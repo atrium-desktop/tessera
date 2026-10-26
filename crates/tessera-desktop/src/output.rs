@@ -21,13 +21,137 @@ const INTERNAL_MIN_LOGICAL_PPI: f32 = 105.0;
 const EXTERNAL_MIN_LOGICAL_PPI: f32 = 80.0;
 const MAX_AUTO_SCALE: u32 = 4;
 
-/// Physical placement class used to select a comfortable logical density.
-/// Internal panels are normally viewed closer than external displays, so
-/// they retain a slightly higher effective PPI after scaling.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Placement and backing class of an output (ADR-0028, ADR-0186).
+///
+/// Internal panels are normally viewed closer than external displays, so they
+/// retain a slightly higher effective PPI floor after scaling. Virtual
+/// outputs are headless extend connectors in the human interaction domain
+/// (`VIRTUAL-*`), rendered into per-stream offscreen targets rather than the
+/// physical KMS union framebuffer.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OutputKind {
     Internal,
+    #[default]
     External,
+    Virtual,
+}
+
+impl OutputKind {
+    /// Whether this output is a headless virtual connector (`VIRTUAL-*`).
+    pub fn is_virtual(self) -> bool {
+        matches!(self, Self::Virtual)
+    }
+
+    /// Whether this output is backed by physical display hardware.
+    pub fn is_physical(self) -> bool {
+        !self.is_virtual()
+    }
+
+    /// Serde skip helper so default external outputs preserve existing wire
+    /// fixtures.
+    pub fn is_default(&self) -> bool {
+        matches!(self, Self::External)
+    }
+}
+
+/// Prefix required on every human-domain virtual connector name (ADR-0186).
+pub const VIRTUAL_CONNECTOR_PREFIX: &str = "VIRTUAL-";
+/// Maximum byte length of a virtual connector identifier.
+pub const MAX_VIRTUAL_CONNECTOR_LEN: usize = 64;
+/// Minimum physical dimension (width or height) of a virtual output.
+pub const MIN_VIRTUAL_OUTPUT_DIM: i32 = 64;
+/// Maximum physical dimension (width or height) of a virtual output.
+pub const MAX_VIRTUAL_OUTPUT_DIM: i32 = 16_384;
+/// Maximum physical pixel area of a virtual output (256 MiB at 4 Bpp RGBA).
+pub const MAX_VIRTUAL_OUTPUT_PIXELS: u64 = 67_108_864;
+
+/// Whether `name` is a well-formed virtual output connector identifier
+/// (`VIRTUAL-<suffix>` with ASCII alphanumeric, `'-'`, or `'_'` characters).
+pub fn valid_virtual_connector_name(name: &str) -> bool {
+    let Some(suffix) = name.strip_prefix(VIRTUAL_CONNECTOR_PREFIX) else {
+        return false;
+    };
+    !suffix.is_empty()
+        && name.len() <= MAX_VIRTUAL_CONNECTOR_LEN
+        && suffix
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+}
+
+/// Validate physical mode and scale bounds for a virtual output (ADR-0186).
+pub fn validate_virtual_output_mode_and_scale(
+    mode: OutputMode,
+    scale: Scale,
+) -> Result<(), &'static str> {
+    if !(MIN_VIRTUAL_OUTPUT_DIM..=MAX_VIRTUAL_OUTPUT_DIM).contains(&mode.width)
+        || !(MIN_VIRTUAL_OUTPUT_DIM..=MAX_VIRTUAL_OUTPUT_DIM).contains(&mode.height)
+    {
+        return Err("virtual output dimensions must be between 64 and 16384 pixels");
+    }
+    if !(1_000..=240_000).contains(&mode.refresh_mhz) {
+        return Err("virtual output refresh rate must be between 1 Hz and 240 Hz");
+    }
+    let pixels = u64::from(mode.width as u32).saturating_mul(u64::from(mode.height as u32));
+    if pixels > MAX_VIRTUAL_OUTPUT_PIXELS {
+        return Err("virtual output pixel count exceeds the 256 MiB frame ceiling");
+    }
+    if !scale.0.is_finite() || !(0.25..=8.0).contains(&scale.0) {
+        return Err("virtual output scale must be between 0.25 and 8.0");
+    }
+    Ok(())
+}
+
+/// Specification for creating a dynamic virtual extend output in the human
+/// interaction domain (ADR-0186).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq)]
+pub struct VirtualOutputSpec {
+    /// Optional connector name (`VIRTUAL-*`). When `None`, the compositor
+    /// allocates the lowest unused `VIRTUAL-1`, `VIRTUAL-2`, ….
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub connector: Option<String>,
+    /// Physical resolution and refresh rate of the virtual display.
+    pub mode: OutputMode,
+    /// Logical-to-physical scale factor (defaults to `1.0`).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub scale: Scale,
+    /// Optional explicit top-left in global logical desktop coordinates;
+    /// when `None`, the compositor places the output to the right of existing
+    /// outputs.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub logical_origin: Option<Point>,
+    /// When `false` (the default), the virtual output is bound to the
+    /// creating IPC connection and automatically destroyed on disconnect
+    /// (`[INV-ARCH-75]`). Portal-created outputs are always session-scoped;
+    /// only owner-admin CLI requests may set `persistent = true`.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub persistent: bool,
+}
+
+impl VirtualOutputSpec {
+    /// Validate all pure model bounds before handing the request to the
+    /// compositor main loop.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if let Some(connector) = self.connector.as_deref()
+            && !valid_virtual_connector_name(connector)
+        {
+            return Err("virtual output connector must match VIRTUAL-<name>");
+        }
+        if let Some(origin) = self.logical_origin
+            && (!(-32_768..=32_768).contains(&origin.x) || !(-32_768..=32_768).contains(&origin.y))
+        {
+            return Err("virtual output logical origin is out of range");
+        }
+        validate_virtual_output_mode_and_scale(self.mode, self.scale)
+    }
 }
 
 /// A display mode: physical resolution and refresh rate.
@@ -267,10 +391,13 @@ pub fn automatic_scale(
     physical_size_mm: (u32, u32),
     kind: OutputKind,
 ) -> Option<Scale> {
+    if kind.is_virtual() {
+        return Some(Scale::IDENTITY);
+    }
     let ppi = physical_ppi(mode, physical_size_mm)?;
     let floor = match kind {
         OutputKind::Internal => INTERNAL_MIN_LOGICAL_PPI,
-        OutputKind::External => EXTERNAL_MIN_LOGICAL_PPI,
+        OutputKind::External | OutputKind::Virtual => EXTERNAL_MIN_LOGICAL_PPI,
     };
     let mut scale = 1_u32;
     while scale < MAX_AUTO_SCALE && ppi / (scale + 1) as f32 >= floor {
@@ -287,6 +414,14 @@ pub fn automatic_scale(
 pub struct OutputInfo {
     pub connector: String,
     pub geometry: OutputGeometry,
+    /// Placement and backing class (`Internal`, `External`, or `Virtual`,
+    /// ADR-0186). Defaults to `External` and skips serialization when default
+    /// so existing wire fixtures stay unchanged.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "OutputKind::is_default")
+    )]
+    pub kind: OutputKind,
     /// Modes the connector advertises (deduplicated, highest resolution
     /// first), so `tessera display` and agents can see what `mode` requests
     /// are valid. Empty where the backend cannot enumerate (nested).
@@ -615,5 +750,55 @@ mod tests {
             height: 1080,
             refresh_mhz: 60_000,
         }));
+    }
+
+    #[test]
+    fn virtual_output_spec_validates_connector_dimensions_and_frame_ceiling() {
+        let valid = VirtualOutputSpec {
+            connector: Some("VIRTUAL-1".into()),
+            mode: OutputMode {
+                width: 1920,
+                height: 1080,
+                refresh_mhz: 60_000,
+            },
+            scale: Scale::IDENTITY,
+            logical_origin: Some(Point { x: 1920, y: 0 }),
+            persistent: false,
+        };
+        assert_eq!(valid.validate(), Ok(()));
+
+        // Auto-named virtual connector is valid.
+        let auto_named = VirtualOutputSpec {
+            connector: None,
+            ..valid
+        };
+        assert_eq!(auto_named.validate(), Ok(()));
+
+        // Non-VIRTUAL prefix or empty suffix is rejected.
+        for bad_name in ["HDMI-A-1", "VIRTUAL-", "VIRTUAL-1/bad", "virtual-1"] {
+            let spec = VirtualOutputSpec {
+                connector: Some(bad_name.into()),
+                ..valid
+            };
+            assert!(spec.validate().is_err(), "{bad_name:?} must fail");
+        }
+
+        // Oversized pixel area (> 67,108,864 pixels) is rejected even when
+        // individual dimensions are within 64..=16_384.
+        let oversized = VirtualOutputSpec {
+            mode: OutputMode {
+                width: 16_384,
+                height: 8_192,
+                refresh_mhz: 60_000,
+            },
+            ..valid
+        };
+        assert!(oversized.validate().is_err());
+
+        // Virtual outputs always recommend 1.0 scale regardless of millimeter hints.
+        assert_eq!(
+            automatic_scale(mode(3840, 2160), (0, 0), OutputKind::Virtual),
+            Some(Scale::IDENTITY)
+        );
     }
 }

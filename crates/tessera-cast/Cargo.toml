@@ -1,0 +1,28 @@
+[package]
+name = "tessera-cast"
+description = "Tessera Miracast caster: WFD session over a session-scoped virtual output (ADR-0192)"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "tessera_cast"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tessera-cast"
+path = "src/bin/tessera-cast.rs"
+
+[dependencies]
+# Shared runtime-environment resolution (observability init, panic hooks,
+# runtime directories) — ADR-0147.
+tessera-env.workspace = true
+log.workspace = true
+# The system D-Bus client for iwd's P2P/WFD interfaces. The same zbus seam the
+# session tray already uses; no new D-Bus dependency family (ADR-0192).
+zbus.workspace = true
+
+[lints]
+workspace = true

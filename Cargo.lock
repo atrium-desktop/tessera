@@ -747,16 +747,16 @@ checksum = "98de4bbd547a563b716d8dfa9aad1cb19bfab00f4fa09a6a4ed21dbcf44ce9c4"
 
 [[package]]
 name = "flux"
-version = "0.0.60"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.60#6172664c5bb1da152e7842464f3b77d7ddba07b1"
+version = "0.0.61"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.61#63efdd179e83df17ed5615bee3bf9756e83ed5af"
 dependencies = [
  "flux-sys",
 ]
 
 [[package]]
 name = "flux-sys"
-version = "0.0.60"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.60#6172664c5bb1da152e7842464f3b77d7ddba07b1"
+version = "0.0.61"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.61#63efdd179e83df17ed5615bee3bf9756e83ed5af"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -1134,8 +1134,8 @@ checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
 name = "lens"
-version = "0.0.60"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.60#6172664c5bb1da152e7842464f3b77d7ddba07b1"
+version = "0.0.61"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.61#63efdd179e83df17ed5615bee3bf9756e83ed5af"
 dependencies = [
  "flux",
  "lens-sys",
@@ -1143,8 +1143,8 @@ dependencies = [
 
 [[package]]
 name = "lens-sys"
-version = "0.0.60"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.60#6172664c5bb1da152e7842464f3b77d7ddba07b1"
+version = "0.0.61"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.61#63efdd179e83df17ed5615bee3bf9756e83ed5af"
 dependencies = [
  "bindgen",
  "flux-sys",
@@ -1481,8 +1481,8 @@ dependencies = [
 
 [[package]]
 name = "prism"
-version = "0.0.60"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.60#6172664c5bb1da152e7842464f3b77d7ddba07b1"
+version = "0.0.61"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.61#63efdd179e83df17ed5615bee3bf9756e83ed5af"
 dependencies = [
  "flux",
  "flux-sys",
@@ -1491,8 +1491,8 @@ dependencies = [
 
 [[package]]
 name = "prism-sys"
-version = "0.0.60"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.60#6172664c5bb1da152e7842464f3b77d7ddba07b1"
+version = "0.0.61"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.61#63efdd179e83df17ed5615bee3bf9756e83ed5af"
 dependencies = [
  "bindgen",
  "flux-sys",
@@ -2016,6 +2016,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tessera-cast"
+version = "0.0.78"
+dependencies = [
+ "log",
+ "tessera-env",
+ "zbus",
+]
+
+[[package]]
 name = "tessera-cli"
 version = "0.0.78"
 dependencies = [
@@ -2520,16 +2529,16 @@ dependencies = [
 
 [[package]]
 name = "transit"
-version = "0.0.60"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.60#6172664c5bb1da152e7842464f3b77d7ddba07b1"
+version = "0.0.61"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.61#63efdd179e83df17ed5615bee3bf9756e83ed5af"
 dependencies = [
  "transit-sys",
 ]
 
 [[package]]
 name = "transit-sys"
-version = "0.0.60"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.60#6172664c5bb1da152e7842464f3b77d7ddba07b1"
+version = "0.0.61"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.61#63efdd179e83df17ed5615bee3bf9756e83ed5af"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -2623,8 +2632,8 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vista"
-version = "0.0.60"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.60#6172664c5bb1da152e7842464f3b77d7ddba07b1"
+version = "0.0.61"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.61#63efdd179e83df17ed5615bee3bf9756e83ed5af"
 dependencies = [
  "flux",
  "gltf",
@@ -2634,8 +2643,8 @@ dependencies = [
 
 [[package]]
 name = "vista-sys"
-version = "0.0.60"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.60#6172664c5bb1da152e7842464f3b77d7ddba07b1"
+version = "0.0.61"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.61#63efdd179e83df17ed5615bee3bf9756e83ed5af"
 dependencies = [
  "bindgen",
  "flux-sys",

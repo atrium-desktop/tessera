@@ -20,9 +20,9 @@ pub use schema::{
     InteractionDomainActionResult, InteractionDomainCapture, InteractionDomainObservation,
     JournalCursor, LOCAL_AGENT_ADMIN_SCOPE, LOCAL_INTERACTION_DOMAIN_ADMIN_SCOPE,
     LOCAL_OWNER_ADMIN_SCOPE, LOCAL_PORTAL_SCOPE, LeaseGrant, LeaseRequest, MAX_TRANSACT_OPS,
-    ObservationSnapshot, ObservationToken, ObserveSnapshot, ObservedWindow, OutputInfo,
+    ObservationSnapshot, ObservationToken, ObserveSnapshot, ObservedWindow, OutputInfo, OutputKind,
     PROTOCOL_VERSION, PickKind, PickResult, Request, Response, Scope, SecretPromptResult,
     SettingsAction, SettingsReceipt, SettingsSnapshot, StreamCursorMode, StreamPixelFormat,
     StreamTarget, SystemAction, SystemStatus, TransactOp, TransactOpResult, TransactPrecondition,
-    TransactReceipt, TransactResult, WindowCapture,
+    TransactReceipt, TransactResult, VirtualOutputSpec, WindowCapture,
 };

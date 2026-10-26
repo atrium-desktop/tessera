@@ -25,6 +25,7 @@ use tessera_authority::interaction_domain::InteractionDomainWindowPlacement;
 use tessera_authority::interaction_domain::SeatCapabilities;
 use tessera_authority::interaction_domain::VirtualOutput;
 use tessera_desktop::notify::Notification;
+pub use tessera_desktop::output::{OutputKind, VirtualOutputSpec};
 pub use tessera_desktop::settings::SettingsAction;
 pub use tessera_desktop::settings::SettingsReceipt;
 pub use tessera_desktop::settings::SettingsSnapshot;
@@ -37,6 +38,7 @@ use tessera_desktop::workspace::LaunchPlacement;
 use tessera_desktop::workspace::Switch;
 use tessera_desktop::workspace::WorkspaceId;
 use tessera_desktop::workspace::WorkspaceSnapshot;
+use tessera_primitives::Point;
 use tessera_primitives::Rect;
 use tessera_primitives::input::SyntheticInputAction;
 
@@ -44,7 +46,12 @@ use crate::journal::{JournalEntry, JournalSnapshot};
 
 /// The protocol major version this build speaks. A client offering a newer
 /// major version is refused at the [`Request::Hello`] handshake; an older
-/// client is answered at its own version. Version 31 renames the settings
+/// client is answered at its own version. Version 32 adds session-scoped
+/// virtual extend outputs (`CreateVirtualOutput`, `ResizeVirtualOutput`,
+/// `DestroyVirtualOutput`), in-place stream geometry renegotiation
+/// (`StreamOutputRenegotiate`), output-bounded remote input
+/// (`Command::InjectOutputInput`), and `OutputInfo::kind` (ADR-0186).
+/// Version 31 renames the settings
 /// snapshot's `touchpad` field to `input` and replaces the `SetTouchpad`
 /// action with `SetInput`, carrying the complete keyboard, mouse, and
 /// touchpad profile (repeat rate/delay, mouse pointer and scroll speed,
@@ -114,7 +121,7 @@ use crate::journal::{JournalEntry, JournalSnapshot};
 /// `Event::StreamFrame`, `Event::StreamEnded`, `StreamOutputStop`,
 /// ADR-0052). Version 4 adds revisioned desktop-settings snapshots,
 /// subscriptions, and confirmed settings transactions.
-pub const PROTOCOL_VERSION: u32 = 31;
+pub const PROTOCOL_VERSION: u32 = 32;
 /// Built-in owner-only scope used by native `tessera` commands for Interaction Domain
 /// recovery and administration. The Unix socket remains user-private; naming
 /// this scope opts the connection into the high-risk Interaction Domain operation allowlist
@@ -307,11 +314,16 @@ impl CommandScopePolicy for Scope {
         if need.input || need.interaction_domain {
             // Input and Interaction Domain lifecycle are high-risk capabilities with no
             // compatibility caller: a named scope must opt in explicitly.
-            if !self
-                .ops
-                .as_ref()
-                .is_some_and(|ops| ops.contains(&cmd.op_class()))
-            {
+            let op_ok = self.ops.as_ref().is_some_and(|ops| {
+                ops.contains(&cmd.op_class())
+                    || matches!(
+                        cmd,
+                        Command::InjectOutputInput { connector, .. }
+                            if tessera_desktop::output::valid_virtual_connector_name(connector)
+                                && ops.contains(&ActorCapability::ManageVirtualOutput)
+                    )
+            });
+            if !op_ok {
                 return false;
             }
         } else if let Some(ops) = &self.ops
@@ -523,6 +535,16 @@ pub enum Command {
         id: WindowId,
         actions: Vec<SyntheticInputAction>,
     },
+    /// Deliver self-contained input actions in output-local logical
+    /// coordinates (`0..logical_w × 0..logical_h` of `connector`, ADR-0186).
+    /// Requires the `input` capability and an explicit `InjectInput` or
+    /// `ManageVirtualOutput` scope operation. Refused when `connector` is
+    /// unknown, any coordinate falls outside the output's logical extent, or
+    /// the session is locked (`[INV-ARCH-78]`).
+    InjectOutputInput {
+        connector: String,
+        actions: Vec<SyntheticInputAction>,
+    },
     /// Launch a desktop entry through a private mount-scoped Wayland portal
     /// and Linux namespace sandbox.
     LaunchInInteractionDomain {
@@ -595,13 +617,15 @@ impl Command {
                 session: true,
                 interaction_domain: false,
             },
-            Command::InjectInput { .. } => ConnectionCapabilities {
-                query: false,
-                control: false,
-                input: true,
-                session: false,
-                interaction_domain: false,
-            },
+            Command::InjectInput { .. } | Command::InjectOutputInput { .. } => {
+                ConnectionCapabilities {
+                    query: false,
+                    control: false,
+                    input: true,
+                    session: false,
+                    interaction_domain: false,
+                }
+            }
             Command::LaunchInInteractionDomain { .. } => ConnectionCapabilities {
                 query: false,
                 control: false,
@@ -666,12 +690,19 @@ impl Command {
             {
                 Err("geometry size is out of range")
             }
-            Command::InjectInput { actions, .. }
+            Command::InjectOutputInput { connector, .. }
+                if connector.trim().is_empty()
+                    || connector.len() > 64
+                    || connector.chars().any(char::is_control) =>
+            {
+                Err("output connector is empty, oversized, or malformed")
+            }
+            Command::InjectInput { actions, .. } | Command::InjectOutputInput { actions, .. }
                 if actions.is_empty() || actions.len() > MAX_INPUT_ACTIONS =>
             {
                 Err("input action count is out of range")
             }
-            Command::InjectInput { actions, .. } => {
+            Command::InjectInput { actions, .. } | Command::InjectOutputInput { actions, .. } => {
                 for action in actions {
                     match *action {
                         SyntheticInputAction::Click { button, .. }
@@ -730,7 +761,9 @@ impl Command {
             Command::Close { .. } => ActorCapability::Close,
             Command::Move { .. } => ActorCapability::Move,
             Command::SetWindowGeometry { .. } => ActorCapability::SetWindowGeometry,
-            Command::InjectInput { .. } => ActorCapability::InjectInput,
+            Command::InjectInput { .. } | Command::InjectOutputInput { .. } => {
+                ActorCapability::InjectInput
+            }
             Command::LaunchInInteractionDomain { .. } => ActorCapability::LaunchInInteractionDomain,
             Command::LaunchApp { .. } => ActorCapability::LaunchApp,
             Command::Cycle { .. } => ActorCapability::Cycle,
@@ -982,9 +1015,16 @@ pub struct OutputInfo {
     /// Whether this is the primary (focused) output.
     #[serde(default)]
     pub primary: bool,
-    /// Physical-pixel rectangle in desktop coordinates.
+    /// Physical-pixel rectangle in desktop coordinates (or the virtual
+    /// output's own physical mode size at its scaled origin for
+    /// [`OutputKind::Virtual`]).
     #[serde(default)]
     pub rect: Rect,
+    /// Placement and backing class (`Internal`, `External`, or `Virtual`,
+    /// version 32, ADR-0186). Skipped when `External` so pre-32 lean wire
+    /// fixtures stay identical.
+    #[serde(default, skip_serializing_if = "OutputKind::is_default")]
+    pub kind: OutputKind,
     /// Mode/scale/transform/position, populated for `GetOutputs` and
     /// [`Request::Observe`] replies only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1001,11 +1041,13 @@ impl OutputInfo {
     /// every physical rectangle is the output's logical rectangle scaled by
     /// the desktop render scale — the primary output's scale, the single
     /// scale the desktop frame renders at (the same mapping window crops
-    /// use, so an output's rectangle always contains its windows). Entries
-    /// are sorted by connector name, mirroring the deterministic connector
-    /// order the DRM backend selects outputs in. The rich `geometry` and
-    /// `available_modes` fields are populated; `EnumerateOutputs` strips
-    /// them before replying.
+    /// use, so an output's rectangle always contains its windows). Virtual
+    /// outputs (`OutputKind::Virtual`, ADR-0186) render into their own
+    /// offscreen surface at their own physical mode extent, so their `rect`
+    /// size is their own physical mode size. Entries are sorted by connector
+    /// name, mirroring the deterministic connector order the DRM backend
+    /// selects outputs in. The rich `geometry` and `available_modes` fields
+    /// are populated; `EnumerateOutputs` strips them before replying.
     pub fn project(infos: &[tessera_desktop::output::OutputInfo]) -> Vec<Self> {
         let render_scale = infos
             .first()
@@ -1019,6 +1061,22 @@ impl OutputInfo {
             .map(|(index, output)| {
                 let logical = output.geometry.logical_rect();
                 let physical = |value: i32| (value as f64 * scale).round() as i32;
+                let size = if output.kind.is_virtual() {
+                    let (w, h) = if output.geometry.transform.swap_axes() {
+                        (output.geometry.mode.height, output.geometry.mode.width)
+                    } else {
+                        (output.geometry.mode.width, output.geometry.mode.height)
+                    };
+                    tessera_primitives::Size {
+                        w: w.max(0),
+                        h: h.max(0),
+                    }
+                } else {
+                    tessera_primitives::Size {
+                        w: physical(logical.size.w),
+                        h: physical(logical.size.h),
+                    }
+                };
                 OutputInfo {
                     connector: output.connector.clone(),
                     primary: index == 0,
@@ -1027,11 +1085,9 @@ impl OutputInfo {
                             x: physical(logical.origin.x),
                             y: physical(logical.origin.y),
                         },
-                        size: tessera_primitives::Size {
-                            w: physical(logical.size.w),
-                            h: physical(logical.size.h),
-                        },
+                        size,
                     },
+                    kind: output.kind,
                     geometry: Some(output.geometry),
                     available_modes: Some(output.available_modes.clone()),
                 }
@@ -1631,10 +1687,46 @@ pub enum Request {
     },
     /// Stop a stream owned by this connection.
     StreamOutputStop { stream_id: u64 },
+    /// Renegotiate a stream owned by this connection in place after a target
+    /// geometry change (`Event::StreamGeometryChanged`, version 32, ADR-0186).
+    /// Rebuilds the backing dmabuf slot ring (when `dmabuf` is `Some(true)`)
+    /// or SHM readback surface at the target's current physical dimensions,
+    /// preserving `stream_id`, `sequence`, and `dropped` counters, and
+    /// replies with [`Response::StreamOutputStarted`].
+    StreamOutputRenegotiate {
+        stream_id: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_fps: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dmabuf: Option<bool>,
+    },
     /// Release a dmabuf stream slot (version 25) after the consumer finished
     /// reading it. The compositor must not reuse a slot between delivering
     /// its frame and receiving this release.
     StreamBufferRelease { stream_id: u64, slot: u32 },
+    /// Create a dynamic virtual extend output in the human interaction domain
+    /// (`VIRTUAL-*`, version 32, ADR-0186). Requires `control`, a live lease,
+    /// and an explicit [`ActorCapability::ManageVirtualOutput`] scope entry.
+    /// Unless `spec.persistent` is set by an owner-admin caller, the output
+    /// is bound to this connection and automatically destroyed on disconnect
+    /// (`[INV-ARCH-75]`).
+    CreateVirtualOutput { spec: VirtualOutputSpec },
+    /// Resize or reposition a live virtual extend output (`VIRTUAL-*`,
+    /// version 32, ADR-0186). Live streams targeting the connector freeze
+    /// with [`Event::StreamGeometryChanged`] and may renegotiate in place via
+    /// [`Request::StreamOutputRenegotiate`].
+    ResizeVirtualOutput {
+        connector: String,
+        mode: tessera_desktop::output::OutputMode,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scale: Option<tessera_desktop::output::Scale>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        logical_origin: Option<Point>,
+    },
+    /// Destroy a live virtual extend output (`VIRTUAL-*`, version 32,
+    /// ADR-0186), ending any stream targeting it and relocating its
+    /// workspaces and windows back to the primary physical output.
+    DestroyVirtualOutput { connector: String },
     /// Set or clear this connection's global idle inhibitor (the Inhibit
     /// portal, ADR-0075). Authorization mirrors
     /// [`Request::StreamOutputStart`]: `control`, a live lease, and an
@@ -1885,6 +1977,18 @@ pub enum Response {
         stream_id: u64,
         slot: u32,
     },
+    /// Reply to [`Request::CreateVirtualOutput`] (version 32, ADR-0186).
+    VirtualOutputCreated {
+        output: OutputInfo,
+    },
+    /// Reply to [`Request::ResizeVirtualOutput`] (version 32, ADR-0186).
+    VirtualOutputResized {
+        output: OutputInfo,
+    },
+    /// Reply to [`Request::DestroyVirtualOutput`] (version 32, ADR-0186).
+    VirtualOutputDestroyed {
+        connector: String,
+    },
     /// Reply to [`Request::SetIdleInhibit`]: the inhibitor state this
     /// connection now holds.
     IdleInhibitSet {
@@ -1957,6 +2061,9 @@ impl std::fmt::Debug for Response {
             Self::StreamOutputStarted { .. } => "StreamOutputStarted",
             Self::StreamBufferReleased { .. } => "StreamBufferReleased",
             Self::StreamOutputStopped { .. } => "StreamOutputStopped",
+            Self::VirtualOutputCreated { .. } => "VirtualOutputCreated",
+            Self::VirtualOutputResized { .. } => "VirtualOutputResized",
+            Self::VirtualOutputDestroyed { .. } => "VirtualOutputDestroyed",
             Self::IdleInhibitSet { .. } => "IdleInhibitSet",
             Self::Picked { .. } => "Picked",
             Self::AppPicked { .. } => "AppPicked",

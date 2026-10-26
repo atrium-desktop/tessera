@@ -236,6 +236,16 @@ pub struct SystemStatus {
     /// `idle_inhibited`: the host status poller must not clear it.
     #[cfg_attr(feature = "serde", serde(default))]
     pub capture_streams: u32,
+    /// Live virtual extend outputs (`OutputKind::Virtual`, ADR-0186). Chrome
+    /// shows how many extended displays exist (ADR-0188). Compositor-owned
+    /// like `capture_streams`: the host status poller must not clear it.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub virtual_displays: u32,
+    /// Live streams rendering a virtual extend output (the extended-display
+    /// "casting" streams, as distinct from mirror or window capture,
+    /// ADR-0188). Compositor-owned like `capture_streams`.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub cast_streams: u32,
 }
 
 /// Machine form factor, for chrome that adapts its presentation.

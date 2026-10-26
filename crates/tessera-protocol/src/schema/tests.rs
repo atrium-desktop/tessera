@@ -1590,6 +1590,7 @@ fn enumerate_outputs_request_and_reply_match_the_wire_fixture() {
             connector: "HDMI-A-1".into(),
             primary: true,
             rect: Rect::new(0, 0, 1920, 1080),
+            kind: OutputKind::External,
             geometry: None,
             available_modes: None,
         }],
@@ -1608,6 +1609,7 @@ fn enumerate_outputs_request_and_reply_match_the_wire_fixture() {
             connector: "HDMI-A-1".into(),
             primary: true,
             rect: Rect::new(0, 0, 1920, 1080),
+            kind: OutputKind::External,
             geometry: None,
             available_modes: None,
         }]
@@ -1620,6 +1622,7 @@ fn enumerate_outputs_request_and_reply_match_the_wire_fixture() {
             connector: "HDMI-A-1".into(),
             primary: true,
             rect: Rect::new(0, 0, 1920, 1080),
+            kind: OutputKind::External,
             geometry: Some(tessera_desktop::output::OutputGeometry::default()),
             available_modes: Some(vec![tessera_desktop::output::OutputMode {
                 width: 1920,
@@ -1666,6 +1669,7 @@ fn output_info_project_marks_primary_and_scales_rectangles() {
                 transform: tessera_primitives::Transform::Normal,
                 logical_origin: tessera_primitives::Point { x: 0, y: 0 },
             },
+            kind: tessera_desktop::output::OutputKind::External,
             available_modes: Vec::new(),
             color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
         },
@@ -1681,6 +1685,7 @@ fn output_info_project_marks_primary_and_scales_rectangles() {
                 transform: tessera_primitives::Transform::Normal,
                 logical_origin: tessera_primitives::Point { x: 960, y: 0 },
             },
+            kind: tessera_desktop::output::OutputKind::External,
             available_modes: Vec::new(),
             color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
         },
@@ -1812,4 +1817,103 @@ fn transact_request_and_result_round_trip() {
             other => panic!("expected Transact, got {other:?}"),
         }
     }
+}
+
+#[test]
+fn virtual_output_and_renegotiate_requests_round_trip_and_project_kind() {
+    let spec = VirtualOutputSpec {
+        connector: Some("VIRTUAL-1".into()),
+        mode: tessera_desktop::output::OutputMode {
+            width: 1920,
+            height: 1080,
+            refresh_mhz: 60_000,
+        },
+        scale: tessera_desktop::output::Scale::IDENTITY,
+        logical_origin: Some(tessera_primitives::Point { x: 1536, y: 0 }),
+        persistent: false,
+    };
+    for req in [
+        Request::CreateVirtualOutput { spec },
+        Request::ResizeVirtualOutput {
+            connector: "VIRTUAL-1".into(),
+            mode: tessera_desktop::output::OutputMode {
+                width: 2560,
+                height: 1440,
+                refresh_mhz: 60_000,
+            },
+            scale: Some(tessera_desktop::output::Scale(2.0)),
+            logical_origin: None,
+        },
+        Request::DestroyVirtualOutput {
+            connector: "VIRTUAL-1".into(),
+        },
+        Request::StreamOutputRenegotiate {
+            stream_id: 7,
+            max_fps: Some(60),
+            dmabuf: Some(true),
+        },
+    ] {
+        let json = serde_json::to_string(&req).unwrap();
+        let back: Request = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, req);
+    }
+
+    // Virtual output projection preserves native physical mode size even when
+    // the primary physical output renders at scale 2.0.
+    let infos = vec![
+        tessera_desktop::output::OutputInfo {
+            connector: "eDP-1".into(),
+            geometry: tessera_desktop::output::OutputGeometry {
+                mode: tessera_desktop::output::OutputMode {
+                    width: 3072,
+                    height: 1920,
+                    refresh_mhz: 120_000,
+                },
+                scale: tessera_desktop::output::Scale(2.0),
+                transform: tessera_primitives::Transform::Normal,
+                logical_origin: tessera_primitives::Point { x: 0, y: 0 },
+            },
+            kind: OutputKind::Internal,
+            available_modes: Vec::new(),
+            color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+        },
+        tessera_desktop::output::OutputInfo {
+            connector: "VIRTUAL-1".into(),
+            geometry: tessera_desktop::output::OutputGeometry {
+                mode: tessera_desktop::output::OutputMode {
+                    width: 1920,
+                    height: 1080,
+                    refresh_mhz: 60_000,
+                },
+                scale: tessera_desktop::output::Scale(1.0),
+                transform: tessera_primitives::Transform::Normal,
+                logical_origin: tessera_primitives::Point { x: 1536, y: 0 },
+            },
+            kind: OutputKind::Virtual,
+            available_modes: Vec::new(),
+            color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+        },
+    ];
+    let projected = OutputInfo::project(&infos);
+    let virt = projected
+        .iter()
+        .find(|output| output.connector == "VIRTUAL-1")
+        .unwrap();
+    assert_eq!(virt.kind, OutputKind::Virtual);
+    assert!(!virt.primary);
+    assert_eq!(
+        virt.rect.size,
+        tessera_primitives::Size { w: 1920, h: 1080 }
+    );
+
+    let cmd = Command::InjectOutputInput {
+        connector: "VIRTUAL-1".into(),
+        actions: vec![SyntheticInputAction::Click {
+            position: tessera_primitives::Point { x: 100, y: 200 },
+            button: 0x110,
+        }],
+    };
+    assert_eq!(cmd.validate(), Ok(()));
+    assert_eq!(cmd.op_class(), ActorCapability::InjectInput);
+    assert!(cmd.required_cap().input);
 }

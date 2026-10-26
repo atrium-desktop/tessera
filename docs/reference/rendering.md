@@ -30,6 +30,15 @@ Replacing that union domain with per-output presentation domains — which is
 what lets a client own one output while another keeps compositing — is
 [ADR-0185](../adr/0185-per-output-presentation-domains.md), still a draft.
 
+Virtual extend outputs (`OutputKind::Virtual`, `VIRTUAL-*`,
+[ADR-0186](../adr/0186-session-scoped-virtual-extend-outputs-and-offscreen-output-streaming.md))
+are **not** part of the physical presentation domain. Their windows are
+excluded from the desktop framebuffer and scanout eligibility
+(`[INV-ARCH-76]`): a window living only on a virtual output never disqualifies
+direct scanout for a covering client on a physical output, and a stream that
+targets a virtual output renders into its own offscreen target rather than
+compositing the physical desktop.
+
 ## Output Ownership
 
 Direct scanout, chrome stand-down, and wallpaper suspension share one resolved

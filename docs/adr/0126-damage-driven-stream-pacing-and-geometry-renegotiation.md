@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted (Decision 1 superseded by [ADR-0130](0130-stream-paced-presentation-and-scanout-exclusion.md))
 - Date: 2026-08-16
+- Amended by: [ADR-0186](0186-session-scoped-virtual-extend-outputs-and-offscreen-output-streaming.md) — `Request::StreamOutputRenegotiate` adds in-place geometry renegotiation on a frozen `stream_id` without losing sequence or drop counters (`[INV-ARCH-77]`).
 
 ## Context
 

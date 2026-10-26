@@ -281,12 +281,30 @@ fn server_new_creates_socket() {
         std::path::Path::new(&path).exists(),
         "socket file missing: {path}"
     );
-    // Drop runs destroy and should remove the socket.
+    // Identity, not mere absence: every server in this test binary shares one
+    // runtime directory, so a server created concurrently may legitimately bind
+    // this same `wayland-N` name after our drop frees it. Asserting "the path
+    // does not exist" therefore races; asserting "the socket *we* bound is
+    // gone" does not. `(dev, inode)` distinguishes the two.
+    let bound = socket_identity(std::path::Path::new(&path));
+    // Drop runs destroy and should remove this server's socket.
     drop(server);
-    assert!(
-        !std::path::Path::new(&path).exists(),
-        "socket file should be removed after drop: {path}"
-    );
+    match socket_identity(std::path::Path::new(&path)) {
+        None => {}
+        Some(current) => assert_ne!(
+            Some(current),
+            bound,
+            "socket file should be removed after drop: {path}"
+        ),
+    }
+}
+
+/// `(device, inode)` of `path`, or `None` when nothing is there.
+fn socket_identity(path: &std::path::Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(path)
+        .ok()
+        .map(|meta| (meta.dev(), meta.ino()))
 }
 
 /// Manual browser interoperability probe. It is ignored in normal CI because

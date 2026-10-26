@@ -1009,6 +1009,11 @@ impl Server {
                     ) {
                         (*rec).window.state.resizing = false;
                         reconfigure_with_state(rec);
+                    } else if matches!(
+                        interactive_grab,
+                        tessera_desktop::window::Interactive::Move { .. }
+                    ) {
+                        self.rehome_window_to_containing_output(window_id);
                     }
                     if (*rec).window.parent.is_none()
                         && let Some(app_id) = (*rec).window.app_id.as_deref()

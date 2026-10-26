@@ -659,6 +659,69 @@ impl Handler for TestHandler {
     fn stream_output_stop(&self, stream_id: u64) {
         self.stream_stops.lock().unwrap().push(stream_id);
     }
+    fn stream_output_renegotiate(
+        &self,
+        _conn_id: u64,
+        stream_id: u64,
+        _max_fps: Option<u32>,
+        _allow_dmabuf: bool,
+    ) -> Result<tessera_primitives::stream::StreamInfo, String> {
+        Ok(tessera_primitives::stream::StreamInfo {
+            stream_id,
+            width: 2560,
+            height: 1440,
+            format: tessera_protocol::StreamPixelFormat::Bgra8,
+            slots: None,
+        })
+    }
+    fn create_virtual_output(
+        &self,
+        _conn_id: u64,
+        spec: tessera_desktop::output::VirtualOutputSpec,
+    ) -> Result<tessera_protocol::OutputInfo, String> {
+        let connector = spec.connector.unwrap_or_else(|| "VIRTUAL-1".into());
+        Ok(tessera_protocol::OutputInfo {
+            connector,
+            primary: false,
+            rect: tessera_primitives::Rect::new(1920, 0, spec.mode.width, spec.mode.height),
+            kind: tessera_protocol::OutputKind::Virtual,
+            geometry: Some(tessera_desktop::output::OutputGeometry {
+                mode: spec.mode,
+                scale: spec.scale,
+                transform: tessera_primitives::Transform::Normal,
+                logical_origin: spec
+                    .logical_origin
+                    .unwrap_or(tessera_primitives::Point { x: 1920, y: 0 }),
+            }),
+            available_modes: Some(vec![spec.mode]),
+        })
+    }
+    fn resize_virtual_output(
+        &self,
+        _conn_id: u64,
+        connector: String,
+        mode: tessera_desktop::output::OutputMode,
+        scale: Option<tessera_desktop::output::Scale>,
+        logical_origin: Option<tessera_primitives::Point>,
+    ) -> Result<tessera_protocol::OutputInfo, String> {
+        Ok(tessera_protocol::OutputInfo {
+            connector,
+            primary: false,
+            rect: tessera_primitives::Rect::new(1920, 0, mode.width, mode.height),
+            kind: tessera_protocol::OutputKind::Virtual,
+            geometry: Some(tessera_desktop::output::OutputGeometry {
+                mode,
+                scale: scale.unwrap_or(tessera_desktop::output::Scale::IDENTITY),
+                transform: tessera_primitives::Transform::Normal,
+                logical_origin: logical_origin
+                    .unwrap_or(tessera_primitives::Point { x: 1920, y: 0 }),
+            }),
+            available_modes: Some(vec![mode]),
+        })
+    }
+    fn destroy_virtual_output(&self, _conn_id: u64, connector: String) -> Result<String, String> {
+        Ok(connector)
+    }
     fn streams_disconnected(&self, conn_id: u64) {
         self.stream_disconnects.lock().unwrap().push(conn_id);
     }
@@ -977,6 +1040,7 @@ fn sample_outputs() -> Vec<tessera_protocol::OutputInfo> {
             connector: "HDMI-A-1".into(),
             primary: true,
             rect: tessera_primitives::Rect::new(0, 0, 1920, 1080),
+            kind: tessera_desktop::output::OutputKind::External,
             geometry: Some(tessera_desktop::output::OutputGeometry {
                 mode: tessera_desktop::output::OutputMode {
                     width: 1920,
@@ -995,6 +1059,7 @@ fn sample_outputs() -> Vec<tessera_protocol::OutputInfo> {
             connector: "DP-1".into(),
             primary: false,
             rect: tessera_primitives::Rect::new(1920, 0, 2560, 1440),
+            kind: tessera_desktop::output::OutputKind::External,
             geometry: Some(tessera_desktop::output::OutputGeometry {
                 mode: tessera_desktop::output::OutputMode {
                     width: 2560,

@@ -217,6 +217,136 @@ impl Server {
         self.prepare_synthetic_input_for_seat(seat, window_id, actions, false)
     }
 
+    /// Validate and translate output-local remote input actions (`0..logical_w`
+    /// × `0..logical_h` of `connector`) into global human-seat events
+    /// (`[INV-ARCH-78]`, ADR-0186). Refuses unknown connectors, out-of-bounds
+    /// coordinates, active interactive/drag grabs on the human seat, and
+    /// locked sessions.
+    pub fn prepare_output_synthetic_input(
+        &self,
+        connector: &str,
+        actions: &[tessera_primitives::input::SyntheticInputAction],
+    ) -> Option<Vec<tessera_primitives::input::InputEvent>> {
+        use tessera_primitives::input::ButtonState;
+        use tessera_primitives::input::InputEvent;
+        use tessera_primitives::input::SyntheticInputAction;
+
+        let runtime = self.state.seat_runtime(HUMAN_SEAT)?;
+        if self.state.session_lock_phase.is_active()
+            || actions.is_empty()
+            || actions.len() > 64
+            || runtime.interactive.is_some()
+            || runtime.drag.is_some()
+        {
+            return None;
+        }
+        let output = self
+            .state
+            .output_infos
+            .iter()
+            .find(|candidate| candidate.connector == connector)?;
+        let rect = output.geometry.logical_rect();
+        if rect.size.w <= 0 || rect.size.h <= 0 {
+            return None;
+        }
+        let to_global = |local: tessera_primitives::Point| -> Option<(f32, f32)> {
+            if local.x < 0 || local.y < 0 || local.x >= rect.size.w || local.y >= rect.size.h {
+                return None;
+            }
+            let x = rect.origin.x.checked_add(local.x)?;
+            let y = rect.origin.y.checked_add(local.y)?;
+            Some((x as f32, y as f32))
+        };
+
+        for action in actions.iter().copied() {
+            if let Some(position) = action.pointer_position() {
+                to_global(position)?;
+            }
+            match action {
+                SyntheticInputAction::Click { button, .. }
+                | SyntheticInputAction::PointerButton { button, .. }
+                    if !(0x110..=0x117).contains(&button) =>
+                {
+                    return None;
+                }
+                SyntheticInputAction::Scroll { dx, dy, .. }
+                    if !dx.is_finite()
+                        || !dy.is_finite()
+                        || dx.abs() > 1_000.0
+                        || dy.abs() > 1_000.0 =>
+                {
+                    return None;
+                }
+                SyntheticInputAction::KeyPress { code }
+                | SyntheticInputAction::Key { code, .. }
+                    if code > 0x2ff =>
+                {
+                    return None;
+                }
+                _ => {}
+            }
+        }
+
+        let mut events = Vec::with_capacity(actions.len() * 3);
+        for action in actions.iter().copied() {
+            match action {
+                SyntheticInputAction::PointerMove { position } => {
+                    let (x, y) = to_global(position)?;
+                    events.push(InputEvent::pointer_move_to(x, y));
+                }
+                SyntheticInputAction::Click { position, button } => {
+                    let (x, y) = to_global(position)?;
+                    events.push(InputEvent::pointer_move_to(x, y));
+                    events.push(InputEvent::PointerButton {
+                        button,
+                        state: ButtonState::Pressed,
+                    });
+                    events.push(InputEvent::PointerButton {
+                        button,
+                        state: ButtonState::Released,
+                    });
+                }
+                SyntheticInputAction::PointerButton {
+                    position,
+                    button,
+                    state,
+                } => {
+                    if let Some(pos) = position {
+                        let (x, y) = to_global(pos)?;
+                        events.push(InputEvent::pointer_move_to(x, y));
+                    }
+                    events.push(InputEvent::PointerButton { button, state });
+                }
+                SyntheticInputAction::Scroll { position, dx, dy } => {
+                    let (x, y) = to_global(position)?;
+                    events.push(InputEvent::pointer_move_to(x, y));
+                    events.push(InputEvent::PointerAxis(
+                        tessera_primitives::input::PointerAxisFrame::from_values(
+                            self.epoch.elapsed().as_millis() as u32,
+                            Some(tessera_primitives::input::PointerAxisSource::Continuous),
+                            dx,
+                            dy,
+                        ),
+                    ));
+                }
+                SyntheticInputAction::KeyPress { code } => {
+                    events.push(InputEvent::Key {
+                        code,
+                        state: ButtonState::Pressed,
+                    });
+                    events.push(InputEvent::Key {
+                        code,
+                        state: ButtonState::Released,
+                    });
+                }
+                SyntheticInputAction::Key { code, state } => {
+                    events.push(InputEvent::Key { code, state });
+                }
+            }
+        }
+        Some(events)
+    }
+
     pub(crate) fn prepare_synthetic_input_for_seat(
         &self,
         seat: SeatId,

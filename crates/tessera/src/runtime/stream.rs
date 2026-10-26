@@ -40,7 +40,8 @@ use super::*;
 // runtime's glob chain, exactly as when they lived here.
 pub(super) use tessera_composite::presentation::{
     CaptureCursorState, DmabufCapture, OutputStreams, PresentedFrameRef, StreamCursorBlit,
-    StreamPainter, WindowShmTarget, WindowStream, WindowStreamDrive, WindowStreamStage,
+    StreamPainter, SurfaceDamageFrame, VirtualOutputGeometry, VirtualOutputStream,
+    VirtualOutputStreamDrive, WindowShmTarget, WindowStream, WindowStreamDrive, WindowStreamStage,
     WindowTreeGeometry, blit_presented_frame, crop_stream_frame, damage_in_target,
     enumerate_slot_ring, full_target_damage, output_cursor_blit, resolve_output_rect,
 };
@@ -63,6 +64,33 @@ pub(super) enum StreamControl {
         cursor: tessera_protocol::StreamCursorMode,
         reply: std::sync::mpsc::Sender<Result<tessera_primitives::stream::StreamInfo, String>>,
     },
+    /// Renegotiate a frozen or live stream in place at its target's current
+    /// physical geometry (`[INV-ARCH-77]`, ADR-0186).
+    Renegotiate {
+        stream_id: u64,
+        max_fps: Option<u32>,
+        allow_dmabuf: bool,
+        reply: std::sync::mpsc::Sender<Result<tessera_primitives::stream::StreamInfo, String>>,
+    },
+    /// Create a dynamic virtual extend output (`VIRTUAL-*`, ADR-0186).
+    CreateVirtualOutput {
+        spec: tessera_desktop::output::VirtualOutputSpec,
+        reply: std::sync::mpsc::Sender<Result<tessera_protocol::OutputInfo, String>>,
+    },
+    /// Resize, rescale, or reposition a live virtual extend output
+    /// (`VIRTUAL-*`, ADR-0186).
+    ResizeVirtualOutput {
+        connector: String,
+        mode: tessera_desktop::output::OutputMode,
+        scale: Option<tessera_desktop::output::Scale>,
+        logical_origin: Option<tessera_primitives::Point>,
+        reply: std::sync::mpsc::Sender<Result<tessera_protocol::OutputInfo, String>>,
+    },
+    /// Destroy a live virtual extend output (`VIRTUAL-*`, ADR-0186).
+    DestroyVirtualOutput {
+        connector: String,
+        reply: std::sync::mpsc::Sender<Result<String, String>>,
+    },
     /// The server already unregistered the delivery lane (`StreamOutputStop`
     /// request, per-frame authorization failure, or server-side end); the
     /// main loop only drops its own state.
@@ -70,8 +98,8 @@ pub(super) enum StreamControl {
     /// The consumer finished reading a delivered dmabuf slot (IPC protocol
     /// 25); the slot may be rendered into again.
     ReleaseSlot { stream_id: u64, slot: u32 },
-    /// The connection disconnected; every stream it owned was unregistered
-    /// server-side.
+    /// The connection disconnected; every stream and non-persistent virtual
+    /// output it owned is reclaimed.
     Disconnect,
 }
 
@@ -83,6 +111,10 @@ struct RuntimePainter<'a> {
     renderer: &'a mut tessera_composite::Renderer,
     server: &'a tessera_wayland::Server,
     cursor_cache: &'a mut cursor::CursorCache,
+    /// Shared desktop wallpaper, drawn as the virtual outputs' background so
+    /// an extended screen matches a physical one (ADR-0186). Window streams
+    /// render only their own tree and never touch it.
+    wallpaper: &'a mut Option<wallpaper::Wallpaper>,
 }
 
 impl StreamPainter for RuntimePainter<'_> {
@@ -99,6 +131,108 @@ impl StreamPainter for RuntimePainter<'_> {
             draw_software_cursor(canvas, device, self.cursor_cache, position, shape, scale);
         }
     }
+
+    fn paint_virtual_output_frame(
+        &mut self,
+        device: &flux::Device,
+        canvas: &flux::CanvasCommands<'_>,
+        geometry: &VirtualOutputGeometry,
+        cursor: Option<(u32, (f32, f32))>,
+    ) {
+        let scale = geometry.scale_milli as f32 / 1000.0;
+        // Parity with physical outputs: the extended screen paints the desktop
+        // wallpaper behind its windows, not the raw clear colour. The
+        // wallpaper is already uploaded at the desktop resolution, so this is
+        // a GPU-scaled draw and never re-decodes.
+        draw_wallpaper_background(
+            canvas,
+            device,
+            self.wallpaper,
+            (
+                geometry.logical_size.w.max(0) as u32,
+                geometry.logical_size.h.max(0) as u32,
+            ),
+            scale,
+        );
+        canvas.save();
+        if scale != 1.0 {
+            canvas.scale(scale, scale);
+        }
+        let origin = geometry.origin;
+        let map = move |_: Option<tessera_desktop::window::WindowId>,
+                        natural: tessera_primitives::Rect| {
+            tessera_primitives::Rect::new(
+                natural.origin.x - origin.x,
+                natural.origin.y - origin.y,
+                natural.size.w,
+                natural.size.h,
+            )
+        };
+        let shm = self.server.output_capture_frames(&geometry.connector);
+        let dmabuf = self
+            .server
+            .output_capture_dmabuf_frames(&geometry.connector);
+        let surface_order = self.server.output_capture_frame_order(&geometry.connector);
+        self.renderer.draw_surfaces_ordered_mapped(
+            device,
+            canvas,
+            &surface_order,
+            &shm,
+            &dmabuf,
+            &map,
+        );
+        canvas.restore();
+        if let Some((shape, position)) = cursor {
+            draw_software_cursor(canvas, device, self.cursor_cache, position, shape, scale);
+        }
+    }
+}
+
+pub(super) fn virtual_output_geometry(
+    server: &tessera_wayland::Server,
+    connector: &str,
+) -> Result<VirtualOutputGeometry, String> {
+    let info = server
+        .output_infos()
+        .into_iter()
+        .find(|output| output.connector == connector && output.kind.is_virtual())
+        .ok_or_else(|| format!("virtual output '{connector}' disconnected"))?;
+    let (physical_width, physical_height) = if info.geometry.transform.swap_axes() {
+        (info.geometry.mode.height, info.geometry.mode.width)
+    } else {
+        (info.geometry.mode.width, info.geometry.mode.height)
+    };
+    if physical_width <= 0 || physical_height <= 0 {
+        return Err(format!(
+            "virtual output '{connector}' has no measurable extent"
+        ));
+    }
+    let scale_milli = (info.geometry.scale.as_f32() * 1000.0).round().max(1.0) as u32;
+    Ok(VirtualOutputGeometry {
+        connector: info.connector,
+        scale_milli,
+        physical_width: physical_width as u32,
+        physical_height: physical_height as u32,
+        origin: info.geometry.logical_origin,
+        logical_size: info.geometry.logical_size(),
+    })
+}
+
+fn virtual_output_tree_generations(
+    server: &tessera_wayland::Server,
+    connector: &str,
+) -> std::collections::HashMap<usize, u64> {
+    server
+        .output_capture_frames(connector)
+        .iter()
+        .map(|frame| (frame.id, frame.generation))
+        .chain(
+            server
+                .output_capture_dmabuf_frames(connector)
+                .iter()
+                .map(|frame| (frame.id, frame.generation)),
+        )
+        .collect()
 }
 
 /// Content-generation snapshot of one window's surface tree (ADR-0127):
@@ -138,20 +272,61 @@ pub(super) fn output_render_scale(server: &tessera_wayland::Server, host: &Host)
 }
 
 impl CompositorRuntime<'_> {
-    /// Publish the live capture-stream count to the shell's recording
-    /// indicator and IPC status subscribers when it changed (ADR-0128).
-    /// Called after every mutation of the stream set — control drains on
-    /// the iteration path, geometry/blit endings on the presentation
-    /// paths — so the indicator tracks the frame the change happened on
-    /// instead of waiting for unrelated damage.
-    pub(super) fn publish_capture_stream_count(&mut self) {
-        let count = self.streams.len() as u32;
-        if self.system_status.capture_streams == count {
+    /// Publish the live capture/virtual-display/cast stream counts to the
+    /// shell's recording+cast indicators and IPC status subscribers when any
+    /// changed (ADR-0128, ADR-0188). Called after every mutation of the stream
+    /// set or the virtual-output set — control drains on the iteration path,
+    /// geometry/blit endings on the presentation paths — so the indicators
+    /// track the frame the change happened on instead of waiting for unrelated
+    /// damage.
+    pub(super) fn publish_stream_status(&mut self) {
+        let capture = self.streams.len() as u32;
+        let virtual_displays = self
+            .server
+            .output_infos()
+            .iter()
+            .filter(|output| output.kind.is_virtual())
+            .count() as u32;
+        let cast = self.streams.live_virtual_outputs();
+        if self.system_status.capture_streams == capture
+            && self.system_status.virtual_displays == virtual_displays
+            && self.system_status.cast_streams == cast
+        {
             return;
         }
-        self.system_status.capture_streams = count;
+        self.system_status.capture_streams = capture;
+        self.system_status.virtual_displays = virtual_displays;
+        self.system_status.cast_streams = cast;
         publish_system_status_parts(&self.system_status, &mut self.shell, &self.live, &self.ipc);
         self.damage.chrome_dirty = true;
+    }
+
+    /// `[INV-ARCH-81]` (ADR-0189): suspension — a session lock or an inactive
+    /// backend — ends every live stream. The capture security generation
+    /// already drops frames rendered after the boundary, but a consumer
+    /// retains the last *delivered* frame, so a mirror or cast would otherwise
+    /// keep showing pre-lock pixels (a physical mirror would even retain the
+    /// lock UI) indefinitely. Ending is the transport-uniform, fail-closed
+    /// fix: SHM blanking would need a delivery-gate bypass and dmabuf blanking
+    /// would need GPU work during the lock.
+    pub(super) fn end_streams_for_suspension(&mut self) {
+        let ids = self.streams.take_all();
+        if ids.is_empty() {
+            return;
+        }
+        log::info!(
+            "session suspended: ending {} live stream(s) (ADR-0189)",
+            ids.len()
+        );
+        if let Some(ipc) = self.ipc.as_ref() {
+            for stream_id in &ids {
+                ipc.end_stream(*stream_id, "session locked or backend inactive");
+            }
+        }
+        for stream_id in &ids {
+            self.offscreen_damage.remove(stream_id);
+        }
+        self.publish_stream_status();
     }
 
     /// Fan one converted readback out to every due SHM stream. Bounded per
@@ -271,7 +446,7 @@ impl CompositorRuntime<'_> {
             ipc.end_stream(stream_id, &reason);
             self.streams.stop(stream_id);
         }
-        self.publish_capture_stream_count();
+        self.publish_stream_status();
     }
 
     /// Clone the damage accumulator of every due SHM stream for the frame
@@ -532,7 +707,7 @@ impl CompositorRuntime<'_> {
                 self.streams.stop(stream_id);
             }
         }
-        self.publish_capture_stream_count();
+        self.publish_stream_status();
     }
 
     /// Deliver dmabuf stream frames whose acquire fence signaled (IPC
@@ -590,7 +765,7 @@ impl CompositorRuntime<'_> {
                 tessera_composite::presentation::GeometryAction::Unchanged => {}
             }
         }
-        self.publish_capture_stream_count();
+        self.publish_stream_status();
     }
 
     /// Drive every live window stream one step (ADR-0127). The drive itself
@@ -627,19 +802,32 @@ impl CompositorRuntime<'_> {
         let server = &self.server;
         let renderer = &mut self.renderer;
         let cursor_cache = &mut self.cursor_cache;
+        let wallpaper = &mut self.wallpaper;
         let mut painter = RuntimePainter {
             renderer,
             server,
             cursor_cache,
+            wallpaper,
         };
         let mut resolve_geometry = |window| window_tree_geometry(server, window);
         let mut tree_generations = |window| window_tree_generations(server, window);
+        let damage_trackers = &mut self.offscreen_damage;
+        let mut tree_damage = |stream_id: u64, window: tessera_desktop::window::WindowId| {
+            let shm = server.window_capture_frames(window);
+            let dmabuf = server.window_capture_dmabuf_frames(window);
+            damage_trackers.entry(stream_id).or_default().assess(
+                shm.iter()
+                    .map(|frame| frame as &dyn SurfaceDamageFrame)
+                    .chain(dmabuf.iter().map(|frame| frame as &dyn SurfaceDamageFrame)),
+            )
+        };
         let effects = self.streams.drive_window_streams(WindowStreamDrive {
             now,
             device,
             signature: sig,
             resolve_geometry: &mut resolve_geometry,
             tree_generations: &mut tree_generations,
+            tree_damage: &mut tree_damage,
             cursor_state,
             clear: interaction_domain_clear(scheme),
             security_generation,
@@ -652,21 +840,114 @@ impl CompositorRuntime<'_> {
             log::info!("stream {stream_id}: target geometry changed to {width}x{height}; freezing");
             ipc.stream_geometry_changed(*stream_id, *width, *height);
             self.streams.freeze(*stream_id);
+            // A frozen stream's next frame is a fresh, fully-damaged target.
+            self.offscreen_damage.remove(stream_id);
         }
         for (stream_id, reason) in &effects.ended {
             log::info!("stream {stream_id}: {reason}; ending");
             ipc.end_stream(*stream_id, reason);
             self.streams.stop(*stream_id);
+            self.offscreen_damage.remove(stream_id);
         }
-        self.publish_capture_stream_count();
+        self.publish_stream_status();
     }
 
-    /// Hand every completed window-stream SHM readback to the capture
-    /// worker for BGRA conversion (ADR-0127). The worker lane is shared
-    /// with one-shot captures, which keep priority: while a one-shot
-    /// reserves the lane a ready frame waits on its surface (flux keeps
-    /// the completed frame mapped), and a frame held that way for too long
-    /// logs once instead of starving silently.
+    /// Drive every live virtual-output stream one step (ADR-0186). Runs
+    /// independently of physical KMS presentation and continues in clamshell /
+    /// `OutputsOff` mode (`[INV-ARCH-76]`), gated only on session lock and
+    /// backend activity.
+    pub(super) fn drive_virtual_output_streams(&mut self) {
+        if self.server.session_locked() || !self.host.is_active() {
+            return;
+        }
+        let sig = (
+            self.server.all_windows_signature(),
+            self.server.outputs_revision(),
+        );
+        if !self
+            .streams
+            .streams
+            .values()
+            .any(|stream| !stream.frozen && stream.virtual_output.is_some())
+        {
+            return;
+        }
+        let now = Instant::now();
+        let scheme = self.shell.design().scheme;
+        let security_generation = self.capture_worker.security_generation();
+        let cursor_state = {
+            let state = self.capture_cursor_state();
+            (!state.hidden && !state.client_surface).then_some(state)
+        };
+        let device = &self.device;
+        let server = &self.server;
+        let renderer = &mut self.renderer;
+        let cursor_cache = &mut self.cursor_cache;
+        let wallpaper = &mut self.wallpaper;
+        let mut painter = RuntimePainter {
+            renderer,
+            server,
+            cursor_cache,
+            wallpaper,
+        };
+        let mut resolve_geometry = |connector: &str| virtual_output_geometry(server, connector);
+        let mut tree_generations =
+            |connector: &str| virtual_output_tree_generations(server, connector);
+        let damage_trackers = &mut self.offscreen_damage;
+        let mut tree_damage = |stream_id: u64, connector: &str| {
+            let shm = server.output_capture_frames(connector);
+            let dmabuf = server.output_capture_dmabuf_frames(connector);
+            damage_trackers.entry(stream_id).or_default().assess(
+                shm.iter()
+                    .map(|frame| frame as &dyn SurfaceDamageFrame)
+                    .chain(dmabuf.iter().map(|frame| frame as &dyn SurfaceDamageFrame)),
+            )
+        };
+        let (effects, rendered_connectors) =
+            self.streams
+                .drive_virtual_output_streams(VirtualOutputStreamDrive {
+                    now,
+                    device,
+                    signature: sig,
+                    resolve_geometry: &mut resolve_geometry,
+                    tree_generations: &mut tree_generations,
+                    tree_damage: &mut tree_damage,
+                    cursor_state,
+                    clear: interaction_domain_clear(scheme),
+                    security_generation,
+                    painter: &mut painter,
+                });
+        let now_ms = self.start.elapsed().as_millis() as u32;
+        for connector in &rendered_connectors {
+            self.server.send_output_frame_callbacks(connector, now_ms);
+        }
+        let Some(ipc) = self.ipc.as_ref() else {
+            return;
+        };
+        for (stream_id, width, height) in &effects.frozen {
+            log::info!(
+                "stream {stream_id}: virtual-output geometry changed to {width}x{height}; freezing"
+            );
+            ipc.stream_geometry_changed(*stream_id, *width, *height);
+            self.streams.freeze(*stream_id);
+            self.offscreen_damage.remove(stream_id);
+        }
+        for (stream_id, reason) in &effects.ended {
+            log::info!("stream {stream_id}: {reason}; ending");
+            ipc.end_stream(*stream_id, reason);
+            self.streams.stop(*stream_id);
+            self.offscreen_damage.remove(stream_id);
+        }
+        self.publish_stream_status();
+    }
+
+    /// Hand every completed offscreen-stream SHM readback (window or
+    /// virtual-output) to the capture worker for BGRA conversion
+    /// (ADR-0127/0186). The worker lane is shared with one-shot captures,
+    /// which keep priority: while a one-shot reserves the lane a ready frame
+    /// waits on its surface (flux keeps the completed frame mapped), and a
+    /// frame held that way for too long logs once instead of starving
+    /// silently.
     pub(super) fn poll_window_stream_readbacks(&mut self) {
         if self.server.session_locked() || !self.host.is_active() {
             return;
@@ -679,6 +960,8 @@ impl CompositorRuntime<'_> {
             .filter(|(_, stream)| {
                 stream.window.as_ref().is_some_and(|window| {
                     matches!(window.stage, WindowStreamStage::AwaitingReadback { .. })
+                }) || stream.virtual_output.as_ref().is_some_and(|virt| {
+                    matches!(virt.stage, WindowStreamStage::AwaitingReadback { .. })
                 })
             })
             .map(|(stream_id, _)| *stream_id)
@@ -687,21 +970,21 @@ impl CompositorRuntime<'_> {
             let Some(stream) = self.streams.streams.get_mut(&stream_id) else {
                 continue;
             };
-            let window = stream
-                .window
-                .as_mut()
-                .expect("window stream state attached");
-            let Some(target) = window.shm.as_ref() else {
+            let (width, height) = stream.size;
+            let Some((shm, stage, held_since_slot)) = stream.offscreen_shm_parts() else {
+                continue;
+            };
+            let Some(target) = shm.as_ref() else {
                 continue;
             };
             let ready = match target.surface.read_pixels_ready() {
                 Ok(ready) => ready,
                 Err(error) => {
                     log::warn!(
-                        "stream {stream_id}: window readback readiness failed: {error}{}",
+                        "stream {stream_id}: offscreen readback readiness failed: {error}{}",
                         flux_last_error_detail()
                     );
-                    window.stage = WindowStreamStage::Idle;
+                    *stage = WindowStreamStage::Idle;
                     stream.dropped += 1;
                     stream.last_frame = Some(now);
                     continue;
@@ -711,10 +994,10 @@ impl CompositorRuntime<'_> {
                 continue;
             }
             if self.capture_worker.is_busy() {
-                let held_since = window.held_since.get_or_insert(now);
+                let held_since = held_since_slot.get_or_insert(now);
                 if now.duration_since(*held_since) >= Duration::from_secs(2) {
                     log::warn!(
-                        "stream {stream_id}: window frame held behind one-shot captures \
+                        "stream {stream_id}: offscreen frame held behind one-shot captures \
                          for {:?}; the capture worker keeps one-shot priority",
                         now.duration_since(*held_since)
                     );
@@ -725,7 +1008,7 @@ impl CompositorRuntime<'_> {
             let WindowStreamStage::AwaitingReadback {
                 security_generation,
                 damage,
-            } = std::mem::replace(&mut window.stage, WindowStreamStage::Idle)
+            } = std::mem::replace(stage, WindowStreamStage::Idle)
             else {
                 continue;
             };
@@ -736,7 +1019,6 @@ impl CompositorRuntime<'_> {
                 stream.fold_damage_back(damage);
                 continue;
             }
-            let (width, height) = stream.size;
             let readback = PendingReadback {
                 width,
                 height,
@@ -744,10 +1026,14 @@ impl CompositorRuntime<'_> {
                 cursor: None,
                 security_generation,
             };
-            match read_captured_pixels_owned(&target.surface, readback) {
+            let captured = read_captured_pixels_owned(&target.surface, readback);
+            let Some((_shm, stage, held_since_slot)) = stream.offscreen_shm_parts() else {
+                continue;
+            };
+            match captured {
                 Ok(capture) => {
-                    window.held_since = None;
-                    window.stage = WindowStreamStage::Converting { damage };
+                    *held_since_slot = None;
+                    *stage = WindowStreamStage::Converting { damage };
                     queue_captured_pixels(
                         &self.capture_worker,
                         capture,
@@ -757,7 +1043,7 @@ impl CompositorRuntime<'_> {
                     );
                 }
                 Err(reason) => {
-                    log::warn!("stream {stream_id}: window readback failed: {reason}");
+                    log::warn!("stream {stream_id}: offscreen readback failed: {reason}");
                     stream.dropped += 1;
                     stream.last_frame = Some(now);
                     stream.fold_damage_back(damage);
@@ -766,10 +1052,10 @@ impl CompositorRuntime<'_> {
         }
     }
 
-    /// Deliver one converted window-stream frame arriving from the capture
-    /// worker (ADR-0127). Frames that crossed a lock/VT boundary or failed
-    /// conversion count as dropped and fold their damage back; a stopped
-    /// stream's late completion is discarded.
+    /// Deliver one converted offscreen-stream frame arriving from the capture
+    /// worker (ADR-0127/0186). Frames that crossed a lock/VT boundary or
+    /// failed conversion count as dropped and fold their damage back; a
+    /// stopped stream's late completion is discarded.
     pub(super) fn deliver_window_stream_frame(
         &mut self,
         stream_id: u64,
@@ -781,15 +1067,15 @@ impl CompositorRuntime<'_> {
             .streams
             .streams
             .get_mut(&stream_id)
-            .and_then(|stream| stream.window.as_mut())
+            .and_then(|stream| stream.offscreen_shm_parts())
         {
-            Some(window) => {
-                match std::mem::replace(&mut window.stage, WindowStreamStage::Idle) {
+            Some((_shm, stage, _held_since)) => {
+                match std::mem::replace(stage, WindowStreamStage::Idle) {
                     WindowStreamStage::Converting { damage } => Some(damage),
                     // The stream was re-rendered or stopped meanwhile; this
                     // completion is stale.
-                    stage => {
-                        window.stage = stage;
+                    prev_stage => {
+                        *stage = prev_stage;
                         None
                     }
                 }
@@ -994,5 +1280,113 @@ mod dmabuf_tests {
         // SAFETY: `pollfd` references a live descriptor for the call.
         let result = unsafe { libc::poll(&mut pollfd, 1, 2000) };
         assert!(result > 0, "window capture slot fence did not signal");
+    }
+
+    #[test]
+    fn virtual_output_stream_render_pipeline_smoke() {
+        use tessera_composite::presentation::{
+            render_virtual_output_stream_dmabuf, render_virtual_output_stream_shm,
+        };
+
+        let Ok(device) = flux::Device::new_with_options(flux::DeviceOptions {
+            headless: true,
+            frames_in_flight: STREAM_SLOT_COUNT as u32,
+            required_features: flux::DeviceFeatures::DMABUF,
+            optional_features: flux::DeviceFeatures::DMABUF_SYNC_FILE,
+            ..flux::DeviceOptions::default()
+        }) else {
+            return;
+        };
+        if std::env::var_os("XDG_RUNTIME_DIR").is_none() {
+            return;
+        };
+        let Ok(mut server) = tessera_wayland::Server::new() else {
+            return;
+        };
+        server
+            .create_virtual_output(
+                Some(1),
+                tessera_desktop::output::VirtualOutputSpec {
+                    connector: Some("VIRTUAL-1".into()),
+                    mode: tessera_desktop::output::OutputMode {
+                        width: 64,
+                        height: 64,
+                        refresh_mhz: 60_000,
+                    },
+                    scale: tessera_desktop::output::Scale::IDENTITY,
+                    logical_origin: None,
+                    persistent: false,
+                },
+            )
+            .expect("create VIRTUAL-1");
+        let geometry = virtual_output_geometry(&server, "VIRTUAL-1").expect("virtual geometry");
+        let mut renderer = tessera_composite::Renderer::new();
+        let mut cursor_cache = cursor::CursorCache::default();
+        let mut wallpaper: Option<wallpaper::Wallpaper> = None;
+        let scheme = tessera_desktop::settings::ColorScheme::Dark;
+        let mut painter = RuntimePainter {
+            renderer: &mut renderer,
+            server: &server,
+            cursor_cache: &mut cursor_cache,
+            wallpaper: &mut wallpaper,
+        };
+
+        let mut target = WindowShmTarget::new(&device, 64, 64).expect("shm target");
+        render_virtual_output_stream_shm(
+            &device,
+            &mut target,
+            interaction_domain_clear(scheme),
+            &geometry,
+            None,
+            &mut painter,
+        )
+        .expect("virtual output shm render");
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            if target.surface.read_pixels_ready().unwrap_or(false) {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "virtual output readback never completed"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        const LINEAR: u64 = 0;
+        let Ok(surface) = flux::Surface::offscreen_dmabuf(&device, 64, 64, &[LINEAR]) else {
+            return;
+        };
+        let canvas = flux::Canvas::new(&surface).unwrap();
+        let mut dmabuf = DmabufStream {
+            surface,
+            canvas,
+            modifier: LINEAR,
+            slot_stride: 0,
+            slot_bytes: 0,
+            ring: SlotRing::new(STREAM_SLOT_COUNT),
+            pending: Vec::new(),
+            ring_stalled: false,
+        };
+        let (slot, fence) = render_virtual_output_stream_dmabuf(
+            &device,
+            &mut dmabuf,
+            interaction_domain_clear(scheme),
+            &geometry,
+            None,
+            &mut painter,
+        )
+        .expect("virtual output dmabuf render");
+        assert_eq!(slot, 0);
+        let mut pollfd = libc::pollfd {
+            fd: fence.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let result = unsafe { libc::poll(&mut pollfd, 1, 2000) };
+        assert!(
+            result > 0,
+            "virtual output capture slot fence did not signal"
+        );
     }
 }

@@ -1428,6 +1428,14 @@ impl tessera_ipc::Handler for LiveState {
                 origin,
             );
         }
+        let _ = self
+            .stream_controls
+            .lock()
+            .unwrap()
+            .send(StreamControlRequest {
+                conn_id,
+                action: StreamControl::Disconnect,
+            });
     }
 
     fn discard_observation(
@@ -1470,6 +1478,100 @@ impl tessera_ipc::Handler for LiveState {
         reply_rx
             .recv_timeout(std::time::Duration::from_secs(2))
             .map_err(|_| "stream start timed out".to_owned())?
+    }
+
+    fn stream_output_renegotiate(
+        &self,
+        conn_id: u64,
+        stream_id: u64,
+        max_fps: Option<u32>,
+        allow_dmabuf: bool,
+    ) -> Result<tessera_primitives::stream::StreamInfo, String> {
+        let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+        self.stream_controls
+            .lock()
+            .unwrap()
+            .send(StreamControlRequest {
+                conn_id,
+                action: StreamControl::Renegotiate {
+                    stream_id,
+                    max_fps,
+                    allow_dmabuf,
+                    reply: reply_tx,
+                },
+            })
+            .map_err(|_| "compositor is shutting down".to_owned())?;
+        reply_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .map_err(|_| "stream renegotiate timed out".to_owned())?
+    }
+
+    fn create_virtual_output(
+        &self,
+        conn_id: u64,
+        spec: tessera_desktop::output::VirtualOutputSpec,
+    ) -> Result<tessera_protocol::OutputInfo, String> {
+        let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+        self.stream_controls
+            .lock()
+            .unwrap()
+            .send(StreamControlRequest {
+                conn_id,
+                action: StreamControl::CreateVirtualOutput {
+                    spec,
+                    reply: reply_tx,
+                },
+            })
+            .map_err(|_| "compositor is shutting down".to_owned())?;
+        reply_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .map_err(|_| "create virtual output timed out".to_owned())?
+    }
+
+    fn resize_virtual_output(
+        &self,
+        conn_id: u64,
+        connector: String,
+        mode: tessera_desktop::output::OutputMode,
+        scale: Option<tessera_desktop::output::Scale>,
+        logical_origin: Option<tessera_primitives::Point>,
+    ) -> Result<tessera_protocol::OutputInfo, String> {
+        let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+        self.stream_controls
+            .lock()
+            .unwrap()
+            .send(StreamControlRequest {
+                conn_id,
+                action: StreamControl::ResizeVirtualOutput {
+                    connector,
+                    mode,
+                    scale,
+                    logical_origin,
+                    reply: reply_tx,
+                },
+            })
+            .map_err(|_| "compositor is shutting down".to_owned())?;
+        reply_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .map_err(|_| "resize virtual output timed out".to_owned())?
+    }
+
+    fn destroy_virtual_output(&self, conn_id: u64, connector: String) -> Result<String, String> {
+        let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+        self.stream_controls
+            .lock()
+            .unwrap()
+            .send(StreamControlRequest {
+                conn_id,
+                action: StreamControl::DestroyVirtualOutput {
+                    connector,
+                    reply: reply_tx,
+                },
+            })
+            .map_err(|_| "compositor is shutting down".to_owned())?;
+        reply_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .map_err(|_| "destroy virtual output timed out".to_owned())?
     }
 
     fn stream_output_stop(&self, stream_id: u64) {

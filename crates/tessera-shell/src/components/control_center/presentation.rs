@@ -1056,6 +1056,28 @@ impl ControlCenter {
                                     ));
                                 }
 
+                                // Cast status (2 cols x 1 row, ADR-0188). A
+                                // read-only status tile: it reports live
+                                // extended displays and casting streams but
+                                // offers no control until a casting service
+                                // exists. Discovery and pairing are out of
+                                // process and not yet built, so a toggle here
+                                // would be a dead button.
+                                f.col_span(2);
+                                let cast_active =
+                                    status.cast_streams > 0 || status.virtual_displays > 0;
+                                let cast_sub = Self::cast_tile_subtitle(&status, i18n);
+                                render_status_tile(
+                                    f,
+                                    i18n.text(Message::Cast),
+                                    &cast_sub,
+                                    lens::sys::lens_icon_id::LENS_ICON_MONITOR,
+                                    cast_active,
+                                    (tile_w, tile_h),
+                                    hud,
+                                    type_scale,
+                                );
+
                                 // Display Brightness (4 cols x 1 row)
                                 f.col_span(4);
                                 let (bright_level, _) = render_horizontal_fader(
@@ -1680,6 +1702,24 @@ impl ControlCenter {
 
     /// The Bluetooth tile's subtitle: the connected peripheral's name when a
     /// link is up, otherwise the radio state (ADR-0175).
+    /// The Cast tile's subtitle: the live casting/extended-display state read
+    /// from the compositor-published status fields (`[INV-ARCH-80]`,
+    /// ADR-0188). Casting streams win over a merely-present extended display;
+    /// an idle desktop reads as not casting.
+    pub(super) fn cast_tile_subtitle(status: &SystemStatus, i18n: &Localizer) -> String {
+        if status.cast_streams > 0 {
+            format!("{} · {}", i18n.text(Message::Casting), status.cast_streams)
+        } else if status.virtual_displays > 0 {
+            format!(
+                "{} · {}",
+                i18n.text(Message::Displays),
+                status.virtual_displays
+            )
+        } else {
+            i18n.text(Message::NotCasting).to_owned()
+        }
+    }
+
     pub(super) fn bluetooth_tile_subtitle(status: &SystemStatus, i18n: &Localizer) -> String {
         // A live link names the device; an off radio never does, even if a
         // stale `connected` flag lingers host-side mid-disconnect.

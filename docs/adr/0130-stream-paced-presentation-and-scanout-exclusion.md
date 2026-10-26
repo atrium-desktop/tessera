@@ -11,6 +11,7 @@ superseded_by: null
 - Status: Accepted
 - Date: 2026-08-17
 - Amended by: [ADR-0182](0182-fullscreen-frame-pacing-and-direct-scanout-fidelity.md) — client direct-scanout framebuffers are cached rather than re-imported per frame; scanout exclusion for live streams is unchanged.
+- Amended by: [ADR-0186](0186-session-scoped-virtual-extend-outputs-and-offscreen-output-streaming.md) — virtual-output streams render into per-stream offscreen targets and never force physical composites or disqualify physical direct scanout (`[INV-ARCH-76]`).
 
 ## Context
 

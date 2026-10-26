@@ -853,6 +853,38 @@ fn bluetooth_tile_subtitle_prioritizes_the_connected_device() {
 }
 
 #[test]
+fn test_inv_arch_80_cast_tile_reflects_status() {
+    let i18n = Localizer::default();
+
+    // An idle desktop reads as not casting, with no fabricated count.
+    assert_eq!(
+        CommandPanel::cast_tile_subtitle(&SystemStatus::default(), &i18n),
+        i18n.text(Message::NotCasting)
+    );
+
+    // A present extended display with no live stream names the display count.
+    let extended = SystemStatus {
+        virtual_displays: 2,
+        ..SystemStatus::default()
+    };
+    assert_eq!(
+        CommandPanel::cast_tile_subtitle(&extended, &i18n),
+        format!("{} · 2", i18n.text(Message::Displays))
+    );
+
+    // A live casting stream wins over a merely-present display.
+    let casting = SystemStatus {
+        virtual_displays: 2,
+        cast_streams: 1,
+        ..SystemStatus::default()
+    };
+    assert_eq!(
+        CommandPanel::cast_tile_subtitle(&casting, &i18n),
+        format!("{} · 1", i18n.text(Message::Casting))
+    );
+}
+
+#[test]
 fn keyboard_backlight_actions_validate() {
     let mut out = ChromeEvents::default();
     out.system_actions

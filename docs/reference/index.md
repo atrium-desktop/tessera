@@ -20,3 +20,4 @@ see [Explanation](../explanation/index.md).
 | [Session Service Commands](session-services.md) | Lock-screen and idle-coordinator invocation, options, defaults, and exit behavior |
 | [Portal Backend](portal.md) | Installation identifiers, runtime dependencies, interface versions, and limitations |
 | [tessera-mcp Bridge](tessera-mcp.md) | MCP command, environment, capability borrowing and pairing, Interaction Domain lifecycle, tools, and compatibility |
+| [tessera-cast](tessera-cast.md) | Miracast caster stages, the read-only capability probe, verdict vocabulary, and exit statuses |

@@ -415,6 +415,39 @@ pub fn logical_rects_to_frame(
     FrameDamage::from_rects(physical)
 }
 
+/// Map one offscreen stream's own-tree logical damage onto its physical
+/// target (ADR-0187). Each logical rect is shifted by `-origin` (the stream's
+/// logical origin in the desktop layout) and then mapped to target pixels by
+/// [`logical_rects_to_frame`]. This is the offscreen analogue of
+/// [`ClientDamage::into_frame_damage`], which assumes logical `(0, 0)` maps to
+/// the target origin — false for a window or virtual output that sits at a
+/// non-zero desktop position.
+pub fn offscreen_damage_to_target(
+    damage: ClientDamage,
+    origin: tessera_primitives::Point,
+    scale: f32,
+    physical_size: (u32, u32),
+) -> FrameDamage {
+    match damage {
+        ClientDamage::Full => FrameDamage::Full,
+        ClientDamage::None => FrameDamage::None,
+        ClientDamage::Area(logical) => {
+            let shifted: Vec<Rect> = logical
+                .into_iter()
+                .map(|rect| {
+                    Rect::new(
+                        rect.origin.x.saturating_sub(origin.x),
+                        rect.origin.y.saturating_sub(origin.y),
+                        rect.size.w,
+                        rect.size.h,
+                    )
+                })
+                .collect();
+            logical_rects_to_frame(shifted, scale, physical_size)
+        }
+    }
+}
+
 /// Convert output damage to the single physical-pixel rectangle accepted by
 /// Vulkan dynamic rendering. `None` deliberately means a full-destination
 /// pass: both [`FrameDamage::Full`] and the conservative empty-area fallback
@@ -925,5 +958,48 @@ mod tests {
             geometry,
         } as &dyn SurfaceDamageFrame]);
         assert_eq!(content, ClientDamage::Area(vec![Rect::new(12, 23, 4, 5)]));
+    }
+
+    #[test]
+    fn offscreen_damage_translates_origin_then_maps_to_target() {
+        // A surface at desktop-logical (2005, 45) inside a virtual output
+        // whose origin is (2000, 0): the target-relative rect starts at
+        // (5, 45) (`[INV-ARCH-79]`).
+        let mapped = offscreen_damage_to_target(
+            ClientDamage::Area(vec![Rect::new(2005, 45, 10, 10)]),
+            tessera_primitives::Point { x: 2000, y: 0 },
+            1.0,
+            (64, 64),
+        );
+        assert_eq!(mapped.area_rects(), Some(&[Rect::new(5, 45, 10, 10)][..]));
+
+        // A 2x target maps logical to physical pixels after the shift.
+        let scaled = offscreen_damage_to_target(
+            ClientDamage::Area(vec![Rect::new(2005, 45, 10, 10)]),
+            tessera_primitives::Point { x: 2000, y: 0 },
+            2.0,
+            (128, 128),
+        );
+        assert_eq!(scaled.area_rects(), Some(&[Rect::new(10, 90, 20, 20)][..]));
+
+        // Non-area verdicts pass through unchanged.
+        assert!(matches!(
+            offscreen_damage_to_target(
+                ClientDamage::Full,
+                tessera_primitives::Point { x: 0, y: 0 },
+                1.0,
+                (64, 64)
+            ),
+            FrameDamage::Full
+        ));
+        assert!(matches!(
+            offscreen_damage_to_target(
+                ClientDamage::None,
+                tessera_primitives::Point { x: 0, y: 0 },
+                1.0,
+                (64, 64)
+            ),
+            FrameDamage::None
+        ));
     }
 }

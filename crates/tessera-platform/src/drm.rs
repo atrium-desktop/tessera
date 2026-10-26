@@ -1067,6 +1067,7 @@ impl Backend for DrmBackend {
                             y: output.y as i32,
                         },
                     },
+                    kind: output.kind,
                     available_modes: output.available_modes.clone(),
                     color_caps: output.color_caps,
                 }

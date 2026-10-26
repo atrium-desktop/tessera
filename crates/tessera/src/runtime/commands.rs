@@ -106,7 +106,7 @@ pub(super) fn apply_command(
         Command::SetWindowGeometry { id, rect } => {
             server.set_window_geometry(*id, *rect);
         }
-        Command::InjectInput { .. } => {
+        Command::InjectInput { .. } | Command::InjectOutputInput { .. } => {
             // Synthetic input needs shell-occlusion validation and is handled
             // beside the physical-input router in the main loop.
             debug_assert!(false, "InjectInput reached the generic command path");

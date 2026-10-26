@@ -171,6 +171,58 @@ pub enum DisplayCmd {
         #[arg(long, value_name = "X,Y,W,H")]
         region: Option<Region>,
     },
+    /// Create, resize, or destroy a human-domain virtual extend display (`VIRTUAL-*`).
+    Virtual {
+        #[command(subcommand)]
+        command: VirtualDisplayCmd,
+    },
+}
+
+/// Commands grouped under `tessera display virtual` (ADR-0186).
+#[derive(Debug, clap::Subcommand)]
+pub enum VirtualDisplayCmd {
+    /// Create a persistent virtual extend display (`VIRTUAL-*`).
+    #[command(allow_hyphen_values = true)]
+    Create {
+        /// Optional connector name (`VIRTUAL-*`); auto-allocated when omitted.
+        #[arg(long)]
+        connector: Option<String>,
+        /// Display mode formatted `WxH` or `WxH@Hz` (e.g. `1920x1080@60`).
+        #[arg(long, default_value = "1920x1080@60")]
+        mode: String,
+        /// Logical scale factor (0.25..=8.0).
+        #[arg(long, default_value_t = 1.0)]
+        scale: f32,
+        /// Optional explicit logical X origin.
+        #[arg(long)]
+        x: Option<i32>,
+        /// Optional explicit logical Y origin.
+        #[arg(long)]
+        y: Option<i32>,
+    },
+    /// Resize, rescale, or reposition a live virtual extend display.
+    #[command(allow_hyphen_values = true)]
+    Resize {
+        /// Virtual connector name (e.g. `VIRTUAL-1`).
+        connector: String,
+        /// New display mode formatted `WxH` or `WxH@Hz`.
+        #[arg(long)]
+        mode: String,
+        /// Optional new logical scale factor.
+        #[arg(long)]
+        scale: Option<f32>,
+        /// Optional new logical X origin.
+        #[arg(long)]
+        x: Option<i32>,
+        /// Optional new logical Y origin.
+        #[arg(long)]
+        y: Option<i32>,
+    },
+    /// Destroy a live virtual extend display and relocate its windows to the primary display.
+    Destroy {
+        /// Virtual connector name (e.g. `VIRTUAL-1`).
+        connector: String,
+    },
 }
 
 /// Commands grouped under `tessera window`. With no command, visible windows

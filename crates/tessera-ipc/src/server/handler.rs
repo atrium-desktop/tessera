@@ -515,6 +515,20 @@ pub trait Handler: Send + Sync {
     /// request, a per-frame authorization failure in the writer, or a
     /// disconnect. Fire-and-forget; the main loop drops its stream state.
     fn stream_output_stop(&self, _stream_id: u64) {}
+    /// Renegotiate a live stream in place after a target geometry change
+    /// (`Event::StreamGeometryChanged`, protocol 32, ADR-0186). Rebuilds the
+    /// backing dmabuf slot ring or SHM readback surface at the target's
+    /// current physical dimensions while preserving `stream_id`, `sequence`,
+    /// and `dropped`.
+    fn stream_output_renegotiate(
+        &self,
+        _conn_id: u64,
+        _stream_id: u64,
+        _max_fps: Option<u32>,
+        _allow_dmabuf: bool,
+    ) -> Result<StreamInfo, String> {
+        Err("stream renegotiation unsupported".into())
+    }
     /// The consumer finished reading a dmabuf stream's slot (version 25);
     /// the compositor may reuse it for a later frame. Fire-and-forget, and
     /// only ever sent for a stream the releasing connection owns.
@@ -523,6 +537,32 @@ pub trait Handler: Send + Sync {
     /// disconnected. The server has already unregistered the delivery lanes;
     /// the main loop drops its stream state.
     fn streams_disconnected(&self, _conn_id: u64) {}
+    /// Create a dynamic virtual extend output (`VIRTUAL-*`, protocol 32,
+    /// ADR-0186).
+    fn create_virtual_output(
+        &self,
+        _conn_id: u64,
+        _spec: tessera_desktop::output::VirtualOutputSpec,
+    ) -> Result<tessera_protocol::schema::OutputInfo, String> {
+        Err("virtual outputs unsupported".into())
+    }
+    /// Resize, rescale, or reposition a live virtual extend output
+    /// (`VIRTUAL-*`, protocol 32, ADR-0186).
+    fn resize_virtual_output(
+        &self,
+        _conn_id: u64,
+        _connector: String,
+        _mode: tessera_desktop::output::OutputMode,
+        _scale: Option<tessera_desktop::output::Scale>,
+        _logical_origin: Option<tessera_primitives::Point>,
+    ) -> Result<tessera_protocol::schema::OutputInfo, String> {
+        Err("virtual outputs unsupported".into())
+    }
+    /// Destroy a live virtual extend output (`VIRTUAL-*`, protocol 32,
+    /// ADR-0186).
+    fn destroy_virtual_output(&self, _conn_id: u64, _connector: String) -> Result<String, String> {
+        Err("virtual outputs unsupported".into())
+    }
     /// Set or clear the calling connection's global idle inhibitor
     /// (ADR-0075). Called from a connection thread after capability, lease,
     /// and scope checks; the implementation forwards to the main loop and

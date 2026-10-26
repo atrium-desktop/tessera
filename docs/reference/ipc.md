@@ -1,6 +1,6 @@
 # IPC Reference
 
-The tessera IPC is protocol version 31, carried as length-framed JSON over the
+The tessera IPC is protocol version 32, carried as length-framed JSON over the
 owner-only Unix socket at `$XDG_RUNTIME_DIR/tessera.sock`. Every connection starts
 with `Hello`; commands are accepted only after capability and scope checks.
 JSON messages are limited to 16 MiB. Large immutable capture and frame
@@ -752,8 +752,21 @@ A pure geometry change — desktop resize, a mode change on the streamed
 connector, or a window resize — instead freezes the stream with
 `Event::StreamGeometryChanged { stream_id, width, height }` (protocol 29):
 the stream stays registered but produces no further frames until the
-client restarts it with `StreamOutputStop` plus a fresh
-`StreamOutputStart`, which re-negotiates at the new geometry. The event
+client either renegotiates it in place with
+`Request::StreamOutputRenegotiate { stream_id, max_fps, dmabuf }` (protocol 32,
+[ADR-0186](../adr/0186-session-scoped-virtual-extend-outputs-and-offscreen-output-streaming.md),
+which rebuilds the slot ring or SHM target while preserving `stream_id`,
+`sequence`, and `dropped`) or restarts it with `StreamOutputStop` plus a fresh
+`StreamOutputStart`.
+
+Virtual extend outputs (`VIRTUAL-*`, `OutputKind::Virtual`, protocol 32,
+[ADR-0186](../adr/0186-session-scoped-virtual-extend-outputs-and-offscreen-output-streaming.md))
+are managed with `Request::CreateVirtualOutput`, `Request::ResizeVirtualOutput`,
+and `Request::DestroyVirtualOutput` (gated by `ActorCapability::ManageVirtualOutput`),
+and accept output-bounded remote input via `Command::InjectOutputInput`. A
+stream targeting a `VIRTUAL-*` connector renders into its own offscreen target
+independently of physical KMS presentation and never disqualifies physical
+direct scanout. The event
 goes only to connections that negotiated protocol 29; an older client
 simply observes frames stop. Session lock and an inactive VT pause
 delivery instead of ending the stream; resuming restarts it transparently.

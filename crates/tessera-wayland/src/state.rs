@@ -162,6 +162,45 @@ impl State {
         u32::try_from(index).ok()?.checked_add(1)
     }
 
+    /// Logical rectangle of the output that owns `window` (via its workspace),
+    /// falling back to the primary output's logical rectangle.
+    pub(crate) fn output_rect_for_window(
+        &self,
+        window: tessera_desktop::window::WindowId,
+    ) -> tessera_primitives::Rect {
+        self.workspaces
+            .workspace_of(window)
+            .and_then(|wid| self.workspaces.workspace(wid))
+            .and_then(|ws| self.workspaces.output(ws.output))
+            .and_then(|ws_out| {
+                self.output_infos
+                    .iter()
+                    .find(|info| info.connector == ws_out.connector)
+            })
+            .map(|info| info.geometry.logical_rect())
+            .filter(|rect| rect.size.w > 0 && rect.size.h > 0)
+            .unwrap_or_else(|| self.output_geometry.logical_rect())
+    }
+
+    /// Chrome-aware work area for `window`: uses `last_work_area` when `window`
+    /// resides on the primary output, and the output's own `logical_rect` on
+    /// secondary or virtual outputs.
+    pub(crate) fn work_area_for_window(
+        &self,
+        window: tessera_desktop::window::WindowId,
+    ) -> tessera_primitives::Rect {
+        let output_rect = self.output_rect_for_window(window);
+        let primary_rect = self.output_geometry.logical_rect();
+        if output_rect == primary_rect
+            && self.last_work_area.size.w > 0
+            && self.last_work_area.size.h > 0
+        {
+            self.last_work_area
+        } else {
+            output_rect
+        }
+    }
+
     pub(super) fn new(display: *mut ffi::wl_display) -> State {
         let mut workspaces = tessera_desktop::workspace::WorkspaceModel::new();
         let output = workspaces.add_output("nested");
@@ -247,9 +286,18 @@ impl State {
             decoration_policy: tessera_desktop::window::DecorationPolicy::default(),
             window_rules: Vec::new(),
             output_geometry: tessera_desktop::output::OutputGeometry::default(),
+            physical_outputs: vec![tessera_desktop::output::OutputInfo {
+                connector: "nested".to_owned(),
+                geometry: tessera_desktop::output::OutputGeometry::default(),
+                kind: tessera_desktop::output::OutputKind::External,
+                available_modes: Vec::new(),
+                color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+            }],
+            virtual_outputs: Vec::new(),
             output_infos: vec![tessera_desktop::output::OutputInfo {
                 connector: "nested".to_owned(),
                 geometry: tessera_desktop::output::OutputGeometry::default(),
+                kind: tessera_desktop::output::OutputKind::External,
                 available_modes: Vec::new(),
                 color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
             }],

@@ -8,7 +8,9 @@ use std::time::Instant;
 use tessera_desktop::window::WindowId;
 use tessera_primitives::stream::StreamFramePayload;
 
-use crate::presentation::damage::{FrameDamage, union_frame_damage};
+use crate::presentation::damage::{
+    ClientDamage, FrameDamage, offscreen_damage_to_target, union_frame_damage,
+};
 
 use super::registry::{
     OutputStreams, WindowStreamStage, damage_in_target, window_stream_render_due,
@@ -17,7 +19,8 @@ use super::ring::SLOT_FENCE_TIMEOUT;
 use super::transport::window_stream_cursor;
 use super::transport::{
     BlitFailure, CaptureCursorState, DRM_FORMAT_XRGB8888, PendingSlotFrame, StreamPainter,
-    WindowTreeGeometry, fence_signaled, render_window_stream_dmabuf, render_window_stream_shm,
+    VirtualOutputGeometry, WindowTreeGeometry, fence_signaled, render_virtual_output_stream_dmabuf,
+    render_virtual_output_stream_shm, render_window_stream_dmabuf, render_window_stream_shm,
 };
 
 /// One window-stream drive invocation: the clock, the observations, and the
@@ -36,12 +39,44 @@ pub struct WindowStreamDrive<'a> {
     /// Content-generation snapshot of a window's surface tree (the
     /// per-window dirty signal).
     pub tree_generations: &'a mut dyn FnMut(WindowId) -> std::collections::HashMap<usize, u64>,
+    /// The window tree's own committed damage since the previous call, in
+    /// compositor logical coordinates (ADR-0187). Called once per render,
+    /// after the due decision, so the underlying tracker advances exactly
+    /// once per rendered frame.
+    pub tree_damage: &'a mut dyn FnMut(u64, WindowId) -> ClientDamage,
     /// The theme cursor, when one is currently drawable. A client-owned
     /// cursor surface is not part of any window's surface tree, so window
     /// streams can never show it; the caller filters.
     pub cursor_state: Option<CaptureCursorState>,
     /// The opaque clear colour for window frames (the interaction-domain
     /// scene colour of the active scheme).
+    pub clear: u32,
+    /// The capture security generation snapshot at render time.
+    pub security_generation: u64,
+    pub painter: &'a mut dyn StreamPainter,
+}
+
+/// One virtual-output stream drive invocation (ADR-0186): the clock, the
+/// observations, and the content port for offscreen `VIRTUAL-*` streams.
+pub struct VirtualOutputStreamDrive<'a> {
+    pub now: Instant,
+    pub device: &'a flux::Device,
+    /// The window/output model signatures at this drive; geometry
+    /// re-resolution is gated on them.
+    pub signature: (u64, u64),
+    /// Resolve a virtual output's live geometry by connector name. `Err`
+    /// means the virtual output was destroyed or disconnected.
+    pub resolve_geometry: &'a mut dyn FnMut(&str) -> Result<VirtualOutputGeometry, String>,
+    /// Content-generation snapshot of all surfaces visible on the virtual
+    /// output (the per-output dirty signal).
+    pub tree_generations: &'a mut dyn FnMut(&str) -> std::collections::HashMap<usize, u64>,
+    /// The virtual output's own committed damage since the previous call, in
+    /// compositor logical coordinates (ADR-0187). Called once per render,
+    /// after the due decision.
+    pub tree_damage: &'a mut dyn FnMut(u64, &str) -> ClientDamage,
+    /// The theme cursor, when one is currently drawable.
+    pub cursor_state: Option<CaptureCursorState>,
+    /// The opaque clear colour for virtual-output frames.
     pub clear: u32,
     /// The capture security generation snapshot at render time.
     pub security_generation: u64,
@@ -73,6 +108,7 @@ impl OutputStreams {
             signature: sig,
             resolve_geometry,
             tree_generations,
+            tree_damage,
             cursor_state,
             clear,
             security_generation,
@@ -154,14 +190,16 @@ impl OutputStreams {
                 origin: window.origin,
                 logical_size: window.logical_size,
             });
-            // Damage for this frame: the desktop-space accumulation clipped
-            // to the window's physical rect, translated into target
-            // coordinates at delivery time.
+            // Damage for this frame is the window tree's own committed
+            // damage (ADR-0187), mapped onto the target's pixels; the
+            // physical desktop frame never contributes to a window stream.
             let scale = geometry.scale_milli as f32 / 1000.0;
-            let damage_origin = tessera_primitives::Point {
-                x: (geometry.origin.x as f32 * scale).floor() as i32,
-                y: (geometry.origin.y as f32 * scale).floor() as i32,
-            };
+            let own = offscreen_damage_to_target(
+                tree_damage(stream_id, window_id),
+                geometry.origin,
+                scale,
+                stream.size,
+            );
             let cursor_draw = (stream.cursor
                 == tessera_primitives::stream::StreamCursorMode::Embedded)
                 .then_some(cursor_state.as_ref())
@@ -169,7 +207,7 @@ impl OutputStreams {
                 .and_then(|state| {
                     window_stream_cursor(state, geometry.origin, geometry.logical_size)
                 });
-            let sampled = self.sample_damage(stream_id, damage_origin);
+            let sampled = self.seed_offscreen_damage(stream_id, own);
             let Some(stream) = self.streams.get_mut(&stream_id) else {
                 continue;
             };
@@ -264,6 +302,217 @@ impl OutputStreams {
             }
         }
         effects
+    }
+
+    /// Drive every live virtual-output stream one step (ADR-0186): re-resolve
+    /// geometry when the window/output model moved (a mode/scale change
+    /// freezes the stream with `StreamGeometryChanged`, a destroyed virtual
+    /// output ends it, a pure logical-origin move is followed silently), then
+    /// render due streams into their own offscreen targets independently of
+    /// physical KMS presentation (`[INV-ARCH-76]`). Returns `(effects,
+    /// rendered_connectors)` so the composition root can dispatch per-output
+    /// `wl_surface.frame` callbacks.
+    pub fn drive_virtual_output_streams(
+        &mut self,
+        drive: VirtualOutputStreamDrive<'_>,
+    ) -> (WindowDriveEffects, Vec<String>) {
+        let VirtualOutputStreamDrive {
+            now,
+            device,
+            signature: sig,
+            resolve_geometry,
+            tree_generations,
+            tree_damage,
+            cursor_state,
+            clear,
+            security_generation,
+            painter,
+        } = drive;
+        let mut effects = WindowDriveEffects::default();
+        let mut rendered_connectors = Vec::new();
+        let ids: Vec<u64> = self
+            .streams
+            .iter()
+            .filter(|(_, stream)| !stream.frozen && stream.virtual_output.is_some())
+            .map(|(stream_id, _)| *stream_id)
+            .collect();
+        for stream_id in ids {
+            let Some(stream) = self.streams.get_mut(&stream_id) else {
+                continue;
+            };
+            let virtual_output = stream
+                .virtual_output
+                .as_mut()
+                .expect("virtual output stream state attached");
+            let connector = virtual_output.connector.clone();
+            let mut fresh_geometry = None;
+            if virtual_output.geometry_sig != sig {
+                virtual_output.geometry_sig = sig;
+                match resolve_geometry(&connector) {
+                    Ok(geometry) => {
+                        if (geometry.physical_width, geometry.physical_height) != stream.size {
+                            effects.frozen.push((
+                                stream_id,
+                                geometry.physical_width,
+                                geometry.physical_height,
+                            ));
+                            continue;
+                        }
+                        virtual_output.origin = geometry.origin;
+                        virtual_output.logical_size = geometry.logical_size;
+                        virtual_output.scale_milli = geometry.scale_milli;
+                        fresh_geometry = Some(geometry);
+                    }
+                    Err(reason) => {
+                        effects.ended.push((stream_id, reason));
+                        continue;
+                    }
+                }
+            }
+            let geometry = fresh_geometry.unwrap_or(VirtualOutputGeometry {
+                connector: connector.clone(),
+                scale_milli: virtual_output.scale_milli,
+                physical_width: stream.size.0,
+                physical_height: stream.size.1,
+                origin: virtual_output.origin,
+                logical_size: virtual_output.logical_size,
+            });
+            let cursor_draw = (stream.cursor
+                == tessera_primitives::stream::StreamCursorMode::Embedded)
+                .then_some(cursor_state.as_ref())
+                .flatten()
+                .and_then(|state| {
+                    window_stream_cursor(state, geometry.origin, geometry.logical_size)
+                });
+            let live = tree_generations(&connector);
+            virtual_output.dirty =
+                live != virtual_output.generations || cursor_draw != virtual_output.last_cursor;
+            let stage_idle = matches!(virtual_output.stage, WindowStreamStage::Idle);
+            if !window_stream_render_due(
+                virtual_output.dirty,
+                stage_idle,
+                stream.last_frame,
+                stream.frame_interval,
+                now,
+            ) {
+                continue;
+            }
+            let scale = geometry.scale_milli as f32 / 1000.0;
+            // The virtual output's own committed damage (ADR-0187), mapped
+            // onto the target's pixels; the physical desktop frame never
+            // contributes to a virtual-output stream.
+            let own = offscreen_damage_to_target(
+                tree_damage(stream_id, &connector),
+                geometry.origin,
+                scale,
+                stream.size,
+            );
+            let sampled = self.seed_offscreen_damage(stream_id, own);
+            let Some(stream) = self.streams.get_mut(&stream_id) else {
+                continue;
+            };
+            let virtual_output = stream
+                .virtual_output
+                .as_mut()
+                .expect("virtual output stream state attached");
+            match &mut virtual_output.shm {
+                Some(target) => {
+                    match render_virtual_output_stream_shm(
+                        device,
+                        target,
+                        clear,
+                        &geometry,
+                        cursor_draw,
+                        painter,
+                    ) {
+                        Ok(()) => {
+                            virtual_output.generations = live;
+                            virtual_output.last_cursor = cursor_draw;
+                            virtual_output.dirty = false;
+                            virtual_output.stage = WindowStreamStage::AwaitingReadback {
+                                security_generation,
+                                damage: sampled,
+                            };
+                            stream.last_frame = Some(now);
+                            if !rendered_connectors.contains(&connector) {
+                                rendered_connectors.push(connector);
+                            }
+                        }
+                        Err(reason) => {
+                            log::warn!(
+                                "stream {stream_id}: virtual-output frame render failed: {reason}"
+                            );
+                            stream.dropped += 1;
+                            stream.last_frame = Some(now);
+                        }
+                    }
+                }
+                None => {
+                    let Some(dmabuf) = stream.dmabuf.as_mut() else {
+                        continue;
+                    };
+                    let Some(_slot) = dmabuf.ring.next_submission_slot() else {
+                        stream.dropped += 1;
+                        stream.last_frame = Some(now);
+                        if dmabuf.ring.next_is_pinned() && !dmabuf.ring_stalled {
+                            dmabuf.ring_stalled = true;
+                            log::warn!(
+                                "stream {stream_id}: every capture slot is consumer-owned; \
+                                 dropping frames until the consumer releases one"
+                            );
+                        }
+                        continue;
+                    };
+                    let sequence = stream.sequence + 1;
+                    let dropped = stream.dropped;
+                    match render_virtual_output_stream_dmabuf(
+                        device,
+                        dmabuf,
+                        clear,
+                        &geometry,
+                        cursor_draw,
+                        painter,
+                    ) {
+                        Ok((slot, fence)) => {
+                            if dmabuf.ring_stalled {
+                                dmabuf.ring_stalled = false;
+                                log::info!("stream {stream_id}: capture slots are flowing again");
+                            }
+                            dmabuf.ring.submitted(slot);
+                            dmabuf.pending.push(PendingSlotFrame {
+                                slot,
+                                fence,
+                                source: None,
+                                sequence,
+                                dropped,
+                                submitted_at: now,
+                                security_generation,
+                                damage: sampled,
+                            });
+                            virtual_output.generations = live;
+                            virtual_output.last_cursor = cursor_draw;
+                            virtual_output.dirty = false;
+                            stream.sequence += 1;
+                            stream.last_frame = Some(now);
+                            if !rendered_connectors.contains(&connector) {
+                                rendered_connectors.push(connector);
+                            }
+                        }
+                        Err(BlitFailure::Retryable(reason)) => {
+                            log::warn!(
+                                "stream {stream_id}: virtual-output dmabuf frame failed: {reason}"
+                            );
+                            stream.dropped += 1;
+                            stream.last_frame = Some(now);
+                        }
+                        Err(BlitFailure::Submitted(reason)) => {
+                            effects.ended.push((stream_id, reason));
+                        }
+                    }
+                }
+            }
+        }
+        (effects, rendered_connectors)
     }
 
     /// Deliver dmabuf stream frames whose acquire fence signaled (IPC

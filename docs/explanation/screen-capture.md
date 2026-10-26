@@ -50,10 +50,15 @@ A live output stream paces presentation at its negotiated `max_fps`:
 - Cursor motion presented on the hardware cursor plane would otherwise never
   composite; cadence forcing carries it into the stream.
 
-When the last stream stops, presentation returns to pure damage-driven
-pacing and scanout becomes eligible again. Window streams never force
-presentation; they render offscreen on their own schedule
-([ADR-0127](../adr/0127-occlusion-safe-window-streams-and-cursor-compositing.md)).
+When the last physical-output stream stops, presentation returns to pure
+damage-driven pacing and scanout becomes eligible again. Window streams
+([ADR-0127](../adr/0127-occlusion-safe-window-streams-and-cursor-compositing.md))
+and virtual-output streams (`VIRTUAL-*`,
+[ADR-0186](../adr/0186-session-scoped-virtual-extend-outputs-and-offscreen-output-streaming.md))
+never force physical presentation and never disqualify physical direct
+scanout (`[INV-ARCH-76]`); they render into their own offscreen targets on
+their own schedule, including while physical displays are powered off
+(clamshell mode).
 
 ## Transports
 
@@ -70,6 +75,14 @@ Frames carry per-frame damage in the stream's own coordinate space
 full-frame rectangle) and a cumulative drop count; delivery runs over a
 bounded two-frame lane per stream, and excess frames are dropped and
 counted rather than queued ([ADR-0052](../adr/0052-scoped-output-frame-streaming.md)).
+
+A physical output stream inherits the presented desktop frame's damage. Window
+and virtual-output streams render their own surface tree, so their damage comes
+from that tree instead — a per-stream `ClientDamageTracker` advanced once per
+rendered frame — and never from the physical accumulator, which would name the
+wrong regions (inverted, for a virtual output whose windows are excluded from
+the physical scene). See
+[ADR-0187](../adr/0187-offscreen-stream-damage-from-the-stream-s-own-tree.md).
 
 ## Authorization and Privacy
 

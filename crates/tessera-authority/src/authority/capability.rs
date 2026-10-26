@@ -67,6 +67,9 @@ pub enum ActorCapability {
     /// Launch a desktop entry, optionally directing its first toplevel to a
     /// chosen or fresh workspace without switching the user's view (ADR-0118).
     LaunchApp,
+    /// Create, resize, and destroy human-domain virtual extend outputs
+    /// (`VIRTUAL-*`, ADR-0186).
+    ManageVirtualOutput,
 }
 
 impl ActorCapability {
@@ -124,6 +127,7 @@ impl ActorCapability {
             "observeinteractiondomain" => Self::ObserveInteractionDomain,
             "launchininteractiondomain" => Self::LaunchInInteractionDomain,
             "launchapp" => Self::LaunchApp,
+            "managevirtualoutput" => Self::ManageVirtualOutput,
             _ => return None,
         })
     }
@@ -176,6 +180,7 @@ impl ActorCapability {
             Self::ObserveInteractionDomain => "Observe its window topology and state",
             Self::LaunchInInteractionDomain => "Launch apps in its Interaction Domain",
             Self::LaunchApp => "Launch applications",
+            Self::ManageVirtualOutput => "Manage virtual outputs",
         }
     }
 }

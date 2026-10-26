@@ -1783,6 +1783,244 @@ pub(super) fn drive_read_loop<H: Handler>(
                 );
                 response
             }
+            Request::StreamOutputRenegotiate {
+                stream_id,
+                max_fps,
+                dmabuf,
+            } => {
+                let target = {
+                    let guard = streams.lock().unwrap();
+                    guard
+                        .get(&stream_id)
+                        .filter(|lane| lane.conn_id == conn_id)
+                        .map(|lane| lane.target.clone())
+                };
+                let current_scope = live_scope.resolve(handler);
+                let op_allowed = target.as_ref().is_some_and(|target| {
+                    current_scope
+                        .as_ref()
+                        .is_some_and(|scope| scope_permits_stream(scope, target))
+                });
+                let response = if !granted.control {
+                    Response::Error {
+                        message: "StreamOutputRenegotiate requires the control capability".into(),
+                    }
+                } else if !lease_alive {
+                    Response::Error {
+                        message: "privileged capability lease expired".into(),
+                    }
+                } else if target.is_none() {
+                    Response::Error {
+                        message: format!("unknown stream {stream_id}"),
+                    }
+                } else if !op_allowed {
+                    Response::Error {
+                        message: "out of scope".into(),
+                    }
+                } else if !handler.capture_security_active() {
+                    Response::Error {
+                        message: "session is locked or inactive".into(),
+                    }
+                } else {
+                    let allow_dmabuf = dmabuf == Some(true) && version >= 25;
+                    match handler.stream_output_renegotiate(
+                        conn_id,
+                        stream_id,
+                        max_fps,
+                        allow_dmabuf,
+                    ) {
+                        Ok(info) => {
+                            if let Some(lane) = streams.lock().unwrap().get_mut(&stream_id) {
+                                lane.queued.store(0, Ordering::Release);
+                            }
+                            match info.slots {
+                                Some(table) => {
+                                    let slots = table.fds.len() as u32;
+                                    let slot_stride = table.stride;
+                                    let slot_bytes = table.byte_len;
+                                    stream_start_table = Some(table);
+                                    Response::StreamOutputStarted {
+                                        stream_id: info.stream_id,
+                                        width: info.width,
+                                        height: info.height,
+                                        format: info.format,
+                                        slots: Some(slots),
+                                        slot_stride: Some(slot_stride),
+                                        slot_bytes: Some(slot_bytes),
+                                    }
+                                }
+                                None => Response::StreamOutputStarted {
+                                    stream_id: info.stream_id,
+                                    width: info.width,
+                                    height: info.height,
+                                    format: info.format,
+                                    slots: None,
+                                    slot_stride: None,
+                                    slot_bytes: None,
+                                },
+                            }
+                        }
+                        Err(message) => Response::Error { message },
+                    }
+                };
+                audit_capability_response(
+                    handler,
+                    &live_scope,
+                    ActorCapability::StreamOutput,
+                    tessera_protocol::journal::CapabilityUseAction::Start,
+                    &response,
+                );
+                response
+            }
+            Request::CreateVirtualOutput { mut spec } => {
+                let current_scope = live_scope.resolve(handler);
+                let op_allowed = current_scope.as_ref().is_some_and(|scope| {
+                    scope
+                        .ops
+                        .as_ref()
+                        .is_some_and(|ops| ops.contains(&ActorCapability::ManageVirtualOutput))
+                });
+                if scope_name.as_deref() == Some(LOCAL_PORTAL_SCOPE) {
+                    spec.persistent = false;
+                }
+                let response = if !granted.control {
+                    Response::Error {
+                        message: "CreateVirtualOutput requires the control capability".into(),
+                    }
+                } else if !lease_alive {
+                    Response::Error {
+                        message: "privileged capability lease expired".into(),
+                    }
+                } else if !op_allowed {
+                    Response::Error {
+                        message: "out of scope".into(),
+                    }
+                } else if let Err(reason) = spec.validate() {
+                    Response::Error {
+                        message: reason.into(),
+                    }
+                } else if !handler.capture_security_active() {
+                    Response::Error {
+                        message: "session is locked or inactive".into(),
+                    }
+                } else {
+                    match handler.create_virtual_output(conn_id, spec) {
+                        Ok(output) => Response::VirtualOutputCreated { output },
+                        Err(message) => Response::Error { message },
+                    }
+                };
+                audit_capability_response(
+                    handler,
+                    &live_scope,
+                    ActorCapability::ManageVirtualOutput,
+                    tessera_protocol::journal::CapabilityUseAction::Apply,
+                    &response,
+                );
+                response
+            }
+            Request::ResizeVirtualOutput {
+                connector,
+                mode,
+                scale,
+                logical_origin,
+            } => {
+                let current_scope = live_scope.resolve(handler);
+                let op_allowed = current_scope.as_ref().is_some_and(|scope| {
+                    scope
+                        .ops
+                        .as_ref()
+                        .is_some_and(|ops| ops.contains(&ActorCapability::ManageVirtualOutput))
+                });
+                let check_scale = scale.unwrap_or(tessera_desktop::output::Scale::IDENTITY);
+                let response = if !granted.control {
+                    Response::Error {
+                        message: "ResizeVirtualOutput requires the control capability".into(),
+                    }
+                } else if !lease_alive {
+                    Response::Error {
+                        message: "privileged capability lease expired".into(),
+                    }
+                } else if !op_allowed {
+                    Response::Error {
+                        message: "out of scope".into(),
+                    }
+                } else if !tessera_desktop::output::valid_virtual_connector_name(&connector) {
+                    Response::Error {
+                        message: "virtual output connector must match VIRTUAL-<name>".into(),
+                    }
+                } else if let Err(reason) =
+                    tessera_desktop::output::validate_virtual_output_mode_and_scale(
+                        mode,
+                        check_scale,
+                    )
+                {
+                    Response::Error {
+                        message: reason.into(),
+                    }
+                } else if !handler.capture_security_active() {
+                    Response::Error {
+                        message: "session is locked or inactive".into(),
+                    }
+                } else {
+                    match handler.resize_virtual_output(
+                        conn_id,
+                        connector,
+                        mode,
+                        scale,
+                        logical_origin,
+                    ) {
+                        Ok(output) => Response::VirtualOutputResized { output },
+                        Err(message) => Response::Error { message },
+                    }
+                };
+                audit_capability_response(
+                    handler,
+                    &live_scope,
+                    ActorCapability::ManageVirtualOutput,
+                    tessera_protocol::journal::CapabilityUseAction::Apply,
+                    &response,
+                );
+                response
+            }
+            Request::DestroyVirtualOutput { connector } => {
+                let current_scope = live_scope.resolve(handler);
+                let op_allowed = current_scope.as_ref().is_some_and(|scope| {
+                    scope
+                        .ops
+                        .as_ref()
+                        .is_some_and(|ops| ops.contains(&ActorCapability::ManageVirtualOutput))
+                });
+                let response = if !granted.control {
+                    Response::Error {
+                        message: "DestroyVirtualOutput requires the control capability".into(),
+                    }
+                } else if !lease_alive {
+                    Response::Error {
+                        message: "privileged capability lease expired".into(),
+                    }
+                } else if !op_allowed {
+                    Response::Error {
+                        message: "out of scope".into(),
+                    }
+                } else if !tessera_desktop::output::valid_virtual_connector_name(&connector) {
+                    Response::Error {
+                        message: "virtual output connector must match VIRTUAL-<name>".into(),
+                    }
+                } else {
+                    match handler.destroy_virtual_output(conn_id, connector) {
+                        Ok(connector) => Response::VirtualOutputDestroyed { connector },
+                        Err(message) => Response::Error { message },
+                    }
+                };
+                audit_capability_response(
+                    handler,
+                    &live_scope,
+                    ActorCapability::ManageVirtualOutput,
+                    tessera_protocol::journal::CapabilityUseAction::Apply,
+                    &response,
+                );
+                response
+            }
             Request::SetIdleInhibit { inhibit } => {
                 // Fail-closed exactly like StreamOutputStart: `control`, a
                 // live lease, and an explicit IdleInhibit op in the granted

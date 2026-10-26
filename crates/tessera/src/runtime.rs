@@ -1096,6 +1096,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         pending_capture,
         capture_worker,
         streams: OutputStreams::new(),
+        offscreen_damage: std::collections::HashMap::new(),
         stream_job_in_flight: false,
         cursor_cache,
         screenshot_dir,

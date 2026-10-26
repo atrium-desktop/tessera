@@ -348,6 +348,7 @@ impl Backend for NestedHost {
                 transform: tessera_primitives::Transform::Normal,
                 logical_origin: tessera_primitives::Point::default(),
             },
+            kind: tessera_desktop::output::OutputKind::External,
             // The outer compositor owns modesetting; there is nothing to
             // enumerate here.
             available_modes: Vec::new(),

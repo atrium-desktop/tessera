@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-08-03
+- Amended by: [ADR-0186](0186-session-scoped-virtual-extend-outputs-and-offscreen-output-streaming.md) — human-domain extend displays use `OutputKind::Virtual` inside `HUMAN_INTERACTION_DOMAIN`, keeping `PresentationTarget::Virtual` exclusively for isolated `InteractionDomainKind::Agent` sandboxes.
 
 ## Context
 

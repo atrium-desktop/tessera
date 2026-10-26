@@ -166,6 +166,102 @@ pub(super) fn render_quick_toggle_tile(
     response.clicked
 }
 
+/// A non-interactive status tile: the quick-toggle visual without a press
+/// affordance, for read-only state that has no backing action yet. Used by the
+/// Cast tile, which shows live extended displays and casting streams but does
+/// not offer a control until a casting service exists (ADR-0188).
+#[allow(clippy::too_many_arguments)]
+pub(super) fn render_status_tile(
+    f: &mut Frame,
+    title: &str,
+    subtitle: &str,
+    icon: lens::sys::lens_icon_id,
+    active: bool,
+    size: (f32, f32),
+    hud: ControlCenterColors,
+    type_scale: TypeScale,
+) {
+    let original = f.theme();
+    let (bg, border, border_width, icon_bg, icon_fg, text_fg, sub_fg) = if active {
+        (
+            hud.selection_surface,
+            hud.accent.with_alpha(80),
+            1.0,
+            hud.accent,
+            Color::rgba(255, 255, 255, 255),
+            hud.text,
+            hud.accent,
+        )
+    } else {
+        (
+            hud.surface_recessed,
+            hud.border,
+            1.0,
+            hud.surface,
+            hud.text_muted,
+            hud.text,
+            hud.text_muted,
+        )
+    };
+
+    f.set_theme(themes::hud(&hud).with_fg(text_fg));
+    f.row_ex(
+        &LayoutOpts {
+            width: size.0,
+            height: size.1,
+            pad: 10.0,
+            radius: 16.0,
+            cross: Align::Center,
+            gap: 10.0,
+            bg,
+            border,
+            border_width,
+            ..Default::default()
+        },
+        |f| {
+            f.column_ex(
+                &LayoutOpts {
+                    width: 36.0,
+                    height: 36.0,
+                    radius: 18.0,
+                    bg: icon_bg,
+                    cross: Align::Center,
+                    ..Default::default()
+                },
+                |f| {
+                    f.flex(1.0);
+                    f.spacer(0.0);
+                    f.set_theme(themes::hud(&hud).with_fg(icon_fg));
+                    f.icon_raw(icon, 18.0);
+                    f.flex(1.0);
+                    f.spacer(0.0);
+                },
+            );
+
+            f.column_ex(
+                &LayoutOpts {
+                    width: (size.0 - 20.0 - 36.0 - 10.0).max(1.0),
+                    height: 36.0,
+                    gap: 1.0,
+                    cross: Align::Start,
+                    ..Default::default()
+                },
+                |f| {
+                    f.flex(1.0);
+                    f.spacer(0.0);
+                    f.set_theme(themes::hud(&hud).with_fg(text_fg));
+                    display_label(f, title, type_scale.body);
+                    f.set_theme(themes::hud(&hud).with_fg(sub_fg));
+                    display_label(f, subtitle, type_scale.footnote);
+                    f.flex(1.0);
+                    f.spacer(0.0);
+                },
+            );
+        },
+    );
+    f.set_theme(original);
+}
+
 pub(super) fn render_expandable_quick_toggle_tile(
     f: &mut Frame,
     id: &str,

@@ -87,6 +87,13 @@ pub enum AuditedCommand {
         scrolls: u32,
         key_presses: u32,
     },
+    InjectOutputInput {
+        connector: String,
+        pointer_moves: u32,
+        clicks: u32,
+        scrolls: u32,
+        key_presses: u32,
+    },
     LaunchInInteractionDomain {
         interaction_domain: InteractionDomainId,
         desktop_id: String,
@@ -150,6 +157,7 @@ impl AuditedCommand {
                 scope.permits_window(*window) && scope.permits_workspace(*workspace)
             }
             Self::Cycle { .. }
+            | Self::InjectOutputInput { .. }
             | Self::SwitchWorkspace { .. }
             | Self::System { .. }
             | Self::Notify { .. }
@@ -209,6 +217,16 @@ impl From<&Command> for AuditedCommand {
                     clicks,
                     scrolls,
                     key_presses,
+                }
+            }
+            Command::InjectOutputInput { connector, actions } => {
+                let audited = audit_input_actions(actions);
+                Self::InjectOutputInput {
+                    connector: connector.clone(),
+                    pointer_moves: audited.pointer_moves,
+                    clicks: audited.clicks,
+                    scrolls: audited.scrolls,
+                    key_presses: audited.key_presses,
                 }
             }
             Command::LaunchInInteractionDomain {

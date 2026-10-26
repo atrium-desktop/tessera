@@ -107,32 +107,57 @@ impl Handler for CtlHandler {
         }
     }
     fn outputs(&self) -> Vec<tessera_desktop::output::OutputInfo> {
-        vec![tessera_desktop::output::OutputInfo {
-            connector: "nested".into(),
-            geometry: tessera_desktop::output::OutputGeometry {
-                mode: tessera_desktop::output::OutputMode {
-                    width: 1280,
-                    height: 720,
-                    refresh_mhz: 60000,
+        vec![
+            tessera_desktop::output::OutputInfo {
+                connector: "nested".into(),
+                geometry: tessera_desktop::output::OutputGeometry {
+                    mode: tessera_desktop::output::OutputMode {
+                        width: 1280,
+                        height: 720,
+                        refresh_mhz: 60000,
+                    },
+                    scale: tessera_desktop::output::Scale::IDENTITY,
+                    transform: tessera_primitives::Transform::Normal,
+                    logical_origin: tessera_primitives::Point::default(),
                 },
-                scale: tessera_desktop::output::Scale::IDENTITY,
-                transform: tessera_primitives::Transform::Normal,
-                logical_origin: tessera_primitives::Point::default(),
+                kind: tessera_desktop::output::OutputKind::External,
+                available_modes: vec![
+                    tessera_desktop::output::OutputMode {
+                        width: 1280,
+                        height: 720,
+                        refresh_mhz: 60000,
+                    },
+                    tessera_desktop::output::OutputMode {
+                        width: 1920,
+                        height: 1080,
+                        refresh_mhz: 60000,
+                    },
+                ],
+                color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
             },
-            available_modes: vec![
-                tessera_desktop::output::OutputMode {
-                    width: 1280,
-                    height: 720,
-                    refresh_mhz: 60000,
+            // A live virtual extend display (ADR-0188) so the list surface's
+            // class marker is exercised.
+            tessera_desktop::output::OutputInfo {
+                connector: "VIRTUAL-1".into(),
+                geometry: tessera_desktop::output::OutputGeometry {
+                    mode: tessera_desktop::output::OutputMode {
+                        width: 1920,
+                        height: 1080,
+                        refresh_mhz: 60000,
+                    },
+                    scale: tessera_desktop::output::Scale::IDENTITY,
+                    transform: tessera_primitives::Transform::Normal,
+                    logical_origin: tessera_primitives::Point { x: 1280, y: 0 },
                 },
-                tessera_desktop::output::OutputMode {
+                kind: tessera_desktop::output::OutputKind::Virtual,
+                available_modes: vec![tessera_desktop::output::OutputMode {
                     width: 1920,
                     height: 1080,
                     refresh_mhz: 60000,
-                },
-            ],
-            color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
-        }]
+                }],
+                color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+            },
+        ]
     }
     fn command(&self, _conn_id: u64, _subject: Option<&str>, cmd: Command) {
         self.commands.lock().unwrap().push(cmd);
@@ -388,6 +413,32 @@ fn json_flag_emits_parseable_json_for_window_domain() {
 }
 
 #[test]
+fn json_flag_emits_parseable_json_for_display_domain() {
+    let path = scratch();
+    let _s = Server::start(&path, Arc::new(CtlHandler::new())).unwrap();
+    let out = tessera_cli::run(&path, &["display".into(), "--json".into()]).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+    let arr = parsed.as_array().expect("a JSON array");
+    assert_eq!(arr.len(), 2);
+
+    // The external output omits `kind` (the serde default), so a pre-32 peer's
+    // shape is unchanged; the virtual extend display carries it (ADR-0186).
+    let nested = arr
+        .iter()
+        .find(|output| output["connector"] == "nested")
+        .expect("nested display");
+    assert!(nested.get("kind").is_none(), "{nested}");
+    assert_eq!(nested["geometry"]["mode"]["width"], 1280);
+
+    let virtual_display = arr
+        .iter()
+        .find(|output| output["connector"] == "VIRTUAL-1")
+        .expect("virtual display");
+    assert_eq!(virtual_display["kind"], "virtual");
+    assert_eq!(virtual_display["available_modes"][0]["width"], 1920);
+}
+
+#[test]
 fn workspace_domain_shows_display_and_workspace() {
     let path = scratch();
     let _s = Server::start(&path, Arc::new(CtlHandler::new())).unwrap();
@@ -404,6 +455,13 @@ fn display_domain_lists_advertised_modes_and_marks_current() {
     assert!(out.contains("nested 1280x720@60.000Hz"), "{out}");
     assert!(out.contains("1280x720@60.000Hz (current)"), "{out}");
     assert!(out.contains("1920x1080@60.000Hz"), "{out}");
+    // A virtual extend display is distinguishable from a physical connector,
+    // and an external one stays unmarked (ADR-0188).
+    assert!(
+        out.contains("VIRTUAL-1 [virtual] 1920x1080@60.000Hz"),
+        "{out}"
+    );
+    assert!(!out.contains("nested [external]"), "{out}");
 }
 
 #[test]

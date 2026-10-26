@@ -536,7 +536,12 @@ unsafe extern "C" fn xdg_surface_get_popup(
             (*pos_state).constraint_adjustment
         };
         let (local_origin, popup_size) = if !(*rec).state.is_null() {
-            let bounds = (*(*rec).state).output_geometry.logical_rect();
+            let root = surface_root_toplevel(rec);
+            let bounds = if !root.is_null() {
+                (*(*rec).state).output_rect_for_window((*root).window.id)
+            } else {
+                (*(*rec).state).output_geometry.logical_rect()
+            };
             constrain_positioner(
                 anchor_rect,
                 popup_size,
@@ -953,7 +958,7 @@ pub(crate) unsafe fn apply_state_geometry(rec: *mut SurfaceRec) -> (i32, i32) {
             // abandoned floating geometry.
             (*rec).restore_pending_size = None;
             if !(*rec).state.is_null() {
-                let rect = (*(*rec).state).output_geometry.logical_rect();
+                let rect = (*(*rec).state).output_rect_for_window((*rec).window.id);
                 reposition_toplevel_with_popups(rec, rect.origin);
                 (*rec).window.size = rect.size;
                 (*rec).layout_target = Some(rect);
@@ -970,12 +975,7 @@ pub(crate) unsafe fn apply_state_geometry(rec: *mut SurfaceRec) -> (i32, i32) {
             }
             (*rec).restore_pending_size = None;
             if !(*rec).state.is_null() {
-                let last_work_area = (*(*rec).state).last_work_area;
-                let rect = if last_work_area.size.w > 0 && last_work_area.size.h > 0 {
-                    last_work_area
-                } else {
-                    (*(*rec).state).output_geometry.logical_rect()
-                };
+                let rect = (*(*rec).state).work_area_for_window((*rec).window.id);
                 reposition_toplevel_with_popups(rec, rect.origin);
                 (*rec).window.size = rect.size;
                 (*rec).layout_target = Some(rect);

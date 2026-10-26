@@ -403,3 +403,121 @@ fn pick_target_output_kind_reaches_the_handler() {
         .unwrap_err();
     assert!(err.to_string().contains("out of scope"), "{err}");
 }
+
+#[test]
+fn virtual_output_lifecycle_and_stream_renegotiation_enforce_scope_and_ownership() {
+    let path = scratch();
+    let handler = Arc::new(TestHandler::permissive(sample_windows()));
+    handler.scopes.lock().unwrap().insert(
+        "virtual-cast".into(),
+        Scope {
+            ops: Some(vec![
+                ActorCapability::ManageVirtualOutput,
+                ActorCapability::StreamOutput,
+            ]),
+            ..Scope::default()
+        },
+    );
+    let server = Server::start(&path, Arc::clone(&handler)).expect("bind");
+
+    let requested = ConnectionCapabilities {
+        query: true,
+        control: true,
+        input: true,
+        session: false,
+        interaction_domain: false,
+    };
+    let mut cast =
+        Client::connect_scoped(&path, requested, "virtual-cast").expect("scoped connect");
+
+    // 1. Create a virtual output (`VIRTUAL-1`).
+    let spec = tessera_desktop::output::VirtualOutputSpec {
+        connector: Some("VIRTUAL-1".into()),
+        mode: tessera_desktop::output::OutputMode {
+            width: 1920,
+            height: 1080,
+            refresh_mhz: 60_000,
+        },
+        scale: tessera_desktop::output::Scale::IDENTITY,
+        logical_origin: None,
+        persistent: false,
+    };
+    let created = cast.create_virtual_output(spec.clone()).expect("create");
+    assert_eq!(created.connector, "VIRTUAL-1");
+    assert_eq!(created.kind, tessera_protocol::OutputKind::Virtual);
+
+    // 2. Start a stream on VIRTUAL-1, freeze it on resize, and renegotiate in
+    // place keeping the same `stream_id` (`[INV-ARCH-77]`).
+    let started = cast
+        .start_output_stream_with(
+            Some(60),
+            tessera_protocol::StreamTarget::Output {
+                output: Some("VIRTUAL-1".into()),
+            },
+            None,
+        )
+        .expect("start stream");
+    let resized = cast
+        .resize_virtual_output(
+            "VIRTUAL-1".into(),
+            tessera_desktop::output::OutputMode {
+                width: 2560,
+                height: 1440,
+                refresh_mhz: 60_000,
+            },
+            None,
+            None,
+        )
+        .expect("resize virtual output");
+    assert_eq!(
+        resized.rect.size,
+        tessera_primitives::Size { w: 2560, h: 1440 }
+    );
+    assert!(server.stream_geometry_changed(started.stream_id, 2560, 1440));
+    let _ = cast.next_stream_message().expect("geometry changed event");
+
+    let renegotiated = cast
+        .renegotiate_output_stream(started.stream_id, Some(60))
+        .expect("renegotiate in place");
+    assert_eq!(renegotiated.stream_id, started.stream_id);
+    assert_eq!((renegotiated.width, renegotiated.height), (2560, 1440));
+
+    // 3. A foreign connection cannot renegotiate `started.stream_id`.
+    let mut other_cast =
+        Client::connect_scoped(&path, requested, "virtual-cast").expect("second connect");
+    assert!(
+        other_cast
+            .renegotiate_output_stream(started.stream_id, Some(60))
+            .is_err()
+    );
+
+    // 4. `ManageVirtualOutput` permits output-scoped input onto `VIRTUAL-1`,
+    // but refuses physical connectors (`eDP-1`) without `InjectInput`.
+    cast.inject_output_input(
+        "VIRTUAL-1".into(),
+        vec![tessera_primitives::input::SyntheticInputAction::Click {
+            position: tessera_primitives::Point { x: 100, y: 100 },
+            button: 0x110,
+        }],
+    )
+    .expect("virtual output input permitted");
+    assert!(
+        cast.inject_output_input(
+            "eDP-1".into(),
+            vec![tessera_primitives::input::SyntheticInputAction::Click {
+                position: tessera_primitives::Point { x: 100, y: 100 },
+                button: 0x110,
+            }],
+        )
+        .is_err()
+    );
+
+    // 5. Destroy the virtual output; unscoped connections are refused.
+    let destroyed = cast
+        .destroy_virtual_output("VIRTUAL-1".into())
+        .expect("destroy");
+    assert_eq!(destroyed, "VIRTUAL-1");
+
+    let mut unscoped = Client::connect_with(&path, requested).expect("unscoped");
+    assert!(unscoped.create_virtual_output(spec).is_err());
+}

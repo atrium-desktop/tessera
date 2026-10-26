@@ -14,6 +14,131 @@ project cuts a tagged release.
 
 ## [0.0.78] - 2026-10-24
 
+### Added
+- `tessera-cast sink`: a scripted Wi-Fi Display **sink**, so the caster can be
+  exercised end to end with no radio, GPU, or sink device
+  (`cargo run -p tessera-cast -- sink --listen 127.0.0.1:7236`). It reports what
+  the caster advertised, whether every reply echoed its `CSeq`, and whether the
+  source sent its own `SETUP` trigger. The same two sides negotiate against each
+  other over a socketpair inside `cargo test`, so the whole M1–M7 loop is
+  verified in milliseconds — the hardware session is no longer the iteration loop.
+- A source now keeps serving RTSP after the sink asks for a session (`Drain`):
+  it answers up to a bounded number of further messages, stopping on EOF or
+  silence, because a real sink still has its reply, `SETUP`, `PLAY` and
+  `TEARDOWN` to send. Returning at the trigger was observed as a broken pipe on
+  the sink's side. Silence after streaming has begun is reported as the session,
+  not as a failure.
+- `tessera-cast formats`: decodes a `wfd_video_formats` value into tokens with
+  offset, hex and bit listings, annotating each position with the field name this
+  build *assumes* — marked `declared (unverified)`. It is a check, not a
+  constructor: the value round-trips byte-exactly, a token whose width disagrees
+  with the declared field is reported as a layout mismatch rather than given that
+  field's name, a token past the schema end is reported as unrecognised, and a
+  `none` token is reported as a literal rather than a width mismatch. `FIELD_SCHEMA`
+  is the single table to correct against a real sink (ADR-0192 §8).
+- `tessera-cast` `wfd::formats`: a reversible, surface-validated token codec for
+  `wfd_video_formats`. It accepts `none` both as a whole-value advertisement and as
+  a per-token literal, because a real advertisement mixes hex fields with `none`
+  fields; rejecting the latter would refuse a value a sink actually sent.
+- `tessera-cast handshake`: connects to a sink's RTSP port, drives the WFD M1–M7
+  exchange through the protocol core, and prints the full traced exchange. It is a
+  diagnostic, not a caster — no media is sent, and it says so. The run is bounded
+  three ways (socket timeout, overall deadline, message budget) and each bound
+  reports a distinct outcome, so "the sink said nothing", "the sink closed", and
+  "the sink talks without concluding" are not collapsed into one failure. The
+  opening `OPTIONS` is traced as the source's, not the sink's.
+- `tessera-cast` RTSP transport framing (`wfd::transport`): split reads, pipelined
+  bursts, clean EOF versus a half-received reply, and a socket read timeout
+  reported as a timeout rather than as `Resource temporarily unavailable`.
+- `tessera-cast discover`: enables the P2P role, registers this machine as a Wi-Fi
+  Display source, requests discovery, and lists nearby peers with the reason each
+  is or is not castable. It restores the P2P switch and unregisters on exit, so a
+  diagnostic leaves the radio as it found it. Verified against live iwd on the
+  reference machine: enable, registration, and discovery all succeed, and peer
+  enumeration reports "none" with exit `3` when no sink is in range.
+- The iwd D-Bus contract, as the daemon actually behaves rather than as
+  documented: `RegisterDisplayService(a{sv})` returns nothing,
+  `UnregisterDisplayService()` takes no arguments, and unknown dictionary keys are
+  rejected with `InvalidArguments` — `HasAudio` is refused whatever its type,
+  while `Source`/`Sink`/`Port`/`HasUIBC`/`HasContentProtection` are accepted. The
+  caster attempts the richer advertisement and degrades to `Source`/`Sink`/`Port`
+  with a warning rather than failing (ADR-0192 §8).
+- `tessera-cast` WFD source session and trace: a **permissive responder** driven
+  by the sink (`wfd::session`) plus a two-directional message trace with hex
+  dumps (`wfd::trace`). The responder echoes the request's `CSeq` for every
+  method, tolerates out-of-order messages rather than enshrining a guessed
+  M1–M7 script, answers an unknown method `501` instead of ignoring it,
+  acknowledges an unknown trigger without acting on it, and fails closed rather
+  than putting an unserializable parameter on the wire. WFD parameters
+  (`wfd::parameters`) validate their surface form and refuse CR/LF/NUL, which
+  would otherwise let a value forge a further parameter — a source that refuses
+  HDCP could be made to look as if it negotiated it (ADR-0192 §7).
+- `tessera-cast` protocol core (`src/wfd/`): RTSP framing with `text/parameters`
+  bodies (RFC 2326), the Wi-Fi Display information element and subelement codec,
+  RTP/H.264 payloads including FU-A fragmentation (RFC 6184), and MPEG2-TS
+  muxing with PAT/PMT/PES/PCR (ISO/IEC 13818-1). These are pure byte
+  transformations, proven by fixtures — including that a non-WFD vendor element
+  is refused rather than misread, that unknown subelements and uninterpreted
+  bits survive a round trip, and that a PTS's whole octets are not overwritten
+  by marker bits (ADR-0192 §7).
+- `tessera-cast`: the Miracast caster's stage-0 capability probe (ADR-0192,
+  `[INV-ARCH-83]`). `tessera-cast probe` reports each half of casting separately
+  — the radio (iwd's `p2p.ServiceManager` / `p2p.Device`) and the pipeline
+  (VA-API H.264 `VAEntrypointEncSlice`, PipeWire socket, `ScreenCast` portal) —
+  as observed, absent, or unverified, and exits `0`/`1`/`2` so the stage gate can
+  branch on it. It is strictly read-only: it never enables a P2P adapter, starts
+  a scan, or writes a property.
+- A first-party Miracast caster as an out-of-process crate (ADR-0192): the
+  reference configuration keeps iwd as the radio authority — with no
+  NetworkManager and no `wpa_supplicant` — and the WFD session (RTSP M1–M7,
+  MPEG2-TS/RTP, VA-API encode) is implemented by a portal client that holds no
+  compositor scope. Stage 0 (radio + capability exchange against a real sink)
+  gates every later stage. HDCP, audio, and UIBC are explicit non-goals for the
+  first release.
+- Measured evidence behind the radio decision: on the reference machine iwd
+  exposes `net.connman.iwd.p2p.Device` and
+  `net.connman.iwd.p2p.ServiceManager.RegisterDisplayService`, and VA-API offers
+  `VAProfileH264High : VAEntrypointEncSlice`. ADR-0191's earlier claim that a
+  Miracast-capable machine "must run NetworkManager with wpa_supplicant" was
+  wrong and has been corrected.
+- `tessera display --json` now has a contract test covering output class
+  (`kind` omitted for external outputs, `"virtual"` for extend displays).
+- `tessera display list` marks internal panels and `VIRTUAL-*` extend displays
+  (`[internal]` / `[virtual]`), so a cast target is distinguishable from a
+  physical monitor (ADR-0188). External outputs stay unmarked.
+- Wireless no longer fabricates device state (ADR-0190, `[INV-ARCH-82]`):
+  `WirelessBackend` gains `available()`, a production session with no wireless
+  service uses an inert `UnavailableWirelessBackend` (never the fixture mock,
+  matching the Bluetooth rule of ADR-0175), and the status reports
+  `wifi_enabled = None` with no networks. Previously `spawn_auto` fell back to
+  the mock's three fixture networks on machines without iwd.
+- Suspending presentation (session lock, VT switch, or backend loss) now ends
+  every live stream with `Event::StreamEnded` (ADR-0189, `[INV-ARCH-81]`).
+  Previously streams merely stopped, so a mirror or cast retained the last
+  pre-lock frame on the remote sink — and a physical mirror would have retained
+  the lock UI. `OutputStreams::take_all` clears the registry on the suspension
+  transition; a cast no longer survives a lock and must reconnect afterwards.
+- Out-of-process casting/discovery service boundary and the control-center Cast
+  status surface (ADR-0188, `[INV-ARCH-80]`): `SystemStatus` gains
+  compositor-published `virtual_displays` and `cast_streams`, and the control
+  center renders a read-only Cast tile from them. Discovery, pairing, and
+  "start casting" stay out of process and are not yet wired, so the tile offers
+  no control. The compositor-side contract is pinned by
+  `portal_scope_covers_the_cast_contract`, which proves the identity-bound
+  `atrium-portal` scope already carries the virtual-output + stream pair the
+  portal's `ScreenCast` virtual source needs.
+- Offscreen stream damage is now derived from each window/virtual-output
+  stream's own surface tree via a per-stream `ClientDamageTracker`, mapped onto
+  the target's pixels (`offscreen_damage_to_target`); offscreen streams no longer
+  sample the physical desktop damage accumulator (ADR-0187, `[INV-ARCH-79]`).
+- Session-scoped human-domain virtual extend outputs (`VIRTUAL-*`,
+  `OutputKind::Virtual`), per-stream offscreen virtual-output rendering
+  (`VirtualOutputStream`), in-place stream geometry renegotiation
+  (`Request::StreamOutputRenegotiate`), output-bounded remote input
+  (`Command::InjectOutputInput`), and `tessera display virtual
+  create|resize|destroy` CLI commands (ADR-0186, IPC protocol 32,
+  `[INV-ARCH-74]`–`[INV-ARCH-78]`).
+
 ### Changed
 - Automatic output scale is integral (ADR-0184). The recommendation now picks
   the largest integer step in 1–4 whose logical density stays at or above
@@ -38,6 +163,17 @@ project cuts a tagged release.
 
 ### Fixed
 - Corrected a duplicated, truncated paragraph at the end of ADR-0182.
+- `server_new_creates_socket` no longer races on the shared runtime directory:
+  it asserted that the socket *path* was absent after drop, but a server created
+  concurrently in the same test binary may legitimately re-bind the same
+  `wayland-N` name, so the assertion now compares `(dev, inode)` — the socket it
+  actually bound is gone.
+- Test isolation in the `tessera-env` conformance suite: its `EnvGuard` claimed
+  nextest's process-per-test isolation, but under `cargo test` the tests run as
+  threads of one process and raced on `XDG_RUNTIME_DIR`, intermittently failing
+  `runtime_dir_accepts_an_absolute_path` with a sibling test's value. A
+  process-wide lock now serializes every environment mutation and the restore in
+  `Drop` — the invariant that `set_var` being `unsafe` in edition 2024 requires.
 
 ## [0.0.77] - 2026-10-17
 
@@ -4092,6 +4228,11 @@ which the locked Git dependency now points.)
   ADR-0014 (buffer transform and viewport crop),
   ADR-0015 (per-commit damage tracking),
   ADR-0016 (shell/server window-management bridge), and
+  ADR-0017 (server-side decorations via overlays).
+- Updated `README.md`, `docs/dev/setup.md`, `docs/explanation/architecture.md`
+  to reflect the new build paths, `RUST_LOG`, `libxkbcommon` dependency,
+  and the milestone status.
+DR-0016 (shell/server window-management bridge), and
   ADR-0017 (server-side decorations via overlays).
 - Updated `README.md`, `docs/dev/setup.md`, `docs/explanation/architecture.md`
   to reflect the new build paths, `RUST_LOG`, `libxkbcommon` dependency,

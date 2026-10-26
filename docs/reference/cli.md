@@ -51,12 +51,24 @@ targets. IPC and Wayland schemas retain the internal term `output`.
 | Command | Result |
 |---------|--------|
 | `tessera display` | List displays. |
-| `tessera display list` | List modes, scales, transforms, logical sizes, and advertised connector modes. |
+| `tessera display list` | List modes, scales, transforms, logical sizes, and advertised connector modes. Internal panels and `VIRTUAL-*` extend displays carry a `[internal]` / `[virtual]` marker so they are distinguishable from an ordinary external monitor ([ADR-0188](../adr/0188-out-of-process-casting-and-discovery-service.md)); an external output is unmarked. |
 | `tessera display capture [path.png] [--region x,y,w,h]` | Capture the focused display. The default path is a timestamped PNG in the screenshot directory. |
+| `tessera display virtual create [--connector VIRTUAL-n] [--mode WxH[@Hz]] [--scale N] [--x N] [--y N]` | Create a persistent virtual extend display (`VIRTUAL-*`) in the human desktop session ([ADR-0186](../adr/0186-session-scoped-virtual-extend-outputs-and-offscreen-output-streaming.md)). Omitting `--connector` auto-allocates the lowest free `VIRTUAL-n`; default mode is `1920x1080@60`. |
+| `tessera display virtual resize <connector> --mode WxH[@Hz] [--scale N] [--x N] [--y N]` | Change a live virtual display's resolution, scale, or logical position. Live streams targeting it freeze with `StreamGeometryChanged` and can renegotiate in place. |
+| `tessera display virtual destroy <connector>` | Destroy a live virtual display, end its streams, and relocate its windows to the primary physical display. |
 
 Display capture does not modify the physical clipboard. The default screenshot
 directory is `$XDG_PICTURES_DIR/screenshots`, falling back to
 `~/Pictures/screenshots`.
+
+Virtual displays are created through the owner-admin IPC scope. A virtual
+display is never the primary display: whenever a physical display exists, shell
+chrome and security prompts stay anchored to physical hardware
+(`[INV-ARCH-74]`). Portal-created virtual displays are session-scoped and are
+destroyed automatically when the requesting connection closes (`[INV-ARCH-75]`);
+the CLI creates persistent displays instead. A stream that targets a `VIRTUAL-*`
+display renders into its own offscreen target and never disables physical
+direct scanout (`[INV-ARCH-76]`).
 
 ## Window Commands
 

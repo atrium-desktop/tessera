@@ -16,6 +16,35 @@ fn mock_backend_initial_state() {
 }
 
 #[test]
+fn test_inv_arch_82_unavailable_backend_fabricates_nothing() {
+    let backend = UnavailableWirelessBackend;
+    // No daemon backs it, so it declares itself unavailable (`[INV-ARCH-82]`).
+    assert!(!backend.available());
+    // Every read is empty; there is no plausible-looking lie.
+    assert!(backend.networks().is_empty());
+    assert_eq!(backend.active_ssid(), None);
+    assert_eq!(backend.state(), WifiLinkState::Disconnected);
+    // Every verb is refused rather than silently accepted.
+    assert!(backend.scan().is_err());
+    assert!(backend.connect("Home-WiFi-5G", None).is_err());
+    assert!(backend.disconnect().is_err());
+    assert!(backend.set_enabled(true).is_err());
+    assert!(backend.forget("Home-WiFi-5G").is_err());
+    assert!(backend.set_auto_connect("Home-WiFi-5G", true).is_err());
+
+    // The handle surfaces availability so the compositor can report wireless
+    // as unavailable instead of "no networks found".
+    let handle = WirelessHandle::spawn_with_backend(UnavailableWirelessBackend);
+    let snap = handle.snapshot();
+    assert!(!snap.available);
+    assert!(snap.networks.is_empty());
+
+    // A real backend (the mock stands in for a daemon-backed one) is available.
+    let live = WirelessHandle::spawn_with_backend(MockWirelessBackend::new());
+    assert!(live.snapshot().available);
+}
+
+#[test]
 fn mock_backend_connect_and_disconnect() {
     let mock = MockWirelessBackend::new();
     // Connecting to known saved network succeeds without password

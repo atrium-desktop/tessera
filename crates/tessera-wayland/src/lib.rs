@@ -1442,6 +1442,13 @@ pub(crate) struct DeferredKeyboardFocus {
 
 /// Server-wide state. Its address is handed to the C bind callbacks, so it is
 /// boxed and never moved out.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct VirtualOutputRecord {
+    pub(crate) owner_conn_id: Option<u64>,
+    pub(crate) explicit_origin: Option<tessera_primitives::Point>,
+    pub(crate) info: tessera_desktop::output::OutputInfo,
+}
+
 pub(crate) struct State {
     pub(crate) display: *mut ffi::wl_display,
     authority: InteractionDomainModel,
@@ -1629,9 +1636,13 @@ pub(crate) struct State {
     /// The focused output's geometry (ADR-0028): the tiling work-area is its
     /// logical rect. Updated by the backend on resize; defaults to identity.
     pub(crate) output_geometry: tessera_desktop::output::OutputGeometry,
-    /// Backend-reported connector geometry in global logical coordinates.
-    /// The first entry is the primary/focused output exposed through the
-    /// legacy single wl_output global until per-global resources are split.
+    /// Physical outputs last reported by the display backend (`set_outputs`).
+    pub(crate) physical_outputs: Vec<tessera_desktop::output::OutputInfo>,
+    /// Dynamic human-domain virtual extend outputs (`VIRTUAL-*`, ADR-0186).
+    pub(crate) virtual_outputs: Vec<VirtualOutputRecord>,
+    /// Effective human-domain connector geometry in global logical
+    /// coordinates (`physical_outputs` followed by `virtual_outputs`).
+    /// The first entry is the primary/focused output (`[INV-ARCH-74]`).
     output_infos: Vec<tessera_desktop::output::OutputInfo>,
     /// Bumped on every `output_infos` mutation so the frame loop can skip
     /// re-cloning the list while it is unchanged.

@@ -621,6 +621,7 @@ impl Client {
                 .map(|output| tessera_desktop::output::OutputInfo {
                     connector: output.connector,
                     geometry: output.geometry.unwrap_or_default(),
+                    kind: output.kind,
                     available_modes: output.available_modes.unwrap_or_default(),
                     // The lean IPC shape carries no EDID color capabilities;
                     // the model field defaults for pre-field IPC peers.
@@ -1182,6 +1183,115 @@ impl Client {
                 format!("expected StreamOutputStopped, got {other:?}"),
             )),
         }
+    }
+
+    /// Renegotiate a frozen SHM stream in place after a target geometry
+    /// change (protocol 32, ADR-0186). Preserves `stream_id`, `sequence`, and
+    /// `dropped` counters.
+    pub fn renegotiate_output_stream(
+        &mut self,
+        stream_id: u64,
+        max_fps: Option<u32>,
+    ) -> io::Result<StreamStarted> {
+        write_msg(
+            &mut self.stream,
+            &Request::StreamOutputRenegotiate {
+                stream_id,
+                max_fps,
+                dmabuf: None,
+            },
+        )?;
+        match read_msg::<_, Response>(&mut self.stream)? {
+            Response::StreamOutputStarted {
+                stream_id,
+                width,
+                height,
+                format,
+                ..
+            } => Ok(StreamStarted {
+                stream_id,
+                width,
+                height,
+                format,
+            }),
+            Response::Error { message } => Err(io::Error::other(message)),
+            other => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("expected StreamOutputStarted, got {other:?}"),
+            )),
+        }
+    }
+
+    /// Create a dynamic virtual extend output in the human interaction domain
+    /// (`VIRTUAL-*`, protocol 32, ADR-0186).
+    pub fn create_virtual_output(
+        &mut self,
+        spec: tessera_desktop::output::VirtualOutputSpec,
+    ) -> io::Result<OutputInfo> {
+        write_msg(&mut self.stream, &Request::CreateVirtualOutput { spec })?;
+        match read_msg::<_, Response>(&mut self.stream)? {
+            Response::VirtualOutputCreated { output } => Ok(output),
+            Response::Error { message } => Err(io::Error::other(message)),
+            other => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("expected VirtualOutputCreated, got {other:?}"),
+            )),
+        }
+    }
+
+    /// Resize, rescale, or reposition a live virtual extend output
+    /// (`VIRTUAL-*`, protocol 32, ADR-0186).
+    pub fn resize_virtual_output(
+        &mut self,
+        connector: String,
+        mode: tessera_desktop::output::OutputMode,
+        scale: Option<tessera_desktop::output::Scale>,
+        logical_origin: Option<tessera_primitives::Point>,
+    ) -> io::Result<OutputInfo> {
+        write_msg(
+            &mut self.stream,
+            &Request::ResizeVirtualOutput {
+                connector,
+                mode,
+                scale,
+                logical_origin,
+            },
+        )?;
+        match read_msg::<_, Response>(&mut self.stream)? {
+            Response::VirtualOutputResized { output } => Ok(output),
+            Response::Error { message } => Err(io::Error::other(message)),
+            other => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("expected VirtualOutputResized, got {other:?}"),
+            )),
+        }
+    }
+
+    /// Destroy a live virtual extend output (`VIRTUAL-*`, protocol 32,
+    /// ADR-0186).
+    pub fn destroy_virtual_output(&mut self, connector: String) -> io::Result<String> {
+        write_msg(
+            &mut self.stream,
+            &Request::DestroyVirtualOutput { connector },
+        )?;
+        match read_msg::<_, Response>(&mut self.stream)? {
+            Response::VirtualOutputDestroyed { connector } => Ok(connector),
+            Response::Error { message } => Err(io::Error::other(message)),
+            other => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("expected VirtualOutputDestroyed, got {other:?}"),
+            )),
+        }
+    }
+
+    /// Inject self-contained input actions in output-local logical
+    /// coordinates (`0..logical_w × 0..logical_h` of `connector`, ADR-0186).
+    pub fn inject_output_input(
+        &mut self,
+        connector: String,
+        actions: Vec<tessera_primitives::input::SyntheticInputAction>,
+    ) -> io::Result<()> {
+        self.command(Command::InjectOutputInput { connector, actions })
     }
 
     /// Set or clear this connection's global idle inhibitor (the Inhibit

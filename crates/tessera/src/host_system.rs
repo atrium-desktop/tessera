@@ -355,6 +355,8 @@ impl HostSystem for MockHostSystem {
             idle_inhibited: false,
             power_mode: tessera_desktop::power::PowerMode::default(),
             capture_streams: 0,
+            virtual_displays: 0,
+            cast_streams: 0,
         }
     }
 
@@ -410,6 +412,8 @@ fn detect_system_status() -> SystemStatus {
         idle_inhibited: false,
         power_mode: tessera_desktop::power::PowerMode::default(),
         capture_streams: 0,
+        virtual_displays: 0,
+        cast_streams: 0,
     }
 }
 
@@ -453,6 +457,8 @@ fn detect_system_status_lightweight(
         idle_inhibited: false,
         power_mode: tessera_desktop::power::PowerMode::default(),
         capture_streams: 0,
+        virtual_displays: 0,
+        cast_streams: 0,
     }
 }
 

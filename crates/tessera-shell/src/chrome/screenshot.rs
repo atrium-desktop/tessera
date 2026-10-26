@@ -1379,6 +1379,7 @@ mod tests {
                 transform: tessera_primitives::Transform::Normal,
                 logical_origin: tessera_primitives::Point { x, y },
             },
+            kind: tessera_desktop::output::OutputKind::External,
             available_modes: Vec::new(),
             color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
         }

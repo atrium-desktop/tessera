@@ -130,6 +130,24 @@ pub struct WindowStream {
     pub held_since: Option<Instant>,
 }
 
+/// Per-virtual-output independent offscreen rendering state (ADR-0186).
+/// Renders the virtual output's visible surface trees and optional embedded
+/// cursor directly into the stream's own target — never expanding or
+/// cropping the physical KMS union framebuffer (`[INV-ARCH-76]`).
+pub struct VirtualOutputStream {
+    pub connector: String,
+    pub shm: Option<WindowShmTarget>,
+    pub geometry_sig: (u64, u64),
+    pub origin: tessera_primitives::Point,
+    pub logical_size: tessera_primitives::Size,
+    pub scale_milli: u32,
+    pub generations: std::collections::HashMap<usize, u64>,
+    pub last_cursor: Option<(u32, (f32, f32))>,
+    pub dirty: bool,
+    pub stage: WindowStreamStage,
+    pub held_since: Option<Instant>,
+}
+
 /// What [`OutputStreams::reconcile_geometry`] decided for one stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GeometryAction {
@@ -152,17 +170,20 @@ pub struct OutputStream {
     pub cursor: StreamCursorMode,
     /// Physical size at start. A stream whose live target size differs is
     /// frozen with `StreamGeometryChanged`: consumers negotiate one fixed
-    /// video size and restart explicitly.
+    /// video size and restart or renegotiate explicitly.
     pub size: (u32, u32),
     /// Frozen after a geometry change (IPC protocol 29): the stream stays
     /// registered but is never due and never forces presentation until the
-    /// client restarts it.
+    /// client restarts or renegotiates it.
     pub frozen: bool,
     /// Zero-copy transport state (IPC protocol 25); `None` for SHM streams.
     pub dmabuf: Option<DmabufStream>,
     /// Independent per-window rendering state (ADR-0127); `None` for output
     /// targets.
     pub window: Option<WindowStream>,
+    /// Independent per-virtual-output rendering state (ADR-0186); `None`
+    /// for physical outputs and window targets.
+    pub virtual_output: Option<VirtualOutputStream>,
     /// Damage accumulated since this stream's last *delivered* frame, in
     /// physical desktop pixels. Initialized full so the first frame is
     /// complete; sampled (cloned) when a frame is captured for the stream
@@ -188,6 +209,31 @@ pub struct OutputStreams {
 }
 
 impl OutputStream {
+    /// Whether this stream renders into its own offscreen target
+    /// (`WindowStream` or `VirtualOutputStream`) rather than capturing from
+    /// the physical union presentation surface (`[INV-ARCH-76]`).
+    pub fn is_offscreen(&self) -> bool {
+        self.window.is_some() || self.virtual_output.is_some()
+    }
+
+    /// Mutable access to the shared SHM readback state of an offscreen stream
+    /// (`WindowStream` or `VirtualOutputStream`).
+    pub fn offscreen_shm_parts(
+        &mut self,
+    ) -> Option<(
+        &Option<WindowShmTarget>,
+        &mut WindowStreamStage,
+        &mut Option<Instant>,
+    )> {
+        if let Some(window) = self.window.as_mut() {
+            Some((&window.shm, &mut window.stage, &mut window.held_since))
+        } else if let Some(virt) = self.virtual_output.as_mut() {
+            Some((&virt.shm, &mut virt.stage, &mut virt.held_since))
+        } else {
+            None
+        }
+    }
+
     /// The frame was delivered: the damage accumulator restarts from here.
     pub fn note_delivered(&mut self) {
         self.damage_since_delivery = FrameDamage::None;
@@ -241,6 +287,7 @@ impl OutputStreams {
                 frozen: false,
                 dmabuf: None,
                 window: None,
+                virtual_output: None,
                 damage_since_delivery: FrameDamage::Full,
                 damage_origin: None,
                 pending_frame_damage: None,
@@ -261,6 +308,108 @@ impl OutputStreams {
     pub fn attach_window(&mut self, stream_id: u64, window: WindowStream) {
         if let Some(stream) = self.streams.get_mut(&stream_id) {
             stream.window = Some(window);
+        }
+    }
+
+    /// Attach the independent offscreen rendering state to a freshly started
+    /// virtual-output stream (ADR-0186).
+    pub fn attach_virtual_output(&mut self, stream_id: u64, virtual_output: VirtualOutputStream) {
+        if let Some(stream) = self.streams.get_mut(&stream_id) {
+            stream.virtual_output = Some(virtual_output);
+        }
+    }
+
+    /// Renegotiate an existing stream in place after a target geometry change
+    /// (`[INV-ARCH-77]`, ADR-0186). Replaces the backing dmabuf slot table or
+    /// offscreen SHM readback surface at `size`, unfreezes the stream, and
+    /// preserves `stream_id`, `sequence`, and `dropped` continuity.
+    pub fn renegotiate(
+        &mut self,
+        conn_id: u64,
+        stream_id: u64,
+        max_fps: Option<u32>,
+        size: (u32, u32),
+        dmabuf_capture: Option<DmabufCapture>,
+        offscreen_shm: Option<WindowShmTarget>,
+    ) -> Result<StreamInfo, String> {
+        let Some(stream) = self.streams.get_mut(&stream_id) else {
+            return Err(format!("unknown stream {stream_id}"));
+        };
+        if stream.conn_id != conn_id {
+            return Err(format!("unknown stream {stream_id}"));
+        }
+        if let Some(fps) = max_fps {
+            let clamped = fps.clamp(MIN_MAX_FPS, MAX_MAX_FPS);
+            stream.frame_interval = Duration::from_secs(1) / clamped;
+        }
+        stream.size = size;
+        stream.frozen = false;
+        stream.last_frame = None;
+        stream.damage_since_delivery = FrameDamage::Full;
+        stream.damage_origin = None;
+        stream.pending_frame_damage = None;
+
+        if let Some(window) = stream.window.as_mut() {
+            window.shm = if dmabuf_capture.is_some() {
+                None
+            } else {
+                offscreen_shm
+            };
+            window.generations.clear();
+            window.dirty = true;
+            window.stage = WindowStreamStage::Idle;
+            window.held_since = None;
+        } else if let Some(virtual_output) = stream.virtual_output.as_mut() {
+            virtual_output.shm = if dmabuf_capture.is_some() {
+                None
+            } else {
+                offscreen_shm
+            };
+            virtual_output.generations.clear();
+            virtual_output.last_cursor = None;
+            virtual_output.dirty = true;
+            virtual_output.stage = WindowStreamStage::Idle;
+            virtual_output.held_since = None;
+        }
+
+        match dmabuf_capture {
+            Some(capture) => {
+                let slot_count = capture.table.fds.len();
+                let slot_stride = capture.table.stride;
+                let slot_bytes = capture.table.byte_len;
+                let modifier = capture.modifier;
+                let table = capture.table;
+                stream.dmabuf = Some(DmabufStream {
+                    surface: capture.surface,
+                    canvas: capture.canvas,
+                    modifier,
+                    slot_stride,
+                    slot_bytes,
+                    ring: SlotRing::new(slot_count),
+                    pending: Vec::new(),
+                    ring_stalled: false,
+                });
+                Ok(StreamInfo {
+                    stream_id,
+                    width: size.0,
+                    height: size.1,
+                    format: tessera_primitives::stream::StreamPixelFormat::Dmabuf {
+                        drm_format: DRM_FORMAT_XRGB8888,
+                        modifier,
+                    },
+                    slots: Some(table),
+                })
+            }
+            None => {
+                stream.dmabuf = None;
+                Ok(StreamInfo {
+                    stream_id,
+                    width: size.0,
+                    height: size.1,
+                    format: tessera_primitives::stream::StreamPixelFormat::Bgra8,
+                    slots: None,
+                })
+            }
         }
     }
 
@@ -322,6 +471,18 @@ impl OutputStreams {
         self.streams.retain(|_, stream| stream.conn_id != conn_id);
     }
 
+    /// End every live stream and return their ids (`[INV-ARCH-81]`, ADR-0189).
+    /// Used when presentation is suspended (session lock or an inactive
+    /// backend): the security generation drops frames rendered after the
+    /// boundary, but a consumer retains the last delivered frame, so a mirror
+    /// or cast would otherwise keep showing pre-lock pixels. No stream
+    /// survives suspension.
+    pub fn take_all(&mut self) -> Vec<u64> {
+        let ids: Vec<u64> = self.streams.keys().copied().collect();
+        self.streams.clear();
+        ids
+    }
+
     /// The consumer finished reading a dmabuf stream's slot (IPC protocol
     /// 25). Unknown streams, SHM streams, and slots that are not pinned are
     /// ignored: releases carry no authority worth an error path.
@@ -345,7 +506,7 @@ impl OutputStreams {
         self.streams
             .iter()
             .filter(|(_, stream)| !stream.frozen)
-            .filter(|(_, stream)| stream.window.is_none())
+            .filter(|(_, stream)| !stream.is_offscreen())
             .filter(|(_, stream)| stream.dmabuf.is_some() == dmabuf)
             .filter(|(_, stream)| {
                 stream
@@ -361,13 +522,13 @@ impl OutputStreams {
     /// without one — and may therefore *force* a presentation even on a
     /// static screen (ADR-0130: an active stream paces the loop, replacing
     /// ADR-0126's opportunistic-only capture whose one-second liveness
-    /// floor starved consumers on quiet desktops). Window streams render
-    /// offscreen and never force presentation.
+    /// floor starved consumers on quiet desktops). Window and virtual-output
+    /// streams render offscreen and never force presentation (`[INV-ARCH-76]`).
     fn forcing_due(&self, now: Instant, dmabuf: bool) -> bool {
         self.streams
             .values()
             .filter(|stream| !stream.frozen)
-            .filter(|stream| stream.window.is_none())
+            .filter(|stream| !stream.is_offscreen())
             .filter(|stream| stream.dmabuf.is_some() == dmabuf)
             .any(|stream| {
                 stream
@@ -386,14 +547,26 @@ impl OutputStreams {
         self.forcing_due(now, true)
     }
 
-    /// Whether any live OUTPUT-target stream exists. Direct scanout is
+    /// Whether any live physical OUTPUT-target stream exists. Direct scanout is
     /// disqualified while one does (ADR-0130): a page-flipped frame never
     /// passes through the compositor, so under scanout streams would only
-    /// ever observe the forced-cadence composites.
+    /// ever observe the forced-cadence composites. Offscreen window and
+    /// virtual-output streams never disqualify physical direct scanout
+    /// (`[INV-ARCH-76]`, ADR-0186).
     pub fn any_output_live(&self) -> bool {
         self.streams
             .values()
-            .any(|stream| !stream.frozen && stream.window.is_none())
+            .any(|stream| !stream.frozen && !stream.is_offscreen())
+    }
+
+    /// Count of live streams rendering a virtual extend output — the
+    /// extended-display "casting" streams (ADR-0188). Distinct from a mirror
+    /// (physical output) stream or a window capture.
+    pub fn live_virtual_outputs(&self) -> u32 {
+        self.streams
+            .values()
+            .filter(|stream| !stream.frozen && stream.virtual_output.is_some())
+            .count() as u32
     }
 
     /// Time until the soonest stream-driven wakeup at `now` — zero when one
@@ -401,10 +574,10 @@ impl OutputStreams {
     /// streams exist. The main loop caps its idle wait with this. Output
     /// streams wake at their `frame_interval` deadline: a due output stream
     /// forces a presentation, so the loop must wake in time to drive it
-    /// (ADR-0130). Window streams (ADR-0127) additionally wake at their
-    /// `max_fps` cadence while their tree is dirty, fall back to the
-    /// liveness tick otherwise, and poll briefly while a readback is in
-    /// flight.
+    /// (ADR-0130). Window (ADR-0127) and virtual-output (ADR-0186) streams
+    /// additionally wake at their `max_fps` cadence while their tree is
+    /// dirty, fall back to the liveness tick otherwise, and poll briefly
+    /// while a readback is in flight.
     pub fn next_stream_wake_in(&self, now: Instant) -> Option<Duration> {
         self.streams
             .values()
@@ -413,17 +586,27 @@ impl OutputStreams {
                 let pacing = stream.last_frame.map_or(Duration::ZERO, |last| {
                     (last + stream.frame_interval).saturating_duration_since(now)
                 });
-                let Some(window) = &stream.window else {
+                let offscreen = stream
+                    .window
+                    .as_ref()
+                    .map(|window| (&window.stage, window.dirty))
+                    .or_else(|| {
+                        stream
+                            .virtual_output
+                            .as_ref()
+                            .map(|virt| (&virt.stage, virt.dirty))
+                    });
+                let Some((stage, dirty)) = offscreen else {
                     return pacing;
                 };
                 let liveness = stream.last_frame.map_or(Duration::ZERO, |last| {
                     (last + LIVENESS_INTERVAL).saturating_duration_since(now)
                 });
-                if matches!(window.stage, WindowStreamStage::AwaitingReadback { .. }) {
+                if matches!(stage, WindowStreamStage::AwaitingReadback { .. }) {
                     // The GPU readback is in flight; poll for it shortly.
                     return liveness.min(Duration::from_millis(1));
                 }
-                if window.dirty && matches!(window.stage, WindowStreamStage::Idle) {
+                if dirty && matches!(stage, WindowStreamStage::Idle) {
                     return liveness.min(pacing);
                 }
                 liveness
@@ -442,7 +625,7 @@ impl OutputStreams {
         self.streams
             .iter()
             .filter(|(_, stream)| !stream.frozen)
-            .filter(|(_, stream)| stream.window.is_none())
+            .filter(|(_, stream)| !stream.is_offscreen())
             .filter(|(_, stream)| stream.dmabuf.is_none())
             .any(|(_, stream)| {
                 stream
@@ -461,7 +644,7 @@ impl OutputStreams {
         self.streams
             .iter()
             .filter(|(_, stream)| !stream.frozen)
-            .filter(|(_, stream)| stream.window.is_none())
+            .filter(|(_, stream)| !stream.is_offscreen())
             .filter(|(_, stream)| stream.dmabuf.is_some())
             .any(|(_, stream)| {
                 stream
@@ -507,12 +690,12 @@ impl OutputStreams {
 
     /// Whether any live SHM output stream negotiated the embedded cursor
     /// mode. Only then does a shared-readback binding attach a cursor
-    /// snapshot for the worker to blend (ADR-0127); window streams draw
-    /// their cursor on the GPU and never need it.
+    /// snapshot for the worker to blend (ADR-0127); window and virtual-output
+    /// streams draw their cursor on the GPU and never need it.
     pub fn any_shm_embedded(&self) -> bool {
         self.streams.values().any(|stream| {
             !stream.frozen
-                && stream.window.is_none()
+                && !stream.is_offscreen()
                 && stream.dmabuf.is_none()
                 && stream.cursor == StreamCursorMode::Embedded
         })
@@ -526,13 +709,44 @@ impl OutputStreams {
             return;
         }
         for stream in self.streams.values_mut() {
-            if stream.frozen {
+            // Offscreen streams (window, virtual output) derive their own
+            // repair regions from their surface tree, never from the physical
+            // desktop frame (ADR-0187): a window on a virtual output is
+            // excluded from the physical scene, so physical damage would
+            // describe a coordinate space the stream does not render.
+            if stream.frozen || stream.is_offscreen() {
                 continue;
             }
             stream.damage_since_delivery = union_frame_damage(
                 std::mem::replace(&mut stream.damage_since_delivery, FrameDamage::None),
                 damage.clone(),
             );
+        }
+    }
+
+    /// Seed one offscreen stream's own-tree damage into its accumulator and
+    /// return the sample (ADR-0187). Offscreen streams never receive the
+    /// physical desktop's damage; their repair regions come from their own
+    /// surface tree, already expressed in target pixels with origin `(0, 0)`
+    /// by [`offscreen_damage_to_target`](crate::presentation::damage::offscreen_damage_to_target).
+    /// A dropped frame folds its sample back (via `fold_damage_back`), so the
+    /// next delivery still covers the missed regions.
+    pub fn seed_offscreen_damage(&mut self, stream_id: u64, own: FrameDamage) -> SampledDamage {
+        let origin = tessera_primitives::Point { x: 0, y: 0 };
+        let Some(stream) = self.streams.get_mut(&stream_id) else {
+            return SampledDamage {
+                origin,
+                damage: FrameDamage::Full,
+            };
+        };
+        stream.damage_since_delivery = union_frame_damage(
+            std::mem::replace(&mut stream.damage_since_delivery, FrameDamage::None),
+            own,
+        );
+        stream.damage_origin = Some(origin);
+        SampledDamage {
+            origin,
+            damage: stream.damage_since_delivery.clone(),
         }
     }
 
@@ -566,7 +780,8 @@ impl OutputStreams {
 
     /// Freeze a stream after a geometry change (IPC protocol 29): it stays
     /// registered but is never due and never forces presentation, until the
-    /// client restarts it with `StreamOutputStop` + `StreamOutputStart`.
+    /// client restarts it with `StreamOutputStop` + `StreamOutputStart` or
+    /// renegotiates it with `StreamOutputRenegotiate`.
     pub fn freeze(&mut self, stream_id: u64) {
         if let Some(stream) = self.streams.get_mut(&stream_id) {
             stream.frozen = true;
@@ -577,10 +792,10 @@ impl OutputStreams {
     /// stream (IPC protocol 29, ADR-0126): a whole-desktop stream whose
     /// desktop size changed, and a connector stream whose output's size
     /// changed, are frozen with `StreamGeometryChanged` (the client
-    /// restarts them at the new geometry); a connector that disappeared
-    /// ends its stream. Pure position moves are followed silently at the
-    /// next frame. Window streams detect their own geometry changes lazily
-    /// at delivery.
+    /// restarts or renegotiates them at the new geometry); a connector that
+    /// disappeared ends its stream. Pure position moves are followed silently
+    /// at the next frame. Window and virtual-output streams detect their own
+    /// geometry changes in their offscreen drives.
     pub fn reconcile_geometry(
         &self,
         frame_size: (u32, u32),
@@ -590,7 +805,7 @@ impl OutputStreams {
         use super::crop::resolve_output_rect;
         self.streams
             .iter()
-            .filter(|(_, stream)| !stream.frozen)
+            .filter(|(_, stream)| !stream.frozen && !stream.is_offscreen())
             .filter_map(|(stream_id, stream)| {
                 let action = match &stream.target {
                     StreamTarget::Output { output: None } => {
@@ -1260,5 +1475,299 @@ mod tests {
         let now = Instant::now();
         assert_eq!(streams.due_shm_ids(now), vec![shm]);
         assert!(streams.due_dmabuf_ids(now).is_empty());
+    }
+
+    #[test]
+    fn test_inv_arch_81_take_all_ends_every_live_stream() {
+        let mut streams = OutputStreams::new();
+        // One of each class: physical output, window, virtual output.
+        start(&mut streams, 1, None, (100, 100));
+        let window = streams
+            .start(
+                2,
+                Some(30),
+                (64, 64),
+                StreamTarget::Window {
+                    window: tessera_desktop::window::WindowId(1),
+                },
+                StreamCursorMode::Hidden,
+            )
+            .stream_id;
+        streams.attach_window(
+            window,
+            WindowStream {
+                shm: None,
+                geometry_sig: (0, 0),
+                origin: tessera_primitives::Point { x: 0, y: 0 },
+                logical_size: tessera_primitives::Size { w: 64, h: 64 },
+                scale_milli: 1000,
+                generations: std::collections::HashMap::new(),
+                dirty: false,
+                stage: WindowStreamStage::Idle,
+                held_since: None,
+            },
+        );
+        let cast = streams
+            .start(
+                3,
+                Some(30),
+                (1920, 1080),
+                StreamTarget::Output {
+                    output: Some("VIRTUAL-1".into()),
+                },
+                StreamCursorMode::Embedded,
+            )
+            .stream_id;
+        streams.attach_virtual_output(
+            cast,
+            VirtualOutputStream {
+                connector: "VIRTUAL-1".into(),
+                shm: None,
+                geometry_sig: (1, 1),
+                origin: tessera_primitives::Point { x: 1920, y: 0 },
+                logical_size: tessera_primitives::Size { w: 1920, h: 1080 },
+                scale_milli: 1000,
+                generations: std::collections::HashMap::new(),
+                last_cursor: None,
+                dirty: false,
+                stage: WindowStreamStage::Idle,
+                held_since: None,
+            },
+        );
+
+        let mut ended = streams.take_all();
+        ended.sort_unstable();
+        assert_eq!(ended.len(), 3, "every live stream ends");
+        assert!(streams.is_empty(), "no stream survives suspension");
+        // A second call is inert (nothing left to end).
+        assert!(streams.take_all().is_empty());
+    }
+
+    #[test]
+    fn live_virtual_outputs_counts_only_live_virtual_streams() {
+        let mut streams = OutputStreams::new();
+        // Physical output and window streams are not casts.
+        start(&mut streams, 1, None, (100, 100));
+        let window = streams
+            .start(
+                2,
+                Some(30),
+                (64, 64),
+                StreamTarget::Window {
+                    window: tessera_desktop::window::WindowId(1),
+                },
+                StreamCursorMode::Hidden,
+            )
+            .stream_id;
+        streams.attach_window(
+            window,
+            WindowStream {
+                shm: None,
+                geometry_sig: (0, 0),
+                origin: tessera_primitives::Point { x: 0, y: 0 },
+                logical_size: tessera_primitives::Size { w: 64, h: 64 },
+                scale_milli: 1000,
+                generations: std::collections::HashMap::new(),
+                dirty: false,
+                stage: WindowStreamStage::Idle,
+                held_since: None,
+            },
+        );
+        assert_eq!(streams.live_virtual_outputs(), 0);
+
+        // A virtual-output stream counts; freezing it stops counting
+        // (ADR-0188).
+        let cast = streams
+            .start(
+                3,
+                Some(30),
+                (1920, 1080),
+                StreamTarget::Output {
+                    output: Some("VIRTUAL-1".into()),
+                },
+                StreamCursorMode::Embedded,
+            )
+            .stream_id;
+        streams.attach_virtual_output(
+            cast,
+            VirtualOutputStream {
+                connector: "VIRTUAL-1".into(),
+                shm: None,
+                geometry_sig: (1, 1),
+                origin: tessera_primitives::Point { x: 1920, y: 0 },
+                logical_size: tessera_primitives::Size { w: 1920, h: 1080 },
+                scale_milli: 1000,
+                generations: std::collections::HashMap::new(),
+                last_cursor: None,
+                dirty: false,
+                stage: WindowStreamStage::Idle,
+                held_since: None,
+            },
+        );
+        assert_eq!(streams.live_virtual_outputs(), 1);
+        streams.freeze(cast);
+        assert_eq!(streams.live_virtual_outputs(), 0);
+    }
+
+    #[test]
+    fn test_inv_arch_79_offscreen_streams_exclude_physical_damage() {
+        let mut streams = OutputStreams::new();
+        let now = Instant::now();
+        // A physical output stream accumulates the presented frame's damage...
+        let physical = start(&mut streams, 1, None, (100, 100));
+        // ...an offscreen window stream must not (`[INV-ARCH-79]`): a window
+        // on (or moved to) a virtual output is excluded from the physical
+        // scene, so physical damage describes coordinates the stream does not
+        // render.
+        let offscreen = streams
+            .start(
+                2,
+                Some(30),
+                (64, 64),
+                StreamTarget::Window {
+                    window: tessera_desktop::window::WindowId(3),
+                },
+                StreamCursorMode::Hidden,
+            )
+            .stream_id;
+        streams.attach_window(
+            offscreen,
+            WindowStream {
+                shm: None,
+                geometry_sig: (0, 0),
+                origin: tessera_primitives::Point { x: 2000, y: 40 },
+                logical_size: tessera_primitives::Size { w: 64, h: 64 },
+                scale_milli: 1000,
+                generations: std::collections::HashMap::new(),
+                dirty: false,
+                stage: WindowStreamStage::Idle,
+                held_since: None,
+            },
+        );
+
+        // Prime both streams' crop origins, then deliver a frame so each
+        // accumulator starts clean (`note_delivered` clears it).
+        let origin = tessera_primitives::Point { x: 0, y: 0 };
+        streams.sample_damage(physical, origin);
+        streams.sample_damage(offscreen, origin);
+        streams
+            .streams
+            .get_mut(&physical)
+            .expect("physical stream")
+            .note_delivered();
+        streams
+            .streams
+            .get_mut(&offscreen)
+            .expect("offscreen stream")
+            .note_delivered();
+
+        // The physical frame's damage reaches the physical stream only.
+        streams.accumulate_damage(&FrameDamage::Full);
+        assert_eq!(
+            streams.sample_damage(physical, origin).damage,
+            FrameDamage::Full
+        );
+        assert_eq!(
+            streams.sample_damage(offscreen, origin).damage,
+            FrameDamage::None
+        );
+
+        // Offscreen damage comes only from its own tree, seeded in target
+        // pixels with origin `(0, 0)`.
+        let own = FrameDamage::from_rects(vec![tessera_primitives::Rect::new(1, 2, 3, 4)]);
+        let sampled = streams.seed_offscreen_damage(offscreen, own);
+        assert_eq!(sampled.origin, origin);
+        assert_eq!(
+            sampled.damage.area_rects(),
+            Some(&[tessera_primitives::Rect::new(1, 2, 3, 4)][..])
+        );
+        // A drop folds the sample back, so the next delivery still covers it.
+        streams
+            .streams
+            .get_mut(&offscreen)
+            .expect("offscreen stream")
+            .fold_damage_back(sampled);
+        let again = streams.seed_offscreen_damage(offscreen, FrameDamage::None);
+        assert_eq!(
+            again.damage.area_rects(),
+            Some(&[tessera_primitives::Rect::new(1, 2, 3, 4)][..])
+        );
+        let _ = now;
+    }
+
+    #[test]
+    fn test_inv_arch_76_virtual_output_stream_preserves_physical_direct_scanout() {
+        let mut streams = OutputStreams::new();
+        let now = Instant::now();
+        let id = streams
+            .start(
+                1,
+                Some(60),
+                (1920, 1080),
+                StreamTarget::Output {
+                    output: Some("VIRTUAL-1".into()),
+                },
+                StreamCursorMode::Embedded,
+            )
+            .stream_id;
+        streams.attach_virtual_output(
+            id,
+            VirtualOutputStream {
+                connector: "VIRTUAL-1".into(),
+                shm: None,
+                geometry_sig: (1, 1),
+                origin: tessera_primitives::Point { x: 1920, y: 0 },
+                logical_size: tessera_primitives::Size { w: 1920, h: 1080 },
+                scale_milli: 1000,
+                generations: std::collections::HashMap::new(),
+                last_cursor: None,
+                dirty: true,
+                stage: WindowStreamStage::Idle,
+                held_since: None,
+            },
+        );
+        // `[INV-ARCH-76]`: a virtual-output stream renders offscreen and must
+        // never disqualify physical direct scanout (`any_output_live`) or
+        // force a physical composite (`forcing_due_*` / `due_shm_ids`).
+        assert!(!streams.any_output_live());
+        assert!(!streams.forcing_due_shm(now));
+        assert!(!streams.forcing_due_dmabuf(now));
+        assert!(streams.due_shm_ids(now).is_empty());
+        assert!(streams.due_dmabuf_ids(now).is_empty());
+        assert!(!streams.any_shm_embedded());
+        // Yet it still wakes the main loop for its own offscreen drive.
+        assert_eq!(streams.next_stream_wake_in(now), Some(Duration::ZERO));
+    }
+
+    #[test]
+    fn test_inv_arch_77_stream_renegotiate_rebuilds_target_in_place() {
+        let mut streams = OutputStreams::new();
+        let now = Instant::now();
+        let id = start(&mut streams, 7, Some(30), (1920, 1080));
+        streams.record_frame(id, now, true);
+        streams.record_frame(id, now, false);
+        assert_eq!(streams.sequence_and_dropped(id), Some((2, 1)));
+
+        // Freeze on geometry change.
+        streams.freeze(id);
+        assert!(!streams.forcing_due_shm(now + Duration::from_secs(1)));
+
+        // Another connection may not renegotiate stream `id`.
+        assert!(
+            streams
+                .renegotiate(99, id, Some(60), (2560, 1440), None, None)
+                .is_err()
+        );
+
+        // Owning connection renegotiates in place: `stream_id`, `sequence`,
+        // and `dropped` survive, size updates, and the stream unfreezes.
+        let info = streams
+            .renegotiate(7, id, Some(60), (2560, 1440), None, None)
+            .expect("renegotiate succeeds");
+        assert_eq!(info.stream_id, id);
+        assert_eq!((info.width, info.height), (2560, 1440));
+        assert_eq!(streams.sequence_and_dropped(id), Some((2, 1)));
+        assert_eq!(streams.target_of(id).map(|(_, s)| s), Some((2560, 1440)));
+        assert!(streams.forcing_due_shm(now));
     }
 }

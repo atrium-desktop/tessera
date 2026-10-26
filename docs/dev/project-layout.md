@@ -12,21 +12,22 @@ crates/
   tessera-audit           bounded, integrity-checked durable event storage
   tessera-authority       actor identity, credentials, grants, ceilings, capabilities, and observation leases
   tessera-avatar          profile contract, portrait assets, and VRM runtime
-  tessera-platform        DRM/KMS, nested display, seat, and input adapters
-  tessera-env             shared process environment, tracing/log bridge, and runtime hygiene
+  tessera-cast            out-of-process Miracast caster and cast capability probe (ADR-0192)
   tessera-cli             domain-oriented management command library and headless tessera-ctl tool
+  tessera-composite       GPU composition, damage tracking, scanout, streams, and capture encoding
   tessera-config          declarative configuration schema, loader, and live reload
   tessera-design          product design tokens, themes, and glass materials
   tessera-desktop         pure desktop state, windows, workspaces, layouts, and deterministic rules
+  tessera-env             shared process environment, tracing/log bridge, and runtime hygiene
   tessera-i18n            locale negotiation and translated chrome message catalog
   tessera-idle            out-of-process idle detection and inhibition sidecar
   tessera-ipc             Unix socket transport, framing, client, and server connection handling
   tessera-launch-services desktop application discovery, icon lookup, process launching, and intent search (ADR-0164)
   tessera-lock            standalone session lock client
   tessera-mcp             Model Context Protocol adapter daemon
+  tessera-platform        DRM/KMS, nested display, seat, and input adapters
   tessera-primitives      foundational physical geometry, color, buffer descriptor, identity, and input primitives (ADR-0164)
   tessera-protocol        versioned wire DTOs and audit vocabulary (zero socket/GPU dependencies)
-  tessera-render          GPU composition, damage tracking, scanout, streams, and capture encoding
   tessera-shell           Lens UI host and built-in chrome components (dock, hud, pivot, control-center, settings, tray)
   tessera-wallpaper       desktop wallpaper and continuous parallax runtime
   tessera-wayland         Wayland protocol handlers and client state machines
@@ -53,7 +54,7 @@ abstractions live in `tessera-ipc`. Durable event storage lives in
 `tessera-audit`.
 
 Application discovery, icon lookup, process launching, and intent search live
-in `tessera-launch-services` (ADR-0164). GPU capture encoding is integrated into `tessera-render`.
+in `tessera-launch-services` (ADR-0164). GPU capture encoding is integrated into `tessera-composite`.
 
 Create a new package only for an independent public API, process, feature or
 platform boundary, resource owner, or compile-time dependency restriction. A

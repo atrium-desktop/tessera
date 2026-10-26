@@ -216,10 +216,37 @@ impl Server {
         if !self.human_controls_window(window_id) {
             return;
         }
+        let old_connector =
+            human_output_connector_for_window(&self.state, window_id).map(str::to_owned);
+        let old_rect = self.state.output_rect_for_window(window_id);
         self.state.workspaces.move_toplevel(window_id, workspace);
         let descendants = self.transient_descendant_window_ids(window_id);
-        for child_id in descendants {
-            self.state.workspaces.move_toplevel(child_id, workspace);
+        for child_id in &descendants {
+            self.state.workspaces.move_toplevel(*child_id, workspace);
+        }
+        let new_connector =
+            human_output_connector_for_window(&self.state, window_id).map(str::to_owned);
+        let new_rect = self.state.output_rect_for_window(window_id);
+        if old_rect != new_rect {
+            self.translate_window_tree_between_outputs(window_id, &descendants, old_rect, new_rect);
+        }
+        if old_connector != new_connector {
+            unsafe {
+                post_window_human_output_transition(
+                    &self.state,
+                    window_id,
+                    old_connector.as_deref(),
+                    new_connector.as_deref(),
+                );
+                for child_id in &descendants {
+                    post_window_human_output_transition(
+                        &self.state,
+                        *child_id,
+                        old_connector.as_deref(),
+                        new_connector.as_deref(),
+                    );
+                }
+            }
         }
         self.drop_focus_if_hidden();
     }
@@ -632,68 +659,131 @@ impl Server {
         rects
     }
 
-    /// Reconcile connector identities and geometries reported by the backend.
-    /// Existing connector workspaces survive reordering; removed outputs are
-    /// relocated by `WorkspaceModel`, and a replug restores their origin.
+    /// Reconcile connector identities and geometries reported by the physical
+    /// display backend. Existing connector workspaces survive reordering;
+    /// active virtual extend outputs (`VIRTUAL-*`, ADR-0186) survive physical
+    /// hotplugs, and removed outputs relocate their workspaces and windows to
+    /// the primary physical output.
     pub fn set_outputs(&mut self, mut outputs: Vec<tessera_desktop::output::OutputInfo>) {
         outputs.retain(|output| !output.connector.is_empty());
         let mut seen = std::collections::HashSet::new();
         outputs.retain(|output| seen.insert(output.connector.clone()));
-        if outputs.is_empty() {
+        if outputs.is_empty() && self.state.virtual_outputs.is_empty() {
             return;
         }
-        // Configured per-connector policy (ADR-0028) wins over the
-        // backend-reported geometry: scale and position apply here. A
-        // configured transform is accepted but not yet applied — the
-        // renderer's output-transform support is still pending.
+        // `set_outputs` is the physical backend entry point: ensure every
+        // entry carries a physical OutputKind (`[INV-ARCH-74]`).
         for output in &mut outputs {
-            let Some(policy) = self.state.output_policies.get(&output.connector) else {
-                continue;
-            };
-            if let Some(scale) = policy.scale {
-                let configured = tessera_desktop::output::Scale(scale as f32);
-                if configured.as_f32() != configured.as_f32().round() {
-                    // A fractional scale is representable (wp_fractional_scale_v1)
-                    // but every client that does not speak it renders at
-                    // ceil(scale) x its logical extent: a fill-rate tax on the
-                    // whole desktop and a buffer that can never match the output
-                    // mode, so direct scanout is permanently disqualified for
-                    // covering clients. See ADR-0184.
-                    log::warn!(
-                        "[server] output '{}': fractional scale {:.2} makes clients without \
-                         wp_fractional_scale_v1 render at {}x and blocks direct scanout; \
-                         preferred_scale is the only client-opt-in path",
-                        output.connector,
-                        configured.as_f32(),
-                        configured.as_f32().ceil() as i32,
-                    );
-                }
-                output.geometry.scale = configured;
-            }
-            if let Some(position) = policy.position {
-                output.geometry.logical_origin = position;
-            }
-            if let Some(transform) = policy.transform
-                && transform != tessera_primitives::Transform::Normal
-            {
-                log::warn!(
-                    "[server] output '{}': transform configured but not yet applied \
-                         (renderer output-transform support pending)",
-                    output.connector
-                );
+            if output.kind.is_virtual() {
+                output.kind = tessera_desktop::output::OutputKind::External;
             }
         }
-        // A `primary` policy moves its output to the front: index 0 is the
-        // primary/focused output below. When several entries claim primary,
-        // the one that appears first in the backend's output order wins.
-        if let Some(primary) = outputs.iter().position(|output| {
+        self.state.physical_outputs = outputs;
+        self.reconcile_outputs();
+    }
+
+    fn apply_output_policy_to_info(
+        policies: &std::collections::HashMap<String, tessera_desktop::output::OutputPolicy>,
+        output: &mut tessera_desktop::output::OutputInfo,
+    ) {
+        let Some(policy) = policies.get(&output.connector) else {
+            return;
+        };
+        if let Some(scale) = policy.scale {
+            let configured = tessera_desktop::output::Scale(scale as f32);
+            if configured.as_f32() != configured.as_f32().round() {
+                // A fractional scale is representable (wp_fractional_scale_v1)
+                // but every client that does not speak it renders at
+                // ceil(scale) x its logical extent: a fill-rate tax on the
+                // whole desktop and a buffer that can never match the output
+                // mode, so direct scanout is permanently disqualified for
+                // covering clients. See ADR-0184.
+                log::warn!(
+                    "[server] output '{}': fractional scale {:.2} makes clients without \
+                     wp_fractional_scale_v1 render at {}x and blocks direct scanout; \
+                     preferred_scale is the only client-opt-in path",
+                    output.connector,
+                    configured.as_f32(),
+                    configured.as_f32().ceil() as i32,
+                );
+            }
+            output.geometry.scale = configured;
+        }
+        if let Some(position) = policy.position {
+            output.geometry.logical_origin = position;
+        }
+        if let Some(transform) = policy.transform
+            && transform != tessera_primitives::Transform::Normal
+        {
+            log::warn!(
+                "[server] output '{}': transform configured but not yet applied \
+                     (renderer output-transform support pending)",
+                output.connector
+            );
+        }
+    }
+
+    pub(crate) fn reconcile_outputs(&mut self) {
+        let previous_rects: std::collections::HashMap<String, tessera_primitives::Rect> = self
+            .state
+            .output_infos
+            .iter()
+            .map(|output| (output.connector.clone(), output.geometry.logical_rect()))
+            .collect();
+
+        let mut physical = self.state.physical_outputs.clone();
+        for output in &mut physical {
+            Self::apply_output_policy_to_info(&self.state.output_policies, output);
+        }
+        // `[INV-ARCH-74]`: A `primary` policy moves its output to index 0 only
+        // within the physical output set; a virtual output can never displace a
+        // physical output as primary.
+        if let Some(primary) = physical.iter().position(|output| {
             self.state
                 .output_policies
                 .get(&output.connector)
                 .is_some_and(|policy| policy.primary)
         }) {
-            let output = outputs.remove(primary);
-            outputs.insert(0, output);
+            let output = physical.remove(primary);
+            physical.insert(0, output);
+        }
+
+        let mut outputs = physical;
+        for record in &self.state.virtual_outputs {
+            if outputs
+                .iter()
+                .any(|existing| existing.connector == record.info.connector)
+            {
+                continue;
+            }
+            let mut virt = record.info.clone();
+            virt.kind = tessera_desktop::output::OutputKind::Virtual;
+            let has_policy_position = self
+                .state
+                .output_policies
+                .get(&virt.connector)
+                .and_then(|policy| policy.position)
+                .is_some();
+            Self::apply_output_policy_to_info(&self.state.output_policies, &mut virt);
+            if !has_policy_position {
+                if let Some(explicit) = record.explicit_origin {
+                    virt.geometry.logical_origin = explicit;
+                } else {
+                    let next_x = outputs
+                        .iter()
+                        .map(|existing| {
+                            let rect = existing.geometry.logical_rect();
+                            rect.origin.x.saturating_add(rect.size.w)
+                        })
+                        .max()
+                        .unwrap_or(0);
+                    virt.geometry.logical_origin = tessera_primitives::Point { x: next_x, y: 0 };
+                }
+            }
+            outputs.push(virt);
+        }
+        if outputs.is_empty() {
+            return;
         }
 
         let desired = outputs
@@ -711,19 +801,28 @@ impl Server {
                 self.state.workspaces.add_output(&output.connector);
             }
         }
-        let removed = self
+        let removed_outputs: Vec<(tessera_desktop::workspace::OutputId, String)> = self
             .state
             .workspaces
             .outputs()
             .iter()
             .filter(|output| !desired.contains(output.connector.as_str()))
-            .map(|output| output.id)
-            .collect::<Vec<_>>();
-        for output in removed {
-            self.state.workspaces.remove_output(output);
+            .map(|output| (output.id, output.connector.clone()))
+            .collect();
+        let primary = outputs[0].clone();
+        let primary_rect = primary.geometry.logical_rect();
+        for (output_id, removed_connector) in removed_outputs {
+            self.state.workspaces.remove_output(output_id);
+            if let Some(&removed_rect) = previous_rects.get(&removed_connector) {
+                self.relocate_windows_from_removed_output(
+                    &removed_connector,
+                    removed_rect,
+                    &primary.connector,
+                    primary_rect,
+                );
+            }
         }
 
-        let primary = outputs[0].clone();
         if let Some(output) = self
             .state
             .workspaces
@@ -737,6 +836,401 @@ impl Server {
         self.state.output_infos = outputs;
         self.state.outputs_revision = self.state.outputs_revision.wrapping_add(1);
         self.set_output_geometry(primary.geometry);
+    }
+
+    /// Create a dynamic virtual extend output in the human interaction domain
+    /// (`VIRTUAL-*`, ADR-0186). When `spec.persistent` is `false`, the output
+    /// is bound to `conn_id` and reclaimed on disconnect (`[INV-ARCH-75]`).
+    pub fn create_virtual_output(
+        &mut self,
+        conn_id: Option<u64>,
+        spec: tessera_desktop::output::VirtualOutputSpec,
+    ) -> Result<tessera_desktop::output::OutputInfo, String> {
+        spec.validate().map_err(str::to_owned)?;
+        let connector = match spec.connector {
+            Some(name) => {
+                if self
+                    .state
+                    .output_infos
+                    .iter()
+                    .any(|output| output.connector == name)
+                    || self
+                        .state
+                        .virtual_outputs
+                        .iter()
+                        .any(|record| record.info.connector == name)
+                {
+                    return Err(format!("output '{name}' already exists"));
+                }
+                name
+            }
+            None => {
+                let mut index = 1_u32;
+                loop {
+                    let candidate = format!(
+                        "{}{index}",
+                        tessera_desktop::output::VIRTUAL_CONNECTOR_PREFIX
+                    );
+                    let taken = self
+                        .state
+                        .output_infos
+                        .iter()
+                        .any(|output| output.connector == candidate)
+                        || self
+                            .state
+                            .virtual_outputs
+                            .iter()
+                            .any(|record| record.info.connector == candidate);
+                    if !taken {
+                        break candidate;
+                    }
+                    index = index.saturating_add(1);
+                }
+            }
+        };
+        let owner_conn_id = (!spec.persistent).then_some(conn_id).flatten();
+        let info = tessera_desktop::output::OutputInfo {
+            connector: connector.clone(),
+            geometry: tessera_desktop::output::OutputGeometry {
+                mode: spec.mode,
+                scale: spec.scale,
+                transform: tessera_primitives::Transform::Normal,
+                logical_origin: spec.logical_origin.unwrap_or_default(),
+            },
+            kind: tessera_desktop::output::OutputKind::Virtual,
+            available_modes: vec![spec.mode],
+            color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+        };
+        self.state.virtual_outputs.push(VirtualOutputRecord {
+            owner_conn_id,
+            explicit_origin: spec.logical_origin,
+            info,
+        });
+        self.reconcile_outputs();
+        self.state
+            .output_infos
+            .iter()
+            .find(|output| output.connector == connector)
+            .cloned()
+            .ok_or_else(|| format!("virtual output '{connector}' failed to register"))
+    }
+
+    /// Resize, rescale, or reposition a live virtual extend output
+    /// (`VIRTUAL-*`, ADR-0186).
+    pub fn resize_virtual_output(
+        &mut self,
+        conn_id: Option<u64>,
+        connector: &str,
+        mode: tessera_desktop::output::OutputMode,
+        scale: Option<tessera_desktop::output::Scale>,
+        logical_origin: Option<tessera_primitives::Point>,
+    ) -> Result<tessera_desktop::output::OutputInfo, String> {
+        let Some(record) = self
+            .state
+            .virtual_outputs
+            .iter_mut()
+            .find(|record| record.info.connector == connector)
+        else {
+            return Err(format!("unknown virtual output '{connector}'"));
+        };
+        if let (Some(owner), Some(caller)) = (record.owner_conn_id, conn_id)
+            && owner != caller
+        {
+            return Err(format!(
+                "virtual output '{connector}' is owned by another connection"
+            ));
+        }
+        let next_scale = scale.unwrap_or(record.info.geometry.scale);
+        tessera_desktop::output::validate_virtual_output_mode_and_scale(mode, next_scale)
+            .map_err(str::to_owned)?;
+        if let Some(origin) = logical_origin
+            && (!(-32_768..=32_768).contains(&origin.x) || !(-32_768..=32_768).contains(&origin.y))
+        {
+            return Err("virtual output logical origin is out of range".to_owned());
+        }
+        record.info.geometry.mode = mode;
+        record.info.geometry.scale = next_scale;
+        record.info.available_modes = vec![mode];
+        if let Some(origin) = logical_origin {
+            record.explicit_origin = Some(origin);
+            record.info.geometry.logical_origin = origin;
+        }
+        self.reconcile_outputs();
+        self.state
+            .output_infos
+            .iter()
+            .find(|output| output.connector == connector)
+            .cloned()
+            .ok_or_else(|| format!("virtual output '{connector}' disappeared after resize"))
+    }
+
+    /// Destroy a live virtual extend output (`VIRTUAL-*`, ADR-0186) and
+    /// relocate its workspaces and windows to the primary physical output.
+    pub fn destroy_virtual_output(
+        &mut self,
+        conn_id: Option<u64>,
+        connector: &str,
+    ) -> Result<(), String> {
+        let Some(index) = self
+            .state
+            .virtual_outputs
+            .iter()
+            .position(|record| record.info.connector == connector)
+        else {
+            return Err(format!("unknown virtual output '{connector}'"));
+        };
+        if let (Some(owner), Some(caller)) =
+            (self.state.virtual_outputs[index].owner_conn_id, conn_id)
+            && owner != caller
+        {
+            return Err(format!(
+                "virtual output '{connector}' is owned by another connection"
+            ));
+        }
+        self.state.virtual_outputs.remove(index);
+        self.reconcile_outputs();
+        Ok(())
+    }
+
+    /// Reclaim every non-persistent virtual output owned by `conn_id` when
+    /// its IPC connection closes (`[INV-ARCH-75]`). Returns the reclaimed
+    /// connector names.
+    pub fn disconnect_virtual_outputs(&mut self, conn_id: u64) -> Vec<String> {
+        let mut reclaimed = Vec::new();
+        self.state.virtual_outputs.retain(|record| {
+            if record.owner_conn_id == Some(conn_id) {
+                reclaimed.push(record.info.connector.clone());
+                false
+            } else {
+                true
+            }
+        });
+        if !reclaimed.is_empty() {
+            self.reconcile_outputs();
+        }
+        reclaimed
+    }
+
+    /// Whether `connector` names a live human-domain virtual extend output
+    /// (`OutputKind::Virtual`, ADR-0186).
+    pub fn is_virtual_output(&self, connector: &str) -> bool {
+        self.state
+            .output_infos
+            .iter()
+            .any(|output| output.connector == connector && output.kind.is_virtual())
+    }
+
+    /// Whether the logical point `(x, y)` lies on a live virtual extend output
+    /// (`OutputKind::Virtual`, ADR-0186). The physical KMS cursor plane has no
+    /// CRTC over a virtual output, so the composition root hides its sprite
+    /// there and lets the virtual stream's embedded cursor stand in
+    /// (`[INV-ARCH-76]`).
+    pub fn point_over_virtual_output(&self, x: f32, y: f32) -> bool {
+        if !self
+            .state
+            .output_infos
+            .iter()
+            .any(|output| output.kind.is_virtual())
+        {
+            return false;
+        }
+        let point = tessera_primitives::Point {
+            x: x.round() as i32,
+            y: y.round() as i32,
+        };
+        self.state.output_infos.iter().any(|output| {
+            output.kind.is_virtual() && output.geometry.logical_rect().contains(point)
+        })
+    }
+
+    /// Whether `conn_id` is the owner of the live virtual output `connector`.
+    pub fn connection_owns_virtual_output(&self, conn_id: u64, connector: &str) -> bool {
+        self.state.virtual_outputs.iter().any(|record| {
+            record.info.connector == connector && record.owner_conn_id == Some(conn_id)
+        })
+    }
+
+    /// Bounding rectangle in logical desktop coordinates across all active
+    /// human outputs (physical and virtual).
+    pub fn desktop_logical_bounds(&self) -> tessera_primitives::Rect {
+        let mut iter = self
+            .state
+            .output_infos
+            .iter()
+            .map(|output| output.geometry.logical_rect())
+            .filter(|rect| rect.size.w > 0 && rect.size.h > 0);
+        let Some(first) = iter.next() else {
+            return self.output_logical_rect();
+        };
+        iter.fold(first, |acc, rect| acc.union(rect))
+    }
+
+    pub(crate) fn translate_window_tree_between_outputs(
+        &mut self,
+        window_id: tessera_desktop::window::WindowId,
+        descendants: &[tessera_desktop::window::WindowId],
+        src_rect: tessera_primitives::Rect,
+        dst_rect: tessera_primitives::Rect,
+    ) {
+        if src_rect == dst_rect || dst_rect.size.w <= 0 || dst_rect.size.h <= 0 {
+            return;
+        }
+        let all_ids = std::iter::once(window_id).chain(descendants.iter().copied());
+        for id in all_ids {
+            let rec = self.find_surface_by_window_id(id);
+            if rec.is_null() {
+                continue;
+            }
+            unsafe {
+                let pos = (*rec).position;
+                let inside_dst = pos.x >= dst_rect.origin.x
+                    && pos.x < dst_rect.origin.x.saturating_add(dst_rect.size.w)
+                    && pos.y >= dst_rect.origin.y
+                    && pos.y < dst_rect.origin.y.saturating_add(dst_rect.size.h);
+                if inside_dst {
+                    continue;
+                }
+                let rel_x = (pos.x - src_rect.origin.x).clamp(0, (dst_rect.size.w - 1).max(0));
+                let rel_y = (pos.y - src_rect.origin.y).clamp(0, (dst_rect.size.h - 1).max(0));
+                let new_origin = tessera_primitives::Point {
+                    x: dst_rect.origin.x.saturating_add(rel_x),
+                    y: dst_rect.origin.y.saturating_add(rel_y),
+                };
+                reposition_toplevel_with_popups(rec, new_origin);
+                if let Some(saved) = (*rec).saved_floating_rect.as_mut() {
+                    let s_rel_x =
+                        (saved.origin.x - src_rect.origin.x).clamp(0, (dst_rect.size.w - 1).max(0));
+                    let s_rel_y =
+                        (saved.origin.y - src_rect.origin.y).clamp(0, (dst_rect.size.h - 1).max(0));
+                    saved.origin = tessera_primitives::Point {
+                        x: dst_rect.origin.x.saturating_add(s_rel_x),
+                        y: dst_rect.origin.y.saturating_add(s_rel_y),
+                    };
+                }
+            }
+        }
+    }
+
+    fn relocate_windows_from_removed_output(
+        &mut self,
+        removed_connector: &str,
+        removed_rect: tessera_primitives::Rect,
+        survivor_connector: &str,
+        survivor_rect: tessera_primitives::Rect,
+    ) {
+        if removed_rect.size.w <= 0 || removed_rect.size.h <= 0 {
+            return;
+        }
+        let candidate_ids: Vec<tessera_desktop::window::WindowId> = self
+            .state
+            .live_surfaces()
+            .filter_map(|pointer| unsafe {
+                let s = &*pointer;
+                (!s.xdg_toplevel.is_null() && s.mapped).then_some(s.window.id)
+            })
+            .collect();
+        for window_id in candidate_ids {
+            if !self.human_controls_window(window_id) {
+                continue;
+            }
+            let rec = self.find_surface_by_window_id(window_id);
+            if rec.is_null() {
+                continue;
+            }
+            let pos = unsafe { (*rec).position };
+            let in_removed = pos.x >= removed_rect.origin.x
+                && pos.x < removed_rect.origin.x.saturating_add(removed_rect.size.w)
+                && pos.y >= removed_rect.origin.y
+                && pos.y < removed_rect.origin.y.saturating_add(removed_rect.size.h);
+            if in_removed {
+                self.translate_window_tree_between_outputs(
+                    window_id,
+                    &[],
+                    removed_rect,
+                    survivor_rect,
+                );
+                unsafe {
+                    post_window_human_output_transition(
+                        &self.state,
+                        window_id,
+                        Some(removed_connector),
+                        Some(survivor_connector),
+                    );
+                }
+            }
+        }
+    }
+
+    pub(crate) fn rehome_window_to_containing_output(
+        &mut self,
+        window_id: tessera_desktop::window::WindowId,
+    ) {
+        if !self.human_controls_window(window_id) {
+            return;
+        }
+        let rec = self.find_surface_by_window_id(window_id);
+        if rec.is_null() {
+            return;
+        }
+        let (pos, size) = unsafe { ((*rec).position, (*rec).window.size) };
+        let center = tessera_primitives::Point {
+            x: pos.x.saturating_add(size.w.max(0) / 2),
+            y: pos.y.saturating_add(size.h.max(0) / 2),
+        };
+        let Some(target_connector) = self
+            .state
+            .output_infos
+            .iter()
+            .find(|output| {
+                let rect = output.geometry.logical_rect();
+                center.x >= rect.origin.x
+                    && center.x < rect.origin.x.saturating_add(rect.size.w)
+                    && center.y >= rect.origin.y
+                    && center.y < rect.origin.y.saturating_add(rect.size.h)
+            })
+            .map(|output| output.connector.clone())
+        else {
+            return;
+        };
+        let current_connector =
+            human_output_connector_for_window(&self.state, window_id).map(str::to_owned);
+        if current_connector.as_deref() == Some(target_connector.as_str()) {
+            return;
+        }
+        let Some(target_output_id) = self
+            .state
+            .workspaces
+            .outputs()
+            .iter()
+            .find(|output| output.connector == target_connector)
+            .map(|output| output.id)
+        else {
+            return;
+        };
+        let Some(target_ws) = self.state.workspaces.current_workspace(target_output_id) else {
+            return;
+        };
+        self.state.workspaces.move_toplevel(window_id, target_ws);
+        let descendants = self.transient_descendant_window_ids(window_id);
+        for child_id in &descendants {
+            self.state.workspaces.move_toplevel(*child_id, target_ws);
+        }
+        unsafe {
+            post_window_human_output_transition(
+                &self.state,
+                window_id,
+                current_connector.as_deref(),
+                Some(target_connector.as_str()),
+            );
+            for child_id in &descendants {
+                post_window_human_output_transition(
+                    &self.state,
+                    *child_id,
+                    current_connector.as_deref(),
+                    Some(target_connector.as_str()),
+                );
+            }
+        }
     }
 
     /// Install the session color pipeline reported by the backend (ADR-0001
@@ -774,9 +1268,8 @@ impl Server {
             }
         }
         self.state.output_policies = policies;
-        let outputs = self.state.output_infos.clone();
-        if !outputs.is_empty() {
-            self.set_outputs(outputs);
+        if !self.state.physical_outputs.is_empty() || !self.state.virtual_outputs.is_empty() {
+            self.reconcile_outputs();
         }
     }
 
@@ -787,6 +1280,9 @@ impl Server {
     pub fn set_output_geometry(&mut self, geo: tessera_desktop::output::OutputGeometry) {
         self.state.output_geometry = geo;
         if let Some(primary) = self.state.output_infos.first_mut() {
+            primary.geometry = geo;
+        }
+        if let Some(primary) = self.state.physical_outputs.first_mut() {
             primary.geometry = geo;
         }
         self.state.outputs_revision = self.state.outputs_revision.wrapping_add(1);
@@ -856,16 +1352,11 @@ impl Server {
 
     /// Apply the master-stack tiling policy to the current workspace's
     /// windows when tiled mode is on (ADR-0024). Runs the layout over
-    /// `work_area` and reconfigures only the windows whose target rect moved,
-    /// so steady state sends no configure events. No-op when tiling is off.
-    /// Apply the master-stack tiling policy to the current workspace's
-    /// windows when tiled mode is on (ADR-0024). Runs the layout over
     /// `work_area` (the chrome-aware logical rect) and reconfigures only the
     /// windows whose target rect moved, so steady state sends no configure
     /// events. No-op when tiling is off.
     pub fn apply_tiling(&mut self, work_area: tessera_primitives::Rect) {
         self.state.last_work_area = work_area;
-        let screen_rect = self.state.output_geometry.logical_rect();
 
         let mut flushed = false;
         for id in self.state.workspaces.visible_toplevels() {
@@ -873,6 +1364,8 @@ impl Server {
             if rec.is_null() {
                 continue;
             }
+            let win_screen_rect = self.state.output_rect_for_window(id);
+            let win_work_area = self.state.work_area_for_window(id);
             unsafe {
                 if (*rec).xdg_toplevel.is_null() || !(*rec).mapped {
                     continue;
@@ -884,16 +1377,16 @@ impl Server {
                             size: (*rec).window.size,
                         });
                     }
-                    if (*rec).layout_target != Some(screen_rect) {
+                    if (*rec).layout_target != Some(win_screen_rect) {
                         let old = tessera_primitives::Rect {
                             origin: (*rec).position,
                             size: (*rec).window.size,
                         };
-                        reposition_toplevel_with_popups(rec, screen_rect.origin);
-                        (*rec).window.size = screen_rect.size;
-                        (*rec).layout_target = Some(screen_rect);
+                        reposition_toplevel_with_popups(rec, win_screen_rect.origin);
+                        (*rec).window.size = win_screen_rect.size;
+                        (*rec).layout_target = Some(win_screen_rect);
                         self.note_transition(rec, old);
-                        reconfigure_with_size(rec, screen_rect.size.w, screen_rect.size.h);
+                        reconfigure_with_size(rec, win_screen_rect.size.w, win_screen_rect.size.h);
                         if !flushed {
                             ffi::wl_display_flush_clients(self.state.display);
                             flushed = true;
@@ -906,16 +1399,16 @@ impl Server {
                             size: (*rec).window.size,
                         });
                     }
-                    if (*rec).layout_target != Some(work_area) {
+                    if (*rec).layout_target != Some(win_work_area) {
                         let old = tessera_primitives::Rect {
                             origin: (*rec).position,
                             size: (*rec).window.size,
                         };
-                        reposition_toplevel_with_popups(rec, work_area.origin);
-                        (*rec).window.size = work_area.size;
-                        (*rec).layout_target = Some(work_area);
+                        reposition_toplevel_with_popups(rec, win_work_area.origin);
+                        (*rec).window.size = win_work_area.size;
+                        (*rec).layout_target = Some(win_work_area);
                         self.note_transition(rec, old);
-                        reconfigure_with_size(rec, work_area.size.w, work_area.size.h);
+                        reconfigure_with_size(rec, win_work_area.size.w, win_work_area.size.h);
                         if !flushed {
                             ffi::wl_display_flush_clients(self.state.display);
                             flushed = true;
