@@ -12,7 +12,7 @@ project cuts a tagged release.
 > `atrium-desktop/tessera`. Environment variables use the `TESSERA_*` prefix
 > (previously `AEGIS_*`). The bundled cursor theme uses the `Tessera` name.
 
-## [0.0.78] - 2026-10-24
+## [0.0.79] - 2026-10-26
 
 ### Added
 - `tessera-cast sink`: a scripted Wi-Fi Display **sink**, so the caster can be
@@ -138,6 +138,22 @@ project cuts a tagged release.
   (`Command::InjectOutputInput`), and `tessera display virtual
   create|resize|destroy` CLI commands (ADR-0186, IPC protocol 32,
   `[INV-ARCH-74]`–`[INV-ARCH-78]`).
+- Adopted Optics `v0.0.61`.
+
+### Fixed
+- `server_new_creates_socket` no longer races on the shared runtime directory:
+  it asserted that the socket *path* was absent after drop, but a server created
+  concurrently in the same test binary may legitimately re-bind the same
+  `wayland-N` name, so the assertion now compares `(dev, inode)` — the socket it
+  actually bound is gone.
+- Test isolation in the `tessera-env` conformance suite: its `EnvGuard` claimed
+  nextest's process-per-test isolation, but under `cargo test` the tests run as
+  threads of one process and raced on `XDG_RUNTIME_DIR`, intermittently failing
+  `runtime_dir_accepts_an_absolute_path` with a sibling test's value. A
+  process-wide lock now serializes every environment mutation and the restore in
+  `Drop` — the invariant that `set_var` being `unsafe` in edition 2024 requires.
+
+## [0.0.78] - 2026-10-24
 
 ### Changed
 - Automatic output scale is integral (ADR-0184). The recommendation now picks
@@ -163,17 +179,6 @@ project cuts a tagged release.
 
 ### Fixed
 - Corrected a duplicated, truncated paragraph at the end of ADR-0182.
-- `server_new_creates_socket` no longer races on the shared runtime directory:
-  it asserted that the socket *path* was absent after drop, but a server created
-  concurrently in the same test binary may legitimately re-bind the same
-  `wayland-N` name, so the assertion now compares `(dev, inode)` — the socket it
-  actually bound is gone.
-- Test isolation in the `tessera-env` conformance suite: its `EnvGuard` claimed
-  nextest's process-per-test isolation, but under `cargo test` the tests run as
-  threads of one process and raced on `XDG_RUNTIME_DIR`, intermittently failing
-  `runtime_dir_accepts_an_absolute_path` with a sibling test's value. A
-  process-wide lock now serializes every environment mutation and the restore in
-  `Drop` — the invariant that `set_var` being `unsafe` in edition 2024 requires.
 
 ## [0.0.77] - 2026-10-17
 
@@ -4228,11 +4233,6 @@ which the locked Git dependency now points.)
   ADR-0014 (buffer transform and viewport crop),
   ADR-0015 (per-commit damage tracking),
   ADR-0016 (shell/server window-management bridge), and
-  ADR-0017 (server-side decorations via overlays).
-- Updated `README.md`, `docs/dev/setup.md`, `docs/explanation/architecture.md`
-  to reflect the new build paths, `RUST_LOG`, `libxkbcommon` dependency,
-  and the milestone status.
-DR-0016 (shell/server window-management bridge), and
   ADR-0017 (server-side decorations via overlays).
 - Updated `README.md`, `docs/dev/setup.md`, `docs/explanation/architecture.md`
   to reflect the new build paths, `RUST_LOG`, `libxkbcommon` dependency,
