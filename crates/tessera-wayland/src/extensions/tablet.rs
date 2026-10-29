@@ -41,7 +41,7 @@ pub(crate) unsafe extern "C" fn tablet_manager_bind(
     id: u32,
 ) {
     unsafe {
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::zwp_tablet_manager_v2_interface,
             version.min(1) as c_int,
@@ -83,7 +83,7 @@ unsafe extern "C" fn tablet_manager_get_tablet_seat(
         };
         let seat_id = (*state).active_seat;
         let ver = ffi::wl_resource_get_version(mgr);
-        let res = ffi::wl_resource_create(client, &ffi::zwp_tablet_seat_v2_interface, ver, id);
+        let res = ffi::checked_resource_create(client, &ffi::zwp_tablet_seat_v2_interface, ver, id);
         if res.is_null() {
             return;
         }
@@ -179,7 +179,7 @@ pub(crate) unsafe fn announce_tablet(state: *mut State, seat: *mut ffi::wl_resou
     unsafe {
         let client = ffi::wl_resource_get_client(seat);
         let ver = ffi::wl_resource_get_version(seat);
-        let res = ffi::wl_resource_create(client, &ffi::zwp_tablet_v2_interface, ver, 0);
+        let res = ffi::checked_resource_create(client, &ffi::zwp_tablet_v2_interface, ver, 0);
         if res.is_null() {
             return;
         }
@@ -210,7 +210,7 @@ pub(crate) unsafe fn tablet_tool_resource(
     unsafe {
         let client = ffi::wl_resource_get_client(seat);
         let ver = ffi::wl_resource_get_version(seat);
-        let res = ffi::wl_resource_create(client, &ffi::zwp_tablet_tool_v2_interface, ver, 0);
+        let res = ffi::checked_resource_create(client, &ffi::zwp_tablet_tool_v2_interface, ver, 0);
         if res.is_null() {
             return std::ptr::null_mut();
         }

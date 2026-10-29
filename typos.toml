@@ -9,6 +9,11 @@ extend-ignore-identifiers-re = [
 
 [default.extend-words]
 # Technical identifiers and units the dictionary cannot know
+Paeth = "Paeth"
+flate = "flate"
+flate2 = "flate2"
+unparseable = "unparseable"
+mis = "mis"
 controllen = "controllen"
 numer = "numer"
 PN = "PN"

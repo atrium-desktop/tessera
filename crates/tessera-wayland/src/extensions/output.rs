@@ -65,7 +65,7 @@ pub(crate) unsafe extern "C" fn xdg_output_manager_bind(
     id: u32,
 ) {
     unsafe {
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::zxdg_output_manager_v1_interface,
             version as c_int,
@@ -92,7 +92,7 @@ unsafe extern "C" fn xdg_output_manager_get_xdg_output(
     unsafe {
         let state = ffi::wl_resource_get_user_data(mgr) as *mut State;
         let ver = ffi::wl_resource_get_version(mgr);
-        let res = ffi::wl_resource_create(client, &ffi::zxdg_output_v1_interface, ver, id);
+        let res = ffi::checked_resource_create(client, &ffi::zxdg_output_v1_interface, ver, id);
         if res.is_null() {
             return;
         }

@@ -52,7 +52,10 @@ impl IwdAgent {
         &self,
         _network: zbus::zvariant::ObjectPath<'_>,
     ) -> zbus::fdo::Result<String> {
-        let mut guard = self.pending_passphrase.lock().unwrap();
+        let mut guard = self
+            .pending_passphrase
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if let Some(pass) = guard.take() {
             Ok(pass)
         } else {
@@ -64,7 +67,10 @@ impl IwdAgent {
 
     async fn cancel(&self, reason: String) {
         log::debug!("iwd agent authentication cancelled: {reason}");
-        let mut guard = self.pending_passphrase.lock().unwrap();
+        let mut guard = self
+            .pending_passphrase
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *guard = None;
     }
 }
@@ -237,7 +243,7 @@ impl IwdBackend {
             });
         }
 
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         cache.station_path = station_path;
         cache.device_path = device_path;
         cache.state = station_state;
@@ -254,7 +260,7 @@ impl WirelessBackend for IwdBackend {
         let station = self
             .cache
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .station_path
             .clone()
             .ok_or_else(|| "no wireless station device found".to_string())?;
@@ -276,7 +282,7 @@ impl WirelessBackend for IwdBackend {
     fn connect(&self, ssid: &str, passphrase: Option<&str>) -> Result<(), String> {
         self.refresh()?;
         let target_path = {
-            let cache = self.cache.lock().unwrap();
+            let cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
             let network = cache.networks.iter().find(|n| n.ssid == ssid);
             if network.is_none() {
                 return Err(format!("network '{ssid}' not found"));
@@ -325,7 +331,10 @@ impl WirelessBackend for IwdBackend {
 
         // Stage passphrase for iwd Agent callback if required
         if let Some(pass) = passphrase {
-            let mut guard = self.pending_passphrase.lock().unwrap();
+            let mut guard = self
+                .pending_passphrase
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             *guard = Some(pass.to_string());
         }
 
@@ -347,7 +356,7 @@ impl WirelessBackend for IwdBackend {
         let station = self
             .cache
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .station_path
             .clone()
             .ok_or_else(|| "no wireless station device found".to_string())?;
@@ -370,7 +379,7 @@ impl WirelessBackend for IwdBackend {
         let device = self
             .cache
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .device_path
             .clone()
             .ok_or_else(|| "no wireless device found".to_string())?;
@@ -395,7 +404,7 @@ impl WirelessBackend for IwdBackend {
 
     fn forget(&self, ssid: &str) -> Result<(), String> {
         let target_path = {
-            let cache = self.cache.lock().unwrap();
+            let cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
             cache.known_networks.get(ssid).map(|(p, _)| p.clone())
         };
 
@@ -418,7 +427,7 @@ impl WirelessBackend for IwdBackend {
 
     fn set_auto_connect(&self, ssid: &str, auto_connect: bool) -> Result<(), String> {
         let target_path = {
-            let cache = self.cache.lock().unwrap();
+            let cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
             cache.known_networks.get(ssid).map(|(p, _)| p.clone())
         };
 
@@ -440,15 +449,23 @@ impl WirelessBackend for IwdBackend {
     }
 
     fn state(&self) -> WifiLinkState {
-        self.cache.lock().unwrap().state
+        self.cache.lock().unwrap_or_else(|e| e.into_inner()).state
     }
 
     fn networks(&self) -> Vec<WifiNetwork> {
-        self.cache.lock().unwrap().networks.clone()
+        self.cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .networks
+            .clone()
     }
 
     fn active_ssid(&self) -> Option<String> {
-        self.cache.lock().unwrap().active_ssid.clone()
+        self.cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .active_ssid
+            .clone()
     }
 
     fn available(&self) -> bool {

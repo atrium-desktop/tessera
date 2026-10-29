@@ -13,7 +13,7 @@ superseded_by: null
 
 ## Context
 
-[ADR-0080](0080-avatar-crate-xdg-conformant-vrm-aware.md) established VRM as
+[ADR-0194](0194-avatar-crate-xdg-conformant-vrm-aware.md) established VRM as
 an avatar source, but the renderer supplied one hard-coded Phong material for
 the complete scene. The configured model stores its visible colors in
 embedded PNG base-color textures; its glTF base-color factors are white. The

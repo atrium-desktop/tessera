@@ -804,68 +804,17 @@ pub struct wp_viewport_interface_impl {
     pub set_destination: unsafe extern "C" fn(*mut wl_client, *mut wl_resource, i32, i32),
 }
 
-// ----- vtable sizing discipline ------------------------------------------
-//
-// libwayland indexes an `*_interface_impl` struct by request opcode: a request
-// with opcode N reads `impl[N]`. An under-sized struct therefore causes an
-// out-of-bounds read on the highest opcodes the protocol advertises (which
-// depends on the version we bind). Assert here, at compile time, that every
-// impl struct has exactly as many function-pointer slots as the protocol
-// defines for the version we bind — so adding a request to the protocol XML
-// without adding a slot here becomes a hard build failure, not a latent UB.
-//
-// Sizes are function-pointer count; `*const ()` is one pointer slot wide.
-
-/// Compile-time assert that an `*_interface_impl` struct carries exactly the
-/// expected number of function-pointer entries. `count` is the number of
-/// opcodes the protocol advertises for the version we bind.
-macro_rules! assert_impl_opcode_count {
-    ($ty:ty, $count:expr_2021) => {
-        const _: () = {
-            assert!(std::mem::size_of::<$ty>() == $count * std::mem::size_of::<*const ()>(),);
-        };
-    };
-}
-
-// Opcode counts (request side) come from the protocol XML at the version we
-// bind; they must not change without bumping the bind version and adding a
 // matching slot to the impl struct.
-assert_impl_opcode_count!(wl_compositor_interface_impl, 2);
-assert_impl_opcode_count!(wl_surface_interface_impl, 10);
-assert_impl_opcode_count!(wl_region_interface_impl, 3);
-assert_impl_opcode_count!(xdg_wm_base_interface_impl, 4);
-assert_impl_opcode_count!(xdg_positioner_interface_impl, 7);
-assert_impl_opcode_count!(xdg_popup_interface_impl, 2);
-assert_impl_opcode_count!(xdg_surface_interface_impl, 5);
-assert_impl_opcode_count!(wl_subcompositor_interface_impl, 2);
-assert_impl_opcode_count!(wl_subsurface_interface_impl, 6);
-assert_impl_opcode_count!(wl_data_device_manager_interface_impl, 2);
-assert_impl_opcode_count!(wl_data_device_interface_impl, 3);
-assert_impl_opcode_count!(wl_data_source_interface_impl, 3);
-assert_impl_opcode_count!(wl_data_offer_interface_impl, 5);
-assert_impl_opcode_count!(ext_data_control_manager_v1_interface_impl, 3);
-assert_impl_opcode_count!(ext_data_control_device_v1_interface_impl, 3);
-assert_impl_opcode_count!(ext_data_control_source_v1_interface_impl, 2);
-assert_impl_opcode_count!(ext_data_control_offer_v1_interface_impl, 2);
-assert_impl_opcode_count!(wl_seat_interface_impl, 4);
-assert_impl_opcode_count!(wl_pointer_interface_impl, 2);
-assert_impl_opcode_count!(wl_keyboard_interface_impl, 1);
-assert_impl_opcode_count!(wl_touch_interface_impl, 1);
-assert_impl_opcode_count!(xdg_toplevel_interface_impl, 14);
-assert_impl_opcode_count!(zwp_linux_dmabuf_v1_interface_impl, 4);
-assert_impl_opcode_count!(zwp_linux_dmabuf_feedback_v1_interface_impl, 1);
-assert_impl_opcode_count!(zwp_linux_buffer_params_v1_interface_impl, 4);
-assert_impl_opcode_count!(wl_buffer_interface_impl, 1);
-assert_impl_opcode_count!(wp_viewporter_interface_impl, 2);
-assert_impl_opcode_count!(wp_viewport_interface_impl, 3);
 
 // ----- extension protocol request vtables ---------------------------------
 //
 // libwayland indexes each `*_interface_impl` struct by request opcode, so the
-// struct must carry exactly as many function-pointer slots as the protocol
-// advertises requests. The asserts at the bottom enforce this. Request
-// signatures come verbatim from the protocol XML; argument types are the C ABI
-// (object → *mut wl_resource, new_id → u32, fixed → i32, etc.).
+// struct must carry every slot the advertised protocol version can dispatch.
+// `declare_vtables!` below binds each struct to its interface and enforces that
+// coverage against libwayland's own metadata; there is no hand-counted slot
+// tally to keep in sync. Request signatures come verbatim from the protocol
+// XML; argument types are the C ABI (object → *mut wl_resource, new_id → u32,
+// fixed → i32, etc.).
 
 /// `zxdg_output_manager_v1`: destroy, get_xdg_output.
 #[repr(C)]
@@ -1405,62 +1354,318 @@ pub struct xdg_toplevel_drag_v1_interface_impl {
     pub attach: unsafe extern "C" fn(*mut wl_client, *mut wl_resource, *mut wl_resource, i32, i32),
 }
 
-assert_impl_opcode_count!(zxdg_output_manager_v1_interface_impl, 2);
-assert_impl_opcode_count!(zxdg_output_v1_interface_impl, 1);
-assert_impl_opcode_count!(zxdg_decoration_manager_v1_interface_impl, 2);
-assert_impl_opcode_count!(zxdg_toplevel_decoration_v1_interface_impl, 3);
-assert_impl_opcode_count!(xdg_activation_v1_interface_impl, 3);
-assert_impl_opcode_count!(xdg_activation_token_v1_interface_impl, 5);
-assert_impl_opcode_count!(wp_presentation_interface_impl, 2);
-assert_impl_opcode_count!(wp_fractional_scale_manager_v1_interface_impl, 2);
-assert_impl_opcode_count!(wp_fractional_scale_v1_interface_impl, 1);
-assert_impl_opcode_count!(zwp_idle_inhibit_manager_v1_interface_impl, 2);
-assert_impl_opcode_count!(zwp_idle_inhibitor_v1_interface_impl, 1);
-assert_impl_opcode_count!(ext_idle_notifier_v1_interface_impl, 3);
-assert_impl_opcode_count!(ext_idle_notification_v1_interface_impl, 1);
-assert_impl_opcode_count!(zwp_relative_pointer_manager_v1_interface_impl, 2);
-assert_impl_opcode_count!(zwp_relative_pointer_v1_interface_impl, 1);
-assert_impl_opcode_count!(zwp_pointer_gestures_v1_interface_impl, 4);
-assert_impl_opcode_count!(zwp_pointer_gesture_swipe_v1_interface_impl, 1);
-assert_impl_opcode_count!(zwp_pointer_gesture_pinch_v1_interface_impl, 1);
-assert_impl_opcode_count!(zwp_pointer_gesture_hold_v1_interface_impl, 1);
-assert_impl_opcode_count!(zwp_keyboard_shortcuts_inhibit_manager_v1_interface_impl, 2);
-assert_impl_opcode_count!(zwp_keyboard_shortcuts_inhibitor_v1_interface_impl, 1);
-assert_impl_opcode_count!(zwp_pointer_constraints_v1_interface_impl, 3);
-assert_impl_opcode_count!(zwp_confined_pointer_v1_interface_impl, 2);
-assert_impl_opcode_count!(zwp_locked_pointer_v1_interface_impl, 3);
-assert_impl_opcode_count!(ext_session_lock_manager_v1_interface_impl, 2);
-assert_impl_opcode_count!(ext_session_lock_v1_interface_impl, 3);
-assert_impl_opcode_count!(ext_session_lock_surface_v1_interface_impl, 2);
-assert_impl_opcode_count!(ext_foreign_toplevel_list_v1_interface_impl, 2);
-assert_impl_opcode_count!(ext_foreign_toplevel_handle_v1_interface_impl, 1);
-assert_impl_opcode_count!(zxdg_exporter_v2_interface_impl, 2);
-assert_impl_opcode_count!(zxdg_importer_v2_interface_impl, 2);
-assert_impl_opcode_count!(zxdg_exported_v2_interface_impl, 1);
-assert_impl_opcode_count!(zxdg_imported_v2_interface_impl, 2);
-assert_impl_opcode_count!(wp_cursor_shape_manager_v1_interface_impl, 3);
-assert_impl_opcode_count!(wp_cursor_shape_device_v1_interface_impl, 2);
-assert_impl_opcode_count!(zwp_text_input_manager_v3_interface_impl, 2);
-assert_impl_opcode_count!(zwp_text_input_v3_interface_impl, 8);
-assert_impl_opcode_count!(zwp_input_method_manager_v2_interface_impl, 2);
-assert_impl_opcode_count!(zwp_input_method_v2_interface_impl, 7);
-assert_impl_opcode_count!(zwp_input_popup_surface_v2_interface_impl, 1);
-assert_impl_opcode_count!(zwp_input_method_keyboard_grab_v2_interface_impl, 1);
-assert_impl_opcode_count!(zwp_virtual_keyboard_manager_v1_interface_impl, 1);
-assert_impl_opcode_count!(zwp_virtual_keyboard_v1_interface_impl, 4);
-// color-management-v1: counts cover the full XML v3 request tables (including
-// since=2/3 requests), not just the v1 subset we advertise.
-assert_impl_opcode_count!(wp_color_manager_v1_interface_impl, 9);
-assert_impl_opcode_count!(wp_color_management_output_v1_interface_impl, 2);
-assert_impl_opcode_count!(wp_color_management_surface_v1_interface_impl, 3);
-assert_impl_opcode_count!(wp_color_management_surface_feedback_v1_interface_impl, 3);
-assert_impl_opcode_count!(wp_image_description_creator_icc_v1_interface_impl, 2);
-assert_impl_opcode_count!(wp_image_description_creator_params_v1_interface_impl, 10);
-assert_impl_opcode_count!(wp_image_description_v1_interface_impl, 2);
-assert_impl_opcode_count!(wp_image_description_reference_v1_interface_impl, 1);
-assert_impl_opcode_count!(xdg_toplevel_drag_manager_v1_interface_impl, 2);
-assert_impl_opcode_count!(xdg_toplevel_drag_v1_interface_impl, 2);
-
 pub const XDG_TOPLEVEL_DRAG_MANAGER_V1_ERROR_INVALID_SOURCE: u32 = 0;
 pub const XDG_TOPLEVEL_DRAG_V1_ERROR_TOPLEVEL_ATTACHED: u32 = 0;
 pub const XDG_TOPLEVEL_DRAG_V1_ERROR_ONGOING_DRAG: u32 = 1;
+
+// ----- vtable admission ---------------------------------------------------
+//
+// libwayland indexes a request vtable by opcode: a request with opcode N calls
+// `impl[N]`. The slot count an interface needs is therefore *derived* from the
+// protocol version the server advertises for that resource — it is never
+// hand-counted. `declare_vtables!` binds each impl struct to the libwayland
+// interface it implements; `checked_resource_create` refuses to hand a client
+// an object whose advertised version would index past the end of the struct.
+// Adding a request to a protocol without widening the struct fails the build
+// (shape assert) or the first bind (admission assert) — never silently.
+
+macro_rules! declare_vtables {
+    ($($iface:ident => $impl:ty),+ $(,)?) => {
+        $(
+            const _: () = assert!(
+                std::mem::size_of::<$impl>() % std::mem::size_of::<*const ()>() == 0,
+                concat!(stringify!($impl), " must be a plain array of function pointers"),
+            );
+        )+
+
+        /// Request-vtable slot count for `interface`, or `None` for an
+        /// interface the server does not implement (e.g. `wl_callback`, whose
+        /// vtable libwayland never indexes on the server side).
+        pub(crate) fn impl_slots_for(interface: *const wl_interface) -> Option<usize> {
+            $(
+                if std::ptr::eq(interface, unsafe { &$iface as *const wl_interface }) {
+                    return Some(
+                        std::mem::size_of::<$impl>() / std::mem::size_of::<*const ()>(),
+                    );
+                }
+            )+
+            None
+        }
+
+        /// Every declared vtable as `(interface name, interface, slot count)`,
+        /// for admission auditing.
+        #[cfg(test)]
+        pub(crate) fn vtable_registry() -> Vec<(&'static str, *const wl_interface, usize)> {
+            vec![
+                $(
+                    (stringify!($iface), unsafe { &$iface as *const wl_interface },
+                     std::mem::size_of::<$impl>() / std::mem::size_of::<*const ()>()),
+                )+
+            ]
+        }
+    };
+}
+
+declare_vtables! {
+    wl_compositor_interface => wl_compositor_interface_impl,
+    wl_surface_interface => wl_surface_interface_impl,
+    wl_region_interface => wl_region_interface_impl,
+    xdg_wm_base_interface => xdg_wm_base_interface_impl,
+    xdg_positioner_interface => xdg_positioner_interface_impl,
+    xdg_popup_interface => xdg_popup_interface_impl,
+    xdg_surface_interface => xdg_surface_interface_impl,
+    wl_subcompositor_interface => wl_subcompositor_interface_impl,
+    wl_subsurface_interface => wl_subsurface_interface_impl,
+    wl_output_interface => wl_output_interface_impl,
+    wl_data_device_manager_interface => wl_data_device_manager_interface_impl,
+    wl_data_device_interface => wl_data_device_interface_impl,
+    wl_data_source_interface => wl_data_source_interface_impl,
+    wl_data_offer_interface => wl_data_offer_interface_impl,
+    ext_data_control_manager_v1_interface => ext_data_control_manager_v1_interface_impl,
+    ext_data_control_device_v1_interface => ext_data_control_device_v1_interface_impl,
+    ext_data_control_source_v1_interface => ext_data_control_source_v1_interface_impl,
+    ext_data_control_offer_v1_interface => ext_data_control_offer_v1_interface_impl,
+    wl_seat_interface => wl_seat_interface_impl,
+    wl_pointer_interface => wl_pointer_interface_impl,
+    wl_keyboard_interface => wl_keyboard_interface_impl,
+    wl_touch_interface => wl_touch_interface_impl,
+    xdg_toplevel_interface => xdg_toplevel_interface_impl,
+    zwp_linux_dmabuf_v1_interface => zwp_linux_dmabuf_v1_interface_impl,
+    zwp_linux_dmabuf_feedback_v1_interface => zwp_linux_dmabuf_feedback_v1_interface_impl,
+    zwp_linux_buffer_params_v1_interface => zwp_linux_buffer_params_v1_interface_impl,
+    wl_buffer_interface => wl_buffer_interface_impl,
+    wp_viewporter_interface => wp_viewporter_interface_impl,
+    wp_viewport_interface => wp_viewport_interface_impl,
+    zxdg_output_manager_v1_interface => zxdg_output_manager_v1_interface_impl,
+    zxdg_output_v1_interface => zxdg_output_v1_interface_impl,
+    zxdg_decoration_manager_v1_interface => zxdg_decoration_manager_v1_interface_impl,
+    zxdg_toplevel_decoration_v1_interface => zxdg_toplevel_decoration_v1_interface_impl,
+    xdg_activation_v1_interface => xdg_activation_v1_interface_impl,
+    xdg_activation_token_v1_interface => xdg_activation_token_v1_interface_impl,
+    wp_presentation_interface => wp_presentation_interface_impl,
+    wp_fractional_scale_manager_v1_interface => wp_fractional_scale_manager_v1_interface_impl,
+    wp_fractional_scale_v1_interface => wp_fractional_scale_v1_interface_impl,
+    zwp_idle_inhibit_manager_v1_interface => zwp_idle_inhibit_manager_v1_interface_impl,
+    zwp_idle_inhibitor_v1_interface => zwp_idle_inhibitor_v1_interface_impl,
+    ext_idle_notifier_v1_interface => ext_idle_notifier_v1_interface_impl,
+    ext_idle_notification_v1_interface => ext_idle_notification_v1_interface_impl,
+    zwp_relative_pointer_manager_v1_interface => zwp_relative_pointer_manager_v1_interface_impl,
+    zwp_relative_pointer_v1_interface => zwp_relative_pointer_v1_interface_impl,
+    zwp_pointer_gestures_v1_interface => zwp_pointer_gestures_v1_interface_impl,
+    zwp_pointer_gesture_swipe_v1_interface => zwp_pointer_gesture_swipe_v1_interface_impl,
+    zwp_pointer_gesture_pinch_v1_interface => zwp_pointer_gesture_pinch_v1_interface_impl,
+    zwp_pointer_gesture_hold_v1_interface => zwp_pointer_gesture_hold_v1_interface_impl,
+    zwp_keyboard_shortcuts_inhibit_manager_v1_interface => zwp_keyboard_shortcuts_inhibit_manager_v1_interface_impl,
+    zwp_keyboard_shortcuts_inhibitor_v1_interface => zwp_keyboard_shortcuts_inhibitor_v1_interface_impl,
+    zwp_pointer_constraints_v1_interface => zwp_pointer_constraints_v1_interface_impl,
+    zwp_confined_pointer_v1_interface => zwp_confined_pointer_v1_interface_impl,
+    zwp_locked_pointer_v1_interface => zwp_locked_pointer_v1_interface_impl,
+    ext_session_lock_manager_v1_interface => ext_session_lock_manager_v1_interface_impl,
+    ext_session_lock_v1_interface => ext_session_lock_v1_interface_impl,
+    ext_session_lock_surface_v1_interface => ext_session_lock_surface_v1_interface_impl,
+    zwp_linux_explicit_synchronization_v1_interface => zwp_linux_explicit_synchronization_v1_interface_impl,
+    zwp_linux_surface_synchronization_v1_interface => zwp_linux_surface_synchronization_v1_interface_impl,
+    zwp_tablet_manager_v2_interface => zwp_tablet_manager_v2_interface_impl,
+    zwp_tablet_seat_v2_interface => zwp_tablet_seat_v2_interface_impl,
+    zwp_tablet_v2_interface => zwp_tablet_v2_interface_impl,
+    zwp_tablet_tool_v2_interface => zwp_tablet_tool_v2_interface_impl,
+    ext_foreign_toplevel_list_v1_interface => ext_foreign_toplevel_list_v1_interface_impl,
+    ext_foreign_toplevel_handle_v1_interface => ext_foreign_toplevel_handle_v1_interface_impl,
+    zxdg_exporter_v2_interface => zxdg_exporter_v2_interface_impl,
+    zxdg_importer_v2_interface => zxdg_importer_v2_interface_impl,
+    zxdg_exported_v2_interface => zxdg_exported_v2_interface_impl,
+    zxdg_imported_v2_interface => zxdg_imported_v2_interface_impl,
+    wp_cursor_shape_manager_v1_interface => wp_cursor_shape_manager_v1_interface_impl,
+    wp_cursor_shape_device_v1_interface => wp_cursor_shape_device_v1_interface_impl,
+    zwp_text_input_manager_v3_interface => zwp_text_input_manager_v3_interface_impl,
+    zwp_text_input_v3_interface => zwp_text_input_v3_interface_impl,
+    zwp_input_method_manager_v2_interface => zwp_input_method_manager_v2_interface_impl,
+    zwp_input_method_v2_interface => zwp_input_method_v2_interface_impl,
+    zwp_input_popup_surface_v2_interface => zwp_input_popup_surface_v2_interface_impl,
+    zwp_input_method_keyboard_grab_v2_interface => zwp_input_method_keyboard_grab_v2_interface_impl,
+    zwp_virtual_keyboard_manager_v1_interface => zwp_virtual_keyboard_manager_v1_interface_impl,
+    zwp_virtual_keyboard_v1_interface => zwp_virtual_keyboard_v1_interface_impl,
+    wp_color_manager_v1_interface => wp_color_manager_v1_interface_impl,
+    wp_color_management_output_v1_interface => wp_color_management_output_v1_interface_impl,
+    wp_color_management_surface_v1_interface => wp_color_management_surface_v1_interface_impl,
+    wp_color_management_surface_feedback_v1_interface => wp_color_management_surface_feedback_v1_interface_impl,
+    wp_image_description_creator_icc_v1_interface => wp_image_description_creator_icc_v1_interface_impl,
+    wp_image_description_creator_params_v1_interface => wp_image_description_creator_params_v1_interface_impl,
+    wp_image_description_v1_interface => wp_image_description_v1_interface_impl,
+    wp_image_description_reference_v1_interface => wp_image_description_reference_v1_interface_impl,
+    xdg_toplevel_drag_manager_v1_interface => xdg_toplevel_drag_manager_v1_interface_impl,
+    xdg_toplevel_drag_v1_interface => xdg_toplevel_drag_v1_interface_impl,
+}
+
+/// Request-opcode slots libwayland indexes for `interface` at `version`.
+///
+/// A message's `since` version is the leading digit of its signature (`"3"`,
+/// `"4iiii"`); messages from version 1 carry no digit. Methods are ordered by
+/// opcode, so the highest opcode with `since <= version` is the last slot
+/// libwayland can reach.
+///
+/// # Safety
+/// `interface` must point at a valid libwayland interface table.
+pub(crate) unsafe fn required_request_slots(interface: *const wl_interface, version: i32) -> usize {
+    let iface = unsafe { &*interface };
+    let mut slots = 0usize;
+    for opcode in 0..iface.method_count.max(0) as usize {
+        let message = unsafe { &*iface.methods.add(opcode) };
+        if unsafe { message_since(message.signature) } <= version {
+            slots = opcode + 1;
+        }
+    }
+    slots
+}
+
+unsafe fn message_since(signature: *const c_char) -> i32 {
+    if signature.is_null() {
+        return 1;
+    }
+    let first = unsafe { *signature } as u8;
+    if first.is_ascii_digit() && first != b'0' {
+        (first - b'0') as i32
+    } else {
+        1
+    }
+}
+
+// ----- advertised interface versions -------------------------------------
+//
+// The highest version this server ever binds on a resource of each interface.
+// libwayland indexes `impl[opcode]` for every request the bound version
+// advertises, so these are the versions the vtable audit checks against. A
+// global's version is passed verbatim to `wl_global_create`; sub-objects
+// inherit their parent's. Interfaces we advertise below their protocol maximum
+// are pinned here so the audit and the bind sites cannot drift.
+pub(crate) const V_WL_COMPOSITOR: i32 = 4;
+pub(crate) const V_WL_SURFACE: i32 = V_WL_COMPOSITOR;
+pub(crate) const V_XDG_WM_BASE: i32 = 1;
+pub(crate) const V_XDG_POSITIONER: i32 = V_XDG_WM_BASE;
+pub(crate) const V_XDG_POPUP: i32 = V_XDG_WM_BASE;
+pub(crate) const V_WL_DATA_DEVICE_MANAGER: i32 = 3;
+pub(crate) const V_ZWP_TEXT_INPUT_MANAGER_V3: i32 = 1;
+pub(crate) const V_ZWP_TEXT_INPUT_V3: i32 = V_ZWP_TEXT_INPUT_MANAGER_V3;
+
+fn interface_name(interface: *const wl_interface) -> String {
+    let name = unsafe { (*interface).name };
+    if name.is_null() {
+        "<unnamed>".to_owned()
+    } else {
+        unsafe { std::ffi::CStr::from_ptr(name) }
+            .to_string_lossy()
+            .into_owned()
+    }
+}
+
+/// The highest version this server advertises for `interface`: libwayland's
+/// declared maximum, capped by the pinned override where the server binds
+/// below it ([`V_WL_COMPOSITOR`] and friends).
+fn advertised_version(interface: *const wl_interface) -> i32 {
+    let declared = unsafe { (*interface).version };
+    for (candidate, cap) in unsafe {
+        [
+            (
+                &wl_compositor_interface as *const wl_interface,
+                V_WL_COMPOSITOR,
+            ),
+            (&wl_surface_interface as *const wl_interface, V_WL_SURFACE),
+            (&xdg_wm_base_interface as *const wl_interface, V_XDG_WM_BASE),
+            (
+                &xdg_positioner_interface as *const wl_interface,
+                V_XDG_POSITIONER,
+            ),
+            (&xdg_popup_interface as *const wl_interface, V_XDG_POPUP),
+            (
+                &wl_data_device_manager_interface as *const wl_interface,
+                V_WL_DATA_DEVICE_MANAGER,
+            ),
+            (
+                &zwp_text_input_manager_v3_interface as *const wl_interface,
+                V_ZWP_TEXT_INPUT_MANAGER_V3,
+            ),
+            (
+                &zwp_text_input_v3_interface as *const wl_interface,
+                V_ZWP_TEXT_INPUT_V3,
+            ),
+        ]
+    } {
+        if std::ptr::eq(interface, candidate) {
+            return declared.min(cap);
+        }
+    }
+    declared
+}
+
+/// Create a client resource, refusing to hand out one whose advertised version
+/// would let libwayland index past the end of its request vtable. An
+/// under-sized vtable is the memory-safety failure mode ADR-0006 documents; a
+/// missing slot is a build-or-bind failure here, never a silent out-of-bounds
+/// call.
+///
+/// # Safety
+/// Same contract as `wl_resource_create`: `client` must be a live client and
+/// `interface` a valid table.
+pub(crate) unsafe fn checked_resource_create(
+    client: *mut wl_client,
+    interface: *const wl_interface,
+    version: c_int,
+    id: u32,
+) -> *mut wl_resource {
+    if let Some(slots) = impl_slots_for(interface) {
+        let required = unsafe { required_request_slots(interface, version) };
+        assert!(
+            slots >= required,
+            "request vtable for `{}` has {slots} slot(s), but version {version} lets \
+             libwayland index {required}; widen the `*_interface_impl` struct",
+            interface_name(interface),
+        );
+    }
+    unsafe { wl_resource_create(client, interface, version, id) }
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+
+    #[test]
+    fn test_inv_data_device_manager_slots_track_bind_version() {
+        // v3 advertises create_data_source + get_data_device; `release` is v4.
+        assert_eq!(
+            unsafe { required_request_slots(&wl_data_device_manager_interface, 3) },
+            2
+        );
+        assert_eq!(
+            unsafe { required_request_slots(&wl_data_device_manager_interface, 4) },
+            3
+        );
+    }
+
+    #[test]
+    fn test_inv_data_device_slots_track_bind_version() {
+        // `release` is since v2; the seat's data device is advertised at v3.
+        assert_eq!(
+            unsafe { required_request_slots(&wl_data_device_interface, 3) },
+            3
+        );
+    }
+
+    #[test]
+    fn test_inv_declared_slot_counts_match_libwayland() {
+        // Every declared vtable must cover each request the interface can
+        // dispatch at the version this server advertises. The required count is
+        // derived from libwayland's own metadata, so a hand-typed tally can
+        // never diverge from the protocol again.
+        let mut report = String::new();
+        for (name, iface, slots) in vtable_registry() {
+            let advertised = advertised_version(iface);
+            let required = unsafe { required_request_slots(iface, advertised) };
+            if slots < required {
+                report.push_str(&format!(
+                    "{name}: {slots} slot(s) < {required} required at v{advertised}\n"
+                ));
+            }
+        }
+        assert!(report.is_empty(), "uncovered vtables:\n{report}");
+    }
+}

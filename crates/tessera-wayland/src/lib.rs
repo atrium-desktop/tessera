@@ -421,6 +421,41 @@ pub(crate) unsafe fn libc_close(fd: i32) {
     }
 }
 
+/// `struct timespec` as `clock_gettime` writes it. `tv_sec`/`tv_nsec` are
+/// `c_long`, which is 64-bit on every supported Linux target.
+#[repr(C)]
+struct Timespec {
+    tv_sec: std::os::raw::c_long,
+    tv_nsec: std::os::raw::c_long,
+}
+
+unsafe extern "C" {
+    fn clock_gettime(clock_id: std::os::raw::c_int, tp: *mut Timespec) -> std::os::raw::c_int;
+}
+
+/// `CLOCK_MONOTONIC`, the clock `wp_presentation` advertises to clients.
+const CLOCK_MONOTONIC: std::os::raw::c_int = 1;
+
+/// The compositor's real presentation clock, in nanoseconds on
+/// `CLOCK_MONOTONIC` — the clock id the `wp_presentation.clock` event
+/// announces. `wp_presentation_feedback.presented` timestamps are published on
+/// this clock so a client can derive presentation latency by subtracting its
+/// own `CLOCK_MONOTONIC` reading (ADR-0122, `[INV-PACE-02]`). Returns 0 when
+/// the clock cannot be read; a 0 timestamp is the protocol's "unknown" value.
+pub(crate) fn monotonic_ns() -> u64 {
+    let mut ts = Timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    let rc = unsafe { clock_gettime(CLOCK_MONOTONIC, &mut ts) };
+    if rc != 0 {
+        return 0;
+    }
+    (ts.tv_sec as u64)
+        .saturating_mul(1_000_000_000)
+        .saturating_add(ts.tv_nsec as u64)
+}
+
 /// A compositor-invented placement offset (ADR-0131). Recorded when a newly
 /// mapped toplevel's resolved origin exactly collides with a live window's
 /// origin and the window was shifted diagonally to a free origin instead.
@@ -485,6 +520,13 @@ pub struct SurfaceRec {
     committed_acquire_fence: i32,
     committed_explicit_release: *mut ffi::wl_resource,
     frame_callbacks: Vec<*mut ffi::wl_resource>,
+    /// `wp_presentation_feedback` objects awaiting the frame that carries the
+    /// surface's next commit. They are completed with a real presentation
+    /// timestamp once that frame reaches the display, or discarded if the
+    /// surface goes away first (ADR-0122, `[INV-PACE-02]`). The list is drained
+    /// on completion and unlinked by `feedback_resource_destroy` when a client
+    /// or a teardown frees the object, so no entry outlives its resource.
+    presentation_feedback: Vec<*mut ffi::wl_resource>,
     // xdg-shell role state.
     xdg_surface: *mut ffi::wl_resource,
     xdg_toplevel: *mut ffi::wl_resource,
@@ -670,6 +712,7 @@ impl SurfaceRec {
             committed_acquire_fence: -1,
             committed_explicit_release: std::ptr::null_mut(),
             frame_callbacks: Vec::new(),
+            presentation_feedback: Vec::new(),
             xdg_surface: std::ptr::null_mut(),
             xdg_toplevel: std::ptr::null_mut(),
             xdg_decoration: std::ptr::null_mut(),
@@ -1677,6 +1720,11 @@ pub(crate) struct State {
     /// Cached chrome-aware work area bounds for maximized windows.
     pub(crate) last_work_area: tessera_primitives::Rect,
     pub(crate) epoch: std::time::Instant,
+    /// Frame sequence published with `wp_presentation_feedback.presented`
+    /// (ADR-0122). Monotonic per presented frame: every feedback object
+    /// completed for one presented frame shares its sequence number, letting a
+    /// client correlate the timestamp with a specific flip.
+    pub(crate) presentation_seq: u64,
     /// Memoized window signatures, keyed by the `now_ms` they were computed
     /// at: `(now, visible_set_signature, all_windows_signature)`. The frame
     /// loop evaluates both signatures from two call sites per frame (damage

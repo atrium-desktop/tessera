@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-07-30
+- Amended by: [ADR-0197](0197-control-center-tray-shelf-and-overflow-disclosure.md) (the panel's tray is now a bounded bottom-left shelf with overflow disclosure, not a scrolling column)
 
 ## Context
 

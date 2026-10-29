@@ -67,7 +67,7 @@ pub(crate) unsafe extern "C" fn xdg_activation_bind(
     id: u32,
 ) {
     unsafe {
-        let resource = ffi::wl_resource_create(
+        let resource = ffi::checked_resource_create(
             client,
             &ffi::xdg_activation_v1_interface,
             version.min(1) as c_int,
@@ -92,7 +92,7 @@ unsafe extern "C" fn xdg_activation_get_token(
     unsafe {
         let state = ffi::wl_resource_get_user_data(activation) as *mut State;
         let resource =
-            ffi::wl_resource_create(client, &ffi::xdg_activation_token_v1_interface, 1, id);
+            ffi::checked_resource_create(client, &ffi::xdg_activation_token_v1_interface, 1, id);
         if resource.is_null() {
             return;
         }

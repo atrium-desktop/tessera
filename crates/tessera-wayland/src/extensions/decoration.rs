@@ -22,7 +22,7 @@ pub(crate) unsafe extern "C" fn xdg_decoration_manager_bind(
     id: u32,
 ) {
     unsafe {
-        let resource = ffi::wl_resource_create(
+        let resource = ffi::checked_resource_create(
             client,
             &ffi::zxdg_decoration_manager_v1_interface,
             version.min(2) as c_int,
@@ -58,7 +58,7 @@ unsafe extern "C" fn xdg_decoration_get_toplevel(
             );
             return;
         };
-        let resource = ffi::wl_resource_create(
+        let resource = ffi::checked_resource_create(
             client,
             &ffi::zxdg_toplevel_decoration_v1_interface,
             ffi::wl_resource_get_version(manager),

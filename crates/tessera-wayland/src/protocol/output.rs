@@ -419,7 +419,8 @@ unsafe extern "C" fn output_bind(
     id: u32,
 ) {
     unsafe {
-        let res = ffi::wl_resource_create(client, &ffi::wl_output_interface, version as c_int, id);
+        let res =
+            ffi::checked_resource_create(client, &ffi::wl_output_interface, version as c_int, id);
         if res.is_null() {
             return;
         }

@@ -598,8 +598,8 @@ fn registry_exposes_clipboard_and_host_ime_protocols() {
         "xdg-foreign importer global missing:\n{stdout}"
     );
     assert!(
-        !stdout.contains("interface: 'wp_presentation'"),
-        "incomplete presentation feedback must not be advertised:\n{stdout}"
+        stdout.contains("interface: 'wp_presentation'"),
+        "presentation-time global missing:\n{stdout}"
     );
     assert!(
         !stdout.contains("zwp_primary_selection_device_manager_v1"),

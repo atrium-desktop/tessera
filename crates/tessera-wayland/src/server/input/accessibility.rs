@@ -100,12 +100,12 @@ impl KeyboardAccessibilityFilter {
     #[must_use]
     pub fn process_press(&mut self, evdev_code: u32, now: Instant) -> FilterOutcome {
         // 1. Bounce Keys: Reject rapid duplicate presses
-        if self.config.bounce_keys_ms > 0 {
-            if let Some(&last_rel) = self.last_release.get(&evdev_code) {
-                let debounce = Duration::from_millis(u64::from(self.config.bounce_keys_ms));
-                if now.duration_since(last_rel) < debounce {
-                    return FilterOutcome::Reject;
-                }
+        if self.config.bounce_keys_ms > 0
+            && let Some(&last_rel) = self.last_release.get(&evdev_code)
+        {
+            let debounce = Duration::from_millis(u64::from(self.config.bounce_keys_ms));
+            if now.duration_since(last_rel) < debounce {
+                return FilterOutcome::Reject;
             }
         }
 
@@ -125,13 +125,13 @@ impl KeyboardAccessibilityFilter {
     #[must_use]
     pub fn process_release(&mut self, evdev_code: u32, now: Instant) -> FilterOutcome {
         // 1. Slow Keys: If released before duration threshold, drop the key!
-        if self.config.slow_keys_ms > 0 {
-            if let Some(press) = self.press_time.remove(&evdev_code) {
-                let threshold = Duration::from_millis(u64::from(self.config.slow_keys_ms));
-                if now.duration_since(press) < threshold {
-                    // Accidental tremor tap: discard!
-                    return FilterOutcome::Reject;
-                }
+        if self.config.slow_keys_ms > 0
+            && let Some(press) = self.press_time.remove(&evdev_code)
+        {
+            let threshold = Duration::from_millis(u64::from(self.config.slow_keys_ms));
+            if now.duration_since(press) < threshold {
+                // Accidental tremor tap: discard!
+                return FilterOutcome::Reject;
             }
         }
 

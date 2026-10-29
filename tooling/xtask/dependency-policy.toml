@@ -89,7 +89,7 @@ dev = ["tempfile", "tessera-audit", "tessera-ipc"]
 [tessera-protocol]
 normal = ["serde", "serde_json", "tessera-authority", "tessera-desktop", "tessera-primitives", "zeroize"]
 build = []
-dev = ["tempfile", "tessera-audit"]
+dev = ["tempfile", "tessera-audit", "proptest"]
 
 [tessera-composite]
 normal = ["flux", "flux-sys", "image", "libc", "log", "tessera-desktop", "tessera-primitives", "thiserror"]

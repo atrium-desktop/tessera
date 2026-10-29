@@ -24,7 +24,7 @@ pub(crate) unsafe extern "C" fn fractional_scale_bind(
     id: u32,
 ) {
     unsafe {
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::wp_fractional_scale_manager_v1_interface,
             version as c_int,
@@ -63,7 +63,8 @@ unsafe extern "C" fn fractional_scale_manager_get(
             return;
         }
         let ver = ffi::wl_resource_get_version(mgr);
-        let res = ffi::wl_resource_create(client, &ffi::wp_fractional_scale_v1_interface, ver, id);
+        let res =
+            ffi::checked_resource_create(client, &ffi::wp_fractional_scale_v1_interface, ver, id);
         if res.is_null() {
             return;
         }

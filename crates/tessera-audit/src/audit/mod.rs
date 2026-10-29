@@ -480,7 +480,7 @@ impl VerificationGate {
 
     fn complete(&self, result: Result<(), AuditError>) {
         let (state, ready) = &*self.0;
-        let mut state = state.lock().unwrap();
+        let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
         *state = match result {
             Ok(()) => VerificationState::Verified,
             Err(error) => VerificationState::Failed(error.to_string()),
@@ -490,7 +490,7 @@ impl VerificationGate {
 
     fn wait(&self) -> Result<(), AuditError> {
         let (state, ready) = &*self.0;
-        let mut state = state.lock().unwrap();
+        let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
         while matches!(*state, VerificationState::Pending) {
             state = ready.wait(state).unwrap();
         }
@@ -505,7 +505,10 @@ impl VerificationGate {
 
     fn is_pending(&self) -> bool {
         let (state, _) = &*self.0;
-        matches!(*state.lock().unwrap(), VerificationState::Pending)
+        matches!(
+            *state.lock().unwrap_or_else(|e| e.into_inner()),
+            VerificationState::Pending
+        )
     }
 }
 

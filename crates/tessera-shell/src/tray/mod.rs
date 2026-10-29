@@ -22,7 +22,10 @@
 //! legacy `SecondaryActivate` right-click.
 
 mod icon;
+mod projection;
 mod watcher;
+
+pub use projection::{TrayCell, TrayProjection};
 
 use std::borrow::Borrow;
 use std::collections::HashMap;

@@ -307,7 +307,8 @@ pub(super) fn write_stream_frame<H: Handler>(
     lease_deadline: &Mutex<std::time::Instant>,
     streams: &Mutex<HashMap<u64, StreamLane>>,
 ) -> io::Result<()> {
-    let lease_alive = std::time::Instant::now() < *lease_deadline.lock().unwrap();
+    let lease_alive =
+        std::time::Instant::now() < *lease_deadline.lock().unwrap_or_else(|e| e.into_inner());
     let scope_allows = scope
         .resolve(handler)
         .is_some_and(|scope| scope_permits_stream(&scope, &target));
@@ -317,7 +318,10 @@ pub(super) fn write_stream_frame<H: Handler>(
         } else {
             "stream scope was revoked or narrowed"
         };
-        let lane = streams.lock().unwrap().remove(&payload.stream_id());
+        let lane = streams
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&payload.stream_id());
         if lane.is_some() {
             handler.stream_output_stop(payload.stream_id());
         }

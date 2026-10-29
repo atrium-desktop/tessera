@@ -27,7 +27,7 @@ contract across every identity presentation. Outer discs, keylines, and
 fallback initials remain properties of each host's chrome.
 
 This decision supersedes the responsibility split in
-[ADR-0080](0080-avatar-crate-xdg-conformant-vrm-aware.md) and preserves the
+[ADR-0194](0194-avatar-crate-xdg-conformant-vrm-aware.md) and preserves the
 motion and transactional replacement behavior in
 [ADR-0096](0096-avatar-motion-library-and-semantic-playback.md) and
 [ADR-0097](0097-transactional-avatar-hot-reload.md).

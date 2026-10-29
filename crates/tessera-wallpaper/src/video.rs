@@ -89,7 +89,7 @@ impl VideoSource {
         let deadline = Instant::now() + FIRST_FRAME_TIMEOUT;
         loop {
             {
-                let s = slot.lock().unwrap();
+                let s = slot.lock().unwrap_or_else(|e| e.into_inner());
                 if s.pixels.is_some() {
                     break;
                 }
@@ -143,7 +143,7 @@ fn reader_loop(path: PathBuf, w: u32, h: u32, slot: Arc<Mutex<Slot>>, shutdown: 
         while !shutdown.load(Ordering::Acquire) {
             match read_exact_or_eof(&mut stdout, &mut buf) {
                 Ok(true) => {
-                    let mut s = slot.lock().unwrap();
+                    let mut s = slot.lock().unwrap_or_else(|e| e.into_inner());
                     // Hand the filled buffer to the consumer by value and
                     // keep a fresh allocation for the next frame: at 1080p
                     // this runs 24 times a second, and the previous
@@ -215,7 +215,7 @@ impl Source for VideoSource {
 
     fn poll(&mut self, now: Instant) -> (&[u8], u64) {
         let newer: Option<Vec<u8>> = {
-            let mut s = self.slot.lock().unwrap();
+            let mut s = self.slot.lock().unwrap_or_else(|e| e.into_inner());
             if s.seq != self.last_seen_seq {
                 self.last_seen_seq = s.seq;
                 // Take the frame by value: cloning here made a second
@@ -245,7 +245,8 @@ impl Source for VideoSource {
     }
 
     fn next_frame_in(&self) -> Option<Duration> {
-        let frame_ready = self.slot.lock().unwrap().seq != self.last_seen_seq;
+        let frame_ready =
+            self.slot.lock().unwrap_or_else(|e| e.into_inner()).seq != self.last_seen_seq;
         Some(next_video_poll_in(
             frame_ready,
             self.next_poll_at,

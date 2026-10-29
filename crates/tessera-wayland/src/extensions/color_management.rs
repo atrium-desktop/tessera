@@ -230,7 +230,7 @@ pub(crate) unsafe extern "C" fn color_manager_bind(
     unsafe {
         // Advertised at v1: the later-version vtable slots post
         // unsupported_feature errors (see the stubs).
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::wp_color_manager_v1_interface,
             version.min(1) as c_int,
@@ -333,7 +333,7 @@ unsafe extern "C" fn color_manager_get_output(
     unsafe {
         let state = ffi::wl_resource_get_user_data(mgr) as *mut State;
         let ver = ffi::wl_resource_get_version(mgr);
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::wp_color_management_output_v1_interface,
             ver,
@@ -421,7 +421,7 @@ unsafe extern "C" fn color_manager_get_surface(
             return;
         }
         let ver = ffi::wl_resource_get_version(mgr);
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::wp_color_management_surface_v1_interface,
             ver,
@@ -563,7 +563,7 @@ unsafe extern "C" fn color_manager_get_surface_feedback(
             return;
         }
         let ver = ffi::wl_resource_get_version(mgr);
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::wp_color_management_surface_feedback_v1_interface,
             ver,
@@ -689,7 +689,7 @@ unsafe fn create_image_description_resource(
     identity: u32,
 ) {
     unsafe {
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::wp_image_description_v1_interface,
             version as c_int,
@@ -760,7 +760,7 @@ unsafe extern "C" fn image_description_get_information(
             );
             return;
         }
-        let info = ffi::wl_resource_create(
+        let info = ffi::checked_resource_create(
             client,
             &ffi::wp_image_description_info_v1_interface,
             ffi::wl_resource_get_version(res),
@@ -941,7 +941,7 @@ unsafe extern "C" fn color_manager_create_icc_creator(
 ) {
     unsafe {
         let ver = ffi::wl_resource_get_version(mgr);
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::wp_image_description_creator_icc_v1_interface,
             ver,
@@ -1097,7 +1097,7 @@ unsafe extern "C" fn color_manager_create_parametric_creator(
 ) {
     unsafe {
         let ver = ffi::wl_resource_get_version(mgr);
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::wp_image_description_creator_params_v1_interface,
             ver,

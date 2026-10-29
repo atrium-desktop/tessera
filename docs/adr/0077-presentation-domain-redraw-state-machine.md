@@ -11,6 +11,7 @@ superseded_by: null
 - Status: Accepted
 - Date: 2026-07-29
 - Amended by: [ADR-0182](0182-fullscreen-frame-pacing-and-direct-scanout-fidelity.md) — a non-input presentation wakeup is neutral for the coalesced frame's pointer-only/fast-path classification; it no longer clears them.
+- Amended by: [ADR-0196](0196-compositor-side-presentation-time-feedback.md) — `wp_presentation` is advertised and its feedback is completed from the presented frame (adopting Optics ADR-0122).
 
 ## Context
 
@@ -65,7 +66,10 @@ no-damage assessment submits nothing. It completes callbacks at most once per
 estimated refresh cycle, while real newly damaged content may render before
 that estimate expires. Aegis does not advertise `wp_presentation` until a
 feedback request can be associated with the corresponding surface commit and
-completed from real page-flip metadata.
+completed from real page-flip metadata. (Amended by
+[ADR-0196](0196-compositor-side-presentation-time-feedback.md): the global is
+now advertised, feedback is tied to the surface commit and completed from the
+presented frame, and the page-flip-metadata refinement remains follow-up.)
 
 The estimated interval follows the presentation domain. With a multi-CRTC
 atomic batch, the slowest active CRTC bounds retirement. Nested mode uses a
@@ -104,5 +108,10 @@ This decision supersedes [ADR-0038](0038-frame-pacing.md).
   the presentation domains; it cannot be introduced only in the scheduler.
 - Real `wp_presentation` feedback remains follow-up work and must use
   page-flip sequence and timestamp data, not an estimated callback clock.
+  (Partially delivered by
+  [ADR-0196](0196-compositor-side-presentation-time-feedback.md): feedback is
+  completed from the presented frame, with a compositor-local sequence and a
+  `CLOCK_MONOTONIC` timestamp; plumbing the DRM page-flip sequence and
+  timestamp into that report remains open.)
 - The runtime has more states, but illegal render outcomes fail at their
   transition boundary instead of producing a later buffer-ownership error.

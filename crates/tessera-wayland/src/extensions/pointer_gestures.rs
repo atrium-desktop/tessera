@@ -41,7 +41,7 @@ pub(crate) unsafe extern "C" fn pointer_gestures_bind(
     id: u32,
 ) {
     unsafe {
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::zwp_pointer_gestures_v1_interface,
             version.min(3) as c_int,
@@ -123,7 +123,7 @@ unsafe fn create_pointer_gesture(
                 &POINTER_GESTURE_HOLD_IMPL as *const _ as *const c_void,
             ),
         };
-        let res = ffi::wl_resource_create(client, interface, 1, id);
+        let res = ffi::checked_resource_create(client, interface, 1, id);
         if res.is_null() {
             return;
         }

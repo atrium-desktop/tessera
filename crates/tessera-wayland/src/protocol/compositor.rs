@@ -19,8 +19,12 @@ pub(crate) unsafe extern "C" fn compositor_bind(
             return;
         }
         (*state).ensure_client(client);
-        let res =
-            ffi::wl_resource_create(client, &ffi::wl_compositor_interface, version as c_int, id);
+        let res = ffi::checked_resource_create(
+            client,
+            &ffi::wl_compositor_interface,
+            version as c_int,
+            id,
+        );
         if res.is_null() {
             return;
         }
@@ -41,7 +45,7 @@ unsafe extern "C" fn compositor_create_surface(
     unsafe {
         let state = ffi::wl_resource_get_user_data(compositor) as *mut State;
         let ver = ffi::wl_resource_get_version(compositor);
-        let surface = ffi::wl_resource_create(client, &ffi::wl_surface_interface, ver, id);
+        let surface = ffi::checked_resource_create(client, &ffi::wl_surface_interface, ver, id);
         if surface.is_null() {
             return;
         }
@@ -66,7 +70,7 @@ unsafe extern "C" fn compositor_create_region(
 ) {
     unsafe {
         let ver = ffi::wl_resource_get_version(compositor);
-        let region = ffi::wl_resource_create(client, &ffi::wl_region_interface, ver, id);
+        let region = ffi::checked_resource_create(client, &ffi::wl_region_interface, ver, id);
         if region.is_null() {
             return;
         }
@@ -1173,6 +1177,666 @@ pub(crate) unsafe extern "C" fn surface_commit(
         let unknown_full = buffer_damage_unmappable
             || (buffer_set && !buffer.is_null() && pending_damage.is_empty());
         accumulate_committed_damage(&mut *rec, pending_damage, unknown_full);
+        apply_committed_buffer(rec, buffer, buffer_set, was_mapped);
+
+        // Buffer transform/scale/viewport/window-geometry commits alter the
+        // composed pixels even when no new wl_buffer is attached. Give the
+        // render/damage generation tracker an edge to observe; its geometry
+        // guard conservatively promotes these cases to full damage.
+        if visual_metadata_changed && !buffer_set {
+            (*rec).generation = (*rec).generation.wrapping_add(1);
+        }
+
+        handle_toplevel_mapping(rec, was_mapped);
+        if !(*rec).state.is_null() && !(*rec).xdg_toplevel.is_null() {
+            let window = (*rec).window.id;
+            if was_mapped != (*rec).mapped || old_window_size != (*rec).window.size {
+                (*(*rec).state).queue_interaction_domain_layouts_for_window(window);
+            }
+        }
+        if !(*rec).mapped && was_mapped && !(*rec).xdg_toplevel.is_null() {
+            defer_keyboard_focus_after_toplevel_unmap(rec);
+        }
+        if !(*rec).mapped && was_mapped && !(*rec).xdg_popup.is_null() && (*rec).popup_grabbed {
+            let mut focus_after_dismissal = popup_keyboard_focus_after_dismissal(rec);
+            if let Some(seat) = (*rec).popup_grab_seat.take()
+                && !(*rec).state.is_null()
+            {
+                if focus_after_dismissal.is_null() {
+                    focus_after_dismissal =
+                        keyboard_focus_fallback(&*(*rec).state, seat, (*rec).resource);
+                }
+                (*(*rec).state).pending_keyboard_focus.insert(
+                    seat,
+                    DeferredKeyboardFocus {
+                        target: focus_after_dismissal,
+                        restoring_from: (*rec).resource,
+                    },
+                );
+            }
+            (*rec).popup_grabbed = false;
+        }
+        if (*rec).mapped
+            && !was_mapped
+            && !(*rec).xdg_popup.is_null()
+            && (*rec).popup_grabbed
+            && let Some(seat) = (*rec).popup_grab_seat
+            && !(*rec).state.is_null()
+        {
+            // The xdg-shell grab contract requires the topmost grabbing popup
+            // to hold keyboard focus. Defer out of this libwayland callback so
+            // no second mutable `Server` aliases `State`.
+            (*(*rec).state).pending_keyboard_focus.insert(
+                seat,
+                DeferredKeyboardFocus {
+                    target: (*rec).resource,
+                    restoring_from: std::ptr::null_mut(),
+                },
+            );
+        }
+        update_surface_enter_leave_events(rec, was_mapped);
+        // A surface appearing or disappearing changes what is under a
+        // stationary cursor. Defer a pointer re-hit to dispatch (protocol
+        // callbacks cannot re-enter the Server here): without it a popup
+        // that maps under the cursor — a Qt menu, a Chrome bubble — never
+        // receives wl_pointer.enter until the next motion, so the client's
+        // pointer tracking stays on the owning toplevel and the first click
+        // after the menu opens is misrouted. Cursor and drag-icon surfaces
+        // track the pointer by design and are excluded.
+        if was_mapped != (*rec).mapped
+            && !(*rec).cursor_role
+            && !(*rec).drag_icon_role
+            && !(*rec).state.is_null()
+        {
+            schedule_pointer_rehit((*rec).state, None);
+        }
+        let children = (*rec).children.clone();
+        for child in children {
+            if child.is_null() || !(*child).subsurface_cached_commit {
+                continue;
+            }
+            (*child).subsurface_applying_cached = true;
+            surface_commit(std::ptr::null_mut(), (*child).resource);
+            (*child).subsurface_applying_cached = false;
+        }
+        if !(*rec).state.is_null() && ((*rec).cursor_role || (*rec).drag_icon_role) {
+            update_overlay_positions((*rec).state);
+        }
+        extensions::input_popup_surface_committed(rec);
+        if scene_changed && (was_mapped || (*rec).mapped) && !(*rec).state.is_null() {
+            let root = surface_root_toplevel(rec);
+            if !root.is_null() && (*root).window.id.0 != 0 {
+                (*(*rec).state).damaged_windows.insert((*root).window.id);
+            }
+        }
+        extensions::session_lock_surface_committed(rec);
+    }
+}
+
+unsafe extern "C" fn surface_frame(
+    client: *mut ffi::wl_client,
+    resource: *mut ffi::wl_resource,
+    callback_id: u32,
+) {
+    unsafe {
+        let rec = ffi::wl_resource_get_user_data(resource) as *mut SurfaceRec;
+        let cb = ffi::checked_resource_create(client, &ffi::wl_callback_interface, 1, callback_id);
+        if !cb.is_null() {
+            (*rec).frame_callbacks.push(cb);
+        }
+    }
+}
+
+unsafe extern "C" fn surface_set_opaque_region(
+    _client: *mut ffi::wl_client,
+    surface: *mut ffi::wl_resource,
+    region: *mut ffi::wl_resource,
+) {
+    unsafe {
+        let rec = ffi::wl_resource_get_user_data(surface) as *mut SurfaceRec;
+        if rec.is_null() {
+            return;
+        }
+        let value = if region.is_null() {
+            None
+        } else {
+            let region = ffi::wl_resource_get_user_data(region) as *mut RegionRec;
+            if region.is_null() {
+                Some(Vec::new())
+            } else {
+                Some((*region).rects.clone())
+            }
+        };
+        (*rec).pending_opaque_region = Some(value);
+    }
+}
+
+unsafe extern "C" fn surface_set_input_region(
+    _client: *mut ffi::wl_client,
+    surface: *mut ffi::wl_resource,
+    region: *mut ffi::wl_resource,
+) {
+    unsafe {
+        let rec = ffi::wl_resource_get_user_data(surface) as *mut SurfaceRec;
+        if rec.is_null() {
+            return;
+        }
+        let value = if region.is_null() {
+            None
+        } else {
+            let region = ffi::wl_resource_get_user_data(region) as *mut RegionRec;
+            if region.is_null() {
+                Some(Vec::new())
+            } else {
+                Some((*region).rects.clone())
+            }
+        };
+        (*rec).pending_input_region = Some(value);
+    }
+}
+
+/// `wl_surface.set_buffer_transform` (v2+): records how the client has
+/// pre-rotated the buffer. The renderer applies the inverse at composite
+/// time via CPU staging (tessera-render) — a GPU-side transform in flux's image
+/// shader is the long-term path.
+unsafe extern "C" fn surface_set_buffer_transform(
+    _c: *mut ffi::wl_client,
+    r: *mut ffi::wl_resource,
+    value: i32,
+) {
+    unsafe {
+        let rec = ffi::wl_resource_get_user_data(r) as *mut SurfaceRec;
+        if rec.is_null() {
+            return;
+        }
+        let transform = match value as u32 {
+            0 => tessera_primitives::Transform::Normal,
+            1 => tessera_primitives::Transform::Rotate90,
+            2 => tessera_primitives::Transform::Rotate180,
+            3 => tessera_primitives::Transform::Rotate270,
+            4 => tessera_primitives::Transform::FlipHorizontal,
+            5 => tessera_primitives::Transform::FlipRotate90,
+            6 => tessera_primitives::Transform::FlipRotate180,
+            7 => tessera_primitives::Transform::FlipRotate270,
+            _ => {
+                ffi::wl_resource_post_error(r, 1, c"invalid wl_output.transform value".as_ptr());
+                return;
+            }
+        };
+        (*rec).pending_transform = transform;
+    }
+}
+
+/// `wl_surface.set_buffer_scale` (v2+): records the HiDPI scale.
+unsafe extern "C" fn surface_set_buffer_scale(
+    _c: *mut ffi::wl_client,
+    r: *mut ffi::wl_resource,
+    value: i32,
+) {
+    unsafe {
+        let rec = ffi::wl_resource_get_user_data(r) as *mut SurfaceRec;
+        if rec.is_null() {
+            return;
+        }
+        if value < 1 {
+            ffi::wl_resource_post_error(r, 0, c"buffer scale must be positive".as_ptr());
+            return;
+        }
+        (*rec).pending_scale = value;
+    }
+}
+/// Ceiling on rectangles accumulated between commits. `wl_surface.damage`
+/// can be called arbitrarily many times before a commit, and the committed
+/// path only drains the list at commit — without a bound, a client (or a
+/// buggy toolkit) streaming damage without committing grows the Vec without
+/// limit for as long as it likes. Crossing the bound collapses to the
+/// bounding box, which is conservative (it covers every declared rect).
+pub(crate) const MAX_PENDING_DAMAGE_RECTS: usize = 1024;
+
+/// Append a damage rectangle to a between-commits accumulator, collapsing to
+/// the bounding box once the rectangle budget is exhausted.
+pub(crate) fn push_pending_damage(
+    list: &mut Vec<tessera_primitives::Rect>,
+    rect: tessera_primitives::Rect,
+) {
+    if list.len() < MAX_PENDING_DAMAGE_RECTS {
+        list.push(rect);
+        return;
+    }
+    // Budget exhausted: fold the whole list into its bounding box plus the
+    // new rect, keeping the list at one conservative entry instead of
+    // growing per request.
+    let mut bbox = damage_bbox(list).unwrap_or(rect);
+    if let Some(merged) = damage_bbox(&[bbox, rect]) {
+        bbox = merged;
+    } else {
+        // The span cannot be represented as one Rect; degrade to full
+        // surface damage semantics by clearing — the commit path treats an
+        // empty list with a committed buffer as unknown/full damage.
+        list.clear();
+        return;
+    }
+    list.clear();
+    list.push(bbox);
+}
+
+/// `wl_surface.damage` (v1): damage in surface-local logical coordinates. The renderer's
+/// texture is in buffer pixel coords, so under buffer_scale > 1 these rects
+/// cover only a fraction of the buffer. The renderer bypasses the
+/// incremental-upload path when `buffer_scale != 1` (see tessera-render); a
+/// generation change still triggers a correct full upload.
+unsafe extern "C" fn surface_damage(
+    _c: *mut ffi::wl_client,
+    r: *mut ffi::wl_resource,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+) {
+    unsafe {
+        let rec = ffi::wl_resource_get_user_data(r) as *mut SurfaceRec;
+        if rec.is_null() || w <= 0 || h <= 0 {
+            return;
+        }
+        push_pending_damage(
+            &mut (*rec).pending_damage,
+            tessera_primitives::Rect::new(x, y, w, h),
+        );
+    }
+}
+
+/// Map normal-orientation buffer damage to the surface-local coordinate space
+/// shared with `wl_surface.damage`. Rounding outward preserves every touched
+/// logical pixel when a HiDPI buffer rectangle is not scale-aligned.
+pub(crate) fn buffer_damage_to_surface(
+    damage: tessera_primitives::Rect,
+    scale: i32,
+) -> tessera_primitives::Rect {
+    if scale <= 1 {
+        return damage;
+    }
+    let scale = i64::from(scale);
+    let x0 = i64::from(damage.origin.x).div_euclid(scale);
+    let y0 = i64::from(damage.origin.y).div_euclid(scale);
+    let buffer_x1 = i64::from(damage.origin.x) + i64::from(damage.size.w);
+    let buffer_y1 = i64::from(damage.origin.y) + i64::from(damage.size.h);
+    let x1 = -(-buffer_x1).div_euclid(scale);
+    let y1 = -(-buffer_y1).div_euclid(scale);
+    let clamp_i32 = |value: i64| value.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
+    tessera_primitives::Rect::new(
+        clamp_i32(x0),
+        clamp_i32(y0),
+        clamp_i32(x1.saturating_sub(x0)),
+        clamp_i32(y1.saturating_sub(y0)),
+    )
+}
+
+/// `wl_surface.damage_buffer` (v4): damage in buffer coordinates. Keep it
+/// separate from surface damage until commit, when the final pending
+/// scale/transform/viewport state is known.
+///
+/// Query the pixel dimensions of a pending `wl_buffer` so buffer-coordinate
+/// damage can be geometrically transformed at commit. Returns `None` for buffer
+/// types whose dimensions are not locally known (e.g. an EGL/legacy buffer the
+/// compositor does not recognise), in which case damage is conservatively
+/// treated as unmappable. SHM buffers expose width/height via libwayland; dma-buf
+/// buffers carry them on the `DmabufBuffer` user-data.
+unsafe fn pending_buffer_dimensions(buffer: *mut ffi::wl_resource) -> Option<(i32, i32)> {
+    unsafe {
+        let shm = ffi::wl_shm_buffer_get(buffer);
+        if !shm.is_null() {
+            let w = ffi::wl_shm_buffer_get_width(shm);
+            let h = ffi::wl_shm_buffer_get_height(shm);
+            return Some((w, h));
+        }
+        let is_dmabuf = ffi::wl_resource_instance_of(
+            buffer,
+            &ffi::wl_buffer_interface,
+            &WL_BUFFER_IMPL as *const _ as *const c_void,
+        ) != 0;
+        if is_dmabuf {
+            let db = ffi::wl_resource_get_user_data(buffer) as *const DmabufBuffer;
+            if !db.is_null() && (*db).have_plane {
+                return Some(((*db).width, (*db).height));
+            }
+        }
+        None
+    }
+}
+
+unsafe extern "C" fn surface_damage_buffer(
+    _c: *mut ffi::wl_client,
+    r: *mut ffi::wl_resource,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+) {
+    unsafe {
+        let rec = ffi::wl_resource_get_user_data(r) as *mut SurfaceRec;
+        if rec.is_null() || w <= 0 || h <= 0 {
+            return;
+        }
+        push_pending_damage(
+            &mut (*rec).pending_buffer_damage,
+            tessera_primitives::Rect::new(x, y, w, h),
+        );
+    }
+}
+
+unsafe extern "C" fn surface_resource_destroy(resource: *mut ffi::wl_resource) {
+    unsafe {
+        let rec = ffi::wl_resource_get_user_data(resource) as *mut SurfaceRec;
+        if rec.is_null() {
+            return;
+        }
+        if !(*rec).xdg_toplevel.is_null() {
+            defer_keyboard_focus_after_toplevel_unmap(rec);
+            // ADR-0029 close transition: the wl_surface is being destroyed
+            // while still mapped (no null-buffer unmap happened first).
+            // Snapshot before `retire_surface_buffer` clears the contents.
+            if !(*rec).state.is_null() {
+                (*(*rec).state).note_close_transition(rec);
+            }
+        }
+        if !(*rec).viewport_resource.is_null() {
+            let viewport =
+                ffi::wl_resource_get_user_data((*rec).viewport_resource) as *mut ViewportRec;
+            if !viewport.is_null() {
+                (*viewport).surface = std::ptr::null_mut();
+            }
+            (*rec).viewport_resource = std::ptr::null_mut();
+        }
+        extensions::fractional_scale_surface_destroyed(rec);
+        extensions::color_management_surface_destroyed(rec);
+        extensions::session_lock_surface_destroyed(rec);
+        extensions::idle_inhibit_surface_destroyed(rec);
+        extensions::explicit_sync_surface_destroyed(rec);
+        extensions::input_popup_surface_destroyed(rec);
+        extensions::xdg_foreign_surface_destroyed(rec, (*rec).state);
+        // No frame can carry this surface any more; finish its outstanding
+        // presentation feedback as discarded (ADR-0122).
+        extensions::discard_surface_feedback(rec);
+        retire_surface_buffer(rec);
+        if (*rec).committed_acquire_fence >= 0 {
+            libc_close((*rec).committed_acquire_fence);
+            (*rec).committed_acquire_fence = -1;
+        }
+        if !(*rec).committed_explicit_release.is_null() {
+            let release =
+                std::mem::replace(&mut (*rec).committed_explicit_release, std::ptr::null_mut());
+            ffi::wl_resource_post_event(
+                release,
+                ffi::ZWP_LINUX_BUFFER_RELEASE_V1_IMMEDIATE_RELEASE,
+            );
+            ffi::wl_resource_destroy(release);
+        }
+        // Drop the toplevel from its workspace (ADR-0025). Idempotent: a no-op
+        // for surfaces that never mapped or had no toplevel role. Run before the
+        // slot is nulled so the resource address is still readable.
+        if !(*rec).state.is_null() {
+            let state = &mut *(*rec).state;
+            if (*rec).window.parent.is_none()
+                && let Some(app_id) = (*rec).window.app_id.as_deref()
+                && !app_id.is_empty()
+            {
+                let rect = fold_nudged_origin(
+                    &*rec,
+                    (*rec)
+                        .saved_floating_rect
+                        .unwrap_or(tessera_primitives::Rect {
+                            origin: (*rec).position,
+                            size: (*rec).window.size,
+                        }),
+                );
+                if rect.size.w > 0 && rect.size.h > 0 {
+                    let ws_idx = state.workspace_number_for_window((*rec).window.id);
+
+                    state.persist_app_geometry(
+                        app_id,
+                        rect,
+                        ws_idx,
+                        Some((*rec).window.layout_role),
+                    );
+                }
+            }
+            let seats = state.seats.keys().copied().collect::<Vec<_>>();
+            for seat in seats {
+                let Some(_guard) = ActiveSeatGuard::enter_existing(state, seat) else {
+                    continue;
+                };
+                extensions::keyboard_shortcuts_surface_destroyed(state, resource);
+                if state.pointer_focus == resource {
+                    extensions::pointer_constraint_focus_changed(
+                        state,
+                        resource,
+                        std::ptr::null_mut(),
+                    );
+                }
+                if state.keyboard_focus == resource {
+                    keyboard_focus_dependencies_changed(state, resource, std::ptr::null_mut());
+                }
+            }
+            for runtime in state.seats.values_mut().map(Box::as_mut) {
+                if runtime.cursor_surface == resource {
+                    runtime.cursor_surface = std::ptr::null_mut();
+                    runtime.cursor_hidden = false;
+                    runtime.cursor_shape = 1;
+                }
+                if let Some(drag) = runtime.drag.as_mut()
+                    && drag.icon == resource
+                {
+                    drag.icon = std::ptr::null_mut();
+                }
+                if runtime.implicit_grab_surface == resource {
+                    runtime.implicit_grab_surface = std::ptr::null_mut();
+                    runtime.implicit_grab_active = false;
+                    runtime.client_pressed_buttons.clear();
+                }
+                if runtime.pointer_focus == resource {
+                    runtime.pointer_focus = std::ptr::null_mut();
+                }
+                if runtime.keyboard_focus == resource {
+                    runtime.keyboard_focus = std::ptr::null_mut();
+                }
+                if runtime.tablet_focus == resource {
+                    runtime.tablet_focus = std::ptr::null_mut();
+                }
+            }
+            let id = (*rec).window.id;
+            state.unregister_window(id);
+            if state
+                .pending_activation
+                .is_some_and(|(_, pending)| pending == resource)
+            {
+                state.pending_activation = None;
+            }
+            // Session-lock focus keeps non-owning resource pointers across
+            // dispatch batches. Revoke them at the surface's single reclaim
+            // point so neither pre-lock restoration nor a pending lock-focus
+            // transition can dereference a destroyed wl_resource.
+            revoke_session_lock_focus(state, resource);
+            state
+                .pending_keyboard_focus
+                .retain(|_, pending| pending.target != resource);
+            state.workspaces.remove_toplevel(id);
+            // Notify foreign-toplevel listeners the window is gone.
+            if !(*rec).xdg_toplevel.is_null() {
+                extensions::foreign_toplevel_removed(id.0, state);
+            }
+            for child in state.live_surfaces() {
+                if (*child).popup_parent == rec {
+                    (*child).popup_parent = std::ptr::null_mut();
+                }
+            }
+        }
+        (*rec).dmabuf = None;
+        // Detach from the parent's children list and orphan any children of this
+        // surface so they do not keep a dangling parent pointer. Children stay in
+        // the surfaces Vec and remain mapped (the client may re-parent them).
+        detach_from_parent(rec);
+        for child in std::mem::take(&mut (*rec).children) {
+            (*child).parent = std::ptr::null_mut();
+        }
+        // Detach from the surfaces list so iterators stop visiting this rec, then
+        // reclaim the allocation. Removal is order-preserving because the Vec
+        // order is the stacking order (see raise_toplevel), and the shifted tail
+        // is renumbered so every live record's destroy-slot `index` keeps
+        // matching its position. A long session churns surfaces (popups,
+        // tooltips, drag icons); leaving a tombstone here made every frame's
+        // scene walks grow with cumulative churn instead of the live count.
+        if !(*rec).state.is_null() {
+            let surfaces = &mut (*(*rec).state).surfaces;
+            let idx = (*rec).index;
+            let pos = if idx < surfaces.len() && surfaces[idx] == rec {
+                Some(idx)
+            } else {
+                surfaces.iter().position(|p| *p == rec)
+            };
+            if let Some(pos) = pos {
+                surfaces.remove(pos);
+                for (offset, ptr) in surfaces[pos..].iter().copied().enumerate() {
+                    (*ptr).index = pos + offset;
+                }
+            }
+        }
+        drop(Box::from_raw(rec));
+    }
+}
+
+pub(crate) fn revoke_session_lock_focus(state: &mut State, resource: *mut ffi::wl_resource) {
+    if state.pre_lock_keyboard_focus == resource {
+        state.pre_lock_keyboard_focus = std::ptr::null_mut();
+    }
+    if state.pending_lock_focus == resource {
+        state.pending_lock_focus = std::ptr::null_mut();
+        state.lock_focus_dirty = true;
+    }
+}
+
+// ----- wl_region ----------------------------------------------------------
+
+static REGION_IMPL: ffi::wl_region_interface_impl = ffi::wl_region_interface_impl {
+    destroy: region_destroy,
+    add: region_add,
+    subtract: region_subtract,
+};
+
+unsafe extern "C" fn region_destroy(_client: *mut ffi::wl_client, resource: *mut ffi::wl_resource) {
+    unsafe {
+        ffi::wl_resource_destroy(resource);
+    }
+}
+
+unsafe extern "C" fn region_add(
+    _client: *mut ffi::wl_client,
+    resource: *mut ffi::wl_resource,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) {
+    unsafe {
+        let region = ffi::wl_resource_get_user_data(resource) as *mut RegionRec;
+        if !region.is_null() && width > 0 && height > 0 {
+            push_region_rect(
+                &mut (*region).rects,
+                tessera_primitives::Rect::new(x, y, width, height),
+            );
+        }
+    }
+}
+
+/// Ceiling on rectangles retained by one `wl_region`. Regions are entirely
+/// client-controlled and live until the resource is destroyed; without a
+/// bound a client can push unlimited rects into one region and keep it
+/// alive, and those rects are later cloned into surface state and walked by
+/// the per-frame occlusion pass. Crossing the bound collapses to the
+/// bounding box — conservative (it covers every declared rect) and bounded.
+pub(crate) const MAX_REGION_RECTS: usize = 1024;
+
+/// Append a rectangle to a `wl_region`, collapsing to the bounding box once
+/// the rectangle budget is exhausted.
+pub(crate) fn push_region_rect(
+    rects: &mut Vec<tessera_primitives::Rect>,
+    rect: tessera_primitives::Rect,
+) {
+    if rects.len() < MAX_REGION_RECTS {
+        rects.push(rect);
+        return;
+    }
+    let mut bbox = damage_bbox(rects).unwrap_or(rect);
+    if let Some(merged) = damage_bbox(&[bbox, rect]) {
+        bbox = merged;
+    }
+    rects.clear();
+    rects.push(bbox);
+}
+
+pub(crate) fn subtract_rect(
+    source: tessera_primitives::Rect,
+    cut: tessera_primitives::Rect,
+) -> Vec<tessera_primitives::Rect> {
+    let sx1 = source.origin.x;
+    let sy1 = source.origin.y;
+    let sx2 = sx1.saturating_add(source.size.w);
+    let sy2 = sy1.saturating_add(source.size.h);
+    let cx1 = cut.origin.x.max(sx1);
+    let cy1 = cut.origin.y.max(sy1);
+    let cx2 = cut.origin.x.saturating_add(cut.size.w).min(sx2);
+    let cy2 = cut.origin.y.saturating_add(cut.size.h).min(sy2);
+    if cx1 >= cx2 || cy1 >= cy2 {
+        return vec![source];
+    }
+    let candidates = [
+        tessera_primitives::Rect::new(sx1, sy1, source.size.w, cy1 - sy1),
+        tessera_primitives::Rect::new(sx1, cy2, source.size.w, sy2 - cy2),
+        tessera_primitives::Rect::new(sx1, cy1, cx1 - sx1, cy2 - cy1),
+        tessera_primitives::Rect::new(cx2, cy1, sx2 - cx2, cy2 - cy1),
+    ];
+    candidates
+        .into_iter()
+        .filter(|rect| rect.size.w > 0 && rect.size.h > 0)
+        .collect()
+}
+
+unsafe extern "C" fn region_subtract(
+    _client: *mut ffi::wl_client,
+    resource: *mut ffi::wl_resource,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) {
+    unsafe {
+        let region = ffi::wl_resource_get_user_data(resource) as *mut RegionRec;
+        if region.is_null() || width <= 0 || height <= 0 {
+            return;
+        }
+        let cut = tessera_primitives::Rect::new(x, y, width, height);
+        (*region).rects = std::mem::take(&mut (*region).rects)
+            .into_iter()
+            .flat_map(|rect| subtract_rect(rect, cut))
+            .collect();
+    }
+}
+
+unsafe extern "C" fn region_resource_destroy(resource: *mut ffi::wl_resource) {
+    unsafe {
+        let region = ffi::wl_resource_get_user_data(resource) as *mut RegionRec;
+        if !region.is_null() {
+            drop(Box::from_raw(region));
+        }
+    }
+}
+
+unsafe fn apply_committed_buffer(
+    rec: *mut SurfaceRec,
+    buffer: *mut ffi::wl_resource,
+    buffer_set: bool,
+    was_mapped: bool,
+) {
+    unsafe {
         if buffer_set && buffer.is_null() {
             // ADR-0029 close transition: snapshot the last frame before the
             // shm pixels are cleared so the ghost can keep rendering it.
@@ -1182,6 +1846,11 @@ pub(crate) unsafe extern "C" fn surface_commit(
             retire_surface_buffer(rec);
             (*rec).dmabuf = None;
             (*rec).mapped = false;
+            // A surface that just unmapped has no frame left to present its
+            // queued `wp_presentation_feedback`, so report them as discarded
+            // rather than leaving them waiting on an object that is going away
+            // (ADR-0122).
+            extensions::discard_surface_feedback(rec);
             if was_mapped && !(*rec).xdg_surface.is_null() {
                 reset_xdg_configure_state_after_unmap(&mut *rec);
             }
@@ -1386,15 +2055,11 @@ pub(crate) unsafe extern "C" fn surface_commit(
                 (*rec).pending_buffer = std::ptr::null_mut();
             }
         }
+    }
+}
 
-        // Buffer transform/scale/viewport/window-geometry commits alter the
-        // composed pixels even when no new wl_buffer is attached. Give the
-        // render/damage generation tracker an edge to observe; its geometry
-        // guard conservatively promotes these cases to full damage.
-        if visual_metadata_changed && !buffer_set {
-            (*rec).generation = (*rec).generation.wrapping_add(1);
-        }
-
+unsafe fn handle_toplevel_mapping(rec: *mut SurfaceRec, was_mapped: bool) {
+    unsafe {
         if (*rec).mapped && !was_mapped && !(*rec).xdg_toplevel.is_null() {
             let app_id = (*rec).window.app_id.clone();
             let title = (*rec).window.title.clone();
@@ -1717,52 +2382,11 @@ pub(crate) unsafe extern "C" fn surface_commit(
         } else if (*rec).mapped && !(*rec).xdg_toplevel.is_null() {
             apply_committed_window_size(rec);
         }
-        if !(*rec).state.is_null() && !(*rec).xdg_toplevel.is_null() {
-            let window = (*rec).window.id;
-            if was_mapped != (*rec).mapped || old_window_size != (*rec).window.size {
-                (*(*rec).state).queue_interaction_domain_layouts_for_window(window);
-            }
-        }
-        if !(*rec).mapped && was_mapped && !(*rec).xdg_toplevel.is_null() {
-            defer_keyboard_focus_after_toplevel_unmap(rec);
-        }
-        if !(*rec).mapped && was_mapped && !(*rec).xdg_popup.is_null() && (*rec).popup_grabbed {
-            let mut focus_after_dismissal = popup_keyboard_focus_after_dismissal(rec);
-            if let Some(seat) = (*rec).popup_grab_seat.take()
-                && !(*rec).state.is_null()
-            {
-                if focus_after_dismissal.is_null() {
-                    focus_after_dismissal =
-                        keyboard_focus_fallback(&*(*rec).state, seat, (*rec).resource);
-                }
-                (*(*rec).state).pending_keyboard_focus.insert(
-                    seat,
-                    DeferredKeyboardFocus {
-                        target: focus_after_dismissal,
-                        restoring_from: (*rec).resource,
-                    },
-                );
-            }
-            (*rec).popup_grabbed = false;
-        }
-        if (*rec).mapped
-            && !was_mapped
-            && !(*rec).xdg_popup.is_null()
-            && (*rec).popup_grabbed
-            && let Some(seat) = (*rec).popup_grab_seat
-            && !(*rec).state.is_null()
-        {
-            // The xdg-shell grab contract requires the topmost grabbing popup
-            // to hold keyboard focus. Defer out of this libwayland callback so
-            // no second mutable `Server` aliases `State`.
-            (*(*rec).state).pending_keyboard_focus.insert(
-                seat,
-                DeferredKeyboardFocus {
-                    target: (*rec).resource,
-                    restoring_from: std::ptr::null_mut(),
-                },
-            );
-        }
+    }
+}
+
+unsafe fn update_surface_enter_leave_events(rec: *mut SurfaceRec, was_mapped: bool) {
+    unsafe {
         if (*rec).mapped && !was_mapped && !(*rec).state.is_null() {
             let root = surface_root_toplevel(rec);
             if !root.is_null() {
@@ -1793,595 +2417,6 @@ pub(crate) unsafe extern "C" fn surface_commit(
                     );
                 }
             }
-        }
-        // A surface appearing or disappearing changes what is under a
-        // stationary cursor. Defer a pointer re-hit to dispatch (protocol
-        // callbacks cannot re-enter the Server here): without it a popup
-        // that maps under the cursor — a Qt menu, a Chrome bubble — never
-        // receives wl_pointer.enter until the next motion, so the client's
-        // pointer tracking stays on the owning toplevel and the first click
-        // after the menu opens is misrouted. Cursor and drag-icon surfaces
-        // track the pointer by design and are excluded.
-        if was_mapped != (*rec).mapped
-            && !(*rec).cursor_role
-            && !(*rec).drag_icon_role
-            && !(*rec).state.is_null()
-        {
-            schedule_pointer_rehit((*rec).state, None);
-        }
-        let children = (*rec).children.clone();
-        for child in children {
-            if child.is_null() || !(*child).subsurface_cached_commit {
-                continue;
-            }
-            (*child).subsurface_applying_cached = true;
-            surface_commit(std::ptr::null_mut(), (*child).resource);
-            (*child).subsurface_applying_cached = false;
-        }
-        if !(*rec).state.is_null() && ((*rec).cursor_role || (*rec).drag_icon_role) {
-            update_overlay_positions((*rec).state);
-        }
-        extensions::input_popup_surface_committed(rec);
-        if scene_changed && (was_mapped || (*rec).mapped) && !(*rec).state.is_null() {
-            let root = surface_root_toplevel(rec);
-            if !root.is_null() && (*root).window.id.0 != 0 {
-                (*(*rec).state).damaged_windows.insert((*root).window.id);
-            }
-        }
-        extensions::session_lock_surface_committed(rec);
-    }
-}
-
-unsafe extern "C" fn surface_frame(
-    client: *mut ffi::wl_client,
-    resource: *mut ffi::wl_resource,
-    callback_id: u32,
-) {
-    unsafe {
-        let rec = ffi::wl_resource_get_user_data(resource) as *mut SurfaceRec;
-        let cb = ffi::wl_resource_create(client, &ffi::wl_callback_interface, 1, callback_id);
-        if !cb.is_null() {
-            (*rec).frame_callbacks.push(cb);
-        }
-    }
-}
-
-unsafe extern "C" fn surface_set_opaque_region(
-    _client: *mut ffi::wl_client,
-    surface: *mut ffi::wl_resource,
-    region: *mut ffi::wl_resource,
-) {
-    unsafe {
-        let rec = ffi::wl_resource_get_user_data(surface) as *mut SurfaceRec;
-        if rec.is_null() {
-            return;
-        }
-        let value = if region.is_null() {
-            None
-        } else {
-            let region = ffi::wl_resource_get_user_data(region) as *mut RegionRec;
-            if region.is_null() {
-                Some(Vec::new())
-            } else {
-                Some((*region).rects.clone())
-            }
-        };
-        (*rec).pending_opaque_region = Some(value);
-    }
-}
-
-unsafe extern "C" fn surface_set_input_region(
-    _client: *mut ffi::wl_client,
-    surface: *mut ffi::wl_resource,
-    region: *mut ffi::wl_resource,
-) {
-    unsafe {
-        let rec = ffi::wl_resource_get_user_data(surface) as *mut SurfaceRec;
-        if rec.is_null() {
-            return;
-        }
-        let value = if region.is_null() {
-            None
-        } else {
-            let region = ffi::wl_resource_get_user_data(region) as *mut RegionRec;
-            if region.is_null() {
-                Some(Vec::new())
-            } else {
-                Some((*region).rects.clone())
-            }
-        };
-        (*rec).pending_input_region = Some(value);
-    }
-}
-
-/// `wl_surface.set_buffer_transform` (v2+): records how the client has
-/// pre-rotated the buffer. The renderer applies the inverse at composite
-/// time via CPU staging (tessera-render) — a GPU-side transform in flux's image
-/// shader is the long-term path.
-unsafe extern "C" fn surface_set_buffer_transform(
-    _c: *mut ffi::wl_client,
-    r: *mut ffi::wl_resource,
-    value: i32,
-) {
-    unsafe {
-        let rec = ffi::wl_resource_get_user_data(r) as *mut SurfaceRec;
-        if rec.is_null() {
-            return;
-        }
-        let transform = match value as u32 {
-            0 => tessera_primitives::Transform::Normal,
-            1 => tessera_primitives::Transform::Rotate90,
-            2 => tessera_primitives::Transform::Rotate180,
-            3 => tessera_primitives::Transform::Rotate270,
-            4 => tessera_primitives::Transform::FlipHorizontal,
-            5 => tessera_primitives::Transform::FlipRotate90,
-            6 => tessera_primitives::Transform::FlipRotate180,
-            7 => tessera_primitives::Transform::FlipRotate270,
-            _ => {
-                ffi::wl_resource_post_error(r, 1, c"invalid wl_output.transform value".as_ptr());
-                return;
-            }
-        };
-        (*rec).pending_transform = transform;
-    }
-}
-
-/// `wl_surface.set_buffer_scale` (v2+): records the HiDPI scale.
-unsafe extern "C" fn surface_set_buffer_scale(
-    _c: *mut ffi::wl_client,
-    r: *mut ffi::wl_resource,
-    value: i32,
-) {
-    unsafe {
-        let rec = ffi::wl_resource_get_user_data(r) as *mut SurfaceRec;
-        if rec.is_null() {
-            return;
-        }
-        if value < 1 {
-            ffi::wl_resource_post_error(r, 0, c"buffer scale must be positive".as_ptr());
-            return;
-        }
-        (*rec).pending_scale = value;
-    }
-}
-/// Ceiling on rectangles accumulated between commits. `wl_surface.damage`
-/// can be called arbitrarily many times before a commit, and the committed
-/// path only drains the list at commit — without a bound, a client (or a
-/// buggy toolkit) streaming damage without committing grows the Vec without
-/// limit for as long as it likes. Crossing the bound collapses to the
-/// bounding box, which is conservative (it covers every declared rect).
-pub(crate) const MAX_PENDING_DAMAGE_RECTS: usize = 1024;
-
-/// Append a damage rectangle to a between-commits accumulator, collapsing to
-/// the bounding box once the rectangle budget is exhausted.
-pub(crate) fn push_pending_damage(
-    list: &mut Vec<tessera_primitives::Rect>,
-    rect: tessera_primitives::Rect,
-) {
-    if list.len() < MAX_PENDING_DAMAGE_RECTS {
-        list.push(rect);
-        return;
-    }
-    // Budget exhausted: fold the whole list into its bounding box plus the
-    // new rect, keeping the list at one conservative entry instead of
-    // growing per request.
-    let mut bbox = damage_bbox(list).unwrap_or(rect);
-    if let Some(merged) = damage_bbox(&[bbox, rect]) {
-        bbox = merged;
-    } else {
-        // The span cannot be represented as one Rect; degrade to full
-        // surface damage semantics by clearing — the commit path treats an
-        // empty list with a committed buffer as unknown/full damage.
-        list.clear();
-        return;
-    }
-    list.clear();
-    list.push(bbox);
-}
-
-/// `wl_surface.damage` (v1): damage in surface-local logical coordinates. The renderer's
-/// texture is in buffer pixel coords, so under buffer_scale > 1 these rects
-/// cover only a fraction of the buffer. The renderer bypasses the
-/// incremental-upload path when `buffer_scale != 1` (see tessera-render); a
-/// generation change still triggers a correct full upload.
-unsafe extern "C" fn surface_damage(
-    _c: *mut ffi::wl_client,
-    r: *mut ffi::wl_resource,
-    x: i32,
-    y: i32,
-    w: i32,
-    h: i32,
-) {
-    unsafe {
-        let rec = ffi::wl_resource_get_user_data(r) as *mut SurfaceRec;
-        if rec.is_null() || w <= 0 || h <= 0 {
-            return;
-        }
-        push_pending_damage(
-            &mut (*rec).pending_damage,
-            tessera_primitives::Rect::new(x, y, w, h),
-        );
-    }
-}
-
-/// Map normal-orientation buffer damage to the surface-local coordinate space
-/// shared with `wl_surface.damage`. Rounding outward preserves every touched
-/// logical pixel when a HiDPI buffer rectangle is not scale-aligned.
-pub(crate) fn buffer_damage_to_surface(
-    damage: tessera_primitives::Rect,
-    scale: i32,
-) -> tessera_primitives::Rect {
-    if scale <= 1 {
-        return damage;
-    }
-    let scale = i64::from(scale);
-    let x0 = i64::from(damage.origin.x).div_euclid(scale);
-    let y0 = i64::from(damage.origin.y).div_euclid(scale);
-    let buffer_x1 = i64::from(damage.origin.x) + i64::from(damage.size.w);
-    let buffer_y1 = i64::from(damage.origin.y) + i64::from(damage.size.h);
-    let x1 = -(-buffer_x1).div_euclid(scale);
-    let y1 = -(-buffer_y1).div_euclid(scale);
-    let clamp_i32 = |value: i64| value.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
-    tessera_primitives::Rect::new(
-        clamp_i32(x0),
-        clamp_i32(y0),
-        clamp_i32(x1.saturating_sub(x0)),
-        clamp_i32(y1.saturating_sub(y0)),
-    )
-}
-
-/// `wl_surface.damage_buffer` (v4): damage in buffer coordinates. Keep it
-/// separate from surface damage until commit, when the final pending
-/// scale/transform/viewport state is known.
-///
-/// Query the pixel dimensions of a pending `wl_buffer` so buffer-coordinate
-/// damage can be geometrically transformed at commit. Returns `None` for buffer
-/// types whose dimensions are not locally known (e.g. an EGL/legacy buffer the
-/// compositor does not recognise), in which case damage is conservatively
-/// treated as unmappable. SHM buffers expose width/height via libwayland; dma-buf
-/// buffers carry them on the `DmabufBuffer` user-data.
-unsafe fn pending_buffer_dimensions(buffer: *mut ffi::wl_resource) -> Option<(i32, i32)> {
-    unsafe {
-        let shm = ffi::wl_shm_buffer_get(buffer);
-        if !shm.is_null() {
-            let w = ffi::wl_shm_buffer_get_width(shm);
-            let h = ffi::wl_shm_buffer_get_height(shm);
-            return Some((w, h));
-        }
-        let is_dmabuf = ffi::wl_resource_instance_of(
-            buffer,
-            &ffi::wl_buffer_interface,
-            &WL_BUFFER_IMPL as *const _ as *const c_void,
-        ) != 0;
-        if is_dmabuf {
-            let db = ffi::wl_resource_get_user_data(buffer) as *const DmabufBuffer;
-            if !db.is_null() && (*db).have_plane {
-                return Some(((*db).width, (*db).height));
-            }
-        }
-        None
-    }
-}
-
-unsafe extern "C" fn surface_damage_buffer(
-    _c: *mut ffi::wl_client,
-    r: *mut ffi::wl_resource,
-    x: i32,
-    y: i32,
-    w: i32,
-    h: i32,
-) {
-    unsafe {
-        let rec = ffi::wl_resource_get_user_data(r) as *mut SurfaceRec;
-        if rec.is_null() || w <= 0 || h <= 0 {
-            return;
-        }
-        push_pending_damage(
-            &mut (*rec).pending_buffer_damage,
-            tessera_primitives::Rect::new(x, y, w, h),
-        );
-    }
-}
-
-unsafe extern "C" fn surface_resource_destroy(resource: *mut ffi::wl_resource) {
-    unsafe {
-        let rec = ffi::wl_resource_get_user_data(resource) as *mut SurfaceRec;
-        if rec.is_null() {
-            return;
-        }
-        if !(*rec).xdg_toplevel.is_null() {
-            defer_keyboard_focus_after_toplevel_unmap(rec);
-            // ADR-0029 close transition: the wl_surface is being destroyed
-            // while still mapped (no null-buffer unmap happened first).
-            // Snapshot before `retire_surface_buffer` clears the contents.
-            if !(*rec).state.is_null() {
-                (*(*rec).state).note_close_transition(rec);
-            }
-        }
-        if !(*rec).viewport_resource.is_null() {
-            let viewport =
-                ffi::wl_resource_get_user_data((*rec).viewport_resource) as *mut ViewportRec;
-            if !viewport.is_null() {
-                (*viewport).surface = std::ptr::null_mut();
-            }
-            (*rec).viewport_resource = std::ptr::null_mut();
-        }
-        extensions::fractional_scale_surface_destroyed(rec);
-        extensions::color_management_surface_destroyed(rec);
-        extensions::session_lock_surface_destroyed(rec);
-        extensions::idle_inhibit_surface_destroyed(rec);
-        extensions::explicit_sync_surface_destroyed(rec);
-        extensions::input_popup_surface_destroyed(rec);
-        extensions::xdg_foreign_surface_destroyed(rec, (*rec).state);
-        retire_surface_buffer(rec);
-        if (*rec).committed_acquire_fence >= 0 {
-            libc_close((*rec).committed_acquire_fence);
-            (*rec).committed_acquire_fence = -1;
-        }
-        if !(*rec).committed_explicit_release.is_null() {
-            let release =
-                std::mem::replace(&mut (*rec).committed_explicit_release, std::ptr::null_mut());
-            ffi::wl_resource_post_event(
-                release,
-                ffi::ZWP_LINUX_BUFFER_RELEASE_V1_IMMEDIATE_RELEASE,
-            );
-            ffi::wl_resource_destroy(release);
-        }
-        // Drop the toplevel from its workspace (ADR-0025). Idempotent: a no-op
-        // for surfaces that never mapped or had no toplevel role. Run before the
-        // slot is nulled so the resource address is still readable.
-        if !(*rec).state.is_null() {
-            let state = &mut *(*rec).state;
-            if (*rec).window.parent.is_none()
-                && let Some(app_id) = (*rec).window.app_id.as_deref()
-                && !app_id.is_empty()
-            {
-                let rect = fold_nudged_origin(
-                    &*rec,
-                    (*rec)
-                        .saved_floating_rect
-                        .unwrap_or(tessera_primitives::Rect {
-                            origin: (*rec).position,
-                            size: (*rec).window.size,
-                        }),
-                );
-                if rect.size.w > 0 && rect.size.h > 0 {
-                    let ws_idx = state.workspace_number_for_window((*rec).window.id);
-
-                    state.persist_app_geometry(
-                        app_id,
-                        rect,
-                        ws_idx,
-                        Some((*rec).window.layout_role),
-                    );
-                }
-            }
-            let seats = state.seats.keys().copied().collect::<Vec<_>>();
-            for seat in seats {
-                let Some(_guard) = ActiveSeatGuard::enter_existing(state, seat) else {
-                    continue;
-                };
-                extensions::keyboard_shortcuts_surface_destroyed(state, resource);
-                if state.pointer_focus == resource {
-                    extensions::pointer_constraint_focus_changed(
-                        state,
-                        resource,
-                        std::ptr::null_mut(),
-                    );
-                }
-                if state.keyboard_focus == resource {
-                    keyboard_focus_dependencies_changed(state, resource, std::ptr::null_mut());
-                }
-            }
-            for runtime in state.seats.values_mut().map(Box::as_mut) {
-                if runtime.cursor_surface == resource {
-                    runtime.cursor_surface = std::ptr::null_mut();
-                    runtime.cursor_hidden = false;
-                    runtime.cursor_shape = 1;
-                }
-                if let Some(drag) = runtime.drag.as_mut()
-                    && drag.icon == resource
-                {
-                    drag.icon = std::ptr::null_mut();
-                }
-                if runtime.implicit_grab_surface == resource {
-                    runtime.implicit_grab_surface = std::ptr::null_mut();
-                    runtime.implicit_grab_active = false;
-                    runtime.client_pressed_buttons.clear();
-                }
-                if runtime.pointer_focus == resource {
-                    runtime.pointer_focus = std::ptr::null_mut();
-                }
-                if runtime.keyboard_focus == resource {
-                    runtime.keyboard_focus = std::ptr::null_mut();
-                }
-                if runtime.tablet_focus == resource {
-                    runtime.tablet_focus = std::ptr::null_mut();
-                }
-            }
-            let id = (*rec).window.id;
-            state.unregister_window(id);
-            if state
-                .pending_activation
-                .is_some_and(|(_, pending)| pending == resource)
-            {
-                state.pending_activation = None;
-            }
-            // Session-lock focus keeps non-owning resource pointers across
-            // dispatch batches. Revoke them at the surface's single reclaim
-            // point so neither pre-lock restoration nor a pending lock-focus
-            // transition can dereference a destroyed wl_resource.
-            revoke_session_lock_focus(state, resource);
-            state
-                .pending_keyboard_focus
-                .retain(|_, pending| pending.target != resource);
-            state.workspaces.remove_toplevel(id);
-            // Notify foreign-toplevel listeners the window is gone.
-            if !(*rec).xdg_toplevel.is_null() {
-                extensions::foreign_toplevel_removed(id.0, state);
-            }
-            for child in state.live_surfaces() {
-                if (*child).popup_parent == rec {
-                    (*child).popup_parent = std::ptr::null_mut();
-                }
-            }
-        }
-        (*rec).dmabuf = None;
-        // Detach from the parent's children list and orphan any children of this
-        // surface so they do not keep a dangling parent pointer. Children stay in
-        // the surfaces Vec and remain mapped (the client may re-parent them).
-        detach_from_parent(rec);
-        for child in std::mem::take(&mut (*rec).children) {
-            (*child).parent = std::ptr::null_mut();
-        }
-        // Detach from the surfaces list so iterators stop visiting this rec, then
-        // reclaim the allocation. Removal is order-preserving because the Vec
-        // order is the stacking order (see raise_toplevel), and the shifted tail
-        // is renumbered so every live record's destroy-slot `index` keeps
-        // matching its position. A long session churns surfaces (popups,
-        // tooltips, drag icons); leaving a tombstone here made every frame's
-        // scene walks grow with cumulative churn instead of the live count.
-        if !(*rec).state.is_null() {
-            let surfaces = &mut (*(*rec).state).surfaces;
-            let idx = (*rec).index;
-            let pos = if idx < surfaces.len() && surfaces[idx] == rec {
-                Some(idx)
-            } else {
-                surfaces.iter().position(|p| *p == rec)
-            };
-            if let Some(pos) = pos {
-                surfaces.remove(pos);
-                for (offset, ptr) in surfaces[pos..].iter().copied().enumerate() {
-                    (*ptr).index = pos + offset;
-                }
-            }
-        }
-        drop(Box::from_raw(rec));
-    }
-}
-
-pub(crate) fn revoke_session_lock_focus(state: &mut State, resource: *mut ffi::wl_resource) {
-    if state.pre_lock_keyboard_focus == resource {
-        state.pre_lock_keyboard_focus = std::ptr::null_mut();
-    }
-    if state.pending_lock_focus == resource {
-        state.pending_lock_focus = std::ptr::null_mut();
-        state.lock_focus_dirty = true;
-    }
-}
-
-// ----- wl_region ----------------------------------------------------------
-
-static REGION_IMPL: ffi::wl_region_interface_impl = ffi::wl_region_interface_impl {
-    destroy: region_destroy,
-    add: region_add,
-    subtract: region_subtract,
-};
-
-unsafe extern "C" fn region_destroy(_client: *mut ffi::wl_client, resource: *mut ffi::wl_resource) {
-    unsafe {
-        ffi::wl_resource_destroy(resource);
-    }
-}
-
-unsafe extern "C" fn region_add(
-    _client: *mut ffi::wl_client,
-    resource: *mut ffi::wl_resource,
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
-) {
-    unsafe {
-        let region = ffi::wl_resource_get_user_data(resource) as *mut RegionRec;
-        if !region.is_null() && width > 0 && height > 0 {
-            push_region_rect(
-                &mut (*region).rects,
-                tessera_primitives::Rect::new(x, y, width, height),
-            );
-        }
-    }
-}
-
-/// Ceiling on rectangles retained by one `wl_region`. Regions are entirely
-/// client-controlled and live until the resource is destroyed; without a
-/// bound a client can push unlimited rects into one region and keep it
-/// alive, and those rects are later cloned into surface state and walked by
-/// the per-frame occlusion pass. Crossing the bound collapses to the
-/// bounding box — conservative (it covers every declared rect) and bounded.
-pub(crate) const MAX_REGION_RECTS: usize = 1024;
-
-/// Append a rectangle to a `wl_region`, collapsing to the bounding box once
-/// the rectangle budget is exhausted.
-pub(crate) fn push_region_rect(
-    rects: &mut Vec<tessera_primitives::Rect>,
-    rect: tessera_primitives::Rect,
-) {
-    if rects.len() < MAX_REGION_RECTS {
-        rects.push(rect);
-        return;
-    }
-    let mut bbox = damage_bbox(rects).unwrap_or(rect);
-    if let Some(merged) = damage_bbox(&[bbox, rect]) {
-        bbox = merged;
-    }
-    rects.clear();
-    rects.push(bbox);
-}
-
-pub(crate) fn subtract_rect(
-    source: tessera_primitives::Rect,
-    cut: tessera_primitives::Rect,
-) -> Vec<tessera_primitives::Rect> {
-    let sx1 = source.origin.x;
-    let sy1 = source.origin.y;
-    let sx2 = sx1.saturating_add(source.size.w);
-    let sy2 = sy1.saturating_add(source.size.h);
-    let cx1 = cut.origin.x.max(sx1);
-    let cy1 = cut.origin.y.max(sy1);
-    let cx2 = cut.origin.x.saturating_add(cut.size.w).min(sx2);
-    let cy2 = cut.origin.y.saturating_add(cut.size.h).min(sy2);
-    if cx1 >= cx2 || cy1 >= cy2 {
-        return vec![source];
-    }
-    let candidates = [
-        tessera_primitives::Rect::new(sx1, sy1, source.size.w, cy1 - sy1),
-        tessera_primitives::Rect::new(sx1, cy2, source.size.w, sy2 - cy2),
-        tessera_primitives::Rect::new(sx1, cy1, cx1 - sx1, cy2 - cy1),
-        tessera_primitives::Rect::new(cx2, cy1, sx2 - cx2, cy2 - cy1),
-    ];
-    candidates
-        .into_iter()
-        .filter(|rect| rect.size.w > 0 && rect.size.h > 0)
-        .collect()
-}
-
-unsafe extern "C" fn region_subtract(
-    _client: *mut ffi::wl_client,
-    resource: *mut ffi::wl_resource,
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
-) {
-    unsafe {
-        let region = ffi::wl_resource_get_user_data(resource) as *mut RegionRec;
-        if region.is_null() || width <= 0 || height <= 0 {
-            return;
-        }
-        let cut = tessera_primitives::Rect::new(x, y, width, height);
-        (*region).rects = std::mem::take(&mut (*region).rects)
-            .into_iter()
-            .flat_map(|rect| subtract_rect(rect, cut))
-            .collect();
-    }
-}
-
-unsafe extern "C" fn region_resource_destroy(resource: *mut ffi::wl_resource) {
-    unsafe {
-        let region = ffi::wl_resource_get_user_data(resource) as *mut RegionRec;
-        if !region.is_null() {
-            drop(Box::from_raw(region));
         }
     }
 }

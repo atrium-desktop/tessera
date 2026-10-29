@@ -12,6 +12,104 @@ project cuts a tagged release.
 > `atrium-desktop/tessera`. Environment variables use the `TESSERA_*` prefix
 > (previously `AEGIS_*`). The bundled cursor theme uses the `Tessera` name.
 
+## [Unreleased]
+
+### Added
+- Adopted Optics `v0.0.62` and the compositor half of its display-locked
+  presentation design (Optics ADR-0122): `tessera-wayland` now advertises
+  `wp_presentation` and completes each `wp_presentation_feedback` from the
+  frame that carries the surface's commit and reaches the display. A client
+  learns the real refresh interval (`refresh`, derived from the output mode in
+  millihertz) and the presentation timestamp on `CLOCK_MONOTONIC` with a
+  monotonic presented-frame sequence; feedback for a surface that unmaps or is
+  destroyed before its frame presents is `discarded`
+  ([ADR-0196](docs/adr/0196-compositor-side-presentation-time-feedback.md),
+  `INV-ARCH-84`, `INV-ARCH-85`). This is what lets an Optics host pace to a
+  120/144 Hz panel instead of its fallback cadence ([INV-PACE-02]).
+- Property-based tests for the IPC wire schema (`tessera-protocol`), covering
+  capability-negotiation round-trips, scalar-DTO and tagged-enum JSON
+  round-trips over the full integer range, and strict rejection of unknown
+  enum tags. Adds `proptest` as a dev-dependency.
+
+### Changed
+- The control center's tray is now a **bottom-left shelf with overflow
+  disclosure** instead of a left-middle scrolling column (ADR-0197). Its height
+  is derived from the display and the dock's reserved band rather than capped by
+  a constant, so capacity scales with the output — 9 / 10 / 16 / 23 slots at
+  1280×720 / 1366×768 / 1920×1080 / 2560×1440, against a flat 7 before. Icons
+  stack upward from the bottom edge, so a newly-registered item never displaces
+  the icons already nearest the pointer.
+  The tray's scroll viewport is gone ([INV-CHROME-03]): overflow is disclosed by
+  a trailing `+N` cell that expands into a grid popover holding every hidden
+  item ([INV-CHROME-04]), never hidden behind a scroll or a page turn. The
+  scrollbar's reveal, its decay clock and its damage band are deleted with the
+  interaction they served. Shelf geometry lives in
+  `control_center::tray_shelf` as pure functions of `(anchor, item count)`, so
+  slot capacity — not just the drawing — is unit-testable without a GPU
+  ([INV-CHROME-05]). `[INV-CHROME-06]` records the occlusion rule the retired
+  overlay plate violated: interactive chrome is never occluded by its own
+  decoration.
+- Paging was rejected with measurements rather than preference: the bottom-left
+  corner is occupied by the dock, which stays visible during the modal and grows
+  to 1638 px at 25 tiles (its left edge lands at 78 px on a 1280-wide output),
+  and the horizontal lane beside the main panel is the *narrowest* axis on small
+  displays — 3 cells at 720p. Paging would also have added permanent page-index
+  state, reconciliation and popover re-anchoring to reach one icon beyond what a
+  disclosure cell already offers. See ADR-0197's negative knowledge.
+- Vtable admission in `tessera-wayland` is now derived from libwayland's own
+  interface metadata instead of 88 hand-typed opcode counts. Every
+  `*_interface_impl` struct is bound to its interface by `declare_vtables!`, and
+  `checked_resource_create` refuses to hand a client an object whose advertised
+  version would index past the end of its vtable. The former
+  `assert_impl_opcode_count!` macro — and the 7 interfaces it never covered — is
+  removed ([ADR-0193](docs/adr/0193-metadata-derived-vtable-admission.md),
+  `INV-ARCH-50`), enforced by `cargo run -p xtask -- check-vtables`.
+- The ADR registry is now verified mechanically by
+  `cargo run -p xtask -- check-adrs`: unique and filename-consistent ids,
+  mandatory frontmatter, resolvable supersession targets, index sync and
+  ordering, and the resolution of every in-repo lineage link.
+- The duplicated StatusNotifierItem render-thread pipeline in `tessera-shell`
+  — icon upload, generation-tagged caching, and removal pruning — is
+  consolidated into `crate::tray::TrayProjection`, shared by the HUD and the
+  control center instead of maintained twice.
+- The 3144-line `control_center/presentation.rs` is split by surface into a
+  `presentation/` module tree — the painted canvas, clock, profile,
+  notifications, quick controls, Wi-Fi, Bluetooth, tray, media, work-mode, and
+  power pages each own their own file, with the platform clock formatting and
+  the ADR-0140 power projection lifted out of the view layer.
+- The monolithic 1014-line `Dock::render` function is decomposed into 7
+  focused, cohesive subroutines (`handle_press_and_drag`,
+  `step_magnification_wave`, `render_strip_content`,
+  `handle_pointer_interactions`, `update_hover_surfaces`,
+  `reanchor_app_menu`, `dismiss_expanded_autohide`), unlocking `self` from
+  a whole-frame borrow and dropping `render` to ~300 lines of clear orchestration.
+- The 807-line `surface_commit` state machine in `tessera-wayland` is decomposed
+  into modular subroutines (`apply_committed_buffer`, `handle_toplevel_mapping`,
+  and `update_surface_enter_leave_events`), shrinking the dispatch loop by 70%.
+- Lock acquisition no longer panics on a poisoned mutex: all 234 production
+  `.lock()`/`.read()`/`.write()` sites recover the guard
+  (`unwrap_or_else(|e| e.into_inner())`), so one worker's panic cannot cascade
+  across the compositor. The remaining production panic sites are ratcheted in
+  `tooling/xtask/panic-baseline.toml` and can only shrink
+  ([ADR-0195](docs/adr/0195-panic-discipline-and-poison-recovery.md),
+  `INV-ARCH-51`), enforced by `cargo run -p xtask -- check-panics`.
+
+### Fixed
+- The control-center tray icons are interactive again. The hover/menu-open plate
+  was a sibling `place()` overlay in the `Chrome` band drawn after the icon
+  column; an ABS node occludes the flow widgets inside its subtree for
+  hit-testing (Optics ADR-0060 — occlusion *is* the reversed hit-test order), so
+  the plate swallowed every cell's own pressable response: no hover highlight,
+  no left-click `Activate`, and no right-click dbusmenu popover. The plate is
+  the cell pressable's own `bg`/`border` now, and
+  `tray_cells_are_clickable_and_open_their_menu` pins the behaviour with a
+  headless pointer sequence.
+- Duplicate `ADR-0080` (two records sharing the id) is repaired: the superseded
+  avatar record is renumbered to [ADR-0194](docs/adr/0194-avatar-crate-xdg-conformant-vrm-aware.md)
+  with every reference updated. A dangling link in
+  [ADR-0142](docs/adr/0142-layered-glass-backdrop-compositor.md) now points at
+  ADR-0114.
+
 ## [0.0.79] - 2026-10-26
 
 ### Added

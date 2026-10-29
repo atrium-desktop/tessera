@@ -46,7 +46,7 @@ pub(crate) unsafe extern "C" fn ddm_bind(
     id: u32,
 ) {
     unsafe {
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::wl_data_device_manager_interface,
             version as c_int,
@@ -72,7 +72,7 @@ unsafe extern "C" fn ddm_create_data_source(
 ) {
     unsafe {
         let ver = ffi::wl_resource_get_version(mgr);
-        let src = ffi::wl_resource_create(client, &ffi::wl_data_source_interface, ver, id);
+        let src = ffi::checked_resource_create(client, &ffi::wl_data_source_interface, ver, id);
         if src.is_null() {
             return;
         }
@@ -233,7 +233,7 @@ unsafe extern "C" fn ddm_get_data_device(
         };
         let seat_id = (*state).active_seat;
         let ver = ffi::wl_resource_get_version(mgr);
-        let dev = ffi::wl_resource_create(client, &ffi::wl_data_device_interface, ver, id);
+        let dev = ffi::checked_resource_create(client, &ffi::wl_data_device_interface, ver, id);
         if dev.is_null() {
             return;
         }
@@ -437,7 +437,7 @@ unsafe fn create_data_offer(
     unsafe {
         let client = ffi::wl_resource_get_client(dev);
         let version = ffi::wl_resource_get_version(dev).min(3);
-        let offer = ffi::wl_resource_create(client, &ffi::wl_data_offer_interface, version, 0);
+        let offer = ffi::checked_resource_create(client, &ffi::wl_data_offer_interface, version, 0);
         if offer.is_null() {
             return std::ptr::null_mut();
         }

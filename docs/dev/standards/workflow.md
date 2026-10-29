@@ -40,6 +40,9 @@ user-visible.
 | Package conformity | `cargo run -p xtask -- package-conformity` | Workspace lint and dependency standards | Yes |
 | Dependency boundaries | `cargo run -p xtask -- check-boundaries` | Capability edges from `dependency-policy.toml` | Yes |
 | Bootstrap admission | `cargo run -p xtask -- check-bootstrap-admission` | ADR-0147 process-entry-point rule | Yes |
+| Vtable admission | `cargo run -p xtask -- check-vtables` | ADR-0193 metadata-derived vtable sizing in `tessera-wayland` | Yes |
+| ADR registry | `cargo run -p xtask -- check-adrs` | Unique ids, frontmatter, index sync, and lineage-link resolution across `docs/adr/` | Yes |
+| Panic discipline | `cargo run -p xtask -- check-panics` | ADR-0195: no poisonable-lock panics, no new panic sites | Yes |
 | Lockfile validity | `cargo metadata --locked` | Canonical `Cargo.lock` matches the manifests | Yes |
 | Tests | `cargo nextest run --locked --workspace` | Unit, integration, and doc tests | Yes |
 | Motion purity | `cargo run -p xtask -- check-motion` | ADR-0174 zero-hand-rolled-motion-math rule in `tessera-shell` | Local gate — run when chrome motion code moves |

@@ -13,7 +13,7 @@ superseded_by: null
 
 ## Context
 
-[ADR-0080](0080-avatar-crate-xdg-conformant-vrm-aware.md) established one
+[ADR-0194](0194-avatar-crate-xdg-conformant-vrm-aware.md) established one
 optional `avatar.vrma` companion for a VRM avatar. That contract can express
 only one continuously looping movement. It cannot distinguish ambient motion
 from a gesture, request a gesture by semantic name, or vary repeated activity

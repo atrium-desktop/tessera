@@ -29,7 +29,7 @@ pub(crate) unsafe extern "C" fn idle_inhibit_bind(
     id: u32,
 ) {
     unsafe {
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::zwp_idle_inhibit_manager_v1_interface,
             version as c_int,
@@ -55,7 +55,8 @@ unsafe extern "C" fn idle_inhibit_create_inhibitor(
 ) {
     unsafe {
         let ver = ffi::wl_resource_get_version(mgr);
-        let res = ffi::wl_resource_create(client, &ffi::zwp_idle_inhibitor_v1_interface, ver, id);
+        let res =
+            ffi::checked_resource_create(client, &ffi::zwp_idle_inhibitor_v1_interface, ver, id);
         if res.is_null() {
             return;
         }
@@ -149,7 +150,7 @@ pub(crate) unsafe extern "C" fn idle_notifier_bind(
     id: u32,
 ) {
     unsafe {
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::ext_idle_notifier_v1_interface,
             version as c_int,
@@ -212,7 +213,7 @@ unsafe fn idle_notifier_create(
     unsafe {
         let ver = ffi::wl_resource_get_version(notifier);
         let res =
-            ffi::wl_resource_create(client, &ffi::ext_idle_notification_v1_interface, ver, id);
+            ffi::checked_resource_create(client, &ffi::ext_idle_notification_v1_interface, ver, id);
         if res.is_null() {
             return;
         }

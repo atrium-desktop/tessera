@@ -2,6 +2,19 @@ use super::*;
 
 use super::presentation::canvas_alpha;
 
+/// The reserved band a bottom-docked, non-autohidden dock publishes through
+/// `ChromeUpdate::ModalReserved`. Sourced from the dock's own constants so a
+/// dock geometry change flows into these tests instead of silently diverging.
+fn bottom_dock_reserved() -> crate::component::Reserved {
+    use crate::components::dock::motion::{DOCK_EDGE_MARGIN, DOCK_PANEL_HEIGHT};
+    crate::component::Reserved {
+        top: 0,
+        bottom: (DOCK_PANEL_HEIGHT + DOCK_EDGE_MARGIN) as i32,
+        left: 0,
+        right: 0,
+    }
+}
+
 fn escape() -> KeyChar {
     KeyChar {
         keysym: tessera_primitives::input::XKB_KEY_Escape,
@@ -210,10 +223,131 @@ fn a_fullscreen_window_closes_the_panel() {
 }
 
 #[test]
+fn the_dock_reservation_shortens_the_tray_shelf() {
+    // ADR-0197: the shelf's bottom edge follows the dock's *own*
+    // `Chrome::reserved()` declaration, published through
+    // `ChromeUpdate::ModalReserved`. This is what a mirrored constant could not
+    // do: an auto-hidden or fullscreen-locked dock reserves nothing, and a
+    // side-docked dock does not reserve the bottom edge at all.
+    let display = (1920.0, 1080.0);
+    let (_, _, _, _, no_dock, _, _) =
+        CommandPanel::cluster_bounds(display, crate::component::Reserved::default());
+    let (_, _, _, _, bottom_dock, _, _) =
+        CommandPanel::cluster_bounds(display, bottom_dock_reserved());
+
+    assert!(
+        (bottom_dock.y - no_dock.y).abs() < 0.5,
+        "the shelf is bottom-anchored, so its top (below the profile chip) does \
+         not move: {bottom_dock:?} vs {no_dock:?}"
+    );
+    assert!(
+        bottom_dock.h < no_dock.h,
+        "a bottom-docked dock must shorten the shelf: {} vs {}",
+        bottom_dock.h,
+        no_dock.h
+    );
+    let dock_band = bottom_dock_reserved().bottom as f32;
+    let reclaimed = no_dock.h - bottom_dock.h;
+    assert!(
+        (reclaimed - dock_band).abs() < 0.5,
+        "the shelf must give up exactly the dock's band ({dock_band}), gave up {reclaimed}"
+    );
+
+    // A side-docked dock reserves a side edge, not the bottom: the shelf keeps
+    // its full height.
+    let side_dock = crate::component::Reserved {
+        top: 0,
+        bottom: 0,
+        left: 86,
+        right: 0,
+    };
+    let (_, _, _, _, shelf, _, _) = CommandPanel::cluster_bounds(display, side_dock);
+    assert!(
+        (shelf.h - no_dock.h).abs() < 0.5,
+        "a side-docked dock must not shorten the shelf"
+    );
+}
+
+#[test]
+fn the_tray_shelf_capacity_grows_with_the_display() {
+    // [INV-CHROME-02]: the shelf's height is derived from the display and the
+    // reserved bands, never capped by a constant. Before ADR-0197 the column
+    // admitted exactly 7 icons at every one of these resolutions.
+    use crate::components::control_center::tray_shelf::shelf_slots;
+    let mut previous = 0;
+    for display in [
+        (1280.0, 720.0),
+        (1366.0, 768.0),
+        (1920.0, 1080.0),
+        (2560.0, 1440.0),
+    ] {
+        let (_profile, _main, _notif, _clock, tray, _work, _power) =
+            CommandPanel::cluster_bounds(display, bottom_dock_reserved());
+        let slots = shelf_slots(tray.h);
+        assert!(
+            slots >= previous,
+            "capacity shrank going to {display:?}: {slots} after {previous}"
+        );
+        previous = slots;
+    }
+    assert!(
+        previous >= 20,
+        "a 1440p output must admit well over the legacy 7 slots, got {previous}"
+    );
+}
+
+#[test]
+fn the_tray_shelf_never_overlaps_the_dock_band() {
+    // ADR-0197: the dock is a persistent decoration that stays visible while
+    // the panel is open, and its length changes with the tile count, so the
+    // shelf is placed by a rule that holds clear of its reserved band — not by
+    // an offset that happens to be clear on one monitor.
+    for display in [
+        (1280.0, 720.0),
+        (1366.0, 768.0),
+        (1920.0, 1080.0),
+        (2560.0, 1440.0),
+        (320.0, 480.0),
+    ] {
+        let (_profile, _main, _notif, _clock, tray, _work, _power) =
+            CommandPanel::cluster_bounds(display, bottom_dock_reserved());
+        let margin_y = (display.1 * 0.035).clamp(16.0, 40.0);
+        let dock_top = display.1 - margin_y - bottom_dock_reserved().bottom as f32;
+        assert!(
+            tray.y + tray.h <= dock_top + 0.01,
+            "the shelf ({tray:?}) must stop above the dock band at {dock_top} on {display:?}"
+        );
+    }
+}
+
+#[test]
+fn the_tray_shelf_starts_below_the_profile_chip() {
+    // The shelf grows upward from the bottom edge, so its *top* is the edge at
+    // risk of colliding with the profile chip above it.
+    for display in [
+        (1280.0, 720.0),
+        (1366.0, 768.0),
+        (1920.0, 1080.0),
+        (2560.0, 1440.0),
+    ] {
+        let (profile, _main, _notif, _clock, tray, _work, _power) =
+            CommandPanel::cluster_bounds(display, bottom_dock_reserved());
+        assert!(
+            tray.y >= profile.y + profile.h,
+            "the shelf ({tray:?}) must start below the profile chip ({profile:?})"
+        );
+        assert!(
+            tray.h > 0.0,
+            "the shelf keeps a usable height on {display:?}"
+        );
+    }
+}
+
+#[test]
 fn cluster_bounds_stay_inside_small_displays() {
     for display in [(320.0, 480.0), (800.0, 600.0), (1920.0, 1080.0)] {
         let (profile, main, notifications, clock, tray, work_mode, power) =
-            CommandPanel::cluster_bounds(display);
+            CommandPanel::cluster_bounds(display, bottom_dock_reserved());
         for rect in [profile, main, notifications, clock, tray, work_mode, power] {
             assert!(rect.x >= 0.0 && rect.y >= 0.0);
             assert!(rect.x + rect.w <= display.0 + 0.01);
@@ -227,7 +361,7 @@ fn cluster_bounds_stay_inside_small_displays() {
 #[test]
 fn full_size_displays_get_the_design_geometry() {
     let (profile, main, notifications, clock, tray, work_mode, power) =
-        CommandPanel::cluster_bounds((1920.0, 1080.0));
+        CommandPanel::cluster_bounds((1920.0, 1080.0), bottom_dock_reserved());
     // Profile is compact in top-left
     assert_eq!(profile.w, 300.0);
     assert_eq!(profile.h, 84.0);
@@ -245,10 +379,28 @@ fn full_size_displays_get_the_design_geometry() {
     assert!(clock.x + clock.w < notifications.x);
     assert_eq!(clock.y, profile.y);
 
-    // The tray column hugs the left-middle anchor.
+    // The tray shelf hugs the bottom-left anchor (ADR-0197): it starts below
+    // the profile chip, spans down to the display's bottom margin, and holds
+    // clear of the dock's reserved band rather than the side-middle band the
+    // scrolling column used.
     assert_eq!(tray.x, 48.0);
-    assert!(tray.y > notifications.y);
-    assert!(tray.h < 1080.0 - 37.8 * 2.0);
+    assert_eq!(
+        tray.y,
+        profile.y + profile.h + PANEL_GAP,
+        "shelf starts below profile"
+    );
+    assert_eq!(
+        tray.y + tray.h,
+        1080.0 - 37.8 - bottom_dock_reserved().bottom as f32,
+        "shelf stops above the dock's reserved band"
+    );
+    // [INV-CHROME-02]: the height is derived, so it far exceeds the retired
+    // 400px cap that made capacity independent of the display.
+    assert!(
+        tray.h > (TRAY_CELL + TRAY_GAP) * 8.0,
+        "the shelf must not be capped at the legacy eight-slot height: {}",
+        tray.h
+    );
 
     // The right-bottom band is horizontal and pinned into the corner:
     // power/session flush to the right margin, work mode to its left, both
@@ -281,7 +433,7 @@ fn profile_resolves_for_the_current_process_user() {
 
 #[test]
 fn clock_strings_render_a_time_and_a_date() {
-    let (time, date) = crate::components::control_center::presentation::clock_strings();
+    let (time, date) = crate::components::control_center::presentation::clock::clock_strings();
     assert!(time.contains(':'), "wall-clock time renders as HH:MM");
     assert!(!date.is_empty(), "the date line renders");
 }
@@ -405,22 +557,22 @@ fn power_mode_projection_covers_the_four_toggle_combinations() {
     // Display axis × security axis, the four user scenarios:
     // (keep awake, auto lock) → mode.
     assert_eq!(
-        crate::components::control_center::presentation::power_mode_for(false, true),
+        crate::components::control_center::presentation::power::power_mode_for(false, true),
         PowerMode::Balanced
     );
     assert_eq!(
-        crate::components::control_center::presentation::power_mode_for(true, true),
+        crate::components::control_center::presentation::power::power_mode_for(true, true),
         PowerMode::Secure
     );
     assert_eq!(
-        crate::components::control_center::presentation::power_mode_for(true, false),
+        crate::components::control_center::presentation::power::power_mode_for(true, false),
         PowerMode::Awake
     );
     // The forbidden combination (blank while never locking) projects onto
     // Awake: the security boundary wins and the display axis reads back
     // honestly as "awake".
     assert_eq!(
-        crate::components::control_center::presentation::power_mode_for(false, false),
+        crate::components::control_center::presentation::power::power_mode_for(false, false),
         PowerMode::Awake
     );
 }
@@ -429,7 +581,7 @@ fn power_mode_projection_covers_the_four_toggle_combinations() {
 fn projected_modes_never_blank_an_unlocked_session() {
     for keep_awake in [false, true] {
         for auto_lock in [false, true] {
-            let mode = crate::components::control_center::presentation::power_mode_for(
+            let mode = crate::components::control_center::presentation::power::power_mode_for(
                 keep_awake, auto_lock,
             );
             if !mode.locks_automatically() {
@@ -446,7 +598,7 @@ fn projected_modes_never_blank_an_unlocked_session() {
 fn work_mode_and_power_session_panels_render_within_cluster() {
     let display = (1920.0, 1080.0);
     let (_profile, _main, notifications, _clock, _tray, work_mode, power) =
-        CommandPanel::cluster_bounds(display);
+        CommandPanel::cluster_bounds(display, bottom_dock_reserved());
 
     assert!(work_mode.w > 0.0);
     assert!(work_mode.h > 0.0);
@@ -483,17 +635,17 @@ fn request_system_confirm_dedupes_while_one_is_pending() {
 }
 
 #[test]
-fn scrollbar_reveals_fade_out_after_wheel_activity_stops() {
+fn the_notification_scrollbar_reveal_fades_out_after_wheel_activity_stops() {
+    // The tray has no scrollbar any more (ADR-0197 [INV-CHROME-03]); the
+    // notification stream is the only remaining scrollable surface here.
     let mut panel = CommandPanel::without_sources();
     panel.notif_scrollbar_reveal = 1.0;
-    panel.tray_scrollbar_reveal = 1.0;
 
-    // A handful of 60fps frames of decay settles both reveals to zero.
+    // A handful of 60fps frames of decay settles the reveal to zero.
     for _ in 0..120 {
         panel.advance(1.0 / 60.0);
     }
     assert_eq!(panel.notif_scrollbar_reveal, 0.0);
-    assert_eq!(panel.tray_scrollbar_reveal, 0.0);
     // And with nothing moving, no interaction animation stays pending.
     assert!(!panel.interaction_anim_pending());
 }
@@ -501,26 +653,53 @@ fn scrollbar_reveals_fade_out_after_wheel_activity_stops() {
 #[test]
 fn animated_frames_localize_damage_to_the_moving_bands() {
     let display = (1920.0, 1080.0);
-    let (profile, _main, notifications, _clock, tray, work_mode, power) =
-        CommandPanel::cluster_bounds(display);
+    let (profile, _main, notifications, _clock, _tray, work_mode, power) =
+        CommandPanel::cluster_bounds(display, bottom_dock_reserved());
     let full = tessera_primitives::Rect::new(0, 0, display.0 as i32, display.1 as i32);
 
     // Nothing animating: no footprint at all.
     assert_eq!(
-        animated_damage_region(display, false, false, false, false, false, false, false),
+        animated_damage_region(
+            display,
+            bottom_dock_reserved(),
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+        ),
         None
     );
 
     // The reveal transition stays conservative (None => full repaint) because
     // it animates the full-screen backdrop cover.
     assert_eq!(
-        animated_damage_region(display, true, false, false, false, false, false, false),
+        animated_damage_region(
+            display,
+            bottom_dock_reserved(),
+            true,
+            false,
+            false,
+            false,
+            false,
+            false
+        ),
         None
     );
 
     // A ticking work-mode spring repaints only its band, never the screen.
-    let region = animated_damage_region(display, false, true, false, false, false, false, false)
-        .expect("a ticking spring states its footprint");
+    let region = animated_damage_region(
+        display,
+        bottom_dock_reserved(),
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+    )
+    .expect("a ticking spring states its footprint");
     assert!(
         region.size.w < full.size.w && region.size.h < full.size.h,
         "the spring footprint must be a band: {region:?}"
@@ -528,41 +707,404 @@ fn animated_frames_localize_damage_to_the_moving_bands() {
     assert!(region.origin.y >= work_mode.y as i32);
 
     // The notification-scrollbar reveal covers only the notification stream.
-    let notif = animated_damage_region(display, false, false, true, false, false, false, false)
-        .expect("scrollbar reveal states its footprint");
+    let notif = animated_damage_region(
+        display,
+        bottom_dock_reserved(),
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+    )
+    .expect("scrollbar reveal states its footprint");
     assert!(notif.origin.x >= notifications.x as i32);
     assert!(notif.origin.x + notif.size.w <= (notifications.x + notifications.w).ceil() as i32);
 
-    // The tray-scrollbar reveal covers only the tray column.
-    let tray_region =
-        animated_damage_region(display, false, false, false, true, false, false, false)
-            .expect("tray reveal states its footprint");
-    assert!(tray_region.origin.x >= tray.x as i32);
-    assert!(tray_region.origin.x + tray_region.size.w <= (tray.x + tray.w).ceil() as i32);
-
     // An animating avatar narrows to the profile block, never the full output.
-    let avatar = animated_damage_region(display, false, false, false, false, true, false, false)
-        .expect("an animating avatar states its footprint");
+    let avatar = animated_damage_region(
+        display,
+        bottom_dock_reserved(),
+        false,
+        false,
+        false,
+        true,
+        false,
+        false,
+    )
+    .expect("an animating avatar states its footprint");
     assert!(avatar.size.w < full.size.w && avatar.size.h < full.size.h);
     assert!(avatar.origin.x >= profile.x as i32);
     assert!(avatar.origin.x + avatar.size.w <= (profile.x + profile.w).ceil() as i32);
 
     // Tooltip reveals stay localized to their cluster anchor bands.
-    let tip = animated_damage_region(display, false, false, false, false, false, true, false)
-        .expect("work mode tooltip states localized footprint");
+    let tip = animated_damage_region(
+        display,
+        bottom_dock_reserved(),
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+    )
+    .expect("work mode tooltip states localized footprint");
     assert!(tip.size.w < full.size.w && tip.size.h < full.size.h);
 
-    let session_tip =
-        animated_damage_region(display, false, false, false, false, false, false, true)
-            .expect("session tooltip states localized footprint");
+    let session_tip = animated_damage_region(
+        display,
+        bottom_dock_reserved(),
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+    )
+    .expect("session tooltip states localized footprint");
     assert!(session_tip.size.w < full.size.w && session_tip.size.h < full.size.h);
     assert!(session_tip.origin.x >= power.x as i32);
 
     // Independent signals union, so simultaneous motion still stays bounded
     // to the moving bands rather than the whole screen.
-    let union =
-        animated_damage_region(display, false, true, true, true, true, false, false).unwrap();
+    let union = animated_damage_region(
+        display,
+        bottom_dock_reserved(),
+        false,
+        true,
+        true,
+        true,
+        false,
+        false,
+    )
+    .unwrap();
     assert!(union.size.w < full.size.w && union.size.h < full.size.h);
+}
+
+#[test]
+fn the_tray_shelf_discloses_overflow_instead_of_hiding_it() {
+    // [INV-CHROME-04]: overflow is disclosed by a trailing `+N` cell, never
+    // hidden behind a scroll or a page turn. This exercises the whole render
+    // path: the disclosure cell must exist, be clickable, and open a popover
+    // that lists every hidden item.
+    unsafe { std::env::set_var("TESSERA_COMMAND_PANEL", "1") };
+
+    let display = (1280.0, 720.0);
+    let mut panel = ControlCenter::without_sources();
+    panel.open = true;
+    panel.reveal.snap_to(1.0);
+    panel.set_reduced_motion(true);
+
+    // Seed more SNI items than a 720p shelf can hold. The demo seed supplies
+    // three; push the count past the shelf's capacity directly in the
+    // projection-free path by asserting against the real capacity instead.
+    let (_profile, _main, _notif, _clock, anchor, _work, _power) =
+        ControlCenter::cluster_bounds(display, bottom_dock_reserved());
+    let capacity = crate::components::control_center::tray_shelf::shelf_slots(anchor.h);
+    assert!(
+        capacity >= 2,
+        "a 720p shelf must hold at least two slots, got {capacity}"
+    );
+    let item_count = capacity + 3;
+    let layout = crate::components::control_center::tray_shelf::shelf_layout(anchor, item_count);
+    assert!(layout.has_disclosure(), "an oversized tray must disclose");
+    assert_eq!(layout.slots, capacity);
+    assert_eq!(layout.overflow, item_count - (capacity - 1));
+
+    // The disclosure popover's bounds are a pure function of the anchor, the
+    // hidden count, and the display.
+    let bounds = crate::components::control_center::tray_shelf::overflow_bounds(
+        Rect {
+            x: anchor.x,
+            y: anchor.y,
+            w: layout.cell_width(),
+            h: TRAY_CELL,
+        },
+        layout.overflow,
+        display,
+    );
+    assert!(bounds.w > 0.0 && bounds.h > 0.0);
+    assert!(bounds.x >= 0.0 && bounds.y >= 0.0);
+    assert!(bounds.x + bounds.w <= display.0 + 0.01);
+    assert!(bounds.y + bounds.h <= display.1 + 0.01);
+
+    // The popover must be reachable, not least by being *outside* the click-away
+    // dismissal path: a press inside it must not close the panel.
+    panel.tray_overflow_open = true;
+    panel.tray_overflow_anchor = Rect {
+        x: anchor.x,
+        y: anchor.y + anchor.h - TRAY_CELL,
+        w: layout.cell_width(),
+        h: TRAY_CELL,
+    };
+    panel.tray_shelf = Some(layout);
+    let resolved = panel
+        .tray_overflow_bounds(display)
+        .expect("an open disclosure states its footprint");
+    assert!(
+        resolved.w > 0.0 && resolved.h > 0.0,
+        "click-away must be able to hit-test the disclosure popover"
+    );
+
+    unsafe { std::env::remove_var("TESSERA_COMMAND_PANEL") };
+}
+
+#[test]
+fn a_disclosed_tray_never_lingers_with_nothing_to_show() {
+    // When the shelf grows enough to hold every item, the popover has no
+    // content and must close rather than paint an empty surface.
+    let display = (1920.0, 1080.0);
+    let (_profile, _main, _notif, _clock, tray, _work, _power) =
+        ControlCenter::cluster_bounds(display, bottom_dock_reserved());
+    let mut panel = ControlCenter::without_sources();
+    panel.tray_overflow_open = true;
+    // A layout with no overflow: everything fits.
+    let fits = crate::components::control_center::tray_shelf::shelf_layout(tray, 2);
+    assert!(!fits.has_disclosure());
+    panel.tray_shelf = Some(fits);
+    assert!(
+        panel.tray_overflow_bounds(display).is_none(),
+        "a shelf with nothing hidden must not report a popover"
+    );
+}
+
+#[test]
+fn a_press_outside_the_overflow_popover_dismisses_it() {
+    // Symmetric with the dbusmenu popover's light-dismiss: a surface that
+    // cannot be dismissed by clicking away lingers on screen.
+    let display = (1280.0, 720.0);
+    let mut panel = ControlCenter::without_sources();
+    panel.open = true;
+    panel.reveal.snap_to(1.0);
+    panel.set_reduced_motion(true);
+    let mut out = ChromeEvents::default();
+    let mut ui = lens::Ui::headless().unwrap();
+    let mut input = Input::new(display, 0.05);
+
+    let anchor = Rect {
+        x: 48.0,
+        y: 300.0,
+        w: TRAY_COL_W,
+        h: crate::components::control_center::tray_shelf::shelf_height(2),
+    };
+    let cells: Vec<SniCell> = (0..6)
+        .map(|index| SniCell {
+            key: format!("test.tray.{index}"),
+            title: format!("Item {index}"),
+            textured: false,
+            has_menu: true,
+        })
+        .collect();
+
+    let frame =
+        |ui: &mut lens::Ui, panel: &mut ControlCenter, input: &Input, out: &mut ChromeEvents| {
+            ui.frame(input, |f| {
+                panel.render_tray_shelf_cells(
+                    f,
+                    anchor,
+                    display,
+                    &cells,
+                    1.0,
+                    (input.as_raw().cursor.x, input.as_raw().cursor.y),
+                    input.as_raw().mouse_pressed
+                        [lens::sys::lens_mouse_button::LENS_MOUSE_LEFT as usize],
+                );
+            });
+            let snap = ui.snapshot().unwrap();
+            ui.activate(&snap).unwrap();
+            let _ = out;
+        };
+
+    // Open the popover directly, then press far away from it.
+    panel.tray_overflow_open = true;
+    panel.tray_overflow_anchor = Rect {
+        x: anchor.x,
+        y: anchor.y + anchor.h - TRAY_CELL,
+        w: TRAY_CELL,
+        h: TRAY_CELL,
+    };
+    input.set_cursor(1200.0, 100.0);
+    frame(&mut ui, &mut panel, &input, &mut out);
+
+    input.set_mouse_down(lens::MouseButton::Left, true);
+    input.set_mouse_pressed(lens::MouseButton::Left, true);
+    frame(&mut ui, &mut panel, &input, &mut out);
+    input.set_mouse_down(lens::MouseButton::Left, false);
+    input.set_mouse_pressed(lens::MouseButton::Left, false);
+    input.set_mouse_released(lens::MouseButton::Left, true);
+    frame(&mut ui, &mut panel, &input, &mut out);
+    input.set_mouse_released(lens::MouseButton::Left, false);
+
+    assert!(
+        !panel.tray_overflow_open,
+        "a press outside the disclosure popover must dismiss it"
+    );
+}
+
+#[test]
+fn clicking_the_disclosure_cell_opens_the_overflow_popover() {
+    // [INV-CHROME-04] end to end: the `+N` cell is a real pressable that
+    // toggles the overflow popover. A pure-function test cannot prove this —
+    // it needs a real frame and a real pointer sequence.
+    let display = (1280.0, 720.0);
+    let mut panel = ControlCenter::without_sources();
+    panel.open = true;
+    panel.reveal.snap_to(1.0);
+    panel.set_reduced_motion(true);
+    let mut out = ChromeEvents::default();
+    let mut ui = lens::Ui::headless().unwrap();
+    let mut input = Input::new(display, 0.05);
+
+    // A deterministically oversized tray: a two-slot anchor fed six items.
+    // Driving `render_tray_shelf_cells` with an explicit list keeps the test
+    // independent of the preview demo seed and of the SNI projection.
+    let anchor = Rect {
+        x: 48.0,
+        y: 300.0,
+        w: TRAY_COL_W,
+        h: crate::components::control_center::tray_shelf::shelf_height(2),
+    };
+    let cells: Vec<SniCell> = (0..6)
+        .map(|index| SniCell {
+            key: format!("test.tray.{index}"),
+            title: format!("Item {index}"),
+            has_menu: true,
+            textured: false,
+        })
+        .collect();
+
+    let layout = crate::components::control_center::tray_shelf::shelf_layout(anchor, cells.len());
+    assert_eq!(layout.slots, 2);
+    assert!(
+        layout.has_disclosure(),
+        "six items in two slots must disclose"
+    );
+    assert_eq!(layout.overflow, 5, "one own cell plus five behind +5");
+
+    let cell_w = layout.cell_width();
+    let cell_x = layout.surface.x + (layout.surface.w - cell_w) * 0.5 + cell_w * 0.5;
+    // The disclosure is the last slot.
+    let cell_y = layout.surface.y
+        + TRAY_PAD
+        + (layout.visible - 1) as f32 * (TRAY_CELL + TRAY_GAP)
+        + TRAY_CELL * 0.5;
+
+    let frame =
+        |ui: &mut lens::Ui, panel: &mut ControlCenter, input: &Input, out: &mut ChromeEvents| {
+            ui.frame(input, |f| {
+                panel.render_tray_shelf_cells(
+                    f,
+                    anchor,
+                    display,
+                    &cells,
+                    1.0,
+                    (input.as_raw().cursor.x, input.as_raw().cursor.y),
+                    input.as_raw().mouse_pressed
+                        [lens::sys::lens_mouse_button::LENS_MOUSE_LEFT as usize],
+                );
+            });
+            let snap = ui.snapshot().unwrap();
+            ui.activate(&snap).unwrap();
+            let _ = out;
+        };
+
+    // Two frames so the pressable has last-frame geometry to hit-test.
+    input.set_cursor(cell_x, cell_y);
+    frame(&mut ui, &mut panel, &input, &mut out);
+    frame(&mut ui, &mut panel, &input, &mut out);
+    assert!(!panel.tray_overflow_open, "closed before the press");
+    assert_eq!(
+        panel.tray_shelf.map(|shelf| shelf.overflow),
+        Some(5),
+        "the renderer must cache the resolved shelf layout"
+    );
+
+    input.set_mouse_down(lens::MouseButton::Left, true);
+    input.set_mouse_pressed(lens::MouseButton::Left, true);
+    frame(&mut ui, &mut panel, &input, &mut out);
+    input.set_mouse_down(lens::MouseButton::Left, false);
+    input.set_mouse_pressed(lens::MouseButton::Left, false);
+    input.set_mouse_released(lens::MouseButton::Left, true);
+    frame(&mut ui, &mut panel, &input, &mut out);
+    input.set_mouse_released(lens::MouseButton::Left, false);
+
+    assert!(
+        panel.tray_overflow_open,
+        "pressing the disclosure cell must open the overflow popover"
+    );
+}
+
+#[test]
+fn tray_cells_are_clickable_and_open_their_menu() {
+    // Regression: the tray hover/open plate used to be a sibling `place()`
+    // overlay drawn after the icon column. An ABS node in the Chrome band
+    // occludes every flow widget inside its subtree for hit-testing, so the
+    // plate swallowed each cell's own pressable response — hovering produced
+    // no highlight, left-click never activated, and right-click never opened
+    // the dbusmenu popover (ADR-0060: occlusion *is* the reversed hit-test
+    // order). The plate is the cell's own background now, so the pressable
+    // must see the pointer again.
+    unsafe { std::env::set_var("TESSERA_COMMAND_PANEL", "1") };
+
+    let display = (1920.0, 1080.0);
+    let workspaces = WorkspaceSnapshot {
+        outputs: Vec::new(),
+    };
+    let windows = Vec::new();
+    let i18n = Localizer::default();
+    let mut panel = ControlCenter::without_sources();
+    panel.open = true;
+    panel.reveal.snap_to(1.0);
+    panel.set_reduced_motion(true);
+    let mut out = ChromeEvents::default();
+    let mut ui = lens::Ui::headless().unwrap();
+    let mut input = Input::new(display, 0.05);
+
+    // The demo cells are seeded by `sni_cells` under the preview env var. The
+    // column is vertically centred in its anchor and horizontally centred at
+    // `TRAY_PAD` inset, so the first cell's centre is derived from the same
+    // Derive the cell centre from the *same* pure layout the renderer uses
+    // (ADR-0197 [INV-CHROME-05]) instead of re-deriving the shelf's geometry
+    // here: a hand-rolled copy is exactly how the column geometry drifted from
+    // its renderer in the first place. The panel's own `reserved` state is the
+    // authority, because that is what its render pass reads.
+    let (_profile, _main, _notif, _clock, tray, _work, _power) =
+        ControlCenter::cluster_bounds(display, panel.reserved);
+    let cells = panel.sni_cells();
+    let layout = crate::components::control_center::tray_shelf::shelf_layout(tray, cells.len());
+    let cell_w = layout.cell_width();
+    let cell_x = layout.surface.x + (layout.surface.w - cell_w) * 0.5 + cell_w * 0.5;
+    // The shelf is bottom-anchored and grows upward: the first item's slot is
+    // the topmost of the occupied slots.
+    let cell_y = layout.surface.y + TRAY_PAD + TRAY_CELL * 0.5;
+    let first_key = cells[0].key.clone();
+
+    let frame =
+        |ui: &mut lens::Ui, panel: &mut ControlCenter, input: &Input, out: &mut ChromeEvents| {
+            render_headless(ui, panel, input, &windows, &workspaces, &i18n, out);
+        };
+
+    input.set_cursor(cell_x, cell_y);
+    frame(&mut ui, &mut panel, &input, &mut out);
+    frame(&mut ui, &mut panel, &input, &mut out);
+    assert_eq!(panel.menu_open_for, None, "nothing opens before the press");
+
+    // Right-click must reach the cell: it opens the host-rendered popover.
+    input.set_mouse_down(lens::MouseButton::Right, true);
+    input.set_mouse_pressed(lens::MouseButton::Right, true);
+    frame(&mut ui, &mut panel, &input, &mut out);
+    input.set_mouse_down(lens::MouseButton::Right, false);
+    input.set_mouse_pressed(lens::MouseButton::Right, false);
+    input.set_mouse_released(lens::MouseButton::Right, true);
+    frame(&mut ui, &mut panel, &input, &mut out);
+    input.set_mouse_released(lens::MouseButton::Right, false);
+
+    assert_eq!(
+        panel.menu_open_for.as_deref(),
+        Some(first_key.as_str()),
+        "right-click on the first tray cell opens its dbusmenu popover"
+    );
+    unsafe { std::env::remove_var("TESSERA_COMMAND_PANEL") };
 }
 
 #[test]
@@ -1058,4 +1600,22 @@ fn quick_controls_grid_is_placed_in_main_panel() {
         !out.system_actions.is_empty(),
         "quick controls receives clicks at its placed location"
     );
+}
+
+/// Render one headless frame of the panel and present it, so the next frame's
+/// hit-testing resolves against real geometry.
+fn render_headless(
+    ui: &mut lens::Ui,
+    panel: &mut ControlCenter,
+    input: &Input,
+    windows: &[tessera_desktop::window::Window],
+    workspaces: &WorkspaceSnapshot,
+    i18n: &Localizer,
+    out: &mut ChromeEvents,
+) {
+    ui.frame(input, |f| {
+        panel.render(f, input, windows, workspaces, i18n, out);
+    });
+    let snap = ui.snapshot().unwrap();
+    ui.activate(&snap).unwrap();
 }

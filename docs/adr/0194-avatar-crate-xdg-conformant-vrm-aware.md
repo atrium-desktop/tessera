@@ -1,15 +1,18 @@
 ---
-id: ADR-0080
+id: ADR-0194
 title: "Avatar as an independent crate, XDG-conformant, VRM-aware"
 status: superseded
 date: 2026-07-30
 superseded_by: ADR-0106
 ---
 
-# ADR-0080: Avatar as an independent crate, XDG-conformant, VRM-aware
+# ADR-0194: Avatar as an independent crate, XDG-conformant, VRM-aware
 
-- Status: Superseded by ADR-0106
+- Status: Superseded by [ADR-0106](0106-shared-identity-portrait-contract-and-vrm-renderer-boundary.md)
 - Date: 2026-07-30
+- Renumbered from ADR-0080, which collided with
+  [ADR-0080](0080-hud-status-chips-and-sao-command-panel.md); this is the
+  weaker (superseded) claim of the two, so it took the next free number.
 
 ## Context
 

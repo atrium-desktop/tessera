@@ -85,7 +85,7 @@ pub(crate) unsafe extern "C" fn dmabuf_bind(
     id: u32,
 ) {
     unsafe {
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::zwp_linux_dmabuf_v1_interface,
             version as c_int,
@@ -422,7 +422,7 @@ unsafe fn create_dmabuf_feedback(
 ) {
     unsafe {
         let version = ffi::wl_resource_get_version(dmabuf);
-        let feedback = ffi::wl_resource_create(
+        let feedback = ffi::checked_resource_create(
             client,
             &ffi::zwp_linux_dmabuf_feedback_v1_interface,
             version,
@@ -527,8 +527,12 @@ unsafe extern "C" fn dmabuf_create_params(
 ) {
     unsafe {
         let ver = ffi::wl_resource_get_version(dmabuf);
-        let params =
-            ffi::wl_resource_create(client, &ffi::zwp_linux_buffer_params_v1_interface, ver, id);
+        let params = ffi::checked_resource_create(
+            client,
+            &ffi::zwp_linux_buffer_params_v1_interface,
+            ver,
+            id,
+        );
         if params.is_null() {
             return;
         }
@@ -593,7 +597,7 @@ unsafe fn params_finalize(
         (*acc).height = height;
         (*acc).drm_format = format;
 
-        let buffer = ffi::wl_resource_create(client, &ffi::wl_buffer_interface, 1, id);
+        let buffer = ffi::checked_resource_create(client, &ffi::wl_buffer_interface, 1, id);
         if buffer.is_null() {
             return std::ptr::null_mut();
         }

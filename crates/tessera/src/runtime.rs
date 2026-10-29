@@ -592,7 +592,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         outputs: server.output_infos(),
         error: None,
     };
-    system_status.do_not_disturb = notif_queue.lock().unwrap().do_not_disturb();
+    system_status.do_not_disturb = notif_queue
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .do_not_disturb();
     shell.set_system_status(system_status.clone());
     // Resource sampling was retired with the command panel's machine
     // monitor: no surface displays utilization anymore, and an always-on

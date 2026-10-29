@@ -203,7 +203,7 @@ fn install_lane_filters<H: Handler + 'static>(
     journal_filter: &Mutex<Option<JournalFilter>>,
 ) {
     let events = Arc::clone(handler);
-    *event_filter.lock().unwrap() = Some(Arc::new(move |ev, binding| {
+    *event_filter.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(move |ev, binding| {
         let Some(op) = event_observe_capability(ev) else {
             return true;
         };
@@ -213,12 +213,13 @@ fn install_lane_filters<H: Handler + 'static>(
         scope.permits_actor_observation(binding.principal.is_some(), op)
     }));
     let journal = Arc::clone(handler);
-    *journal_filter.lock().unwrap() = Some(Arc::new(move |entry, binding| {
-        let Some(scope) = binding.resolve(&*journal) else {
-            return false;
-        };
-        journal_entry_permitted(entry, &scope, binding.principal.as_ref().map(AsRef::as_ref))
-    }));
+    *journal_filter.lock().unwrap_or_else(|e| e.into_inner()) =
+        Some(Arc::new(move |entry, binding| {
+            let Some(scope) = binding.resolve(&*journal) else {
+                return false;
+            };
+            journal_entry_permitted(entry, &scope, binding.principal.as_ref().map(AsRef::as_ref))
+        }));
 }
 
 /// Subscriber ids are globally unique across connections and subscription
@@ -282,17 +283,24 @@ impl JournalBroadcaster {
     /// Push one already-durable entry to every journal subscriber whose lane
     /// filter permits it.
     pub fn broadcast(&self, entry: JournalEntry) {
-        let filter = self.filter.lock().unwrap().clone();
-        self.subscribers.lock().unwrap().retain(|_, sender| {
-            if let (Some(filter), Some(binding)) = (&filter, &sender.filter)
-                && !filter(&entry, binding)
-            {
-                return true;
-            }
-            sender.try_send(Outbound::Event(Event::Journal {
-                entry: entry.clone(),
-            }))
-        });
+        let filter = self
+            .filter
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        self.subscribers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|_, sender| {
+                if let (Some(filter), Some(binding)) = (&filter, &sender.filter)
+                    && !filter(&entry, binding)
+                {
+                    return true;
+                }
+                sender.try_send(Outbound::Event(Event::Journal {
+                    entry: entry.clone(),
+                }))
+            });
     }
 }
 
@@ -427,15 +435,22 @@ impl Server {
     /// a silently missed invalidation. Principal-bound agent lanes receive
     /// the event only when their live scope permits observing it (ADR-0125).
     pub fn broadcast(&self, ev: Event) {
-        let filter = self.event_filter.lock().unwrap().clone();
-        self.subs.lock().unwrap().retain(|_, lane| {
-            if let (Some(filter), Some(binding)) = (&filter, &lane.filter)
-                && !filter(&ev, binding)
-            {
-                return true;
-            }
-            lane.try_send(Outbound::Event(ev.clone()))
-        });
+        let filter = self
+            .event_filter
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        self.subs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|_, lane| {
+                if let (Some(filter), Some(binding)) = (&filter, &lane.filter)
+                    && !filter(&ev, binding)
+                {
+                    return true;
+                }
+                lane.try_send(Outbound::Event(ev.clone()))
+            });
     }
 
     /// Push a journal entry to every journal-subscribed connection
@@ -452,7 +467,7 @@ impl Server {
     /// never stall the producer or grow the queue; the caller counts the drop.
     pub fn push_stream_frame(&self, payload: StreamFramePayload) -> bool {
         let (tx, scope, target, lease_deadline, queued) = {
-            let streams = self.streams.lock().unwrap();
+            let streams = self.streams.lock().unwrap_or_else(|e| e.into_inner());
             let Some(lane) = streams.get(&payload.stream_id()) else {
                 return false;
             };
@@ -488,7 +503,11 @@ impl Server {
     /// shutdown): unregister its lane and notify the client. The caller drops
     /// its own stream state separately.
     pub fn end_stream(&self, stream_id: u64, reason: &str) {
-        let lane = self.streams.lock().unwrap().remove(&stream_id);
+        let lane = self
+            .streams
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&stream_id);
         if let Some(lane) = lane {
             let _ = lane.tx.try_send(Outbound::Event(Event::StreamEnded {
                 stream_id,
@@ -506,7 +525,7 @@ impl Server {
     /// Returns `false` when the stream is unknown.
     pub fn stream_geometry_changed(&self, stream_id: u64, width: u32, height: u32) -> bool {
         let tx = {
-            let streams = self.streams.lock().unwrap();
+            let streams = self.streams.lock().unwrap_or_else(|e| e.into_inner());
             let Some(lane) = streams.get(&stream_id) else {
                 return false;
             };

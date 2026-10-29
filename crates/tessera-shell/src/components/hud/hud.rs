@@ -16,7 +16,6 @@
 //! pixels or backdrop work in that immersive state. Every
 //! interaction the bar once hosted moved to the control center.
 
-use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -36,7 +35,7 @@ use crate::component::{
 use tessera_desktop::system::BatteryStatus;
 use tessera_desktop::system::NetworkState;
 
-use crate::tray::{TrayHandle, TrayIcon};
+use crate::tray::{TrayCell, TrayHandle, TrayProjection};
 
 mod rendering;
 
@@ -137,7 +136,7 @@ pub struct Hud {
     status: SystemStatus,
     clock: String,
     last_clock_poll: Instant,
-    tray: Option<SniTray>,
+    tray: Option<TrayProjection>,
     /// Per-chip (left/center) eased visibility: 1 = shown, 0 = hidden
     /// by the cursor-proximity fade.
     chip_fade: [f32; 2],
@@ -168,27 +167,6 @@ pub struct Hud {
     /// chip geometry before any frame exists — sizes labeled cells with the
     /// same catalog. A locale switch therefore settles on the next frame.
     i18n: Localizer,
-}
-
-/// Render-thread half of the StatusNotifierItem tray: the shared snapshot
-/// the worker writes and the texture cache the HUD uploads from item
-/// pixmaps. Read-only — tray interaction lives in the command panel.
-struct SniTray {
-    device: flux::Device,
-    handle: TrayHandle,
-    /// Uploaded SNI textures keyed by item key, tagged with the snapshot's
-    /// icon generation so status-only updates do not re-upload.
-    textures: HashMap<String, (u64, flux::Image)>,
-    /// Last frame's cells, reused when the snapshot lock is contended (the
-    /// worker publishing a large menu tree must never stall rendering).
-    cached_cells: Vec<SniCell>,
-}
-
-/// One SNI cell to draw this frame, distilled from the tray snapshot.
-#[derive(Clone)]
-struct SniCell {
-    key: String,
-    textured: bool,
 }
 
 impl Hud {
@@ -232,12 +210,7 @@ impl Hud {
                 // before the shell (and thus this HUD) and drops it after,
                 // and the HUD only touches the device on the render thread.
                 let device = unsafe { flux::Device::borrow_raw(device.as_raw()) };
-                Some(SniTray {
-                    device,
-                    handle,
-                    textures: HashMap::new(),
-                    cached_cells: Vec::new(),
-                })
+                Some(TrayProjection::new(device, handle))
             }
             _ => None,
         };
@@ -292,7 +265,7 @@ impl Hud {
         let Some(queue) = &self.notifications else {
             return Arc::new(Vec::new());
         };
-        let queue = queue.lock().unwrap();
+        let queue = queue.lock().unwrap_or_else(|e| e.into_inner());
         let revision = queue.revision();
         let stale = self
             .notification_cache
@@ -310,61 +283,12 @@ impl Hud {
     }
 
     /// Read the SNI snapshot under a brief lock, upload any new or changed
-    /// icons into the texture cache, and return the visible cells for this
-    /// frame. Runs on the render thread; never touches D-Bus. When the worker
-    /// holds the snapshot lock the previous frame's cells are reused.
-    fn sni_cells(&mut self) -> Vec<SniCell> {
-        let Some(tray) = &mut self.tray else {
-            return Vec::new();
-        };
-        let Ok(snapshot) = tray.handle.snapshot().try_lock() else {
-            return tray.cached_cells.clone();
-        };
-        tray.textures
-            .retain(|key, _| snapshot.items.iter().any(|item| &item.key == key));
-        let mut cells = Vec::new();
-        for item in &snapshot.items {
-            if !item.is_visible() {
-                continue;
-            }
-            let stale = tray
-                .textures
-                .get(&item.key)
-                .map(|(generation, _)| *generation != item.icon_generation)
-                .unwrap_or(true);
-            if let TrayIcon::Pixmap(pixmap) = &item.icon {
-                if stale {
-                    match flux::Image::from_bytes(
-                        &tray.device,
-                        pixmap.width,
-                        pixmap.height,
-                        flux::Format::Bgra8Unorm,
-                        &pixmap.bgra,
-                    ) {
-                        Ok(image) => {
-                            tray.textures
-                                .insert(item.key.clone(), (item.icon_generation, image));
-                        }
-                        Err(error) => {
-                            log::warn!("tray: icon upload for {} failed: {error}", item.key);
-                            tray.textures.remove(&item.key);
-                        }
-                    }
-                }
-            } else {
-                // `None` ships no icon; a `Name` left in the snapshot means
-                // the worker's theme resolution failed (memoized there, so
-                // the theme is never rescanned on the render thread). Either
-                // way the item must not keep rendering the previous texture.
-                tray.textures.remove(&item.key);
-            }
-            cells.push(SniCell {
-                key: item.key.clone(),
-                textured: tray.textures.contains_key(&item.key),
-            });
-        }
-        tray.cached_cells = cells.clone();
-        cells
+    /// Upload new or changed icons into the shared projection and return the
+    /// visible cells for this frame. Never touches D-Bus and never blocks.
+    fn sni_cells(&mut self) -> Vec<TrayCell> {
+        self.tray
+            .as_mut()
+            .map_or_else(Vec::new, TrayProjection::cells)
     }
 
     /// Compute the two chip rects from the content each carries.
@@ -719,8 +643,8 @@ impl Chrome for Hud {
                 let texture = if sni_cell.textured {
                     self.tray
                         .as_ref()
-                        .and_then(|tray| tray.textures.get(&sni_cell.key))
-                        .map(|(_, image)| image.as_raw())
+                        .and_then(|tray| tray.texture(&sni_cell.key))
+                        .map(|image| image.as_raw())
                 } else {
                     None
                 };

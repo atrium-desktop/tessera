@@ -49,7 +49,7 @@ pub(crate) unsafe extern "C" fn pointer_constraints_bind(
     id: u32,
 ) {
     unsafe {
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::zwp_pointer_constraints_v1_interface,
             version as c_int,
@@ -141,7 +141,7 @@ unsafe fn create_pointer_constraint(
         } else {
             &ffi::zwp_confined_pointer_v1_interface
         };
-        let res = ffi::wl_resource_create(client, interface, ver, id);
+        let res = ffi::checked_resource_create(client, interface, ver, id);
         if res.is_null() {
             return;
         }

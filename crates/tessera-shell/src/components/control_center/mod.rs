@@ -18,8 +18,9 @@
 //! left; the main panel to its right, hosting the Quick Controls tab plus
 //! one tab per available settings module; a notification stream of
 //! individually-carded items in the top-right that fades out at its tail; a
-//! clock and date at top-center; the tray icons as a compact vertical
-//! column at left-middle. The right-bottom corner is one horizontal band
+//! clock and date at top-center; the tray icons as a bottom-anchored shelf at
+//! the bottom-left corner, sized to the display and disclosing its overflow
+//! (ADR-0197). The right-bottom corner is one horizontal band
 //! pinned flush to the edges: a work-mode segmented control, an explicit
 //! lock button, and an explicit power button that uses the system-level
 //! power-off confirmation. Quick Controls holds the daily toggles — volume, brightness,
@@ -52,7 +53,6 @@
 //! trait each frame, and user intents leave through `ChromeEvents` plus the
 //! shared SNI tray command channel.
 
-use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::{Arc, Mutex};
 
@@ -78,13 +78,14 @@ use tessera_primitives::input::KeyChar;
 
 use crate::component::{
     Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, IconSet, Localizer, Message,
-    PopupSide, SystemAction, SystemStatus, ellipsize, place_popup_side, truncate,
+    PopupSide, Reserved, SystemAction, SystemStatus, ellipsize, place_popup_side, truncate,
 };
 pub(super) use crate::tray;
-use crate::tray::{MenuNode, MenuState, TrayCommand, TrayHandle, TrayIcon};
+use crate::tray::{MenuNode, MenuState, TrayCommand, TrayHandle, TrayProjection};
 
 mod mpris;
 mod rendering;
+mod tray_shelf;
 
 use mpris::{MediaCommand, MediaHandle};
 use rendering::*;
@@ -92,11 +93,12 @@ use rendering::*;
 #[cfg(test)]
 mod tests;
 
-/// Layout constants for the 9-part visual HUD anchor architecture:
+/// Layout constants for the 8-part visual HUD anchor architecture:
 /// - Top-Left (左上): Compact user profile chip (48px avatar + name).
 /// - Top-Center (上中): Clock & date, frameless.
 /// - Top-Right (右上): Floating notification stream (frameless items).
-/// - Left-Middle (左中): Vertical tray icon column.
+/// - Bottom-Left (左下): The tray shelf (ADR-0197) — icons stacked upward from
+///   the bottom edge, in a capsule sized to its occupied slots.
 /// - Center (中): Unified Main Control Panel (navigation + active page).
 /// - Right-Bottom (右下): Mode selector, lock button, and power button.
 const PROFILE_W: f32 = 300.0;
@@ -114,16 +116,15 @@ const NOTIF_H: f32 = 200.0;
 /// smaller and centered inside.
 const CLOCK_W: f32 = 320.0;
 const CLOCK_H: f32 = 96.0;
-/// The tray column's footprint at the left-middle anchor.
+/// The tray shelf's footprint width at the bottom-left anchor.
 const TRAY_COL_W: f32 = 56.0;
 /// One tray cell: the hover plate / hit area around the icon.
 const TRAY_CELL: f32 = 40.0;
 /// The SNI glyph itself, centered in the cell.
 const TRAY_ICON: f32 = 22.0;
-/// Vertical rhythm between tray cells; the column scrolls past this many
-/// icons on small displays.
+/// Vertical rhythm between tray shelf slots (ADR-0197).
 const TRAY_GAP: f32 = 10.0;
-/// Inset between the tray surface boundary and its contained icons.
+/// Inset between the tray shelf's capsule boundary and its contained icons.
 const TRAY_PAD: f32 = 8.0;
 /// The right-bottom band: one mode selector followed by the lock and power
 /// buttons. All three components share one compact baseline.
@@ -210,32 +211,18 @@ enum TabAction {
     Select(Tab),
 }
 
-/// Render-thread half of the StatusNotifierItem tray: the shared snapshot the
-/// worker writes, the command channel back to it, and the texture cache the
-/// panel uploads from item pixmaps. Same contract as the HUD's
-/// read-only half, plus the command channel for interaction.
-#[allow(dead_code)]
-struct SniTray {
-    device: flux::Device,
-    handle: TrayHandle,
-    /// Uploaded SNI textures keyed by item key, tagged with the snapshot's
-    /// icon generation so status-only updates do not re-upload.
-    textures: HashMap<String, (u64, flux::Image)>,
-    /// Last frame's cells, reused when the snapshot lock is contended (the
-    /// worker publishing a large menu tree must never stall rendering).
-    cached_cells: Vec<SniCell>,
-}
-
 /// One SNI cell to draw this frame, distilled from the tray snapshot.
-#[allow(dead_code)]
+///
+/// `pub(crate)` because the shelf's paint entry point
+/// ([`ControlCenter::render_tray_shelf_cells`]) takes an explicit cell list so
+/// the overflow behaviour is drivable with a known item set; that entry point
+/// is `pub(crate)` for the same reason.
 #[derive(Clone)]
-struct SniCell {
+pub(crate) struct SniCell {
     key: String,
     title: String,
     has_menu: bool,
     textured: bool,
-    /// Cell rect (filled in during the tray-grid layout pass).
-    rect: Rect,
 }
 
 /// The per-cell visuals for the tray grid, distilled before the layout
@@ -312,7 +299,7 @@ pub struct ControlCenter {
     /// Notification list cache keyed by the queue's revision; re-cloned only
     /// when the queue actually changes.
     notification_cache: Option<(u64, Arc<Vec<Notification>>)>,
-    tray: Option<SniTray>,
+    tray: Option<TrayProjection>,
     /// Session-bus MPRIS source. The worker owns all D-Bus calls; the panel
     /// reads a small snapshot and sends transport commands over a channel.
     media: Option<MediaHandle>,
@@ -329,6 +316,22 @@ pub struct ControlCenter {
     /// One-frame flag suppressing the same right-press that opened the menu
     /// from also immediately closing it.
     menu_just_opened: bool,
+    /// Whether the tray shelf's overflow disclosure popover is open
+    /// (ADR-0197). The disclosure cell toggles it; it closes on activate, on
+    /// context-menu, when the overflow vanishes, and with the panel.
+    tray_overflow_open: bool,
+    /// The disclosure cell's last-frame rect, kept fresh each frame so the
+    /// overflow popover re-anchors on relayout.
+    tray_overflow_anchor: Rect,
+    /// Edge space the shell's persistent decorations currently reserve,
+    /// published through `ChromeUpdate::ModalReserved`. The tray shelf reads
+    /// the dock's bottom band from here so its derived height follows the real
+    /// declaration instead of a mirrored constant (ADR-0197).
+    reserved: Reserved,
+    /// The tray shelf layout resolved by the last frame (ADR-0197). Cached so
+    /// click-away hit-testing and the disclosure popover read the *same*
+    /// geometry the renderer used instead of re-deriving it.
+    tray_shelf: Option<tray_shelf::TrayShelfLayout>,
     menu_cache: Option<MenuSnapshotCache>,
     /// Spring driving the segmented control's sliding indicator between
     /// work-mode segments (0..=2 in segment-width units).
@@ -343,8 +346,6 @@ pub struct ControlCenter {
     /// 0..1 hover reveal of the notification stream's scrollbar; wheel
     /// activity pushes it to 1, idle decays it back to 0.
     notif_scrollbar_reveal: f32,
-    /// 0..1 hover reveal of the tray column's scrollbar.
-    tray_scrollbar_reveal: f32,
     /// Hovered work-mode segment index for the mode tooltip (None = none).
     work_mode_hover: Option<usize>,
     /// 0..1 reveal of the work-mode tooltip.
@@ -407,12 +408,7 @@ impl ControlCenter {
             // the shell (and thus this panel) and drops it after, and the
             // panel only touches the device on the render thread.
             let device = unsafe { flux::Device::borrow_raw(device.as_raw()) };
-            SniTray {
-                device,
-                handle,
-                textures: HashMap::new(),
-                cached_cells: Vec::new(),
-            }
+            TrayProjection::new(device, handle)
         });
         // Source precedence and still/VRM routing come from the shared
         // profile contract. The panel supplies only its VRM camera and owns
@@ -521,7 +517,6 @@ impl ControlCenter {
             kbd_backlight_indicator: TieredIndicator::default(),
             kbd_backlight_preview: None,
             notif_scrollbar_reveal: 0.0,
-            tray_scrollbar_reveal: 0.0,
             work_mode_hover: None,
             work_mode_tooltip_reveal: 0.0,
             session_hover: None,
@@ -554,6 +549,15 @@ impl ControlCenter {
                 h: 0.0,
             },
             menu_just_opened: false,
+            tray_overflow_open: false,
+            tray_overflow_anchor: Rect {
+                x: 0.0,
+                y: 0.0,
+                w: 0.0,
+                h: 0.0,
+            },
+            reserved: Reserved::default(),
+            tray_shelf: None,
             menu_cache: None,
             frame_prepared: false,
             wifi_expanded: false,
@@ -583,7 +587,6 @@ impl ControlCenter {
             kbd_backlight_indicator: TieredIndicator::default(),
             kbd_backlight_preview: None,
             notif_scrollbar_reveal: 0.0,
-            tray_scrollbar_reveal: 0.0,
             work_mode_hover: None,
             work_mode_tooltip_reveal: 0.0,
             session_hover: None,
@@ -612,6 +615,15 @@ impl ControlCenter {
                 h: 0.0,
             },
             menu_just_opened: false,
+            tray_overflow_open: false,
+            tray_overflow_anchor: Rect {
+                x: 0.0,
+                y: 0.0,
+                w: 0.0,
+                h: 0.0,
+            },
+            reserved: Reserved::default(),
+            tray_shelf: None,
             menu_cache: None,
             frame_prepared: false,
             wifi_expanded: false,
@@ -785,11 +797,6 @@ impl ControlCenter {
         if self.notif_scrollbar_reveal < 0.01 {
             self.notif_scrollbar_reveal = 0.0;
         }
-        self.tray_scrollbar_reveal =
-            crate::widgets::motion::decay(self.tray_scrollbar_reveal, 3.5, dt, reduced);
-        if self.tray_scrollbar_reveal < 0.01 {
-            self.tray_scrollbar_reveal = 0.0;
-        }
         self.work_mode_tooltip_reveal = crate::widgets::motion::approach(
             self.work_mode_tooltip_reveal,
             tip_target,
@@ -813,7 +820,6 @@ impl ControlCenter {
         self.work_mode_anim_pending()
             || self.kbd_backlight_anim_pending()
             || self.notif_scrollbar_reveal > 0.0
-            || self.tray_scrollbar_reveal > 0.0
             || self.work_mode_tooltip_reveal > 0.02
             || self.session_tooltip_reveal > 0.02
     }
@@ -869,6 +875,7 @@ impl ControlCenter {
         self.wifi_expanded = false;
         self.wifi_input_ssid = None;
         self.bluetooth_expanded = false;
+        self.tray_overflow_open = false;
         if let Some(key) = self.menu_open_for.take() {
             self.menu_path.clear();
             self.menu_just_opened = false;
@@ -885,6 +892,7 @@ impl ControlCenter {
             // A tab switch drops an open tray popover even though the tray
             // itself stays visible in the side column, matching the old
             // section-switch semantics.
+            self.tray_overflow_open = false;
             if let Some(key) = self.menu_open_for.take() {
                 self.menu_path.clear();
                 self.send_tray_command(TrayCommand::CloseMenu { key });
@@ -896,10 +904,14 @@ impl ControlCenter {
     /// - Top-Left (左上): User Profile Chip
     /// - Top-Center (上中): Clock & Date
     /// - Top-Right (右上): Notifications Stream (frameless items)
-    /// - Left-Middle (左中): Vertical tray icon column
+    /// - Bottom-Left (左下): The tray shelf, bottom-anchored and derived in
+    ///   height from the display less the dock's reserved band (ADR-0197)
     /// - Right-Bottom (右下): Work-mode segmented control + power/session
     /// - Center (中): Split Main Control Panel (Left Nav Rail + Right Tab View)
-    fn cluster_bounds(display: (f32, f32)) -> (Rect, Rect, Rect, Rect, Rect, Rect, Rect) {
+    fn cluster_bounds(
+        display: (f32, f32),
+        reserved: Reserved,
+    ) -> (Rect, Rect, Rect, Rect, Rect, Rect, Rect) {
         let margin_x = (display.0 * 0.025).clamp(16.0, 48.0);
         let margin_y = (display.1 * 0.035).clamp(16.0, 40.0);
         let gap = PANEL_GAP;
@@ -943,15 +955,24 @@ impl ControlCenter {
             h: clock_h.min((display.1 - margin_y * 2.0).max(1.0)),
         };
 
-        // 4. Left-Middle Anchor (左中): the vertical tray icon column,
-        // vertically centered against the main panel's band.
-        let main_h_for_tray = MAIN_H.min((display.1 - margin_y * 2.0).max(1.0));
-        let tray_h = (main_h_for_tray * 0.66).min((TRAY_CELL + TRAY_GAP) * 8.0);
+        // 4. Bottom-Left Anchor (左下): the tray shelf (ADR-0197). Its height
+        // is derived, never capped: it fills the vertical span between the
+        // profile chip's bottom edge and the display's bottom margin less the
+        // dock's reserved band. The dock is a persistent decoration that stays
+        // visible while the panel is open, so a shelf anchored flush to the
+        // bottom edge would overlap it on a small output with a long dock.
+        let shelf_top = (profile.y + profile.h + gap).max(margin_y);
+        // The dock's own `Chrome::reserved()` bottom edge, threaded through
+        // `ChromeUpdate::ModalReserved`. Using the real declaration rather than
+        // a mirrored constant keeps the shelf correct when the dock is
+        // auto-hidden, locked out by fullscreen, or moved to a side edge.
+        let shelf_bottom = (display.1 - margin_y - reserved.bottom as f32).max(shelf_top + 1.0);
+        let shelf_h = (shelf_bottom - shelf_top).max(1.0);
         let tray = Rect {
             x: margin_x,
-            y: ((display.1 - tray_h) * 0.5).max(margin_y),
+            y: shelf_top,
             w: TRAY_COL_W.min((display.0 * 0.1).max(40.0)),
-            h: tray_h.max(1.0),
+            h: shelf_h,
         };
 
         // 5. Right-Bottom Anchor (右下): one horizontal band pinned into the
@@ -1009,7 +1030,7 @@ impl ControlCenter {
     /// unchanged queue reuses the cached `Arc` instead of re-cloning every
     /// entry every frame.
     fn notification_snapshot(&mut self) -> Arc<Vec<Notification>> {
-        let queue = self.notifications.lock().unwrap();
+        let queue = self.notifications.lock().unwrap_or_else(|e| e.into_inner());
         let revision = queue.revision();
         let stale = self
             .notification_cache
@@ -1025,7 +1046,7 @@ impl ControlCenter {
     fn send_tray_command(&self, command: TrayCommand) {
         if let Some(tray) = &self.tray {
             // The worker may be gone (bus disconnected); clicks just drop.
-            let _ = tray.handle.send(command);
+            let _ = tray.handle().send(command);
         }
     }
 
@@ -1108,7 +1129,7 @@ impl ControlCenter {
             }));
         }
         let tray = self.tray.as_ref()?;
-        if let Ok(snapshot) = tray.handle.snapshot().try_lock() {
+        if let Ok(snapshot) = tray.handle().snapshot().try_lock() {
             let stale = self
                 .menu_cache
                 .as_ref()
@@ -1124,72 +1145,24 @@ impl ControlCenter {
         self.menu_cache.as_ref()?.menu.clone()
     }
 
-    /// Read the SNI snapshot under a brief lock, upload any new or changed
-    /// icons into the texture cache, and return the visible cells for this
-    /// frame. Runs on the render thread; never touches D-Bus. When the worker
-    /// holds the snapshot lock the previous frame's cells are reused.
-    #[allow(dead_code)]
+    /// Project the SNI tray for this frame and widen each cell with the layout
+    /// rect the tray grid fills in. The upload/prune policy lives in
+    /// [`crate::tray::TrayProjection`], shared with the HUD, so the two
+    /// surfaces cannot drift.
     fn sni_cells(&mut self) -> Vec<SniCell> {
-        let mut cells = Vec::new();
-        if let Some(tray) = &mut self.tray {
-            if let Ok(snapshot) = tray.handle.snapshot().try_lock() {
-                tray.textures
-                    .retain(|key, _| snapshot.items.iter().any(|item| &item.key == key));
-                for item in &snapshot.items {
-                    if !item.is_visible() {
-                        continue;
-                    }
-                    let stale = tray
-                        .textures
-                        .get(&item.key)
-                        .map(|(generation, _)| *generation != item.icon_generation)
-                        .unwrap_or(true);
-                    if let TrayIcon::Pixmap(pixmap) = &item.icon {
-                        if stale {
-                            match flux::Image::from_bytes(
-                                &tray.device,
-                                pixmap.width,
-                                pixmap.height,
-                                flux::Format::Bgra8Unorm,
-                                &pixmap.bgra,
-                            ) {
-                                Ok(image) => {
-                                    tray.textures
-                                        .insert(item.key.clone(), (item.icon_generation, image));
-                                }
-                                Err(error) => {
-                                    log::warn!(
-                                        "tray: icon upload for {} failed: {error}",
-                                        item.key
-                                    );
-                                    tray.textures.remove(&item.key);
-                                }
-                            }
-                        }
-                    } else {
-                        // `None` ships no icon; a `Name` left in the snapshot means
-                        // the worker's theme resolution failed. Either way the item
-                        // must not keep rendering the previous texture.
-                        tray.textures.remove(&item.key);
-                    }
-                    cells.push(SniCell {
-                        key: item.key.clone(),
-                        title: item.title.clone(),
-                        has_menu: item.has_menu,
-                        textured: tray.textures.contains_key(&item.key),
-                        rect: Rect {
-                            x: 0.0,
-                            y: 0.0,
-                            w: 0.0,
-                            h: 0.0,
-                        },
-                    });
-                }
-                tray.cached_cells = cells.clone();
-            } else {
-                cells = tray.cached_cells.clone();
-            }
-        }
+        let mut cells: Vec<SniCell> = self
+            .tray
+            .as_mut()
+            .map(TrayProjection::cells)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|cell| SniCell {
+                key: cell.key,
+                title: cell.title,
+                has_menu: cell.has_menu,
+                textured: cell.textured,
+            })
+            .collect();
         if cells.is_empty()
             && (std::env::var_os("TESSERA_COMMAND_PANEL").is_some()
                 || std::env::var_os("TESSERA_COMMAND_PANEL_OPEN").is_some()
@@ -1206,36 +1179,18 @@ impl ControlCenter {
                 title: "Agent Service".into(),
                 has_menu: true,
                 textured: false,
-                rect: Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    w: 0.0,
-                    h: 0.0,
-                },
             });
             cells.push(SniCell {
                 key: "demo.network".into(),
                 title: "Network Link".into(),
                 has_menu: true,
                 textured: false,
-                rect: Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    w: 0.0,
-                    h: 0.0,
-                },
             });
             cells.push(SniCell {
                 key: "demo.power".into(),
                 title: "Power Profile".into(),
                 has_menu: true,
                 textured: false,
-                rect: Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    w: 0.0,
-                    h: 0.0,
-                },
             });
         }
         cells
@@ -1291,26 +1246,23 @@ impl Chrome for ControlCenter {
             tray_rect,
             work_mode_rect,
             power_rect,
-        ) = Self::cluster_bounds(display);
+        ) = Self::cluster_bounds(display, self.reserved);
 
         // Cache the cursor for presentation helpers that only see `Frame`.
         self.cursor_hint = cursor;
-        // Wheel activity over the two scrollable streams keeps their
-        // scrollbars revealed; `advance` decays them when idle.
+        // Wheel activity over the notification stream keeps its scrollbar
+        // revealed; `advance` decays it when idle.
         let wheel_dy = raw.scroll_pixels_y.abs().max(raw.scroll_y.abs() * 16.0);
-        if wheel_dy > 0.0 {
-            if contains(notifications_rect, cursor.0, cursor.1) {
-                self.notif_scrollbar_reveal = 1.0;
-            }
-            if contains(tray_rect, cursor.0, cursor.1) {
-                self.tray_scrollbar_reveal = 1.0;
-            }
+        if wheel_dy > 0.0 && contains(notifications_rect, cursor.0, cursor.1) {
+            self.notif_scrollbar_reveal = 1.0;
         }
 
         // Click-away: a press landing on none of the cluster's surfaces nor
-        // an open tray popover dismisses the panel.
+        // an open tray surface (a dbusmenu popover or the overflow disclosure)
+        // dismisses the panel.
         let on_popover = self
             .open_popover_bounds(display)
+            .or_else(|| self.tray_overflow_bounds(display))
             .map(|rect| contains(rect, cursor.0, cursor.1))
             .unwrap_or(false);
         if pressed
@@ -1356,7 +1308,7 @@ impl Chrome for ControlCenter {
         self.render_main_panel(f, main_rect, content_progress, i18n, out);
         f.set_opacity(side_progress.max(content_progress));
         self.render_clock_panel(f, clock_rect, side_progress, i18n);
-        self.render_tray_column(f, tray_rect, side_progress, cursor, i18n);
+        self.render_tray_shelf(f, tray_rect, display, side_progress, cursor, pressed, i18n);
         self.render_work_mode_panel(f, work_mode_rect, side_progress, i18n, out);
         self.render_power_session_panel(f, power_rect, side_progress, cursor, i18n, out);
 
@@ -1418,9 +1370,12 @@ impl Chrome for ControlCenter {
             return;
         }
         // Escape peels the innermost surface first: an open tray menu, then
-        // an expanded Wi-Fi or Bluetooth view, then the panel itself.
+        // the tray's overflow disclosure popover, then an expanded Wi-Fi or
+        // Bluetooth view, then the panel itself.
         if let Some(key) = self.menu_open_for.clone() {
             self.close_menu(key);
+        } else if self.tray_overflow_open {
+            self.tray_overflow_open = false;
         } else if self.wifi_expanded {
             self.wifi_expanded = false;
             self.wifi_input_ssid = None;
@@ -1524,6 +1479,7 @@ impl Chrome for ControlCenter {
                     self.close();
                 }
             }
+            ChromeUpdate::ModalReserved(reserved) => self.reserved = reserved,
             ChromeUpdate::ReducedMotion(reduced) => {
                 self.reduced_motion = reduced;
                 if reduced {
@@ -1570,6 +1526,7 @@ impl Chrome for ControlCenter {
         }
         animated_damage_region(
             display,
+            self.reserved,
             // The reveal/close transition animates the opaque full-screen
             // canvas; the settle drain repaints the full output for
             // FLUX_MAX_FRAMES_IN_FLIGHT slots. Both stay full-output via
@@ -1581,7 +1538,6 @@ impl Chrome for ControlCenter {
             // re-renders its texture inside the profile block.
             self.work_mode_anim_pending(),
             self.notif_scrollbar_reveal > 0.0,
-            self.tray_scrollbar_reveal > 0.0,
             self.avatar_animating(),
             self.work_mode_tooltip_reveal > 0.02,
             self.session_tooltip_reveal > 0.02,
@@ -1603,10 +1559,10 @@ impl Chrome for ControlCenter {
 /// frame must be a conservative full-output repaint.
 fn animated_damage_region(
     display: (f32, f32),
+    reserved: Reserved,
     conservative: bool,
     work_mode: bool,
     notif_scrollbar: bool,
-    tray_scrollbar: bool,
     avatar: bool,
     work_mode_tooltip: bool,
     session_tooltip: bool,
@@ -1614,7 +1570,7 @@ fn animated_damage_region(
     if conservative {
         return None;
     }
-    let rects = ControlCenter::cluster_bounds(display);
+    let rects = ControlCenter::cluster_bounds(display, reserved);
     let mut region: Option<tessera_primitives::Rect> = None;
     let mut merge = |rect: Rect, pad_top: f32| {
         let as_rect = tessera_primitives::Rect::new(
@@ -1639,9 +1595,6 @@ fn animated_damage_region(
     }
     if notif_scrollbar {
         merge(rects.2, 0.0); // notification stream
-    }
-    if tray_scrollbar {
-        merge(rects.4, 0.0); // tray column
     }
     if avatar {
         merge(rects.0, 0.0); // profile block

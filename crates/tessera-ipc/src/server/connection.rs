@@ -216,10 +216,13 @@ pub(super) fn serve_connection<H: Handler + 'static>(
         peer_pid,
     );
     if let Some(id) = sub_id {
-        subs.lock().unwrap().remove(&id);
+        subs.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
     }
     if let Some(id) = journal_sub_id {
-        journal_subs.lock().unwrap().remove(&id);
+        journal_subs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id);
     }
     handler.connection_disconnected(conn_id);
     // A disconnect releases the connection's idle inhibitor fail-closed,
@@ -228,7 +231,7 @@ pub(super) fn serve_connection<H: Handler + 'static>(
         handler.idle_inhibit_disconnected(conn_id);
     }
     let owned_streams: Vec<u64> = {
-        let mut streams = streams.lock().unwrap();
+        let mut streams = streams.lock().unwrap_or_else(|e| e.into_inner());
         let owned: Vec<u64> = streams
             .iter()
             .filter(|(_, lane)| lane.conn_id == conn_id)

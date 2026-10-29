@@ -1219,7 +1219,11 @@ impl CompositorRuntime<'_> {
                 // of the composite; publish it here (after `assess_frame_damage`
                 // consumed the change as full damage) so both the fan-out and
                 // the repaint observe the same transition.
-                let do_not_disturb = self.notif_queue.lock().unwrap().do_not_disturb();
+                let do_not_disturb = self
+                    .notif_queue
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .do_not_disturb();
                 if self.system_status.do_not_disturb != do_not_disturb {
                     self.system_status.do_not_disturb = do_not_disturb;
                     publish_system_status_parts(
@@ -2100,12 +2104,16 @@ impl CompositorRuntime<'_> {
                         }
                         Err(error) => {
                             log::warn!("Interaction Domain action from shell refused: {error}");
-                            let notification = self.notif_queue.lock().unwrap().push(
-                                "Interaction Domain",
-                                error.clone(),
-                                Some("tessera".into()),
-                                ts,
-                            );
+                            let notification = self
+                                .notif_queue
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .push(
+                                    "Interaction Domain",
+                                    error.clone(),
+                                    Some("tessera".into()),
+                                    ts,
+                                );
                             if let Some(ipc) = &self.ipc {
                                 ipc.broadcast(tessera_protocol::Event::Notified { notification });
                             }

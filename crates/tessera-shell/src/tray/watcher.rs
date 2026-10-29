@@ -107,7 +107,7 @@ impl Shared {
             .map(|entry| entry.item.clone())
             .collect();
         items.sort_by(|a, b| a.key.cmp(&b.key));
-        *snapshot.lock().unwrap() = TraySnapshot {
+        *snapshot.lock().unwrap_or_else(|e| e.into_inner()) = TraySnapshot {
             items,
             menu: self.menu.clone(),
             menu_revision: self.menu_revision,
@@ -189,7 +189,7 @@ impl WatcherIface {
         };
 
         {
-            let mut shared = self.shared.lock().unwrap();
+            let mut shared = self.shared.lock().unwrap_or_else(|e| e.into_inner());
             let mut item = TrayItem {
                 key: key.clone(),
                 title: String::new(),
@@ -229,7 +229,7 @@ impl WatcherIface {
                 async move {
                     let mut props = fetch_props_async(&refresh_conn, &destination, &path).await;
                     let menu_path = props.menu_path.clone();
-                    let mut shared = shared.lock().unwrap();
+                    let mut shared = shared.lock().unwrap_or_else(|e| e.into_inner());
                     resolve_named_icon(&mut props.icon, &mut shared.icon_cache);
                     let Some(entry) = shared.items.get_mut(&refresh_key) else {
                         return;
@@ -259,7 +259,13 @@ impl WatcherIface {
 
     #[zbus(property)]
     fn registered_status_notifier_items(&self) -> Vec<String> {
-        self.shared.lock().unwrap().items.keys().cloned().collect()
+        self.shared
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .items
+            .keys()
+            .cloned()
+            .collect()
     }
 
     #[zbus(property)]
@@ -443,7 +449,7 @@ pub(super) fn spawn() -> Option<TrayHandle> {
     }
 
     let snapshot = Arc::new(Mutex::new(TraySnapshot::default()));
-    shared.lock().unwrap().snapshot = Some(Arc::clone(&snapshot));
+    shared.lock().unwrap_or_else(|e| e.into_inner()).snapshot = Some(Arc::clone(&snapshot));
     let (tx, rx) = mpsc::channel::<TrayCommand>();
 
     let signal_conn = conn.clone();
@@ -507,7 +513,7 @@ fn handle_signal(
                 return;
             }
             let removed: Vec<String> = {
-                let mut shared = shared.lock().unwrap();
+                let mut shared = shared.lock().unwrap_or_else(|e| e.into_inner());
                 let keys: Vec<String> = shared
                     .items
                     .iter()
@@ -540,7 +546,7 @@ fn handle_signal(
             let Some(sender) = sender else { return };
             let path = header.path().map(|path| path.to_string());
             let key = {
-                let shared = shared.lock().unwrap();
+                let shared = shared.lock().unwrap_or_else(|e| e.into_inner());
                 shared
                     .items
                     .iter()
@@ -554,7 +560,7 @@ fn handle_signal(
             let mut props =
                 fetch_props_blocking(conn, &sender, path.as_deref().unwrap_or(DEFAULT_ITEM_PATH));
             let menu_path = props.menu_path.clone();
-            let mut shared = shared.lock().unwrap();
+            let mut shared = shared.lock().unwrap_or_else(|e| e.into_inner());
             resolve_named_icon(&mut props.icon, &mut shared.icon_cache);
             if let Some(entry) = shared.items.get_mut(&key) {
                 entry.menu_path = menu_path;
@@ -570,7 +576,7 @@ fn handle_signal(
             let needs_refresh = match path {
                 None => false,
                 Some(path) => {
-                    let shared = shared.lock().unwrap();
+                    let shared = shared.lock().unwrap_or_else(|e| e.into_inner());
                     match &shared.menu {
                         Some(menu) => shared
                             .items
@@ -594,7 +600,7 @@ fn handle_signal(
 /// up the target; the `GetLayout` round-trip happens unlocked.
 fn refresh_open_menu(conn: &zbus::blocking::Connection, shared: &Arc<Mutex<Shared>>) {
     let target = {
-        let shared = shared.lock().unwrap();
+        let shared = shared.lock().unwrap_or_else(|e| e.into_inner());
         let Some(menu) = &shared.menu else {
             return;
         };
@@ -614,7 +620,7 @@ fn refresh_open_menu(conn: &zbus::blocking::Connection, shared: &Arc<Mutex<Share
     let Some((root, revision)) = fetch_menu_layout(conn, &target.1, &target.2) else {
         return;
     };
-    let mut shared = shared.lock().unwrap();
+    let mut shared = shared.lock().unwrap_or_else(|e| e.into_inner());
     shared.menu = Some(MenuState {
         key: target.0,
         root,
@@ -656,14 +662,19 @@ fn invoke_item_method(
     x: i32,
     y: i32,
 ) {
-    let target = shared.lock().unwrap().items.get(key).map(|entry| {
-        let destination = if entry.unique_name.is_empty() {
-            entry.bus_name.clone()
-        } else {
-            entry.unique_name.clone()
-        };
-        (destination, entry.path.clone())
-    });
+    let target = shared
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .items
+        .get(key)
+        .map(|entry| {
+            let destination = if entry.unique_name.is_empty() {
+                entry.bus_name.clone()
+            } else {
+                entry.unique_name.clone()
+            };
+            (destination, entry.path.clone())
+        });
     let Some((destination, path)) = target else {
         return;
     };
@@ -678,21 +689,26 @@ fn invoke_item_method(
 /// parse the reply, and stash the [`MenuState`] in `Shared`. Replaces any
 /// menu already open.
 fn fetch_menu_command(conn: &zbus::blocking::Connection, shared: &Arc<Mutex<Shared>>, key: &str) {
-    let target = shared.lock().unwrap().items.get(key).map(|entry| {
-        let destination = if entry.unique_name.is_empty() {
-            entry.bus_name.clone()
-        } else {
-            entry.unique_name.clone()
-        };
-        (destination, entry.menu_path.clone())
-    });
+    let target = shared
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .items
+        .get(key)
+        .map(|entry| {
+            let destination = if entry.unique_name.is_empty() {
+                entry.bus_name.clone()
+            } else {
+                entry.unique_name.clone()
+            };
+            (destination, entry.menu_path.clone())
+        });
     let Some((destination, Some(menu_path))) = target else {
         return;
     };
     let Some((root, revision)) = fetch_menu_layout(conn, &destination, &menu_path) else {
         return;
     };
-    let mut shared = shared.lock().unwrap();
+    let mut shared = shared.lock().unwrap_or_else(|e| e.into_inner());
     shared.menu = Some(MenuState {
         key: key.to_string(),
         root,
@@ -711,14 +727,19 @@ fn menu_event_command(
     key: &str,
     id: i32,
 ) {
-    let target = shared.lock().unwrap().items.get(key).map(|entry| {
-        let destination = if entry.unique_name.is_empty() {
-            entry.bus_name.clone()
-        } else {
-            entry.unique_name.clone()
-        };
-        (destination, entry.menu_path.clone())
-    });
+    let target = shared
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .items
+        .get(key)
+        .map(|entry| {
+            let destination = if entry.unique_name.is_empty() {
+                entry.bus_name.clone()
+            } else {
+                entry.unique_name.clone()
+            };
+            (destination, entry.menu_path.clone())
+        });
     let Some((destination, Some(menu_path))) = target else {
         return;
     };
@@ -743,7 +764,7 @@ fn menu_event_command(
 /// sends this on every close so the worker can stop refreshing on
 /// `LayoutUpdated`.
 fn close_menu_command(shared: &Arc<Mutex<Shared>>, key: &str) {
-    let mut shared = shared.lock().unwrap();
+    let mut shared = shared.lock().unwrap_or_else(|e| e.into_inner());
     if shared
         .menu
         .as_ref()

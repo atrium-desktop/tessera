@@ -584,7 +584,11 @@ impl CompositorRuntime<'_> {
             return Ok(None);
         }
         while let Ok(mut detected) = self.status_rx.try_recv() {
-            detected.do_not_disturb = self.notif_queue.lock().unwrap().do_not_disturb();
+            detected.do_not_disturb = self
+                .notif_queue
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .do_not_disturb();
             detected.idle_inhibited = self.system_status.idle_inhibited;
             // Compositor-owned like `idle_inhibited`: the session power mode
             // (ADR-0140) must survive a host status sample.
@@ -1970,7 +1974,7 @@ impl CompositorRuntime<'_> {
         // Age out expired notifications once per frame.
         self.notif_queue
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .expire(self.start.elapsed().as_millis() as u64);
 
         Ok(Some(IterationWork {

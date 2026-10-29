@@ -61,7 +61,7 @@ pub(crate) unsafe extern "C" fn text_input_bind(
 ) {
     unsafe {
         // Bind at v1: the v2 request set is larger but we only implement v1.
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::zwp_text_input_manager_v3_interface,
             version.min(1) as c_int,
@@ -100,7 +100,7 @@ unsafe extern "C" fn text_input_manager_get(
         };
         let seat_id = (*state).active_seat;
         let ver = ffi::wl_resource_get_version(mgr).min(1);
-        let res = ffi::wl_resource_create(client, &ffi::zwp_text_input_v3_interface, ver, id);
+        let res = ffi::checked_resource_create(client, &ffi::zwp_text_input_v3_interface, ver, id);
         if res.is_null() {
             return;
         }

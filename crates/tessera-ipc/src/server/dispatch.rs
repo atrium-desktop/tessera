@@ -1203,7 +1203,7 @@ pub(super) fn drive_read_loop<H: Handler>(
             Request::Subscribe => {
                 if sub_id.is_none() {
                     let id = next_sub.fetch_add(1, Ordering::Relaxed);
-                    subs.lock().unwrap().insert(
+                    subs.lock().unwrap_or_else(|e| e.into_inner()).insert(
                         id,
                         SubscriptionLane {
                             tx: tx.clone(),
@@ -1221,16 +1221,19 @@ pub(super) fn drive_read_loop<H: Handler>(
             Request::SubscribeJournal => {
                 if journal_sub_id.is_none() {
                     let id = next_sub.fetch_add(1, Ordering::Relaxed);
-                    journal_subs.lock().unwrap().insert(
-                        id,
-                        SubscriptionLane {
-                            tx: tx.clone(),
-                            shutdown: Some(Arc::clone(shutdown)),
-                            // Journal entries pass through the same subject
-                            // and scope filter as `GetJournal` (ADR-0125).
-                            filter: principal.is_some().then(|| live_scope.clone()),
-                        },
-                    );
+                    journal_subs
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(
+                            id,
+                            SubscriptionLane {
+                                tx: tx.clone(),
+                                shutdown: Some(Arc::clone(shutdown)),
+                                // Journal entries pass through the same subject
+                                // and scope filter as `GetJournal` (ADR-0125).
+                                filter: principal.is_some().then(|| live_scope.clone()),
+                            },
+                        );
                     journal_sub_id = Some(id);
                 }
                 Response::Subscribed
@@ -1253,7 +1256,9 @@ pub(super) fn drive_read_loop<H: Handler>(
                     *deadline = std::time::Instant::now()
                         .checked_add(std::time::Duration::from_millis(ttl_ms))
                         .expect("bounded lease duration overflowed");
-                    *lease_deadline_shared.lock().unwrap() = *deadline;
+                    *lease_deadline_shared
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner()) = *deadline;
                     Response::LeaseRenewed { lease: *grant }
                 }
             }
@@ -1689,7 +1694,7 @@ pub(super) fn drive_read_loop<H: Handler>(
                         cursor,
                     ) {
                         Ok(info) => {
-                            streams.lock().unwrap().insert(
+                            streams.lock().unwrap_or_else(|e| e.into_inner()).insert(
                                 info.stream_id,
                                 StreamLane {
                                     conn_id,
@@ -1746,7 +1751,7 @@ pub(super) fn drive_read_loop<H: Handler>(
                 // per consumed frame, so they are deliberately not journaled.
                 let owned = streams
                     .lock()
-                    .unwrap()
+                    .unwrap_or_else(|e| e.into_inner())
                     .get(&stream_id)
                     .is_some_and(|lane| lane.conn_id == conn_id);
                 if owned {
@@ -1762,11 +1767,14 @@ pub(super) fn drive_read_loop<H: Handler>(
                 // A connection may stop only a stream it owns.
                 let owned = streams
                     .lock()
-                    .unwrap()
+                    .unwrap_or_else(|e| e.into_inner())
                     .get(&stream_id)
                     .is_some_and(|lane| lane.conn_id == conn_id);
                 let response = if owned {
-                    streams.lock().unwrap().remove(&stream_id);
+                    streams
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .remove(&stream_id);
                     handler.stream_output_stop(stream_id);
                     Response::StreamOutputStopped { stream_id }
                 } else {
@@ -1789,7 +1797,7 @@ pub(super) fn drive_read_loop<H: Handler>(
                 dmabuf,
             } => {
                 let target = {
-                    let guard = streams.lock().unwrap();
+                    let guard = streams.lock().unwrap_or_else(|e| e.into_inner());
                     guard
                         .get(&stream_id)
                         .filter(|lane| lane.conn_id == conn_id)
@@ -1830,7 +1838,11 @@ pub(super) fn drive_read_loop<H: Handler>(
                         allow_dmabuf,
                     ) {
                         Ok(info) => {
-                            if let Some(lane) = streams.lock().unwrap().get_mut(&stream_id) {
+                            if let Some(lane) = streams
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .get_mut(&stream_id)
+                            {
                                 lane.queued.store(0, Ordering::Release);
                             }
                             match info.slots {

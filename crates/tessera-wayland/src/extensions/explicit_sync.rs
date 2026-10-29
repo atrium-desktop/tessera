@@ -48,7 +48,7 @@ pub(crate) unsafe extern "C" fn explicit_sync_bind(
     id: u32,
 ) {
     unsafe {
-        let resource = ffi::wl_resource_create(
+        let resource = ffi::checked_resource_create(
             client,
             &ffi::zwp_linux_explicit_synchronization_v1_interface,
             version as c_int,
@@ -80,7 +80,7 @@ unsafe extern "C" fn explicit_sync_get_surface(
             ffi::wl_resource_post_error(manager, 0, c"surface already has explicit sync".as_ptr());
             return;
         }
-        let resource = ffi::wl_resource_create(
+        let resource = ffi::checked_resource_create(
             client,
             &ffi::zwp_linux_surface_synchronization_v1_interface,
             ffi::wl_resource_get_version(manager),
@@ -169,8 +169,12 @@ unsafe extern "C" fn surface_sync_get_release(
             ffi::wl_resource_post_error(resource, 2, c"duplicate buffer release".as_ptr());
             return;
         }
-        let release =
-            ffi::wl_resource_create(client, &ffi::zwp_linux_buffer_release_v1_interface, 1, id);
+        let release = ffi::checked_resource_create(
+            client,
+            &ffi::zwp_linux_buffer_release_v1_interface,
+            1,
+            id,
+        );
         if release.is_null() {
             return;
         }

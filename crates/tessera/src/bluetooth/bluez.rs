@@ -126,7 +126,13 @@ impl BluezBackend {
             cache: Arc::new(Mutex::new(BluezCache::default())),
         };
         backend.refresh()?;
-        if backend.cache.lock().unwrap().adapter_path.is_none() {
+        if backend
+            .cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .adapter_path
+            .is_none()
+        {
             return Err("no bluetooth adapter found".to_string());
         }
         Ok(backend)
@@ -190,7 +196,7 @@ impl BluezBackend {
 
         sort_devices(&mut devices);
 
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         cache.adapter_path = adapter_path;
         cache.powered = powered;
         cache.discovering = discovering;
@@ -202,7 +208,7 @@ impl BluezBackend {
     fn adapter_path(&self) -> Result<String, String> {
         self.cache
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .adapter_path
             .clone()
             .ok_or_else(|| "no bluetooth adapter found".to_string())
@@ -260,7 +266,7 @@ impl BluetoothBackend for BluezBackend {
         let adapter = self.adapter_path()?;
         self.set_property(&adapter, ADAPTER_IFACE, "Powered", Value::Bool(enabled))?;
         if !enabled {
-            let mut cache = self.cache.lock().unwrap();
+            let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
             cache.discovery_deadline = None;
         }
         let _ = self.refresh();
@@ -270,7 +276,7 @@ impl BluetoothBackend for BluezBackend {
     fn scan(&self) -> Result<(), String> {
         let adapter = self.adapter_path()?;
         let (powered, discovering) = {
-            let cache = self.cache.lock().unwrap();
+            let cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
             (cache.powered, cache.discovering)
         };
         if !powered {
@@ -289,7 +295,10 @@ impl BluetoothBackend for BluezBackend {
         }
         // Extend (or arm) the bounded window; a repeated request never leaves
         // discovery running forever.
-        self.cache.lock().unwrap().discovery_deadline = Some(Instant::now() + DISCOVERY_WINDOW);
+        self.cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .discovery_deadline = Some(Instant::now() + DISCOVERY_WINDOW);
         let _ = self.refresh();
         Ok(())
     }
@@ -362,7 +371,7 @@ impl BluetoothBackend for BluezBackend {
     }
 
     fn poll(&self) {
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         // Close an expired discovery window before refreshing, so the read
         // below observes `Discovering = false` again.
         if let Some(deadline) = cache.discovery_deadline
@@ -394,7 +403,7 @@ impl BluetoothBackend for BluezBackend {
     }
 
     fn enabled(&self) -> Option<bool> {
-        let cache = self.cache.lock().unwrap();
+        let cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         // Stable once an adapter has been seen: `refresh` only rewrites the
         // cache on success, so a transient bus failure yields the last known
         // power state rather than a `None` that would make the runtime's
@@ -403,7 +412,7 @@ impl BluetoothBackend for BluezBackend {
     }
 
     fn state(&self) -> BluetoothLinkState {
-        let cache = self.cache.lock().unwrap();
+        let cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         if cache.adapter_path.is_none() {
             return BluetoothLinkState::Unavailable;
         }
@@ -420,6 +429,10 @@ impl BluetoothBackend for BluezBackend {
     }
 
     fn devices(&self) -> Vec<BluetoothDevice> {
-        self.cache.lock().unwrap().devices.clone()
+        self.cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .devices
+            .clone()
     }
 }

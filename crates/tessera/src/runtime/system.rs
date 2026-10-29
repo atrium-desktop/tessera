@@ -171,7 +171,10 @@ pub(super) fn apply_system_action(
                 .retain(|device| device.address != address);
         }
         SystemAction::SetDoNotDisturb { enabled } => {
-            notifications.lock().unwrap().set_do_not_disturb(enabled);
+            notifications
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .set_do_not_disturb(enabled);
             status.do_not_disturb = enabled;
         }
         SystemAction::SetOutputPower { powered } => {

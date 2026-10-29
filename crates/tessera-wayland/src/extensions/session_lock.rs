@@ -57,7 +57,7 @@ pub(crate) unsafe extern "C" fn session_lock_bind(
     id: u32,
 ) {
     unsafe {
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::ext_session_lock_manager_v1_interface,
             version as c_int,
@@ -82,7 +82,8 @@ unsafe extern "C" fn session_lock_manager_lock(
 ) {
     unsafe {
         let ver = ffi::wl_resource_get_version(mgr);
-        let res = ffi::wl_resource_create(client, &ffi::ext_session_lock_v1_interface, ver, id);
+        let res =
+            ffi::checked_resource_create(client, &ffi::ext_session_lock_v1_interface, ver, id);
         if res.is_null() {
             return;
         }
@@ -184,8 +185,12 @@ unsafe extern "C" fn session_lock_get_surface(
             ffi::wl_resource_post_error(lock, 3, c"duplicate lock output".as_ptr());
             return;
         }
-        let res =
-            ffi::wl_resource_create(client, &ffi::ext_session_lock_surface_v1_interface, ver, id);
+        let res = ffi::checked_resource_create(
+            client,
+            &ffi::ext_session_lock_surface_v1_interface,
+            ver,
+            id,
+        );
         if res.is_null() {
             return;
         }

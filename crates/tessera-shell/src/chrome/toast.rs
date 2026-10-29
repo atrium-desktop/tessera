@@ -71,7 +71,7 @@ impl Toast {
     /// inside the toast window, newest first, capped. Reads the queue under
     /// a brief lock; `render` reuses the revision cache instead.
     fn presentable(&self) -> Vec<Notification> {
-        let queue = self.queue.lock().unwrap();
+        let queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
         if queue.do_not_disturb() {
             return Vec::new();
         }
@@ -103,7 +103,7 @@ impl Chrome for Toast {
         // the cached entries. Newest on top: iterate the tail in reverse,
         // capped.
         let notifications: &[Notification] = {
-            let queue = self.queue.lock().unwrap();
+            let queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
             if queue.do_not_disturb() {
                 self.cache = None;
                 &[]
@@ -126,7 +126,11 @@ impl Chrome for Toast {
                 &self.cache.as_ref().unwrap().1
             }
         };
-        let now_ms = self.queue.lock().unwrap().now_ms();
+        let now_ms = self
+            .queue
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .now_ms();
         let mut slot = 0;
         for n in notifications {
             // The age filter runs every frame: a toast crossing its window

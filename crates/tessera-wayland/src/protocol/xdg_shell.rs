@@ -17,7 +17,7 @@ pub(crate) unsafe extern "C" fn xdg_wm_base_bind(
 ) {
     unsafe {
         let res =
-            ffi::wl_resource_create(client, &ffi::xdg_wm_base_interface, version as c_int, id);
+            ffi::checked_resource_create(client, &ffi::xdg_wm_base_interface, version as c_int, id);
         if res.is_null() {
             return;
         }
@@ -54,7 +54,7 @@ unsafe extern "C" fn xdg_wm_base_create_positioner(
 ) {
     unsafe {
         let ver = ffi::wl_resource_get_version(wm_base);
-        let pos = ffi::wl_resource_create(client, &ffi::xdg_positioner_interface, ver, id);
+        let pos = ffi::checked_resource_create(client, &ffi::xdg_positioner_interface, ver, id);
         if pos.is_null() {
             return;
         }
@@ -316,7 +316,8 @@ unsafe extern "C" fn xdg_wm_base_get_xdg_surface(
             return;
         }
         let ver = ffi::wl_resource_get_version(wm_base);
-        let xdg_surface = ffi::wl_resource_create(client, &ffi::xdg_surface_interface, ver, id);
+        let xdg_surface =
+            ffi::checked_resource_create(client, &ffi::xdg_surface_interface, ver, id);
         if xdg_surface.is_null() {
             return;
         }
@@ -425,7 +426,7 @@ unsafe extern "C" fn xdg_surface_get_toplevel(
             return;
         }
         let ver = ffi::wl_resource_get_version(xdg_surface);
-        let toplevel = ffi::wl_resource_create(client, &ffi::xdg_toplevel_interface, ver, id);
+        let toplevel = ffi::checked_resource_create(client, &ffi::xdg_toplevel_interface, ver, id);
         if toplevel.is_null() {
             return;
         }
@@ -483,7 +484,7 @@ unsafe extern "C" fn xdg_surface_get_popup(
             return;
         }
         let ver = ffi::wl_resource_get_version(xdg_surface);
-        let pop = ffi::wl_resource_create(client, &ffi::xdg_popup_interface, ver, id);
+        let pop = ffi::checked_resource_create(client, &ffi::xdg_popup_interface, ver, id);
         if pop.is_null() {
             return;
         }

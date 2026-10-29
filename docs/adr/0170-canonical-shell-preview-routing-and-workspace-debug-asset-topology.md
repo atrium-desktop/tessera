@@ -13,7 +13,7 @@ negative_knowledge: true
 - Status: Accepted
 - Date: 2026-09-29
 - Deciders: Tessera Maintainers & Core Architects
-- Amends: [ADR-0080](0080-avatar-crate-xdg-conformant-vrm-aware.md), [ADR-0106](0106-shared-identity-portrait-contract-and-vrm-renderer-boundary.md), [ADR-0111](0111-persona-as-shell-domain-with-feature-gated-portrait-runtime.md), [ADR-0151](0151-pivot-unified-intent-and-action-surface.md), [ADR-0158](0158-clean-break-workspace-boundaries.md)
+- Amends: [ADR-0194](0194-avatar-crate-xdg-conformant-vrm-aware.md), [ADR-0106](0106-shared-identity-portrait-contract-and-vrm-renderer-boundary.md), [ADR-0111](0111-persona-as-shell-domain-with-feature-gated-portrait-runtime.md), [ADR-0151](0151-pivot-unified-intent-and-action-surface.md), [ADR-0158](0158-clean-break-workspace-boundaries.md)
 
 ---
 

@@ -106,7 +106,8 @@ pub(crate) unsafe extern "C" fn seat_bind(
         }
         let state = (*record).state;
         let seat_id = (*record).seat;
-        let res = ffi::wl_resource_create(client, &ffi::wl_seat_interface, version as c_int, id);
+        let res =
+            ffi::checked_resource_create(client, &ffi::wl_seat_interface, version as c_int, id);
         if res.is_null() {
             return;
         }
@@ -196,7 +197,7 @@ unsafe extern "C" fn seat_get_pointer(
         (*state).note_client_used_seat(client, advertised_seat);
         let seat_id = (*state).client_routed_seat(client, advertised_seat);
         let ver = ffi::wl_resource_get_version(seat).min(9);
-        let p = ffi::wl_resource_create(client, &ffi::wl_pointer_interface, ver, id);
+        let p = ffi::checked_resource_create(client, &ffi::wl_pointer_interface, ver, id);
         if p.is_null() {
             return;
         }
@@ -270,7 +271,7 @@ unsafe extern "C" fn seat_get_keyboard(
         (*state).note_client_used_seat(client, advertised_seat);
         let seat_id = (*state).client_routed_seat(client, advertised_seat);
         let ver = ffi::wl_resource_get_version(seat).min(7);
-        let k = ffi::wl_resource_create(client, &ffi::wl_keyboard_interface, ver, id);
+        let k = ffi::checked_resource_create(client, &ffi::wl_keyboard_interface, ver, id);
         if k.is_null() {
             return;
         }
@@ -391,7 +392,7 @@ unsafe extern "C" fn seat_get_touch(
         (*state).note_client_used_seat(client, advertised_seat);
         let seat_id = (*state).client_routed_seat(client, advertised_seat);
         let ver = ffi::wl_resource_get_version(seat).min(8);
-        let t = ffi::wl_resource_create(client, &ffi::wl_touch_interface, ver, id);
+        let t = ffi::checked_resource_create(client, &ffi::wl_touch_interface, ver, id);
         if t.is_null() {
             return;
         }

@@ -249,7 +249,7 @@ impl LiveState {
         let snapshot = self
             .actor_sessions
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .authorize_connection(connection_id)?;
         if snapshot.principal.as_ref() != principal.as_ref() {
             return Err("Actor principal does not match the live session".into());
@@ -278,7 +278,7 @@ impl LiveState {
         let current = if let Some(name) = scope_name {
             self.scopes
                 .read()
-                .unwrap()
+                .unwrap_or_else(|e| e.into_inner())
                 .get(name)
                 .cloned()
                 .ok_or_else(|| "Actor scope was revoked before action commit".to_owned())?
@@ -286,7 +286,7 @@ impl LiveState {
             let identity = self
                 .agent_auth
                 .read()
-                .unwrap()
+                .unwrap_or_else(|e| e.into_inner())
                 .identity_for_principal(subject)
                 .ok_or_else(|| "Actor principal was forgotten before action commit".to_owned())?;
             tessera_protocol::Scope {
@@ -301,10 +301,13 @@ impl LiveState {
         let before = authorized_scope.decide_interaction_domain_input(interaction_domain);
         let now = current.decide_interaction_domain_input(interaction_domain);
         let recorded = actor.principal.as_deref().and_then(|subject| {
-            self.grants.read().unwrap().decision_for(
-                subject,
-                tessera_protocol::ActorCapability::InjectInteractionDomainInput,
-            )
+            self.grants
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .decision_for(
+                    subject,
+                    tessera_protocol::ActorCapability::InjectInteractionDomainInput,
+                )
         });
         let permitted = actor_action_scope_still_authorized(before, now, recorded);
         permitted.then_some(current).ok_or_else(|| {
@@ -330,7 +333,7 @@ impl LiveState {
         effect: tessera_protocol::Effect,
     ) {
         let effect = mutation.privacy_minimize_effect(effect);
-        let mut journal = self.journal.lock().unwrap();
+        let mut journal = self.journal.lock().unwrap_or_else(|e| e.into_inner());
         let entry = match journal.try_append(
             self.audit_start.elapsed().as_millis() as u64,
             origin,
@@ -391,7 +394,7 @@ impl LiveState {
         let revoked_grants = self
             .resource_grants
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .revoke_session(snapshot.id);
         let _ = self.actor_disconnects.send(snapshot.connection_id);
         self.audit_event(
@@ -415,7 +418,11 @@ impl LiveState {
     /// reaching their TTL or idle deadline.
     pub(super) fn expire_due_actor_sessions(&self) {
         self.expire_due_resource_grants();
-        let expired = self.actor_sessions.lock().unwrap().expire_due();
+        let expired = self
+            .actor_sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .expire_due();
         for snapshot in expired {
             self.terminate_actor_session(
                 snapshot,
@@ -426,7 +433,11 @@ impl LiveState {
     }
 
     fn expire_due_resource_grants(&self) {
-        let expired = self.resource_grants.lock().unwrap().expire_due();
+        let expired = self
+            .resource_grants
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .expire_due();
         for grant in expired {
             self.resource_grant_event(
                 tessera_protocol::Origin::Internal,
@@ -437,30 +448,33 @@ impl LiveState {
     }
 
     pub(super) fn set_windows(&self, windows: Vec<tessera_desktop::window::Window>) {
-        *self.windows.write().unwrap() = windows;
+        *self.windows.write().unwrap_or_else(|e| e.into_inner()) = windows;
     }
 
     pub(super) fn set_all_windows(&self, windows: Vec<tessera_desktop::window::Window>) {
-        *self.all_windows.write().unwrap() = windows;
+        *self.all_windows.write().unwrap_or_else(|e| e.into_inner()) = windows;
     }
 
     pub(super) fn set_workspaces(&self, snapshot: tessera_desktop::workspace::WorkspaceSnapshot) {
-        *self.workspaces.write().unwrap() = snapshot;
+        *self.workspaces.write().unwrap_or_else(|e| e.into_inner()) = snapshot;
     }
 
     pub(super) fn set_outputs(&self, outputs: Vec<tessera_desktop::output::OutputInfo>) {
-        *self.outputs.write().unwrap() = outputs;
+        *self.outputs.write().unwrap_or_else(|e| e.into_inner()) = outputs;
     }
 
     pub(super) fn set_interaction_domains(
         &self,
         snapshot: tessera_authority::interaction_domain::InteractionDomainSnapshot,
     ) {
-        *self.interaction_domains.write().unwrap() = snapshot;
+        *self
+            .interaction_domains
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = snapshot;
     }
 
     pub(super) fn set_settings(&self, snapshot: tessera_protocol::SettingsSnapshot) {
-        *self.settings.write().unwrap() = snapshot;
+        *self.settings.write().unwrap_or_else(|e| e.into_inner()) = snapshot;
     }
 
     /// Replace the `[ipc.scope_executables]` overlay (ADR-0128) on startup
@@ -469,11 +483,17 @@ impl LiveState {
         &self,
         overlay: std::collections::HashMap<String, Vec<std::path::PathBuf>>,
     ) {
-        *self.scope_executables.write().unwrap() = overlay;
+        *self
+            .scope_executables
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = overlay;
     }
 
     pub(super) fn set_system_status(&self, snapshot: tessera_protocol::SystemStatus) {
-        *self.system_status.write().unwrap() = snapshot;
+        *self
+            .system_status
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = snapshot;
     }
 }
 
@@ -492,37 +512,62 @@ impl tessera_ipc::Handler for LiveState {
     }
 
     fn windows(&self) -> Vec<tessera_desktop::window::Window> {
-        self.windows.read().unwrap().clone()
+        self.windows
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     fn workspaces(&self) -> tessera_desktop::workspace::WorkspaceSnapshot {
-        self.workspaces.read().unwrap().clone()
+        self.workspaces
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     fn notifications(&self) -> Vec<tessera_desktop::notify::Notification> {
-        self.notifications.lock().unwrap().snapshot()
+        self.notifications
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .snapshot()
     }
 
     fn outputs(&self) -> Vec<tessera_desktop::output::OutputInfo> {
-        self.outputs.read().unwrap().clone()
+        self.outputs
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     fn journal_since(&self, since: u64) -> tessera_protocol::JournalSnapshot {
-        self.journal.lock().unwrap().since(since).into()
+        self.journal
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .since(since)
+            .into()
     }
 
     fn interaction_domains(
         &self,
     ) -> tessera_authority::interaction_domain::InteractionDomainSnapshot {
-        self.interaction_domains.read().unwrap().clone()
+        self.interaction_domains
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     fn settings(&self) -> tessera_protocol::SettingsSnapshot {
-        self.settings.read().unwrap().clone()
+        self.settings
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     fn system_status(&self) -> tessera_protocol::SystemStatus {
-        self.system_status.read().unwrap().clone()
+        self.system_status
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     fn authorize_interaction_domain_action(
@@ -530,7 +575,10 @@ impl tessera_ipc::Handler for LiveState {
         scope: &tessera_protocol::Scope,
         action: &tessera_protocol::InteractionDomainAction,
     ) -> Result<(), String> {
-        let snapshot = self.interaction_domains.read().unwrap();
+        let snapshot = self
+            .interaction_domains
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         authorize_interaction_domain_action_against_snapshot(scope, action, &snapshot)
     }
 
@@ -580,10 +628,14 @@ impl tessera_ipc::Handler for LiveState {
         // Best-effort: a send fails only if the main loop has dropped the
         // receiver (compositor shutting down); the command is then lost,
         // which is the right outcome.
-        let _ = self.commands.lock().unwrap().send(IpcCommandRequest {
-            origin: tessera_protocol::Origin::ipc(conn_id, subject),
-            command: cmd,
-        });
+        let _ = self
+            .commands
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .send(IpcCommandRequest {
+                origin: tessera_protocol::Origin::ipc(conn_id, subject),
+                command: cmd,
+            });
     }
 
     fn transact(
@@ -597,7 +649,7 @@ impl tessera_ipc::Handler for LiveState {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         self.transacts
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(TransactRequest {
                 origin: tessera_protocol::Origin::ipc(conn_id, subject),
                 expected_journal_seq,
@@ -620,7 +672,7 @@ impl tessera_ipc::Handler for LiveState {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         self.system_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(SystemControlRequest {
                 origin: tessera_protocol::Origin::ipc(conn_id, subject),
                 action,
@@ -633,7 +685,11 @@ impl tessera_ipc::Handler for LiveState {
     }
 
     fn resolve_scope(&self, name: &str) -> Option<tessera_protocol::Scope> {
-        self.scopes.read().unwrap().get(name).cloned()
+        self.scopes
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(name)
+            .cloned()
     }
 
     fn peer_executable(&self, pid: u32) -> Option<std::path::PathBuf> {
@@ -663,7 +719,7 @@ impl tessera_ipc::Handler for LiveState {
             let allowlist = self
                 .scope_executables
                 .read()
-                .unwrap()
+                .unwrap_or_else(|e| e.into_inner())
                 .get(name)
                 .cloned()
                 .or_else(|| builtin_scope_executables(name));
@@ -683,7 +739,10 @@ impl tessera_ipc::Handler for LiveState {
         &self,
         credential: &str,
     ) -> Option<tessera_authority::authority::AgentIdentity> {
-        self.agent_auth.read().unwrap().lookup(credential)
+        self.agent_auth
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .lookup(credential)
     }
 
     fn refresh_agent_identity(
@@ -692,7 +751,7 @@ impl tessera_ipc::Handler for LiveState {
     ) -> Result<Option<tessera_authority::authority::AgentIdentity>, String> {
         self.agent_auth
             .read()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .identity_for_principal(principal)
             .map(Some)
             .ok_or_else(|| "agent principal was forgotten".into())
@@ -711,7 +770,7 @@ impl tessera_ipc::Handler for LiveState {
         let snapshot = self
             .actor_sessions
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .start(conn_id, principal, policy)?;
         self.audit_event(
             tessera_protocol::Origin::ipc(
@@ -737,7 +796,7 @@ impl tessera_ipc::Handler for LiveState {
         let result = self
             .actor_sessions
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .authorize(session)
             .map(|_| ());
         if result.is_err() {
@@ -761,7 +820,11 @@ impl tessera_ipc::Handler for LiveState {
             .map(tessera_authority::authority::ActorPrincipal::new)
             .transpose()
             .map_err(str::to_owned)?;
-        let session_snapshot = self.actor_sessions.lock().unwrap().authorize(session)?;
+        let session_snapshot = self
+            .actor_sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .authorize(session)?;
         if session_snapshot.principal.as_ref() != principal.as_ref() {
             return Err("resource grant Actor binding does not match the live session".into());
         }
@@ -774,14 +837,18 @@ impl tessera_ipc::Handler for LiveState {
                 return Err("resource grant was not confirmed".into());
             }
         }
-        let grant = self.resource_grants.lock().unwrap().issue(
-            session,
-            principal,
-            resource.required_capability(),
-            resource,
-            ttl,
-            uses,
-        )?;
+        let grant = self
+            .resource_grants
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .issue(
+                session,
+                principal,
+                resource.required_capability(),
+                resource,
+                ttl,
+                uses,
+            )?;
         self.resource_grant_event(
             tessera_protocol::Origin::ipc(
                 conn_id,
@@ -801,7 +868,11 @@ impl tessera_ipc::Handler for LiveState {
         resource: &tessera_authority::authority::ActorResource,
     ) -> Result<tessera_authority::authority::ResourceGrant, String> {
         self.expire_due_resource_grants();
-        let session_snapshot = self.actor_sessions.lock().unwrap().authorize(session)?;
+        let session_snapshot = self
+            .actor_sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .authorize(session)?;
         let principal = principal
             .map(tessera_authority::authority::ActorPrincipal::new)
             .transpose()
@@ -809,12 +880,11 @@ impl tessera_ipc::Handler for LiveState {
         if session_snapshot.principal.as_ref() != principal.as_ref() {
             return Err("resource grant Actor binding does not match the live session".into());
         }
-        let grant = self.resource_grants.lock().unwrap().consume(
-            session,
-            principal.as_ref(),
-            id,
-            resource,
-        )?;
+        let grant = self
+            .resource_grants
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .consume(session, principal.as_ref(), id, resource)?;
         self.resource_grant_event(
             tessera_protocol::Origin::ipc(
                 session_snapshot.connection_id,
@@ -832,7 +902,11 @@ impl tessera_ipc::Handler for LiveState {
         principal: Option<&str>,
         id: &tessera_authority::authority::ResourceGrantId,
     ) -> Result<(), String> {
-        let session_snapshot = self.actor_sessions.lock().unwrap().authorize(session)?;
+        let session_snapshot = self
+            .actor_sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .authorize(session)?;
         let principal = principal
             .map(tessera_authority::authority::ActorPrincipal::new)
             .transpose()
@@ -843,7 +917,7 @@ impl tessera_ipc::Handler for LiveState {
         let grant = self
             .resource_grants
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .revoke(session, principal.as_ref(), id)?;
         self.resource_grant_event(
             tessera_protocol::Origin::ipc(
@@ -867,13 +941,18 @@ impl tessera_ipc::Handler for LiveState {
         requested: &[tessera_protocol::ActorCapability],
     ) -> Result<tessera_authority::authority::PairedAgent, String> {
         {
-            let auth = self.agent_auth.read().unwrap();
+            let auth = self.agent_auth.read().unwrap_or_else(|e| e.into_inner());
             if auth.is_denied(label) {
                 return Err("agent pairing was denied earlier in this session".into());
             }
         }
         let collision = label
-            .map(|label| self.agent_auth.read().unwrap().label_collision(label))
+            .map(|label| {
+                self.agent_auth
+                    .read()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .label_collision(label)
+            })
             .unwrap_or(false);
         let title = format!(
             "{} wants to borrow desktop capabilities",
@@ -901,7 +980,7 @@ impl tessera_ipc::Handler for LiveState {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         self.capability_pick_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(CapabilityPickControlRequest {
                 conn_id,
                 action: CapabilityPickControl::Start {
@@ -924,7 +1003,11 @@ impl tessera_ipc::Handler for LiveState {
                     .iter()
                     .filter_map(|key| tessera_protocol::ActorCapability::from_name(key))
                     .collect();
-                let paired = self.agent_auth.write().unwrap().issue(label, &ops)?;
+                let paired = self
+                    .agent_auth
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .issue(label, &ops)?;
                 self.auth_event(
                     Some(conn_id),
                     &paired.principal,
@@ -933,24 +1016,32 @@ impl tessera_ipc::Handler for LiveState {
                 Ok(paired)
             }
             Ok(Ok(tessera_shell::component::CapabilityPickResult { approved: None })) => {
-                self.agent_auth.write().unwrap().deny(label);
+                self.agent_auth
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .deny(label);
                 Err("pairing denied by the user".into())
             }
             Ok(Err(message)) => Err(message),
             Err(_) => {
-                let _ = self.capability_pick_controls.lock().unwrap().send(
-                    CapabilityPickControlRequest {
+                let _ = self
+                    .capability_pick_controls
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .send(CapabilityPickControlRequest {
                         conn_id,
                         action: CapabilityPickControl::Cancel,
-                    },
-                );
+                    });
                 Err("pairing timed out".into())
             }
         }
     }
 
     fn grant_for(&self, principal: &str, op: tessera_protocol::ActorCapability) -> Option<bool> {
-        self.grants.read().unwrap().decision_for(principal, op)
+        self.grants
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .decision_for(principal, op)
     }
 
     fn request_grant(
@@ -962,7 +1053,7 @@ impl tessera_ipc::Handler for LiveState {
         let label = self
             .agent_auth
             .read()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .principals()
             .iter()
             .find(|record| record.id == principal)
@@ -979,7 +1070,7 @@ impl tessera_ipc::Handler for LiveState {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         self.confirm_pick_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(ConfirmPickControlRequest {
                 conn_id,
                 action: ConfirmPickControl::Start {
@@ -1008,7 +1099,7 @@ impl tessera_ipc::Handler for LiveState {
             Ok(Ok(tessera_shell::component::ConfirmAnswer::AllowSession)) => {
                 self.grants
                     .write()
-                    .unwrap()
+                    .unwrap_or_else(|e| e.into_inner())
                     .record(principal, op, true, true)?;
                 self.auth_event(
                     Some(conn_id),
@@ -1023,7 +1114,7 @@ impl tessera_ipc::Handler for LiveState {
             Ok(Ok(tessera_shell::component::ConfirmAnswer::AllowAlways)) => {
                 self.grants
                     .write()
-                    .unwrap()
+                    .unwrap_or_else(|e| e.into_inner())
                     .record(principal, op, true, false)?;
                 self.auth_event(
                     Some(conn_id),
@@ -1038,7 +1129,7 @@ impl tessera_ipc::Handler for LiveState {
             Ok(Ok(_)) => {
                 self.grants
                     .write()
-                    .unwrap()
+                    .unwrap_or_else(|e| e.into_inner())
                     .record(principal, op, false, true)?;
                 self.auth_event(
                     Some(conn_id),
@@ -1052,14 +1143,14 @@ impl tessera_ipc::Handler for LiveState {
             }
             Ok(Err(message)) => Err(message),
             Err(_) => {
-                let _ =
-                    self.confirm_pick_controls
-                        .lock()
-                        .unwrap()
-                        .send(ConfirmPickControlRequest {
-                            conn_id,
-                            action: ConfirmPickControl::Cancel,
-                        });
+                let _ = self
+                    .confirm_pick_controls
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .send(ConfirmPickControlRequest {
+                        conn_id,
+                        action: ConfirmPickControl::Cancel,
+                    });
                 Err("grant request timed out".into())
             }
         }
@@ -1070,14 +1161,17 @@ impl tessera_ipc::Handler for LiveState {
         scope: &tessera_protocol::Scope,
         action: &tessera_protocol::InteractionDomainAction,
     ) -> Result<(), String> {
-        let snapshot = self.interaction_domains.read().unwrap();
+        let snapshot = self
+            .interaction_domains
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         authorize_interaction_domain_action_granted_against_snapshot(scope, action, &snapshot)
     }
 
     fn agent_principals(&self) -> Vec<tessera_protocol::AgentPrincipalInfo> {
         self.agent_auth
             .read()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .principals()
             .iter()
             .map(|record| tessera_protocol::AgentPrincipalInfo {
@@ -1091,24 +1185,36 @@ impl tessera_ipc::Handler for LiveState {
     }
 
     fn agent_grants(&self, principal: Option<&str>) -> Vec<tessera_protocol::AgentGrantInfo> {
-        self.grants.read().unwrap().list(principal)
+        self.grants
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .list(principal)
     }
 
     fn rename_agent_principal(&self, principal: &str, label: Option<&str>) -> Result<(), String> {
-        self.agent_auth.write().unwrap().rename(principal, label)?;
+        self.agent_auth
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .rename(principal, label)?;
         self.auth_event(None, principal, tessera_protocol::AgentAuthAction::Renamed);
         Ok(())
     }
 
     fn forget_agent_principal(&self, principal: &str) -> Result<(), String> {
-        self.agent_auth.write().unwrap().forget(principal)?;
-        self.grants.write().unwrap().forget_principal(principal);
+        self.agent_auth
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .forget(principal)?;
+        self.grants
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .forget_principal(principal);
         let principal =
             tessera_authority::authority::ActorPrincipal::new(principal).map_err(str::to_owned)?;
         let revoked = self
             .actor_sessions
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .revoke_principal(&principal);
         for snapshot in revoked {
             self.terminate_actor_session(
@@ -1123,7 +1229,7 @@ impl tessera_ipc::Handler for LiveState {
         for grant in self
             .resource_grants
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .revoke_principal(&principal)
         {
             self.resource_grant_event(
@@ -1146,11 +1252,10 @@ impl tessera_ipc::Handler for LiveState {
         pregranted: &[tessera_protocol::ActorCapability],
         gated: &[tessera_protocol::ActorCapability],
     ) -> Result<(), String> {
-        self.agent_auth.write().unwrap().set_ceiling(
-            principal,
-            pregranted.to_vec(),
-            gated.to_vec(),
-        )?;
+        self.agent_auth
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .set_ceiling(principal, pregranted.to_vec(), gated.to_vec())?;
         self.auth_event(
             None,
             principal,
@@ -1165,11 +1270,11 @@ impl tessera_ipc::Handler for LiveState {
         pregranted: &[tessera_protocol::ActorCapability],
         gated: &[tessera_protocol::ActorCapability],
     ) -> Result<(String, String), String> {
-        let (principal, credential) = self.agent_auth.write().unwrap().register(
-            label,
-            pregranted.to_vec(),
-            gated.to_vec(),
-        )?;
+        let (principal, credential) = self
+            .agent_auth
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .register(label, pregranted.to_vec(), gated.to_vec())?;
         self.auth_event(None, &principal, tessera_protocol::AgentAuthAction::Paired);
         Ok((principal, credential))
     }
@@ -1179,7 +1284,10 @@ impl tessera_ipc::Handler for LiveState {
         principal: &str,
         op: tessera_protocol::ActorCapability,
     ) -> Result<(), String> {
-        self.grants.write().unwrap().revoke(principal, op)?;
+        self.grants
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .revoke(principal, op)?;
         self.auth_event(
             None,
             principal,
@@ -1195,7 +1303,7 @@ impl tessera_ipc::Handler for LiveState {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         self.capture
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(CaptureRequest {
                 reply: reply_tx,
                 region,
@@ -1217,7 +1325,7 @@ impl tessera_ipc::Handler for LiveState {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         self.interaction_domain_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(InteractionDomainControlRequest {
                 origin: tessera_protocol::Origin::ipc(conn_id, subject),
                 subject: subject.map(str::to_owned),
@@ -1240,7 +1348,7 @@ impl tessera_ipc::Handler for LiveState {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         self.settings_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(SettingsControlRequest {
                 origin: tessera_protocol::Origin::ipc(conn_id, subject),
                 expected_revision,
@@ -1257,7 +1365,7 @@ impl tessera_ipc::Handler for LiveState {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         self.wallpaper_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(WallpaperControlRequest {
                 path,
                 reply: reply_tx,
@@ -1280,7 +1388,7 @@ impl tessera_ipc::Handler for LiveState {
         let (actor, session) = self.actor_binding(conn_id, subject)?;
         self.interaction_domain_capture
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(InteractionDomainCaptureRequest {
                 actor,
                 max_observations: session.max_observations as usize,
@@ -1303,7 +1411,7 @@ impl tessera_ipc::Handler for LiveState {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         self.window_capture
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(WindowCaptureRequest {
                 window,
                 reply: reply_tx,
@@ -1317,7 +1425,7 @@ impl tessera_ipc::Handler for LiveState {
     fn window_capture_target_exists(&self, window: tessera_desktop::window::WindowId) -> bool {
         self.all_windows
             .read()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .iter()
             .any(|candidate| candidate.id == window)
     }
@@ -1332,7 +1440,7 @@ impl tessera_ipc::Handler for LiveState {
         let (actor, session) = self.actor_binding(conn_id, subject)?;
         self.interaction_domain_observe
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(InteractionDomainObserveRequest {
                 actor,
                 max_observations: session.max_observations as usize,
@@ -1357,7 +1465,7 @@ impl tessera_ipc::Handler for LiveState {
         let (actor, _) = self.actor_binding(conn_id, subject)?;
         self.actor_actions
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(InteractionDomainActorActionRequest {
                 actor,
                 scope_name: scope_name.map(str::to_owned),
@@ -1376,19 +1484,23 @@ impl tessera_ipc::Handler for LiveState {
         let _ = self
             .confirm_pick_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(ConfirmPickControlRequest {
                 conn_id,
                 action: ConfirmPickControl::Cancel,
             });
-        let _ = self.pick_controls.lock().unwrap().send(PickControlRequest {
-            conn_id,
-            action: PickControl::Cancel,
-        });
+        let _ = self
+            .pick_controls
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .send(PickControlRequest {
+                conn_id,
+                action: PickControl::Cancel,
+            });
         let _ = self
             .app_pick_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(AppPickControlRequest {
                 conn_id,
                 action: AppPickControl::Cancel,
@@ -1396,7 +1508,7 @@ impl tessera_ipc::Handler for LiveState {
         let _ = self
             .secret_prompt_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(SecretPromptControlRequest {
                 conn_id,
                 action: SecretPromptControl::Cancel,
@@ -1404,7 +1516,7 @@ impl tessera_ipc::Handler for LiveState {
         let _ = self
             .capability_pick_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(CapabilityPickControlRequest {
                 conn_id,
                 action: CapabilityPickControl::Cancel,
@@ -1412,7 +1524,7 @@ impl tessera_ipc::Handler for LiveState {
         let revoked = self
             .actor_sessions
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .revoke_connection(conn_id);
         for snapshot in revoked {
             let origin = tessera_protocol::Origin::ipc(
@@ -1431,7 +1543,7 @@ impl tessera_ipc::Handler for LiveState {
         let _ = self
             .stream_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(StreamControlRequest {
                 conn_id,
                 action: StreamControl::Disconnect,
@@ -1463,7 +1575,7 @@ impl tessera_ipc::Handler for LiveState {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         self.stream_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(StreamControlRequest {
                 conn_id,
                 action: StreamControl::Start {
@@ -1490,7 +1602,7 @@ impl tessera_ipc::Handler for LiveState {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         self.stream_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(StreamControlRequest {
                 conn_id,
                 action: StreamControl::Renegotiate {
@@ -1514,7 +1626,7 @@ impl tessera_ipc::Handler for LiveState {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         self.stream_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(StreamControlRequest {
                 conn_id,
                 action: StreamControl::CreateVirtualOutput {
@@ -1539,7 +1651,7 @@ impl tessera_ipc::Handler for LiveState {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         self.stream_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(StreamControlRequest {
                 conn_id,
                 action: StreamControl::ResizeVirtualOutput {
@@ -1560,7 +1672,7 @@ impl tessera_ipc::Handler for LiveState {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         self.stream_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(StreamControlRequest {
                 conn_id,
                 action: StreamControl::DestroyVirtualOutput {
@@ -1578,7 +1690,7 @@ impl tessera_ipc::Handler for LiveState {
         let _ = self
             .stream_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(StreamControlRequest {
                 conn_id: 0,
                 action: StreamControl::Stop { stream_id },
@@ -1589,7 +1701,7 @@ impl tessera_ipc::Handler for LiveState {
         let _ = self
             .stream_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(StreamControlRequest {
                 conn_id: 0,
                 action: StreamControl::ReleaseSlot { stream_id, slot },
@@ -1600,7 +1712,7 @@ impl tessera_ipc::Handler for LiveState {
         let _ = self
             .stream_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(StreamControlRequest {
                 conn_id,
                 action: StreamControl::Disconnect,
@@ -1611,7 +1723,7 @@ impl tessera_ipc::Handler for LiveState {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         self.idle_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(IdleControlRequest {
                 conn_id,
                 action: IdleControl::Set {
@@ -1626,10 +1738,14 @@ impl tessera_ipc::Handler for LiveState {
     }
 
     fn idle_inhibit_disconnected(&self, conn_id: u64) {
-        let _ = self.idle_controls.lock().unwrap().send(IdleControlRequest {
-            conn_id,
-            action: IdleControl::Disconnect,
-        });
+        let _ = self
+            .idle_controls
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .send(IdleControlRequest {
+                conn_id,
+                action: IdleControl::Disconnect,
+            });
     }
 
     fn pick_target(
@@ -1640,7 +1756,7 @@ impl tessera_ipc::Handler for LiveState {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         self.pick_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(PickControlRequest {
                 conn_id,
                 action: PickControl::Start {
@@ -1655,10 +1771,14 @@ impl tessera_ipc::Handler for LiveState {
         match reply_rx.recv_timeout(PICK_TIMEOUT) {
             Ok(result) => result,
             Err(_) => {
-                let _ = self.pick_controls.lock().unwrap().send(PickControlRequest {
-                    conn_id,
-                    action: PickControl::Cancel,
-                });
+                let _ = self
+                    .pick_controls
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .send(PickControlRequest {
+                        conn_id,
+                        action: PickControl::Cancel,
+                    });
                 Err("interactive pick timed out".to_owned())
             }
         }
@@ -1674,7 +1794,7 @@ impl tessera_ipc::Handler for LiveState {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         self.confirm_pick_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(ConfirmPickControlRequest {
                 conn_id,
                 action: ConfirmPickControl::Start {
@@ -1698,14 +1818,14 @@ impl tessera_ipc::Handler for LiveState {
             Ok(Ok(_)) => Ok(tessera_protocol::ConfirmPickResult::Cancelled),
             Ok(Err(message)) => Err(message),
             Err(_) => {
-                let _ =
-                    self.confirm_pick_controls
-                        .lock()
-                        .unwrap()
-                        .send(ConfirmPickControlRequest {
-                            conn_id,
-                            action: ConfirmPickControl::Cancel,
-                        });
+                let _ = self
+                    .confirm_pick_controls
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .send(ConfirmPickControlRequest {
+                        conn_id,
+                        action: ConfirmPickControl::Cancel,
+                    });
                 Err("confirmation timed out".to_owned())
             }
         }
@@ -1720,7 +1840,7 @@ impl tessera_ipc::Handler for LiveState {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         self.secret_prompt_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(SecretPromptControlRequest {
                 conn_id,
                 action: SecretPromptControl::Start {
@@ -1737,14 +1857,14 @@ impl tessera_ipc::Handler for LiveState {
         match reply_rx.recv_timeout(PICK_TIMEOUT) {
             Ok(result) => result,
             Err(_) => {
-                let _ =
-                    self.secret_prompt_controls
-                        .lock()
-                        .unwrap()
-                        .send(SecretPromptControlRequest {
-                            conn_id,
-                            action: SecretPromptControl::Cancel,
-                        });
+                let _ = self
+                    .secret_prompt_controls
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .send(SecretPromptControlRequest {
+                        conn_id,
+                        action: SecretPromptControl::Cancel,
+                    });
                 Err("secret prompt timed out".to_owned())
             }
         }
@@ -1760,7 +1880,7 @@ impl tessera_ipc::Handler for LiveState {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         self.app_pick_controls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .send(AppPickControlRequest {
                 conn_id,
                 action: AppPickControl::Start {
@@ -1780,7 +1900,7 @@ impl tessera_ipc::Handler for LiveState {
                 let _ = self
                     .app_pick_controls
                     .lock()
-                    .unwrap()
+                    .unwrap_or_else(|e| e.into_inner())
                     .send(AppPickControlRequest {
                         conn_id,
                         action: AppPickControl::Cancel,

@@ -309,6 +309,7 @@ impl State {
             color_pipeline_identity: 1,
             last_work_area: tessera_primitives::Rect::default(),
             epoch: std::time::Instant::now(),
+            presentation_seq: 0,
             window_signature_memo: std::cell::Cell::new((0, 0, 0)),
             last_app_geometries,
             window_state_store,

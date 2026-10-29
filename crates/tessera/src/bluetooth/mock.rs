@@ -98,7 +98,7 @@ impl Default for MockBluetoothBackend {
 
 impl BluetoothBackend for MockBluetoothBackend {
     fn set_enabled(&self, enabled: bool) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         st.enabled = enabled;
         if !enabled {
             st.state = BluetoothLinkState::Disabled;
@@ -113,7 +113,7 @@ impl BluetoothBackend for MockBluetoothBackend {
     }
 
     fn scan(&self) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if !st.enabled {
             return Err("bluetooth adapter is disabled".to_string());
         }
@@ -123,7 +123,7 @@ impl BluetoothBackend for MockBluetoothBackend {
     }
 
     fn pair(&self, address: &str) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if !st.enabled {
             return Err("bluetooth adapter is disabled".to_string());
         }
@@ -135,13 +135,13 @@ impl BluetoothBackend for MockBluetoothBackend {
         device.paired = true;
         self.paired
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(address.to_string(), true);
         Ok(())
     }
 
     fn connect(&self, address: &str) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if !st.enabled {
             return Err("bluetooth adapter is disabled".to_string());
         }
@@ -156,7 +156,7 @@ impl BluetoothBackend for MockBluetoothBackend {
     }
 
     fn disconnect(&self, address: &str) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         let was = st.state == BluetoothLinkState::Connected;
         for device in &mut st.devices {
             if device.address == address {
@@ -170,8 +170,8 @@ impl BluetoothBackend for MockBluetoothBackend {
     }
 
     fn forget(&self, address: &str) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap();
-        let mut keys = self.paired.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut keys = self.paired.lock().unwrap_or_else(|e| e.into_inner());
         keys.remove(address);
         let was_connected = st.state == BluetoothLinkState::Connected;
         if let Some(device) = st.devices.iter_mut().find(|d| d.address == address) {
@@ -188,7 +188,7 @@ impl BluetoothBackend for MockBluetoothBackend {
     }
 
     fn poll(&self) {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         // A scan settles on the next poll: the enumerated device list is
         // already present, so discovery only clears the `Scanning` flag.
         if st.scanning {
@@ -202,14 +202,18 @@ impl BluetoothBackend for MockBluetoothBackend {
     }
 
     fn enabled(&self) -> Option<bool> {
-        Some(self.state.lock().unwrap().enabled)
+        Some(self.state.lock().unwrap_or_else(|e| e.into_inner()).enabled)
     }
 
     fn state(&self) -> BluetoothLinkState {
-        self.state.lock().unwrap().state
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).state
     }
 
     fn devices(&self) -> Vec<BluetoothDevice> {
-        self.state.lock().unwrap().devices.clone()
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .devices
+            .clone()
     }
 }

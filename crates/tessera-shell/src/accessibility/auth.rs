@@ -61,10 +61,10 @@ impl PeerAuthenticator {
         }
 
         // Match based on binary name if it ends with known screen reader / OSK
-        if let Some(name) = exe.file_name().and_then(|n| n.to_str()) {
-            if name == "orca" || name == "squeekboard" || name == "maliit-keyboard" {
-                return true;
-            }
+        if let Some(name) = exe.file_name().and_then(|n| n.to_str())
+            && (name == "orca" || name == "squeekboard" || name == "maliit-keyboard")
+        {
+            return true;
         }
 
         false

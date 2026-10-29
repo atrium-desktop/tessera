@@ -34,7 +34,7 @@ impl DaltonismMode {
             Self::None => [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
             // Protanopia compensation (reallocates red signal into green and blue)
             Self::Protanopia => [
-                [0.0, 1.05118294, -0.05116099],
+                [0.0, 1.051_183, -0.05116099],
                 [0.0, 1.0, 0.0],
                 [0.0, 0.0, 1.0],
             ],
@@ -48,7 +48,7 @@ impl DaltonismMode {
             Self::Tritanopia => [
                 [1.0, 0.0, 0.0],
                 [0.0, 1.0, 0.0],
-                [-0.86744736, 1.86727089, 0.0],
+                [-0.867_447_4, 1.867_271, 0.0],
             ],
         }
     }
@@ -267,8 +267,10 @@ mod tests {
 
     #[test]
     fn visual_config_sanitizes_zoom() {
-        let mut cfg = VisualAccessibilityConfig::default();
-        cfg.zoom_factor = 0.2;
+        let mut cfg = VisualAccessibilityConfig {
+            zoom_factor: 0.2,
+            ..Default::default()
+        };
         assert_eq!(cfg.sanitized_zoom_factor(), 1.0);
         cfg.zoom_factor = 25.0;
         assert_eq!(cfg.sanitized_zoom_factor(), 10.0);

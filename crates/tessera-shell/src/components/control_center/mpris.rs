@@ -46,7 +46,10 @@ pub(super) struct MediaHandle {
 
 impl MediaHandle {
     pub fn snapshot(&self) -> MediaSnapshot {
-        self.snapshot.lock().unwrap().clone()
+        self.snapshot
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     pub fn send(&self, command: MediaCommand) {
@@ -70,7 +73,7 @@ impl MediaHandle {
             .name("mpris-mock-worker".to_string())
             .spawn(move || {
                 while let Ok(cmd) = rx.recv() {
-                    let mut st = worker_snap.lock().unwrap();
+                    let mut st = worker_snap.lock().unwrap_or_else(|e| e.into_inner());
                     match cmd {
                         MediaCommand::PlayPause => st.playing = !st.playing,
                         MediaCommand::Next => {
@@ -169,7 +172,7 @@ fn refresh(connection: &Connection, shared: &Arc<Mutex<MediaSnapshot>>) -> Optio
     let (destination, next) = selected
         .map(|(name, snapshot)| (Some(name), snapshot))
         .unwrap_or((None, MediaSnapshot::default()));
-    let mut current = shared.lock().unwrap();
+    let mut current = shared.lock().unwrap_or_else(|e| e.into_inner());
     if *current != next {
         *current = next;
     }

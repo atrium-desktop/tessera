@@ -2103,4 +2103,6 @@ impl Response {
 }
 
 #[cfg(test)]
+mod proptest;
+#[cfg(test)]
 mod tests;

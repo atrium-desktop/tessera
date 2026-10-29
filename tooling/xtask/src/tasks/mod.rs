@@ -1,6 +1,9 @@
+pub mod check_adrs;
 pub mod check_bootstrap_admission;
 pub mod check_boundaries;
 pub mod check_motion;
+pub mod check_panics;
+pub mod check_vtables;
 pub mod clippy;
 pub mod optics;
 pub mod package_conformity;

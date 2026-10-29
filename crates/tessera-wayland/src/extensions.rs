@@ -8,8 +8,8 @@
 //! virtual-keyboard-v1), while others accept requests but defer some
 //! compositor-side behavior (ext-session-lock surfaces). Every advertised
 //! protocol still owns a complete object lifecycle so clients do not fail
-//! with protocol errors. Presentation-time remains unadvertised until the
-//! backend can return commit-correlated timestamps.
+//! with protocol errors. Presentation-time is advertised; its feedback is
+//! tied to the surface commit that reaches the display (ADR-0122).
 //!
 //! Every global stores `State*` in its resource user-data (or derives it
 //! from a bound object), matching the core protocol handlers in lib.rs.
@@ -55,6 +55,7 @@ pub(crate) use keyboard_shortcuts::*;
 pub(crate) use output::*;
 pub(crate) use pointer_constraints::*;
 pub(crate) use pointer_gestures::*;
+pub(crate) use presentation::*;
 pub(crate) use relative_pointer::*;
 pub(crate) use session_lock::*;
 pub(crate) use tablet::*;

@@ -22,7 +22,7 @@ pub(crate) unsafe extern "C" fn cursor_shape_bind(
     id: u32,
 ) {
     unsafe {
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::wp_cursor_shape_manager_v1_interface,
             version as c_int,
@@ -61,8 +61,12 @@ unsafe extern "C" fn cursor_shape_get_pointer(
         };
         let seat = (*state).active_seat;
         let ver = ffi::wl_resource_get_version(mgr);
-        let dev =
-            ffi::wl_resource_create(client, &ffi::wp_cursor_shape_device_v1_interface, ver, id);
+        let dev = ffi::checked_resource_create(
+            client,
+            &ffi::wp_cursor_shape_device_v1_interface,
+            ver,
+            id,
+        );
         if !dev.is_null() {
             ffi::wl_resource_set_implementation(
                 dev,
@@ -92,8 +96,12 @@ unsafe extern "C" fn cursor_shape_get_tablet(
         };
         let seat = (*state).active_seat;
         let ver = ffi::wl_resource_get_version(mgr);
-        let dev =
-            ffi::wl_resource_create(client, &ffi::wp_cursor_shape_device_v1_interface, ver, id);
+        let dev = ffi::checked_resource_create(
+            client,
+            &ffi::wp_cursor_shape_device_v1_interface,
+            ver,
+            id,
+        );
         if !dev.is_null() {
             ffi::wl_resource_set_implementation(
                 dev,

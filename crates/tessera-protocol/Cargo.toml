@@ -15,5 +15,6 @@ zeroize.workspace = true
 [dev-dependencies]
 tessera-audit.workspace = true
 tempfile.workspace = true
+proptest.workspace = true
 [lints]
 workspace = true

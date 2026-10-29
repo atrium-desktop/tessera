@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-06-18
+- Amended by: [ADR-0193](0193-metadata-derived-vtable-admission.md) (replaces the hand-typed opcode-count assertion with metadata-derived admission)
 
 ## Context
 

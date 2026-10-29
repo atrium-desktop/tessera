@@ -23,6 +23,7 @@
 Do not guess repository rules or rely on stale assumptions. Consult authoritative specifications in `docs/dev/standards/` as needed:
 - Workspace Topology & Red-Lines: `docs/dev/standards/architecture.md`
 - Invariant & Constraint Policy: `docs/dev/standards/invariants.md`
+- Error Handling & Panic Discipline: `docs/dev/standards/error-handling.md`
 - ADR Authoring & Lifecycle: `docs/dev/standards/adr.md`
 - RFC Standards: `docs/dev/standards/rfc.md`
 - Documentation Taxonomy & Firewalls: `docs/dev/standards/taxonomy.md`
@@ -53,7 +54,7 @@ Before writing, modifying, or archiving any documentation, follow
 ### Verification & Advisory Gate (On-Demand / Lazy)
 The gates above are enforced by CI and by static self-review, not by a mandatory per-turn invocation:
 - **Skip (No-op)**: Pure discussions, architecture Q&A, intermediate edits, or internal code changes that do not touch documentation.
-- **Run (Targeted Verification)**: Before final hand-off, re-check links and frontmatter in any changed `docs/`, ADR, or `spec/` file, and confirm each code-doc trigger row is satisfied. Run `cargo run -p xtask -- check-boundaries` and `check-motion` when crate edges or chrome motion code move.
+- **Run (Targeted Verification)**: Before final hand-off, re-check links and frontmatter in any changed `docs/`, ADR, or `spec/` file, and confirm each code-doc trigger row is satisfied. Run `cargo run -p xtask -- check-boundaries` and `check-motion` when crate edges or chrome motion code move, `check-vtables` when `crates/tessera-wayland/src/ffi.rs` or a request-vtable registration moves, `check-adrs` when any `docs/adr/` record or the index changes, and `check-panics` when production code gains or removes a lock acquisition or a `unwrap`/`expect`/`panic!` site.
 
 ---
 

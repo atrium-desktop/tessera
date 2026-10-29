@@ -52,13 +52,22 @@ Surfaces:
   (ADR-0083).
 - **Clock (top-center)** — locale wall-clock time at hero scale plus the
   weekday and date, frameless.
-- **Tray (left-middle)** — the shared `tessera-shell::tray` StatusNotifierItem
-  snapshot as a vertical icon capsule with a recessed surface: hover raises a
-  rounded accent plate *behind* the icon (the glyph itself never dims or
-  disappears — only its backing becomes prominent), active indicator highlights
-  the open menu item, left-click `Activate`, right-click host-rendered dbusmenu
-  popover opened directly to the right (or `SecondaryActivate`), and
-  vertical scrolling when icons overflow the column.
+- **Tray shelf (bottom-left)** — the shared `tessera-shell::tray`
+  StatusNotifierItem snapshot as a vertical icon capsule anchored at the
+  bottom-left corner (ADR-0197). Its height is **derived, never capped**: it
+  fills the span between the profile chip and the dock's reserved band, so
+  capacity scales with the display instead of sitting at a constant. Icons
+  stack upward from the bottom edge, so a newly-registered item never displaces
+  the icons already nearest the pointer. Hover and menu-open are the cell
+  pressable's **own** background — never a sibling `place()` overlay, because an
+  ABS node in the `Chrome` band occludes the flow widgets inside its subtree for
+  hit-testing (Optics ADR-0060 — occlusion *is* the reversed hit-test order), so
+  a plate drawn after the shelf silently swallows every cell's hover, left
+  click, and right-click menu. Left-click `Activate`, right-click opens the
+  host-rendered dbusmenu popover (or `SecondaryActivate` when the item exposes
+  no `Menu` object). There is **no scroll viewport and no paging**: when the
+  icons exceed the shelf's slots the last slot becomes a `+N` disclosure cell
+  that expands into a grid popover holding every hidden item.
 - **Work Mode segmented control (right-bottom)** — beside the power knob,
   filling the corner band: a frameless segmented control over the session
   power modes (`Balanced`, `Stay Awake`, `Dashboard Lock`) with a
@@ -91,11 +100,12 @@ surface with its own reveal animation:
 - **Clock (top-center)** — the locale wall-clock time at hero scale with
   the weekday and date beneath, drawn frameless between the identity block
   and the notification stream.
-- **Tray column (left-middle)** — StatusNotifierItem icons as a vertical
-  column: hover raises a rounded-square shadow plate behind the icon,
-  left-click activates, right-click opens the dbusmenu popover to the
-  icon's right, and the column scrolls when icons overflow (the scrollbar
-  fades in on wheel movement and decays out when idle).
+- **Tray shelf (bottom-left)** — StatusNotifierItem icons as a bottom-anchored
+  capsule whose height is derived from the display and the dock's reserved band
+  (ADR-0197): no fixed cap, no scroll viewport, no paging. Hover and menu-open
+  are the cell's own background plate, left-click activates, right-click opens
+  the dbusmenu popover to the icon's right, and overflow is disclosed by a
+  trailing `+N` cell that expands into a grid of every hidden item.
 - **Work Mode segmented control & power cluster (right-bottom)** — one
   horizontal band pinned into the corner: a frameless segmented control
   over the three session power modes, its active segment marked by a

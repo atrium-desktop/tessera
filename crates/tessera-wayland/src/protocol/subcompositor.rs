@@ -24,7 +24,7 @@ pub(crate) unsafe extern "C" fn subcompositor_bind(
     id: u32,
 ) {
     unsafe {
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::wl_subcompositor_interface,
             version as c_int,
@@ -67,7 +67,7 @@ unsafe extern "C" fn subcompositor_get_subsurface(
             return;
         }
         let ver = ffi::wl_resource_get_version(parent_res);
-        let sub = ffi::wl_resource_create(client, &ffi::wl_subsurface_interface, ver, id);
+        let sub = ffi::checked_resource_create(client, &ffi::wl_subsurface_interface, ver, id);
         if sub.is_null() {
             return;
         }

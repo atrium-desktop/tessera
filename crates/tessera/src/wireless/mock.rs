@@ -85,7 +85,7 @@ impl Default for MockWirelessBackend {
 
 impl WirelessBackend for MockWirelessBackend {
     fn scan(&self) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if !st.enabled {
             return Err("wireless radio is disabled".to_string());
         }
@@ -100,7 +100,7 @@ impl WirelessBackend for MockWirelessBackend {
     }
 
     fn connect(&self, ssid: &str, passphrase: Option<&str>) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if !st.enabled {
             return Err("wireless radio is disabled".to_string());
         }
@@ -139,7 +139,7 @@ impl WirelessBackend for MockWirelessBackend {
     }
 
     fn disconnect(&self) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         for n in &mut st.networks {
             n.is_connected = false;
         }
@@ -149,7 +149,7 @@ impl WirelessBackend for MockWirelessBackend {
     }
 
     fn forget(&self, ssid: &str) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         let was_active = st.active_ssid.as_deref() == Some(ssid);
         if let Some(target) = st.networks.iter_mut().find(|n| n.ssid == ssid) {
             target.is_saved = false;
@@ -164,7 +164,7 @@ impl WirelessBackend for MockWirelessBackend {
     }
 
     fn set_auto_connect(&self, ssid: &str, auto_connect: bool) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(target) = st.networks.iter_mut().find(|n| n.ssid == ssid) {
             target.auto_connect = auto_connect;
             Ok(())
@@ -174,7 +174,7 @@ impl WirelessBackend for MockWirelessBackend {
     }
 
     fn set_enabled(&self, enabled: bool) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         st.enabled = enabled;
         if !enabled {
             st.state = WifiLinkState::Disabled;
@@ -189,15 +189,23 @@ impl WirelessBackend for MockWirelessBackend {
     }
 
     fn state(&self) -> WifiLinkState {
-        self.state.lock().unwrap().state
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).state
     }
 
     fn networks(&self) -> Vec<WifiNetwork> {
-        self.state.lock().unwrap().networks.clone()
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .networks
+            .clone()
     }
 
     fn active_ssid(&self) -> Option<String> {
-        self.state.lock().unwrap().active_ssid.clone()
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .active_ssid
+            .clone()
     }
 
     fn available(&self) -> bool {

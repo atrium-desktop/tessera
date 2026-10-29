@@ -20,7 +20,7 @@ pub(crate) unsafe extern "C" fn foreign_toplevel_bind(
     id: u32,
 ) {
     unsafe {
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::ext_foreign_toplevel_list_v1_interface,
             version as c_int,
@@ -88,7 +88,7 @@ unsafe fn create_foreign_handle(
     unsafe {
         let client = ffi::wl_resource_get_client(list);
         let ver = ffi::wl_resource_get_version(list);
-        let handle = ffi::wl_resource_create(
+        let handle = ffi::checked_resource_create(
             client,
             &ffi::ext_foreign_toplevel_handle_v1_interface,
             ver,

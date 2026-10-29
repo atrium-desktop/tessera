@@ -1,0 +1,29 @@
+# Production panic-site baseline (ADR-0195). Counts may fall, never rise.
+# Regenerate with `cargo run -p xtask -- check-panics --update`.
+# Poisonable-lock panics are a hard zero and are not listed here.
+
+[counts]
+tessera = 33
+tessera-audit = 5
+tessera-authority = 11
+tessera-avatar = 2
+tessera-cast = 4
+tessera-cli = 2
+tessera-composite = 15
+tessera-config = 3
+tessera-design = 0
+tessera-desktop = 1
+tessera-env = 0
+tessera-i18n = 1
+tessera-idle = 2
+tessera-ipc = 15
+tessera-launch-services = 0
+tessera-lock = 4
+tessera-mcp = 6
+tessera-platform = 8
+tessera-primitives = 0
+tessera-protocol = 11
+tessera-shell = 3
+tessera-wallpaper = 1
+tessera-wayland = 27
+tessera-wayland-protocols = 0

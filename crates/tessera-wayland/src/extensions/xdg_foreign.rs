@@ -44,7 +44,7 @@ pub(crate) unsafe extern "C" fn xdg_exporter_bind(
     id: u32,
 ) {
     unsafe {
-        let resource = ffi::wl_resource_create(
+        let resource = ffi::checked_resource_create(
             client,
             &ffi::zxdg_exporter_v2_interface,
             version.min(1) as c_int,
@@ -68,7 +68,7 @@ pub(crate) unsafe extern "C" fn xdg_importer_bind(
     id: u32,
 ) {
     unsafe {
-        let resource = ffi::wl_resource_create(
+        let resource = ffi::checked_resource_create(
             client,
             &ffi::zxdg_importer_v2_interface,
             version.min(1) as c_int,
@@ -114,7 +114,8 @@ unsafe extern "C" fn export_toplevel(
             );
             return;
         };
-        let resource = ffi::wl_resource_create(client, &ffi::zxdg_exported_v2_interface, 1, id);
+        let resource =
+            ffi::checked_resource_create(client, &ffi::zxdg_exported_v2_interface, 1, id);
         if resource.is_null() {
             return;
         }
@@ -149,7 +150,8 @@ unsafe extern "C" fn import_toplevel(
         if state.is_null() {
             return;
         }
-        let resource = ffi::wl_resource_create(client, &ffi::zxdg_imported_v2_interface, 1, id);
+        let resource =
+            ffi::checked_resource_create(client, &ffi::zxdg_imported_v2_interface, 1, id);
         if resource.is_null() {
             return;
         }

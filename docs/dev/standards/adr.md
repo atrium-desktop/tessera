@@ -162,11 +162,18 @@ rule, the regression test, the CI job, or the manual hardware validation step.
 ## 5. Numbering, Indexing, and Verification
 
 1. **Append-Only Numbering**: IDs are monotonic and never reused. A withdrawn
-   proposal keeps its number with `status: rejected`.
+   proposal keeps its number with `status: rejected`. A **gap** in the sequence
+   is a retired number that must not be reused; it is expected and permitted.
+   Duplicate numbers are a defect: renumber the record with the weaker claim
+   (a superseded record before an accepted one) to the next free number, update
+   every reference, and note the move in its status lines.
 2. **Index Registration**: Every record is listed in
    [`docs/adr/index.md`](../../adr/index.md) with its title, status, and
    supersession link. The index is generated alongside the record, not later.
 3. **Verification**: Before hand-off, confirm the record's links resolve, its
    frontmatter parses, and its declared enforcement mechanism exists in the
-   tree (`cargo run -p xtask -- check-boundaries`, `check-motion`, or the named
-   test).
+   tree (`cargo run -p xtask -- check-boundaries`, `check-motion`,
+   `check-vtables`, or the named test). The registry rules above are enforced
+   mechanically by `cargo run -p xtask -- check-adrs`, which validates unique
+   ids, mandatory frontmatter, supersession targets, index sync and ordering,
+   and the resolution of every in-repo lineage link in the corpus.

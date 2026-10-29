@@ -107,7 +107,7 @@ impl IwdRadio {
         // Measured against iwd: the method returns no object path. The
         // registration is owned by this connection and unregistered without an
         // argument, so a flag is the whole state.
-        *self.registered.lock().expect("radio mutex") = true;
+        *self.registered.lock().unwrap_or_else(|e| e.into_inner()) = true;
         Ok(())
     }
 
@@ -153,7 +153,7 @@ impl P2pRadio for IwdRadio {
         iwd::set_bool_property(&self.connection, &self.adapter, P2P_DEVICE, "Enabled", true)?;
         // Remember that *this* run flipped it, so drop can put it back: a run
         // must not leave the radio in a state it did not find.
-        *self.enabled_prior.lock().expect("radio mutex") = Some(false);
+        *self.enabled_prior.lock().unwrap_or_else(|e| e.into_inner()) = Some(false);
         Ok(())
     }
 
@@ -198,7 +198,7 @@ impl P2pRadio for IwdRadio {
             .map(|_| ())
             .map_err(|error| iwd::classify(error, "UnregisterDisplayService"));
         if result.is_ok() {
-            *self.registered.lock().expect("radio mutex") = false;
+            *self.registered.lock().unwrap_or_else(|e| e.into_inner()) = false;
         }
         result
     }

@@ -30,7 +30,7 @@ pub(crate) unsafe extern "C" fn xdg_toplevel_drag_manager_bind(
     id: u32,
 ) {
     unsafe {
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::xdg_toplevel_drag_manager_v1_interface,
             version.min(1) as c_int,
@@ -70,7 +70,8 @@ unsafe extern "C" fn toplevel_drag_manager_get_drag(
         }
 
         let ver = ffi::wl_resource_get_version(manager);
-        let res = ffi::wl_resource_create(client, &ffi::xdg_toplevel_drag_v1_interface, ver, id);
+        let res =
+            ffi::checked_resource_create(client, &ffi::xdg_toplevel_drag_v1_interface, ver, id);
         if res.is_null() {
             return;
         }

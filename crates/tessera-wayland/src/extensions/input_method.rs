@@ -121,7 +121,7 @@ pub(crate) unsafe extern "C" fn input_method_manager_bind(
     id: u32,
 ) {
     unsafe {
-        let resource = ffi::wl_resource_create(
+        let resource = ffi::checked_resource_create(
             client,
             &ffi::zwp_input_method_manager_v2_interface,
             version.min(1) as c_int,
@@ -146,7 +146,7 @@ pub(crate) unsafe extern "C" fn virtual_keyboard_manager_bind(
     id: u32,
 ) {
     unsafe {
-        let resource = ffi::wl_resource_create(
+        let resource = ffi::checked_resource_create(
             client,
             &ffi::zwp_virtual_keyboard_manager_v1_interface,
             version.min(1) as c_int,
@@ -185,7 +185,8 @@ unsafe extern "C" fn input_method_manager_get(
         };
         let seat = (*state).active_seat;
         let unavailable = !active_input_method(state, seat).is_null();
-        let resource = ffi::wl_resource_create(client, &ffi::zwp_input_method_v2_interface, 1, id);
+        let resource =
+            ffi::checked_resource_create(client, &ffi::zwp_input_method_v2_interface, 1, id);
         if resource.is_null() {
             return;
         }
@@ -443,7 +444,7 @@ unsafe extern "C" fn input_method_get_popup(
             return;
         }
         let resource =
-            ffi::wl_resource_create(client, &ffi::zwp_input_popup_surface_v2_interface, 1, id);
+            ffi::checked_resource_create(client, &ffi::zwp_input_popup_surface_v2_interface, 1, id);
         if resource.is_null() {
             return;
         }
@@ -513,7 +514,7 @@ unsafe extern "C" fn input_method_grab_keyboard(
         if !(*input_method_rec).keyboard_grab.is_null() {
             ffi::wl_resource_destroy((*input_method_rec).keyboard_grab);
         }
-        let resource = ffi::wl_resource_create(
+        let resource = ffi::checked_resource_create(
             client,
             &ffi::zwp_input_method_keyboard_grab_v2_interface,
             1,
@@ -680,7 +681,7 @@ unsafe extern "C" fn virtual_keyboard_manager_create(
         };
         let seat = (*state).active_seat;
         let resource =
-            ffi::wl_resource_create(client, &ffi::zwp_virtual_keyboard_v1_interface, 1, id);
+            ffi::checked_resource_create(client, &ffi::zwp_virtual_keyboard_v1_interface, 1, id);
         if resource.is_null() {
             return;
         }

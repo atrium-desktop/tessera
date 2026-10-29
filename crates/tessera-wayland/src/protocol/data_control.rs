@@ -72,7 +72,7 @@ pub(crate) unsafe extern "C" fn data_control_manager_bind(
 ) {
     unsafe {
         let _ = client;
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::ext_data_control_manager_v1_interface,
             version as c_int,
@@ -135,7 +135,7 @@ unsafe extern "C" fn dcm_create_data_source(
         if state.is_null() {
             return;
         }
-        let src = ffi::wl_resource_create(
+        let src = ffi::checked_resource_create(
             client,
             &ffi::ext_data_control_source_v1_interface,
             ffi::wl_resource_get_version(mgr),
@@ -260,7 +260,7 @@ unsafe extern "C" fn dcm_get_data_device(
             return;
         };
         let routed = (*state).active_seat;
-        let dev = ffi::wl_resource_create(
+        let dev = ffi::checked_resource_create(
             client,
             &ffi::ext_data_control_device_v1_interface,
             ffi::wl_resource_get_version(mgr),
@@ -461,7 +461,7 @@ unsafe fn advertise_current_selection(state: *mut State, dev: *mut ffi::wl_resou
             });
         let offer = match &selection {
             Some(sel) => {
-                let offer = ffi::wl_resource_create(
+                let offer = ffi::checked_resource_create(
                     client,
                     &ffi::ext_data_control_offer_v1_interface,
                     version,

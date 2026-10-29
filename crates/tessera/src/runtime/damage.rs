@@ -88,7 +88,7 @@ impl CompositorRuntime<'_> {
             physical_size,
         } = assessment;
         let (notif_revision, do_not_disturb) = {
-            let queue = self.notif_queue.lock().unwrap();
+            let queue = self.notif_queue.lock().unwrap_or_else(|e| e.into_inner());
             (queue.revision(), queue.do_not_disturb())
         };
         // Modal chrome states whose transitions are not otherwise signed:

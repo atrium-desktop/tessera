@@ -79,7 +79,7 @@ impl IdentityStore {
     pub fn credential(&self) -> Option<String> {
         self.identity
             .lock()
-            .expect("identity lock")
+            .unwrap_or_else(|e| e.into_inner())
             .as_ref()
             .map(|identity| identity.credential.clone())
     }
@@ -88,7 +88,7 @@ impl IdentityStore {
     pub fn principal(&self) -> Option<String> {
         self.identity
             .lock()
-            .expect("identity lock")
+            .unwrap_or_else(|e| e.into_inner())
             .as_ref()
             .map(|identity| identity.principal.clone())
     }
@@ -104,11 +104,11 @@ impl IdentityStore {
             credential: credential.to_owned(),
         };
         let Some(path) = &self.path else {
-            *self.identity.lock().expect("identity lock") = Some(identity);
+            *self.identity.lock().unwrap_or_else(|e| e.into_inner()) = Some(identity);
             return Ok(());
         };
         persist(path, &identity).map_err(IdentityError)?;
-        *self.identity.lock().expect("identity lock") = Some(identity);
+        *self.identity.lock().unwrap_or_else(|e| e.into_inner()) = Some(identity);
         Ok(())
     }
 
@@ -116,7 +116,7 @@ impl IdentityStore {
     /// principal. A mismatch fails closed; it indicates corrupted local
     /// state or a credential/registry continuity violation.
     pub fn confirm_principal(&self, principal: &str) -> Result<(), IdentityError> {
-        let identity = self.identity.lock().expect("identity lock");
+        let identity = self.identity.lock().unwrap_or_else(|e| e.into_inner());
         let Some(identity) = identity.as_ref() else {
             return Err(IdentityError(
                 "compositor recognized an identity that is absent locally".into(),

@@ -264,6 +264,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "bit-set"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56d87354e4229f54a44f7bf2435906a4656dba36026ab6eaca629a2c436a691c"
+dependencies = [
+ "bit-vec",
+]
+
+[[package]]
+name = "bit-vec"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5727b15fa97d4f4fee0a3b7c3d550ed0269f54329207b86388de918604e31269"
+dependencies = [
+ "borsh",
+ "serde",
+]
+
+[[package]]
 name = "bitflags"
 version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -289,6 +308,30 @@ dependencies = [
  "futures-io",
  "futures-lite",
  "piper",
+]
+
+[[package]]
+name = "borsh"
+version = "1.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "553c5d846a6ba5150c65e3b1b8ec073bcf1abc20f9b7220de384a4443ea4e20a"
+dependencies = [
+ "borsh-derive",
+ "bytes",
+ "cfg_aliases",
+]
+
+[[package]]
+name = "borsh-derive"
+version = "1.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12cdfe656708a01f89b451a7d36466e6fe6c414de0aa18fc54f864f6f9ca9f56"
+dependencies = [
+ "once_cell",
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
 ]
 
 [[package]]
@@ -328,6 +371,12 @@ name = "byteorder-lite"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f1fe948ff07f4bd06c30984e69f5b4899c516a3ef74f34df92a2df2ab535495"
+
+[[package]]
+name = "bytes"
+version = "1.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "calloop"
@@ -377,6 +426,23 @@ name = "cfg-if"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
+
+[[package]]
+name = "cfg_aliases"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
+
+[[package]]
+name = "chacha20"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65c35e4b699c7e15ccbe7ee35c005e4fc0a278d22238a2857e6ce2dadeda1b06"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.1",
+ "rand_core",
+]
 
 [[package]]
 name = "clang-sys"
@@ -481,10 +547,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "core_detect"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f8f80099a98041a3d1622845c271458a2d73e688351bf3cb999266764b81d48"
+
+[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "cpufeatures"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ca28b0ae3115b884660db4118d803791fd6756b6e88f39c0f3f7859060d7566"
 dependencies = [
  "libc",
 ]
@@ -747,20 +828,26 @@ checksum = "98de4bbd547a563b716d8dfa9aad1cb19bfab00f4fa09a6a4ed21dbcf44ce9c4"
 
 [[package]]
 name = "flux"
-version = "0.0.61"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.61#63efdd179e83df17ed5615bee3bf9756e83ed5af"
+version = "0.0.62"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.62#05fd43f42f2caa5060bee4803a23ac714f5c0769"
 dependencies = [
  "flux-sys",
 ]
 
 [[package]]
 name = "flux-sys"
-version = "0.0.61"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.61#63efdd179e83df17ed5615bee3bf9756e83ed5af"
+version = "0.0.62"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.62#05fd43f42f2caa5060bee4803a23ac714f5c0769"
 dependencies = [
  "bindgen",
  "pkg-config",
 ]
+
+[[package]]
+name = "fnv"
+version = "1.0.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
 name = "fsevent-sys"
@@ -844,6 +931,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "r-efi",
+ "rand_core",
 ]
 
 [[package]]
@@ -968,7 +1056,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "525e9ff3e1a4be2fbea1fdf0e98686a6d98b4d8f937e1bf7402245af1909e8c3"
 dependencies = [
  "byteorder-lite",
- "quick-error",
+ "quick-error 2.0.1",
 ]
 
 [[package]]
@@ -1134,8 +1222,8 @@ checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
 name = "lens"
-version = "0.0.61"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.61#63efdd179e83df17ed5615bee3bf9756e83ed5af"
+version = "0.0.62"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.62#05fd43f42f2caa5060bee4803a23ac714f5c0769"
 dependencies = [
  "flux",
  "lens-sys",
@@ -1143,8 +1231,8 @@ dependencies = [
 
 [[package]]
 name = "lens-sys"
-version = "0.0.61"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.61#63efdd179e83df17ed5615bee3bf9756e83ed5af"
+version = "0.0.62"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.62#05fd43f42f2caa5060bee4803a23ac714f5c0769"
 dependencies = [
  "bindgen",
  "flux-sys",
@@ -1481,8 +1569,8 @@ dependencies = [
 
 [[package]]
 name = "prism"
-version = "0.0.61"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.61#63efdd179e83df17ed5615bee3bf9756e83ed5af"
+version = "0.0.62"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.62#05fd43f42f2caa5060bee4803a23ac714f5c0769"
 dependencies = [
  "flux",
  "flux-sys",
@@ -1491,8 +1579,8 @@ dependencies = [
 
 [[package]]
 name = "prism-sys"
-version = "0.0.61"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.61#63efdd179e83df17ed5615bee3bf9756e83ed5af"
+version = "0.0.62"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.62#05fd43f42f2caa5060bee4803a23ac714f5c0769"
 dependencies = [
  "bindgen",
  "flux-sys",
@@ -1518,10 +1606,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "proptest"
+version = "1.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8530004ccb15eae51c7e40009fbe317f341f804db54dc033eec1c50be28cfa0"
+dependencies = [
+ "bit-set",
+ "bit-vec",
+ "bitflags",
+ "chacha20",
+ "core_detect",
+ "num-traits",
+ "rand",
+ "rand_xorshift",
+ "regex-syntax",
+ "rusty-fork",
+ "tempfile",
+ "unarray",
+]
+
+[[package]]
 name = "pxfm"
 version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
+
+[[package]]
+name = "quick-error"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1d01941d82fa2ab50be1e79e6714289dd7cde78eba4c074bc5a4374f650dfe0"
 
 [[package]]
 name = "quick-error"
@@ -1552,6 +1666,31 @@ name = "r-efi"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
+
+[[package]]
+name = "rand"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65c9fb96cbc91e3478eaae79a69fcd3f1ae4ad052e471fe6732fff548984b4af"
+dependencies = [
+ "getrandom 0.4.3",
+ "rand_core",
+]
+
+[[package]]
+name = "rand_core"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
+
+[[package]]
+name = "rand_xorshift"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60aa6af80be32871323012e02e6e65f8a7cc7890931ae421d217ad8fe0df2ccf"
+dependencies = [
+ "rand_core",
+]
 
 [[package]]
 name = "redox_users"
@@ -1661,6 +1800,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
+name = "rusty-fork"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc6bf79ff24e648f6da1f8d1f011e9cac26491b619e6b9280f2b47f1774e6ee2"
+dependencies = [
+ "fnv",
+ "quick-error 1.2.3",
+ "tempfile",
+ "wait-timeout",
+]
+
+[[package]]
 name = "same-file"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1745,7 +1896,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
 dependencies = [
  "cfg-if",
- "cpufeatures",
+ "cpufeatures 0.2.17",
  "digest",
 ]
 
@@ -2236,6 +2387,7 @@ dependencies = [
 name = "tessera-protocol"
 version = "0.0.79"
 dependencies = [
+ "proptest",
  "serde",
  "serde_json",
  "tempfile",
@@ -2529,16 +2681,16 @@ dependencies = [
 
 [[package]]
 name = "transit"
-version = "0.0.61"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.61#63efdd179e83df17ed5615bee3bf9756e83ed5af"
+version = "0.0.62"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.62#05fd43f42f2caa5060bee4803a23ac714f5c0769"
 dependencies = [
  "transit-sys",
 ]
 
 [[package]]
 name = "transit-sys"
-version = "0.0.61"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.61#63efdd179e83df17ed5615bee3bf9756e83ed5af"
+version = "0.0.62"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.62#05fd43f42f2caa5060bee4803a23ac714f5c0769"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -2572,6 +2724,12 @@ dependencies = [
  "tempfile",
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "unarray"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eaea85b334db583fe3274d12b4cd1880032beab409c0d774be044d4480ab9a94"
 
 [[package]]
 name = "unicode-ident"
@@ -2632,8 +2790,8 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vista"
-version = "0.0.61"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.61#63efdd179e83df17ed5615bee3bf9756e83ed5af"
+version = "0.0.62"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.62#05fd43f42f2caa5060bee4803a23ac714f5c0769"
 dependencies = [
  "flux",
  "gltf",
@@ -2643,12 +2801,21 @@ dependencies = [
 
 [[package]]
 name = "vista-sys"
-version = "0.0.61"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.61#63efdd179e83df17ed5615bee3bf9756e83ed5af"
+version = "0.0.62"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.62#05fd43f42f2caa5060bee4803a23ac714f5c0769"
 dependencies = [
  "bindgen",
  "flux-sys",
  "pkg-config",
+]
+
+[[package]]
+name = "wait-timeout"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09ac3b126d3914f9849036f826e054cbabdc8519970b8998ddaf3b5bd3c65f11"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

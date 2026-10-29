@@ -55,7 +55,7 @@ impl Chrome for Dock {
         // is rebuilt only when the window set, the catalog, or the localized
         // label changes.
         let application_label = i18n.text(Message::Applications);
-        let tiles = Self::frame_tiles(
+        let tiles: Vec<Tile> = Self::frame_tiles(
             &self.tile_cache,
             &self.apps,
             &self.all_apps,
@@ -63,7 +63,8 @@ impl Chrome for Dock {
             self.catalog_revision,
             &self.all_windows,
             Some(application_label),
-        );
+        )
+        .clone();
         let n = tiles.len();
         let pinned_count = tiles.iter().filter(|t| t.pinned).count();
         let position = self.position;
@@ -89,216 +90,21 @@ impl Chrome for Dock {
         // live — no `&mut self` calls here.
         let pressed_edge = down && !self.prev_down;
         let released_edge = !down && self.prev_down;
-        let mut suppress_release_click = false;
-        let mut released_target: Option<PressTarget> = None;
-        let mut drag_strip: Option<usize> = None;
-        let mut drag_insert: Option<usize> = None;
-        let mut drag_section: Option<DropSection> = None;
-
-        if let Some(mut press) = self.press.take() {
-            let mut keep_press = true;
-            if down {
-                if !press.dragging
-                    && Self::drag_threshold_exceeded(press.origin, (cursor.x, cursor.y))
-                {
-                    press.dragging = match &press.target {
-                        PressTarget::PinnedTile(key) => tiles
-                            .iter()
-                            .any(|tile| &tile.key == key && tile.pinned && tile.app.is_some()),
-                        PressTarget::Panel => true,
-                        // A transient tile that resolves to a desktop entry
-                        // drags across the section divider to pin.
-                        PressTarget::OtherTile(key) => tiles.iter().any(|tile| {
-                            &tile.key == key && !tile.pinned && tile.pin_entry.is_some()
-                        }),
-                    };
-                }
-                if press.dragging {
-                    self.dock_interacted = true;
-                    self.anim_active = true;
-                    match &press.target {
-                        PressTarget::PinnedTile(key) => {
-                            let strip = tiles.iter().position(|tile| &tile.key == key);
-                            match strip {
-                                Some(strip)
-                                    if tiles[strip].pinned && tiles[strip].app.is_some() =>
-                                {
-                                    drag_strip = Some(strip);
-                                    let section = Self::drop_section_at(
-                                        cursor_axis,
-                                        n,
-                                        pinned_count,
-                                        axis_disp,
-                                    );
-                                    press.section = section;
-                                    drag_section = Some(section);
-                                    if section == DropSection::Pinned {
-                                        // The insertion slot over the pinned-app
-                                        // rest centres, the dragged tile excluded.
-                                        let pinned_centres: Vec<f32> = (1..pinned_count)
-                                            .filter(|slot| *slot != strip)
-                                            .map(|slot| {
-                                                Self::rest_centre_estimate(
-                                                    slot,
-                                                    n,
-                                                    pinned_count,
-                                                    axis_disp,
-                                                )
-                                            })
-                                            .collect();
-                                        let insert =
-                                            Self::drop_insert_index(&pinned_centres, cursor_axis);
-                                        press.insert = Some(insert);
-                                        drag_insert = Some(insert);
-                                    } else {
-                                        press.insert = None;
-                                    }
-                                }
-                                // The dragged tile vanished mid-gesture (a
-                                // window or catalog change): cancel the press.
-                                _ => keep_press = false,
-                            }
-                        }
-                        PressTarget::Panel => {
-                            if let Some(target) =
-                                Self::edge_drag_target((cursor.x, cursor.y), (disp.x, disp.y))
-                                && target != self.position
-                            {
-                                // Inline `set_position`: the strip borrow
-                                // rules out `&mut self` calls here.
-                                self.position = target;
-                                self.app_menu.set_side(Self::popup_side_for(target));
-                                self.anim_active = true;
-                            }
-                        }
-                        PressTarget::OtherTile(key) => {
-                            let strip = tiles.iter().position(|tile| &tile.key == key);
-                            match strip {
-                                Some(strip)
-                                    if !tiles[strip].pinned && tiles[strip].pin_entry.is_some() =>
-                                {
-                                    drag_strip = Some(strip);
-                                    let section = Self::drop_section_at(
-                                        cursor_axis,
-                                        n,
-                                        pinned_count,
-                                        axis_disp,
-                                    );
-                                    press.section = section;
-                                    drag_section = Some(section);
-                                    if section == DropSection::Pinned {
-                                        // The insertion slot over every
-                                        // pinned-app rest centre.
-                                        let pinned_centres: Vec<f32> = (1..pinned_count)
-                                            .map(|slot| {
-                                                Self::rest_centre_estimate(
-                                                    slot,
-                                                    n,
-                                                    pinned_count,
-                                                    axis_disp,
-                                                )
-                                            })
-                                            .collect();
-                                        let insert =
-                                            Self::drop_insert_index(&pinned_centres, cursor_axis);
-                                        press.insert = Some(insert);
-                                        drag_insert = Some(insert);
-                                    } else {
-                                        press.insert = None;
-                                    }
-                                }
-                                _ => keep_press = false,
-                            }
-                        }
-                    }
-                }
-            }
-            if released_edge {
-                released_target = Some(press.target.clone());
-                if press.dragging {
-                    suppress_release_click = true;
-                    match &press.target {
-                        PressTarget::PinnedTile(key) => {
-                            let strip = tiles.iter().position(|tile| &tile.key == key);
-                            if let Some(strip) = strip
-                                && strip >= 1
-                                && tiles[strip].pinned
-                                && let Some(ai) = tiles[strip].app
-                            {
-                                match press.section {
-                                    DropSection::Pinned => {
-                                        if let Some(insert) = press.insert {
-                                            let mut ids: Vec<String> = self
-                                                .apps
-                                                .iter()
-                                                .map(|app| app.entry.id.clone())
-                                                .collect();
-                                            // Strip index 0 is the Launchpad; the
-                                            // pinned apps sequence starts at 1.
-                                            if Self::move_element(&mut ids, strip - 1, insert) {
-                                                out.dock_reorder = Some(ids.clone());
-                                                self.pending_order = Some(ids);
-                                            }
-                                        }
-                                    }
-                                    // Dropped past the divider: unpin. A still
-                                    // running app reappears as a transient tile.
-                                    DropSection::Transient => {
-                                        let id = self.apps[ai].entry.id.clone();
-                                        let ids: Vec<String> = self
-                                            .apps
-                                            .iter()
-                                            .map(|app| app.entry.id.clone())
-                                            .filter(|entry| entry != &id)
-                                            .collect();
-                                        self.apps.retain(|app| app.entry.id != id);
-                                        out.dock_reorder = Some(ids.clone());
-                                        self.pending_order = Some(ids);
-                                    }
-                                }
-                            }
-                        }
-                        PressTarget::Panel => {
-                            if self.position != press.start_position {
-                                out.dock_position = Some(self.position);
-                            }
-                        }
-                        PressTarget::OtherTile(key) => {
-                            let strip = tiles.iter().position(|tile| &tile.key == key);
-                            // Dropped into the pinned strip: pin at the
-                            // previewed slot.
-                            if let Some(strip) = strip
-                                && !tiles[strip].pinned
-                                && press.section == DropSection::Pinned
-                                && let (Some(insert), Some(entry_id)) =
-                                    (press.insert, tiles[strip].pin_entry.clone())
-                                && let Some(entry) = self
-                                    .all_apps
-                                    .iter()
-                                    .find(|entry| entry.id == entry_id)
-                                    .cloned()
-                            {
-                                let pos = insert.min(self.apps.len());
-                                let mut ids: Vec<String> =
-                                    self.apps.iter().map(|app| app.entry.id.clone()).collect();
-                                ids.insert(pos, entry_id);
-                                self.apps.insert(
-                                    pos,
-                                    DockApp {
-                                        keys: entry.match_keys(),
-                                        entry,
-                                    },
-                                );
-                                out.dock_reorder = Some(ids.clone());
-                                self.pending_order = Some(ids);
-                            }
-                        }
-                    }
-                }
-            } else if keep_press {
-                self.press = Some(press);
-            }
-        }
+        let drag = self.handle_press_and_drag(
+            &tiles,
+            down,
+            released_edge,
+            (cursor.x, cursor.y),
+            (disp.x, disp.y),
+            axis_disp,
+            cursor_axis,
+            n,
+            pinned_count,
+            out,
+        );
+        let drag_strip = drag.drag_strip;
+        let drag_section = drag.drag_section;
+        let drag_insert = drag.drag_insert;
 
         let drag_active = self.press.as_ref().is_some_and(|press| press.dragging);
 
@@ -325,28 +131,7 @@ impl Chrome for Dock {
                 && cursor.y < current_panel.y + current_panel.h;
             let inside_menu = self.app_menu.contains(cursor.x, cursor.y, (disp.x, disp.y));
             if !inside_panel && !over_hover_surface && !inside_menu {
-                self.app_menu.dismiss();
-                self.menu_tile = None;
-                self.press = None;
-                self.hovered_tile = None;
-                self.hover_elapsed = 0.0;
-                self.tooltip_tile = None;
-                self.tooltip_alpha = 0.0;
-                if let Some(bounds) = self.hover_surface_bounds.take() {
-                    Self::record_hover_surface_damage(
-                        &mut self.hover_damage_rect,
-                        &mut self.hover_drain_frames,
-                        bounds,
-                    );
-                }
-                self.live_preview = None;
-                self.hover_owner_bounds = None;
-                self.hovered_preview = None;
-                self.dismiss_latched = true;
-                self.autohide_idle = self.autohide_timeout;
-                self.autohide_dwell = 0.0;
-                self.anim_active = true;
-                self.motion.anim_active = true;
+                self.dismiss_expanded_autohide();
             }
         }
 
@@ -379,123 +164,32 @@ impl Chrome for Dock {
         // First ease each tile's size toward its magnification target. A
         // first-seen key springs up from DOCK_TILE_BIRTH (grow-in) instead of
         // snapping to rest size.
-        let mut eased: Vec<f32> = Vec::with_capacity(n);
-        // Track per-tile (target, velocity) so the anim-pending check below can
-        // tell when every spring has fully rested.
-        let mut unsettled = false;
-
-        // When the pointer is within the hover surface (popover preview, tooltip,
-        // or the air-gap bridge leading to it), lock the magnification axis to the
-        // owner tile's resting centre instead of following the live cursor. This
-        // keeps the originating app icon at peak magnification as a prominent
-        // provenance anchor and prevents the Dock underneath from wiggling or
-        // reflowing as the pointer moves across preview cards.
-        let owner_centre = if over_hover_surface && !over_rest_bounds {
-            self.tooltip_tile
-                .as_ref()
-                .or(self.hovered_tile.as_ref())
-                .and_then(|key| tiles.iter().position(|t| &t.key == key))
-                .map(|owner_idx| Self::rest_centre_estimate(owner_idx, n, pinned_count, axis_disp))
-        } else {
-            None
-        };
-        let magnify_axis = Self::magnification_axis(
+        let eased = self.step_magnification_wave(
+            &tiles,
+            in_band,
             over_hover_surface,
             over_rest_bounds,
-            owner_centre,
             cursor_axis,
+            axis_disp,
+            n,
+            pinned_count,
+            dt,
+            menu_was_open,
+            autohide_moving,
+            drag_active,
         );
 
-        let prestepped = self.sizes_stepped_in_prepass;
-        self.sizes_stepped_in_prepass = false;
-
-        for (i, t) in tiles.iter().enumerate() {
-            let target = Self::magnification_target(
-                in_band,
-                magnify_axis,
-                Self::rest_centre_estimate(i, n, pinned_count, axis_disp),
-            );
-            let mut newly_inserted = false;
-            // Look up before inserting so an existing tile does not pay a
-            // key clone every frame.
-            let state = match self.sizes.get_mut(&t.key) {
-                Some(state) => state,
-                None => {
-                    newly_inserted = true;
-                    self.sizes.entry(t.key.clone()).or_insert(SpringState {
-                        value: if menu_was_open {
-                            DOCK_TILE
-                        } else {
-                            DOCK_TILE_BIRTH
-                        },
-                        velocity: 0.0,
-                    })
-                }
-            };
-            // A context menu must not become a moving target. Freeze the
-            // complete wave exactly where it was opened; once the menu closes,
-            // the same springs resume toward the live pointer targets.
-            if menu_was_open {
-                state.velocity = 0.0;
-                eased.push(state.value);
-                continue;
-            }
-            if !prestepped || newly_inserted {
-                eased.push(Self::spring(state, target, dt, self.reduced_motion));
-            } else {
-                eased.push(state.value);
-            }
-            // A spring is still animating while it is meaningfully off its
-            // target or still moving. Sub-pixel drift is ignored so we don't
-            // tick forever chasing float noise.
-            let drifting = (state.value - target).abs() > 0.15 || state.velocity.abs() > 0.5;
-            unsettled |= drifting;
-        }
-        if !prestepped {
-            if self.was_magnific_animating && !unsettled {
-                self.motion.settled_drain_frames = SETTLED_DRAIN_FRAMES;
-                self.settled_drain_frames = SETTLED_DRAIN_FRAMES;
-            }
-            self.was_magnific_animating = unsettled;
-        }
-        // An active drag keeps frames ticking: the preview follows the cursor
-        // even when every spring has rested. Continuous dwell accumulation also ticks frames.
-        let dwell_active =
-            self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold;
-        self.anim_active = unsettled || autohide_moving || drag_active || dwell_active;
-        self.motion.anim_active = self.anim_active;
-
-        // The drop-preview permutation: during a tile drag the dragged tile
-        // still occupies a strip slot (the bar length is unchanged), but the
-        // other tiles shift aside to open the insertion gap at the preview
-        // slot. The Launchpad holds slot 0. A pinned tile re-enters within
-        // the pinned range; dragged past the divider it previews as the
-        // first transient tile; a transient tile dragged into the pinned
-        // range previews at the hovered pinned slot. `section_slot` is where
-        // the transient section begins in preview order.
-        let (order, section_slot): (Vec<usize>, usize) = match (drag_strip, drag_section) {
-            (Some(dragged), Some(DropSection::Transient)) if tiles[dragged].pinned => {
-                let mut order: Vec<usize> = (0..n).filter(|slot| *slot != dragged).collect();
-                order.insert((pinned_count - 1).min(order.len()), dragged);
-                (order, pinned_count - 1)
-            }
-            (Some(dragged), Some(DropSection::Pinned)) => {
-                let insert = drag_insert.unwrap_or(0);
-                let mut order: Vec<usize> = (0..n).filter(|slot| *slot != dragged).collect();
-                order.insert((insert + 1).min(order.len()), dragged);
-                let section_slot = if tiles[dragged].pinned {
-                    pinned_count
-                } else {
-                    pinned_count + 1
-                };
-                (order, section_slot)
-            }
-            _ => ((0..n).collect(), pinned_count),
-        };
+        let (order, section_slot) = Self::drop_preview_permutation(
+            drag_strip,
+            drag_section,
+            drag_insert,
+            n,
+            pinned_count,
+            &tiles,
+        );
         let geometry =
             self.resolve_strip_geometry(&eased, &order, section_slot, axis_disp, (disp.x, disp.y));
         let live_section_gap = geometry.section_gap;
-        let centre = |i: usize| geometry.centres[i];
         let surface_progress = geometry.surface_progress;
         let content_progress = geometry.content_progress;
         let panel_rect = geometry.panel_rect;
@@ -516,18 +210,7 @@ impl Chrome for Dock {
 
         // The popup belongs to a tile rather than the pointer coordinate.
         // Re-anchor every frame so it follows the tile's live spring geometry.
-        if self.app_menu.is_open() {
-            if let Some((index, _)) = self
-                .menu_tile
-                .as_ref()
-                .and_then(|key| tiles.iter().enumerate().find(|(_, tile)| &tile.key == key))
-            {
-                self.app_menu.set_owner(icon_rects[index]);
-            } else {
-                self.app_menu.dismiss();
-                self.menu_tile = None;
-            }
-        }
+        self.reanchor_app_menu(&tiles, &icon_rects);
 
         // The bar and collapsed indicator are the same placed surface, and
         // both are analytic glass bodies: as it drains, the bar morphs into
@@ -568,444 +251,59 @@ impl Chrome for Dock {
 
         // Draw each tile's icon, then its running dot. Once content has
         // reached the sink, no tile placements remain behind the stadium.
-        let dock_colors = self.design.dock;
-        if content_progress > AUTOHIDE_CONTENT_INTERACTION_MIN {
-            // The drained content fades through the lens opacity switch;
-            // restored after the section divider below.
-            f.set_opacity(content_progress);
-            for (i, t) in tiles.iter().enumerate() {
-                let s = icon_rects[i].w;
-                let cx = icon_rects[i].x + s * 0.5;
-                let cy = icon_rects[i].y + s * 0.5;
-                let rect = icon_rects[i];
-                let icon_id = format!("tessera-dock-icon-{}", t.key);
-                if t.launchpad {
-                    // A rounded "app tile" with a 3×3 grid, so it reads as macOS's
-                    // Launchpad button. The grid (real content) sizes the surface;
-                    // the surface paints the rounded background behind it.
-                    let bg = LayoutOpts {
-                        bg: dock_colors.launchpad_tile_bg,
-                        border: dock_colors.launchpad_tile_border,
-                        border_width: 1.0,
-                        radius: s * 0.22,
-                        pad: s * 0.2,
-                        cross: Align::Center,
-                        ..surface_layout()
-                    };
-                    let gap = s * 0.1;
-                    let d = (s - 2.0 * (s * 0.2) - 2.0 * gap) / 3.0;
-                    f.place(&icon_id, &chrome_place(rect, bg), |f| {
-                        f.column_ex(&grid(gap), |f| {
-                            for _ in 0..3 {
-                                f.row_ex(&grid(gap), |f| {
-                                    for _ in 0..3 {
-                                        f.column_ex(
-                                            &sized_fill(d, d, dock_colors.launchpad_grid, d * 0.3),
-                                            |_| {},
-                                        );
-                                    }
-                                });
-                            }
-                        });
-                    });
-                } else {
-                    f.place(&icon_id, &chrome_place(rect, tile_opts()), |f| {
-                        match t.icon.or_else(|| self.icons.default_icon()) {
-                            // The pointer crosses from the binary's flux binding type to
-                            // lens's ABI-identical flux_image.
-                            Some(ptr) => unsafe {
-                                f.image(ptr as *mut lens::sys::flux_image, s, s)
-                            },
-                            None => f.icon(Icon::FileText, s * 0.6),
-                        }
-                    });
-                }
+        self.render_strip_content(
+            f,
+            &tiles,
+            &icon_rects,
+            drag_strip,
+            position,
+            icon_baseline,
+            content_progress,
+            panel_rect,
+            &order,
+            section_slot,
+            live_section_gap,
+            axis_disp,
+            &eased,
+            &geometry.centres,
+        );
 
-                if t.running && Some(i) != drag_strip {
-                    // Centre the dot in the flat strip between the icon
-                    // baseline and the panel's near edge, so it never falls
-                    // into the rounded corner region (and outside the bar)
-                    // on the first or last tile. On a side dock the strip —
-                    // and the stadium's long axis — is vertical.
-                    let dot_long = if t.windows.len() > 1 {
-                        DOCK_DOT_STADIUM
-                    } else {
-                        DOCK_DOT
-                    } * content_progress;
-                    let dot_thick = DOCK_DOT * content_progress;
-                    let strip_span = DOCK_BASELINE_INSET.max(DOCK_DOT) * content_progress;
-                    let dot_rect = match position {
-                        DockPosition::Bottom => Rect {
-                            x: cx - dot_long * 0.5,
-                            y: icon_baseline + (strip_span - dot_thick) * 0.5,
-                            w: dot_long,
-                            h: dot_thick,
-                        },
-                        DockPosition::Left => Rect {
-                            x: icon_baseline + (strip_span - dot_thick) * 0.5,
-                            y: cy - dot_long * 0.5,
-                            w: dot_thick,
-                            h: dot_long,
-                        },
-                        DockPosition::Right => Rect {
-                            x: icon_baseline - strip_span + (strip_span - dot_thick) * 0.5,
-                            y: cy - dot_long * 0.5,
-                            w: dot_thick,
-                            h: dot_long,
-                        },
-                    };
-                    let color = if t.activated {
-                        dock_colors.running_dot_active
-                    } else {
-                        dock_colors.running_dot_inactive
-                    };
-                    let dot_id = format!("tessera-dock-dot-{}", t.key);
-                    f.place(&dot_id, &chrome_place(dot_rect, tile_opts()), |f| {
-                        f.column_ex(
-                            &sized_fill(dot_rect.w, dot_rect.h, color, dot_thick * 0.5),
-                            |_| {},
-                        );
-                    });
-                }
-            }
-        }
-
-        // A slim divider in the section gap separates the kept strip from
-        // the transient running apps, like macOS's Dock. On a side dock the
-        // divider lies across the strip: a horizontal hairline. The boundary
-        // follows the live preview order, so the divider itself takes part in
-        // the reflow when a drag crosses it.
-        if live_section_gap > 0.0 && content_progress > AUTOHIDE_CONTENT_INTERACTION_MIN {
-            // Sit at the midpoint of the edge-to-edge gap rather than the
-            // centre-to-centre midpoint: a boundary tile magnifying toward
-            // the divider pushes it aside instead of swallowing it, so the
-            // clearance stays one ordinary tile gap on both sides through
-            // the wave.
-            let before = order[section_slot - 1];
-            let after = order[section_slot];
-            let divider_axis =
-                (centre(before) + eased[before] * 0.5 + centre(after) - eased[after] * 0.5) * 0.5;
-            let divider_axis =
-                axis_disp * 0.5 + (divider_axis - axis_disp * 0.5) * content_progress;
-            let (divider_center, divider_thick) = snapped_hairline(divider_axis, self.scale);
-            let divider_len = DOCK_TILE * 0.55 * content_progress;
-            let divider_rect = match position {
-                DockPosition::Bottom => Rect {
-                    x: divider_center - divider_thick * 0.5,
-                    y: panel_rect.y + (panel_rect.h - divider_len) * 0.5,
-                    w: divider_thick,
-                    h: divider_len,
-                },
-                DockPosition::Left | DockPosition::Right => Rect {
-                    x: panel_rect.x + (panel_rect.w - divider_len) * 0.5,
-                    y: divider_center - divider_thick * 0.5,
-                    w: divider_len,
-                    h: divider_thick,
-                },
-            };
-            f.place(
-                "tessera-dock-section-divider",
-                &chrome_place(divider_rect, surface_layout()),
-                |f| {
-                    f.column_ex(
-                        &sized_fill(
-                            divider_rect.w,
-                            divider_rect.h,
-                            dock_colors.section_divider,
-                            // Deliberately sharp: the divider is a hairline,
-                            // and any radius at or below 0.5 falls back to the
-                            // same sharp rect path in lens anyway.
-                            0.0,
-                        ),
-                        |_| {},
-                    );
-                },
-            );
-        }
-        f.set_opacity(1.0);
-
-        // Preview cards keep press-edge activation (no drag gesture starts
-        // on them); the per-frame pressed flag is not cleared by the host,
-        // so the button-level transition was tracked at the top of render.
-        let previous_hovered_preview = self.hovered_preview;
-        let preview_hit = self
-            .live_preview
-            .as_ref()
-            .and_then(|presentation| live_preview_hit(presentation, cursor.x, cursor.y));
-        self.hovered_preview = preview_hit.filter(|id| {
-            self.all_windows
-                .iter()
-                .find(|window| window.id == *id)
-                .is_some_and(|window| !window.read_only)
-        });
-        self.anim_active |= self.hovered_preview != previous_hovered_preview;
-        let clicked_preview = pressed_edge && !menu_was_open && self.hovered_preview.is_some();
-        if clicked_preview {
-            out.clicked = self.hovered_preview;
-            self.hovered_tile = None;
-            self.hover_elapsed = 0.0;
-            self.tooltip_tile = None;
-            self.tooltip_alpha = 0.0;
-            if let Some(bounds) = self.hover_surface_bounds.take() {
-                Self::record_hover_surface_damage(
-                    &mut self.hover_damage_rect,
-                    &mut self.hover_drain_frames,
-                    bounds,
-                );
-            }
-            self.live_preview = None;
-            self.hover_owner_bounds = None;
-            self.hovered_preview = None;
-        }
-
-        // Arm the press lifecycle: a pinned-app tile press may become a
-        // reorder drag; a press on empty panel space may become an edge
-        // drag. Anything else stays a pending click.
-        if pressed_edge && !menu_was_open && !clicked_preview && self.press.is_none() {
-            if let Some(i) = hit {
-                let tile = &tiles[i];
-                let target = if tile.pinned && tile.app.is_some() {
-                    PressTarget::PinnedTile(tile.key.clone())
-                } else {
-                    PressTarget::OtherTile(tile.key.clone())
-                };
-                let section = if tile.pinned {
-                    DropSection::Pinned
-                } else {
-                    DropSection::Transient
-                };
-                self.press = Some(PressState {
-                    origin: (cursor.x, cursor.y),
-                    target,
-                    dragging: false,
-                    section,
-                    insert: None,
-                    start_position: position,
-                });
-            } else if over_rest_bounds
-                && content_progress > AUTOHIDE_CONTENT_INTERACTION_MIN
-                && cursor.x >= panel_rect.x
-                && cursor.y >= panel_rect.y
-                && cursor.x < panel_rect.x + panel_rect.w
-                && cursor.y < panel_rect.y + panel_rect.h
-            {
-                self.press = Some(PressState {
-                    origin: (cursor.x, cursor.y),
-                    target: PressTarget::Panel,
-                    dragging: false,
-                    section: DropSection::Pinned,
-                    insert: None,
-                    start_position: position,
-                });
-            }
-        }
-
-        // A click fires on the release edge, and only when the press began
-        // on the same tile and never became a drag. A release after a drag,
-        // or off the pressed tile, activates nothing.
-        if released_edge
-            && !suppress_release_click
-            && !menu_was_open
-            && let (Some(target), Some(i)) = (released_target, hit)
-        {
-            let pressed_this_tile = match &target {
-                PressTarget::PinnedTile(key) | PressTarget::OtherTile(key) => key == &tiles[i].key,
-                PressTarget::Panel => false,
-            };
-            if pressed_this_tile {
-                self.dock_interacted = true;
-                let t = &tiles[i];
-                if t.launchpad {
-                    out.toggle_pivot = true;
-                } else if let Some(id) = t.focus {
-                    out.clicked = Some(id);
-                } else if let Some(ai) = t.spawn {
-                    out.activate_entry(self.apps[ai].entry.clone());
-                }
-            }
-        }
         let right_pressed = input
             .as_raw()
             .mouse_pressed
             .get(1)
             .copied()
             .unwrap_or(false);
-        // A held left press (pending click or drag) suppresses the menu for
-        // its tile; the dragged tile in particular must not pop one up.
-        if right_pressed
-            && self.press.is_none()
-            && let Some(i) = hit
-        {
-            self.dock_interacted = true;
-            let tile = &tiles[i];
-            if !tile.launchpad {
-                let pin_action = if let Some(ai) = tile.app {
-                    // A pinned tile always offers removal from the strip.
-                    Some(PinAction::Unpin(self.apps[ai].entry.id.clone()))
-                } else {
-                    // A transient tile offers "Keep in Dock" when its app
-                    // resolved to an enumerated desktop entry at build time.
-                    tile.pin_entry.clone().map(PinAction::Pin)
-                };
-                self.app_menu.open(
-                    tile.label.clone(),
-                    tile.app.map(|app| self.apps[app].entry.clone()),
-                    tile.windows.iter().copied(),
-                    icon_rects[i],
-                    pin_action,
-                );
-                self.menu_tile = Some(tile.key.clone());
-            }
-        }
+        self.handle_pointer_interactions(
+            &tiles,
+            &icon_rects,
+            panel_rect,
+            hit,
+            pressed_edge,
+            released_edge,
+            right_pressed,
+            drag.suppress_release_click,
+            drag.released_target,
+            (cursor.x, cursor.y),
+            over_rest_bounds,
+            content_progress,
+            menu_was_open,
+            position,
+            out,
+        );
 
-        // Reveal an app name or running-window previews after a short dwell.
-        // Once open, the popover retains its owner while the pointer crosses
-        // the gap above the Dock and enters a preview card.
-        let hovered_tile = hit.map(|i| tiles[i].key.clone()).or_else(|| {
-            over_hover_surface
-                .then(|| self.tooltip_tile.clone())
-                .flatten()
-        });
-        if self.hovered_tile != hovered_tile {
-            self.hovered_tile = hovered_tile;
-            self.hover_elapsed = 0.0;
-            self.tooltip_tile = None;
-            self.tooltip_alpha = 0.0;
-            if let Some(bounds) = self.hover_surface_bounds.take() {
-                Self::record_hover_surface_damage(
-                    &mut self.hover_damage_rect,
-                    &mut self.hover_drain_frames,
-                    bounds,
-                );
-            }
-            self.live_preview = None;
-            self.hover_owner_bounds = None;
-            self.hovered_preview = None;
-        } else if self.hovered_tile.is_some() && !self.app_menu.is_open() {
-            self.hover_elapsed += dt;
-        }
+        self.update_hover_surfaces(
+            f,
+            &tiles,
+            &icon_rects,
+            hit,
+            over_hover_surface,
+            (cursor.x, cursor.y),
+            (disp.x, disp.y),
+            dt,
+            position,
+        );
 
-        if self.app_menu.is_open() {
-            self.tooltip_tile = None;
-            self.tooltip_alpha = 0.0;
-            if let Some(bounds) = self.hover_surface_bounds.take() {
-                Self::record_hover_surface_damage(
-                    &mut self.hover_damage_rect,
-                    &mut self.hover_drain_frames,
-                    bounds,
-                );
-            }
-            self.live_preview = None;
-            self.hover_owner_bounds = None;
-            self.hovered_preview = None;
-        } else {
-            let wants_tooltip = self.hovered_tile.is_some() && self.hover_elapsed >= TOOLTIP_DWELL;
-            if wants_tooltip {
-                self.dock_interacted = true;
-                self.tooltip_tile.clone_from(&self.hovered_tile);
-            }
-            let target = if wants_tooltip { 1.0 } else { 0.0 };
-            self.tooltip_alpha = crate::widgets::motion::approach(
-                self.tooltip_alpha,
-                target,
-                TOOLTIP_FADE_SPEED,
-                dt,
-                self.reduced_motion,
-            );
-            if target == 0.0 && self.tooltip_alpha < 0.01 {
-                self.tooltip_alpha = 0.0;
-                self.tooltip_tile = None;
-            }
-            let waiting = self.hovered_tile.is_some() && self.hover_elapsed < TOOLTIP_DWELL;
-            let fading = (target - self.tooltip_alpha).abs() > 0.01;
-            self.anim_active |= waiting || fading;
-        }
-
-        if let Some((index, tile)) = self
-            .tooltip_tile
-            .as_ref()
-            .and_then(|key| tiles.iter().enumerate().find(|(_, tile)| &tile.key == key))
-        {
-            // Once the popover exists, freeze its owner geometry. The Dock's
-            // magnification spring can keep settling underneath it, but the
-            // compositor preview, glass body, labels, and pointer bridge must
-            // remain on one exact rectangle instead of chasing that spring a
-            // frame apart.
-            let owner = self.hover_owner_bounds.unwrap_or(icon_rects[index]);
-            self.hover_owner_bounds = Some(owner);
-            let side = Self::popup_side_for(position);
-            if tile.windows.is_empty() {
-                let rect = tooltip_rect(
-                    f,
-                    &self.design,
-                    &tile.label,
-                    owner,
-                    (disp.x, disp.y),
-                    self.tooltip_alpha,
-                    side,
-                );
-                self.hover_surface_bounds = Some(rect);
-                Self::record_hover_surface_damage(
-                    &mut self.hover_damage_rect,
-                    &mut self.hover_drain_frames,
-                    rect,
-                );
-                self.live_preview = None;
-                self.hovered_preview = None;
-                render_tooltip(f, &self.design, &tile.label, rect, self.tooltip_alpha);
-            } else {
-                let mut presentation = live_preview_layout(
-                    &self.design,
-                    (disp.x, disp.y),
-                    owner,
-                    &tile.windows,
-                    self.tooltip_alpha,
-                    position,
-                );
-                let panel_rect = to_lens_rect(presentation.panel);
-                self.hover_surface_bounds = Some(panel_rect);
-                Self::record_hover_surface_damage(
-                    &mut self.hover_damage_rect,
-                    &mut self.hover_drain_frames,
-                    panel_rect,
-                );
-                let previous_hovered_preview = self.hovered_preview;
-                self.hovered_preview =
-                    live_preview_hit(&presentation, cursor.x, cursor.y).filter(|id| {
-                        self.all_windows
-                            .iter()
-                            .find(|window| window.id == *id)
-                            .is_some_and(|window| !window.read_only)
-                    });
-                self.anim_active |= self.hovered_preview != previous_hovered_preview;
-                presentation.focused = self.hovered_preview;
-                render_live_preview_chrome(
-                    f,
-                    &self.design,
-                    &presentation,
-                    &self.all_windows,
-                    self.hovered_preview,
-                );
-                self.live_preview = Some(presentation);
-            }
-        } else {
-            if let Some(bounds) = self.hover_surface_bounds.take() {
-                Self::record_hover_surface_damage(
-                    &mut self.hover_damage_rect,
-                    &mut self.hover_drain_frames,
-                    bounds,
-                );
-            }
-            self.live_preview = None;
-            self.hover_owner_bounds = None;
-            self.hovered_preview = None;
-            if self.hover_drain_frames > 0 {
-                self.hover_drain_frames -= 1;
-                if self.hover_drain_frames == 0 {
-                    self.hover_damage_rect = None;
-                }
-            }
-        }
         self.app_menu.set_design(self.design);
         self.app_menu.render(f, input, &self.all_windows, i18n, out);
         if !self.app_menu.is_open() {
@@ -2330,5 +1628,947 @@ fn to_lens_rect(rect: tessera_primitives::Rect) -> Rect {
         y: rect.origin.y as f32,
         w: rect.size.w as f32,
         h: rect.size.h as f32,
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Point2D {
+    x: f32,
+    y: f32,
+}
+
+struct DragOutcome {
+    suppress_release_click: bool,
+    released_target: Option<PressTarget>,
+    drag_strip: Option<usize>,
+    drag_insert: Option<usize>,
+    drag_section: Option<DropSection>,
+}
+
+impl Dock {
+    fn drop_preview_permutation(
+        drag_strip: Option<usize>,
+        drag_section: Option<DropSection>,
+        drag_insert: Option<usize>,
+        n: usize,
+        pinned_count: usize,
+        tiles: &[Tile],
+    ) -> (Vec<usize>, usize) {
+        match (drag_strip, drag_section) {
+            (Some(dragged), Some(DropSection::Transient)) if tiles[dragged].pinned => {
+                let mut order: Vec<usize> = (0..n).filter(|slot| *slot != dragged).collect();
+                order.insert((pinned_count - 1).min(order.len()), dragged);
+                (order, pinned_count - 1)
+            }
+            (Some(dragged), Some(DropSection::Pinned)) => {
+                let insert = drag_insert.unwrap_or(0);
+                let mut order: Vec<usize> = (0..n).filter(|slot| *slot != dragged).collect();
+                order.insert((insert + 1).min(order.len()), dragged);
+                let section_slot = if tiles[dragged].pinned {
+                    pinned_count
+                } else {
+                    pinned_count + 1
+                };
+                (order, section_slot)
+            }
+            _ => ((0..n).collect(), pinned_count),
+        }
+    }
+
+    fn reanchor_app_menu(&mut self, tiles: &[Tile], icon_rects: &[Rect]) {
+        if self.app_menu.is_open() {
+            if let Some((index, _)) = self
+                .menu_tile
+                .as_ref()
+                .and_then(|key| tiles.iter().enumerate().find(|(_, tile)| &tile.key == key))
+            {
+                self.app_menu.set_owner(icon_rects[index]);
+            } else {
+                self.app_menu.dismiss();
+                self.menu_tile = None;
+            }
+        }
+    }
+
+    fn dismiss_expanded_autohide(&mut self) {
+        self.app_menu.dismiss();
+        self.menu_tile = None;
+        self.press = None;
+        self.hovered_tile = None;
+        self.hover_elapsed = 0.0;
+        self.tooltip_tile = None;
+        self.tooltip_alpha = 0.0;
+        if let Some(bounds) = self.hover_surface_bounds.take() {
+            Self::record_hover_surface_damage(
+                &mut self.hover_damage_rect,
+                &mut self.hover_drain_frames,
+                bounds,
+            );
+        }
+        self.live_preview = None;
+        self.hover_owner_bounds = None;
+        self.hovered_preview = None;
+        self.dismiss_latched = true;
+        self.autohide_idle = self.autohide_timeout;
+        self.autohide_dwell = 0.0;
+        self.anim_active = true;
+        self.motion.anim_active = true;
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn handle_press_and_drag(
+        &mut self,
+        tiles: &[Tile],
+        down: bool,
+        released_edge: bool,
+        cursor: (f32, f32),
+        disp: (f32, f32),
+        axis_disp: f32,
+        cursor_axis: f32,
+        n: usize,
+        pinned_count: usize,
+        out: &mut ChromeEvents,
+    ) -> DragOutcome {
+        let cursor = Point2D {
+            x: cursor.0,
+            y: cursor.1,
+        };
+        let disp = Point2D {
+            x: disp.0,
+            y: disp.1,
+        };
+        let mut suppress_release_click = false;
+        let mut released_target: Option<PressTarget> = None;
+        let mut drag_strip: Option<usize> = None;
+        let mut drag_insert: Option<usize> = None;
+        let mut drag_section: Option<DropSection> = None;
+
+        if let Some(mut press) = self.press.take() {
+            let mut keep_press = true;
+            if down {
+                if !press.dragging
+                    && Self::drag_threshold_exceeded(press.origin, (cursor.x, cursor.y))
+                {
+                    press.dragging = match &press.target {
+                        PressTarget::PinnedTile(key) => tiles
+                            .iter()
+                            .any(|tile| &tile.key == key && tile.pinned && tile.app.is_some()),
+                        PressTarget::Panel => true,
+                        // A transient tile that resolves to a desktop entry
+                        // drags across the section divider to pin.
+                        PressTarget::OtherTile(key) => tiles.iter().any(|tile| {
+                            &tile.key == key && !tile.pinned && tile.pin_entry.is_some()
+                        }),
+                    };
+                }
+                if press.dragging {
+                    self.dock_interacted = true;
+                    self.anim_active = true;
+                    match &press.target {
+                        PressTarget::PinnedTile(key) => {
+                            let strip = tiles.iter().position(|tile| &tile.key == key);
+                            match strip {
+                                Some(strip)
+                                    if tiles[strip].pinned && tiles[strip].app.is_some() =>
+                                {
+                                    drag_strip = Some(strip);
+                                    let section = Self::drop_section_at(
+                                        cursor_axis,
+                                        n,
+                                        pinned_count,
+                                        axis_disp,
+                                    );
+                                    press.section = section;
+                                    drag_section = Some(section);
+                                    if section == DropSection::Pinned {
+                                        // The insertion slot over the pinned-app
+                                        // rest centres, the dragged tile excluded.
+                                        let pinned_centres: Vec<f32> = (1..pinned_count)
+                                            .filter(|slot| *slot != strip)
+                                            .map(|slot| {
+                                                Self::rest_centre_estimate(
+                                                    slot,
+                                                    n,
+                                                    pinned_count,
+                                                    axis_disp,
+                                                )
+                                            })
+                                            .collect();
+                                        let insert =
+                                            Self::drop_insert_index(&pinned_centres, cursor_axis);
+                                        press.insert = Some(insert);
+                                        drag_insert = Some(insert);
+                                    } else {
+                                        press.insert = None;
+                                    }
+                                }
+                                // The dragged tile vanished mid-gesture (a
+                                // window or catalog change): cancel the press.
+                                _ => keep_press = false,
+                            }
+                        }
+                        PressTarget::Panel => {
+                            if let Some(target) =
+                                Self::edge_drag_target((cursor.x, cursor.y), (disp.x, disp.y))
+                                && target != self.position
+                            {
+                                // Inline `set_position`: the strip borrow
+                                // rules out `&mut self` calls here.
+                                self.position = target;
+                                self.app_menu.set_side(Self::popup_side_for(target));
+                                self.anim_active = true;
+                            }
+                        }
+                        PressTarget::OtherTile(key) => {
+                            let strip = tiles.iter().position(|tile| &tile.key == key);
+                            match strip {
+                                Some(strip)
+                                    if !tiles[strip].pinned && tiles[strip].pin_entry.is_some() =>
+                                {
+                                    drag_strip = Some(strip);
+                                    let section = Self::drop_section_at(
+                                        cursor_axis,
+                                        n,
+                                        pinned_count,
+                                        axis_disp,
+                                    );
+                                    press.section = section;
+                                    drag_section = Some(section);
+                                    if section == DropSection::Pinned {
+                                        // The insertion slot over every
+                                        // pinned-app rest centre.
+                                        let pinned_centres: Vec<f32> = (1..pinned_count)
+                                            .map(|slot| {
+                                                Self::rest_centre_estimate(
+                                                    slot,
+                                                    n,
+                                                    pinned_count,
+                                                    axis_disp,
+                                                )
+                                            })
+                                            .collect();
+                                        let insert =
+                                            Self::drop_insert_index(&pinned_centres, cursor_axis);
+                                        press.insert = Some(insert);
+                                        drag_insert = Some(insert);
+                                    } else {
+                                        press.insert = None;
+                                    }
+                                }
+                                _ => keep_press = false,
+                            }
+                        }
+                    }
+                }
+            }
+            if released_edge {
+                released_target = Some(press.target.clone());
+                if press.dragging {
+                    suppress_release_click = true;
+                    match &press.target {
+                        PressTarget::PinnedTile(key) => {
+                            let strip = tiles.iter().position(|tile| &tile.key == key);
+                            if let Some(strip) = strip
+                                && strip >= 1
+                                && tiles[strip].pinned
+                                && let Some(ai) = tiles[strip].app
+                            {
+                                match press.section {
+                                    DropSection::Pinned => {
+                                        if let Some(insert) = press.insert {
+                                            let mut ids: Vec<String> = self
+                                                .apps
+                                                .iter()
+                                                .map(|app| app.entry.id.clone())
+                                                .collect();
+                                            // Strip index 0 is the Launchpad; the
+                                            // pinned apps sequence starts at 1.
+                                            if Self::move_element(&mut ids, strip - 1, insert) {
+                                                out.dock_reorder = Some(ids.clone());
+                                                self.pending_order = Some(ids);
+                                            }
+                                        }
+                                    }
+                                    // Dropped past the divider: unpin. A still
+                                    // running app reappears as a transient tile.
+                                    DropSection::Transient => {
+                                        let id = self.apps[ai].entry.id.clone();
+                                        let ids: Vec<String> = self
+                                            .apps
+                                            .iter()
+                                            .map(|app| app.entry.id.clone())
+                                            .filter(|entry| entry != &id)
+                                            .collect();
+                                        self.apps.retain(|app| app.entry.id != id);
+                                        out.dock_reorder = Some(ids.clone());
+                                        self.pending_order = Some(ids);
+                                    }
+                                }
+                            }
+                        }
+                        PressTarget::Panel => {
+                            if self.position != press.start_position {
+                                out.dock_position = Some(self.position);
+                            }
+                        }
+                        PressTarget::OtherTile(key) => {
+                            let strip = tiles.iter().position(|tile| &tile.key == key);
+                            // Dropped into the pinned strip: pin at the
+                            // previewed slot.
+                            if let Some(strip) = strip
+                                && !tiles[strip].pinned
+                                && press.section == DropSection::Pinned
+                                && let (Some(insert), Some(entry_id)) =
+                                    (press.insert, tiles[strip].pin_entry.clone())
+                                && let Some(entry) = self
+                                    .all_apps
+                                    .iter()
+                                    .find(|entry| entry.id == entry_id)
+                                    .cloned()
+                            {
+                                let pos = insert.min(self.apps.len());
+                                let mut ids: Vec<String> =
+                                    self.apps.iter().map(|app| app.entry.id.clone()).collect();
+                                ids.insert(pos, entry_id);
+                                self.apps.insert(
+                                    pos,
+                                    DockApp {
+                                        keys: entry.match_keys(),
+                                        entry,
+                                    },
+                                );
+                                out.dock_reorder = Some(ids.clone());
+                                self.pending_order = Some(ids);
+                            }
+                        }
+                    }
+                }
+            } else if keep_press {
+                self.press = Some(press);
+            }
+        }
+
+        DragOutcome {
+            suppress_release_click,
+            released_target,
+            drag_strip,
+            drag_insert,
+            drag_section,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn step_magnification_wave(
+        &mut self,
+        tiles: &[Tile],
+        in_band: bool,
+        over_hover_surface: bool,
+        over_rest_bounds: bool,
+        cursor_axis: f32,
+        axis_disp: f32,
+        n: usize,
+        pinned_count: usize,
+        dt: f32,
+        menu_was_open: bool,
+        autohide_moving: bool,
+        drag_active: bool,
+    ) -> Vec<f32> {
+        let mut eased: Vec<f32> = Vec::with_capacity(n);
+        // Track per-tile (target, velocity) so the anim-pending check below can
+        // tell when every spring has fully rested.
+        let mut unsettled = false;
+
+        // When the pointer is within the hover surface (popover preview, tooltip,
+        // or the air-gap bridge leading to it), lock the magnification axis to the
+        // owner tile's resting centre instead of following the live cursor. This
+        // keeps the originating app icon at peak magnification as a prominent
+        // provenance anchor and prevents the Dock underneath from wiggling or
+        // reflowing as the pointer moves across preview cards.
+        let owner_centre = if over_hover_surface && !over_rest_bounds {
+            self.tooltip_tile
+                .as_ref()
+                .or(self.hovered_tile.as_ref())
+                .and_then(|key| tiles.iter().position(|t| &t.key == key))
+                .map(|owner_idx| Self::rest_centre_estimate(owner_idx, n, pinned_count, axis_disp))
+        } else {
+            None
+        };
+        let magnify_axis = Self::magnification_axis(
+            over_hover_surface,
+            over_rest_bounds,
+            owner_centre,
+            cursor_axis,
+        );
+
+        let prestepped = self.sizes_stepped_in_prepass;
+        self.sizes_stepped_in_prepass = false;
+
+        for (i, t) in tiles.iter().enumerate() {
+            let target = Self::magnification_target(
+                in_band,
+                magnify_axis,
+                Self::rest_centre_estimate(i, n, pinned_count, axis_disp),
+            );
+            let mut newly_inserted = false;
+            // Look up before inserting so an existing tile does not pay a
+            // key clone every frame.
+            let state = match self.sizes.get_mut(&t.key) {
+                Some(state) => state,
+                None => {
+                    newly_inserted = true;
+                    self.sizes.entry(t.key.clone()).or_insert(SpringState {
+                        value: if menu_was_open {
+                            DOCK_TILE
+                        } else {
+                            DOCK_TILE_BIRTH
+                        },
+                        velocity: 0.0,
+                    })
+                }
+            };
+            // A context menu must not become a moving target. Freeze the
+            // complete wave exactly where it was opened; once the menu closes,
+            // the same springs resume toward the live pointer targets.
+            if menu_was_open {
+                state.velocity = 0.0;
+                eased.push(state.value);
+                continue;
+            }
+            if !prestepped || newly_inserted {
+                eased.push(Self::spring(state, target, dt, self.reduced_motion));
+            } else {
+                eased.push(state.value);
+            }
+            // A spring is still animating while it is meaningfully off its
+            // target or still moving. Sub-pixel drift is ignored so we don't
+            // tick forever chasing float noise.
+            let drifting = (state.value - target).abs() > 0.15 || state.velocity.abs() > 0.5;
+            unsettled |= drifting;
+        }
+        if !prestepped {
+            if self.was_magnific_animating && !unsettled {
+                self.motion.settled_drain_frames = SETTLED_DRAIN_FRAMES;
+                self.settled_drain_frames = SETTLED_DRAIN_FRAMES;
+            }
+            self.was_magnific_animating = unsettled;
+        }
+        // An active drag keeps frames ticking: the preview follows the cursor
+        // even when every spring has rested. Continuous dwell accumulation also ticks frames.
+        let dwell_active =
+            self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold;
+        self.anim_active = unsettled || autohide_moving || drag_active || dwell_active;
+        self.motion.anim_active = self.anim_active;
+
+        // The drop-preview permutation: during a tile drag the dragged tile
+        // still occupies a strip slot (the bar length is unchanged), but the
+        // other tiles shift aside to open the insertion gap at the preview
+        // slot. The Launchpad holds slot 0. A pinned tile re-enters within
+        // the pinned range; dragged past the divider it previews as the
+        // first transient tile; a transient tile dragged into the pinned
+        // range previews at the hovered pinned slot. `section_slot` is where
+        // the transient section begins in preview order.
+        eased
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_strip_content(
+        &self,
+        f: &mut Frame,
+        tiles: &[Tile],
+        icon_rects: &[Rect],
+        drag_strip: Option<usize>,
+        position: DockPosition,
+        icon_baseline: f32,
+        content_progress: f32,
+        panel_rect: Rect,
+        order: &[usize],
+        section_slot: usize,
+        live_section_gap: f32,
+        axis_disp: f32,
+        eased: &[f32],
+        centres: &[f32],
+    ) {
+        let centre = |i: usize| centres[i];
+        let dock_colors = self.design.dock;
+        if content_progress > AUTOHIDE_CONTENT_INTERACTION_MIN {
+            // The drained content fades through the lens opacity switch;
+            // restored after the section divider below.
+            f.set_opacity(content_progress);
+            for (i, t) in tiles.iter().enumerate() {
+                let s = icon_rects[i].w;
+                let cx = icon_rects[i].x + s * 0.5;
+                let cy = icon_rects[i].y + s * 0.5;
+                let rect = icon_rects[i];
+                let icon_id = format!("tessera-dock-icon-{}", t.key);
+                if t.launchpad {
+                    // A rounded "app tile" with a 3×3 grid, so it reads as macOS's
+                    // Launchpad button. The grid (real content) sizes the surface;
+                    // the surface paints the rounded background behind it.
+                    let bg = LayoutOpts {
+                        bg: dock_colors.launchpad_tile_bg,
+                        border: dock_colors.launchpad_tile_border,
+                        border_width: 1.0,
+                        radius: s * 0.22,
+                        pad: s * 0.2,
+                        cross: Align::Center,
+                        ..surface_layout()
+                    };
+                    let gap = s * 0.1;
+                    let d = (s - 2.0 * (s * 0.2) - 2.0 * gap) / 3.0;
+                    f.place(&icon_id, &chrome_place(rect, bg), |f| {
+                        f.column_ex(&grid(gap), |f| {
+                            for _ in 0..3 {
+                                f.row_ex(&grid(gap), |f| {
+                                    for _ in 0..3 {
+                                        f.column_ex(
+                                            &sized_fill(d, d, dock_colors.launchpad_grid, d * 0.3),
+                                            |_| {},
+                                        );
+                                    }
+                                });
+                            }
+                        });
+                    });
+                } else {
+                    f.place(&icon_id, &chrome_place(rect, tile_opts()), |f| {
+                        match t.icon.or_else(|| self.icons.default_icon()) {
+                            // The pointer crosses from the binary's flux binding type to
+                            // lens's ABI-identical flux_image.
+                            Some(ptr) => unsafe {
+                                f.image(ptr as *mut lens::sys::flux_image, s, s)
+                            },
+                            None => f.icon(Icon::FileText, s * 0.6),
+                        }
+                    });
+                }
+
+                if t.running && Some(i) != drag_strip {
+                    // Centre the dot in the flat strip between the icon
+                    // baseline and the panel's near edge, so it never falls
+                    // into the rounded corner region (and outside the bar)
+                    // on the first or last tile. On a side dock the strip —
+                    // and the stadium's long axis — is vertical.
+                    let dot_long = if t.windows.len() > 1 {
+                        DOCK_DOT_STADIUM
+                    } else {
+                        DOCK_DOT
+                    } * content_progress;
+                    let dot_thick = DOCK_DOT * content_progress;
+                    let strip_span = DOCK_BASELINE_INSET.max(DOCK_DOT) * content_progress;
+                    let dot_rect = match position {
+                        DockPosition::Bottom => Rect {
+                            x: cx - dot_long * 0.5,
+                            y: icon_baseline + (strip_span - dot_thick) * 0.5,
+                            w: dot_long,
+                            h: dot_thick,
+                        },
+                        DockPosition::Left => Rect {
+                            x: icon_baseline + (strip_span - dot_thick) * 0.5,
+                            y: cy - dot_long * 0.5,
+                            w: dot_thick,
+                            h: dot_long,
+                        },
+                        DockPosition::Right => Rect {
+                            x: icon_baseline - strip_span + (strip_span - dot_thick) * 0.5,
+                            y: cy - dot_long * 0.5,
+                            w: dot_thick,
+                            h: dot_long,
+                        },
+                    };
+                    let color = if t.activated {
+                        dock_colors.running_dot_active
+                    } else {
+                        dock_colors.running_dot_inactive
+                    };
+                    let dot_id = format!("tessera-dock-dot-{}", t.key);
+                    f.place(&dot_id, &chrome_place(dot_rect, tile_opts()), |f| {
+                        f.column_ex(
+                            &sized_fill(dot_rect.w, dot_rect.h, color, dot_thick * 0.5),
+                            |_| {},
+                        );
+                    });
+                }
+            }
+        }
+
+        // A slim divider in the section gap separates the kept strip from
+        // the transient running apps, like macOS's Dock. On a side dock the
+        // divider lies across the strip: a horizontal hairline. The boundary
+        // follows the live preview order, so the divider itself takes part in
+        // the reflow when a drag crosses it.
+        if live_section_gap > 0.0 && content_progress > AUTOHIDE_CONTENT_INTERACTION_MIN {
+            // Sit at the midpoint of the edge-to-edge gap rather than the
+            // centre-to-centre midpoint: a boundary tile magnifying toward
+            // the divider pushes it aside instead of swallowing it, so the
+            // clearance stays one ordinary tile gap on both sides through
+            // the wave.
+            let before = order[section_slot - 1];
+            let after = order[section_slot];
+            let divider_axis =
+                (centre(before) + eased[before] * 0.5 + centre(after) - eased[after] * 0.5) * 0.5;
+            let divider_axis =
+                axis_disp * 0.5 + (divider_axis - axis_disp * 0.5) * content_progress;
+            let (divider_center, divider_thick) = snapped_hairline(divider_axis, self.scale);
+            let divider_len = DOCK_TILE * 0.55 * content_progress;
+            let divider_rect = match position {
+                DockPosition::Bottom => Rect {
+                    x: divider_center - divider_thick * 0.5,
+                    y: panel_rect.y + (panel_rect.h - divider_len) * 0.5,
+                    w: divider_thick,
+                    h: divider_len,
+                },
+                DockPosition::Left | DockPosition::Right => Rect {
+                    x: panel_rect.x + (panel_rect.w - divider_len) * 0.5,
+                    y: divider_center - divider_thick * 0.5,
+                    w: divider_len,
+                    h: divider_thick,
+                },
+            };
+            f.place(
+                "tessera-dock-section-divider",
+                &chrome_place(divider_rect, surface_layout()),
+                |f| {
+                    f.column_ex(
+                        &sized_fill(
+                            divider_rect.w,
+                            divider_rect.h,
+                            dock_colors.section_divider,
+                            // Deliberately sharp: the divider is a hairline,
+                            // and any radius at or below 0.5 falls back to the
+                            // same sharp rect path in lens anyway.
+                            0.0,
+                        ),
+                        |_| {},
+                    );
+                },
+            );
+        }
+        f.set_opacity(1.0);
+
+        // Preview cards keep press-edge activation (no drag gesture starts
+        // on them); the per-frame pressed flag is not cleared by the host,
+        // so the button-level transition was tracked at the top of render.
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn handle_pointer_interactions(
+        &mut self,
+        tiles: &[Tile],
+        icon_rects: &[Rect],
+        panel_rect: Rect,
+        hit: Option<usize>,
+        pressed_edge: bool,
+        released_edge: bool,
+        right_pressed: bool,
+        suppress_release_click: bool,
+        released_target: Option<PressTarget>,
+        cursor: (f32, f32),
+        over_rest_bounds: bool,
+        content_progress: f32,
+        menu_was_open: bool,
+        position: DockPosition,
+        out: &mut ChromeEvents,
+    ) {
+        let cursor = Point2D {
+            x: cursor.0,
+            y: cursor.1,
+        };
+        let previous_hovered_preview = self.hovered_preview;
+        let preview_hit = self
+            .live_preview
+            .as_ref()
+            .and_then(|presentation| live_preview_hit(presentation, cursor.x, cursor.y));
+        self.hovered_preview = preview_hit.filter(|id| {
+            self.all_windows
+                .iter()
+                .find(|window| window.id == *id)
+                .is_some_and(|window| !window.read_only)
+        });
+        self.anim_active |= self.hovered_preview != previous_hovered_preview;
+        let clicked_preview = pressed_edge && !menu_was_open && self.hovered_preview.is_some();
+        if clicked_preview {
+            out.clicked = self.hovered_preview;
+            self.hovered_tile = None;
+            self.hover_elapsed = 0.0;
+            self.tooltip_tile = None;
+            self.tooltip_alpha = 0.0;
+            if let Some(bounds) = self.hover_surface_bounds.take() {
+                Self::record_hover_surface_damage(
+                    &mut self.hover_damage_rect,
+                    &mut self.hover_drain_frames,
+                    bounds,
+                );
+            }
+            self.live_preview = None;
+            self.hover_owner_bounds = None;
+            self.hovered_preview = None;
+        }
+
+        // Arm the press lifecycle: a pinned-app tile press may become a
+        // reorder drag; a press on empty panel space may become an edge
+        // drag. Anything else stays a pending click.
+        if pressed_edge && !menu_was_open && !clicked_preview && self.press.is_none() {
+            if let Some(i) = hit {
+                let tile = &tiles[i];
+                let target = if tile.pinned && tile.app.is_some() {
+                    PressTarget::PinnedTile(tile.key.clone())
+                } else {
+                    PressTarget::OtherTile(tile.key.clone())
+                };
+                let section = if tile.pinned {
+                    DropSection::Pinned
+                } else {
+                    DropSection::Transient
+                };
+                self.press = Some(PressState {
+                    origin: (cursor.x, cursor.y),
+                    target,
+                    dragging: false,
+                    section,
+                    insert: None,
+                    start_position: position,
+                });
+            } else if over_rest_bounds
+                && content_progress > AUTOHIDE_CONTENT_INTERACTION_MIN
+                && cursor.x >= panel_rect.x
+                && cursor.y >= panel_rect.y
+                && cursor.x < panel_rect.x + panel_rect.w
+                && cursor.y < panel_rect.y + panel_rect.h
+            {
+                self.press = Some(PressState {
+                    origin: (cursor.x, cursor.y),
+                    target: PressTarget::Panel,
+                    dragging: false,
+                    section: DropSection::Pinned,
+                    insert: None,
+                    start_position: position,
+                });
+            }
+        }
+
+        // A click fires on the release edge, and only when the press began
+        // on the same tile and never became a drag. A release after a drag,
+        // or off the pressed tile, activates nothing.
+        if released_edge
+            && !suppress_release_click
+            && !menu_was_open
+            && let (Some(target), Some(i)) = (released_target, hit)
+        {
+            let pressed_this_tile = match &target {
+                PressTarget::PinnedTile(key) | PressTarget::OtherTile(key) => key == &tiles[i].key,
+                PressTarget::Panel => false,
+            };
+            if pressed_this_tile {
+                self.dock_interacted = true;
+                let t = &tiles[i];
+                if t.launchpad {
+                    out.toggle_pivot = true;
+                } else if let Some(id) = t.focus {
+                    out.clicked = Some(id);
+                } else if let Some(ai) = t.spawn {
+                    out.activate_entry(self.apps[ai].entry.clone());
+                }
+            }
+        }
+
+        // A held left press (pending click or drag) suppresses the menu for
+        // its tile; the dragged tile in particular must not pop one up.
+        if right_pressed
+            && self.press.is_none()
+            && let Some(i) = hit
+        {
+            self.dock_interacted = true;
+            let tile = &tiles[i];
+            if !tile.launchpad {
+                let pin_action = if let Some(ai) = tile.app {
+                    // A pinned tile always offers removal from the strip.
+                    Some(PinAction::Unpin(self.apps[ai].entry.id.clone()))
+                } else {
+                    // A transient tile offers "Keep in Dock" when its app
+                    // resolved to an enumerated desktop entry at build time.
+                    tile.pin_entry.clone().map(PinAction::Pin)
+                };
+                self.app_menu.open(
+                    tile.label.clone(),
+                    tile.app.map(|app| self.apps[app].entry.clone()),
+                    tile.windows.iter().copied(),
+                    icon_rects[i],
+                    pin_action,
+                );
+                self.menu_tile = Some(tile.key.clone());
+            }
+        }
+
+        // Reveal an app name or running-window previews after a short dwell.
+        // Once open, the popover retains its owner while the pointer crosses
+        // the gap above the Dock and enters a preview card.
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn update_hover_surfaces(
+        &mut self,
+        f: &mut Frame,
+        tiles: &[Tile],
+        icon_rects: &[Rect],
+        hit: Option<usize>,
+        over_hover_surface: bool,
+        cursor: (f32, f32),
+        disp: (f32, f32),
+        dt: f32,
+        position: DockPosition,
+    ) {
+        let cursor = Point2D {
+            x: cursor.0,
+            y: cursor.1,
+        };
+        let disp = Point2D {
+            x: disp.0,
+            y: disp.1,
+        };
+        let hovered_tile = hit.map(|i| tiles[i].key.clone()).or_else(|| {
+            over_hover_surface
+                .then(|| self.tooltip_tile.clone())
+                .flatten()
+        });
+        if self.hovered_tile != hovered_tile {
+            self.hovered_tile = hovered_tile;
+            self.hover_elapsed = 0.0;
+            self.tooltip_tile = None;
+            self.tooltip_alpha = 0.0;
+            if let Some(bounds) = self.hover_surface_bounds.take() {
+                Self::record_hover_surface_damage(
+                    &mut self.hover_damage_rect,
+                    &mut self.hover_drain_frames,
+                    bounds,
+                );
+            }
+            self.live_preview = None;
+            self.hover_owner_bounds = None;
+            self.hovered_preview = None;
+        } else if self.hovered_tile.is_some() && !self.app_menu.is_open() {
+            self.hover_elapsed += dt;
+        }
+
+        if self.app_menu.is_open() {
+            self.tooltip_tile = None;
+            self.tooltip_alpha = 0.0;
+            if let Some(bounds) = self.hover_surface_bounds.take() {
+                Self::record_hover_surface_damage(
+                    &mut self.hover_damage_rect,
+                    &mut self.hover_drain_frames,
+                    bounds,
+                );
+            }
+            self.live_preview = None;
+            self.hover_owner_bounds = None;
+            self.hovered_preview = None;
+        } else {
+            let wants_tooltip = self.hovered_tile.is_some() && self.hover_elapsed >= TOOLTIP_DWELL;
+            if wants_tooltip {
+                self.dock_interacted = true;
+                self.tooltip_tile.clone_from(&self.hovered_tile);
+            }
+            let target = if wants_tooltip { 1.0 } else { 0.0 };
+            self.tooltip_alpha = crate::widgets::motion::approach(
+                self.tooltip_alpha,
+                target,
+                TOOLTIP_FADE_SPEED,
+                dt,
+                self.reduced_motion,
+            );
+            if target == 0.0 && self.tooltip_alpha < 0.01 {
+                self.tooltip_alpha = 0.0;
+                self.tooltip_tile = None;
+            }
+            let waiting = self.hovered_tile.is_some() && self.hover_elapsed < TOOLTIP_DWELL;
+            let fading = (target - self.tooltip_alpha).abs() > 0.01;
+            self.anim_active |= waiting || fading;
+        }
+
+        if let Some((index, tile)) = self
+            .tooltip_tile
+            .as_ref()
+            .and_then(|key| tiles.iter().enumerate().find(|(_, tile)| &tile.key == key))
+        {
+            // Once the popover exists, freeze its owner geometry. The Dock's
+            // magnification spring can keep settling underneath it, but the
+            // compositor preview, glass body, labels, and pointer bridge must
+            // remain on one exact rectangle instead of chasing that spring a
+            // frame apart.
+            let owner = self.hover_owner_bounds.unwrap_or(icon_rects[index]);
+            self.hover_owner_bounds = Some(owner);
+            let side = Self::popup_side_for(position);
+            if tile.windows.is_empty() {
+                let rect = tooltip_rect(
+                    f,
+                    &self.design,
+                    &tile.label,
+                    owner,
+                    (disp.x, disp.y),
+                    self.tooltip_alpha,
+                    side,
+                );
+                self.hover_surface_bounds = Some(rect);
+                Self::record_hover_surface_damage(
+                    &mut self.hover_damage_rect,
+                    &mut self.hover_drain_frames,
+                    rect,
+                );
+                self.live_preview = None;
+                self.hovered_preview = None;
+                render_tooltip(f, &self.design, &tile.label, rect, self.tooltip_alpha);
+            } else {
+                let mut presentation = live_preview_layout(
+                    &self.design,
+                    (disp.x, disp.y),
+                    owner,
+                    &tile.windows,
+                    self.tooltip_alpha,
+                    position,
+                );
+                let panel_rect = to_lens_rect(presentation.panel);
+                self.hover_surface_bounds = Some(panel_rect);
+                Self::record_hover_surface_damage(
+                    &mut self.hover_damage_rect,
+                    &mut self.hover_drain_frames,
+                    panel_rect,
+                );
+                let previous_hovered_preview = self.hovered_preview;
+                self.hovered_preview =
+                    live_preview_hit(&presentation, cursor.x, cursor.y).filter(|id| {
+                        self.all_windows
+                            .iter()
+                            .find(|window| window.id == *id)
+                            .is_some_and(|window| !window.read_only)
+                    });
+                self.anim_active |= self.hovered_preview != previous_hovered_preview;
+                presentation.focused = self.hovered_preview;
+                render_live_preview_chrome(
+                    f,
+                    &self.design,
+                    &presentation,
+                    &self.all_windows,
+                    self.hovered_preview,
+                );
+                self.live_preview = Some(presentation);
+            }
+        } else {
+            if let Some(bounds) = self.hover_surface_bounds.take() {
+                Self::record_hover_surface_damage(
+                    &mut self.hover_damage_rect,
+                    &mut self.hover_drain_frames,
+                    bounds,
+                );
+            }
+            self.live_preview = None;
+            self.hover_owner_bounds = None;
+            self.hovered_preview = None;
+            if self.hover_drain_frames > 0 {
+                self.hover_drain_frames -= 1;
+                if self.hover_drain_frames == 0 {
+                    self.hover_damage_rect = None;
+                }
+            }
+        }
     }
 }

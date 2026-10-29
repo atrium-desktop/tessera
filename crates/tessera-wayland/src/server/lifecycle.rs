@@ -95,7 +95,7 @@ impl Server {
             ffi::wl_global_create(
                 display,
                 &ffi::wl_compositor_interface,
-                4,
+                ffi::V_WL_COMPOSITOR,
                 data,
                 compositor_bind,
             );
@@ -104,7 +104,7 @@ impl Server {
             ffi::wl_global_create(
                 display,
                 &ffi::xdg_wm_base_interface,
-                1,
+                ffi::V_XDG_WM_BASE,
                 data,
                 xdg_wm_base_bind,
             );
@@ -122,7 +122,7 @@ impl Server {
             ffi::wl_global_create(
                 display,
                 &ffi::wl_data_device_manager_interface,
-                3,
+                ffi::V_WL_DATA_DEVICE_MANAGER,
                 data,
                 ddm_bind,
             );
@@ -201,10 +201,20 @@ impl Server {
                 data,
                 extensions::xdg_importer_bind,
             );
-            // Do not advertise wp_presentation until feedback can be tied to
-            // the corresponding commit and completed with a real presentation
-            // timestamp. Clients fall back to wl_surface.frame, which this
-            // server completes after the output presents.
+            // presentation-time (stable, ADR-0122). Feedback is tied to the
+            // surface commit that reaches the display: the object is queued at
+            // `wp_presentation.feedback`, completed with the real presentation
+            // timestamp and refresh interval when the frame presents, and
+            // discarded if the surface goes away first. This is what lets a
+            // client learn the display refresh rate (120/144 Hz) instead of
+            // assuming 60 Hz ([INV-PACE-02]).
+            ffi::wl_global_create(
+                display,
+                &ffi::wp_presentation_interface,
+                1,
+                data,
+                extensions::presentation_bind,
+            );
             ffi::wl_global_create(
                 display,
                 &ffi::wp_fractional_scale_manager_v1_interface,
@@ -303,7 +313,7 @@ impl Server {
             ffi::wl_global_create(
                 display,
                 &ffi::zwp_text_input_manager_v3_interface,
-                1,
+                ffi::V_ZWP_TEXT_INPUT_MANAGER_V3,
                 data,
                 extensions::text_input_bind,
             );

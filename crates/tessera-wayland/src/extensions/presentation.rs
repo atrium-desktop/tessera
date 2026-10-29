@@ -15,7 +15,7 @@ pub(crate) unsafe extern "C" fn presentation_bind(
     id: u32,
 ) {
     unsafe {
-        let res = ffi::wl_resource_create(
+        let res = ffi::checked_resource_create(
             client,
             &ffi::wp_presentation_interface,
             version as c_int,
@@ -30,13 +30,11 @@ pub(crate) unsafe extern "C" fn presentation_bind(
             data,
             None,
         );
-        // The clock event (v1) tells clients which clock the feedback timestamps
-        // use. CLOCK_MONOTONIC = 1 (wl_display event clk_id).
-        const WL_PRESENTATION_CLOCK_ID_MONOTONIC: u32 = 1;
-        // There is no separate clock event opcode in the interface; the spec
-        // sends it as the `clock` event which is opcode... actually presentation
-        // has only `feedback` as a request; `clock` is an event (opcode 0).
+        // The `clock` event (opcode 0) tells clients which clock the feedback
+        // timestamps use. `wp_presentation` has one request (`feedback`); the
+        // only event is `clock`, and CLOCK_MONOTONIC is its wire id 1.
         const WP_PRESENTATION_CLOCK: u32 = 0;
+        const WL_PRESENTATION_CLOCK_ID_MONOTONIC: u32 = 1;
         ffi::wl_resource_post_event(
             res,
             WP_PRESENTATION_CLOCK,
@@ -45,21 +43,91 @@ pub(crate) unsafe extern "C" fn presentation_bind(
     }
 }
 
+/// `wp_presentation.feedback(surface)`: queue a feedback object on the surface
+/// so it can be completed once the frame carrying the surface's next commit
+/// reaches the display (ADR-0122, `[INV-PACE-02]`).
+///
+/// A feedback object that cannot be tied to a live surface — the surface was
+/// already destroyed, or the request names no surface — is `discarded`
+/// immediately, because it can never be presented.
 unsafe extern "C" fn presentation_feedback(
     client: *mut ffi::wl_client,
     _presentation: *mut ffi::wl_resource,
-    _surface: *mut ffi::wl_resource,
+    surface: *mut ffi::wl_resource,
     id: u32,
 ) {
     unsafe {
-        // Create a wp_presentation_feedback with no requests. The compositor does
-        // not yet track presentation timing, so we immediately post `discarded`
-        // so the client frees the object rather than waiting forever.
-        let fb = ffi::wl_resource_create(client, &ffi::wp_presentation_feedback_interface, 1, id);
+        let fb =
+            ffi::checked_resource_create(client, &ffi::wp_presentation_feedback_interface, 1, id);
         if fb.is_null() {
             return;
         }
-        ffi::wl_resource_set_implementation(fb, std::ptr::null(), std::ptr::null_mut(), None);
-        ffi::wl_resource_post_event(fb, ffi::WP_PRESENTATION_FEEDBACK_DISCARDED);
+        let rec = if surface.is_null() {
+            std::ptr::null_mut()
+        } else {
+            ffi::wl_resource_get_user_data(surface) as *mut SurfaceRec
+        };
+        if rec.is_null() {
+            ffi::wl_resource_set_implementation(fb, std::ptr::null(), std::ptr::null_mut(), None);
+            ffi::wl_resource_post_event(fb, ffi::WP_PRESENTATION_FEEDBACK_DISCARDED);
+            // No request can ever be answered for a feedback with no surface;
+            // post the terminal event and free the object.
+            ffi::wl_resource_destroy(fb);
+            return;
+        }
+        // The surface is the feedback object's user data so the destroy hook can
+        // unlink it before libwayland frees the resource — a client disconnect
+        // must never leave a dangling pointer queued for presentation.
+        ffi::wl_resource_set_implementation(
+            fb,
+            std::ptr::null(),
+            rec as *mut c_void,
+            Some(feedback_resource_destroy),
+        );
+        (*rec).presentation_feedback.push(fb);
     }
+}
+
+/// Detach a feedback object from the surface that queued it. Runs whenever the
+/// resource is destroyed — our own completion, a client teardown, or a client
+/// disconnect — so the queue can never hold a freed pointer.
+unsafe extern "C" fn feedback_resource_destroy(resource: *mut ffi::wl_resource) {
+    unsafe {
+        let rec = ffi::wl_resource_get_user_data(resource) as *mut SurfaceRec;
+        if rec.is_null() {
+            return;
+        }
+        (*rec).presentation_feedback.retain(|&f| f != resource);
+    }
+}
+
+/// Post `discarded` for every feedback object still queued on the surface and
+/// free them. Called when a surface is destroyed or unmapped, because a commit
+/// that never reaches the display cannot be reported as presented.
+pub(crate) unsafe fn discard_surface_feedback(rec: *mut SurfaceRec) {
+    unsafe {
+        if rec.is_null() || (*rec).presentation_feedback.is_empty() {
+            return;
+        }
+        let pending = std::mem::take(&mut (*rec).presentation_feedback);
+        for fb in pending {
+            if fb.is_null() {
+                continue;
+            }
+            ffi::wl_resource_post_event(fb, ffi::WP_PRESENTATION_FEEDBACK_DISCARDED);
+            // The queue is already emptied, so the destroy hook's `retain` is a
+            // no-op and the resource cannot dangle in a partially-drained list.
+            ffi::wl_resource_destroy(fb);
+        }
+    }
+}
+
+/// Whether any surface is waiting for presentation timing, so the presentation
+/// path can skip the walk when nobody is listening.
+pub(crate) fn presentation_feedback_pending(state: &State) -> bool {
+    state
+        .surfaces
+        .iter()
+        .copied()
+        .any(|p| !p.is_null() && unsafe { !(*p).presentation_feedback.is_empty() })
 }

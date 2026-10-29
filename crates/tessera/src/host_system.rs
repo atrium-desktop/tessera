@@ -241,7 +241,7 @@ impl MockHostSystem {
 
 impl HostSystem for MockHostSystem {
     fn set_volume(&self, level: u8) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         st.volume = Some(level);
         if st.muted {
             st.muted = false;
@@ -250,32 +250,32 @@ impl HostSystem for MockHostSystem {
     }
 
     fn step_volume(&self, delta: i8) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         let cur = st.volume.unwrap_or(0) as i16;
         st.volume = Some((cur + i16::from(delta)).clamp(0, 100) as u8);
         Ok(())
     }
 
     fn toggle_mute(&self) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         st.muted = !st.muted;
         Ok(())
     }
 
     fn set_brightness(&self, level: u8) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         st.brightness = Some(level);
         Ok(())
     }
 
     fn set_keyboard_brightness(&self, level: u8) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         st.kbd_brightness = Some(level);
         Ok(())
     }
 
     fn step_keyboard_brightness(&self) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         let cur = st.kbd_brightness.unwrap_or(0);
         // Advance through the simulated hardware's own ladder when it is
         // stepped, mirroring the live backend.
@@ -308,25 +308,25 @@ impl HostSystem for MockHostSystem {
     }
 
     fn suspend(&self) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         st.last_power_action = Some("suspend".into());
         Ok(())
     }
 
     fn reboot(&self) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         st.last_power_action = Some("reboot".into());
         Ok(())
     }
 
     fn power_off(&self) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         st.last_power_action = Some("power_off".into());
         Ok(())
     }
 
     fn detect_status(&self) -> SystemStatus {
-        let st = self.state.lock().unwrap();
+        let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         SystemStatus {
             volume: st.volume,
             muted: st.muted,
@@ -371,7 +371,7 @@ impl HostSystem for MockHostSystem {
     }
 
     fn detect_forked_status(&self) -> (Option<u8>, bool, Option<bool>, Option<String>) {
-        let st = self.state.lock().unwrap();
+        let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         (st.volume, st.muted, st.wifi_enabled, st.wifi_ssid.clone())
     }
 }
@@ -752,17 +752,29 @@ mod tests {
         // Power actions record in mock state without touching host
         assert!(mock.suspend().is_ok());
         assert_eq!(
-            mock.state().lock().unwrap().last_power_action.as_deref(),
+            mock.state()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .last_power_action
+                .as_deref(),
             Some("suspend")
         );
         assert!(mock.reboot().is_ok());
         assert_eq!(
-            mock.state().lock().unwrap().last_power_action.as_deref(),
+            mock.state()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .last_power_action
+                .as_deref(),
             Some("reboot")
         );
         assert!(mock.power_off().is_ok());
         assert_eq!(
-            mock.state().lock().unwrap().last_power_action.as_deref(),
+            mock.state()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .last_power_action
+                .as_deref(),
             Some("power_off")
         );
     }

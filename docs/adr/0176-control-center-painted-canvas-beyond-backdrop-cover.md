@@ -16,6 +16,7 @@ negative_knowledge: true
 - Consulted: Compositor Runtime & Optics Graphics Team
 - Informed: Design System & Accessibility Working Group
 - Amends: [ADR-0021](0021-chrome-component-trait.md), [ADR-0029](0029-animation-and-effect-policy.md), [ADR-0149](0149-backdrop-covers-fade-with-chrome.md), [ADR-0163](0163-decoupled-backdrop-blur-cache-and-continuous-fade.md), [ADR-0171](0171-chrome-animation-pre-pass-synchronization-and-surface-placement-invariants.md), [ADR-0172](0172-adopt-optics-transit-motion-vocabulary.md)
+- Amended by: [ADR-0197](0197-control-center-tray-shelf-and-overflow-disclosure.md) (the tray section's scroll viewport is replaced by a bounded shelf with overflow disclosure)
 
 ---
 

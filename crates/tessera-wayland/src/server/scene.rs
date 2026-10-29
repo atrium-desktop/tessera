@@ -745,6 +745,9 @@ impl Server {
             return 0;
         }
         let occluded = self.occluded_window_ids_with(&visible);
+        // A frame streamed offscreen still presents the surfaces it samples;
+        // their presentation feedback completes with it (ADR-0122, ADR-0186).
+        self.complete_presentation_feedback(&visible, &occluded, false);
         let transition_now_ms = self.now_ms();
         let mut sent = 0;
         for &p in &self.state.surfaces {
@@ -2135,6 +2138,84 @@ impl Server {
         }
     }
 
+    /// Refresh interval in nanoseconds for `wp_presentation_feedback`, derived
+    /// from the fastest physical output's mode. 0 is the protocol's "unknown",
+    /// which is the honest answer for a nested backend that owns no vblank.
+    fn presentation_refresh_ns(&self) -> u32 {
+        let mhz = self
+            .state
+            .physical_outputs
+            .iter()
+            .map(|output| output.geometry.mode.refresh_mhz)
+            .max()
+            .unwrap_or(0);
+        if mhz == 0 {
+            return 0;
+        }
+        // `refresh` is a period in nanoseconds; `refresh_mhz` is a frequency in
+        // millihertz, so period_ns = 1e12 / mhz.
+        (1_000_000_000_000u64 / u64::from(mhz)).min(u64::from(u32::MAX)) as u32
+    }
+
+    /// Complete every `wp_presentation_feedback` queued on a surface whose frame
+    /// just reached the display (ADR-0122). Feedback for surfaces the presented
+    /// frame did not sample stays queued until it is presented or the surface is
+    /// destroyed: a client must never be told about a frame it did not see.
+    fn complete_presentation_feedback(
+        &mut self,
+        visible: &std::collections::HashSet<tessera_desktop::window::WindowId>,
+        occluded: &std::collections::HashSet<tessera_desktop::window::WindowId>,
+        session_locked: bool,
+    ) -> usize {
+        if !extensions::presentation_feedback_pending(&self.state) {
+            return 0;
+        }
+        // One presentation event covers the whole presented frame, so every
+        // feedback completed here shares one timestamp and one sequence number.
+        let now_ns = crate::monotonic_ns();
+        let refresh_ns = self.presentation_refresh_ns();
+        let seq = self.state.presentation_seq;
+        let transition_now_ms = self.now_ms();
+        let mut completed = 0usize;
+        for &p in &self.state.surfaces {
+            if p.is_null() {
+                continue;
+            }
+            let rec = unsafe { &mut *p };
+            if rec.presentation_feedback.is_empty() {
+                continue;
+            }
+            let output_visible = unsafe {
+                surface_receives_output_frame_callback(
+                    p,
+                    visible,
+                    occluded,
+                    session_locked,
+                    transition_now_ms,
+                )
+            };
+            if !output_visible {
+                continue;
+            }
+            let pending = std::mem::take(&mut rec.presentation_feedback);
+            for fb in pending {
+                if fb.is_null() {
+                    continue;
+                }
+                unsafe {
+                    post_presentation_presented(fb, now_ns, refresh_ns, seq);
+                    ffi::wl_resource_destroy(fb);
+                }
+                completed += 1;
+            }
+        }
+        if completed > 0 {
+            self.state.presentation_seq = seq.wrapping_add(1);
+            unsafe { ffi::wl_display_flush_clients(self.state.display) };
+        }
+        completed
+    }
+
     /// Whether any client is waiting for an output-paced frame callback.
     pub fn frame_callbacks_pending(&self) -> bool {
         self.state
@@ -2157,6 +2238,9 @@ impl Server {
         let visible = self.visible();
         let occluded = self.occluded_window_ids();
         let session_locked = self.state.session_lock_phase.is_active();
+        // Presentation feedback shares the frame-callback completion point: both
+        // report the frame that just reached the display (ADR-0122).
+        self.complete_presentation_feedback(&visible, &occluded, session_locked);
         let transition_now_ms = self.now_ms();
         let background_due =
             background_frame_callback_due(time_ms, self.state.last_background_frame_callback_ms);
@@ -2314,6 +2398,62 @@ impl Server {
     }
 }
 
+/// Post `wp_presentation_feedback.presented` for one completed frame.
+///
+/// The timestamp is nanoseconds on `CLOCK_MONOTONIC` — the clock the
+/// presentation global announces — so a client derives presentation latency by
+/// subtracting its own reading. `refresh_ns` is the output period (0 =
+/// unknown), and `seq` is the monotonic presented-frame counter. `flags` is 0:
+/// the compositor makes no versus-clock, hardware-clock, or zero-copy claim it
+/// cannot substantiate.
+unsafe fn post_presentation_presented(
+    fb: *mut ffi::wl_resource,
+    now_ns: u64,
+    refresh_ns: u32,
+    seq: u64,
+) {
+    let [
+        tv_sec_hi,
+        tv_sec_lo,
+        tv_nsec,
+        refresh,
+        seq_lo,
+        seq_hi,
+        flags,
+    ] = presented_fields(now_ns, refresh_ns, seq);
+    unsafe {
+        ffi::wl_resource_post_event(
+            fb,
+            ffi::WP_PRESENTATION_FEEDBACK_PRESENTED,
+            tv_sec_hi,
+            tv_sec_lo,
+            tv_nsec,
+            refresh,
+            seq_lo,
+            seq_hi,
+            flags,
+        );
+    }
+}
+
+/// Wire fields for `wp_presentation_feedback.presented`: the 64-bit timestamp
+/// and sequence are each split into a high and low `uint`, and `flags` is 0
+/// because the compositor claims no versus-clock, hardware-clock, or zero-copy
+/// guarantee it cannot substantiate.
+fn presented_fields(now_ns: u64, refresh_ns: u32, seq: u64) -> [u32; 7] {
+    let secs = now_ns / 1_000_000_000;
+    let nsec = (now_ns % 1_000_000_000) as u32;
+    [
+        (secs >> 32) as u32,
+        (secs & 0xffff_ffff) as u32,
+        nsec,
+        refresh_ns,
+        (seq & 0xffff_ffff) as u32,
+        (seq >> 32) as u32,
+        0,
+    ]
+}
+
 /// Whether a surface contributes pixels to the physical output whose vblank
 /// paces this callback. The root toplevel owns workspace/minimize/occlusion
 /// visibility for its complete popup/subsurface tree. Protocol-owned overlay
@@ -2400,11 +2540,26 @@ fn cursor_surface_position(
 mod tests {
     use super::{
         BACKGROUND_FRAME_CALLBACK_INTERVAL_MS, background_frame_callback_due,
-        cursor_surface_position, surface_receives_output_frame_callback,
+        cursor_surface_position, presented_fields, surface_receives_output_frame_callback,
     };
     use tessera_desktop::transition::WindowTransition;
     use tessera_desktop::window::WindowId;
     use tessera_primitives::Point;
+
+    /// The presented event's two 64-bit values are split into high/low `uint`s
+    /// in wire order, the nanosecond remainder is preserved, and no capability
+    /// flag is claimed.
+    #[test]
+    fn presented_event_splits_timestamp_and_sequence() {
+        let now_ns = (0x1_0000_0002u64) * 1_000_000_000 + 123_456_789;
+        let seq = 0x3_0000_0004u64;
+        assert_eq!(
+            presented_fields(now_ns, 16_666_666, seq),
+            [1, 2, 123_456_789, 16_666_666, 4, 3, 0],
+        );
+        // The unknown-refresh and zero-sequence case stays a well-formed event.
+        assert_eq!(presented_fields(0, 0, 0), [0, 0, 0, 0, 0, 0, 0]);
+    }
 
     #[test]
     fn cursor_surface_override_preserves_trigger_position_and_hotspot() {

@@ -32,9 +32,9 @@ fn same_client_drag_delivers_drop_before_source_completion() {
         let client = ffi::wl_client_create(display, server_socket.into_raw_fd());
         assert!(!client.is_null());
         let _connection = Connection { display, client };
-        let source = ffi::wl_resource_create(client, &ffi::wl_data_source_interface, 3, 2);
-        let device = ffi::wl_resource_create(client, &ffi::wl_data_device_interface, 3, 3);
-        let offer = ffi::wl_resource_create(client, &ffi::wl_data_offer_interface, 3, 4);
+        let source = ffi::checked_resource_create(client, &ffi::wl_data_source_interface, 3, 2);
+        let device = ffi::checked_resource_create(client, &ffi::wl_data_device_interface, 3, 3);
+        let offer = ffi::checked_resource_create(client, &ffi::wl_data_offer_interface, 3, 4);
         assert!(!source.is_null() && !device.is_null() && !offer.is_null());
         let mut state = State::new(display);
         let mut offer_rec = DataOfferRec {

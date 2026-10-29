@@ -544,10 +544,12 @@ mod tests {
         );
 
         // 4. Live window switching
-        let mut test_win = Window::default();
-        test_win.id = WindowId(42);
-        test_win.app_id = Some("slack".to_string());
-        test_win.title = Some("Slack - Project Atrium".to_string());
+        let test_win = Window {
+            id: WindowId(42),
+            app_id: Some("slack".to_string()),
+            title: Some("Slack - Project Atrium".to_string()),
+            ..Default::default()
+        };
 
         let win_items = pivot.build_search_items("slack", &[test_win], &i18n);
         assert!(

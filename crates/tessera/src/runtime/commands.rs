@@ -148,19 +148,25 @@ pub(super) fn apply_command(
             app_id,
             external_id,
         } => {
-            let n = notif_queue.lock().unwrap().push_external(
-                summary.clone(),
-                body.clone(),
-                app_id.clone(),
-                external_id.clone(),
-                ts_mono_ms,
-            );
+            let n = notif_queue
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push_external(
+                    summary.clone(),
+                    body.clone(),
+                    app_id.clone(),
+                    external_id.clone(),
+                    ts_mono_ms,
+                );
             if let Some(s) = ipc.as_ref() {
                 s.broadcast(tessera_protocol::Event::Notified { notification: n });
             }
         }
         Command::DismissNotification { id } => {
-            notif_queue.lock().unwrap().dismiss(*id);
+            notif_queue
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .dismiss(*id);
         }
         Command::Quit => *quit = true,
     }
@@ -348,7 +354,7 @@ pub(super) fn journal_mutation_effect_and_broadcast(
     effect: tessera_protocol::Effect,
 ) -> tessera_protocol::JournalEntry {
     let effect = mutation.privacy_minimize_effect(effect);
-    let mut journal = journal.lock().unwrap();
+    let mut journal = journal.lock().unwrap_or_else(|e| e.into_inner());
     let entry = match journal.try_append(ts_mono_ms, origin, mutation, effect) {
         Ok(entry) => tessera_protocol::JournalEntry::from(entry),
         Err(error) => {
@@ -428,7 +434,10 @@ pub(super) fn apply_transact_batch(
     if server.session_locked() {
         return Err("session is locked".into());
     }
-    let before_seq = journal.lock().unwrap().latest_seq();
+    let before_seq = journal
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .latest_seq();
     if let Some(expected) = expected_journal_seq
         && expected != before_seq
     {
@@ -586,11 +595,22 @@ mod tests {
             ]
         );
         assert_eq!(
-            fixture.notifications.lock().unwrap().len(),
+            fixture
+                .notifications
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .len(),
             2,
             "both ops applied"
         );
-        assert_eq!(fixture.journal.lock().unwrap().latest_seq(), 2);
+        assert_eq!(
+            fixture
+                .journal
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .latest_seq(),
+            2
+        );
     }
 
     #[test]
@@ -634,12 +654,20 @@ mod tests {
             }
         );
         assert_eq!(
-            fixture.notifications.lock().unwrap().len(),
+            fixture
+                .notifications
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .len(),
             1,
             "a conflicting batch applies nothing further"
         );
         assert_eq!(
-            fixture.journal.lock().unwrap().latest_seq(),
+            fixture
+                .journal
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .latest_seq(),
             1,
             "a conflict journals nothing"
         );
@@ -683,7 +711,11 @@ mod tests {
             "the batch commits when every precondition holds: {result:?}"
         );
         assert_eq!(
-            fixture.notifications.lock().unwrap().len(),
+            fixture
+                .notifications
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .len(),
             2,
             "the fresh batch applied"
         );
