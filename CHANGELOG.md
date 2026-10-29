@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.80] - 2026-10-29
+
 ### Added
 - Adopted Optics `v0.0.62` and the compositor half of its display-locked
   presentation design (Optics ADR-0122): `tessera-wayland` now advertises
