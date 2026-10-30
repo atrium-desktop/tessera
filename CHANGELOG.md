@@ -14,6 +14,34 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.81] - 2026-10-30
+
+### Changed
+- Redesigned Control Center Quick Controls into a cohesive 3-row tile + 3-row fader Bento grid
+  with zero height overflow: Dark Mode and Do Not Disturb now render as high-density compact
+  quick toggle tiles (1 column wide each) with dynamic label ellipsizing, side-by-side with
+  an interactive expandable Cast tile.
+- Upgraded the Cast surface into a first-class expandable connectivity card with real-time
+  nearby display discovery (Miracast/WFD over iwd D-Bus), session status, and Connect/Disconnect
+  controls matching Wi-Fi and Bluetooth parity (ADR-0188, ADR-0192).
+- The collapsed autohide Dock capsule now hugs the screen edge instead of
+  floating at the expanded bar's 12 px offset. A 4 px stadium suspended 12 px
+  above the edge read as a stray artifact rather than the parked edge
+  affordance, so the collapsed gap is now 2 px
+  (`AUTOHIDE_HANDLE_EDGE_MARGIN`) and interpolates back to `DOCK_EDGE_MARGIN`
+  on the same eased progress the body morphs on — the Dock *lifts* off the edge
+  as it opens, and `reveal == 1.0` still lands exactly on
+  `panel_rect_for` geometry. Both endpoints are reproduced exactly, so no
+  frame of the morph jumps between two offsets.
+  The change is visual only. `collapsed_reveal_corridor` now owns the
+  pointer-reachable strip as an independent
+  (`AUTOHIDE_HANDLE_APPROACH_BAND`) contract rather than as a consequence of
+  the capsule's visual offset, so ADR-0146's dwell verification is unaffected
+  by how close to the edge the capsule sits. The compositor capture footprint
+  grows by the same tuck band, so no frame paints outside its own capture
+  ([ADR-0198](docs/adr/0198-collapsed-dock-capsule-hugs-its-edge-behind-an-independent-reveal-corridor.md),
+  ADR-0171, ADR-0180).
+
 ## [0.0.80] - 2026-10-29
 
 ### Added
