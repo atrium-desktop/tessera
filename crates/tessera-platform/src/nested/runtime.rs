@@ -39,6 +39,7 @@ impl NestedHost {
                 outputs: Vec::new(),
                 current_output: ptr::null_mut(),
                 scale: 1,
+                refresh_mhz: 0,
                 preferred_scale_120: 120,
                 fractional_active: false,
                 scale_changed: false,
@@ -342,7 +343,11 @@ impl Backend for NestedHost {
                 mode: tessera_desktop::output::OutputMode {
                     width: width as i32,
                     height: height as i32,
-                    refresh_mhz: 0,
+                    // The host output's real refresh, learned from
+                    // `wl_output.mode`. 0 means the host has not reported one
+                    // yet, which the domain derivation treats as "unknown"
+                    // rather than fabricating 60 Hz.
+                    refresh_mhz: self.state.refresh_mhz,
                 },
                 scale: tessera_desktop::output::Scale(self.scale()),
                 transform: tessera_primitives::Transform::Normal,

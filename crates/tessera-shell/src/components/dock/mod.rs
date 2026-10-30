@@ -39,16 +39,17 @@ pub(crate) use tessera_primitives::input::{KeyAction, KeyChar, key_action};
 
 pub use motion::{
     AUTOHIDE_CONTENT_DRAIN_END, AUTOHIDE_CONTENT_INTERACTION_MIN, AUTOHIDE_DWELL_THRESHOLD,
-    AUTOHIDE_HANDLE_HEIGHT, AUTOHIDE_HANDLE_WIDTH, AUTOHIDE_IDLE_TIMEOUT,
-    AUTOHIDE_QUICK_DISMISS_TIMEOUT, DOCK_BASELINE_INSET, DOCK_DOT, DOCK_DOT_STADIUM,
-    DOCK_EDGE_MARGIN, DOCK_PAD, DOCK_PANEL_HEIGHT, DOCK_REVEAL_SPRING, DOCK_SECTION_GAP,
-    DOCK_SPRING, DOCK_TILE, DOCK_TILE_BIRTH, DOCK_TILE_GAP, DOCK_TILE_MAX, DRAG_LIFT_SCALE,
-    DRAG_THRESHOLD, DockMotion, EDGE_DRAG_PROXIMITY, MAGNIFY_RADIUS_TILES, PREVIEW_ASPECT,
-    PREVIEW_CARD_GAP, PREVIEW_CARD_MAX_WIDTH, PREVIEW_CARD_MIN_WIDTH, PREVIEW_LABEL_HEIGHT,
-    PREVIEW_PANEL_GAP, PREVIEW_PANEL_PAD, PREVIEW_SCREEN_MARGIN, REVEAL_SETTLE_VALUE_EPS,
-    REVEAL_SETTLE_VELOCITY_EPS, SETTLED_DRAIN_FRAMES, SPRING_DAMPING, SPRING_OVERSHOOT_MARGIN,
-    SPRING_STIFFNESS, TOOLTIP_BAND, TOOLTIP_DWELL, TOOLTIP_FADE_SPEED, TOOLTIP_GAP, TOOLTIP_HEIGHT,
-    detect_cursor_retreat,
+    AUTOHIDE_HANDLE_APPROACH_BAND, AUTOHIDE_HANDLE_EDGE_MARGIN, AUTOHIDE_HANDLE_HEIGHT,
+    AUTOHIDE_HANDLE_WIDTH, AUTOHIDE_IDLE_TIMEOUT, AUTOHIDE_QUICK_DISMISS_TIMEOUT,
+    DOCK_BASELINE_INSET, DOCK_DOT, DOCK_DOT_STADIUM, DOCK_EDGE_MARGIN, DOCK_PAD, DOCK_PANEL_HEIGHT,
+    DOCK_REVEAL_SPRING, DOCK_SECTION_GAP, DOCK_SPRING, DOCK_TILE, DOCK_TILE_BIRTH, DOCK_TILE_GAP,
+    DOCK_TILE_MAX, DRAG_LIFT_SCALE, DRAG_THRESHOLD, DockMotion, EDGE_DRAG_PROXIMITY,
+    MAGNIFY_RADIUS_TILES, PREVIEW_ASPECT, PREVIEW_CARD_GAP, PREVIEW_CARD_MAX_WIDTH,
+    PREVIEW_CARD_MIN_WIDTH, PREVIEW_LABEL_HEIGHT, PREVIEW_PANEL_GAP, PREVIEW_PANEL_PAD,
+    PREVIEW_SCREEN_MARGIN, REVEAL_SETTLE_VALUE_EPS, REVEAL_SETTLE_VELOCITY_EPS,
+    SETTLED_DRAIN_FRAMES, SPRING_DAMPING, SPRING_OVERSHOOT_MARGIN, SPRING_STIFFNESS, TOOLTIP_BAND,
+    TOOLTIP_DWELL, TOOLTIP_FADE_SPEED, TOOLTIP_GAP, TOOLTIP_HEIGHT, detect_cursor_retreat,
+    edge_margin_for_surface_progress,
 };
 pub use state::{DockApp, DockState, DropSection, PressState, PressTarget};
 
@@ -447,6 +448,12 @@ impl Dock {
 
     #[inline]
     #[must_use]
+    pub fn collapsed_reveal_corridor(position: DockPosition, display: (f32, f32)) -> Rect {
+        DockState::collapsed_reveal_corridor(position, display)
+    }
+
+    #[inline]
+    #[must_use]
     pub fn collapsed_indicator_contains(
         position: DockPosition,
         cursor: (f32, f32),
@@ -654,6 +661,15 @@ impl Dock {
     }
 
     /// Animation-stable capture footprint of the panel's glass body.
+    ///
+    /// One envelope must contain every body the morph can produce: the widest
+    /// magnified strip *and* both edge offsets. The strip envelope stays
+    /// anchored at the expanded bar's float ([`DOCK_EDGE_MARGIN`]), so the
+    /// footprint extends toward the anchored edge until the collapsed capsule's
+    /// tuck ([`AUTOHIDE_HANDLE_EDGE_MARGIN`]) is covered too. Deriving it from
+    /// the two endpoints — never from the live reveal — keeps the compositor's
+    /// capture and damage stable across the whole animation (ADR-0171,
+    /// ADR-0180).
     #[must_use]
     pub fn capture_footprint(&self, display: (f32, f32)) -> Rect {
         let tiles = Self::frame_tiles(
@@ -670,7 +686,27 @@ impl Dock {
             + Self::section_extra(pinned_count, tiles.len());
         let max_len =
             tiles.len() as f32 * (DOCK_TILE_MAX * SPRING_OVERSHOOT_MARGIN) + gaps + 2.0 * DOCK_PAD;
-        Self::panel_rect_for(self.position, max_len.max(AUTOHIDE_HANDLE_WIDTH), display)
+        let panel =
+            Self::panel_rect_for(self.position, max_len.max(AUTOHIDE_HANDLE_WIDTH), display);
+        // The collapsed capsule sits `DOCK_EDGE_MARGIN - AUTOHIDE_HANDLE_EDGE_MARGIN`
+        // closer to the edge than the resting bar; grow the envelope by exactly
+        // that band so no morphed body ever paints outside its own capture.
+        let tuck = (DOCK_EDGE_MARGIN - AUTOHIDE_HANDLE_EDGE_MARGIN).max(0.0);
+        match self.position {
+            DockPosition::Bottom => Rect {
+                h: panel.h + tuck,
+                ..panel
+            },
+            DockPosition::Left => Rect {
+                x: panel.x - tuck,
+                w: panel.w + tuck,
+                ..panel
+            },
+            DockPosition::Right => Rect {
+                w: panel.w + tuck,
+                ..panel
+            },
+        }
     }
 
     /// Whether a visible window overlaps the resting dock rectangle.

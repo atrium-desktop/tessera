@@ -599,6 +599,8 @@ impl CompositorRuntime<'_> {
             detected.capture_streams = self.system_status.capture_streams;
             detected.virtual_displays = self.system_status.virtual_displays;
             detected.cast_streams = self.system_status.cast_streams;
+            detected.cast_devices = self.system_status.cast_devices.clone();
+            detected.cast_scanning = self.system_status.cast_scanning;
             let mut input_status = self.host.input_status();
             // The backend has no keyboard device model; the runtime owns the
             // persisted repeat profile.

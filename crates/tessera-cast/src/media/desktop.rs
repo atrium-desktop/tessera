@@ -49,12 +49,15 @@ pub struct DesktopCaptureSource {
 
 impl DesktopCaptureSource {
     /// Open a live desktop capture session.
-    pub fn open(fps: u32) -> Result<Self, DesktopCaptureError> {
-        eprintln!("requesting desktop screen capture permission via portal...");
+    pub fn open(fps: u32, virtual_source: bool) -> Result<Self, DesktopCaptureError> {
+        eprintln!(
+            "requesting desktop screen capture permission via portal (mode: {})...",
+            if virtual_source { "virtual extend output" } else { "mirroring" }
+        );
         let connection = zbus::blocking::Connection::session()
             .map_err(|err| DesktopCaptureError::Portal(PortalError::Bus(err)))?;
 
-        let session = ScreenCastSession::open(&connection)?;
+        let session = ScreenCastSession::open(&connection, virtual_source)?;
 
         let stream_info = session
             .streams

@@ -60,8 +60,8 @@ pub struct ScreenCastSession {
 }
 
 impl ScreenCastSession {
-    /// Open a new ScreenCast portal session requesting monitor capture.
-    pub fn open(connection: &Connection) -> Result<Self, PortalError> {
+    /// Open a new ScreenCast portal session requesting virtual display or monitor capture.
+    pub fn open(connection: &Connection, virtual_source: bool) -> Result<Self, PortalError> {
         let sender = connection
             .unique_name()
             .ok_or_else(|| PortalError::Protocol("connection has no unique name".into()))?
@@ -133,8 +133,17 @@ impl ScreenCastSession {
 
         let mut select_options: HashMap<&str, Value<'_>> = HashMap::new();
         select_options.insert("handle_token", Value::from(select_token.as_str()));
-        // Source type 1 = Monitor / Output
-        select_options.insert("types", Value::from(1u32));
+        // Query portal capability: prefer virtual extend output (4) if requested & supported,
+        // otherwise fall back to screen mirroring (1 = Monitor).
+        let available_types = screencast
+            .get_property::<u32>("AvailableSourceTypes")
+            .unwrap_or(1);
+        let requested_type = if virtual_source && (available_types & 4 != 0) {
+            4u32 // SOURCE_TYPE_VIRTUAL
+        } else {
+            1u32 // SOURCE_TYPE_MONITOR
+        };
+        select_options.insert("types", Value::from(requested_type));
         select_options.insert("multiple", Value::from(false));
         // Match the portal's AvailableCursorModes (2 = Embedded, 1 = Hidden)
         let cursor_modes = screencast

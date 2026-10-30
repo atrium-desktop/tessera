@@ -1,4 +1,5 @@
 use super::*;
+use tessera_wayland::PresentedSurfaces;
 
 const MAINTENANCE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 const FALLBACK_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_micros(16_667);
@@ -87,14 +88,19 @@ impl CompositorRuntime<'_> {
             if self.presentation.tick(now) {
                 if self.animating {
                     self.presentation.queue_redraw();
-                    let _ = self
-                        .server
-                        .send_frame_callbacks(self.start.elapsed().as_millis() as u32);
+                    // An estimated-vblank boundary drives the client's draw
+                    // clock, but no frame reached the display in this cycle.
+                    // `wl_callback.done` pace clients; only a real presented
+                    // frame may complete `wp_presentation_feedback`.
+                    let _ = self.server.send_frame_callbacks(
+                        self.start.elapsed().as_millis() as u32,
+                        PresentedSurfaces::Nothing,
+                    );
                 } else {
-                    let callbacks_sent = self
-                        .server
-                        .send_frame_callbacks(self.start.elapsed().as_millis() as u32)
-                        > 0;
+                    let callbacks_sent = self.server.send_frame_callbacks(
+                        self.start.elapsed().as_millis() as u32,
+                        PresentedSurfaces::Nothing,
+                    ) > 0;
                     let refresh_interval = self.presentation_interval();
                     self.presentation.callbacks_sent_at_estimated_vblank(
                         callbacks_sent,
@@ -217,12 +223,7 @@ impl CompositorRuntime<'_> {
         if cached_revision == revision {
             return cached;
         }
-        let interval = atomic_domain_interval(
-            self.server
-                .output_infos()
-                .into_iter()
-                .map(|output| output.geometry.mode.refresh_mhz),
-        );
+        let interval = presentation_domain_interval(self.server.output_infos().iter());
         self.cached_presentation_interval = (revision, interval);
         interval
     }
@@ -334,8 +335,12 @@ impl CompositorRuntime<'_> {
                     refresh_interval,
                 ),
                 PresentationOutcome::Retry => {
-                    // Fast retry for transient EBUSY / page-flip in flight: retry in 1ms rather than
-                    // skipping an entire refresh interval (which drops from 60fps to 30fps).
+                    // `Busy` means KMS still owns the previous batch. The
+                    // scheduler gates the retry on that batch retiring via
+                    // `reconcile_backend`, so exactly one fresh render follows
+                    // each real flip. The 1 ms floor only bounds a rejection
+                    // that owns no flip (`Inactive`, `Reconfigured`); it is not
+                    // a polling cadence.
                     self.presentation
                         .retry_at(now + std::time::Duration::from_millis(1))
                 }
@@ -352,16 +357,19 @@ impl CompositorRuntime<'_> {
     }
 }
 
-fn atomic_domain_interval(refresh_rates_mhz: impl IntoIterator<Item = u32>) -> std::time::Duration {
-    let slowest_refresh_mhz = refresh_rates_mhz
-        .into_iter()
-        .filter(|refresh| *refresh > 0)
-        .min();
-    slowest_refresh_mhz
-        .map(|refresh| {
-            // refresh is in millihertz: period_ns = 1e12 / refresh_mhz.
-            std::time::Duration::from_nanos(1_000_000_000_000 / u64::from(refresh))
-        })
+fn presentation_domain_interval<'a>(
+    outputs: impl IntoIterator<Item = &'a tessera_desktop::output::OutputInfo>,
+) -> std::time::Duration {
+    // One canonical derivation of *both* which outputs form the domain and the
+    // period they present at, shared with the `wp_presentation` feedback that
+    // clients pace against (`presentation_domain_period_ns`). Keeping a second
+    // copy here is how the compositor's cadence and its advertised refresh
+    // drifted apart — twice: once in the arithmetic (`min` vs `max`) and once
+    // in the input set (virtual outputs included only here).
+    // `FALLBACK_REFRESH_INTERVAL` is only the "no real rate" estimate for a
+    // nested/headless domain that owns no vblank.
+    tessera_desktop::output::presentation_domain_period_ns(outputs)
+        .map(std::time::Duration::from_nanos)
         .unwrap_or(FALLBACK_REFRESH_INTERVAL)
 }
 
@@ -384,18 +392,65 @@ fn submission_pacing_anchor(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tessera_desktop::output::{OutputGeometry, OutputInfo, OutputKind, OutputMode};
+
+    fn info(connector: &str, refresh_mhz: u32, kind: OutputKind) -> OutputInfo {
+        OutputInfo {
+            connector: connector.to_owned(),
+            geometry: OutputGeometry {
+                mode: OutputMode {
+                    width: 1920,
+                    height: 1080,
+                    refresh_mhz,
+                },
+                ..Default::default()
+            },
+            kind,
+            available_modes: Vec::new(),
+            color_caps: Default::default(),
+        }
+    }
 
     #[test]
     fn atomic_domain_is_paced_by_its_slowest_crtc() {
+        let outputs = [
+            info("DP-1", 120_000, OutputKind::External),
+            info("DP-2", 60_000, OutputKind::External),
+        ];
         assert_eq!(
-            atomic_domain_interval([120_000, 60_000]),
+            presentation_domain_interval(&outputs),
+            std::time::Duration::from_nanos(16_666_666)
+        );
+    }
+
+    #[test]
+    fn a_slow_virtual_output_never_paces_the_physical_domain() {
+        // The compositor's own cadence and the advertised `wp_presentation`
+        // refresh must agree, so both exclude virtual outputs. A 24 Hz virtual
+        // capture target on a 60 Hz panel presents at 60 Hz, not 24 Hz.
+        let outputs = [
+            info("eDP-1", 60_000, OutputKind::Internal),
+            info("VIRTUAL-1", 24_000, OutputKind::Virtual),
+        ];
+        assert_eq!(
+            presentation_domain_interval(&outputs),
             std::time::Duration::from_nanos(16_666_666)
         );
     }
 
     #[test]
     fn nested_domain_uses_a_sixty_hertz_estimate() {
-        assert_eq!(atomic_domain_interval([0]), FALLBACK_REFRESH_INTERVAL);
+        let outputs = [info("nested", 0, OutputKind::External)];
+        assert_eq!(
+            presentation_domain_interval(&outputs),
+            FALLBACK_REFRESH_INTERVAL
+        );
+        // A headless desktop driving only virtual outputs owns no vblank.
+        let virtual_only = [info("VIRTUAL-1", 60_000, OutputKind::Virtual)];
+        assert_eq!(
+            presentation_domain_interval(&virtual_only),
+            FALLBACK_REFRESH_INTERVAL
+        );
     }
 
     #[test]

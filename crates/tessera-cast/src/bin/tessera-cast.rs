@@ -503,8 +503,9 @@ fn run_cast(args: &[String]) -> ExitCode {
         .stream()
         .set_read_timeout(Some(std::time::Duration::from_millis(5)));
 
-    let (stats, mut transport) = if source_kind == "desktop" {
-        match tessera_cast::media::DesktopCaptureSource::open(fps) {
+    let (stats, mut transport) = if source_kind == "desktop" || source_kind == "virtual" || source_kind == "mirror" {
+        let is_virtual = source_kind != "mirror";
+        match tessera_cast::media::DesktopCaptureSource::open(fps, is_virtual) {
             Ok(desktop_source) => {
                 let res = desktop_source.resolution();
                 println!(

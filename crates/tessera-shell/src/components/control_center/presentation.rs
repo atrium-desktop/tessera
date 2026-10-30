@@ -11,6 +11,7 @@ pub(crate) use tessera_design::materials::{chrome_place, sized, transparent};
 
 mod bluetooth;
 mod canvas;
+mod cast;
 pub(super) mod clock;
 mod media;
 mod notifications;

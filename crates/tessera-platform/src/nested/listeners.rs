@@ -194,10 +194,10 @@ pub(super) unsafe extern "C" fn on_seat_name(
 ) {
 }
 
-// Host output listeners. We only care about `scale`: it drives the buffer
-// scale so a HiDPI host maps our pre-scaled buffer 1:1 instead of upscaling a
-// logical-sized one. `geometry`/`mode`/`done` are accepted (the vtable must be
-// complete) but ignored.
+// Host output listeners. `scale` drives the buffer scale so a HiDPI host maps
+// our pre-scaled buffer 1:1, and `mode` carries the refresh rate the outer
+// compositor presents at. `geometry`/`done` are accepted (the vtable must be
+// complete) but carry nothing the nested window needs.
 pub(super) unsafe extern "C" fn on_output_geometry(
     _data: *mut c_void,
     _output: *mut ffi::wl_proxy,
@@ -212,14 +212,40 @@ pub(super) unsafe extern "C" fn on_output_geometry(
 ) {
 }
 
+/// The refresh rate a `wl_output.mode` event should record, or `None` when the
+/// event must be ignored.
+///
+/// Only the `CURRENT` flag (bit 0) describes what the outer compositor is
+/// presenting right now; an enumerated alternative mode is a rate the inner
+/// desktop is not being presented at. `refresh` is in millihertz, matching
+/// `wl_output`'s convention and `OutputMode::refresh_mhz`, so it passes through
+/// unmodified. A non-positive rate is meaningless and is dropped rather than
+/// stored as a bogus cadence.
+fn adopted_refresh_mhz(flags: u32, refresh: i32) -> Option<u32> {
+    const WL_OUTPUT_MODE_CURRENT: u32 = 0x1;
+    (flags & WL_OUTPUT_MODE_CURRENT != 0 && refresh > 0).then_some(refresh as u32)
+}
+
+/// `wl_output.mode`: the host's current output mode.
+///
+/// This is the nested window's only source of truth for how fast the outer
+/// compositor presents. Ignoring it forced the inner desktop onto the
+/// hardcoded 60 Hz fallback, so a nested session on a 120/144 Hz host dropped
+/// frames against a cadence the host was not running (Optics ADR-0122,
+/// tessera ADR-0196).
 pub(super) unsafe extern "C" fn on_output_mode(
-    _data: *mut c_void,
+    data: *mut c_void,
     _output: *mut ffi::wl_proxy,
-    _flags: u32,
+    flags: u32,
     _width: i32,
     _height: i32,
-    _refresh: i32,
+    refresh: i32,
 ) {
+    let Some(mhz) = adopted_refresh_mhz(flags, refresh) else {
+        return;
+    };
+    let st = unsafe { &mut *(data as *mut State) };
+    st.refresh_mhz = mhz;
 }
 
 pub(super) unsafe extern "C" fn on_output_done(_data: *mut c_void, _output: *mut ffi::wl_proxy) {}
@@ -921,6 +947,20 @@ pub(super) static TEXT_INPUT_LISTENER: ffi::zwp_text_input_v3_listener =
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_current_mode_sets_the_nested_refresh_rate() {
+        // CURRENT = 0x1. A 144 Hz host must be adopted so the inner desktop
+        // paces and advertises 144 Hz instead of the 60 Hz fallback.
+        assert_eq!(adopted_refresh_mhz(0x1, 144_000), Some(144_000));
+        // An enumerated but not-current mode describes a rate the host is not
+        // presenting, so adopting it would name a cadence that never happens.
+        assert_eq!(adopted_refresh_mhz(0x0, 144_000), None);
+        assert_eq!(adopted_refresh_mhz(0x2, 144_000), None);
+        // A non-positive rate carries no timing and must not be stored.
+        assert_eq!(adopted_refresh_mhz(0x1, 0), None);
+        assert_eq!(adopted_refresh_mhz(0x1, -5), None);
+    }
 
     fn motion_parts(event: InputEvent) -> (f32, f32, f64, f64, f64, f64) {
         let InputEvent::PointerMotion {

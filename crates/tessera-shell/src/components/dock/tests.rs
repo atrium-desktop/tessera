@@ -559,9 +559,73 @@ fn dock_surface_morphs_between_panel_and_exact_handle_geometry() {
     assert_eq!(collapsed.h, AUTOHIDE_HANDLE_HEIGHT);
     assert_eq!(
         collapsed.y,
-        display.1 - DOCK_EDGE_MARGIN - AUTOHIDE_HANDLE_HEIGHT
+        display.1 - AUTOHIDE_HANDLE_EDGE_MARGIN - AUTOHIDE_HANDLE_HEIGHT
     );
-    assert_eq!(expanded.y + expanded.h, collapsed.y + collapsed.h);
+}
+
+#[test]
+fn collapsed_capsule_hugs_the_screen_edge_instead_of_floating_with_the_bar() {
+    let display = (1920.0, 1080.0);
+    let expanded_width = 320.0;
+    let expanded = Dock::collapsed_panel_rect(DockPosition::Bottom, display, expanded_width, 1.0);
+    let collapsed = Dock::collapsed_panel_rect(DockPosition::Bottom, display, expanded_width, 0.0);
+
+    // The capsule is the parked edge affordance, not a floating panel: it keeps
+    // only a hairline gap so the shadow still reads, and its whole band above
+    // the screen edge (gap + stadium) stays far below the bar's own float.
+    assert_eq!(
+        display.1 - (collapsed.y + collapsed.h),
+        AUTOHIDE_HANDLE_EDGE_MARGIN
+    );
+    const {
+        assert!(
+            AUTOHIDE_HANDLE_EDGE_MARGIN < DOCK_EDGE_MARGIN,
+            "the capsule must sit closer to the edge than the floating bar"
+        );
+    }
+    assert!(
+        display.1 - collapsed.y <= display.1 - (expanded.y + expanded.h) + AUTOHIDE_HANDLE_HEIGHT,
+        "the collapsed band must not inherit the bar's full edge margin"
+    );
+
+    // The tuck is continuous: the gap grows monotonically with the morph and
+    // lands exactly on the bar's float at full reveal, so the Dock lifts off
+    // the edge instead of jumping between two offsets.
+    let mut previous_bottom = f32::MAX;
+    for step in 0..=20 {
+        let reveal = step as f32 / 20.0;
+        let rect =
+            Dock::collapsed_panel_rect(DockPosition::Bottom, display, expanded_width, reveal);
+        let bottom = rect.y + rect.h;
+        assert!(
+            bottom <= previous_bottom + f32::EPSILON,
+            "the surface bottom must only rise toward the bar as reveal grows"
+        );
+        previous_bottom = bottom;
+        assert!(
+            bottom <= display.1 - AUTOHIDE_HANDLE_EDGE_MARGIN + f32::EPSILON
+                && bottom >= expanded.y + expanded.h - f32::EPSILON,
+            "every morph frame keeps its bottom between the capsule tuck and the bar float"
+        );
+    }
+    assert_eq!(previous_bottom, expanded.y + expanded.h);
+}
+
+#[test]
+fn edge_margin_interpolates_between_the_capsule_tuck_and_the_bar_float() {
+    assert_eq!(
+        edge_margin_for_surface_progress(0.0),
+        AUTOHIDE_HANDLE_EDGE_MARGIN
+    );
+    assert_eq!(edge_margin_for_surface_progress(1.0), DOCK_EDGE_MARGIN);
+    // Clamped so a spring overshoot cannot push the body past either endpoint.
+    assert_eq!(
+        edge_margin_for_surface_progress(-0.5),
+        AUTOHIDE_HANDLE_EDGE_MARGIN
+    );
+    assert_eq!(edge_margin_for_surface_progress(1.5), DOCK_EDGE_MARGIN);
+    let mid = edge_margin_for_surface_progress(0.5);
+    assert!(mid > AUTOHIDE_HANDLE_EDGE_MARGIN && mid < DOCK_EDGE_MARGIN);
 }
 
 #[test]
@@ -652,6 +716,7 @@ fn capsule_is_the_only_collapsed_reveal_target() {
     dock.set_autohide(true);
     dock.autohide_reveal = 0.0;
     let indicator = Dock::collapsed_indicator_bounds(DockPosition::Bottom, display);
+    let corridor = Dock::collapsed_reveal_corridor(DockPosition::Bottom, display);
     let workspaces = workspace_snapshot();
 
     assert!(dock.captures_pointer(
@@ -669,6 +734,16 @@ fn capsule_is_the_only_collapsed_reveal_target() {
         &[],
         &workspaces,
     ));
+    // The reveal corridor is deeper than the tucked visual capsule, so the
+    // reachable strip is unchanged even though the capsule moved to the edge.
+    assert!(corridor.y < indicator.y);
+    assert!(dock.captures_pointer(
+        indicator.x + indicator.w * 0.5,
+        corridor.y + 1.0,
+        display,
+        &[],
+        &workspaces,
+    ));
     // Points outside the corridor corridor (left, right, above, or distant bottom edge) remain client-owned:
     for point in [
         (indicator.x - 1.0, indicator.y + indicator.h * 0.5),
@@ -676,15 +751,53 @@ fn capsule_is_the_only_collapsed_reveal_target() {
             indicator.x + indicator.w + 1.0,
             indicator.y + indicator.h * 0.5,
         ),
-        (indicator.x + indicator.w * 0.5, indicator.y - 1.0),
+        (indicator.x + indicator.w * 0.5, corridor.y - 1.0),
         (indicator.x - 20.0, display.1 - 1.0),
         (indicator.x + indicator.w + 20.0, display.1 - 1.0),
     ] {
         assert!(
             !dock.captures_pointer(point.0, point.1, display, &[], &workspaces),
-            "point {point:?} outside the capsule must remain client-owned"
+            "point {point:?} outside the capsule corridor must remain client-owned"
         );
     }
+}
+
+#[test]
+fn tucked_capsule_keeps_its_reveal_corridor_deeper_than_the_capsule() {
+    let display = (1920.0, 1080.0);
+    let corridor = Dock::collapsed_reveal_corridor(DockPosition::Bottom, display);
+    let indicator = Dock::collapsed_indicator_bounds(DockPosition::Bottom, display);
+
+    // ADR-0146's dwell verification tests against this rectangle, so its depth
+    // is a first-class contract: the capsule can be summoned by reaching the
+    // bottom band, not by aiming at a 4 px stadium.
+    assert_eq!(display.1 - corridor.y, AUTOHIDE_HANDLE_APPROACH_BAND);
+    assert!(corridor.w >= indicator.w);
+    assert!(
+        corridor.y < indicator.y,
+        "the corridor is deeper than the capsule"
+    );
+    assert!(corridor.y + corridor.h <= display.1);
+    assert_eq!(corridor.x, indicator.x);
+    assert_eq!(corridor.w, indicator.w);
+
+    // It stays shallow enough to leave client content just above the parked
+    // Dock clickable — the trapping failure ADR-0146 exists to prevent.
+    const {
+        assert!(
+            AUTOHIDE_HANDLE_APPROACH_BAND < DOCK_PANEL_HEIGHT,
+            "the corridor must not span a resting bar's depth"
+        );
+    }
+
+    // Side docks get the same contract on their own axis, with the capsule's
+    // long axis preserved.
+    let left = Dock::collapsed_reveal_corridor(DockPosition::Left, display);
+    assert_eq!(left.w, AUTOHIDE_HANDLE_APPROACH_BAND);
+    assert_eq!(left.x, 0.0);
+    let right = Dock::collapsed_reveal_corridor(DockPosition::Right, display);
+    assert_eq!(right.x + right.w, display.0);
+    assert_eq!(right.w, AUTOHIDE_HANDLE_APPROACH_BAND);
 }
 
 #[test]
@@ -870,7 +983,18 @@ fn settled_maximized_collapse_keeps_the_capsule_composited() {
     assert_eq!(glass.len(), 1);
     let footprint = glass[0].capture_bounds.expect("panel declares a footprint");
     assert!(footprint.w >= AUTOHIDE_HANDLE_WIDTH);
-    assert_eq!(footprint.h, DOCK_PANEL_HEIGHT);
+    // The envelope spans from the bar's float down to the capsule's tuck, so
+    // no frame of the morph paints outside its own capture (ADR-0171).
+    let display = (1920.0, 1080.0);
+    assert_eq!(
+        footprint.h,
+        DOCK_PANEL_HEIGHT + (DOCK_EDGE_MARGIN - AUTOHIDE_HANDLE_EDGE_MARGIN)
+    );
+    assert_eq!(
+        footprint.y + footprint.h,
+        display.1 - AUTOHIDE_HANDLE_EDGE_MARGIN,
+        "the envelope must reach the collapsed capsule's edge tuck"
+    );
 }
 
 #[test]
@@ -1326,7 +1450,7 @@ fn side_dock_collapsed_geometry_anchors_to_its_edge() {
     assert_eq!(expanded.y, (display.1 - expanded_len) * 0.5);
 
     let collapsed = Dock::collapsed_panel_rect(DockPosition::Left, display, expanded_len, 0.0);
-    assert_eq!(collapsed.x, DOCK_EDGE_MARGIN);
+    assert_eq!(collapsed.x, AUTOHIDE_HANDLE_EDGE_MARGIN);
     assert_eq!(collapsed.w, AUTOHIDE_HANDLE_HEIGHT);
     assert_eq!(collapsed.h, AUTOHIDE_HANDLE_WIDTH);
     // The handle stays centred on the edge, like the bottom one.
@@ -1335,7 +1459,10 @@ fn side_dock_collapsed_geometry_anchors_to_its_edge() {
         display.1 * 0.5,
         "the side handle is centred vertically"
     );
-    assert_eq!(expanded.x, collapsed.x);
+    assert!(
+        collapsed.x < expanded.x,
+        "the tucked side handle sits closer to its edge than the floating bar"
+    );
 
     let right = Dock::collapsed_panel_rect(DockPosition::Right, display, expanded_len, 1.0);
     assert_eq!(right.x, display.0 - DOCK_EDGE_MARGIN - DOCK_PANEL_HEIGHT);
@@ -1343,8 +1470,9 @@ fn side_dock_collapsed_geometry_anchors_to_its_edge() {
         Dock::collapsed_panel_rect(DockPosition::Right, display, expanded_len, 0.0);
     assert_eq!(
         right_collapsed.x,
-        display.0 - DOCK_EDGE_MARGIN - AUTOHIDE_HANDLE_HEIGHT
+        display.0 - AUTOHIDE_HANDLE_EDGE_MARGIN - AUTOHIDE_HANDLE_HEIGHT
     );
+    assert!(right_collapsed.x > right.x);
 }
 
 #[test]

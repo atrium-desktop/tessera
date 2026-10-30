@@ -36,11 +36,13 @@ Surfaces:
 
 - **Quick Controls tab (first)** — the daily toggles: volume (+ mute),
   brightness, always-on (the session idle inhibitor), and do-not-disturb,
-  emitted as `SystemAction`s. The Wi-Fi and Bluetooth tiles sit at the top
-  of the Bento grid as expandable connectivity cards: each exposes a chevron
-  that opens an inline detail view (network/device list with scan, connect,
-  disconnect, and forget/pair actions) rooted in the daemon-neutral wireless
-  and Bluetooth subsystems (ADR-0162, ADR-0175).
+  emitted as `SystemAction`s. The Wi-Fi, Bluetooth, and Cast tiles sit on the
+  left of the Bento grid as expandable connectivity cards: each exposes a chevron
+  that opens an inline detail view (network/device/display list with scan, connect,
+  disconnect, and discovery actions) rooted in the daemon-neutral wireless,
+  Bluetooth, and casting subsystems (ADR-0162, ADR-0175, ADR-0188, ADR-0192).
+  Beside Cast, high-density compact quick action toggles provide instant switching
+  for Do Not Disturb and Dark Mode without wasting grid real estate.
 - **Settings module tabs** — one tab per available settings module
   (display, input, appearance, power), rendered from the registry inside
   the main panel; their `SettingsAction`s leave through

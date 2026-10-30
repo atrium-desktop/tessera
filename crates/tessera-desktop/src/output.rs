@@ -56,6 +56,64 @@ impl OutputKind {
     }
 }
 
+/// Presentation-period of one atomic display domain, in nanoseconds.
+///
+/// Tessera flips every active CRTC in a single atomic batch
+/// ([`crate::output`] union layout; per-output presentation domains are
+/// ADR-0185, a design that has not landed). The batch retires only when the
+/// *slowest* output's page flip lands, so the slowest refresh rate bounds
+/// how often the desktop can present — even the fastest output waits on the
+/// slowest one for the whole batch to retire.
+///
+/// Every consumer of refresh timing must use this single derivation so the
+/// compositor's *own* cadence (`PresentationScheduler`) and what it
+/// *advertises* to clients via `wp_presentation_feedback.refresh` can never
+/// disagree. Publishing a faster period than the domain actually presents
+/// (e.g. the single fastest panel instead of the slowest) makes a client pace
+/// to a cadence the compositor cannot honour, over-commit, and drop frames by
+/// construction (Optics ADR-0122 / tessera ADR-0196).
+///
+/// Returns `None` when no output reports a real (non-zero) refresh rate — the
+/// honest "unknown" answer for a nested/headless backend that owns no vblank.
+#[must_use]
+pub fn domain_refresh_period_ns(refresh_rates_mhz: impl IntoIterator<Item = u32>) -> Option<u64> {
+    // A zero rate means "unknown" and must not monopolize a real set.
+    let slowest_mhz = refresh_rates_mhz
+        .into_iter()
+        .filter(|rate| *rate > 0)
+        .min()?;
+    // refresh_mhz is millihertz: period_ns = 1e9 ns/s * 1e3 ms/s / mhz = 1e12 / mhz.
+    Some(1_000_000_000_000 / u64::from(slowest_mhz))
+}
+
+/// Presentation-period of the physical atomic display domain, in nanoseconds.
+///
+/// This is the single definition of *which* outputs form the presentation
+/// domain, paired with [`domain_refresh_period_ns`] as the single definition
+/// of the arithmetic. Both halves belong together because deriving them
+/// separately is how they drift: the compositor's scheduler once paced on
+/// every output while `wp_presentation` reported only physical ones, so a
+/// virtual output slower than the panel (e.g. a 24 Hz capture target) dragged
+/// the advertised cadence and the real one apart in opposite directions.
+///
+/// **Virtual outputs are excluded by construction.** They are headless stream
+/// targets rendered into per-output offscreen images (ADR-0186), never part of
+/// the DRM atomic batch, so they cannot bound when the desktop presents. Their
+/// own cadence is governed by stream `max_fps` pacing (ADR-0130), which forces
+/// a presentation independently. Counting them here would let a slow recording
+/// target throttle the physical desktop.
+#[must_use]
+pub fn presentation_domain_period_ns<'a>(
+    outputs: impl IntoIterator<Item = &'a OutputInfo>,
+) -> Option<u64> {
+    domain_refresh_period_ns(
+        outputs
+            .into_iter()
+            .filter(|output| output.kind.is_physical())
+            .map(|output| output.geometry.mode.refresh_mhz),
+    )
+}
+
 /// Prefix required on every human-domain virtual connector name (ADR-0186).
 pub const VIRTUAL_CONNECTOR_PREFIX: &str = "VIRTUAL-";
 /// Maximum byte length of a virtual connector identifier.
@@ -506,6 +564,80 @@ mod tests {
             height: h,
             refresh_mhz: 60000,
         }
+    }
+
+    #[test]
+    fn domain_refresh_period_is_bounded_by_the_slowest_output() {
+        // The atomic batch retires only when the slowest CRTC flips, so a
+        // 165 Hz + 60 Hz pair presents at 60 Hz. 1e12 / 60_000 = 16_666_666 ns.
+        assert_eq!(
+            domain_refresh_period_ns([165_000, 60_000]),
+            Some(16_666_666)
+        );
+        // A single output is its own slowest.
+        assert_eq!(domain_refresh_period_ns([60_000]), Some(16_666_666));
+        assert_eq!(domain_refresh_period_ns([144_000]), Some(6_944_444));
+    }
+
+    #[test]
+    fn domain_refresh_period_ignores_unknown_rates() {
+        // 0 is the "unknown" sentinel a nested/headless output reports; it must
+        // not win the `min` and fabricate a period.
+        assert_eq!(domain_refresh_period_ns([0, 60_000]), Some(16_666_666));
+        // With no real rate at all the honest answer is "unknown".
+        assert_eq!(domain_refresh_period_ns([0, 0]), None);
+        assert_eq!(domain_refresh_period_ns(std::iter::empty()), None);
+    }
+
+    fn info(connector: &str, refresh_mhz: u32, kind: OutputKind) -> OutputInfo {
+        OutputInfo {
+            connector: connector.to_owned(),
+            geometry: OutputGeometry {
+                mode: OutputMode {
+                    width: 1920,
+                    height: 1080,
+                    refresh_mhz,
+                },
+                ..Default::default()
+            },
+            kind,
+            available_modes: Vec::new(),
+            color_caps: Default::default(),
+        }
+    }
+
+    #[test]
+    fn presentation_domain_period_counts_physical_outputs_only() {
+        // A virtual output is a headless stream target, never part of the DRM
+        // atomic batch, so a slow recording target must not throttle the
+        // desktop: 60 Hz + 144 Hz physical, plus a 24 Hz virtual, presents at
+        // the slowest *physical* rate (60 Hz), not 24 Hz.
+        let outputs = [
+            info("eDP-1", 60_000, OutputKind::Internal),
+            info("DP-1", 144_000, OutputKind::External),
+            info("VIRTUAL-1", 24_000, OutputKind::Virtual),
+        ];
+        assert_eq!(
+            presentation_domain_period_ns(&outputs),
+            Some(16_666_666),
+            "a 24 Hz virtual output must not drag the physical domain to 24 Hz"
+        );
+
+        // Physical-only inputs still resolve through the slowest panel.
+        let physical_only = [
+            info("DP-1", 165_000, OutputKind::External),
+            info("DP-2", 60_000, OutputKind::External),
+        ];
+        assert_eq!(
+            presentation_domain_period_ns(&physical_only),
+            Some(16_666_666)
+        );
+
+        // No physical output at all (a headless desktop driving only virtual
+        // outputs) has no vblank, so the honest answer is "unknown".
+        let virtual_only = [info("VIRTUAL-1", 60_000, OutputKind::Virtual)];
+        assert_eq!(presentation_domain_period_ns(&virtual_only), None);
+        assert_eq!(presentation_domain_period_ns(&[]), None);
     }
 
     #[test]

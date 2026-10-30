@@ -1,5 +1,48 @@
 use crate::*;
 
+/// What a frame actually put on the display, for presentation bookkeeping.
+///
+/// `wp_presentation_feedback.presented` and `[INV-ARCH-84]` require that a
+/// surface be reported presented *only* from a frame that sampled it. Most
+/// frames do not sample every surface: a cursor-plane-only commit redraws
+/// nothing, and a no-damage cycle renders no frame at all. Making that
+/// distinction a type rather than a `bool` keeps every call site honest —
+/// "no frame reached the display" cannot be silently spelled the same way as
+/// "this frame drew everything".
+#[derive(Clone, Copy)]
+pub enum PresentedSurfaces<'a> {
+    /// The frame sampled exactly these surface ids. `drew_preview_sources`
+    /// means it also drew surfaces outside them (overview thumbnails, the
+    /// window switcher's live cards, the workspace rail's miniatures), so the
+    /// caller cannot enumerate the set and the conservative fallback applies.
+    Sampled {
+        ids: &'a [usize],
+        drew_preview_sources: bool,
+    },
+    /// A frame reached the display and rendered the whole presentation-visible
+    /// scene for this target, but the caller cannot enumerate which surface
+    /// resource ids it drew (per-output offscreen stream capture).
+    All,
+    /// No frame reached the display in this cycle. Queued presentation
+    /// feedback must stay queued — it resolves on the next frame that does
+    /// sample the surface, or as `discarded` when the surface goes away.
+    Nothing,
+}
+
+impl PresentedSurfaces<'_> {
+    /// The explicitly sampled id set, or `None` when the fallback applies.
+    fn enumerated(&self) -> Option<(&[usize], bool)> {
+        match self {
+            Self::Sampled {
+                ids,
+                drew_preview_sources,
+            } => Some((ids, *drew_preview_sources)),
+            Self::All => Some((&[], true)),
+            Self::Nothing => None,
+        }
+    }
+}
+
 /// Hidden surfaces retain a low-rate callback heartbeat so clients which use
 /// frame callbacks for housekeeping do not stall forever.  The value mirrors
 /// the established compositor practice of roughly one callback per second,
@@ -747,7 +790,10 @@ impl Server {
         let occluded = self.occluded_window_ids_with(&visible);
         // A frame streamed offscreen still presents the surfaces it samples;
         // their presentation feedback completes with it (ADR-0122, ADR-0186).
-        self.complete_presentation_feedback(&visible, &occluded, false);
+        // Per-output capture builds a fresh frame list for this connector, so
+        // the caller cannot name the individual ids; `All` is the conservative
+        // "this frame rendered the connector's whole scene" claim.
+        self.complete_presentation_feedback(&visible, &occluded, false, PresentedSurfaces::All);
         let transition_now_ms = self.now_ms();
         let mut sent = 0;
         for &p in &self.state.surfaces {
@@ -2138,35 +2184,43 @@ impl Server {
         }
     }
 
-    /// Refresh interval in nanoseconds for `wp_presentation_feedback`, derived
-    /// from the fastest physical output's mode. 0 is the protocol's "unknown",
-    /// which is the honest answer for a nested backend that owns no vblank.
+    /// Refresh interval in nanoseconds for `wp_presentation_feedback`.
+    ///
+    /// This must be the period the presentation domain *actually* presents at,
+    /// which is the slowest output of the atomic batch
+    /// ([`tessera_desktop::output::presentation_domain_period_ns`]) — the same
+    /// derivation the compositor's own redraw cadence uses. Reporting the
+    /// fastest panel's period instead would advertise a cadence the
+    /// compositor cannot honour on a mixed-refresh desktop, so a client would
+    /// over-commit and drop frames by construction (Optics ADR-0122,
+    /// tessera ADR-0196, `[INV-ARCH-85]`).
+    ///
+    /// 0 is the protocol's "unknown", the honest answer for a nested backend
+    /// that owns no vblank.
     fn presentation_refresh_ns(&self) -> u32 {
-        let mhz = self
-            .state
-            .physical_outputs
-            .iter()
-            .map(|output| output.geometry.mode.refresh_mhz)
-            .max()
-            .unwrap_or(0);
-        if mhz == 0 {
-            return 0;
-        }
-        // `refresh` is a period in nanoseconds; `refresh_mhz` is a frequency in
-        // millihertz, so period_ns = 1e12 / mhz.
-        (1_000_000_000_000u64 / u64::from(mhz)).min(u64::from(u32::MAX)) as u32
+        tessera_desktop::output::presentation_domain_period_ns(&self.state.physical_outputs)
+            .map_or(0, |period| period.min(u64::from(u32::MAX)) as u32)
     }
 
     /// Complete every `wp_presentation_feedback` queued on a surface whose frame
     /// just reached the display (ADR-0122). Feedback for surfaces the presented
     /// frame did not sample stays queued until it is presented or the surface is
     /// destroyed: a client must never be told about a frame it did not see.
+    ///
+    /// [`PresentedSurfaces::Nothing`] completes nothing. A cursor-plane-only
+    /// commit or a no-damage cycle drives no frame that samples client
+    /// content, so reporting `presented` there would fabricate a presentation
+    /// timestamp for a frame that never existed (`[INV-ARCH-84]`).
     fn complete_presentation_feedback(
         &mut self,
         visible: &std::collections::HashSet<tessera_desktop::window::WindowId>,
         occluded: &std::collections::HashSet<tessera_desktop::window::WindowId>,
         session_locked: bool,
+        presented: PresentedSurfaces<'_>,
     ) -> usize {
+        if matches!(presented, PresentedSurfaces::Nothing) {
+            return 0;
+        }
         if !extensions::presentation_feedback_pending(&self.state) {
             return 0;
         }
@@ -2176,6 +2230,7 @@ impl Server {
         let refresh_ns = self.presentation_refresh_ns();
         let seq = self.state.presentation_seq;
         let transition_now_ms = self.now_ms();
+        let sampled = presented.enumerated();
         let mut completed = 0usize;
         for &p in &self.state.surfaces {
             if p.is_null() {
@@ -2195,6 +2250,14 @@ impl Server {
                 )
             };
             if !output_visible {
+                continue;
+            }
+            if let Some((ids, drew_preview_sources)) = sampled
+                && !drew_preview_sources
+                && !ids.contains(&(rec.resource as usize))
+            {
+                // This frame reached the display but did not sample this
+                // surface, so its first content frame is still ahead of it.
                 continue;
             }
             let pending = std::mem::take(&mut rec.presentation_feedback);
@@ -2234,13 +2297,17 @@ impl Server {
     /// continues producing buffers and waking the compositor even though none
     /// of those pixels can reach the output. `time_ms` is a millisecond
     /// timestamp from a monotonic clock.
-    pub fn send_frame_callbacks(&mut self, time_ms: u32) -> usize {
+    pub fn send_frame_callbacks(
+        &mut self,
+        time_ms: u32,
+        presented: PresentedSurfaces<'_>,
+    ) -> usize {
         let visible = self.visible();
         let occluded = self.occluded_window_ids();
         let session_locked = self.state.session_lock_phase.is_active();
         // Presentation feedback shares the frame-callback completion point: both
         // report the frame that just reached the display (ADR-0122).
-        self.complete_presentation_feedback(&visible, &occluded, session_locked);
+        self.complete_presentation_feedback(&visible, &occluded, session_locked, presented);
         let transition_now_ms = self.now_ms();
         let background_due =
             background_frame_callback_due(time_ms, self.state.last_background_frame_callback_ms);
@@ -2539,7 +2606,7 @@ fn cursor_surface_position(
 #[cfg(test)]
 mod tests {
     use super::{
-        BACKGROUND_FRAME_CALLBACK_INTERVAL_MS, background_frame_callback_due,
+        BACKGROUND_FRAME_CALLBACK_INTERVAL_MS, PresentedSurfaces, background_frame_callback_due,
         cursor_surface_position, presented_fields, surface_receives_output_frame_callback,
     };
     use tessera_desktop::transition::WindowTransition;
@@ -2582,6 +2649,61 @@ mod tests {
         let previous = u32::MAX - 200;
         assert!(!background_frame_callback_due(700, previous));
         assert!(background_frame_callback_due(800, previous));
+    }
+
+    #[test]
+    fn nothing_presented_enumerates_no_surface() {
+        // [INV-ARCH-84]: a cursor-only commit or a no-damage cycle drives no
+        // frame that samples client content, so it must complete no
+        // `wp_presentation_feedback` at all. `enumerated() == None` is what
+        // makes `complete_presentation_feedback` skip every surface.
+        assert!(PresentedSurfaces::Nothing.enumerated().is_none());
+    }
+
+    #[test]
+    fn sampled_presentation_completes_only_the_sampled_surfaces() {
+        // Two surfaces, a resource id base and a sampled set naming only the
+        // first. The predicate must complete the first and leave the second
+        // queued: reporting `presented` for a surface the frame never sampled
+        // would fabricate a presentation timestamp.
+        let base = std::ptr::dangling_mut::<crate::ffi::wl_resource>() as usize;
+        let first = base;
+        let second = base + 0x40;
+        let ids = [first];
+
+        let sampled = PresentedSurfaces::Sampled {
+            ids: &ids,
+            drew_preview_sources: false,
+        };
+        let (enumerated, preview_sources) = sampled.enumerated().expect("sampled is enumerated");
+        assert!(!preview_sources);
+        assert!(enumerated.contains(&first), "the sampled surface completes");
+        assert!(
+            !enumerated.contains(&second),
+            "an unsampled surface must stay queued, not be reported presented"
+        );
+    }
+
+    #[test]
+    fn preview_sources_force_the_conservative_all_surfaces_fallback() {
+        // A frame that drew overview thumbnails or switcher cards sampled
+        // surfaces the caller cannot enumerate, so every visible surface
+        // completes rather than stranding the ones outside the id list.
+        let ids = [0usize];
+        let sampled = PresentedSurfaces::Sampled {
+            ids: &ids,
+            drew_preview_sources: true,
+        };
+        let (_, preview_sources) = sampled.enumerated().expect("sampled is enumerated");
+        assert!(
+            preview_sources,
+            "drew_preview_sources must disable the id filter"
+        );
+        // `All` reports the same conservative answer without naming ids.
+        let (all_ids, all_preview) = PresentedSurfaces::All
+            .enumerated()
+            .expect("All is enumerated");
+        assert!(all_preview && all_ids.is_empty());
     }
 
     #[test]

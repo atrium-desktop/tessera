@@ -12,9 +12,10 @@ use tessera_desktop::dock::DockPosition;
 use tessera_desktop::window::{SpaceUse, Window};
 
 use super::motion::{
-    AUTOHIDE_DWELL_THRESHOLD, AUTOHIDE_HANDLE_HEIGHT, AUTOHIDE_HANDLE_WIDTH, AUTOHIDE_IDLE_TIMEOUT,
-    DOCK_EDGE_MARGIN, DOCK_PAD, DOCK_PANEL_HEIGHT, DOCK_SECTION_GAP, DOCK_TILE, DOCK_TILE_GAP,
-    DRAG_THRESHOLD, EDGE_DRAG_PROXIMITY, collapse_surface_progress,
+    AUTOHIDE_DWELL_THRESHOLD, AUTOHIDE_HANDLE_APPROACH_BAND, AUTOHIDE_HANDLE_HEIGHT,
+    AUTOHIDE_HANDLE_WIDTH, AUTOHIDE_IDLE_TIMEOUT, DOCK_EDGE_MARGIN, DOCK_PAD, DOCK_PANEL_HEIGHT,
+    DOCK_SECTION_GAP, DOCK_TILE, DOCK_TILE_GAP, DRAG_THRESHOLD, EDGE_DRAG_PROXIMITY,
+    collapse_surface_progress, edge_margin_for_surface_progress,
 };
 
 /// One application pinned to the dock: the launchable entry plus the lowercased
@@ -300,6 +301,12 @@ impl DockState {
     }
 
     /// Geometric bounding box for the collapsed panel handle.
+    ///
+    /// One rectangle describes the whole morph: the stadium handle at
+    /// `reveal = 0.0`, the resting bar at `reveal = 1.0`. Length, thickness and
+    /// the edge gap all interpolate on the same eased progress, so the capsule
+    /// sits *on* its screen edge when collapsed and lifts to the bar's floating
+    /// offset as it opens. Every endpoint matches [`Self::panel_rect_for`].
     #[must_use]
     pub fn collapsed_panel_rect(
         position: DockPosition,
@@ -311,21 +318,22 @@ impl DockState {
         let len = AUTOHIDE_HANDLE_WIDTH + (expanded_len - AUTOHIDE_HANDLE_WIDTH) * progress;
         let thick =
             AUTOHIDE_HANDLE_HEIGHT + (DOCK_PANEL_HEIGHT - AUTOHIDE_HANDLE_HEIGHT) * progress;
+        let margin = edge_margin_for_surface_progress(progress);
         match position {
             DockPosition::Bottom => Rect {
                 x: (display.0 - len) * 0.5,
-                y: display.1 - DOCK_EDGE_MARGIN - thick,
+                y: display.1 - margin - thick,
                 w: len,
                 h: thick,
             },
             DockPosition::Left => Rect {
-                x: DOCK_EDGE_MARGIN,
+                x: margin,
                 y: (display.1 - len) * 0.5,
                 w: thick,
                 h: len,
             },
             DockPosition::Right => Rect {
-                x: display.0 - DOCK_EDGE_MARGIN - thick,
+                x: display.0 - margin - thick,
                 y: (display.1 - len) * 0.5,
                 w: thick,
                 h: len,
@@ -334,38 +342,89 @@ impl DockState {
     }
 
     /// Bounding box of the collapsed stadium indicator at rest.
+    ///
+    /// The *visual* capsule, hugging its anchored edge
+    /// ([`AUTOHIDE_HANDLE_EDGE_MARGIN`]). Hit-testing uses the deeper
+    /// [`Self::collapsed_reveal_corridor`] instead, so the capsule can be
+    /// tucked against the edge without shrinking the strip a pointer must
+    /// reach.
     #[inline]
     #[must_use]
     pub fn collapsed_indicator_bounds(position: DockPosition, display: (f32, f32)) -> Rect {
         Self::collapsed_panel_rect(position, display, AUTOHIDE_HANDLE_WIDTH, 0.0)
     }
 
-    /// Whether `cursor` is inside the collapsed stadium indicator.
+    /// Pointer-reachable reveal corridor owned by the collapsed capsule.
+    ///
+    /// Same span along the edge as the visible stadium, but
+    /// [`AUTOHIDE_HANDLE_APPROACH_BAND`] deep instead of merely as deep as the
+    /// tucked capsule. This is the rectangle ADR-0146's dwell verification
+    /// tests against: keeping it independent of the capsule's visual offset is
+    /// what lets the capsule hug the screen edge without becoming a harder
+    /// target.
+    #[must_use]
+    pub fn collapsed_reveal_corridor(position: DockPosition, display: (f32, f32)) -> Rect {
+        let visual = Self::collapsed_indicator_bounds(position, display);
+        match position {
+            // The corridor grows along the edge *normal* only — never from the
+            // capsule's long axis, which would inflate a bottom corridor to the
+            // handle's full 140 px width.
+            DockPosition::Bottom => {
+                let band = AUTOHIDE_HANDLE_APPROACH_BAND.max(visual.h);
+                Rect {
+                    y: display.1 - band,
+                    w: visual.w,
+                    h: band,
+                    ..visual
+                }
+            }
+            DockPosition::Left => {
+                let band = AUTOHIDE_HANDLE_APPROACH_BAND.max(visual.w);
+                Rect {
+                    x: 0.0,
+                    w: band,
+                    h: visual.h,
+                    ..visual
+                }
+            }
+            DockPosition::Right => {
+                let band = AUTOHIDE_HANDLE_APPROACH_BAND.max(visual.w);
+                Rect {
+                    x: display.0 - band,
+                    w: band,
+                    h: visual.h,
+                    ..visual
+                }
+            }
+        }
+    }
+
+    /// Whether `cursor` is inside the collapsed reveal corridor.
     #[must_use]
     pub fn collapsed_indicator_contains(
         position: DockPosition,
         cursor: (f32, f32),
         display: (f32, f32),
     ) -> bool {
-        let indicator = Self::collapsed_indicator_bounds(position, display);
+        let corridor = Self::collapsed_reveal_corridor(position, display);
         match position {
             DockPosition::Bottom => {
-                cursor.0 >= indicator.x
-                    && cursor.0 < indicator.x + indicator.w
-                    && cursor.1 >= indicator.y
+                cursor.0 >= corridor.x
+                    && cursor.0 < corridor.x + corridor.w
+                    && cursor.1 >= corridor.y
                     && cursor.1 < display.1
             }
             DockPosition::Left => {
                 cursor.0 >= 0.0
-                    && cursor.0 < indicator.x + indicator.w
-                    && cursor.1 >= indicator.y
-                    && cursor.1 < indicator.y + indicator.h
+                    && cursor.0 < corridor.x + corridor.w
+                    && cursor.1 >= corridor.y
+                    && cursor.1 < corridor.y + corridor.h
             }
             DockPosition::Right => {
-                cursor.0 >= indicator.x
+                cursor.0 >= corridor.x
                     && cursor.0 < display.0
-                    && cursor.1 >= indicator.y
-                    && cursor.1 < indicator.y + indicator.h
+                    && cursor.1 >= corridor.y
+                    && cursor.1 < corridor.y + corridor.h
             }
         }
     }

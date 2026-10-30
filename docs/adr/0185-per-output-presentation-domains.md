@@ -53,8 +53,11 @@ follow that the existing direct-scanout work cannot route around:
 2. **The slowest output paces every output.** One atomic batch flips all CRTCs,
    and the domain is released only when the last one retires. A 165 Hz primary
    beside a 60 Hz secondary is capped at 60 Hz, for the game and for the
-   desktop. `atomic_domain_interval` already takes the minimum refresh, which
-   documents the same coupling.
+   desktop. Both the runtime scheduler and the advertised
+   `wp_presentation_feedback.refresh` derive their period from the slowest CRTC
+   through `tessera_desktop::output::presentation_domain_period_ns`
+   (`[INV-ARCH-86]`), which documents the same coupling; this ADR parameterises
+   that derivation per output.
 3. **The composite cost scales with the union.** A frame caused by one output
    clears and renders the entire desktop, and `FB_DAMAGE_CLIPS` saves KMS
    bandwidth but not GPU writes.

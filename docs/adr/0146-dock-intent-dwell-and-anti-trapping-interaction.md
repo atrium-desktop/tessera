@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-06-18
+- Amended by: [ADR-0198](0198-collapsed-dock-capsule-hugs-its-edge-behind-an-independent-reveal-corridor.md) — the collapsed capsule's visual edge gap is now independent of the reveal corridor's depth, so the capsule hugs its screen edge without shrinking the strip this record's dwell verification depends on.
 
 ## Context
 

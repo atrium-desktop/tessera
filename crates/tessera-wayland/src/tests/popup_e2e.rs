@@ -151,8 +151,12 @@ fn pump(server: &mut Server, iterations: usize) {
     for _ in 0..iterations {
         server.dispatch();
         // Emulate the presented frame: clients (Qt especially) stop painting
-        // entirely when frame callbacks stall.
-        server.send_frame_callbacks(server.now_ms() as u32);
+        // entirely when frame callbacks stall. The probe presents the whole
+        // scene, so it claims `All` rather than a fabricated empty set.
+        server.send_frame_callbacks(
+            server.now_ms() as u32,
+            crate::server::PresentedSurfaces::All,
+        );
         server.presentation_complete();
         std::thread::sleep(std::time::Duration::from_millis(2));
     }

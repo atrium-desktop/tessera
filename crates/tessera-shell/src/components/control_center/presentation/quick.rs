@@ -22,6 +22,10 @@ impl ControlCenter {
             self.render_bluetooth_detail_view(f, area, i18n, out);
             return;
         }
+        if self.cast_expanded {
+            self.render_cast_detail_view(f, area, i18n, out);
+            return;
+        }
 
         let hud = self.panel_colors();
         let type_scale = self.design.typography;
@@ -29,6 +33,7 @@ impl ControlCenter {
         let status = self.status.clone();
         let tile_gap = 10.0;
         let tile_w = ((area.w - tile_gap) * 0.5).max(1.0);
+        let col_w = ((area.w - 3.0 * tile_gap) / 4.0).max(1.0);
         let tile_h = 58.0;
         let bento_h = tile_h * 2.0 + tile_gap;
         // Fader card height, derived from the fader's own content: a 24px title
@@ -95,6 +100,7 @@ impl ControlCenter {
                                 if wifi_expand {
                                     self.wifi_expanded = true;
                                     self.bluetooth_expanded = false;
+                                    self.cast_expanded = false;
                                     out.system_actions.push(SystemAction::ScanWifi);
                                 }
 
@@ -129,19 +135,46 @@ impl ControlCenter {
                                 }
                                 if bt_expand {
                                     self.bluetooth_expanded = true;
+                                    self.wifi_expanded = false;
+                                    self.cast_expanded = false;
                                     out.system_actions.push(SystemAction::ScanBluetooth);
                                 }
 
-                                // Do Not Disturb (2 cols x 1 row)
+                                // Cast status & interactive discovery (2 cols x 1 row, ADR-0188 / ADR-0192)
                                 f.col_span(2);
-                                if render_quick_toggle_tile(
+                                let cast_active =
+                                    status.cast_streams > 0 || status.virtual_displays > 0;
+                                let cast_sub = Self::cast_tile_subtitle(&status, i18n);
+                                let (cast_toggle, cast_expand) =
+                                    render_expandable_quick_toggle_tile(
+                                        f,
+                                        "tessera-hud-quick-cast",
+                                        i18n.text(Message::Cast),
+                                        &cast_sub,
+                                        lens::sys::lens_icon_id::LENS_ICON_MONITOR,
+                                        cast_active,
+                                        (tile_w, tile_h),
+                                        hud,
+                                        type_scale,
+                                    );
+                                if cast_toggle || cast_expand {
+                                    self.cast_expanded = true;
+                                    self.cast_scanning = true;
+                                    self.wifi_expanded = false;
+                                    self.bluetooth_expanded = false;
+                                    out.system_actions.push(SystemAction::ScanCast);
+                                }
+
+                                // Do Not Disturb (1 col x 1 row) - Modern compact quick toggle
+                                f.col_span(1);
+                                if render_compact_quick_toggle_tile(
                                     f,
                                     "tessera-hud-quick-dnd",
                                     i18n.text(Message::DoNotDisturb),
-                                    dnd_sub,
+                                    Some(dnd_sub),
                                     lens::sys::lens_icon_id::LENS_ICON_BELL,
                                     dnd_active,
-                                    (tile_w, tile_h),
+                                    (col_w, tile_h),
                                     hud,
                                     type_scale,
                                 ) {
@@ -150,20 +183,20 @@ impl ControlCenter {
                                     });
                                 }
 
-                                // Dark Mode (2 cols x 1 row)
-                                f.col_span(2);
-                                if render_quick_toggle_tile(
+                                // Dark Mode (1 col x 1 row) - Modern compact quick toggle
+                                f.col_span(1);
+                                if render_compact_quick_toggle_tile(
                                     f,
                                     "tessera-hud-quick-dark-mode",
                                     "Dark Mode",
-                                    dark_sub,
+                                    Some(dark_sub),
                                     if dark_active {
                                         lens::sys::lens_icon_id::LENS_ICON_MOON
                                     } else {
                                         lens::sys::lens_icon_id::LENS_ICON_SUN
                                     },
                                     dark_active,
-                                    (tile_w, tile_h),
+                                    (col_w, tile_h),
                                     hud,
                                     type_scale,
                                 ) {
@@ -182,28 +215,6 @@ impl ControlCenter {
                                         SettingsAction::SetDesktopPreferences { preferences },
                                     ));
                                 }
-
-                                // Cast status (2 cols x 1 row, ADR-0188). A
-                                // read-only status tile: it reports live
-                                // extended displays and casting streams but
-                                // offers no control until a casting service
-                                // exists. Discovery and pairing are out of
-                                // process and not yet built, so a toggle here
-                                // would be a dead button.
-                                f.col_span(2);
-                                let cast_active =
-                                    status.cast_streams > 0 || status.virtual_displays > 0;
-                                let cast_sub = Self::cast_tile_subtitle(&status, i18n);
-                                render_status_tile(
-                                    f,
-                                    i18n.text(Message::Cast),
-                                    &cast_sub,
-                                    lens::sys::lens_icon_id::LENS_ICON_MONITOR,
-                                    cast_active,
-                                    (tile_w, tile_h),
-                                    hud,
-                                    type_scale,
-                                );
 
                                 // Display Brightness (4 cols x 1 row)
                                 f.col_span(4);

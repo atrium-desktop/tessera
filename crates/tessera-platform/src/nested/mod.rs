@@ -87,6 +87,12 @@ struct State {
     current_output: *mut ffi::wl_proxy,
     /// Effective integer buffer scale (>= 1) for the current output.
     scale: i32,
+    /// Refresh rate in millihertz advertised by the host output's
+    /// `wl_output.mode`, or 0 before the host has reported one. This is the
+    /// nested window's only source of truth for how fast the *outer*
+    /// compositor presents, so the inner desktop must pace and publish from it
+    /// instead of assuming 60 Hz (Optics ADR-0122, tessera ADR-0196).
+    refresh_mhz: u32,
     /// Preferred surface scale in 120ths, supplied by
     /// `wp_fractional_scale_v1`. Used only while `fractional_active` is true.
     preferred_scale_120: u32,

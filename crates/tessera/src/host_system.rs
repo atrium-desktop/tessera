@@ -357,6 +357,8 @@ impl HostSystem for MockHostSystem {
             capture_streams: 0,
             virtual_displays: 0,
             cast_streams: 0,
+            cast_devices: Vec::new(),
+            cast_scanning: false,
         }
     }
 
@@ -414,6 +416,8 @@ fn detect_system_status() -> SystemStatus {
         capture_streams: 0,
         virtual_displays: 0,
         cast_streams: 0,
+        cast_devices: Vec::new(),
+        cast_scanning: false,
     }
 }
 
@@ -459,6 +463,8 @@ fn detect_system_status_lightweight(
         capture_streams: 0,
         virtual_displays: 0,
         cast_streams: 0,
+        cast_devices: Vec::new(),
+        cast_scanning: false,
     }
 }
 

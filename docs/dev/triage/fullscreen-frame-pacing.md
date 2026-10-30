@@ -257,6 +257,23 @@ commits every CRTC in one atomic batch.
   second output) on every frame. Direct scanout is unreachable, not unlikely.
 - **Failure Mode (pacing)**: The batch retires only when the slowest CRTC flips,
   so a 165 Hz primary beside a 60 Hz secondary presents at 60 Hz.
+- **Failure Mode (feedback drift)**: A client learns its cadence from
+  `wp_presentation_feedback.refresh`. If that reports the *fastest* panel while
+  the batch presents at the slowest, the client paces to a cadence the
+  compositor never delivers and drops frames by construction. Both the
+  compositor's own scheduler and the advertised refresh must therefore come
+  from `tessera_desktop::output::presentation_domain_period_ns`
+  (`[INV-ARCH-86]`), which is bounded by the slowest *physical* CRTC of the
+  batch and excludes virtual outputs. This was a real defect in the Optics
+  v0.0.62 adoption (twice over: `max` vs `min`, then mismatched output sets)
+  and is now fixed; it is recorded here because a future divergence is the same
+  bug.
+- **Failure Mode (fabricated presentation)**: `send_frame_callbacks` both paces
+  clients and completes `wp_presentation_feedback`. A cursor-plane-only commit
+  and a no-damage cycle render no frame, so completing `presented` there tells
+  every visible client its frame reached the display when nothing did
+  (`[INV-ARCH-84]`). Pass `PresentedSurfaces::Nothing` on those paths and the
+  sampled resource ids on real presents.
 - **Do not** apply a partial fix (per-output plane assignment without per-plane
   framebuffer reference counting): the `current`/`retiring` pair is sound only
   because all CRTCs flip together, and a partial commit destroys that argument.

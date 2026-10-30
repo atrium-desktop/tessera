@@ -42,9 +42,18 @@ one ownership unit. The current direct backend has one host-wide domain
 because one atomic commit spans every active CRTC.
 
 The lifecycle distinguishes idle, queued, synchronous rendering, waiting for
-a real vblank, waiting for an estimated vblank, and unavailable presentation.
-Starting a render consumes the queued edge. Submission, no-damage completion,
-and retry are legal only as outcomes of that render transaction.
+a real vblank, waiting for an estimated vblank, retrying a transiently
+rejected submission, and unavailable presentation. Starting a render consumes
+the queued edge. Submission, no-damage completion, and retry are legal only as
+outcomes of that render transaction.
+
+A transiently rejected submission (`EBUSY`: KMS still owns the previous batch)
+parks in the retrying state, which is gated on that batch *retiring* — the flip
+completion promotes it to queued, so exactly one fresh render follows each real
+vblank. A retry floor bounds only a rejection that owns no flip (`Inactive`,
+`Reconfigured`, a lost event). The state must never be re-entered on a polling
+cadence: an earlier 1 ms retry re-composited the entire frame roughly fifteen
+times per vblank, and every copy was rejected again.
 
 Backend event dispatch remains live while a DRM batch is in flight. Input,
 Wayland commits, session events, and hotplug continue to run and accumulate

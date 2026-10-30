@@ -48,9 +48,12 @@ enum PresentationState {
         redraw_queued: bool,
     },
     /// A transient backend rejection (EBUSY: KMS still owns the previous
-    /// batch) parks the retry until the next estimated vblank. Retrying
-    /// immediately would spin the loop on zero-timeout waits, rendering
-    /// full frames back-to-back for a commit that cannot land yet.
+    /// batch). The retry is gated on *that batch retiring*, not on a timer:
+    /// the backend's flip completion promotes this to `Queued`, so exactly one
+    /// fresh render happens per real vblank. A short `not_before` floor bounds
+    /// the pathological case where no flip is pending at all (a rejection from
+    /// `Inactive`/`Reconfigured`), and `not_before` is also the last-resort
+    /// deadline when the flip event is lost.
     Retrying { not_before: Instant },
     /// Presentation is unavailable, with the reason retained so losing the
     /// backend after output power-off still invalidates the input epoch.
@@ -129,13 +132,22 @@ impl PresentationScheduler {
         if presentation_pending {
             return;
         }
-        if let PresentationState::WaitingForVblank { redraw_queued, .. } = self.state {
-            self.state = if redraw_queued {
-                PresentationState::Queued
-            } else {
-                PresentationState::Idle
-            };
-        }
+        self.state = match self.state {
+            PresentationState::WaitingForVblank { redraw_queued, .. } => {
+                if redraw_queued {
+                    PresentationState::Queued
+                } else {
+                    PresentationState::Idle
+                }
+            }
+            // A rejected commit (EBUSY) was waiting for the batch that owned
+            // scanout to retire. That batch just retired, so re-render now:
+            // this is the event that replaces the old 1 ms polling retry, which
+            // re-composited the whole frame ~15 times per vblank only for each
+            // copy to be rejected again.
+            PresentationState::Retrying { .. } => PresentationState::Queued,
+            other => other,
+        };
     }
 
     /// Advance an estimated-vblank timer.
@@ -372,7 +384,15 @@ impl PresentationScheduler {
                 panic!("event wait requested during a render transaction")
             }
             PresentationState::Retrying { not_before } => {
-                not_before.saturating_duration_since(now).min(idle_timeout)
+                // The retry is gated on the owning batch retiring, and the card
+                // fd is in the backend's poll set, so the flip event itself
+                // wakes the loop. Block up to the watchdog the way
+                // `WaitingForVblank` does instead of polling every millisecond:
+                // that poll is what used to drive a full re-render per tick.
+                // `not_before` still bounds a rejection that owns no flip
+                // (`Inactive`, `Reconfigured`, a lost event).
+                let until_floor = not_before.saturating_duration_since(now);
+                until_floor.max(PRESENTATION_WATCHDOG).min(idle_timeout)
             }
             PresentationState::WaitingForEstimatedVblank { deadline, .. } => {
                 deadline.saturating_duration_since(now).min(idle_timeout)
@@ -548,24 +568,52 @@ mod tests {
     }
 
     #[test]
-    fn a_transient_rejection_parks_the_retry_until_the_next_vblank() {
+    fn a_transient_rejection_blocks_on_the_flip_event_not_a_poll() {
         let now = Instant::now();
         let mut state = PresentationScheduler::new();
         state.begin_redraw();
         state.retry_at(now + FRAME);
 
-        // No zero-timeout spin: the loop waits out the estimated vblank,
-        // and fresh damage is absorbed by the parked retry.
+        // A parked retry must not spin. The wait is far longer than the retry
+        // floor because the loop blocks on the backend's flip event (the card
+        // fd is in the poll set); polling every millisecond is what drove a
+        // full re-composite per tick, each one rejected again.
         assert!(!state.can_redraw());
-        assert_eq!(state.wait_timeout(Duration::from_secs(1), now), FRAME);
+        let wait = state.wait_timeout(Duration::from_secs(30), now);
+        assert!(
+            wait >= PRESENTATION_WATCHDOG,
+            "a parked retry blocks on the flip event, got {wait:?}"
+        );
+
+        // Fresh damage is absorbed by the parked retry rather than opening a
+        // second render transaction.
         state.queue_redraw();
         assert!(!state.can_redraw());
 
-        assert!(!state.tick(now + FRAME - Duration::from_nanos(1)));
-        assert!(!state.can_redraw());
-        assert!(!state.tick(now + FRAME));
+        // The owning batch retiring is what re-opens the gate — one fresh
+        // render per real vblank, not one per poll.
+        state.reconcile_backend(false);
         assert!(state.can_redraw());
         state.begin_redraw();
+    }
+
+    #[test]
+    fn a_parked_retry_waits_until_the_owning_batch_retires() {
+        let now = Instant::now();
+        let mut state = PresentationScheduler::new();
+        state.begin_redraw();
+        state.retry_at(now + FRAME);
+
+        // Still owned: nothing to re-render yet.
+        state.reconcile_backend(true);
+        assert!(!state.can_redraw());
+
+        // The floor alone also makes progress when the rejection owned no flip
+        // at all (`Inactive`, `Reconfigured`, a lost event).
+        assert!(!state.tick(now + FRAME - Duration::from_nanos(1)));
+        assert!(!state.can_redraw());
+        state.tick(now + FRAME);
+        assert!(state.can_redraw());
     }
 
     #[test]

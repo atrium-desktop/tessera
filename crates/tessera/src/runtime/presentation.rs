@@ -1,4 +1,5 @@
 use super::*;
+use tessera_wayland::PresentedSurfaces;
 
 // The render transaction outcome is a scheduler-domain value owned by
 // `tessera-presentation`; the transaction itself stays here because it is
@@ -302,8 +303,13 @@ impl CompositorRuntime<'_> {
         if cursor_only_eligible {
             match self.host.present_cursor() {
                 Ok(()) => {
-                    self.server
-                        .send_frame_callbacks(self.start.elapsed().as_millis() as u32);
+                    // A cursor-plane commit redraws no client content: it must
+                    // pace clients via `wl_callback.done` without claiming any
+                    // surface was presented.
+                    self.server.send_frame_callbacks(
+                        self.start.elapsed().as_millis() as u32,
+                        PresentedSurfaces::Nothing,
+                    );
                     self.damage.last_present_minute = Some(wall_clock_minute());
                     self.damage.last_presented_cursor = Some((cursor_shape, cursor_hidden));
                     self.damage.last_presented_cursor_position = Some(cursor_position);
@@ -357,10 +363,10 @@ impl CompositorRuntime<'_> {
             // arriving before that boundary remain pending instead of
             // forcing empty composites.
             let callbacks_sent = self.presentation.frame_callbacks_allowed()
-                && self
-                    .server
-                    .send_frame_callbacks(self.start.elapsed().as_millis() as u32)
-                    > 0;
+                && self.server.send_frame_callbacks(
+                    self.start.elapsed().as_millis() as u32,
+                    PresentedSurfaces::Nothing,
+                ) > 0;
             self.renderer.gc(self.server.live_surface_ids());
             self.renderer.begin_frame();
             return Ok(PresentationOutcome::NoDamage { callbacks_sent });
@@ -427,8 +433,13 @@ impl CompositorRuntime<'_> {
                             completion_fence.as_ref().map(AsRawFd::as_raw_fd),
                         );
                     }
-                    self.server
-                        .send_frame_callbacks(self.start.elapsed().as_millis() as u32);
+                    self.server.send_frame_callbacks(
+                        self.start.elapsed().as_millis() as u32,
+                        PresentedSurfaces::Sampled {
+                            ids: &sampled_surface_ids,
+                            drew_preview_sources: false,
+                        },
+                    );
                     self.damage.last_present_minute = Some(wall_clock_minute());
                     self.damage.last_presented_cursor = Some((cursor_shape, cursor_hidden));
                     self.damage.last_presented_cursor_position = Some(cursor_position);
@@ -2638,9 +2649,16 @@ impl CompositorRuntime<'_> {
                     }
                 }
 
-                // Pace clients: fire frame callbacks for this presentation.
-                self.server
-                    .send_frame_callbacks(self.start.elapsed().as_millis() as u32);
+                // Pace clients: fire frame callbacks for this presentation and
+                // complete `wp_presentation_feedback` for exactly the surfaces
+                // this frame sampled (ADR-0122, `[INV-ARCH-84]`).
+                self.server.send_frame_callbacks(
+                    self.start.elapsed().as_millis() as u32,
+                    PresentedSurfaces::Sampled {
+                        ids: &sampled_surface_ids,
+                        drew_preview_sources,
+                    },
+                );
 
                 // The frame landed: re-anchor the present-side damage
                 // baselines (clock minute, cursor, post-resize full redraw).

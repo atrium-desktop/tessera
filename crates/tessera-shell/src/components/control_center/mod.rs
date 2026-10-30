@@ -368,6 +368,10 @@ pub struct ControlCenter {
     /// Bluetooth detail view open (ADR-0175). Mutually exclusive with the
     /// Wi-Fi detail view: the quick-controls body hosts one at a time.
     pub(super) bluetooth_expanded: bool,
+    /// Wireless display / Cast detail view open (ADR-0188, ADR-0192). Mutually
+    /// exclusive with the Wi-Fi and Bluetooth detail views.
+    pub(super) cast_expanded: bool,
+    pub(super) cast_scanning: bool,
 }
 
 pub type CommandPanel = ControlCenter;
@@ -564,6 +568,8 @@ impl ControlCenter {
             wifi_input_ssid: None,
             wifi_input_passphrase: String::new(),
             bluetooth_expanded: false,
+            cast_expanded: false,
+            cast_scanning: false,
         }
     }
 
@@ -630,6 +636,8 @@ impl ControlCenter {
             wifi_input_ssid: None,
             wifi_input_passphrase: String::new(),
             bluetooth_expanded: false,
+            cast_expanded: false,
+            cast_scanning: false,
         }
     }
 
@@ -875,6 +883,8 @@ impl ControlCenter {
         self.wifi_expanded = false;
         self.wifi_input_ssid = None;
         self.bluetooth_expanded = false;
+        self.cast_expanded = false;
+        self.cast_scanning = false;
         self.tray_overflow_open = false;
         if let Some(key) = self.menu_open_for.take() {
             self.menu_path.clear();
@@ -889,6 +899,8 @@ impl ControlCenter {
             self.wifi_expanded = false;
             self.wifi_input_ssid = None;
             self.bluetooth_expanded = false;
+            self.cast_expanded = false;
+            self.cast_scanning = false;
             // A tab switch drops an open tray popover even though the tray
             // itself stays visible in the side column, matching the old
             // section-switch semantics.
@@ -1370,8 +1382,8 @@ impl Chrome for ControlCenter {
             return;
         }
         // Escape peels the innermost surface first: an open tray menu, then
-        // the tray's overflow disclosure popover, then an expanded Wi-Fi or
-        // Bluetooth view, then the panel itself.
+        // the tray's overflow disclosure popover, then an expanded Wi-Fi,
+        // Bluetooth, or Cast view, then the panel itself.
         if let Some(key) = self.menu_open_for.clone() {
             self.close_menu(key);
         } else if self.tray_overflow_open {
@@ -1381,6 +1393,9 @@ impl Chrome for ControlCenter {
             self.wifi_input_ssid = None;
         } else if self.bluetooth_expanded {
             self.bluetooth_expanded = false;
+        } else if self.cast_expanded {
+            self.cast_expanded = false;
+            self.cast_scanning = false;
         } else {
             self.close();
         }

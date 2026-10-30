@@ -781,8 +781,11 @@ fn animated_frames_localize_damage_to_the_moving_bands() {
     assert!(union.size.w < full.size.w && union.size.h < full.size.h);
 }
 
+static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn the_tray_shelf_discloses_overflow_instead_of_hiding_it() {
+    let _env_guard = TEST_ENV_LOCK.lock().unwrap();
     // [INV-CHROME-04]: overflow is disclosed by a trailing `+N` cell, never
     // hidden behind a scroll or a page turn. This exercises the whole render
     // path: the disclosure cell must exist, be clickable, and open a popover
@@ -1036,6 +1039,7 @@ fn clicking_the_disclosure_cell_opens_the_overflow_popover() {
 
 #[test]
 fn tray_cells_are_clickable_and_open_their_menu() {
+    let _env_guard = TEST_ENV_LOCK.lock().unwrap();
     // Regression: the tray hover/open plate used to be a sibling `place()`
     // overlay drawn after the icon column. An ABS node in the Chrome band
     // occludes every flow widget inside its subtree for hit-testing, so the
@@ -1295,16 +1299,60 @@ fn bluetooth_collapsed_and_expanded_state_lifecycle() {
 
 #[test]
 fn bluetooth_and_wifi_detail_views_are_mutually_exclusive() {
-    // The quick-controls body hosts one detail view at a time; opening either
-    // tile's chevron clears the other.
+    // The quick-controls body hosts one detail view at a time; opening any
+    // tile's chevron clears the others.
     let mut panel = CommandPanel::without_sources();
     panel.open = true;
 
     panel.wifi_expanded = true;
     panel.select_tab(Tab::Settings(ModuleId::new("display")));
-    // A tab switch clears both (the tile is not visible on a settings tab).
+    // A tab switch clears all (the tiles are not visible on a settings tab).
     assert!(!panel.wifi_expanded);
     assert!(!panel.bluetooth_expanded);
+    assert!(!panel.cast_expanded);
+}
+
+#[test]
+fn cast_collapsed_and_expanded_state_lifecycle() {
+    let mut panel = CommandPanel::without_sources();
+    let mut out = ChromeEvents::default();
+
+    panel.toggle_command_panel(&mut out);
+    assert!(panel.open);
+    assert!(!panel.cast_expanded);
+
+    // Expand Cast
+    panel.cast_expanded = true;
+    assert!(panel.cast_expanded);
+
+    // Closing the panel collapses the detail view.
+    panel.close();
+    assert!(!panel.open);
+    assert!(!panel.cast_expanded);
+}
+
+#[test]
+fn cast_escape_peels_expanded_view_first() {
+    let mut panel = CommandPanel::without_sources();
+    let mut out = ChromeEvents::default();
+
+    panel.open = true;
+    panel.cast_expanded = true;
+
+    let kc = |keysym| KeyChar {
+        keysym,
+        ch: None,
+        mods: tessera_primitives::input::Mods(0),
+    };
+
+    // First escape collapses the Cast detail, leaves the panel open.
+    panel.key_char(&kc(tessera_primitives::input::XKB_KEY_Escape), &mut out);
+    assert!(panel.open);
+    assert!(!panel.cast_expanded);
+
+    // Second escape closes the panel.
+    panel.key_char(&kc(tessera_primitives::input::XKB_KEY_Escape), &mut out);
+    assert!(!panel.open);
 }
 
 #[test]
@@ -1348,6 +1396,24 @@ fn bluetooth_detail_actions_validate() {
         address: "AC:12:34:56:78:9A".to_string(),
     });
     assert_eq!(out.system_actions.len(), 5);
+    assert!(
+        out.system_actions
+            .iter()
+            .all(|action| action.validate().is_ok())
+    );
+}
+
+#[test]
+fn cast_detail_actions_validate() {
+    let mut out = ChromeEvents::default();
+    out.system_actions.push(SystemAction::ScanCast);
+    out.system_actions.push(SystemAction::ConnectCast {
+        address: "192.168.1.100:7236".to_string(),
+    });
+    out.system_actions.push(SystemAction::DisconnectCast {
+        address: "192.168.1.100:7236".to_string(),
+    });
+    assert_eq!(out.system_actions.len(), 3);
     assert!(
         out.system_actions
             .iter()

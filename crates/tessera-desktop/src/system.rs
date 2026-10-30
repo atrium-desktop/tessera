@@ -112,6 +112,22 @@ pub struct BluetoothDevice {
     pub trusted: bool,
 }
 
+/// One observed wireless display sink (Miracast / WFD / AirPlay) (ADR-0188, ADR-0192).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CastDevice {
+    /// Transport device address or endpoint path (e.g. MAC address or P2P object path).
+    pub address: String,
+    /// Human-readable display name (e.g. "Living Room TV", "Conference Room Display").
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub name: String,
+    /// Protocol summary (e.g. "Miracast", "Wi-Fi Display").
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub protocol: String,
+    /// True while an active casting stream to this device is up.
+    pub connected: bool,
+}
+
 /// Battery state read from the host power service.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -246,6 +262,13 @@ pub struct SystemStatus {
     /// ADR-0188). Compositor-owned like `capture_streams`.
     #[cfg_attr(feature = "serde", serde(default))]
     pub cast_streams: u32,
+    /// Known and discovered wireless display sinks (Miracast / WFD / AirPlay)
+    /// (ADR-0188, ADR-0192).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub cast_devices: Vec<CastDevice>,
+    /// True while an active wireless display discovery pass is underway.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub cast_scanning: bool,
 }
 
 /// Machine form factor, for chrome that adapts its presentation.
@@ -362,6 +385,16 @@ pub enum SystemAction {
     SetDoNotDisturb {
         enabled: bool,
     },
+    /// Request an active wireless display discovery scan (ADR-0188, ADR-0192).
+    ScanCast,
+    /// Initiate a connection to a wireless display sink by address (ADR-0188, ADR-0192).
+    ConnectCast {
+        address: String,
+    },
+    /// Disconnect from an active wireless display stream by address (ADR-0188, ADR-0192).
+    DisconnectCast {
+        address: String,
+    },
     /// Enable or disable physical scanout without changing the output
     /// topology. Used by the trusted idle policy after the session lock has
     /// been compositor-confirmed.
@@ -418,6 +451,11 @@ impl SystemAction {
                 if address.trim().is_empty() =>
             {
                 Err("bluetooth address cannot be empty")
+            }
+            Self::ConnectCast { address } | Self::DisconnectCast { address }
+                if address.trim().is_empty() =>
+            {
+                Err("cast address cannot be empty")
             }
             _ => Ok(()),
         }
