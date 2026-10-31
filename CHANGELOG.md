@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.83] - 2026-10-31
+
 ### Added
 - **Realtime compositor scheduling.** A new `tessera-sched` crate and a
   `[compositor]` config table protect the frame loop from CPU starvation under
