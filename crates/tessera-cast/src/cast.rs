@@ -1,17 +1,19 @@
 //! The casting use cases.
 //!
-//! Only the handshake is implemented, and it is named for what it does: it drives
-//! M1–M7 against a sink and reports how far it got. Media (encode, mux, transmit)
-//! is not implemented, so nothing here claims to cast
-//! ([ADR-0192](../docs/adr/0192-first-party-miracast-caster.md) §8).
+//! Miracast's control plane is sink-driven: the **source is the RTSP server**,
+//! the sink connects to it, and the sink sends the first `OPTIONS`. [`accept`]
+//! waits for that connection and [`handshake_as_server`] serves the exchange.
+//! [`handshake`] (source speaks first) exists only for the scripted diagnostics
+//! that invert the roles; it is not the protocol.
 //!
-//! Separating the handshake is not a stepping stone for its own sake: a sink
-//! accepting M1–M7 is the first thing that has ever been unverifiable offline, and
-//! it is also where the untested spec assumptions (parameter bitfields, ordering)
-//! are actually decided.
+//! Separating the server loop from the protocol core is not ceremony: the
+//! direction is where implementations silently diverge, and a sink that is
+//! waiting to speak first deadlocks against a source that insists on opening.
 
 use std::io::{Read, Write};
-use std::time::Instant;
+use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use crate::wfd::rtsp::{Method, RtspMessage, StartLine};
 use crate::wfd::session::{Effect, WfdSourceSession};
@@ -32,6 +34,106 @@ pub enum Drain {
     /// a read timeout. Silence is not an error here: it means the sink is waiting
     /// for media, which is the normal state after `PLAY`.
     UntilQuiet(usize),
+}
+
+/// Which peer opens the RTSP exchange.
+///
+/// Miracast documents the **sink** as the RTSP client: the source listens, the
+/// sink connects and sends the first `OPTIONS`. [`Opening::Source`] is the
+/// scripted diagnostic that inverts only who speaks first.
+/// [`Opening::Initiator`] is the source-driven compatibility path: the sink
+/// connects, answers the source's `OPTIONS`, and then waits for the source to
+/// drive `GET_PARAMETER`/`SET_PARAMETER`/trigger. An Android 9 sink
+/// (`stagefright/1.2`) was observed timing out after 30 s when the source only
+/// answered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Opening {
+    /// The source sends `OPTIONS` and then waits. Diagnostic only.
+    Source,
+    /// The sink connects and speaks first. Miracast's documented direction.
+    Sink,
+    /// The sink connected; the source drives the exchange and triggers in M5.
+    Initiator,
+}
+
+/// How far the source-driven exchange has progressed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InitiatorPhase {
+    /// Waiting for the sink's `200` to our opening `OPTIONS`.
+    AwaitingOptionsReply,
+    /// Sent M3 `GET_PARAMETER`; waiting for M4.
+    AwaitingM4,
+    /// Sent M5 `SET_PARAMETER`; the sink now drives the trigger/`SETUP`.
+    AwaitingM6,
+    /// M5 is acknowledged; the sink's trigger and `SETUP` follow.
+    Done,
+}
+
+/// Why accepting the sink's connection did not produce a stream.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AcceptError {
+    /// No sink connected before the deadline.
+    Timeout,
+    /// The session owner asked to stop while waiting.
+    Stopped,
+    /// The listener could not accept.
+    Io(String),
+}
+
+impl std::fmt::Display for AcceptError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Timeout => formatter
+                .write_str("no sink connected to the source's RTSP port before the deadline"),
+            Self::Stopped => {
+                formatter.write_str("the session was stopped while waiting for a sink")
+            }
+            Self::Io(reason) => write!(formatter, "accept failed: {reason}"),
+        }
+    }
+}
+
+impl std::error::Error for AcceptError {}
+
+/// Wait for the sink to open the RTSP connection this source is serving.
+///
+/// The listener is polled rather than left blocking so the caller's deadline is
+/// authoritative; a sink that never connects is a named outcome, not a hang.
+pub fn accept(listener: &TcpListener, deadline: Instant) -> Result<TcpStream, AcceptError> {
+    accept_until(listener, deadline, None)
+}
+
+/// [`accept`] with an owner-supplied stop flag, so a service can cancel a
+/// pending session without killing a process.
+pub fn accept_until(
+    listener: &TcpListener,
+    deadline: Instant,
+    stop: Option<&AtomicBool>,
+) -> Result<TcpStream, AcceptError> {
+    listener
+        .set_nonblocking(true)
+        .map_err(|error| AcceptError::Io(error.to_string()))?;
+    loop {
+        if stop.is_some_and(|stop| stop.load(Ordering::Relaxed)) {
+            return Err(AcceptError::Stopped);
+        }
+        match listener.accept() {
+            Ok((stream, _)) => {
+                stream
+                    .set_nonblocking(false)
+                    .map_err(|error| AcceptError::Io(error.to_string()))?;
+                return Ok(stream);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if Instant::now() >= deadline {
+                    return Err(AcceptError::Timeout);
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(AcceptError::Io(error.to_string())),
+        }
+    }
 }
 
 /// How a handshake ended.
@@ -87,45 +189,131 @@ impl HandshakeOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CastError {
     Transport(TransportError),
+    /// The session could not build a message it must send (for example an
+    /// unserializable parameter body).
+    Session(String),
 }
 
 impl std::fmt::Display for CastError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Transport(error) => write!(formatter, "{error}"),
+            Self::Session(reason) => write!(formatter, "session: {reason}"),
         }
     }
 }
 
 impl std::error::Error for CastError {}
 
-/// Drive the WFD handshake over an already-connected transport.
+/// Drive the WFD handshake over an already-connected transport, with the source
+/// speaking first.
 ///
-/// The loop is lock-step and bounded three ways — a deadline, a message budget,
-/// and the peer going quiet — because each failure has a different meaning:
-/// silence is a network or sink problem, a budget overrun is a peer that talks
-/// without concluding, and a deadline is the operator's patience.
+/// This inverts Miracast's direction and exists only for the scripted-sink
+/// diagnostics and their tests. Production uses [`handshake_as_server`].
 pub fn handshake<S: Read + Write>(
-    mut transport: RtspTransport<S>,
+    transport: RtspTransport<S>,
     session: &mut WfdSourceSession,
     deadline: Instant,
     message_budget: usize,
     drain: Drain,
 ) -> Result<(HandshakeOutcome, RtspTransport<S>), CastError> {
-    // A source opens with `OPTIONS` carrying the WFD requirement, unless the sink
-    // spoke first. Sending it unconditionally is what the nominal M1/M2 pair
-    // describes, and a permissive sink answers it either way.
-    let opening = RtspMessage::request(Method::Options, "*", 0, Vec::new());
-    transport.send(&opening).map_err(CastError::Transport)?;
-    // Recorded as outbound: routing it through `on_message` would have labelled
-    // our own message as the sink's, which is exactly the confusion a trace
-    // exists to prevent.
-    session.note_outbound(
-        &opening,
-        vec!["opening OPTIONS (source speaks first)".to_owned()],
-    );
+    handshake_with(
+        transport,
+        session,
+        deadline,
+        message_budget,
+        drain,
+        Opening::Source,
+    )
+}
+
+/// Drive the WFD handshake as Miracast specifies it: the sink connected to this
+/// source's RTSP port and **the sink speaks first**.
+///
+/// The source must not send an unsolicited `OPTIONS`; a sink that is waiting to
+/// send its own `OPTIONS` may treat one as a protocol error or simply deadlock
+/// waiting for its answer.
+pub fn handshake_as_server<S: Read + Write>(
+    transport: RtspTransport<S>,
+    session: &mut WfdSourceSession,
+    deadline: Instant,
+    message_budget: usize,
+    drain: Drain,
+) -> Result<(HandshakeOutcome, RtspTransport<S>), CastError> {
+    handshake_with(
+        transport,
+        session,
+        deadline,
+        message_budget,
+        drain,
+        Opening::Sink,
+    )
+}
+
+/// Drive the WFD handshake as a source-driven initiator: after the sink
+/// connects, the source runs `OPTIONS` → `GET_PARAMETER` → `SET_PARAMETER` →
+/// trigger, then the sink's `SETUP`/`PLAY` complete the session.
+///
+/// This is the compatibility path for sinks that answer `OPTIONS` and then wait
+/// for the source to continue (observed: Android 9 `stagefright/1.2`, which tore
+/// the session down after 30 s of source silence).
+pub fn handshake_as_initiator<S: Read + Write>(
+    transport: RtspTransport<S>,
+    session: &mut WfdSourceSession,
+    deadline: Instant,
+    message_budget: usize,
+    drain: Drain,
+) -> Result<(HandshakeOutcome, RtspTransport<S>), CastError> {
+    handshake_with(
+        transport,
+        session,
+        deadline,
+        message_budget,
+        drain,
+        Opening::Initiator,
+    )
+}
+
+fn handshake_with<S: Read + Write>(
+    mut transport: RtspTransport<S>,
+    session: &mut WfdSourceSession,
+    deadline: Instant,
+    message_budget: usize,
+    drain: Drain,
+    opening: Opening,
+) -> Result<(HandshakeOutcome, RtspTransport<S>), CastError> {
+    // Sink-first needs no unsolicited message. Source-first and source-driven
+    // both open with the WFD `OPTIONS`.
+    if opening != Opening::Sink {
+        let opening_message = opening_options();
+        transport
+            .send(&opening_message)
+            .map_err(CastError::Transport)?;
+        // Recorded as outbound: routing it through `on_message` would have
+        // labelled our own message as the sink's, which is exactly the confusion
+        // a trace exists to prevent.
+        session.note_outbound(
+            &opening_message,
+            vec![
+                if opening == Opening::Initiator {
+                    "opening OPTIONS (source drives the exchange)"
+                } else {
+                    "opening OPTIONS (source speaks first, diagnostic mode)"
+                }
+                .to_owned(),
+            ],
+        );
+    }
+
+    let mut initiator_phase =
+        (opening == Opening::Initiator).then_some(InitiatorPhase::AwaitingOptionsReply);
 
     let mut messages = 0;
+    // Some Android sinks open the TCP connection only to clear a stale session
+    // and then wait for the source to speak. Observed on the reference TV
+    // (`user-agent: stagefright/1.2`, empty `Session:`): without this kickoff it
+    // received our 200 and closed before M1.
+    let mut kickoff_sent = false;
     // Set once the sink has asked for a session; from then on the loop drains
     // rather than negotiates.
     let mut streaming: Option<String> = None;
@@ -162,6 +350,67 @@ pub fn handshake<S: Read + Write>(
         let (outbound, effects) = session.on_message(&inbound);
         for message in &outbound {
             transport.send(message).map_err(CastError::Transport)?;
+        }
+
+        // Source-driven exchange: answer the sink's 200s with M3, M5 and M7.
+        if let Some(phase) = initiator_phase {
+            let cseq = inbound
+                .header("cseq")
+                .and_then(|value| value.parse::<u32>().ok());
+            let acknowledged = matches!(inbound.start, StartLine::Status { code: 200, .. });
+            let next = match (phase, acknowledged, cseq) {
+                (InitiatorPhase::AwaitingOptionsReply, true, Some(1)) => {
+                    let message = RtspMessage::request(Method::GetParameter, "*", 2, Vec::new());
+                    transport.send(&message).map_err(CastError::Transport)?;
+                    session.note_outbound(
+                        &message,
+                        vec!["M3 GET_PARAMETER (ask the sink for its parameters)".to_owned()],
+                    );
+                    Some(InitiatorPhase::AwaitingM4)
+                }
+                (InitiatorPhase::AwaitingM4, true, Some(2)) => {
+                    let body = session
+                        .parameters_trigger_body()
+                        .map_err(|error| CastError::Session(error.to_string()))?;
+                    let message = RtspMessage::request(Method::SetParameter, "*", 3, body);
+                    transport.send(&message).map_err(CastError::Transport)?;
+                    session.note_outbound(
+                        &message,
+                        vec!["M5 SET_PARAMETER (source parameters + SETUP trigger)".to_owned()],
+                    );
+                    Some(InitiatorPhase::AwaitingM6)
+                }
+                (InitiatorPhase::AwaitingM6, true, Some(3)) => {
+                    // M5 is acknowledged. The trigger (when requested) was part
+                    // of the M5 body; the sink drives SETUP and PLAY.
+                    Some(InitiatorPhase::Done)
+                }
+                _ => None,
+            };
+            if let Some(next) = next {
+                initiator_phase = Some(next);
+            }
+        }
+
+        let stale_reset = opening == Opening::Sink
+            && matches!(
+                inbound.start,
+                StartLine::Request {
+                    method: Method::Teardown,
+                    ..
+                }
+            )
+            && inbound
+                .header("session")
+                .is_none_or(|value| value.trim().is_empty());
+        if stale_reset && !kickoff_sent {
+            let kickoff = opening_options();
+            transport.send(&kickoff).map_err(CastError::Transport)?;
+            session.note_outbound(
+                &kickoff,
+                vec!["opening OPTIONS after a stale-session reset".to_owned()],
+            );
+            kickoff_sent = true;
         }
         for effect in effects {
             match effect {
@@ -247,6 +496,20 @@ fn conclude(
         },
         None => fallback,
     }
+}
+
+/// The source's opening `OPTIONS` (M1): `*` URI, WFD requirement, and a
+/// user agent. The `Require` header is what tells a WFD sink this is a session
+/// request rather than a stray RTSP probe.
+fn opening_options() -> RtspMessage {
+    let mut message = RtspMessage::request(Method::Options, "*", 1, Vec::new());
+    message
+        .headers
+        .push(("require".to_owned(), "org.wfa.wfd1.0".to_owned()));
+    message
+        .headers
+        .push(("user-agent".to_owned(), "tessera-cast".to_owned()));
+    message
 }
 
 /// Whether a message is the sink's opening `OPTIONS`, which is recorded so a
@@ -479,7 +742,143 @@ mod tests {
         assert!(rendered.contains("sink -> source  OPTIONS"), "{rendered}");
         assert!(rendered.contains("source -> sink  200 OK"), "{rendered}");
         assert!(rendered.contains("wfd_trigger_method: SETUP"), "{rendered}");
-        assert!(rendered.starts_with("note: recorded without hardware validation"));
+    }
+
+    #[test]
+    fn an_initiator_source_drives_m3_and_m5_then_waits_for_setup() {
+        // The reference Android sink answered OPTIONS and then waited 30 s for
+        // the source to send M3. After M5 the sink drives the trigger and SETUP;
+        // sending M7 from the source made it close.
+        let sink = ScriptedSink::new(vec![
+            RtspMessage::status(200, "OK", 1, Vec::new()),
+            RtspMessage::status(200, "OK", 2, Vec::new()),
+            RtspMessage::status(200, "OK", 3, Vec::new()),
+            request(Method::Setup, 5, Vec::new()),
+        ]);
+        let recorder = sink.recorder();
+        let mut session = session();
+        let (outcome, _) = handshake_as_initiator(
+            RtspTransport::new(sink),
+            &mut session,
+            Instant::now() + std::time::Duration::from_secs(5),
+            32,
+            Drain::None,
+        )
+        .expect("handshake");
+        assert!(outcome.is_streaming(), "{outcome:?}");
+
+        let written = written_messages(&recorder.borrow());
+        assert!(
+            written.iter().any(|message| matches!(
+                &message.start,
+                StartLine::Request {
+                    method: Method::GetParameter,
+                    ..
+                }
+            )),
+            "M3 GET_PARAMETER is missing: {written:?}"
+        );
+        let set_parameters = written
+            .iter()
+            .filter(|message| {
+                matches!(
+                    &message.start,
+                    StartLine::Request {
+                        method: Method::SetParameter,
+                        ..
+                    }
+                )
+            })
+            .count();
+        assert_eq!(set_parameters, 1, "M5 only: {written:?}");
+        assert!(
+            written.iter().any(|message| {
+                String::from_utf8_lossy(&message.body).contains("wfd_video_formats")
+            }),
+            "M5 must advertise the source parameters"
+        );
+        assert!(
+            written.iter().any(|message| {
+                String::from_utf8_lossy(&message.body).contains("wfd_trigger_method: SETUP")
+            }),
+            "M5 must carry the SETUP trigger"
+        );
+    }
+
+    #[test]
+    fn a_stale_teardown_makes_the_source_open_the_exchange() {
+        // The reference Android 9 sink connected, sent a session-less TEARDOWN,
+        // and closed when the source stayed silent. The source must answer the
+        // reset and then open with OPTIONS.
+        let mut stale = request(Method::Teardown, 1, Vec::new());
+        stale.headers.push(("session".to_owned(), String::new()));
+        let sink = ScriptedSink::new(vec![
+            stale,
+            request(Method::Options, 2, Vec::new()),
+            request(Method::GetParameter, 3, Vec::new()),
+            trigger(4, "SETUP"),
+        ]);
+        let recorder = sink.recorder();
+        let mut session = session();
+        let (outcome, _) = handshake_as_server(
+            RtspTransport::new(sink),
+            &mut session,
+            Instant::now() + std::time::Duration::from_secs(5),
+            32,
+            Drain::None,
+        )
+        .expect("handshake");
+        assert!(outcome.is_streaming(), "{outcome:?}");
+
+        let written = written_messages(&recorder.borrow());
+        assert!(
+            written.iter().any(|message| matches!(
+                &message.start,
+                StartLine::Request {
+                    method: Method::Options,
+                    ..
+                }
+            )),
+            "the source must open with OPTIONS after the stale reset: {written:?}"
+        );
+    }
+
+    #[test]
+    fn as_a_server_the_source_waits_for_the_sink_to_speak_first() {
+        // Miracast: the sink is the RTSP client. The source must answer the
+        // sink's OPTIONS, not pre-empt it with its own.
+        let sink = ScriptedSink::new(vec![
+            request(Method::Options, 1, Vec::new()),
+            request(Method::GetParameter, 2, Vec::new()),
+            trigger(3, "SETUP"),
+        ]);
+        let recorder = sink.recorder();
+        let mut session = session();
+        let (outcome, _) = handshake_as_server(
+            RtspTransport::new(sink),
+            &mut session,
+            Instant::now() + std::time::Duration::from_secs(5),
+            32,
+            Drain::None,
+        )
+        .expect("handshake");
+        assert!(outcome.is_streaming(), "{outcome:?}");
+
+        let written = written_messages(&recorder.borrow());
+        assert!(
+            !written.is_empty(),
+            "the source must answer the sink's opening OPTIONS"
+        );
+        assert!(
+            matches!(written[0].start, StartLine::Status { .. }),
+            "the source's first message must be a response, not an unsolicited OPTIONS: {:?}",
+            written[0].start
+        );
+        assert_eq!(
+            written[0].header("cseq"),
+            Some("1"),
+            "the answer must echo the sink's CSeq"
+        );
     }
 
     #[test]

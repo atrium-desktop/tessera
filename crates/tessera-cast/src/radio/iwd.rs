@@ -297,7 +297,11 @@ impl Drop for IwdRadio {
         // machine as a source after the caster exits.
         let registered = self.registered.lock().map(|slot| *slot).unwrap_or(false);
         if registered && let Err(error) = self.unregister_source() {
-            log::warn!("radio: could not unregister the display service: {error}");
+            if matches!(error, crate::iwd::IwdError::Unsupported(_)) {
+                log::debug!("radio: display service was already gone: {error}");
+            } else {
+                log::warn!("radio: could not unregister the display service: {error}");
+            }
         }
         // Put the P2P switch back if this run was the one that flipped it, so a
         // diagnostic does not leave the radio changed.
@@ -311,7 +315,11 @@ impl Drop for IwdRadio {
                 prior,
             )
         {
-            log::warn!("radio: could not restore P2P Enabled={prior}: {error}");
+            if matches!(error, crate::iwd::IwdError::Unsupported(_)) {
+                log::debug!("radio: P2P device was already gone: {error}");
+            } else {
+                log::warn!("radio: could not restore P2P Enabled={prior}: {error}");
+            }
         }
     }
 }

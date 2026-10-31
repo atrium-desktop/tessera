@@ -52,3 +52,6 @@ tessera is a Wayland compositor for Linux, written in Rust on
 - Iterating on compositor code inside an existing Wayland session: read
   [Nested Backend Development](dev/nested-backend.md).
 - Looking for why a choice was made: scan the [ADR index](adr/index.md).
+- Working on Miracast/WFD: read the
+  [Miracast source architecture](explanation/miracast-source.md), then the
+  [bring-up lessons and diagnostic playbook](dev/miracast-lessons.md).

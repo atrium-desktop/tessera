@@ -16,6 +16,59 @@ fn minimal_valid_config_loads() {
 }
 
 #[test]
+fn cast_defaults_and_validation() {
+    let defaults = Config::parse("schema_version = 2\n").unwrap();
+    assert_eq!(defaults.cast, CastConfig::default());
+    assert_eq!(defaults.cast.video_formats, DEFAULT_CAST_VIDEO_FORMATS);
+    assert_eq!(defaults.cast.opening, CastOpening::Source);
+    assert!(!defaults.cast.audio, "audio capture is opt-in");
+    assert_eq!(defaults.cast.audio_source, CastAudioSource::System);
+    assert_eq!(defaults.cast.audio_bitrate_kbps, 128);
+    assert_eq!(defaults.cast.control_port, 7236);
+
+    let configured = Config::parse(
+        "schema_version = 2\n\
+         [cast]\n\
+         video_formats = \"00 00 02 10\"\n\
+         source = \"pattern\"\n\
+         opening = \"source\"\n\
+         audio = true\n\
+         audio_source = \"microphone\"\n\
+         audio_bitrate_kbps = 192\n\
+         fps = 60\n\
+         control_port = 7236\n\
+         rtp_port = 19000\n\
+         settle_seconds = 2\n\
+         session_timeout_seconds = 30\n",
+    )
+    .unwrap();
+    assert_eq!(configured.cast.source, CastSource::Pattern);
+    assert_eq!(configured.cast.opening, CastOpening::Source);
+    assert!(configured.cast.audio);
+    assert_eq!(configured.cast.audio_source, CastAudioSource::Microphone);
+    assert_eq!(configured.cast.audio_bitrate_kbps, 192);
+    assert_eq!(configured.cast.fps, 60);
+    assert_eq!(configured.cast.video_formats, "00 00 02 10");
+
+    for body in [
+        "fps = 0",
+        "fps = 121",
+        "audio_bitrate_kbps = 31",
+        "audio_bitrate_kbps = 513",
+        "control_port = 80",
+        "rtp_port = 0",
+        "settle_seconds = 61",
+        "session_timeout_seconds = 0",
+        "video_formats = \"00\\n01\"",
+    ] {
+        assert!(
+            Config::parse(&format!("schema_version = 2\n[cast]\n{body}\n")).is_err(),
+            "invalid cast policy was accepted: {body}"
+        );
+    }
+}
+
+#[test]
 fn audit_storage_bounds_parse_and_validate() {
     let configured = Config::parse(
         "schema_version = 2\n\

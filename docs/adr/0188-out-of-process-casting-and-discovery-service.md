@@ -17,6 +17,16 @@ negative_knowledge: true
 
 ---
 
+> **Amendment 2026-10-30 — the service exists and the surface is interactive.**
+> `tessera-castd` is now the long-lived owner of discovery and sessions over a
+> per-user Unix socket. It pushes a `CastStatus` snapshot; the compositor
+> supervises it through `CastHandle` and publishes that snapshot. The control
+> center is interactive against the service: `ScanCast`/`StopCastDiscovery`
+> start and release discovery, and `ConnectCast { sink }`/`DisconnectCast
+> { session }` name service-assigned ids. `[INV-ARCH-80]` is unchanged: chrome
+> renders service-published facts and never infers a session from network or
+> window state.
+
 ## Context and Problem Statement
 
 [ADR-0186](0186-session-scoped-virtual-extend-outputs-and-offscreen-output-streaming.md)

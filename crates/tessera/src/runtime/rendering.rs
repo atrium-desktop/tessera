@@ -649,6 +649,10 @@ impl BackdropStackMaterialKey {
     }
 }
 
+fn quantize_material_factor(val: f32) -> u32 {
+    (val.clamp(-10.0, 10.0) * 64.0).round() as i32 as u32
+}
+
 impl BackdropMaterialKey {
     pub(super) fn new(
         frost_regions: &[tessera_shell::component::BackdropRegion],
@@ -697,16 +701,16 @@ impl BackdropMaterialKey {
                         focus.bounds.h.to_bits(),
                         focus.corner_radius.to_bits(),
                         focus.strength.to_bits(),
-                        region.frost_strength.to_bits(),
-                        region.tint_strength.to_bits(),
-                        region.saturation.to_bits(),
-                        region.plate_polarity.to_bits(),
-                        region.curvature.to_bits(),
-                        region.contact_ao.to_bits(),
-                        region.ambient_fresnel.to_bits(),
+                        quantize_material_factor(region.frost_strength),
+                        quantize_material_factor(region.tint_strength),
+                        quantize_material_factor(region.saturation),
+                        quantize_material_factor(region.plate_polarity),
+                        quantize_material_factor(region.curvature),
+                        quantize_material_factor(region.contact_ao),
+                        quantize_material_factor(region.ambient_fresnel),
                         u32::from(region.adaptation.is_some()),
-                        adaptation.plate_luminance.to_bits(),
-                        adaptation.backdrop_energy.to_bits(),
+                        quantize_material_factor(adaptation.plate_luminance),
+                        quantize_material_factor(adaptation.backdrop_energy),
                     ]
                 })
                 .collect(),

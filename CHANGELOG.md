@@ -14,6 +14,84 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Added
+- **Opt-in Miracast audio.** The source can capture the default PipeWire sink
+  monitor (or the default microphone), encode AAC-LC 48 kHz stereo with ffmpeg,
+  and interleave it into the same MPEG2-TS/RTP flow as the video. The sink's AAC
+  value is echoed in M5; the reference TV plays the audio. Configuration is
+  `[cast] audio`, `audio_source`, and `audio_bitrate_kbps`; the CLI equivalent is
+  `--audio`, `--audio-source`, and `--audio-bitrate`. The default is off because
+  capturing system audio is a privacy decision. Audio PES groups eight AAC
+  frames, PAT/PMT run at 100 ms, the media sender binds the advertised RTP
+  server port, and RTCP SR/SDES is sent for A/V sync. See
+  [Miracast Source](docs/explanation/miracast-source.md) and
+  [Miracast Lessons](docs/dev/miracast-lessons.md).
+- **Miracast documentation.** Added the technical architecture/protocol map and
+  the case-based bring-up lessons and diagnostic playbook.
+
+### Changed
+- **Localized surface and window damage tracking.** Transitioning surfaces and
+  window focus changes now emit localized physical damage rectangles with
+  visual bounds (including shadow margins) rather than forcing full frame damage,
+  improving multi-window composition throughput.
+- **Quantized backdrop material cache keys.** Material factor keys in `BackdropMaterialKey`
+  are quantized to fixed intervals, preventing cache misses caused by floating point drift.
+
+### Removed
+- **Purged obsolete UIP (Universal Interaction Protocol) subsystem.** Completely
+  removed the orphaned `experiments/tessera-remote` prototype alongside its
+  unconsumed server and authority subsystems (`tessera-authority::uip` and
+  `tessera-wayland::server::uip`). Remote display and streaming are natively
+  provided by `tessera-composite` offscreen virtual outputs (ADR-0186) and
+  `tessera-cast` (ADR-0188, ADR-0192).
+- **Removed obsolete Nix development flakes.** Removed `flake.nix` and `shell.nix`.
+
+### Fixed
+- **Screenshot window-picker desktop fallback.** Clicking empty desktop space in
+  window screenshot mode picks the hovered output rather than whole-output capture.
+- **Miracast now completes a real session and displays video.** The reference
+  Skyworth A3F accepted the source-driven M1–M6 exchange, the sink's `SETUP`, the
+  source's `Transport`/`Session` reply, and the sink's `PLAY`; the source
+  delivered **300 frames / 4,784,680 bytes** at 720p30 and **the TV displayed the
+  test pattern** (color bars, circles, squares). Three requirements are now part
+  of the implementation: `wfd_trigger_method: SETUP` belongs in the **M5**
+  parameter body (a separate source M7 is ignored), the `SETUP` 200 response must
+  carry `Transport` with `server_port`, and the RTP sender must bind the P2P local
+  address and the advertised `server_port` (an ephemeral source port produced no
+  display). The `--trigger` flag and the "unverified trace" banner are removed;
+  `[cast]` defaults to the validated 720p30 value and source opening. The
+  `tessera-castd` control path reached `Streaming` against the same TV; desktop
+  capture and the compositor UI click remain. Audio is opt-in and implemented;
+  HDCP and UIBC remain unimplemented.
+- **Miracast direction inverted.** Miracast makes the *source* the RTSP server:
+  `tessera-cast cast`/`handshake` now bind the control port (7236 by default),
+  advertise it, and wait for the sink to connect; the sink sends the first
+  `OPTIONS`. The old source-dials-sink path, the `--host`/`--listen` flags, and
+  the neighbour-table endpoint resolver are removed. A sink that advertises no
+  control port is castable in this direction; the previous "no RTSP port"
+  blocker rejected the ordinary case.
+- **Inbound-firewall verdict.** `probe` reads only the live nftables/ufw ruleset
+  as authoritative. When the live ruleset cannot be read it reports `unverified`
+  without borrowing the persistent file's verdict; a definite live block still
+  reports `BLOCKED` with the ingress rule to add. This prevented the persistent
+  `/etc/nftables.conf` from producing a false blocker on a machine whose live
+  ruleset admitted the TV.
+- The control center no longer fabricates a cast session: `ConnectCast` refuses
+  with the working CLI command instead of setting `connected`/`cast_streams`, and
+  `DisconnectCast` no longer runs `pkill -f "tessera-cast cast"`. The Cast copy no
+  longer claims AirPlay support, which no backend implements.
+- **The cast service and its control-center projection.** `tessera-castd` owns
+  discovery and sessions over a per-user Unix socket; the compositor supervises
+  it and publishes its `CastStatus`. Connect/Stop use service-assigned sink and
+  session ids, discovery is released when the Cast surface closes, starting a
+  session waits for discovery to release the radio, and no code kills processes
+  by name. A new `[cast]` config section (`video_formats`, `source`, `opening`,
+  `fps`, ports, settle, timeout) replaces the temporary environment variable; it
+  defaults to the hardware-validated 720p30 value, and an empty value refuses a
+  session instead of inventing one. `tessera-cast doctor` reports the probe,
+  firewall, and discovery evidence in one place and prints the exact next
+  command.
+
 ## [0.0.81] - 2026-10-30
 
 ### Changed

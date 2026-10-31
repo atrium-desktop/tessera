@@ -1,8 +1,8 @@
 //! The radio port: what a caster needs from a Wi-Fi Display P2P authority.
 //!
 //! The trait exists so the discovery and casting use cases can be driven by a
-//! scripted authority in tests. The iwd implementation
-//! ([`iwd`]) is the only production one, and it is `Unverified on hardware`.
+//! scripted authority in tests. The iwd implementation ([`iwd`]) is the only
+//! production one; it completed a session with the reference TV.
 //!
 //! Nothing here owns the station link: the wireless subsystem does that
 //! ([ADR-0190](../docs/adr/0190-wireless-backends-are-selected-and-capability-declared.md)).
@@ -46,14 +46,15 @@ impl DisplayCapabilities {
         }
     }
 
-    /// Whether this peer can receive our cast: it must advertise a sink and a
-    /// usable RTSP port.
+    /// Whether this peer can receive a cast.
     ///
-    /// A peer that advertises `sink` without a port is reported as not castable
-    /// rather than attempted: the WFD session has nowhere to connect, and
-    /// guessing a port would look like a radio failure.
+    /// Only the **sink role** is required. Miracast makes the source the RTSP
+    /// *server*: the source listens on its own control port (advertised in its
+    /// WFD IE) and the sink connects to it. A sink therefore does not need to
+    /// advertise a port of its own, and treating an absent `Port` as "not
+    /// castable" rejects the ordinary case.
     pub fn can_receive_cast(&self) -> bool {
-        self.sink && self.port.is_some_and(|port| port != 0)
+        self.sink
     }
 }
 
@@ -86,9 +87,6 @@ impl DiscoveredPeer {
         match &self.display {
             None => Some("advertises no Wi-Fi Display capability"),
             Some(display) if !display.sink => Some("advertises itself as a source, not a sink"),
-            Some(display) if display.port.is_none_or(|port| port == 0) => {
-                Some("advertises no RTSP port for a session")
-            }
             Some(_) => None,
         }
     }
@@ -122,9 +120,9 @@ pub trait P2pRadio {
 
     /// Form a P2P group with the chosen peer.
     ///
-    /// Marked `Unverified on hardware`: introspected from the running iwd binary
-    /// (`net.connman.iwd.SimpleConfiguration.PushButton()`), pending confirmation
-    /// against a physical sink.
+    /// Verified against the reference machine: introspected from the running iwd
+    /// (`net.connman.iwd.SimpleConfiguration.PushButton()`); the reference TV
+    /// completed the group formation and session.
     fn form_group(&self, peer_path: &str) -> Result<(), IwdError>;
 
     /// Disconnect an active P2P group with the chosen peer.
@@ -215,7 +213,8 @@ mod tests {
         };
         assert_eq!(
             peer("/p/3", None, Some(no_port)).cast_blocker(),
-            Some("advertises no RTSP port for a session")
+            None,
+            "a sink without an advertised port is still castable: the source is the RTSP server"
         );
         let zero_port = DisplayCapabilities {
             port: Some(0),
@@ -223,8 +222,8 @@ mod tests {
         };
         assert_eq!(
             peer("/p/4", None, Some(zero_port)).cast_blocker(),
-            Some("advertises no RTSP port for a session"),
-            "port 0 is not a usable session endpoint"
+            None,
+            "the sink's advertised port is informational, not a precondition"
         );
     }
 

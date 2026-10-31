@@ -35,6 +35,17 @@ impl ControlCenter {
     /// ADR-0188). Casting streams win over a merely-present extended display;
     /// an idle desktop reads as not casting.
     pub(super) fn cast_tile_subtitle(status: &SystemStatus, i18n: &Localizer) -> String {
+        use tessera_desktop::system::CastSessionState;
+        if let Some(session) = status.cast.active_session() {
+            let state = match session.state {
+                CastSessionState::Connecting => i18n.text(Message::Casting),
+                CastSessionState::Negotiating => i18n.text(Message::Casting),
+                CastSessionState::Streaming => i18n.text(Message::Casting),
+                CastSessionState::Stopping => i18n.text(Message::NotCasting),
+                CastSessionState::Failed => i18n.text(Message::NotCasting),
+            };
+            return format!("{state} · {}", session.sink_name);
+        }
         if status.cast_streams > 0 {
             format!("{} · {}", i18n.text(Message::Casting), status.cast_streams)
         } else if status.virtual_displays > 0 {

@@ -82,6 +82,9 @@ pub(super) struct DamageTracking {
     /// Set when the output was resized/recreated; the next frame must render
     /// in full regardless of damage.
     pub(super) force_full_redraw: bool,
+    /// Previously active window ID; focus change dirties the active border
+    /// and shadow of the transitioning windows.
+    pub(super) last_focused_window: Option<tessera_desktop::window::WindowId>,
 }
 
 /// Owns the mutable composition state used by the compositor event loop.
@@ -171,6 +174,7 @@ pub(super) struct CompositorRuntime<'engine> {
     pub(super) system_status: tessera_shell::component::SystemStatus,
     pub(super) wireless: crate::wireless::WirelessHandle,
     pub(super) bluetooth: crate::bluetooth::BluetoothHandle,
+    pub(super) casting: crate::casting::CastHandle,
     pub(super) status_rx: std::sync::mpsc::Receiver<tessera_shell::component::SystemStatus>,
     /// Wakes the status poller for an out-of-cycle refresh after a system
     /// action, so the HUD reconciles optimistic values without the main loop

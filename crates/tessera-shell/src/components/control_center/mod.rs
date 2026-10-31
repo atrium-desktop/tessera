@@ -1396,15 +1396,21 @@ impl Chrome for ControlCenter {
         } else if self.cast_expanded {
             self.cast_expanded = false;
             self.cast_scanning = false;
+            out.system_actions.push(SystemAction::StopCastDiscovery);
         } else {
             self.close();
         }
     }
 
-    fn command(&mut self, command: &ChromeCommand<'_>, _out: &mut ChromeEvents) {
+    fn command(&mut self, command: &ChromeCommand<'_>, out: &mut ChromeEvents) {
         match command {
             ChromeCommand::ToggleControlCenter => {
                 if self.open {
+                    if self.cast_expanded {
+                        self.cast_expanded = false;
+                        self.cast_scanning = false;
+                        out.system_actions.push(SystemAction::StopCastDiscovery);
+                    }
                     self.close();
                 } else {
                     self.open = true;
@@ -1418,6 +1424,11 @@ impl Chrome for ControlCenter {
                 }
             }
             ChromeCommand::CloseControlCenter | ChromeCommand::DismissModal if self.open => {
+                if self.cast_expanded {
+                    self.cast_expanded = false;
+                    self.cast_scanning = false;
+                    out.system_actions.push(SystemAction::StopCastDiscovery);
+                }
                 self.close();
             }
             _ => {}

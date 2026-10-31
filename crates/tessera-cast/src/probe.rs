@@ -7,6 +7,8 @@
 
 use std::fmt;
 
+use crate::firewall::InboundVerdict;
+
 /// One observed fact, with the three-state honesty the probe requires.
 ///
 /// `Unverified` is not "probably fine": it means the probe could not look —
@@ -90,6 +92,10 @@ pub struct PipelineReport {
 pub struct CastReport {
     pub radio: RadioReport,
     pub pipeline: PipelineReport,
+    /// Whether the sink's inbound RTSP connection would be accepted. Miracast
+    /// makes the source the RTSP server, so a dropping input policy is a
+    /// first-class blocker, not a footnote.
+    pub inbound: InboundVerdict,
 }
 
 /// Which half blocks casting, if any.
@@ -99,6 +105,8 @@ pub enum Blocker {
     Radio,
     /// No encoder or no frame source: the session could form but carry nothing.
     Pipeline,
+    /// The host firewall drops the sink's inbound RTSP connection.
+    InboundFirewall,
     /// Both halves are present.
     None,
     /// A half could not be inspected, so nothing can be promised either way.
@@ -124,11 +132,15 @@ impl CastReport {
         if pipeline_absent {
             return Blocker::Pipeline;
         }
+        if self.inbound.is_blocked() {
+            return Blocker::InboundFirewall;
+        }
         let unknown = matches!(self.radio.wfd_registration, Verdict::Unverified(_))
             || matches!(self.radio.p2p_device, Verdict::Unverified(_))
             || matches!(self.pipeline.h264_encoder, Verdict::Unverified(_))
             || matches!(self.pipeline.pipewire, Verdict::Unverified(_))
-            || matches!(self.pipeline.screencast_portal, Verdict::Unverified(_));
+            || matches!(self.pipeline.screencast_portal, Verdict::Unverified(_))
+            || matches!(self.inbound, InboundVerdict::Unverified(_));
         if unknown {
             Blocker::Unknown
         } else {
@@ -178,11 +190,18 @@ impl CastReport {
                 .describe("available", "not on the session bus")
         ));
         out.push_str(&format!(
+            "  inbound WFD control    {}\n",
+            self.inbound.describe()
+        ));
+        out.push_str(&format!(
             "verdict                    {}\n",
             match self.blocker() {
                 Blocker::None => "both halves present",
                 Blocker::Radio => "blocked: no Wi-Fi Display P2P authority",
                 Blocker::Pipeline => "blocked: no encoder or frame source",
+                Blocker::InboundFirewall => {
+                    "blocked: the host firewall drops the sink's inbound RTSP connection"
+                }
                 Blocker::Unknown => "indeterminate: something could not be inspected",
             }
         ));
@@ -213,7 +232,29 @@ mod tests {
     }
 
     fn report(radio: RadioReport, pipeline: PipelineReport) -> CastReport {
-        CastReport { radio, pipeline }
+        CastReport {
+            radio,
+            pipeline,
+            inbound: InboundVerdict::Allowed("test fixture".to_owned()),
+        }
+    }
+
+    #[test]
+    fn a_blocking_firewall_is_named_as_the_blocker_not_folded_into_unverified() {
+        let report = CastReport {
+            radio: observed_radio(),
+            pipeline: observed_pipeline(),
+            inbound: InboundVerdict::Blocked(
+                "input policy drop and no rule accepts tcp/7236".to_owned(),
+            ),
+        };
+        assert_eq!(report.blocker(), Blocker::InboundFirewall);
+        let rendered = report.render();
+        assert!(rendered.contains("BLOCKED"), "{rendered}");
+        assert!(
+            rendered.contains("firewall drops the sink's inbound RTSP connection"),
+            "{rendered}"
+        );
     }
 
     #[test]

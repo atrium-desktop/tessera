@@ -599,8 +599,7 @@ impl CompositorRuntime<'_> {
             detected.capture_streams = self.system_status.capture_streams;
             detected.virtual_displays = self.system_status.virtual_displays;
             detected.cast_streams = self.system_status.cast_streams;
-            detected.cast_devices = self.system_status.cast_devices.clone();
-            detected.cast_scanning = self.system_status.cast_scanning;
+            detected.cast = self.casting.snapshot();
             let mut input_status = self.host.input_status();
             // The backend has no keyboard device model; the runtime owns the
             // persisted repeat profile.
@@ -1703,6 +1702,7 @@ impl CompositorRuntime<'_> {
                     &mut self.idle_process,
                     &self.wireless,
                     &self.bluetooth,
+                    &self.casting,
                     &*self.host_system,
                     action,
                 )
@@ -1768,6 +1768,7 @@ impl CompositorRuntime<'_> {
                     &mut self.idle_process,
                     &self.wireless,
                     &self.bluetooth,
+                    &self.casting,
                     &*self.host_system,
                     action.clone(),
                 ) {

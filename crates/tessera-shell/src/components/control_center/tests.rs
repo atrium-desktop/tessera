@@ -1408,11 +1408,10 @@ fn cast_detail_actions_validate() {
     let mut out = ChromeEvents::default();
     out.system_actions.push(SystemAction::ScanCast);
     out.system_actions.push(SystemAction::ConnectCast {
-        address: "192.168.1.100:7236".to_string(),
+        sink: "/net/connman/iwd/0/p2p_peers/peer".to_string(),
     });
-    out.system_actions.push(SystemAction::DisconnectCast {
-        address: "192.168.1.100:7236".to_string(),
-    });
+    out.system_actions
+        .push(SystemAction::DisconnectCast { session: 7 });
     assert_eq!(out.system_actions.len(), 3);
     assert!(
         out.system_actions
@@ -1489,6 +1488,28 @@ fn test_inv_arch_80_cast_tile_reflects_status() {
     assert_eq!(
         CommandPanel::cast_tile_subtitle(&casting, &i18n),
         format!("{} · 1", i18n.text(Message::Casting))
+    );
+
+    // A live service session names the sink even before a compositor counter
+    // catches up; the subtitle never invents a session from network state.
+    let session = SystemStatus {
+        cast: tessera_desktop::system::CastStatus {
+            sessions: vec![tessera_desktop::system::CastSession {
+                id: 1,
+                sink_id: "peer".to_owned(),
+                sink_name: "Living Room TV".to_owned(),
+                state: tessera_desktop::system::CastSessionState::Streaming,
+                frames_sent: 30,
+                audio: Some("AAC 00000001 00".to_owned()),
+                failure: None,
+            }],
+            ..tessera_desktop::system::CastStatus::default()
+        },
+        ..SystemStatus::default()
+    };
+    assert_eq!(
+        CommandPanel::cast_tile_subtitle(&session, &i18n),
+        format!("{} · Living Room TV", i18n.text(Message::Casting))
     );
 }
 

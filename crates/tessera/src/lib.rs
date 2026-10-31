@@ -5,6 +5,7 @@ use tessera_platform::Backend;
 use tessera_platform::drm::DrmError;
 use tessera_platform::host::{BackendKind, HardwareCursor, Host, HostError};
 
+mod casting;
 mod cursor;
 mod runtime;
 

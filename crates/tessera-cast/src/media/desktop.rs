@@ -52,7 +52,11 @@ impl DesktopCaptureSource {
     pub fn open(fps: u32, virtual_source: bool) -> Result<Self, DesktopCaptureError> {
         eprintln!(
             "requesting desktop screen capture permission via portal (mode: {})...",
-            if virtual_source { "virtual extend output" } else { "mirroring" }
+            if virtual_source {
+                "virtual extend output"
+            } else {
+                "mirroring"
+            }
         );
         let connection = zbus::blocking::Connection::session()
             .map_err(|err| DesktopCaptureError::Portal(PortalError::Bus(err)))?;

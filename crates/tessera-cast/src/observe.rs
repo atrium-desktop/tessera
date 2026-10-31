@@ -41,6 +41,7 @@ pub fn probe() -> CastReport {
     CastReport {
         radio: probe_radio(),
         pipeline: probe_pipeline(),
+        inbound: crate::firewall::observe(crate::firewall::WFD_CONTROL_PORT),
     }
 }
 

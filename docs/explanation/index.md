@@ -11,6 +11,7 @@ history.
 |------|---------|
 | [Architecture](architecture.md) | Component boundaries and data flow |
 | [Screen Capture and Streaming](screen-capture.md) | How recording and casting reach compositor frames, and why the standard capture protocols are not exposed |
+| [Miracast Source](miracast-source.md) | WFD protocol stack, P2P/RTSP, MPEG-TS/RTP/RTCP, video/audio paths, validation, and limits |
 | [Vision and Scope](vision.md) | Product direction, principles, and non-goals |
 | [Roadmap](roadmap.md) | The milestone sequence from nested bring-up to the agent phase |
 | [The Agent Phase](agent-phase.md) | The M10 blueprint: where the compositor stops and how the AI ecosystem attaches |

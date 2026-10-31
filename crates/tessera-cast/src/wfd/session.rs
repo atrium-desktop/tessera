@@ -24,6 +24,11 @@ use super::parameters::{SourceParameters, TriggerMethod};
 use super::rtsp::{Method, RtspMessage, StartLine};
 use super::trace::{Direction, Trace, describe_inbound};
 
+/// The source RTP port named in the SETUP response. The media sender binds this
+/// exact port and the local address of the RTSP connection, because a sink may
+/// filter RTP by the source port it was told to expect.
+pub const SERVER_RTP_PORT: u16 = 19002;
+
 /// What the driver must do in response to the sink's latest message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
@@ -60,6 +65,8 @@ pub struct WfdSourceSession {
     phase: Phase,
     trace: Trace,
     sink_rtp_port: Option<u16>,
+    sink_audio_codecs: Option<String>,
+    audio_enabled: bool,
 }
 
 impl WfdSourceSession {
@@ -67,8 +74,40 @@ impl WfdSourceSession {
         Self {
             parameters,
             phase: Phase::AwaitingOptions,
-            trace: Trace::new().unverified(),
+            trace: Trace::new(),
             sink_rtp_port: None,
+            sink_audio_codecs: None,
+            audio_enabled: false,
+        }
+    }
+
+    /// Adopt the sink's audio codec in M5 and expect an audio stream.
+    pub fn enable_audio(&mut self) {
+        self.audio_enabled = true;
+    }
+
+    /// The codec the sink advertised in M4, if any.
+    pub fn sink_audio_codecs(&self) -> Option<&str> {
+        self.sink_audio_codecs.as_deref()
+    }
+
+    /// The audio codec this source selected, or `None` when audio is off or the
+    /// sink offered no AAC.
+    pub fn audio_codec(&self) -> Option<&str> {
+        (self.parameters.audio_codecs != "none").then_some(self.parameters.audio_codecs.as_str())
+    }
+
+    fn absorb_parameters(&mut self, parameters: &std::collections::BTreeMap<String, String>) {
+        if let Some(ports) = parameters.get("wfd_client_rtp_ports")
+            && let Some(port) = parse_client_rtp_port(ports)
+        {
+            self.sink_rtp_port = Some(port);
+        }
+        if let Some(codec) = parameters.get("wfd_audio_codecs") {
+            self.sink_audio_codecs = Some(codec.clone());
+            if self.audio_enabled && codec.starts_with("AAC") {
+                self.parameters.audio_codecs = codec.clone();
+            }
         }
     }
 
@@ -83,6 +122,11 @@ impl WfdSourceSession {
     /// The RTP port the sink receives media on, negotiated during M4 or M6.
     pub fn sink_rtp_port(&self) -> Option<u16> {
         self.sink_rtp_port
+    }
+
+    /// The M5 body: the source parameters plus the SETUP trigger.
+    pub fn parameters_trigger_body(&self) -> Result<Vec<u8>, super::parameters::ParameterError> {
+        self.parameters.to_trigger_body()
     }
 
     /// Record a message this source sent outside the reply path — the opening
@@ -106,12 +150,15 @@ impl WfdSourceSession {
 
         let StartLine::Request { method, .. } = &message.start else {
             // A status line from the sink is informational: our replies are
-            // answers, and answering an answer would loop.
-            self.trace.record(
-                Direction::SourceToSink,
-                RtspMessage::status(200, "OK", cseq.unwrap_or(0), Vec::new()),
-                vec!["ignored: status lines from the sink carry no request to answer".to_owned()],
-            );
+            // answers, and answering an answer would loop. It was recorded
+            // inbound above; recorded again as outbound would claim this source
+            // sent a message it never sent. A 200 to our GET_PARAMETER *does*
+            // carry the sink's parameters, so absorb them before returning.
+            if let StartLine::Status { code: 200, .. } = &message.start
+                && let Ok(parameters) = message.parameters()
+            {
+                self.absorb_parameters(&parameters);
+            }
             return (outbound, effects);
         };
 
@@ -158,11 +205,7 @@ impl WfdSourceSession {
                 outbound.push(reply(cseq, Vec::new(), Vec::new()));
                 match parsed {
                     Ok(parameters) => {
-                        if let Some(ports) = parameters.get("wfd_client_rtp_ports")
-                            && let Some(port) = parse_client_rtp_port(ports)
-                        {
-                            self.sink_rtp_port = Some(port);
-                        }
+                        self.absorb_parameters(&parameters);
                         if let Some(trigger) = parameters.get("wfd_trigger_method") {
                             match TriggerMethod::parse(trigger) {
                                 Some(TriggerMethod::Setup) => {
@@ -215,13 +258,30 @@ impl WfdSourceSession {
                     }
                 }
             }
-            Method::Setup | Method::Play => {
+            Method::Setup => {
                 self.phase = Phase::Streaming;
-                if let Some(transport) = message.header("transport")
-                    && let Some(port) = parse_transport_client_port(transport)
-                {
-                    self.sink_rtp_port = Some(port);
+                let mut headers = vec![("session".to_owned(), "1".to_owned())];
+                if let Some(transport) = message.header("transport") {
+                    if let Some(port) = parse_transport_client_port(transport) {
+                        self.sink_rtp_port = Some(port);
+                    }
+                    let value = if transport.to_ascii_lowercase().contains("server_port") {
+                        transport.to_owned()
+                    } else {
+                        format!(
+                            "{transport};server_port={SERVER_RTP_PORT}-{}",
+                            SERVER_RTP_PORT + 1
+                        )
+                    };
+                    headers.push(("transport".to_owned(), value));
                 }
+                effects.push(Effect::StartStreaming {
+                    presentation_url: self.parameters.presentation_url.clone(),
+                });
+                outbound.push(reply(cseq, Vec::new(), headers));
+            }
+            Method::Play => {
+                self.phase = Phase::Streaming;
                 effects.push(Effect::StartStreaming {
                     presentation_url: self.parameters.presentation_url.clone(),
                 });
@@ -237,8 +297,20 @@ impl WfdSourceSession {
                 outbound.push(reply(cseq, Vec::new(), Vec::new()));
             }
             Method::Teardown => {
-                self.phase = Phase::Terminated;
-                effects.push(Effect::Terminate);
+                // A TEARDOWN with no session id is a stale-session reset, not
+                // the end of this session. An Android 9 sink was observed
+                // sending exactly that as its first message (empty `Session:`,
+                // `user-agent: stagefright/1.2`); returning 200 and closing made
+                // the sink give up before it ever sent M1. Acknowledge and keep
+                // serving so it can start the real exchange. A TEARDOWN that
+                // names a session is a genuine termination.
+                let carries_session = message
+                    .header("session")
+                    .is_some_and(|value| !value.trim().is_empty());
+                if carries_session {
+                    self.phase = Phase::Terminated;
+                    effects.push(Effect::Terminate);
+                }
                 outbound.push(reply(cseq, Vec::new(), Vec::new()));
             }
         }
@@ -454,6 +526,32 @@ mod tests {
     }
 
     #[test]
+    fn a_teardown_without_a_session_is_a_stale_reset_not_a_termination() {
+        let mut session = session();
+        let mut stale = request(Method::Teardown, 9, Vec::new());
+        stale.headers.push(("session".to_owned(), String::new()));
+        let (outbound, effects) = session.on_message(&stale);
+        assert!(
+            effects.is_empty(),
+            "a stale-session reset must not terminate the source: {effects:?}"
+        );
+        assert_ne!(session.phase(), Phase::Terminated);
+        assert_eq!(outbound.len(), 1, "the reset is acknowledged");
+
+        // The sink can now start the real exchange.
+        let (outbound, _) = session.on_message(&request(Method::Options, 10, Vec::new()));
+        assert_eq!(outbound.len(), 1);
+        assert_eq!(session.phase(), Phase::Negotiating);
+
+        // A TEARDOWN naming a session is a genuine termination.
+        let mut real = request(Method::Teardown, 11, Vec::new());
+        real.headers.push(("session".to_owned(), "1".to_owned()));
+        let (_, effects) = session.on_message(&real);
+        assert_eq!(effects, vec![Effect::Terminate]);
+        assert_eq!(session.phase(), Phase::Terminated);
+    }
+
+    #[test]
     fn a_teardown_trigger_ends_the_session() {
         let mut session = session();
         let (_, effects) = session.on_message(&trigger(6, "TEARDOWN"));
@@ -531,14 +629,13 @@ mod tests {
     }
 
     #[test]
-    fn the_trace_records_both_directions_and_marks_itself_unverified() {
+    fn the_trace_records_both_directions() {
         let mut session = session();
         let _ = session.on_message(&request(Method::Options, 0, Vec::new()));
         let _ = session.on_message(&trigger(1, "SETUP"));
         let trace = session.trace();
         assert!(trace.entries().len() >= 4);
         let rendered = trace.render();
-        assert!(rendered.starts_with("note: recorded without hardware validation"));
         assert!(rendered.contains("sink -> source  OPTIONS"));
         assert!(rendered.contains("source -> sink  200 OK"));
         assert!(rendered.contains("wfd_trigger_method: SETUP"));
@@ -595,7 +692,77 @@ mod tests {
             "transport".to_owned(),
             "RTP/AVP/UDP;unicast;client_port=21000-21001".to_owned(),
         ));
-        let _ = session.on_message(&setup);
+        let (responses, effects) = session.on_message(&setup);
         assert_eq!(session.sink_rtp_port(), Some(21000));
+        assert_eq!(responses.len(), 1);
+        assert_eq!(responses[0].header("session"), Some("1"));
+        assert!(
+            effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::StartStreaming { .. })),
+            "SETUP must start the stream: {effects:?}"
+        );
+        let transport = responses[0]
+            .header("transport")
+            .expect("the SETUP response must name the transport");
+        assert!(transport.contains("client_port=21000-21001"), "{transport}");
+        assert!(transport.contains("server_port=19002-19003"), "{transport}");
+    }
+
+    fn m4_response(audio: Option<&str>) -> RtspMessage {
+        let mut parameters = std::collections::BTreeMap::new();
+        parameters.insert(
+            "wfd_video_formats".to_owned(),
+            "38 00 01 01 f9cf94a0 00000000 00000000 00 0000 0000 00 none none".to_owned(),
+        );
+        parameters.insert(
+            "wfd_client_rtp_ports".to_owned(),
+            "RTP/AVP/UDP;unicast 19000 0 mode=play".to_owned(),
+        );
+        if let Some(audio) = audio {
+            parameters.insert("wfd_audio_codecs".to_owned(), audio.to_owned());
+        }
+        RtspMessage::status(
+            200,
+            "OK",
+            2,
+            crate::wfd::rtsp::write_parameters(&parameters),
+        )
+    }
+
+    #[test]
+    fn an_audio_enabled_source_adopts_the_sink_aac_codec_in_m5() {
+        let mut session = session();
+        session.enable_audio();
+        let (_, effects) = session.on_message(&m4_response(Some("AAC 00000001 00")));
+        assert!(effects.is_empty());
+        assert_eq!(session.sink_audio_codecs(), Some("AAC 00000001 00"));
+        assert_eq!(session.audio_codec(), Some("AAC 00000001 00"));
+        let body = session.parameters_trigger_body().expect("M5 body");
+        assert!(
+            String::from_utf8_lossy(&body).contains("wfd_audio_codecs: AAC 00000001 00"),
+            "M5 must echo the sink's AAC codec: {}",
+            String::from_utf8_lossy(&body)
+        );
+    }
+
+    #[test]
+    fn audio_stays_off_when_the_source_did_not_enable_it() {
+        let mut session = session();
+        let _ = session.on_message(&m4_response(Some("AAC 00000001 00")));
+        assert_eq!(session.sink_audio_codecs(), Some("AAC 00000001 00"));
+        assert_eq!(session.audio_codec(), None);
+        let body = session.parameters_trigger_body().expect("M5 body");
+        assert!(String::from_utf8_lossy(&body).contains("wfd_audio_codecs: none"));
+    }
+
+    #[test]
+    fn audio_stays_off_when_the_sink_offers_no_codec() {
+        let mut session = session();
+        session.enable_audio();
+        let _ = session.on_message(&m4_response(None));
+        assert_eq!(session.audio_codec(), None);
+        let body = session.parameters_trigger_body().expect("M5 body");
+        assert!(String::from_utf8_lossy(&body).contains("wfd_audio_codecs: none"));
     }
 }

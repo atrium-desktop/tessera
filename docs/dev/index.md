@@ -9,6 +9,7 @@ the other `docs/` sections; see the [documentation index](../index.md).
 |------|---------|
 | [Setup](setup.md) | Toolchain, dependencies, and build/run |
 | [Tessera and Optics Cross-Repository Development](cross-repository-development.md) | Worktree-isolated local patches, commit protection, and release promotion |
+| [Miracast Lessons and Diagnostics](miracast-lessons.md) | Case files for every hard-won WFD failure, the A/B playbook, and the do-not-regress checklist |
 | [Nested Backend Development](nested-backend.md) | Successful-build process replacement, scene restoration, and backend validation inside a Wayland session |
 | [Surface Testing](surface-testing.md) | Test model and code conventions for shell surfaces: command-panel and lock-screen previews, nested integration, agent pixel capture, and physical validation |
 | [First-Party Application Development](first-party-applications.md) | Installation staging, application discovery, and focused test behavior for standalone system applications |

@@ -101,6 +101,7 @@ impl ControlCenter {
                                     self.wifi_expanded = true;
                                     self.bluetooth_expanded = false;
                                     self.cast_expanded = false;
+                                    out.system_actions.push(SystemAction::StopCastDiscovery);
                                     out.system_actions.push(SystemAction::ScanWifi);
                                 }
 
@@ -137,13 +138,15 @@ impl ControlCenter {
                                     self.bluetooth_expanded = true;
                                     self.wifi_expanded = false;
                                     self.cast_expanded = false;
+                                    out.system_actions.push(SystemAction::StopCastDiscovery);
                                     out.system_actions.push(SystemAction::ScanBluetooth);
                                 }
 
                                 // Cast status & interactive discovery (2 cols x 1 row, ADR-0188 / ADR-0192)
                                 f.col_span(2);
-                                let cast_active =
-                                    status.cast_streams > 0 || status.virtual_displays > 0;
+                                let cast_active = status.cast_streams > 0
+                                    || status.virtual_displays > 0
+                                    || status.cast.is_casting();
                                 let cast_sub = Self::cast_tile_subtitle(&status, i18n);
                                 let (cast_toggle, cast_expand) =
                                     render_expandable_quick_toggle_tile(

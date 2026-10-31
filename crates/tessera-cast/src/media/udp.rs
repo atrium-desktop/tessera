@@ -4,7 +4,7 @@
 //! UDP to the sink's advertised RTP port.
 
 use std::io;
-use std::net::{SocketAddr, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 
 /// A UDP RTP packet transmitter.
 #[derive(Debug)]
@@ -19,12 +19,20 @@ impl UdpMediaSender {
     /// Bind an ephemeral UDP socket on any available interface (`0.0.0.0:0` or `[::]:0`)
     /// targeting `target`.
     pub fn bind_ephemeral(target: SocketAddr) -> io::Result<Self> {
-        let bind_addr = if target.is_ipv4() {
-            "0.0.0.0:0"
+        let ip = if target.is_ipv4() {
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
         } else {
-            "[::]:0"
+            IpAddr::V6(Ipv6Addr::UNSPECIFIED)
         };
-        let socket = UdpSocket::bind(bind_addr)?;
+        Self::bind_at(SocketAddr::new(ip, 0), target)
+    }
+
+    /// Bind the media socket to an exact address. The source uses the local
+    /// address of the accepted RTSP connection and the `server_port` it
+    /// advertised in the `SETUP` response, so a sink that filters RTP by source
+    /// port receives the stream.
+    pub fn bind_at(bind: SocketAddr, target: SocketAddr) -> io::Result<Self> {
+        let socket = UdpSocket::bind(bind)?;
         Ok(Self {
             socket,
             target,

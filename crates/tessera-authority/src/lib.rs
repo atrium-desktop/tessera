@@ -2,4 +2,3 @@
 #![forbid(unsafe_code)]
 pub mod authority;
 pub mod interaction_domain;
-pub mod uip;

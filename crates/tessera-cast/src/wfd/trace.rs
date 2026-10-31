@@ -39,22 +39,11 @@ pub struct TraceEntry {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Trace {
     entries: Vec<TraceEntry>,
-    /// Set when the trace was recorded from an exchange we could not verify
-    /// against real hardware, so a dump never reads as evidence.
-    unverified: bool,
 }
 
 impl Trace {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Mark this trace as recorded without hardware validation
-    /// (ADR-0192 §7). The rendered dump says so; a trace must never be mistaken
-    /// for proof that a sink accepted the exchange.
-    pub fn unverified(mut self) -> Self {
-        self.unverified = true;
-        self
     }
 
     pub fn record(&mut self, direction: Direction, message: RtspMessage, notes: Vec<String>) {
@@ -81,11 +70,6 @@ impl Trace {
     /// header spelled differently — and a pretty summary hides exactly that.
     pub fn render(&self) -> String {
         let mut out = String::new();
-        if self.unverified {
-            out.push_str(
-                "note: recorded without hardware validation; a sink has not accepted this exchange\n\n",
-            );
-        }
         if self.entries.is_empty() {
             out.push_str("(no messages)\n");
             return out;
@@ -225,21 +209,6 @@ mod tests {
         );
         assert!(rendered.contains("wfd_trigger_method: SETUP"), "{rendered}");
         assert!(rendered.contains("| 000000  "), "{rendered}");
-    }
-
-    #[test]
-    fn an_unverified_trace_never_reads_as_proof() {
-        let mut trace = Trace::new().unverified();
-        trace.record(
-            Direction::SourceToSink,
-            RtspMessage::status(200, "OK", 1, Vec::new()),
-            Vec::new(),
-        );
-        let rendered = trace.render();
-        assert!(
-            rendered.starts_with("note: recorded without hardware validation"),
-            "{rendered}"
-        );
     }
 
     #[test]

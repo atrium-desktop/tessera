@@ -25,6 +25,9 @@ pub const MAX_VALUE_LEN: usize = 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParameterError {
+    /// The `wfd_video_formats` value is empty. Sending it would advertise no
+    /// format at all; a sink treats that as a malformed session, not a refusal.
+    EmptyVideoFormats,
     /// The value contains a byte that would break the line-based body.
     InjectedByte { name: &'static str, byte: u8 },
     /// The value is not printable ASCII (the media type is `text/parameters`).
@@ -36,6 +39,9 @@ pub enum ParameterError {
 impl std::fmt::Display for ParameterError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::EmptyVideoFormats => formatter.write_str(
+                "wfd_video_formats is empty; a source must advertise at least one format",
+            ),
             Self::InjectedByte { name, byte } => write!(
                 formatter,
                 "{name} contains byte 0x{byte:02x}, which would break the parameter body"
@@ -62,18 +68,19 @@ pub struct SourceParameters {
     /// e.g. `rtsp://192.168.49.1/wfd1.0/streamid=0`. Empty until the radio
     /// layer knows the P2P interface address.
     pub presentation_url: String,
-    /// UDP port the source receives RTP on, e.g. `19000`.
-    pub rtp_port: u16,
     /// The `wfd_video_formats` value. Required; never defaulted.
     pub video_formats: String,
+    /// The `wfd_audio_codecs` value. Defaults to `none`; a sink that insists on
+    /// audio can be tested with its own value, but this source sends no audio.
+    pub audio_codecs: String,
 }
 
 impl SourceParameters {
     pub fn new(video_formats: impl Into<String>) -> Self {
         Self {
             presentation_url: String::new(),
-            rtp_port: 19_000,
             video_formats: video_formats.into(),
+            audio_codecs: "none".to_owned(),
         }
     }
 
@@ -83,28 +90,31 @@ impl SourceParameters {
         self
     }
 
-    /// Set the RTP receive port.
-    pub fn with_rtp_port(mut self, port: u16) -> Self {
-        self.rtp_port = port;
+    /// Advertise an audio codec value. This is a negotiation value only: the
+    /// current media pipeline sends video and no audio.
+    pub fn with_audio_codecs(mut self, value: impl Into<String>) -> Self {
+        self.audio_codecs = value.into();
         self
     }
 
-    /// The parameter map sent as the M4 body.
+    /// The parameter map the source advertises.
     ///
-    /// `wfd_client_rtp_ports` uses the WFD form
-    /// `RTP/AVP/UDP;unicast <port> 0 mode=play`. `wfd_audio_codecs` and
-    /// `wfd_uibc_capability` state `none` rather than being omitted: a sink must
-    /// be able to read a refusal, not infer one from silence.
+    /// `wfd_client_rtp_ports` is deliberately **absent**: it is the sink's
+    /// receive port, sent by the sink in M4/SETUP, not a source parameter.
+    /// Advertising it from the source was a direction error. `wfd_audio_codecs`
+    /// and `wfd_uibc_capability` state `none` rather than being omitted: a sink
+    /// must be able to read a refusal, not infer one from silence.
     pub fn to_map(&self) -> Result<BTreeMap<String, String>, ParameterError> {
+        if self.video_formats.trim().is_empty() {
+            // An empty line would advertise "no formats", which a sink treats
+            // as a malformed session. Refuse before anything reaches the wire.
+            return Err(ParameterError::EmptyVideoFormats);
+        }
         let mut map = BTreeMap::new();
         map.insert("wfd_video_formats".to_owned(), self.video_formats.clone());
-        map.insert("wfd_audio_codecs".to_owned(), "none".to_owned());
+        map.insert("wfd_audio_codecs".to_owned(), self.audio_codecs.clone());
         map.insert("wfd_uibc_capability".to_owned(), "none".to_owned());
         map.insert("wfd_content_protection".to_owned(), "none".to_owned());
-        map.insert(
-            "wfd_client_rtp_ports".to_owned(),
-            format!("RTP/AVP/UDP;unicast {} 0 mode=play", self.rtp_port),
-        );
         if !self.presentation_url.is_empty() {
             map.insert(
                 "wfd_presentation_URL".to_owned(),
@@ -120,6 +130,13 @@ impl SourceParameters {
     /// The M4 body bytes.
     pub fn to_body(&self) -> Result<Vec<u8>, ParameterError> {
         Ok(write_parameters(&self.to_map()?))
+    }
+
+    /// The M5 body bytes: the source parameters plus `wfd_trigger_method: SETUP`.
+    pub fn to_trigger_body(&self) -> Result<Vec<u8>, ParameterError> {
+        let mut map = self.to_map()?;
+        map.insert("wfd_trigger_method".to_owned(), "SETUP".to_owned());
+        Ok(write_parameters(&map))
     }
 }
 
@@ -197,20 +214,42 @@ mod tests {
     #[test]
     fn the_advertised_set_states_its_refusals_explicitly() {
         let parameters = SourceParameters::new("00 00 02 10")
-            .with_presentation_url("rtsp://192.168.49.1/wfd1.0/streamid=0")
-            .with_rtp_port(19_000);
+            .with_presentation_url("rtsp://192.168.49.1/wfd1.0/streamid=0");
         let map = parameters.to_map().expect("map");
         assert_eq!(map["wfd_audio_codecs"], "none");
         assert_eq!(map["wfd_uibc_capability"], "none");
         assert_eq!(map["wfd_content_protection"], "none");
-        assert_eq!(
-            map["wfd_client_rtp_ports"],
-            "RTP/AVP/UDP;unicast 19000 0 mode=play"
+        assert!(
+            !map.contains_key("wfd_client_rtp_ports"),
+            "the sink's receive port is not a source parameter"
         );
         assert_eq!(
             map["wfd_presentation_URL"],
             "rtsp://192.168.49.1/wfd1.0/streamid=0 none"
         );
+    }
+
+    #[test]
+    fn an_empty_video_formats_is_refused_before_it_reaches_the_wire() {
+        let error = SourceParameters::new("")
+            .to_map()
+            .expect_err("an empty format list must be refused");
+        assert!(matches!(error, ParameterError::EmptyVideoFormats));
+        let error = SourceParameters::new("   ")
+            .to_map()
+            .expect_err("whitespace is empty too");
+        assert!(matches!(error, ParameterError::EmptyVideoFormats));
+    }
+
+    #[test]
+    fn an_explicit_audio_codec_is_advertised() {
+        let map = SourceParameters::new(
+            "00 00 01 01 00000020 00000000 00000000 00 0000 0000 00 none none",
+        )
+        .with_audio_codecs("AAC 00000001 00")
+        .to_map()
+        .expect("map");
+        assert_eq!(map["wfd_audio_codecs"], "AAC 00000001 00");
     }
 
     #[test]

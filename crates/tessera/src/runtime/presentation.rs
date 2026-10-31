@@ -1870,6 +1870,7 @@ impl CompositorRuntime<'_> {
                         &mut self.idle_process,
                         &self.wireless,
                         &self.bluetooth,
+                        &self.casting,
                         &*self.host_system,
                         action,
                     )
@@ -2181,6 +2182,7 @@ impl CompositorRuntime<'_> {
                             &mut self.idle_process,
                             &self.wireless,
                             &self.bluetooth,
+                            &self.casting,
                             &*self.host_system,
                             action,
                         ) {

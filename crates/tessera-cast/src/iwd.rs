@@ -6,9 +6,10 @@
 //! the P2P object paths, the property shapes, and the error classification
 //! cannot drift between the two.
 //!
-//! `Unverified on hardware`: this layer compiles and is exercised against a live
-//! iwd on the reference machine for reads, but enabling P2P, registering a
-//! display service, and discovering peers have not been confirmed against a sink.
+//! Verified against live iwd on the reference machine: reads, enabling P2P,
+//! registering the display service, discovering peers, and forming the group to
+//! the reference TV. A `NotFound` from a method or interface that iwd has already
+//! removed is classified as `Unsupported`, not a protocol failure.
 
 use zbus::blocking::Connection;
 
@@ -249,6 +250,7 @@ pub fn classify_error_name(name: &str, detail: Option<&str>, what: &str) -> Opti
             | "org.freedesktop.DBus.Error.UnknownObject"
             | "org.freedesktop.DBus.Error.UnknownInterface"
             | "org.freedesktop.DBus.Error.UnknownMethod"
+            | "org.freedesktop.DBus.Error.NotFound"
     ) {
         return Some(IwdError::Unsupported(what.to_owned()));
     }

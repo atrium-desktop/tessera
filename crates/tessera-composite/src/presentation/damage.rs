@@ -463,10 +463,29 @@ pub fn frame_damage_render_area(repaint: &FrameDamage) -> Option<flux::CanvasRen
     })
 }
 
+const SURFACE_SHADOW_MARGIN: i32 = 48;
+
+fn surface_visual_bounds(geometry: &SurfaceGeometry, width: i32, height: i32) -> Rect {
+    let scale = geometry.buffer_scale.max(1) as f32;
+    let (lw, lh) = if geometry.transform.swap_axes() {
+        (height, width)
+    } else {
+        (width, height)
+    };
+    let logical_width = (lw as f32 / scale).round().max(1.0) as i32;
+    let logical_height = (lh as f32 / scale).round().max(1.0) as i32;
+    Rect::new(
+        geometry.position.x - SURFACE_SHADOW_MARGIN,
+        geometry.position.y - SURFACE_SHADOW_MARGIN,
+        logical_width + SURFACE_SHADOW_MARGIN * 2,
+        logical_height + SURFACE_SHADOW_MARGIN * 2,
+    )
+}
+
 /// Record one visible surface into the generation diff. Returns `true` when
-/// this surface alone forces full damage: it appeared since the last
-/// assessment, or its contents changed in a way that cannot be mapped to a
-/// rectangle (wp_viewport, or an in-flight window transition).
+/// this surface alone forces full damage: its contents changed in a way that
+/// cannot be mapped to a rectangle (wp_viewport crop/destination, or an
+/// in-flight window transition).
 fn accumulate_surface(
     old: &std::collections::HashMap<usize, SurfaceDamageBaseline>,
     new: &mut std::collections::HashMap<usize, SurfaceDamageBaseline>,
@@ -491,59 +510,53 @@ fn accumulate_surface(
         },
     );
     let Some(previous) = old.get(&id) else {
-        return true;
-    };
-    let geometry_unchanged = previous.width == width
-        && previous.height == height
-        && previous.geometry.position == geometry.position
-        && previous.geometry.window_geometry == geometry.window_geometry
-        && previous.geometry.transform == geometry.transform
-        && previous.geometry.buffer_scale == geometry.buffer_scale
-        && previous.geometry.viewport_src == geometry.viewport_src
-        && previous.geometry.viewport_dst == geometry.viewport_dst
-        && previous.geometry.transition_size == geometry.transition_size;
-    if !geometry_unchanged {
-        // The old rect must be erased as well as the new one painted. Without
-        // storing a region history across every stacking/clip case, full
-        // damage is the only universally correct answer.
-        return true;
-    }
-    if previous.generation == generation {
+        // A newly appeared surface: dirty its own visual bounds.
+        rects.push(surface_visual_bounds(geometry, width, height));
         return false;
-    }
-    // Damage here is already in surface-local logical coordinates — the server
-    // applied the buffer transform at commit (see
-    // Transform::map_buffer_rect_to_surface) — so a non-identity transform does
-    // NOT force a full-output repaint here. Only the cases that genuinely break
-    // the logical→physical mapping remain unmappable: wp_viewport
-    // crop/destination (they change which buffer pixels map to which surface
-    // pixels) and an in-flight transition_size (it draws the surface at a size
-    // unrelated to the buffer-implied logical extent).
+    };
+
     let mappable = geometry.viewport_src.is_none()
         && geometry.viewport_dst.is_none()
-        && geometry.transition_size.is_none();
+        && geometry.transition_size.is_none()
+        && previous.geometry.viewport_src.is_none()
+        && previous.geometry.viewport_dst.is_none()
+        && previous.geometry.transition_size.is_none()
+        && geometry.transform == previous.geometry.transform
+        && geometry.buffer_scale == previous.geometry.buffer_scale;
     if !mappable {
+        // Complex unmappable viewport/transition changes force full redraw.
         return true;
     }
-    let scale = geometry.buffer_scale.max(1) as f32;
-    // A rotated/flipped buffer's logical extent swaps its axes; use the
-    // post-transform dimensions so the damage rect is clamped to the surface's
-    // actual visible size, not the raw buffer size.
-    let (lw, lh) = if geometry.transform.swap_axes() {
-        (height, width)
-    } else {
-        (width, height)
-    };
-    let logical_width = (lw as f32 / scale).round().max(1.0) as i32;
-    let logical_height = (lh as f32 / scale).round().max(1.0) as i32;
-    // Preserve each dirty rect individually rather than unioning, so disjoint
-    // regions stay disjoint for the KMS FB_DAMAGE_CLIPS hint.
-    rects.extend(surface_damage_logical(
-        geometry.position,
-        logical_width,
-        logical_height,
-        damage,
-    ));
+
+    let geometry_moved_or_resized = previous.width != width
+        || previous.height != height
+        || previous.geometry.position != geometry.position
+        || previous.geometry.window_geometry != geometry.window_geometry;
+
+    if geometry_moved_or_resized {
+        let old_rect = surface_visual_bounds(&previous.geometry, previous.width, previous.height);
+        let new_rect = surface_visual_bounds(geometry, width, height);
+        rects.push(old_rect);
+        rects.push(new_rect);
+    }
+
+    if previous.generation != generation {
+        let scale = geometry.buffer_scale.max(1) as f32;
+        let (lw, lh) = if geometry.transform.swap_axes() {
+            (height, width)
+        } else {
+            (width, height)
+        };
+        let logical_width = (lw as f32 / scale).round().max(1.0) as i32;
+        let logical_height = (lh as f32 / scale).round().max(1.0) as i32;
+        rects.extend(surface_damage_logical(
+            geometry.position,
+            logical_width,
+            logical_height,
+            damage,
+        ));
+    }
+
     false
 }
 
@@ -593,10 +606,11 @@ impl ClientDamageTracker {
                 &mut rects,
             );
         }
-        // A surface that vanished since the last assessment uncovers whatever
-        // was behind it; only its old rectangle is known to be stale, but its
-        // stacking interplay is not tracked, so stay conservative.
-        full |= old.keys().any(|id| !new.contains_key(id));
+        for (id, prev) in old {
+            if !new.contains_key(id) {
+                rects.push(surface_visual_bounds(&prev.geometry, prev.width, prev.height));
+            }
+        }
         self.scratch.clear();
 
         if full {
@@ -790,7 +804,7 @@ mod tests {
     }
 
     #[test]
-    fn tracker_forces_full_on_geometry_change_even_without_new_content() {
+    fn tracker_maps_geometry_change_as_localized_area_damage() {
         struct Sample {
             generation: u64,
             damage: Vec<Rect>,
@@ -826,17 +840,12 @@ mod tests {
         };
 
         let mut tracker = ClientDamageTracker::default();
-        assert!(
-            matches!(
-                tracker.assess([&Sample {
-                    generation: 3,
-                    damage: Vec::new(),
-                    geometry,
-                } as &dyn SurfaceDamageFrame]),
-                ClientDamage::Full
-            ),
-            "first sighting forces full"
-        );
+        let initial = tracker.assess([&Sample {
+            generation: 3,
+            damage: Vec::new(),
+            geometry,
+        } as &dyn SurfaceDamageFrame]);
+        assert!(matches!(initial, ClientDamage::Area(_)), "first sighting emits surface area");
         assert!(matches!(
             tracker.assess([&Sample {
                 generation: 3,
@@ -845,14 +854,12 @@ mod tests {
             } as &dyn SurfaceDamageFrame]),
             ClientDamage::None
         ));
-        assert!(matches!(
-            tracker.assess([&Sample {
-                generation: 3,
-                damage: Vec::new(),
-                geometry: moved,
-            } as &dyn SurfaceDamageFrame]),
-            ClientDamage::Full
-        ));
+        let moved_damage = tracker.assess([&Sample {
+            generation: 3,
+            damage: Vec::new(),
+            geometry: moved,
+        } as &dyn SurfaceDamageFrame]);
+        assert!(matches!(moved_damage, ClientDamage::Area(_)));
     }
 
     #[test]
@@ -894,7 +901,7 @@ mod tests {
                 damage: Vec::new(),
                 geometry,
             } as &dyn SurfaceDamageFrame]),
-            ClientDamage::Full
+            ClientDamage::Area(_)
         ));
         let unchanged = tracker.assess([&Sample {
             generation: 3,
@@ -950,7 +957,7 @@ mod tests {
                 damage: Vec::new(),
                 geometry,
             } as &dyn SurfaceDamageFrame]),
-            ClientDamage::Full
+            ClientDamage::Area(_)
         ));
         let content = tracker.assess([&Sample {
             generation: 4,

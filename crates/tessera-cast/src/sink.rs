@@ -3,12 +3,12 @@
 //! Two uses, one implementation:
 //!
 //! - **Tests.** `cargo test` drives the real caster loop against this over a
-//!   socketpair, so the whole M1–M7 exchange is exercised on every run with no
+//!   socketpair, so the whole exchange is exercised on every run with no
 //!   radio, no GPU, and no television. That is what keeps the iteration loop
 //!   cheap: a fix costs a compile, not a hardware session.
-//! - **A manual harness.** `tessera-cast sink --listen 127.0.0.1:7236` makes a
-//!   local fake sink, so the caster's full trace can be inspected without a sink
-//!   device present.
+//! - **A manual harness.** `tessera-cast sink --connect 127.0.0.1:7236` makes a
+//!   local fake sink that **connects to a running source** and drives the exchange, so
+//!   the source's full trace can be inspected without a sink device present.
 //!
 //! A scripted sink proves the *caster's* behaviour. It cannot prove that a real
 //! sink accepts our parameter values — that still needs hardware
@@ -209,6 +209,110 @@ pub fn run<S: Read + Write>(
     Ok(report)
 }
 
+/// Drive the sink side as Miracast actually specifies it: **the sink is the
+/// RTSP client**. The caller has already connected to the source's control port;
+/// this function sends `OPTIONS` first, asks for the source's parameters,
+/// requests a session, and (when the script says so) runs `SETUP`/`PLAY`.
+///
+/// This is the counterpart of [`crate::cast::handshake_as_server`], and the pair
+/// is what proves the real direction without a radio or a television.
+pub fn run_client<S: Read + Write>(
+    mut transport: RtspTransport<S>,
+    script: &SinkScript,
+) -> Result<SinkReport, SinkError> {
+    let mut report = SinkReport {
+        received: Vec::new(),
+        source_parameters: Vec::new(),
+        cseq_matched: true,
+        source_triggered_setup: false,
+        rtp_packets_received: 0,
+        rtp_bytes_received: 0,
+    };
+
+    // M1: the sink opens the session.
+    transport.send(&RtspMessage::request(Method::Options, "*", 1, Vec::new()))?;
+    let _ = expect_response(&mut transport, &mut report, "1")?;
+
+    // M3: ask for the source's WFD parameters.
+    transport.send(&RtspMessage::request(
+        Method::GetParameter,
+        "rtsp://localhost/wfd1.0",
+        2,
+        Vec::new(),
+    ))?;
+    let capabilities = expect_response(&mut transport, &mut report, "2")?;
+    report.source_parameters = capabilities
+        .parameters()
+        .map(|parameters| parameters.into_iter().collect())
+        .unwrap_or_default();
+
+    let rtp_port = script
+        .rtp_socket
+        .as_ref()
+        .and_then(|socket| socket.local_addr().ok())
+        .map(|address| address.port())
+        .unwrap_or(19_000);
+
+    // M4/M5: tell the source where to send media and ask it to start.
+    let mut body = std::collections::BTreeMap::new();
+    body.insert(
+        "wfd_client_rtp_ports".to_owned(),
+        format!("RTP/AVP/UDP;unicast {rtp_port} 0 mode=play"),
+    );
+    body.insert("wfd_trigger_method".to_owned(), "SETUP".to_owned());
+    transport.send(&RtspMessage::request(
+        Method::SetParameter,
+        "rtsp://localhost/wfd1.0",
+        3,
+        crate::wfd::rtsp::write_parameters(&body),
+    ))?;
+    let _ = expect_response(&mut transport, &mut report, "3")?;
+
+    // The source answers with its own SETUP trigger; answer it.
+    let trigger = next(&mut transport, &mut report)?;
+    if let Ok(parameters) = trigger.parameters()
+        && parameters
+            .get("wfd_trigger_method")
+            .is_some_and(|value| value == "SETUP")
+    {
+        report.source_triggered_setup = true;
+    }
+    reply(&mut transport, trigger.header("cseq"), Vec::new())?;
+
+    if script.expect_setup_play {
+        let mut setup = RtspMessage::request(Method::Setup, "*", 4, Vec::new());
+        setup.headers.push((
+            "transport".to_owned(),
+            format!(
+                "RTP/AVP/UDP;unicast;client_port={rtp_port}-{}",
+                rtp_port + 1
+            ),
+        ));
+        transport.send(&setup)?;
+        let _ = expect_response(&mut transport, &mut report, "4")?;
+
+        transport.send(&RtspMessage::request(Method::Play, "*", 5, Vec::new()))?;
+        let _ = expect_response(&mut transport, &mut report, "5")?;
+
+        if let Some(socket) = &script.rtp_socket {
+            let mut buffer = [0u8; 1500];
+            let _ = socket.set_read_timeout(Some(std::time::Duration::from_millis(500)));
+            let max = script.receive_rtp_packets.unwrap_or(usize::MAX);
+            while (report.rtp_packets_received as usize) < max {
+                match socket.recv_from(&mut buffer) {
+                    Ok((len, _)) => {
+                        report.rtp_packets_received += 1;
+                        report.rtp_bytes_received += len as u64;
+                    }
+                    Err(_) => break,
+                }
+            }
+        }
+    }
+
+    Ok(report)
+}
+
 /// Read one message, recording it.
 fn next<S: Read + Write>(
     transport: &mut RtspTransport<S>,
@@ -270,9 +374,10 @@ fn reply<S: Read + Write>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cast::{Drain, HandshakeOutcome, handshake};
+    use crate::cast::{Drain, HandshakeOutcome, accept, handshake, handshake_as_server};
     use crate::wfd::parameters::SourceParameters;
     use crate::wfd::session::WfdSourceSession;
+    use std::net::{TcpListener, TcpStream};
     use std::os::unix::net::UnixStream;
     use std::time::{Duration, Instant};
 
@@ -337,9 +442,8 @@ mod tests {
         assert_eq!(advertised["wfd_video_formats"], "00 00 02 10");
         assert_eq!(advertised["wfd_content_protection"], "none");
         assert!(
-            advertised["wfd_client_rtp_ports"].contains("19000"),
-            "{:?}",
-            advertised["wfd_client_rtp_ports"]
+            !advertised.contains_key("wfd_client_rtp_ports"),
+            "the sink's receive port is not a source parameter"
         );
         assert!(
             advertised["wfd_presentation_URL"].contains("rtsp://192.168.49.1/wfd1.0/streamid=0"),
@@ -428,8 +532,7 @@ mod tests {
 
         let mut session = WfdSourceSession::new(
             SourceParameters::new("00 00 02 10")
-                .with_presentation_url("rtsp://127.0.0.1/wfd1.0/streamid=0")
-                .with_rtp_port(sink_udp_addr.port()),
+                .with_presentation_url("rtsp://127.0.0.1/wfd1.0/streamid=0"),
         );
 
         let (outcome, transport) = handshake(
@@ -449,6 +552,7 @@ mod tests {
             max_frames: Some(5),
             max_duration: None,
             ssrc: 0x1122_3344,
+            stop: None,
         };
 
         let (stats, transport) = stream(
@@ -456,6 +560,8 @@ mod tests {
             &mut session,
             media_sender,
             TestPatternSource::new(60),
+            None,
+            None,
             config,
         );
         drop(transport);
@@ -469,5 +575,68 @@ mod tests {
             .expect("sink report");
         assert!(report.rtp_packets_received >= 5);
         assert!(report.rtp_bytes_received > 0);
+    }
+
+    #[test]
+    fn the_source_serves_a_sink_that_connects_and_speaks_first() {
+        // The Miracast direction, proven with no radio and no television: the
+        // source listens, the sink connects, and the sink's OPTIONS is the first
+        // RTSP message on the wire.
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind source listener");
+        let address = listener.local_addr().expect("listener address");
+
+        let sink = std::thread::spawn(move || {
+            let stream = TcpStream::connect(address).expect("sink connects");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .expect("sink read timeout");
+            stream
+                .set_write_timeout(Some(Duration::from_secs(5)))
+                .expect("sink write timeout");
+            let script = SinkScript {
+                expect_setup_play: true,
+                ..SinkScript::default()
+            };
+            run_client(RtspTransport::new(stream), &script)
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let stream = accept(&listener, deadline).expect("source accepts the sink");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("source read timeout");
+        stream
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .expect("source write timeout");
+
+        let mut session = WfdSourceSession::new(
+            SourceParameters::new("00 00 02 10")
+                .with_presentation_url("rtsp://127.0.0.1/wfd1.0/streamid=0"),
+        );
+        let (outcome, _) = handshake_as_server(
+            RtspTransport::new(stream),
+            &mut session,
+            deadline,
+            64,
+            Drain::UntilQuiet(8),
+        )
+        .expect("handshake as server");
+        assert!(
+            outcome.is_streaming(),
+            "the source must reach streaming when the sink drives the session: {outcome:?}"
+        );
+
+        let report = sink.join().expect("sink thread").expect("sink report");
+        assert!(
+            report.cseq_matched,
+            "every answer must echo the sink's CSeq"
+        );
+        assert!(
+            report.source_triggered_setup,
+            "a source must return its own SETUP trigger after the sink asks for one"
+        );
+        let advertised: std::collections::BTreeMap<_, _> =
+            report.source_parameters.iter().cloned().collect();
+        assert_eq!(advertised["wfd_video_formats"], "00 00 02 10");
     }
 }

@@ -1,12 +1,14 @@
+use std::net::{TcpStream, UdpSocket};
 use std::process::ExitCode;
+use std::time::Duration;
+
+use tessera_cast::cast::Opening;
+use tessera_cast::media::AudioSourceKind;
+use tessera_cast::session::{self, MediaSource, SessionEvent, SessionOptions};
+use tessera_cast::wfd::transport::RtspTransport;
 
 /// Exit codes are part of the tool's contract: a script (or a stage gate) branches
 /// on them rather than scraping text.
-///
-/// `probe`: 0 both halves present, 1 a half is definitively absent, 2 indeterminate.
-/// `discover`: 0 at least one castable sink, 1 the run failed, 3 the run worked but
-/// found no castable sink — distinct from 1 because the fix is on the sink's side
-/// (open its Screen Mirroring mode), not this machine's.
 const EXIT_READY: u8 = 0;
 const EXIT_BLOCKED: u8 = 1;
 const EXIT_UNKNOWN: u8 = 2;
@@ -14,8 +16,13 @@ const EXIT_NO_SINK: u8 = 3;
 
 /// How long discovery is given to accumulate peers after it is requested.
 const DEFAULT_SETTLE_SECS: u64 = 4;
-/// The RTP port this caster receives media on, advertised to sinks.
+/// The RTP port this source asks the sink to use when the sink names none.
 const DEFAULT_RTP_PORT: u16 = 19_000;
+/// How long the source waits for the sink to open the RTSP connection.
+const DEFAULT_ACCEPT_TIMEOUT_SECS: u64 = 60;
+/// The WFD session-management (RTSP) port. The **source listens here**; the sink
+/// connects to it. This is the direction Miracast specifies.
+const DEFAULT_CONTROL_PORT: u16 = tessera_cast::firewall::WFD_CONTROL_PORT;
 
 fn main() -> ExitCode {
     tessera_env::init("info");
@@ -23,8 +30,9 @@ fn main() -> ExitCode {
     match args.first().map(String::as_str) {
         None | Some("probe") => run_probe(),
         Some("discover") => run_discover(&args[1..]),
-        Some("handshake") => run_handshake(&args[1..]),
-        Some("cast") => run_cast(&args[1..]),
+        Some("doctor") => run_doctor(&args[1..]),
+        Some("cast" | "serve") => run_serve_command(&args[1..], true),
+        Some("handshake") => run_serve_command(&args[1..], false),
         Some("formats") => run_formats(&args[1..]),
         Some("sink") => run_sink(&args[1..]),
         Some("help" | "--help" | "-h") => {
@@ -41,557 +49,311 @@ fn main() -> ExitCode {
 
 fn print_usage() {
     println!(
-        "tessera-cast: Miracast caster for the Tessera desktop (ADR-0192)\n\n\
+        "tessera-cast: Miracast (Wi-Fi Display) source for the Tessera desktop (ADR-0192)\n\n\
+         Miracast makes the SOURCE the RTSP server: the source listens on the control\n\
+         port (7236 by default), the sink connects to it, and the sink sends the first\n\
+         OPTIONS. `cast` and `handshake` therefore listen; they never dial the sink.\n\n\
          USAGE:\n    \
-         tessera-cast probe                    Report whether this machine can cast, and which half is missing\n    \
-         tessera-cast discover [OPTIONS]       Enable P2P, advertise as a source, and list nearby sinks\n    \
-         tessera-cast handshake (--host IP | --peer PEER) --video-formats FMT [OPTIONS]\n                                          \
-         Run the WFD M1-M7 handshake against a sink and trace it\n    \
-         tessera-cast cast (--host IP | --peer PEER) --video-formats FMT [OPTIONS]\n                                          \
-         Stream H.264 video to a sink over RTSP/TS/RTP\n    \
-         tessera-cast formats \"VALUE\"          Decode a wfd_video_formats value into tokens and bits\n    \
-         tessera-cast sink [--listen ADDR]     Act as a scripted sink, so a caster can be exercised locally\n\n\
+         tessera-cast probe                    Report whether this machine can host a cast\n    \
+         tessera-cast discover [OPTIONS]       Enable P2P, advertise as a source, list sinks\n    \
+         tessera-cast doctor [OPTIONS]         Probe, firewall, and discovery in one evidence report\n    \
+         tessera-cast cast [OPTIONS]           Serve a WFD session and stream H.264 media\n    \
+         tessera-cast handshake [OPTIONS]      Serve a WFD session and trace the negotiation\n    \
+         tessera-cast formats \"VALUE\"          Decode a wfd_video_formats value\n    \
+         tessera-cast sink [OPTIONS]           Act as a scripted SINK that connects to a source\n\n\
          PROBE is read-only: it never enables an adapter, starts a scan, or writes a property.\n\
          DISCOVER is an action: it enables the P2P role and registers a Wi-Fi Display source.\n\
-         HANDSHAKE is a diagnostic: it proves the negotiation, not the media. No frames are sent.\n\
-         CAST streams media: it completes the handshake and streams video frames over UDP/RTP.\n\n\
-         HANDSHAKE / CAST OPTIONS:\n    \
-         --host <IP>          The sink's RTSP address\n    \
-         --peer <PEER>        Target peer by name, MAC address, or path substring\n    \
-         --port <PORT>        The sink's RTSP port (default 7236, or from peer advertisement)\n    \
-         --rtp-port <PORT>    Target sink RTP port (overriding negotiation)\n    \
-         --settle <SECONDS>   Discover peers before matching --peer\n    \
-         --timeout <SECONDS>  Socket and overall deadline (default 10)\n    \
-         --video-formats FMT  The wfd_video_formats value (required; never defaulted, see below)\n    \
-         --fps <FPS>          Frame rate (default 30)\n    \
-         --duration <SECONDS> Stop streaming after this duration\n    \
-         --max-frames <COUNT> Stop streaming after this many frames\n    \
-         --source <SOURCE>    Video source: 'desktop' (live screen via portal + VA-API) or 'pattern' (test pattern)\n\n\
+         HANDSHAKE is a diagnostic: it proves the negotiation, not the media.\n\
+         CAST streams media: it serves the handshake and sends video over UDP/RTP.\n\n\
+         CAST / HANDSHAKE OPTIONS:\n    \
+         --bind <ADDR>          Address to listen on (default 0.0.0.0)\n    \
+         --port <PORT>          RTSP control port to serve and advertise (default 7236)\n    \
+         --peer <PEER>          Sink to form a P2P group with (name, MAC, or D-Bus path)\n    \
+         --settle <SECONDS>     Peer-discovery settle time before matching --peer (default 4)\n    \
+         --video-formats FMT    The wfd_video_formats value (required; never defaulted)\n    \
+         --audio                Share audio with the sink (AAC-LC 48 kHz stereo)\n    \
+         --audio-source <WHO>   'system' (default sink monitor) or 'microphone' (default system)\n    \
+         --audio-bitrate <KBPS> AAC bitrate in kbit/s (default 128)\n    \
+         --rtp-port <PORT>      RTP port to use when the sink does not name one (default 19000)\n    \
+         --timeout <SECONDS>    How long to wait for the sink to connect, and the session deadline\n    \
+         --fps <FPS>            Frame rate (default 30)\n    \
+         --source <SOURCE>      'desktop' (portal + VA-API) or 'pattern' (default desktop)\n    \
+         --opening <WHO>        'sink' (default) or 'source' (source drives M1–M6)\n    \
+         --duration <SECONDS>   Stop streaming after this duration\n    \
+         --max-frames <COUNT>   Stop streaming after this many frames\n    \
+         --ts-file <PATH>       Diagnostic: send a pre-muxed MPEG-TS file over the real RTP path\n    \
+         --ts-seconds <SECONDS> Nominal duration of --ts-file for pacing (default 30)\n\n\
          DISCOVER OPTIONS:\n    \
-         --settle <SECONDS>   Wait this long for peers after requesting discovery (default {DEFAULT_SETTLE_SECS})\n    \
-         --port <PORT>        RTP port to advertise (default {DEFAULT_RTP_PORT})\n\n\
+         --settle <SECONDS>     Wait this long for peers after requesting discovery (default 4)\n    \
+         --port <PORT>          RTSP control port to advertise (default 7236)\n\n\
+         SINK OPTIONS:\n    \
+         --connect <ADDR>       Source RTSP address (default 127.0.0.1:7236)\n    \
+         --rtp-port <PORT>      Bind this UDP port for RTP and advertise it in SETUP\n    \
+         --play                 Continue through SETUP and PLAY\n\n\
          EXIT CODES:\n    \
-         0  probe: both halves present; discover: at least one castable sink; cast: completed stream\n    \
-         1  a half is definitively absent, or the run failed\n    \
+         0  probe: both halves present; discover: at least one sink; cast: completed stream\n    \
+         1  a half is definitively absent, a firewall blocks the sink, or the run failed\n    \
          2  probe: indeterminate (something could not be inspected)\n    \
          3  discover: no castable sink was found"
     );
 }
 
-fn resolve_sink_target(
-    host: Option<String>,
-    peer_needle: Option<String>,
-    port: Option<u16>,
-    settle_secs: Option<u64>,
-) -> Result<(String, u16), ExitCode> {
-    if host.is_some() && peer_needle.is_some() {
-        eprintln!("tessera-cast: cannot specify both --host and --peer");
-        return Err(ExitCode::from(EXIT_BLOCKED));
-    }
-    if host.is_none() && peer_needle.is_none() {
-        eprintln!("tessera-cast: command needs either --host <sink-ip> or --peer <needle>");
-        return Err(ExitCode::from(EXIT_BLOCKED));
-    }
+#[derive(Debug, Clone)]
+struct ServeOptions {
+    bind: String,
+    control_port: u16,
+    peer: Option<String>,
+    settle: u64,
+    video_formats: Option<String>,
+    audio: bool,
+    audio_source: String,
+    audio_bitrate: u32,
+    rtp_port: Option<u16>,
+    timeout: u64,
+    fps: u32,
+    source: String,
+    opening: String,
+    duration: Option<u64>,
+    max_frames: Option<u64>,
+    ts_file: Option<String>,
+    ts_seconds: u64,
+}
 
-    if let Some(needle) = peer_needle {
-        let radio = match tessera_cast::radio::iwd::IwdRadio::open() {
-            Ok(radio) => radio,
-            Err(error) => {
-                eprintln!("tessera-cast: {error}");
-                return Err(ExitCode::from(EXIT_BLOCKED));
-            }
-        };
-        let peers = if let Some(settle) = settle_secs {
-            match tessera_cast::discover::discover(
-                &radio,
-                DEFAULT_RTP_PORT,
-                std::time::Duration::from_secs(settle),
-            ) {
-                Ok(report) => report.peers,
-                Err(error) => {
-                    eprintln!("tessera-cast: discovery failed: {error}");
-                    return Err(ExitCode::from(EXIT_BLOCKED));
-                }
-            }
-        } else {
-            match tessera_cast::radio::P2pRadio::peers(&radio) {
-                Ok(peers) => peers,
-                Err(error) => {
-                    eprintln!("tessera-cast: could not read peers: {error}");
-                    return Err(ExitCode::from(EXIT_BLOCKED));
-                }
-            }
-        };
-
-        let matched = match tessera_cast::endpoint::match_peer(&peers, &needle) {
-            tessera_cast::endpoint::PeerMatch::None => {
-                eprintln!("tessera-cast: no peer matched '{needle}'");
-                eprintln!(
-                    "  run 'tessera-cast discover' or pass --settle <sec> to scan for nearby sinks"
-                );
-                return Err(ExitCode::from(EXIT_BLOCKED));
-            }
-            tessera_cast::endpoint::PeerMatch::Ambiguous(candidates) => {
-                eprintln!("tessera-cast: multiple peers matched '{needle}':");
-                for p in candidates {
-                    let label = p
-                        .name
-                        .as_deref()
-                        .or(p.device_address.as_deref())
-                        .unwrap_or("(unnamed)");
-                    eprintln!("  - {label} ({})", p.path);
-                }
-                eprintln!("please specify a more specific --peer value");
-                return Err(ExitCode::from(EXIT_BLOCKED));
-            }
-            tessera_cast::endpoint::PeerMatch::ExactlyOne(p) => p.clone(),
-        };
-
-        let mut current_peer = matched;
-        if !current_peer.connected {
-            let label = current_peer
-                .name
-                .as_deref()
-                .or(current_peer.device_address.as_deref())
-                .unwrap_or(&current_peer.path);
-            println!("forming P2P group with {label}...");
-            if let Err(error) =
-                tessera_cast::radio::P2pRadio::form_group(&radio, &current_peer.path)
-            {
-                eprintln!("tessera-cast: could not form P2P group: {error}");
-                return Err(ExitCode::from(EXIT_BLOCKED));
-            }
-            // Refresh peers to get updated connection details
-            if let Ok(updated) = tessera_cast::radio::P2pRadio::peers(&radio)
-                && let Some(refreshed) = updated.into_iter().find(|p| p.path == current_peer.path)
-            {
-                current_peer = refreshed;
-            }
+impl Default for ServeOptions {
+    fn default() -> Self {
+        Self {
+            bind: "0.0.0.0".to_owned(),
+            control_port: DEFAULT_CONTROL_PORT,
+            peer: None,
+            settle: DEFAULT_SETTLE_SECS,
+            video_formats: None,
+            audio: false,
+            audio_source: "system".to_owned(),
+            audio_bitrate: 128,
+            rtp_port: None,
+            timeout: DEFAULT_ACCEPT_TIMEOUT_SECS,
+            fps: 30,
+            source: "desktop".to_owned(),
+            opening: "sink".to_owned(),
+            duration: None,
+            max_frames: None,
+            ts_file: None,
+            ts_seconds: 30,
         }
-
-        let endpoint = tessera_cast::endpoint::resolve_live(
-            &current_peer,
-            current_peer.connected_interface.as_deref(),
-        );
-        match endpoint {
-            tessera_cast::endpoint::Endpoint::Ready { host: h, port: p } => {
-                let effective_port = port.unwrap_or(p);
-                Ok((h, effective_port))
-            }
-            other => {
-                let blocker = other
-                    .blocker()
-                    .unwrap_or_else(|| "endpoint not ready".to_owned());
-                let label = current_peer.name.as_deref().unwrap_or(&current_peer.path);
-                eprintln!("tessera-cast: peer {label}: {blocker}");
-                Err(ExitCode::from(EXIT_BLOCKED))
-            }
-        }
-    } else {
-        Ok((host.unwrap(), port.unwrap_or(7236)))
     }
 }
 
-fn run_handshake(args: &[String]) -> ExitCode {
-    let mut host: Option<String> = None;
-    let mut peer_needle: Option<String> = None;
-    let mut port: Option<u16> = None;
-    let mut timeout_secs: u64 = 10;
-    let mut settle_secs: Option<u64> = None;
-    let mut video_formats: Option<String> = None;
+fn parse_serve_options(args: &[String]) -> Result<ServeOptions, ExitCode> {
+    let mut options = ServeOptions::default();
     let mut index = 0;
     while index < args.len() {
+        if args[index] == "--audio" {
+            options.audio = true;
+            index += 1;
+            continue;
+        }
         let Some(value) = args.get(index + 1) else {
             eprintln!("tessera-cast: {} needs a value", args[index]);
-            return ExitCode::from(EXIT_BLOCKED);
+            return Err(ExitCode::from(EXIT_BLOCKED));
         };
         match args[index].as_str() {
-            "--host" => host = Some(value.clone()),
-            "--peer" => peer_needle = Some(value.clone()),
-            "--settle" => match value.parse() {
-                Ok(parsed) => settle_secs = Some(parsed),
-                Err(error) => {
-                    eprintln!("tessera-cast: --settle {value}: {error}");
-                    return ExitCode::from(EXIT_BLOCKED);
+            "--bind" => options.bind = value.clone(),
+            "--peer" => options.peer = Some(value.clone()),
+            "--video-formats" => options.video_formats = Some(value.clone()),
+            "--ts-file" => options.ts_file = Some(value.clone()),
+            "--ts-seconds" => match value.parse() {
+                Ok(seconds) if seconds > 0 => options.ts_seconds = seconds,
+                _ => {
+                    eprintln!("tessera-cast: --ts-seconds {value}: expected a positive integer");
+                    return Err(ExitCode::from(EXIT_BLOCKED));
+                }
+            },
+            "--audio-source" => match value.as_str() {
+                "system" | "microphone" => options.audio_source = value.clone(),
+                other => {
+                    eprintln!(
+                        "tessera-cast: --audio-source {other}: expected 'system' or 'microphone'"
+                    );
+                    return Err(ExitCode::from(EXIT_BLOCKED));
+                }
+            },
+            "--audio-bitrate" => match value.parse() {
+                Ok(bitrate) if (32..=512).contains(&bitrate) => options.audio_bitrate = bitrate,
+                _ => {
+                    eprintln!("tessera-cast: --audio-bitrate {value}: expected 32..=512");
+                    return Err(ExitCode::from(EXIT_BLOCKED));
+                }
+            },
+            "--source" => options.source = value.clone(),
+            "--opening" => match value.as_str() {
+                "sink" | "source" => options.opening = value.clone(),
+                other => {
+                    eprintln!("tessera-cast: --opening {other}: expected 'sink' or 'source'");
+                    return Err(ExitCode::from(EXIT_BLOCKED));
                 }
             },
             "--port" => match value.parse() {
-                Ok(parsed) => port = Some(parsed),
+                Ok(parsed) => options.control_port = parsed,
                 Err(error) => {
                     eprintln!("tessera-cast: --port {value}: {error}");
-                    return ExitCode::from(EXIT_BLOCKED);
+                    return Err(ExitCode::from(EXIT_BLOCKED));
                 }
             },
-            "--timeout" => match value.parse() {
-                Ok(parsed) => timeout_secs = parsed,
-                Err(error) => {
-                    eprintln!("tessera-cast: --timeout {value}: {error}");
-                    return ExitCode::from(EXIT_BLOCKED);
-                }
-            },
-            "--video-formats" => video_formats = Some(value.clone()),
-            other => {
-                eprintln!("tessera-cast: unknown handshake option '{other}'");
-                return ExitCode::from(EXIT_BLOCKED);
-            }
-        }
-        index += 2;
-    }
-
-    let (host, port) = match resolve_sink_target(host, peer_needle, port, settle_secs) {
-        Ok(target) => target,
-        Err(code) => return code,
-    };
-
-    // Refusing to default this is deliberate: the value is a spec bitfield that
-    // cannot be guessed, and a wrong one makes a sink reject the session with no
-    // diagnostic that distinguishes it from a radio failure.
-    let Some(video_formats) = video_formats else {
-        eprintln!(
-            "tessera-cast: handshake needs --video-formats\n\
-             \n\
-             The wfd_video_formats value is a packed bitfield (resolutions, micro-steps,\n\
-             profile/level). This tool will not invent it: a wrong bit makes the sink reject\n\
-             the session indistinguishably from a radio failure. Take the value from the\n\
-             sink's own M3 GET_PARAMETER (see --trace) or from a working caster's exchange."
-        );
-        return ExitCode::from(EXIT_BLOCKED);
-    };
-
-    let parameters = tessera_cast::wfd::parameters::SourceParameters::new(video_formats)
-        .with_presentation_url(format!("rtsp://{host}/wfd1.0/streamid=0"))
-        .with_rtp_port(DEFAULT_RTP_PORT);
-    if let Err(error) = parameters.to_map() {
-        eprintln!("tessera-cast: {error}");
-        return ExitCode::from(EXIT_BLOCKED);
-    }
-    let mut session = tessera_cast::wfd::session::WfdSourceSession::new(parameters);
-
-    let endpoint = format!("{host}:{port}");
-    let stream = match std::net::TcpStream::connect(&endpoint) {
-        Ok(stream) => stream,
-        Err(error) => {
-            // Say what was tried: the usual cause is that no P2P group exists
-            // yet, not that the sink is broken.
-            eprintln!("tessera-cast: could not connect to {endpoint}: {error}");
-            eprintln!(
-                "  a WFD session needs the sink reachable on its RTSP port; with Wi-Fi \
-                 Direct that means the P2P group is formed first"
-            );
-            return ExitCode::from(EXIT_BLOCKED);
-        }
-    };
-    let timeout = Some(std::time::Duration::from_secs(timeout_secs));
-    if let Err(error) = stream
-        .set_read_timeout(timeout)
-        .and_then(|()| stream.set_write_timeout(timeout))
-    {
-        eprintln!("tessera-cast: could not set socket timeouts: {error}");
-        return ExitCode::from(EXIT_BLOCKED);
-    }
-
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
-    let outcome = tessera_cast::cast::handshake(
-        tessera_cast::wfd::transport::RtspTransport::new(stream),
-        &mut session,
-        deadline,
-        64,
-        // Keep serving after the sink asks for a session: a real sink still has
-        // its reply, SETUP, PLAY and TEARDOWN to send.
-        tessera_cast::cast::Drain::UntilQuiet(8),
-    );
-    let outcome = match outcome {
-        Ok((outcome, _transport)) => outcome,
-        Err(error) => {
-            eprintln!("tessera-cast: {error}");
-            print!("{}", session.trace().render());
-            return ExitCode::from(EXIT_BLOCKED);
-        }
-    };
-    println!("{}\n", outcome.describe());
-    print!("{}", session.trace().render());
-    if outcome.is_streaming() {
-        println!(
-            "note: media is not implemented, so the sink will not receive frames.\n\
-             This command proves the handshake only."
-        );
-        ExitCode::from(EXIT_READY)
-    } else {
-        ExitCode::from(EXIT_BLOCKED)
-    }
-}
-
-fn run_cast(args: &[String]) -> ExitCode {
-    let mut host: Option<String> = None;
-    let mut peer_needle: Option<String> = None;
-    let mut port: Option<u16> = None;
-    let mut rtp_port: Option<u16> = None;
-    let mut timeout_secs: u64 = 10;
-    let mut settle_secs: Option<u64> = None;
-    let mut video_formats: Option<String> = None;
-    let mut fps: u32 = 30;
-    let mut duration_secs: Option<u64> = None;
-    let mut max_frames: Option<u64> = None;
-    let mut source_kind = "desktop".to_owned();
-    let mut index = 0;
-    while index < args.len() {
-        let Some(value) = args.get(index + 1) else {
-            eprintln!("tessera-cast: {} needs a value", args[index]);
-            return ExitCode::from(EXIT_BLOCKED);
-        };
-        match args[index].as_str() {
-            "--host" => host = Some(value.clone()),
-            "--peer" => peer_needle = Some(value.clone()),
-            "--source" => source_kind = value.clone(),
             "--settle" => match value.parse() {
-                Ok(parsed) => settle_secs = Some(parsed),
+                Ok(parsed) => options.settle = parsed,
                 Err(error) => {
                     eprintln!("tessera-cast: --settle {value}: {error}");
-                    return ExitCode::from(EXIT_BLOCKED);
-                }
-            },
-            "--port" => match value.parse() {
-                Ok(parsed) => port = Some(parsed),
-                Err(error) => {
-                    eprintln!("tessera-cast: --port {value}: {error}");
-                    return ExitCode::from(EXIT_BLOCKED);
+                    return Err(ExitCode::from(EXIT_BLOCKED));
                 }
             },
             "--rtp-port" => match value.parse() {
-                Ok(parsed) => rtp_port = Some(parsed),
+                Ok(parsed) => options.rtp_port = Some(parsed),
                 Err(error) => {
                     eprintln!("tessera-cast: --rtp-port {value}: {error}");
-                    return ExitCode::from(EXIT_BLOCKED);
+                    return Err(ExitCode::from(EXIT_BLOCKED));
                 }
             },
             "--timeout" => match value.parse() {
-                Ok(parsed) => timeout_secs = parsed,
+                Ok(parsed) => options.timeout = parsed,
                 Err(error) => {
                     eprintln!("tessera-cast: --timeout {value}: {error}");
-                    return ExitCode::from(EXIT_BLOCKED);
+                    return Err(ExitCode::from(EXIT_BLOCKED));
                 }
             },
-            "--video-formats" => video_formats = Some(value.clone()),
             "--fps" => match value.parse() {
-                Ok(parsed) => fps = parsed,
+                Ok(parsed) => options.fps = parsed,
                 Err(error) => {
                     eprintln!("tessera-cast: --fps {value}: {error}");
-                    return ExitCode::from(EXIT_BLOCKED);
+                    return Err(ExitCode::from(EXIT_BLOCKED));
                 }
             },
             "--duration" => match value.parse() {
-                Ok(parsed) => duration_secs = Some(parsed),
+                Ok(parsed) => options.duration = Some(parsed),
                 Err(error) => {
                     eprintln!("tessera-cast: --duration {value}: {error}");
-                    return ExitCode::from(EXIT_BLOCKED);
+                    return Err(ExitCode::from(EXIT_BLOCKED));
                 }
             },
             "--max-frames" => match value.parse() {
-                Ok(parsed) => max_frames = Some(parsed),
+                Ok(parsed) => options.max_frames = Some(parsed),
                 Err(error) => {
                     eprintln!("tessera-cast: --max-frames {value}: {error}");
-                    return ExitCode::from(EXIT_BLOCKED);
+                    return Err(ExitCode::from(EXIT_BLOCKED));
                 }
             },
             other => {
-                eprintln!("tessera-cast: unknown cast option '{other}'");
-                return ExitCode::from(EXIT_BLOCKED);
+                eprintln!("tessera-cast: unknown option '{other}'");
+                return Err(ExitCode::from(EXIT_BLOCKED));
             }
         }
         index += 2;
     }
-
-    let (host, port) = match resolve_sink_target(host, peer_needle, port, settle_secs) {
-        Ok(target) => target,
-        Err(code) => return code,
-    };
-
-    let Some(video_formats) = video_formats else {
-        eprintln!(
-            "tessera-cast: cast needs --video-formats\n\
-             \n\
-             The wfd_video_formats value is a packed bitfield (resolutions, micro-steps,\n\
-             profile/level). This tool will not invent it: take the value from the\n\
-             sink's own M3 GET_PARAMETER (see --trace) or from a working caster's exchange."
-        );
-        return ExitCode::from(EXIT_BLOCKED);
-    };
-
-    let parameters = tessera_cast::wfd::parameters::SourceParameters::new(video_formats)
-        .with_presentation_url(format!("rtsp://{host}/wfd1.0/streamid=0"))
-        .with_rtp_port(rtp_port.unwrap_or(DEFAULT_RTP_PORT));
-    if let Err(error) = parameters.to_map() {
-        eprintln!("tessera-cast: {error}");
-        return ExitCode::from(EXIT_BLOCKED);
-    }
-    let mut session = tessera_cast::wfd::session::WfdSourceSession::new(parameters);
-
-    let endpoint = format!("{host}:{port}");
-    let stream = match std::net::TcpStream::connect(&endpoint) {
-        Ok(stream) => stream,
-        Err(error) => {
-            eprintln!("tessera-cast: could not connect to {endpoint}: {error}");
-            return ExitCode::from(EXIT_BLOCKED);
-        }
-    };
-    let timeout = Some(std::time::Duration::from_secs(timeout_secs));
-    if let Err(error) = stream
-        .set_read_timeout(timeout)
-        .and_then(|()| stream.set_write_timeout(timeout))
-    {
-        eprintln!("tessera-cast: could not set socket timeouts: {error}");
-        return ExitCode::from(EXIT_BLOCKED);
-    }
-
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
-    let outcome = tessera_cast::cast::handshake(
-        tessera_cast::wfd::transport::RtspTransport::new(stream),
-        &mut session,
-        deadline,
-        64,
-        tessera_cast::cast::Drain::UntilQuiet(8),
-    );
-    let (outcome, transport) = match outcome {
-        Ok(res) => res,
-        Err(error) => {
-            eprintln!("tessera-cast: handshake error: {error}");
-            print!("{}", session.trace().render());
-            return ExitCode::from(EXIT_BLOCKED);
-        }
-    };
-
-    if !outcome.is_streaming() {
-        eprintln!(
-            "tessera-cast: sink did not accept streaming: {}",
-            outcome.describe()
-        );
-        print!("{}", session.trace().render());
-        return ExitCode::from(EXIT_BLOCKED);
-    }
-
-    let sink_rtp_port = rtp_port
-        .or_else(|| session.sink_rtp_port())
-        .unwrap_or(DEFAULT_RTP_PORT);
-
-    let host_ip: std::net::IpAddr = match host.parse() {
-        Ok(ip) => ip,
-        Err(err) => {
-            eprintln!("tessera-cast: invalid sink IP address '{host}': {err}");
-            return ExitCode::from(EXIT_BLOCKED);
-        }
-    };
-    let sink_rtp_target = std::net::SocketAddr::new(host_ip, sink_rtp_port);
-
-    let sender = match tessera_cast::media::UdpMediaSender::bind_ephemeral(sink_rtp_target) {
-        Ok(sender) => sender,
-        Err(err) => {
-            eprintln!("tessera-cast: could not bind UDP sender: {err}");
-            return ExitCode::from(EXIT_BLOCKED);
-        }
-    };
-
-    println!("handshake accepted: {}", outcome.describe());
-
-    let config = tessera_cast::media::StreamConfig {
-        fps,
-        max_frames,
-        max_duration: duration_secs.map(std::time::Duration::from_secs),
-        ssrc: 0x1900_0000,
-    };
-
-    let _ = transport
-        .stream()
-        .set_read_timeout(Some(std::time::Duration::from_millis(5)));
-
-    let (stats, mut transport) = if source_kind == "desktop" || source_kind == "virtual" || source_kind == "mirror" {
-        let is_virtual = source_kind != "mirror";
-        match tessera_cast::media::DesktopCaptureSource::open(fps, is_virtual) {
-            Ok(desktop_source) => {
-                let res = desktop_source.resolution();
-                println!(
-                    "streaming live desktop ({}x{}) via VA-API H.264 to {sink_rtp_target} at {fps} fps",
-                    res.0, res.1
-                );
-                println!("press Ctrl-C to stop streaming\n");
-                tessera_cast::media::stream(transport, &mut session, sender, desktop_source, config)
-            }
-            Err(err) => {
-                println!("could not start desktop portal capture: {err}");
-                println!("falling back to 720p H.264 test pattern\n");
-                println!("streaming H.264 test pattern to {sink_rtp_target} at {fps} fps");
-                println!("press Ctrl-C to stop streaming\n");
-                tessera_cast::media::stream(
-                    transport,
-                    &mut session,
-                    sender,
-                    tessera_cast::media::TestPatternSource::new(fps),
-                    config,
-                )
-            }
-        }
-    } else {
-        println!("streaming H.264 test pattern to {sink_rtp_target} at {fps} fps");
-        println!("press Ctrl-C to stop streaming\n");
-        tessera_cast::media::stream(
-            transport,
-            &mut session,
-            sender,
-            tessera_cast::media::TestPatternSource::new(fps),
-            config,
-        )
-    };
-
-    println!("stream completed: {}", stats.termination);
-    println!("  duration: {:?}", stats.duration);
-    println!("  frames sent: {}", stats.frames_sent);
-    println!(
-        "  data sent: {} bytes across {} RTP datagrams (~{} kbps)",
-        stats.bytes_sent,
-        stats.rtp_packets_sent,
-        stats.average_bitrate_bps() / 1000
-    );
-
-    if session.phase() != tessera_cast::wfd::session::Phase::Terminated {
-        let teardown = tessera_cast::wfd::rtsp::RtspMessage::request(
-            tessera_cast::wfd::rtsp::Method::Teardown,
-            &format!("rtsp://{host}/wfd1.0/streamid=0"),
-            999,
-            Vec::new(),
-        );
-        let _ = transport.send(&teardown);
-    }
-
-    ExitCode::from(EXIT_READY)
+    Ok(options)
 }
 
-fn run_formats(args: &[String]) -> ExitCode {
-    let Some(value) = args.first() else {
+fn run_serve_command(args: &[String], media: bool) -> ExitCode {
+    let options = match parse_serve_options(args) {
+        Ok(options) => options,
+        Err(code) => return code,
+    };
+    let Some(video_formats) = options.video_formats.clone() else {
         eprintln!(
-            "tessera-cast: formats needs a wfd_video_formats value\n\
+            "tessera-cast: {} needs --video-formats\n\
              \n\
-             Pass the value a sink advertised (or one a working caster sent). The tool\n\
-             decodes it to offsets, bytes and bits, and shows the field names this build\n\
-             assumes — marked unverified, because a wrong bit makes a sink reject a\n\
-             session indistinguishably from a radio failure. It never rewrites the value."
+             The wfd_video_formats value is a packed bitfield (resolutions, micro-steps,\n\
+             profile/level). This tool will not invent it: take the value from a working\n\
+             caster's exchange, or from the sink's own M3 GET_PARAMETER trace.",
+            if media { "cast" } else { "handshake" }
         );
         return ExitCode::from(EXIT_BLOCKED);
     };
-    match tessera_cast::wfd::formats::VideoFormats::parse(value) {
-        Ok(formats) => {
-            println!("wire form: {}\n", formats.to_wire());
-            let canonical = formats.to_wire();
-            if canonical != value.trim() {
-                println!("note: the value was normalised (lower-case hex, single spaces)\n");
-            }
-            for line in formats.annotate() {
-                println!("{line}");
-            }
-            println!(
-                "\nthe declared field names are unverified: correct FIELD_SCHEMA against a real\n\
-                 sink and the annotation becomes exact. The value itself is never rewritten."
-            );
-            ExitCode::from(EXIT_READY)
+    if video_formats.trim().is_empty() {
+        eprintln!(
+            "tessera-cast: --video-formats is empty\n\
+             \n\
+             If you wrote `VF=\"...\" tessera-cast ... --video-formats \"$VF\"`, that is an\n\
+             environment assignment for that command: `$VF` does not expand in the same\n\
+             command. Put the assignment on its own line, or pass the value inline:\n\
+             \n  VF=\"38 00 01 01 f9cf94a0 00000000 00000000 00 0000 0000 00 none none\"\n  \
+             ./target/debug/tessera-cast cast ... --video-formats \"$VF\""
+        );
+        return ExitCode::from(EXIT_BLOCKED);
+    }
+    let control_port = options.control_port;
+    let session_options = SessionOptions {
+        bind: options.bind,
+        control_port,
+        peer: options.peer,
+        settle: Duration::from_secs(options.settle),
+        video_formats,
+        audio: options.audio,
+        audio_source: if options.audio_source == "microphone" {
+            AudioSourceKind::Microphone
+        } else {
+            AudioSourceKind::System
+        },
+        audio_bitrate_kbps: options.audio_bitrate,
+        rtp_port: options.rtp_port.unwrap_or(DEFAULT_RTP_PORT),
+        timeout: Duration::from_secs(options.timeout),
+        fps: options.fps,
+        source: if options.source == "pattern" {
+            MediaSource::Pattern
+        } else {
+            MediaSource::Desktop
+        },
+        duration: options.duration.map(Duration::from_secs),
+        max_frames: options.max_frames,
+        stream_media: media,
+        ts_file: options.ts_file.map(std::path::PathBuf::from),
+        ts_seconds: options.ts_seconds,
+        opening: if options.opening == "source" {
+            Opening::Initiator
+        } else {
+            Opening::Sink
+        },
+        stop: None,
+    };
+
+    let result = session::run(&session_options, &mut |event| match event {
+        SessionEvent::Listening(address) => {
+            println!("source RTSP server listening on {address}");
+            println!("  (Miracast: the sink connects here; this source never dials the sink)\n");
         }
+        SessionEvent::FirewallBlocked(description) => {
+            println!("inbound tcp/{control_port}        {description}");
+            eprintln!(
+                "warning: the host firewall will drop the sink's connection.\n\
+                 add an ingress rule for the P2P interface, for example:\n\
+                 \n  sudo nft add rule inet filter input iifname \"wlan0-p2p*\" accept\n"
+            );
+        }
+        SessionEvent::SinkConnected(address) => println!("sink connected from {address}\n"),
+        SessionEvent::Negotiating => println!("negotiating Miracast..."),
+        SessionEvent::Streaming => println!("sink accepted the handshake\n"),
+        SessionEvent::MediaEndpoint { local, target } => {
+            println!("media: RTP {local} -> {target}\n");
+        }
+        SessionEvent::Trace(trace) => print!("{trace}"),
+        SessionEvent::MediaFallback(error) => {
+            println!("could not start desktop portal capture: {error}");
+            println!("falling back to the 720p H.264 test pattern\n");
+        }
+        SessionEvent::AudioActive(codec) => println!("audio: {codec}\n"),
+        SessionEvent::AudioUnavailable(reason) => println!("audio unavailable: {reason}\n"),
+        SessionEvent::RtcpUnavailable(reason) => println!("rtcp unavailable: {reason}\n"),
+        SessionEvent::Stats {
+            frames_sent,
+            audio_frames_sent,
+            bytes_sent,
+        } => println!(
+            "stream completed: {frames_sent} frames, {audio_frames_sent} audio frames, {bytes_sent} bytes"
+        ),
+        SessionEvent::Stopped(reason) => println!("session stopped: {reason}"),
+        SessionEvent::Failed(_) => {}
+    });
+
+    match result {
+        Ok(()) => ExitCode::from(EXIT_READY),
         Err(error) => {
             eprintln!("tessera-cast: {error}");
             ExitCode::from(EXIT_BLOCKED)
@@ -600,17 +362,18 @@ fn run_formats(args: &[String]) -> ExitCode {
 }
 
 fn run_sink(args: &[String]) -> ExitCode {
-    let mut listen = "127.0.0.1:7236".to_owned();
+    let mut connect = "127.0.0.1:7236".to_owned();
     let mut rtp_port: Option<u16> = None;
+    let mut play = false;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
-            "--listen" => {
+            "--connect" => {
                 let Some(value) = args.get(index + 1) else {
-                    eprintln!("tessera-cast: --listen needs an address");
+                    eprintln!("tessera-cast: --connect needs an address");
                     return ExitCode::from(EXIT_BLOCKED);
                 };
-                listen = value.clone();
+                connect = value.clone();
                 index += 2;
             }
             "--rtp-port" => {
@@ -627,58 +390,46 @@ fn run_sink(args: &[String]) -> ExitCode {
                 }
                 index += 2;
             }
+            "--play" => {
+                play = true;
+                index += 1;
+            }
             other => {
                 eprintln!("tessera-cast: unknown sink option '{other}'");
                 return ExitCode::from(EXIT_BLOCKED);
             }
         }
     }
-    let listener = match std::net::TcpListener::bind(&listen) {
-        Ok(listener) => listener,
+
+    let stream = match TcpStream::connect(&connect) {
+        Ok(stream) => stream,
         Err(error) => {
-            eprintln!("tessera-cast: could not listen on {listen}: {error}");
+            eprintln!("tessera-cast: could not connect to {connect}: {error}");
+            eprintln!("  the SOURCE listens; start 'tessera-cast cast' first");
             return ExitCode::from(EXIT_BLOCKED);
         }
     };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(15)));
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(15)));
 
-    let rtp_socket = if let Some(port) = rtp_port {
-        let addr = format!("0.0.0.0:{port}");
-        match std::net::UdpSocket::bind(&addr) {
-            Ok(sock) => Some(sock),
+    let rtp_socket = match rtp_port {
+        Some(port) => match UdpSocket::bind(("0.0.0.0", port)) {
+            Ok(socket) => Some(socket),
             Err(error) => {
-                eprintln!("tessera-cast: could not bind RTP socket on {addr}: {error}");
+                eprintln!("tessera-cast: could not bind the RTP socket on {port}: {error}");
                 return ExitCode::from(EXIT_BLOCKED);
             }
-        }
-    } else {
-        None
+        },
+        None => None,
     };
-
-    let expect_setup_play = rtp_socket.is_some();
-
-    eprintln!("scripted sink listening on {listen}; waiting for one caster");
-    let (stream, peer) = match listener.accept() {
-        Ok(accepted) => accepted,
-        Err(error) => {
-            eprintln!("tessera-cast: accept failed: {error}");
-            return ExitCode::from(EXIT_BLOCKED);
-        }
-    };
-    eprintln!("caster connected from {peer}\n");
-    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(15)));
 
     let script = tessera_cast::sink::SinkScript {
-        video_formats: "00 00 02 10 00000000 00000000 00 0000 0000 00 none none".to_owned(),
-        expect_setup_play,
-        receive_rtp_packets: None,
+        expect_setup_play: play,
         rtp_socket,
+        ..tessera_cast::sink::SinkScript::default()
     };
 
-    let outcome = tessera_cast::sink::run(
-        tessera_cast::wfd::transport::RtspTransport::new(stream),
-        &script,
-    );
-    match outcome {
+    match tessera_cast::sink::run_client(RtspTransport::new(stream), &script) {
         Ok(report) => {
             println!("sink completed the negotiation\n");
             println!("cseq matched: {}", report.cseq_matched);
@@ -692,7 +443,7 @@ fn run_sink(args: &[String]) -> ExitCode {
             }
             if report.rtp_packets_received > 0 {
                 println!(
-                    "\nmedia stream received: {} RTP datagrams ({} bytes)",
+                    "\nmedia received: {} RTP datagrams ({} bytes)",
                     report.rtp_packets_received, report.rtp_bytes_received
                 );
             }
@@ -710,16 +461,16 @@ fn run_probe() -> ExitCode {
     print!("{}", report.render());
     match report.blocker() {
         tessera_cast::probe::Blocker::None => ExitCode::from(EXIT_READY),
-        tessera_cast::probe::Blocker::Radio | tessera_cast::probe::Blocker::Pipeline => {
-            ExitCode::from(EXIT_BLOCKED)
-        }
+        tessera_cast::probe::Blocker::Radio
+        | tessera_cast::probe::Blocker::Pipeline
+        | tessera_cast::probe::Blocker::InboundFirewall => ExitCode::from(EXIT_BLOCKED),
         tessera_cast::probe::Blocker::Unknown => ExitCode::from(EXIT_UNKNOWN),
     }
 }
 
 fn run_discover(args: &[String]) -> ExitCode {
     let mut settle = DEFAULT_SETTLE_SECS;
-    let mut port = DEFAULT_RTP_PORT;
+    let mut port = DEFAULT_CONTROL_PORT;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
@@ -758,16 +509,23 @@ fn run_discover(args: &[String]) -> ExitCode {
         }
     }
 
+    let inbound = tessera_cast::firewall::observe(port);
+    println!("inbound tcp/{port}        {}", inbound.describe());
+    if inbound.is_blocked() {
+        println!(
+            "  the sink's RTSP connection will be dropped; add an ingress rule, e.g.\n  \
+             sudo nft add rule inet filter input iifname \"wlan0-p2p*\" accept"
+        );
+    }
+
     let radio = match tessera_cast::radio::iwd::IwdRadio::open() {
         Ok(radio) => radio,
         Err(error) => {
-            // The radio could not even be opened: report the exact reason rather
-            // than a generic failure, because each cause has a different fix.
             eprintln!("tessera-cast: {error}");
             return ExitCode::from(EXIT_BLOCKED);
         }
     };
-    match tessera_cast::discover::discover(&radio, port, std::time::Duration::from_secs(settle)) {
+    match tessera_cast::discover::discover(&radio, port, Duration::from_secs(settle)) {
         Ok(report) => {
             print!("{}", report.render());
             if report.castable().count() > 0 {
@@ -775,6 +533,118 @@ fn run_discover(args: &[String]) -> ExitCode {
             } else {
                 ExitCode::from(EXIT_NO_SINK)
             }
+        }
+        Err(error) => {
+            eprintln!("tessera-cast: {error}");
+            ExitCode::from(EXIT_BLOCKED)
+        }
+    }
+}
+
+fn run_doctor(args: &[String]) -> ExitCode {
+    let mut settle = 8u64;
+    let mut port = DEFAULT_CONTROL_PORT;
+    let mut index = 0;
+    while index < args.len() {
+        let Some(value) = args.get(index + 1) else {
+            eprintln!("tessera-cast: {} needs a value", args[index]);
+            return ExitCode::from(EXIT_BLOCKED);
+        };
+        match args[index].as_str() {
+            "--settle" => match value.parse() {
+                Ok(parsed) => settle = parsed,
+                Err(error) => {
+                    eprintln!("tessera-cast: --settle {value}: {error}");
+                    return ExitCode::from(EXIT_BLOCKED);
+                }
+            },
+            "--port" => match value.parse() {
+                Ok(parsed) => port = parsed,
+                Err(error) => {
+                    eprintln!("tessera-cast: --port {value}: {error}");
+                    return ExitCode::from(EXIT_BLOCKED);
+                }
+            },
+            other => {
+                eprintln!("tessera-cast: unknown doctor option '{other}'");
+                return ExitCode::from(EXIT_BLOCKED);
+            }
+        }
+        index += 2;
+    }
+
+    println!("tessera-cast doctor\n");
+    let probe = tessera_cast::observe::probe();
+    print!("{}", probe.render());
+    println!();
+
+    let inbound = tessera_cast::firewall::observe(port);
+    println!("firewall tcp/{port}      {}", inbound.describe());
+    if inbound.is_blocked() {
+        println!("  fix: sudo nft add rule inet filter input iifname \"wlan0-p2p*\" accept");
+    } else if matches!(
+        inbound,
+        tessera_cast::firewall::InboundVerdict::Unverified(_)
+    ) {
+        println!("  inspect: sudo nft list ruleset");
+    }
+    println!();
+
+    let radio = match tessera_cast::radio::iwd::IwdRadio::open() {
+        Ok(radio) => radio,
+        Err(error) => {
+            eprintln!("discovery unavailable: {error}");
+            return ExitCode::from(EXIT_BLOCKED);
+        }
+    };
+    match tessera_cast::discover::discover(&radio, port, Duration::from_secs(settle)) {
+        Ok(report) => {
+            print!("{}", report.render());
+            if let Some(peer) = report.castable().next() {
+                println!(
+                    "\nnext: tessera-cast cast --peer {} --settle {settle} \\\n      \
+                     --source pattern --video-formats <value> --timeout 60",
+                    peer.path
+                );
+            }
+        }
+        Err(error) => eprintln!("discovery failed: {error}"),
+    }
+
+    match probe.blocker() {
+        tessera_cast::probe::Blocker::None => ExitCode::from(EXIT_READY),
+        tessera_cast::probe::Blocker::Unknown => ExitCode::from(EXIT_UNKNOWN),
+        _ => ExitCode::from(EXIT_BLOCKED),
+    }
+}
+
+fn run_formats(args: &[String]) -> ExitCode {
+    let Some(value) = args.first() else {
+        eprintln!(
+            "tessera-cast: formats needs a wfd_video_formats value\n\
+             \n\
+             Pass the value a sink advertised (or one a working caster sent). The tool\n\
+             decodes it to offsets, bytes and bits, and shows the field names this build\n\
+             assumes — marked unverified, because a wrong bit makes a sink reject a\n\
+             session indistinguishably from a radio failure. It never rewrites the value."
+        );
+        return ExitCode::from(EXIT_BLOCKED);
+    };
+    match tessera_cast::wfd::formats::VideoFormats::parse(value) {
+        Ok(formats) => {
+            println!("wire form: {}\n", formats.to_wire());
+            let canonical = formats.to_wire();
+            if canonical != value.trim() {
+                println!("note: the value was normalised (lower-case hex, single spaces)\n");
+            }
+            for line in formats.annotate() {
+                println!("{line}");
+            }
+            println!(
+                "\nthe declared field names are unverified: correct FIELD_SCHEMA against a real\n\
+                 sink and the annotation becomes exact. The value itself is never rewritten."
+            );
+            ExitCode::from(EXIT_READY)
         }
         Err(error) => {
             eprintln!("tessera-cast: {error}");

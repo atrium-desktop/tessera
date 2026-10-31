@@ -166,10 +166,228 @@ pub struct Config {
     #[serde(default)]
     pub night_light: NightLightConfig,
 
+    /// Wireless-display casting (ADR-0188, ADR-0192), written as `[cast]`.
+    #[serde(default)]
+    pub cast: CastConfig,
+
     /// Development-only escape hatches, written as a `[dev]` table.
     /// Development-only; will be removed before release. Do not rely on it.
     #[serde(default)]
     pub dev: DevConfig,
+}
+
+/// The source format validated end-to-end against the reference Skyworth A3F
+/// sink: CEA 720p30 (`00000020`) with the sink's native/preferred fields. It is
+/// a subset of that sink's `f9cf94a0` bitmap and a safe baseline for other
+/// sinks; override `[cast] video_formats` when a sink does not offer 720p30.
+pub const DEFAULT_CAST_VIDEO_FORMATS: &str =
+    "38 00 01 01 00000020 00000000 00000000 00 0000 0000 00 none none";
+
+/// The `[cast]` section: Miracast discovery and session policy (ADR-0192).
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CastConfig {
+    /// The `wfd_video_formats` value the source advertises. Defaults to the
+    /// hardware-validated 720p30 subset; empty refuses to start a session.
+    #[serde(default = "default_cast_video_formats")]
+    pub video_formats: String,
+    /// Which frames the service sends.
+    #[serde(default)]
+    pub source: CastSource,
+    /// Who opens the RTSP exchange. `source` drives the exchange and puts the
+    /// SETUP trigger in M5 (required by the reference Android 9 sink); `sink`
+    /// is Miracast's documented direction for sinks that speak first.
+    #[serde(default)]
+    pub opening: CastOpening,
+    /// Share audio with the sink. Off by default: capturing the desktop's
+    /// audio is an explicit privacy decision.
+    #[serde(default)]
+    pub audio: bool,
+    /// Which PipeWire node to capture when `audio` is on.
+    #[serde(default)]
+    pub audio_source: CastAudioSource,
+    /// AAC bitrate in kbit/s (32..=512).
+    #[serde(default = "default_cast_audio_bitrate_kbps")]
+    pub audio_bitrate_kbps: u32,
+    /// Frame rate for the encoder (1..=120).
+    #[serde(default = "default_cast_fps")]
+    pub fps: u32,
+    /// The source's RTSP control port; the sink connects to it (1024..=65535).
+    #[serde(default = "default_cast_control_port")]
+    pub control_port: u16,
+    /// RTP port used when the sink names none (1024..=65535).
+    #[serde(default = "default_cast_rtp_port")]
+    pub rtp_port: u16,
+    /// Discovery settle time in seconds (0..=60).
+    #[serde(default = "default_cast_settle_seconds")]
+    pub settle_seconds: u64,
+    /// How long to wait for the sink to connect and complete the session
+    /// (1..=600 seconds).
+    #[serde(default = "default_cast_session_timeout_seconds")]
+    pub session_timeout_seconds: u64,
+}
+
+/// The source selection for a cast session.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CastSource {
+    /// Live desktop through the `ScreenCast` portal and VA-API.
+    #[default]
+    Desktop,
+    /// The self-contained H.264 test pattern.
+    Pattern,
+}
+
+impl CastSource {
+    /// The wire name the service binary accepts.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Desktop => "desktop",
+            Self::Pattern => "pattern",
+        }
+    }
+}
+
+/// Who opens the RTSP control exchange.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CastOpening {
+    /// The sink connects and sends the first `OPTIONS` (Miracast's documented
+    /// direction).
+    Sink,
+    /// The source sends the first `OPTIONS` and drives
+    /// `GET_PARAMETER`/`SET_PARAMETER` (with the SETUP trigger in M5).
+    #[default]
+    Source,
+}
+
+impl CastOpening {
+    /// The wire name the service binary accepts.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Sink => "sink",
+            Self::Source => "source",
+        }
+    }
+}
+
+/// Which PipeWire node the caster captures for WFD audio.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CastAudioSource {
+    /// The default sink's monitor: the audio the desktop is playing.
+    #[default]
+    System,
+    /// The default source: the microphone.
+    Microphone,
+}
+
+impl CastAudioSource {
+    /// The wire name the service binary accepts.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::Microphone => "microphone",
+        }
+    }
+}
+
+fn default_cast_video_formats() -> String {
+    DEFAULT_CAST_VIDEO_FORMATS.to_owned()
+}
+fn default_cast_fps() -> u32 {
+    30
+}
+fn default_cast_audio_bitrate_kbps() -> u32 {
+    128
+}
+fn default_cast_control_port() -> u16 {
+    7236
+}
+fn default_cast_rtp_port() -> u16 {
+    19_000
+}
+fn default_cast_settle_seconds() -> u64 {
+    4
+}
+fn default_cast_session_timeout_seconds() -> u64 {
+    60
+}
+
+impl Default for CastConfig {
+    fn default() -> Self {
+        Self {
+            video_formats: default_cast_video_formats(),
+            source: CastSource::Desktop,
+            opening: CastOpening::Source,
+            audio: false,
+            audio_source: CastAudioSource::System,
+            audio_bitrate_kbps: default_cast_audio_bitrate_kbps(),
+            fps: default_cast_fps(),
+            control_port: default_cast_control_port(),
+            rtp_port: default_cast_rtp_port(),
+            settle_seconds: default_cast_settle_seconds(),
+            session_timeout_seconds: default_cast_session_timeout_seconds(),
+        }
+    }
+}
+
+impl CastConfig {
+    fn validate(&self) -> Vec<Diagnostic> {
+        let mut diagnostics = Vec::new();
+        if !(1..=120).contains(&self.fps) {
+            diagnostics.push(Diagnostic::new(
+                Some("cast.fps".into()),
+                "must be between 1 and 120",
+            ));
+        }
+        if !(32..=512).contains(&self.audio_bitrate_kbps) {
+            diagnostics.push(Diagnostic::new(
+                Some("cast.audio_bitrate_kbps".into()),
+                "must be between 32 and 512",
+            ));
+        }
+        for (field, port) in [
+            ("cast.control_port", self.control_port),
+            ("cast.rtp_port", self.rtp_port),
+        ] {
+            if port < 1024 {
+                diagnostics.push(Diagnostic::new(
+                    Some(field.into()),
+                    "must be an unprivileged port (1024..=65535)",
+                ));
+            }
+        }
+        if self.settle_seconds > 60 {
+            diagnostics.push(Diagnostic::new(
+                Some("cast.settle_seconds".into()),
+                "must be 60 or less",
+            ));
+        }
+        if !(1..=600).contains(&self.session_timeout_seconds) {
+            diagnostics.push(Diagnostic::new(
+                Some("cast.session_timeout_seconds".into()),
+                "must be between 1 and 600",
+            ));
+        }
+        if self.video_formats.len() > 1024 {
+            diagnostics.push(Diagnostic::new(
+                Some("cast.video_formats".into()),
+                "must be at most 1024 bytes",
+            ));
+        }
+        if self
+            .video_formats
+            .bytes()
+            .any(|byte| matches!(byte, b'\r' | b'\n' | 0) || !(0x20..=0x7e).contains(&byte))
+        {
+            diagnostics.push(Diagnostic::new(
+                Some("cast.video_formats".into()),
+                "must be printable ASCII without CR, LF, or NUL",
+            ));
+        }
+        diagnostics
+    }
 }
 
 /// The `[night_light]` section: scheduled display color temperature. When
@@ -1033,6 +1251,7 @@ impl Config {
         validate_wallpaper(&cfg.wallpaper, &mut diagnostics);
         validate_lock_screen(&cfg.lock_screen, &mut diagnostics);
         validate_night_light(&cfg.night_light, &mut diagnostics);
+        diagnostics.extend(cfg.cast.validate());
         if !(64..=1_048_576).contains(&cfg.audit.max_store_mib) {
             diagnostics.push(Diagnostic::new(
                 Some("audit.max_store_mib".into()),

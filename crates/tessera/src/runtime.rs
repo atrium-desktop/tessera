@@ -33,6 +33,8 @@ mod stream;
 mod system;
 mod window_capture;
 
+pub(crate) use session::trusted_sibling_program;
+
 use crate::registry::*;
 use app_pick::*;
 use apps::*;
@@ -577,6 +579,37 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         crate::bluetooth::BluetoothHandle::spawn_auto()
     };
+    // The cast service owns discovery and sessions. Its policy comes from the
+    // `[cast]` configuration; the default is the hardware-validated 720p30
+    // subset, not an invented bitfield.
+    let cast_config = config
+        .as_ref()
+        .map(|config| config.cast.clone())
+        .unwrap_or_default();
+    let casting = crate::casting::CastHandle::spawn_auto(crate::casting::CastServiceOptions {
+        video_formats: cast_config.video_formats,
+        source: match cast_config.source {
+            tessera_config::CastSource::Desktop => tessera_cast::session::MediaSource::Desktop,
+            tessera_config::CastSource::Pattern => tessera_cast::session::MediaSource::Pattern,
+        },
+        opening: match cast_config.opening {
+            tessera_config::CastOpening::Sink => tessera_cast::cast::Opening::Sink,
+            tessera_config::CastOpening::Source => tessera_cast::cast::Opening::Initiator,
+        },
+        audio: cast_config.audio,
+        audio_source: match cast_config.audio_source {
+            tessera_config::CastAudioSource::System => tessera_cast::media::AudioSourceKind::System,
+            tessera_config::CastAudioSource::Microphone => {
+                tessera_cast::media::AudioSourceKind::Microphone
+            }
+        },
+        audio_bitrate_kbps: cast_config.audio_bitrate_kbps,
+        fps: cast_config.fps,
+        control_port: cast_config.control_port,
+        rtp_port: cast_config.rtp_port,
+        settle: std::time::Duration::from_secs(cast_config.settle_seconds),
+        session_timeout: std::time::Duration::from_secs(cast_config.session_timeout_seconds),
+    });
     // The subsystem reports adapter power when a Bluetooth service answered;
     // otherwise the host's rfkill probe is the fallback, exactly as it seeds
     // `bluetooth_enabled` in `detect_status`.
@@ -1132,6 +1165,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         system_status,
         wireless,
         bluetooth,
+        casting,
         status_rx,
         status_refresh_tx,
         config_writer,

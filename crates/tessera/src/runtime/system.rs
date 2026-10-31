@@ -29,6 +29,7 @@ pub(super) fn apply_system_action(
     idle_process: &mut super::session::IdleProcess,
     wireless: &crate::wireless::WirelessHandle,
     bluetooth: &crate::bluetooth::BluetoothHandle,
+    casting: &crate::casting::CastHandle,
     host_system: &dyn HostSystem,
     action: tessera_desktop::system::SystemAction,
 ) -> Result<(), String> {
@@ -171,88 +172,18 @@ pub(super) fn apply_system_action(
                 .retain(|device| device.address != address);
         }
         SystemAction::ScanCast => {
-            status.cast_scanning = true;
-            // Discover nearby P2P Wi-Fi Display sinks from iwd
-            if let Ok(conn) = zbus::blocking::Connection::system()
-                && let Ok(reply) = conn.call_method(
-                    Some("net.connman.iwd"),
-                    "/",
-                    Some("org.freedesktop.DBus.ObjectManager"),
-                    "GetManagedObjects",
-                    &(),
-                )
-                && let Ok(objects) = reply.body().deserialize::<std::collections::HashMap<
-                    zbus::zvariant::OwnedObjectPath,
-                    std::collections::HashMap<String, std::collections::HashMap<String, zbus::zvariant::OwnedValue>>,
-                >>()
-            {
-                let mut sinks = Vec::new();
-                for (path, ifaces) in objects {
-                    if let Some(peer_props) = ifaces.get("net.connman.iwd.p2p.Peer") {
-                        let name = peer_props
-                            .get("Name")
-                            .and_then(|v| {
-                                let val: &zbus::zvariant::Value = std::borrow::Borrow::borrow(v);
-                                val.downcast_ref::<&str>().ok().map(str::to_string)
-                            })
-                            .unwrap_or_else(|| "Wireless Display".to_string());
-                        let addr = peer_props
-                            .get("DeviceAddress")
-                            .and_then(|v| {
-                                let val: &zbus::zvariant::Value = std::borrow::Borrow::borrow(v);
-                                val.downcast_ref::<&str>().ok().map(str::to_string)
-                            })
-                            .unwrap_or_else(|| path.as_str().to_string());
-                        sinks.push(tessera_desktop::system::CastDevice {
-                            address: addr,
-                            name,
-                            protocol: "Miracast (Wi-Fi Display)".to_string(),
-                            connected: false,
-                        });
-                    }
-                }
-                if !sinks.is_empty() {
-                    status.cast_devices = sinks;
-                }
-            }
+            // The service owns discovery; chrome renders the snapshot it pushes
+            // (merged in `iteration.rs`). No iwd read and no state mutation here.
+            casting.start_discovery();
         }
-        SystemAction::ConnectCast { address } => {
-            for sink in &mut status.cast_devices {
-                if sink.address == address {
-                    sink.connected = true;
-                }
-            }
-            status.cast_streams = status.cast_streams.max(1);
-            status.virtual_displays = status.virtual_displays.max(1);
-            status.cast_scanning = false;
-
-            // Spawn tessera-cast in background to drive P2P WFD negotiation & streaming
-            let _ = std::process::Command::new("tessera-cast")
-                .arg("cast")
-                .arg("--peer")
-                .arg(&address)
-                .arg("--source")
-                .arg("virtual")
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn();
+        SystemAction::StopCastDiscovery => {
+            casting.stop_discovery();
         }
-        SystemAction::DisconnectCast { address } => {
-            for sink in &mut status.cast_devices {
-                if sink.address == address {
-                    sink.connected = false;
-                }
-            }
-            status.cast_streams = status.cast_streams.saturating_sub(1);
-            if status.cast_streams == 0 {
-                status.virtual_displays = 0;
-            }
-            // Terminate background tessera-cast processes if any
-            let _ = std::process::Command::new("pkill")
-                .arg("-f")
-                .arg("tessera-cast cast")
-                .status();
+        SystemAction::ConnectCast { sink } => {
+            casting.connect(sink);
+        }
+        SystemAction::DisconnectCast { session } => {
+            casting.disconnect(session);
         }
         SystemAction::SetDoNotDisturb { enabled } => {
             notifications

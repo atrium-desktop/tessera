@@ -132,29 +132,84 @@ impl CompositorRuntime<'_> {
                             || w.next_frame_in()
                                 .is_some_and(|remaining| remaining.is_zero())
                     }))
-            // Server-side topology: window list/geometry, workspace, output,
-            // and Interaction Domain model changes all feed both the scene and the chrome.
-            || self.last_windows_hash != Some(windows_hash)
-            // The dock's workspace-global strip follows its own hash; a change
-            // on a hidden workspace (map/unmap/title) moves only this one.
-            || self.last_all_windows_hash != Some(all_windows_hash)
+            // Server-side topology: workspace, output, and Interaction Domain
+            // model changes feed both the scene and the chrome in full.
             || self.last_ws_sig != Some(ws_sig)
             || self.last_outputs_revision != Some(outputs_revision)
             || self.last_interaction_domain_revision != Some(interaction_domain_revision)
-            // Toasts and the do-not-disturb indicator follow the notification
-            // queue (arrivals, dismissals, expiry).
-            || self.damage.last_notif_revision != Some(notif_revision)
             || self.damage.last_chrome_mode != Some(chrome_mode)
             // Shell mutations applied outside the signed paths (status poller,
             // config reload, app rescan, IPC settings/Interaction Domain control).
-            || self.damage.chrome_dirty
-            // The fanout pushes these into chrome when they drift.
-            || self.system_status.do_not_disturb != do_not_disturb
-            // The status-bar clock is read from wall time at render; force a
-            // frame after each minute rollover.
-            || self.damage.last_present_minute != Some(wall_clock_minute());
+            || self.damage.chrome_dirty;
 
         let transition_rects = self.server.transition_damage_rects();
+
+        // Localized extra damage rects for chrome and server state changes:
+        let mut chrome_extra_rects = Vec::new();
+        let display = self.input_acc.display_size;
+        let reserved = self.shell.reserved();
+
+        // 1. When the dock's global window strip changes (e.g. app mapped on another workspace):
+        if self.last_all_windows_hash != Some(all_windows_hash) {
+            let dock_h = reserved.bottom.max(64);
+            chrome_extra_rects.push(tessera_primitives::Rect::new(
+                0,
+                (display.1 as i32) - dock_h,
+                display.0 as i32,
+                dock_h,
+            ));
+        }
+
+        // 2. When the wall-clock minute rolls over or DND status changes:
+        if self.damage.last_present_minute != Some(wall_clock_minute())
+            || self.system_status.do_not_disturb != do_not_disturb
+        {
+            let panel_h = reserved.top.max(32);
+            chrome_extra_rects.push(tessera_primitives::Rect::new(
+                0,
+                0,
+                display.0 as i32,
+                panel_h,
+            ));
+        }
+
+        // 3. When notification toast arrives/dismisses:
+        if self.damage.last_notif_revision != Some(notif_revision) {
+            chrome_extra_rects.push(tessera_primitives::Rect::new(
+                (display.0 as i32).saturating_sub(420),
+                0,
+                420,
+                360,
+            ));
+        }
+
+        // 4. When window focus changes without client buffer commits:
+        if self.last_windows_hash != Some(windows_hash) {
+            let windows = self.server.windows();
+            let focused_window = windows.iter().find(|w| w.state.activated);
+            let focused_id = focused_window.map(|w| w.id);
+            if focused_id != self.damage.last_focused_window {
+                if let Some(win) = focused_window {
+                    chrome_extra_rects.push(tessera_primitives::Rect::new(
+                        win.position.x - 48,
+                        win.position.y - 48,
+                        win.size.w + 96,
+                        win.size.h + 96,
+                    ));
+                }
+                if let Some(prev_id) = self.damage.last_focused_window {
+                    if let Some(prev_win) = windows.iter().find(|w| w.id == prev_id) {
+                        chrome_extra_rects.push(tessera_primitives::Rect::new(
+                            prev_win.position.x - 48,
+                            prev_win.position.y - 48,
+                            prev_win.size.w + 96,
+                            prev_win.size.h + 96,
+                        ));
+                    }
+                }
+                self.damage.last_focused_window = focused_id;
+            }
+        }
 
         // Only conditions that change pixels in the desktop scene sampled by
         // a backdrop belong here. Pure shell/input/clock/notification damage
@@ -171,7 +226,6 @@ impl CompositorRuntime<'_> {
                         || w.next_frame_in()
                             .is_some_and(|remaining| remaining.is_zero())
                 }))
-            || self.last_windows_hash != Some(windows_hash)
             || self.last_ws_sig != Some(ws_sig)
             || self.last_outputs_revision != Some(outputs_revision)
             || self.last_interaction_domain_revision != Some(interaction_domain_revision)
@@ -284,21 +338,14 @@ impl CompositorRuntime<'_> {
         self.damage.last_chrome_mode = Some(chrome_mode);
         self.damage.chrome_dirty = false;
 
-        // Even when output chrome forces a full repaint, collect client damage
-        // unless the backdrop source itself is already known to be full. This
-        // keeps the effect invalidation precise and advances surface baselines
-        // instead of rediscovering old client commits on a later frame.
-        let collected = (!backdrop_full).then(|| self.client_damage());
-        let (client, sampled_surface_ids) = match collected {
-            Some((damage, ids)) => (Some(damage), ids),
-            None => (None, Vec::new()),
-        };
+        // Always collect client damage so surface baseline generations advance
+        // in lockstep with client commits across all frames.
+        let (client, sampled_surface_ids) = self.client_damage();
         let backdrop_source = if backdrop_full {
             FrameDamage::Full
         } else {
             let base = client
                 .clone()
-                .unwrap_or(ClientDamage::None)
                 .into_frame_damage(scale, physical_size);
             if transition_rects.is_empty() {
                 base
@@ -313,10 +360,8 @@ impl CompositorRuntime<'_> {
         let output = if output_full {
             FrameDamage::Full
         } else {
-            // Pointer-only input and localized chrome animations join the
-            // client damage as additional physical rectangles. The chrome
-            // animation region is independent damage: a ticking spring
-            // advances the frame with no input and no client commit.
+            // Pointer-only input, localized chrome animations, and chrome dirty
+            // footprints join the client damage as additional physical rectangles.
             let mut extra: Vec<tessera_primitives::Rect> = Vec::new();
             if let Some(region) = chrome_anim_region {
                 extra.push(region);
@@ -327,9 +372,8 @@ impl CompositorRuntime<'_> {
             if !transition_rects.is_empty() {
                 extra.extend(transition_rects);
             }
-            let base = client
-                .unwrap_or(ClientDamage::None)
-                .into_frame_damage(scale, physical_size);
+            extra.extend(chrome_extra_rects);
+            let base = client.into_frame_damage(scale, physical_size);
             if extra.is_empty() {
                 base
             } else {

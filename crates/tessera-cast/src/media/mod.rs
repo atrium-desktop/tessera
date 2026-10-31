@@ -4,16 +4,20 @@
 //! inside RTP datagrams (RFC 2250, payload type 33) transmitted over UDP to the sink's
 //! negotiated RTP port.
 
+pub mod audio;
 pub mod desktop;
 pub mod h264;
 pub mod pattern;
 pub mod portal;
+pub mod rtcp;
 pub mod stream;
 pub mod udp;
 
+pub use audio::{AacCapture, AudioFrame, AudioFrameSource, AudioSourceKind};
 pub use desktop::{DesktopCaptureError, DesktopCaptureSource};
 pub use h264::H264AccessUnitReader;
 pub use pattern::{FrameSource, TEST_PATTERN_720P, TestPatternSource};
 pub use portal::{PipeWireStreamInfo, PortalError, ScreenCastSession};
-pub use stream::{StreamConfig, StreamStats, StreamTermination, stream};
+pub use rtcp::RtcpSender;
+pub use stream::{StreamConfig, StreamStats, StreamTermination, stream, stream_ts_file};
 pub use udp::UdpMediaSender;

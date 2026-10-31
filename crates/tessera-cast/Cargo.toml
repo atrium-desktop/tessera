@@ -15,11 +15,20 @@ path = "src/lib.rs"
 name = "tessera-cast"
 path = "src/bin/tessera-cast.rs"
 
+[[bin]]
+name = "tessera-castd"
+path = "src/bin/tessera-castd.rs"
+
 [dependencies]
 # Shared runtime-environment resolution (observability init, panic hooks,
 # runtime directories) — ADR-0147.
 tessera-env.workspace = true
+# Backend-neutral cast vocabulary (`CastStatus`, `CastSink`, `CastSession`) so
+# the compositor and this service share one model (ADR-0190, ADR-0192).
+tessera-desktop.workspace = true
 log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 # The system D-Bus client for iwd's P2P/WFD interfaces. The same zbus seam the
 # session tray already uses; no new D-Bus dependency family (ADR-0192).
 zbus.workspace = true

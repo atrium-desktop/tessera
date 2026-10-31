@@ -112,20 +112,135 @@ pub struct BluetoothDevice {
     pub trusted: bool,
 }
 
-/// One observed wireless display sink (Miracast / WFD / AirPlay) (ADR-0188, ADR-0192).
+/// The wireless-display protocol a sink speaks (ADR-0188, ADR-0192).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CastProtocol {
+    /// Miracast / Wi-Fi Display (WFD).
+    #[default]
+    Wfd,
+}
+
+/// What a sink can do, as verified by its backend.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CastCapability {
+    /// The sink can receive a mirrored screen (the only mode this project ships).
+    ScreenMirroring,
+    Audio,
+    InputBackchannel,
+    ContentProtection,
+}
+
+/// One discovered sink, with the reason it cannot be used when it cannot.
+///
+/// There is deliberately no `connected` boolean: a discovered sink is not a
+/// session, and the old field let the control center claim a cast that did not
+/// exist. A live stream is [`CastSession`].
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct CastDevice {
-    /// Transport device address or endpoint path (e.g. MAC address or P2P object path).
-    pub address: String,
-    /// Human-readable display name (e.g. "Living Room TV", "Conference Room Display").
+pub struct CastSink {
+    /// Stable within one discovery run: the backend's peer identity.
+    pub id: String,
+    /// Human-readable name (e.g. "Living Room TV").
     #[cfg_attr(feature = "serde", serde(default))]
     pub name: String,
-    /// Protocol summary (e.g. "Miracast", "Wi-Fi Display").
     #[cfg_attr(feature = "serde", serde(default))]
-    pub protocol: String,
-    /// True while an active casting stream to this device is up.
-    pub connected: bool,
+    pub protocol: CastProtocol,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub capabilities: Vec<CastCapability>,
+    /// `None` means the sink is castable. A blocker names its cause and the
+    /// operator action; it is never a generic "not found".
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub blocker: Option<String>,
+}
+
+/// Whether the out-of-process cast service is reachable.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CastServiceState {
+    /// No service answered; the reason is in `CastStatus::last_error`.
+    #[default]
+    Unavailable,
+    Available,
+}
+
+/// What the cast service's discovery pass is doing.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CastDiscovery {
+    #[default]
+    Idle,
+    Scanning,
+    Failed,
+}
+
+/// The lifecycle of one casting session.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CastSessionState {
+    /// The P2P group or the RTSP listener is being established.
+    Connecting,
+    /// M1–M7 is in flight.
+    Negotiating,
+    /// Media is flowing.
+    Streaming,
+    /// The session is tearing down.
+    Stopping,
+    /// The session ended in a named failure (`CastSession::failure`).
+    Failed,
+}
+
+/// One live (or failed) casting session. The service owns it; chrome renders it.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CastSession {
+    /// Service-assigned, stable for the session's lifetime.
+    pub id: u64,
+    pub sink_id: String,
+    pub sink_name: String,
+    pub state: CastSessionState,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub frames_sent: u64,
+    /// The negotiated audio codec when audio is active, e.g. `AAC 00000001 00`.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub audio: Option<String>,
+    /// Present exactly when `state == Failed`.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub failure: Option<String>,
+}
+
+/// The compositor-facing snapshot of the cast service (ADR-0188, ADR-0192).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CastStatus {
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub service: CastServiceState,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub discovery: CastDiscovery,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub sinks: Vec<CastSink>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub sessions: Vec<CastSession>,
+    /// Why the service or the last command failed, when it did.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub last_error: Option<String>,
+}
+
+impl CastStatus {
+    /// Whether any session is currently rendering.
+    pub fn is_casting(&self) -> bool {
+        self.sessions
+            .iter()
+            .any(|session| session.state == CastSessionState::Streaming)
+    }
+
+    /// The first live session, if any.
+    pub fn active_session(&self) -> Option<&CastSession> {
+        self.sessions
+            .iter()
+            .find(|session| session.state != CastSessionState::Failed)
+    }
 }
 
 /// Battery state read from the host power service.
@@ -262,13 +377,11 @@ pub struct SystemStatus {
     /// ADR-0188). Compositor-owned like `capture_streams`.
     #[cfg_attr(feature = "serde", serde(default))]
     pub cast_streams: u32,
-    /// Known and discovered wireless display sinks (Miracast / WFD / AirPlay)
-    /// (ADR-0188, ADR-0192).
+    /// Live casting domain state (ADR-0188, ADR-0192). The out-of-process cast
+    /// service owns discovery and sessions; the compositor publishes its
+    /// snapshot and never infers a session from network or window state.
     #[cfg_attr(feature = "serde", serde(default))]
-    pub cast_devices: Vec<CastDevice>,
-    /// True while an active wireless display discovery pass is underway.
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub cast_scanning: bool,
+    pub cast: CastStatus,
 }
 
 /// Machine form factor, for chrome that adapts its presentation.
@@ -387,13 +500,18 @@ pub enum SystemAction {
     },
     /// Request an active wireless display discovery scan (ADR-0188, ADR-0192).
     ScanCast,
-    /// Initiate a connection to a wireless display sink by address (ADR-0188, ADR-0192).
+    /// Stop the cast service's discovery pass. The service owns the radio; the
+    /// surface that started discovery releases it when it closes.
+    StopCastDiscovery,
+    /// Initiate a session with a discovered sink, by its service-assigned id
+    /// (ADR-0188, ADR-0192). The cast service owns the session.
     ConnectCast {
-        address: String,
+        sink: String,
     },
-    /// Disconnect from an active wireless display stream by address (ADR-0188, ADR-0192).
+    /// End a live casting session by its service-assigned id (ADR-0188,
+    /// ADR-0192). Never by process name: the service owns the session.
     DisconnectCast {
-        address: String,
+        session: u64,
     },
     /// Enable or disable physical scanout without changing the output
     /// topology. Used by the trusted idle policy after the session lock has
@@ -452,10 +570,8 @@ impl SystemAction {
             {
                 Err("bluetooth address cannot be empty")
             }
-            Self::ConnectCast { address } | Self::DisconnectCast { address }
-                if address.trim().is_empty() =>
-            {
-                Err("cast address cannot be empty")
+            Self::ConnectCast { sink } if sink.trim().is_empty() => {
+                Err("cast sink id cannot be empty")
             }
             _ => Ok(()),
         }

@@ -533,7 +533,7 @@ fn control_socket_path() -> Option<std::path::PathBuf> {
         .map(|directory| directory.join("tessera-idle.sock"))
 }
 
-fn trusted_sibling_program(name: &str) -> std::io::Result<std::ffi::OsString> {
+pub(crate) fn trusted_sibling_program(name: &str) -> std::io::Result<std::ffi::OsString> {
     use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 
     let current = std::env::current_exe()?;

@@ -2,8 +2,8 @@
 //!
 //! Split from the radio so the *policy* — what order to do things in, which
 //! peers count as castable, how to report a partial failure — is unit-testable
-//! against a scripted authority. The radio itself needs hardware
-//! ([`crate::radio::iwd`], `Unverified on hardware`).
+//! against a scripted authority. The iwd radio is verified on the reference
+//! machine, including the group formation and session with the reference TV.
 //!
 //! Failure policy, and why each choice is what it is:
 //!
@@ -85,9 +85,16 @@ impl DiscoveryReport {
                 match peer.cast_blocker() {
                     None => {
                         let display = peer.display.expect("castable peers advertise display");
+                        let endpoint = display
+                            .port
+                            .filter(|port| *port != 0)
+                            .map(|port| format!("  advertised port {port}"))
+                            .unwrap_or_else(|| {
+                                "  (no control port advertised; the sink connects to ours)"
+                                    .to_owned()
+                            });
                         out.push_str(&format!(
-                            "  [castable] {label}  port {}{}{}{}\n",
-                            display.port.unwrap_or(0),
+                            "  [castable] {label}{endpoint}{}{}{}\n",
                             if display.has_audio { "  audio" } else { "" },
                             if display.has_uibc { "  uibc" } else { "" },
                             if display.has_content_protection {
@@ -324,7 +331,7 @@ mod tests {
         );
         let rendered = report.render();
         assert!(
-            rendered.contains("[castable] Living Room TV  port 7236  audio"),
+            rendered.contains("[castable] Living Room TV  advertised port 7236  audio"),
             "{rendered}"
         );
         assert!(
@@ -332,6 +339,40 @@ mod tests {
             "{rendered}"
         );
         assert!(rendered.contains("advertising source-only"), "{rendered}");
+    }
+
+    #[test]
+    fn a_sink_without_an_advertised_port_is_castable_and_says_so() {
+        // Miracast's source is the RTSP server: the sink connects back to the
+        // port this source advertises. An absent sink port therefore does not
+        // make the peer uncatsable, and the report must not imply it does.
+        let radio = FakeRadio {
+            peers: Ok(vec![DiscoveredPeer {
+                path: "/p/tv".to_owned(),
+                name: Some("Living Room TV".to_owned()),
+                device_address: None,
+                display: Some(DisplayCapabilities {
+                    source: false,
+                    sink: true,
+                    port: None,
+                    has_audio: true,
+                    has_uibc: false,
+                    has_content_protection: false,
+                }),
+                connected: false,
+                connected_interface: None,
+                connected_ip: None,
+            }]),
+            ..FakeRadio::new()
+        };
+        let report = discover(&radio, 7236, Duration::ZERO).expect("discover");
+        assert_eq!(report.castable().count(), 1);
+        let rendered = report.render();
+        assert!(rendered.contains("[castable] Living Room TV"), "{rendered}");
+        assert!(
+            rendered.contains("the sink connects to ours"),
+            "the report must explain the passive direction: {rendered}"
+        );
     }
 
     #[test]

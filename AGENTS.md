@@ -37,22 +37,22 @@ Do not guess repository rules or rely on stale assumptions. Consult authoritativ
 Before writing, modifying, or archiving any documentation, follow
 `docs/dev/standards/README.md` and the standards routed in section 4.
 
-### Machine Invariants (Pre-Submit Checklist)
-- `[INV-LINT-01] Location Sanitization`: Never create arbitrary Markdown files at the repository root; only the whitelisted root files are permitted.
-- `[INV-LINT-02] Contributor Firewall`: Public docs (`docs/{tutorials,how-to,reference,explanation}/`) must NEVER link into internal docs (`docs/dev/**`).
-- `[INV-LINT-03] Frontmatter & Lifecycle Integrity`: New ADRs in `docs/adr/` must declare standardized YAML frontmatter with valid status, and are registered in `docs/adr/index.md`.
-- `[INV-LINT-04] Code-Doc Sync`: Modify documentation in the same change as the code it describes, per the trigger matrix in `docs/dev/standards/workflow.md`.
+### Law of the Machine (CI-Enforced)
+- **ADR registry integrity**: New ADRs in `docs/adr/` must declare standardized YAML frontmatter with a valid `status` and be registered in `docs/adr/index.md`. This is enforced for you by `cargo run -p xtask -- check-adrs` in CI — never bypass it.
 
-### Cognitive & Architecture Protocols
-- `[INV-AGENT-01] Negative Knowledge`: Every new ADR MUST contain a dedicated 'Rejected Alternatives & Negative Knowledge' section detailing why discarded options were not chosen.
-- `[INV-AGENT-02] Context Routing & Chesterton's Fence`:
-  - When generating code or proposing new solutions, NEVER recommend solutions from records with `status: superseded` or `status: rejected` (prevents resurrecting dead patterns).
-  - When investigating root causes or refactoring, MUST retrieve `superseded` / `rejected` records as negative constraints (learn from historical failure modes).
-- `[INV-AGENT-03] Blameless Postmortem`: Postmortems must analyze system defense failures and detection gaps without personal blame.
-- `[INV-AGENT-04] Significance Threshold`: ADRs must satisfy the 3-Question Significance Test; localized refactoring or trivial fixes do not belong in `docs/adr/`.
+### Review Habits (Awareness)
+These are judgment norms, not invariants. They carry no tag and no CI gate; keep them by awareness, and only formalize one into a tag when you first add the machine check to back it (see `docs/dev/standards/invariants.md`).
+
+- **Root hygiene**: Do not create arbitrary Markdown files at the repository root; only the whitelisted root files are permitted.
+- **Contributor firewall**: Public docs (`docs/{tutorials,how-to,reference,explanation}/`) must never link into internal docs (`docs/dev/**`).
+- **Code-doc sync**: Modify documentation in the same change as the code it describes, per the trigger matrix in `docs/dev/standards/workflow.md`.
+- **Negative knowledge**: Every new ADR should include a 'Rejected Alternatives & Negative Knowledge' section explaining why discarded options were not chosen.
+- **Chesterton's Fence**: When proposing solutions, do not resurrect `status: superseded` / `status: rejected` patterns; when investigating or refactoring, DO retrieve those records as negative constraints and learn from past failures.
+- **Blameless postmortems**: Analyze system defense failures and detection gaps, not personal blame.
+- **Significance threshold**: ADRs must satisfy the 3-question significance test; localized refactoring or trivial fixes do not belong in `docs/adr/`.
 
 ### Verification & Advisory Gate (On-Demand / Lazy)
-The gates above are enforced by CI and by static self-review, not by a mandatory per-turn invocation:
+The CI-enforced "Law" above is checked in CI; the "Review Habits" above are judgment norms for static self-review. Neither requires a mandatory per-turn invocation, and none are skipped before final hand-off where their trigger applies:
 - **Skip (No-op)**: Pure discussions, architecture Q&A, intermediate edits, or internal code changes that do not touch documentation.
 - **Run (Targeted Verification)**: Before final hand-off, re-check links and frontmatter in any changed `docs/`, ADR, or `spec/` file, and confirm each code-doc trigger row is satisfied. Run `cargo run -p xtask -- check-boundaries` and `check-motion` when crate edges or chrome motion code move, `check-vtables` when `crates/tessera-wayland/src/ffi.rs` or a request-vtable registration moves, `check-adrs` when any `docs/adr/` record or the index changes, and `check-panics` when production code gains or removes a lock acquisition or a `unwrap`/`expect`/`panic!` site.
 

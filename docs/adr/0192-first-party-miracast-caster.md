@@ -17,6 +17,40 @@ negative_knowledge: true
 
 ---
 
+> **Amendment 2026-10-30 — the connection direction and the inbound firewall.**
+> This ADR originally described the source as the RTSP client that connects to
+> the sink's advertised port. That is inverted. Miracast makes the **source the
+> RTSP server** and the **sink the RTSP client**: the source listens on its
+> control port (7236 by default, advertised in its WFD IE), the sink connects,
+> and the sink sends the first `OPTIONS`. The implementation now accepts the
+> sink's connection (`cast::accept` + `cast::handshake_as_server`) and never
+> dials the sink. Two consequences belong in the decision, not in a code
+> comment:
+>
+> 1. A sink does not need to advertise a control port to be castable; the
+>    earlier "no RTSP port" blocker rejected the ordinary case.
+> 2. The host's inbound firewall is part of the session **when the live ruleset
+>    blocks**. The probe reads only the live ruleset as authoritative and
+>    reports `unverified` — without borrowing the persistent file's verdict —
+>    when it cannot; a definite block is reported as `Blocker::InboundFirewall`.
+>
+> Hardware validation (2026-10-30): the reference Skyworth A3F completed the
+> session — source-driven M1–M6, sink `SETUP`, source 200 with `Transport`, sink
+> `PLAY`, then 300 frames at 720p30 before the source's frame limit. The sink
+> requires `wfd_trigger_method: SETUP` **inside M5**, a `Transport` header in
+> the `SETUP` response, and RTP sent from the advertised `server_port` (19002).
+> A separate source M7 is ignored. The validated source value is in the §8
+> matrix. **The reference TV displayed the 720p30 test pattern** (color bars,
+> circles, squares); video casting is confirmed end-to-end.
+>
+> Audio amendment (2026-10-30): the reference sink advertises AAC and its
+> phone-cast audio works. Audio is therefore implemented as an explicit
+> **opt-in** path: PipeWire sink-monitor/microphone capture → AAC-LC 48 kHz
+> stereo → the same MPEG2-TS/RTP flow, with the sink's AAC echoed in M5. It is
+> not a default; `[cast] audio = false`. HDCP and UIBC remain non-goals. See
+> [Miracast Source](../explanation/miracast-source.md#75-audio) and the
+> [lessons](../dev/miracast-lessons.md).
+
 ## Context and Problem Statement
 
 [ADR-0191](0191-casting-p2p-belongs-to-the-system-wifi-authority.md) concluded
@@ -107,8 +141,11 @@ The caster implements, in this order:
 1. Register a **WFD Source** with `RegisterDisplayService` (Source-only
    properties — see §4), enable `p2p.Device`, `RequestDiscovery`, and surface
    `GetPeers` results with their `net.connman.iwd.p2p.Display` capabilities.
-2. Form the P2P group to the chosen peer, then run the WFD session: RTSP
-   `M1`–`M7` on the peer's `Port`.
+2. Form the P2P group to the chosen peer, then **serve** the WFD session on this
+   source's control port: the source listens (7236 by default), the sink connects
+   to it, and the sink drives `M1`–`M7` in the documented direction. The
+   source-driven compatibility path drives M1–M6 and puts the `SETUP` trigger in
+   M5; the source never dials the sink.
 3. Mux H.264 into MPEG2-TS and packetize into RTP/UDP.
 4. Encode with VA-API (`VAEntrypointEncSlice`, already present on the reference
    machine) from the PipeWire stream's dmabufs.
@@ -141,10 +178,10 @@ API directly — still without NetworkManager, which is the claim this ADR corre
 
 | Stage | Deliverable | Stop gate |
 |-------|-------------|-----------|
-| 0 | Radio + WFD capability exchange against a real sink, video source replaced by a static test pattern; a **capability probe** that reports honestly (no fabricated availability) what the machine supports | M1–M7 complete and a sink accepts the session |
+| 0 | Radio + WFD capability exchange against a real sink, video source replaced by a static test pattern; a **capability probe** that reports honestly (no fabricated availability) what the machine supports | M1–M6 + `SETUP`/`PLAY` complete and a sink accepts the session |
 | 1 | PipeWire capture of the virtual output + VA-API encode + TS/RTP delivery | A sink shows live desktop frames |
 | 2 | Discovery UI surface, reconnect, error taxonomy | — |
-| 3 | UIBC / audio / HDCP, only if a sink population demands them | — |
+| 3 | UIBC / HDCP, only if a sink population demands them; audio is opt-in and implemented for the reference sink | — |
 
 ### 7. The verification gate is inverted when the implementer cannot reach hardware
 
@@ -159,13 +196,16 @@ real-scenario runs — the gate must be **re-cut by testability**, not skipped:
   byte-level fixtures, including round-trips and reject cases. These are where
   "looks right" and "is right" differ most, and where a failure is
   indistinguishable from a sink quirk without proof.
-- **Landed unverified, and labeled so:** the layers that need a radio, a GPU, or
-  a sink — iwd P2P group formation, VA-API encoding, PipeWire capture, and the
-  end-to-end M1–M7 exchange. Every such layer carries an explicit
-  `Unverified on hardware` note in its doc comment and in the module README, and
-  the ADR keeps the outstanding verification matrix (§8). A reviewer must be
-  able to tell, from the source alone, which claims have evidence and which do
-  not.
+- **Confirmed on the reference Skyworth A3F:** the TV displayed the 720p30 test
+  pattern (color bars, circles, squares) after 300 frames. The source-driven
+  exchange (M1–M6 with the M5 `SETUP` trigger), the sink's `SETUP`/`PLAY`, the
+  `Transport` response, RTP from the advertised `server_port`, and the media
+  path are all validated. Audio is implemented as an opt-in path (PipeWire →
+  AAC-LC → same TS/RTP) and the reference TV plays it; UIBC and HDCP remain
+  unimplemented.
+- **Remaining work:** live desktop capture (`--source desktop`) and the
+  compositor Control Center click. The daemon control path already reached
+  `Streaming`.
 - **The stage-0 probe remains the first thing to run**, because it turns a
   hardware failure into a named, actionable half.
 
@@ -180,26 +220,32 @@ themselves.
 |------|----------------|--------|
 | RTSP framing, RTP/H.264 payloads, TS packetization, TS-over-RTP (RFC 2250), WFD subelement codec | **landed**: byte-level unit fixtures (round-trip, rejection, reassembly) | none |
 | RTSP transport framing over a byte stream | **landed**: fixtures for split reads, pipelined bursts, clean vs partial EOF, a 9 KiB body across 4 KiB reads, and socket-timeout mapping | none |
-| Handshake driver (M1–M7 loop) | **landed, scripted-sink tested**: completes, times out, closes, overruns its budget, and traces both directions | a sink accepts the exchange |
+| Source server loop (accept + M1–M6) | **verified against the reference TV**: accepts the sink, completes M1–M6, answers `SETUP` with `Transport`, receives `PLAY`, and streams; 300 frames / 4,784,680 bytes | none — the TV displayed the pattern |
+| Connection direction | **verified**: the source listens on 7236, the TV connects, and the source-driven opening is the path this sink accepts | none |
+| Inbound RTSP reachability | **verified**: the TV connected while the live ruleset was unreadable; the probe reports `unverified` and does not borrow the persistent file's verdict | an ingress rule for the P2P interface when the live ruleset blocks |
 | WFD parameter surface form and injection defence | **landed**: unit fixtures | none |
-| `wfd_video_formats` value handling | **landed**: a reversible, validated token codec (round-trip, `none` as both a whole value and a per-token literal, surface rejection) plus a width-aware annotator that reports layout mismatches instead of hiding them | the declared `FIELD_SCHEMA` names and widths, against a real sink value |
-| WFD source session ordering | **landed, scripted-sink tested**: CSeq echo, out-of-order tolerance, trigger handling, fail-closed parameters | a sink accepts M1 replies |
+| `wfd_video_formats` value handling | **verified**: the source's validated value is `38 00 01 01 00000020 00000000 00000000 00 0000 0000 00 none none`, a 720p30 subset of the TV's `f9cf94a0` bitmap; the captured M4 value is §8.6 | none for the reference TV; other sinks may need a different subset |
+| WFD source session ordering | **verified**: CSeq echo, out-of-order tolerance, fail-closed parameters; this sink requires the `SETUP` trigger in M5, `Transport` in the SETUP 200, and RTP from the advertised `server_port` | none |
+| RTP media source port | **verified**: the sender binds the P2P local address and `server_port` 19002; an ephemeral source port produced no display even though TS/H.264 decoded locally | none |
 | iwd P2P enable, display-service registration, discovery request | **verified on the reference machine** against live iwd: all three succeed, and the radio is restored to its prior state afterwards | none |
 | iwd display-service D-Bus contract | **verified**: `RegisterDisplayService(a{sv})` returns nothing, `UnregisterDisplayService()` takes no arguments, and unknown keys are rejected with `InvalidArguments` (`HasAudio` refused; `Source`/`Sink`/`Port`/`HasUIBC`/`HasContentProtection` accepted) | none |
-| Peer enumeration | **verified as reachable**: returns an empty list with no sink in range (exit `3`) | a sink appears in `GetPeers` |
-| Reading a real peer's `p2p.Display` properties | not observed — no sink in range | a sink advertises its port and role |
+| Peer enumeration | **verified**: returns an empty list with no sink in range (exit `3`); with the reference TV in range it reports `Sink=true` and `Port` absent, and the TV connects back | none |
+| Reading a real peer's `p2p.Display` properties | **verified** against the Skyworth TV: `Sink=true`, `Source=false`, `HasAudio=true`, `HasUIBC=false`, and **no `Port`**; an absent port is informational for the passive direction, not a blocker | a sink advertising a port (optional) |
 | Source-only registration vs iwd's dual-role refusal | accepted by iwd; the refusal itself is not reproduced | a dual-role sink connects |
-| VA-API encode session on the real adapter | **implemented**: hardware slice encoder via `/dev/dri/renderD128` (`VAEntrypointEncSlice`) with zero-latency tuning, producing Annex-B AUs | encoded frames decode on physical sink |
+| VA-API encode session on the real adapter | **implemented**: hardware slice encoder via `/dev/dri/renderD128` (`VAEntrypointEncSlice`) with zero-latency tuning, producing Annex-B AUs; the pattern stream was accepted by the TV | visual confirmation of desktop content |
 | PipeWire capture of a virtual output | **implemented**: `ScreenCast` portal client (v6) opens PipeWire remote node, normalized to 1080p | frames carry desktop content |
-| A scripted sink exists for hardware-free verification | **landed**: `tessera-cast sink` and a socketpair integration test drive the real caster loop against the real sink loop in milliseconds | none — this is the loop that keeps hardware iteration cheap |
-| A source keeps serving RTSP after the trigger | **landed**: `Drain` continues answering until the sink goes quiet, because a real sink still has its reply, `SETUP`, `PLAY` and `TEARDOWN` to send; returning at the trigger was observed as a broken pipe on the sink's side | a sink completes the session |
-| Group formation and the WFD session against a sink | **landed, introspected from iwd binary**: `SimpleConfiguration.PushButton()` and `p2p.Peer.Disconnect()` implemented in `P2pRadio`, `handshake --peer` wires peer lookup, auto group formation, and endpoint resolution | a sink accepts the exchange on hardware |
-| Stage 0 Test Pattern Streaming (`cast`) | **landed, scripted-sink tested**: completes handshake, delivers paced TS/RTP/UDP frames, services RTSP keep-alive and teardown | a sink displays test frames on hardware |
-| HDCP, audio, UIBC | not implemented | out of scope until required |
+| A scripted sink exists for hardware-free verification | **landed**: `tessera-cast sink --connect` (the sink client) and a socketpair integration test drive the real source server in milliseconds | none — this is the loop that keeps hardware iteration cheap |
+| A source keeps serving RTSP after the trigger | **verified**: the source answers `SETUP` and `PLAY` and streams until the frame limit; returning at the trigger broke real sinks | none |
+| Group formation and the WFD session against a sink | **verified**: `SimpleConfiguration.PushButton()` forms the group and the TV completes the session | none |
+| Stage 0 Test Pattern Streaming (`cast`) | **verified**: the reference TV displayed 300 frames / 4.78 MB at 720p30 (color bars, circles, squares) | none |
+| Cast service and control center | **verified**: `tessera-castd` control path (`StartDiscovery` → `Connect`) reached `Streaming` against the TV; the shell renders the service state, session state, capability, and blocker | the compositor UI click and the desktop stream |
+| HDCP, UIBC | not implemented | out of scope until required; audio is opt-in and implemented |
 
-Stage 0 is where the two open risks are resolved: iwd's dual-role refusal, and
-driver-level P2P stability. If stage 0 cannot reach a sink, the decision
-re-opens instead of stage 1 being built on sand.
+Stage 0 is complete: the reference TV displayed the test pattern, resolving both
+open risks (dual-role registration and P2P stability). The remaining work is the
+live desktop stream and the Control Center UI click. If a different sink rejects
+the validated 720p30 subset, use that sink's own M4 value rather than inventing a
+bitfield.
 
 ### 6. Stage 0 ships as a capability probe, and it fabricates nothing
 

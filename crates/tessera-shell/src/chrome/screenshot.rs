@@ -816,8 +816,10 @@ impl Chrome for ScreenshotSelector {
                 if pressed {
                     match self.hovered {
                         Some(id) => out.picked_window = Some(id),
-                        // Empty desktop: the user chose the whole output.
-                        None => out.pick_output = true,
+                        None => {
+                            self.hovered_output = Self::output_at(&self.outputs, cursor);
+                            self.confirm_output(out);
+                        }
                     }
                     self.reset();
                 }
@@ -1357,6 +1359,29 @@ mod tests {
             &mut out,
         );
         assert!(out.pick_output);
+        assert!(!s.active());
+    }
+
+    #[test]
+    fn window_mode_clicking_empty_desktop_picks_hovered_output() {
+        let mut s = ScreenshotSelector::new();
+        s.start_pick(PickerMode::Window);
+        s.outputs = vec![
+            test_output("HDMI-A-1", 0, 0, 1920, 1080),
+            test_output("DP-1", 1920, 0, 2560, 1440),
+        ];
+        let cursor = Point { x: 2000.0, y: 50.0 };
+        s.current = cursor;
+        s.hovered = ScreenshotSelector::window_at(&[], cursor);
+        let mut out = ChromeEvents::default();
+        match s.hovered {
+            Some(id) => out.picked_window = Some(id),
+            None => {
+                s.hovered_output = ScreenshotSelector::output_at(&s.outputs, cursor);
+                s.confirm_output(&mut out);
+            }
+        }
+        assert_eq!(out.picked_output.as_deref(), Some("DP-1"));
         assert!(!s.active());
     }
 

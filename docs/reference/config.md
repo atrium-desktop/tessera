@@ -40,6 +40,7 @@ untouched.
 | `[lock_screen]` | table | cinematic layout, built-in lock artwork | Lock-screen composition and independently selected background. See [Lock Screen](#lock-screen). |
 | `[idle]` | table | dim 5 min, lock 10 min, display off 11 min, suspend 30 min | Ordered inactivity, session-lock, display-power, and suspend policy. See [Idle and Locking](#idle-and-locking). |
 | `[battery]` | table | warn at 20% and 5% | Low-battery warning thresholds. See [Battery](#battery). |
+| `[cast]` | table | validated 720p30 formats, desktop source, source opening, audio off, 30 fps, ports 7236/19000 | Out-of-process Miracast service: formats, source, pacing, ports, audio, and timeouts. See [Cast](#cast). |
 | `[[output]]` | array of tables | none | Per-connector display policy: mode, scale, position, transform, primary. See [Outputs](#outputs). |
 | `[screenshot]` | table | XDG Pictures directory, cursor included | Screenshot output policy. See [Screenshots](#screenshots). |
 | `[appearance]` | table | system color scheme, normal contrast, standard fonts and scale | Desktop-wide color, contrast, and typography preferences. See [Appearance](#appearance). |
@@ -413,6 +414,68 @@ temperature = 3400
 start = "19:00"
 end = "07:00"
 ```
+
+## Cast
+
+The out-of-process Miracast (Wi-Fi Display) service (ADR-0188, ADR-0192). The
+service owns discovery and sessions; the compositor starts and supervises it and
+renders its `CastStatus`. **Miracast's source is the RTSP server**: the service
+listens on `control_port` and the sink connects to it, so the host firewall must
+accept inbound tcp/`control_port` on the P2P interface.
+
+```toml
+[cast]
+# Validated end-to-end against the reference Skyworth A3F: CEA 720p30.
+# Override for a sink that does not offer 720p30.
+video_formats = "38 00 01 01 00000020 00000000 00000000 00 0000 0000 00 none none"
+# "desktop" (ScreenCast portal + VA-API) or "pattern" (test pattern).
+source = "desktop"
+# "source" (default) drives M1–M6 and puts wfd_trigger_method: SETUP in M5;
+# "sink" is Miracast's documented direction for sinks that send OPTIONS first.
+opening = "source"
+# Share system/microphone audio with the sink. Off by default: capturing the
+# desktop's audio is an explicit privacy decision.
+audio = false
+# "system" (default sink monitor) or "microphone" (default source).
+audio_source = "system"
+# AAC-LC bitrate in kbit/s (32..=512).
+audio_bitrate_kbps = 128
+fps = 30
+# The source's RTSP control port; the sink connects to it.
+control_port = 7236
+# RTP port used when the sink does not name one.
+rtp_port = 19000
+settle_seconds = 4
+session_timeout_seconds = 60
+```
+
+| Field | Default | Validation |
+|-------|---------|------------|
+| `video_formats` | the validated 720p30 value above | At most 1024 printable ASCII bytes, no CR/LF/NUL. Empty refuses a session. |
+| `source` | `"desktop"` | `"desktop"` or `"pattern"`. |
+| `opening` | `"source"` | `"sink"` or `"source"`. |
+| `audio` | `false` | Boolean; opt-in. |
+| `audio_source` | `"system"` | `"system"` or `"microphone"`. |
+| `audio_bitrate_kbps` | `128` | 32..=512. |
+| `fps` | `30` | 1..=120. |
+| `control_port` | `7236` | 1024..=65535. |
+| `rtp_port` | `19000` | 1024..=65535. |
+| `settle_seconds` | `4` | 0..=60. |
+| `session_timeout_seconds` | `60` | 1..=600. |
+
+The source-driven path always includes `wfd_trigger_method: SETUP` in M5 and
+answers the sink's `SETUP` with a `Transport` header; there is no separate
+trigger setting. The compositor passes these values to `tessera-castd` on spawn.
+
+Audio is opt-in: with `audio = false` the source advertises
+`wfd_audio_codecs: none` and sends video only. With `audio = true` it echoes the
+sink's AAC codec in M5, captures the selected PipeWire node (`system` is the
+default sink monitor, `microphone` the default source), encodes AAC-LC 48 kHz
+stereo, and interleaves it into the same MPEG-TS/RTP flow. The default sink must
+not be muted; the capture target is resolved at session start. See
+[Miracast Source §7.5](../explanation/miracast-source.md#75-audio) for the
+capture, grouping, pre-roll, and validation details.
+
 
 ## Screenshots
 

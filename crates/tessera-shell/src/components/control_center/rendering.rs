@@ -158,11 +158,13 @@ pub(super) fn render_compact_quick_toggle_tile(
                     f.flex(1.0);
                     f.spacer(0.0);
                     f.set_theme(themes::hud(&hud).with_fg(text_fg));
-                    let fitted_title = crate::component::ellipsize(f, title, type_scale.label, label_w);
+                    let fitted_title =
+                        crate::component::ellipsize(f, title, type_scale.label, label_w);
                     display_label(f, &fitted_title, type_scale.label);
                     if let Some(sub) = subtitle {
                         f.set_theme(themes::hud(&hud).with_fg(sub_fg));
-                        let fitted_sub = crate::component::ellipsize(f, sub, type_scale.caption, label_w);
+                        let fitted_sub =
+                            crate::component::ellipsize(f, sub, type_scale.caption, label_w);
                         display_label(f, &fitted_sub, type_scale.caption);
                     }
                     f.flex(1.0);

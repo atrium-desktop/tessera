@@ -2,7 +2,7 @@
 # Review changes here alongside the owning package manifest.
 
 [tessera]
-normal = ["flux", "flux-sys", "image", "include_dir", "lens", "lens-sys", "libc", "log", "prism", "prism-sys", "resvg", "serde", "serde_json", "sha2", "tessera-audit", "tessera-authority", "tessera-cli", "tessera-composite", "tessera-config", "tessera-design", "tessera-desktop", "tessera-env", "tessera-i18n", "tessera-ipc", "tessera-launch-services", "tessera-platform", "tessera-primitives", "tessera-protocol", "tessera-shell", "tessera-wallpaper", "tessera-wayland", "thiserror", "tiny-skia", "tracing", "transit", "transit-sys", "usvg", "vista-sys", "zbus", "zeroize"]
+normal = ["flux", "flux-sys", "image", "include_dir", "lens", "lens-sys", "libc", "log", "prism", "prism-sys", "resvg", "serde", "serde_json", "sha2", "tessera-audit", "tessera-authority", "tessera-cast", "tessera-cli", "tessera-composite", "tessera-config", "tessera-design", "tessera-desktop", "tessera-env", "tessera-i18n", "tessera-ipc", "tessera-launch-services", "tessera-platform", "tessera-primitives", "tessera-protocol", "tessera-shell", "tessera-wallpaper", "tessera-wayland", "thiserror", "tiny-skia", "tracing", "transit", "transit-sys", "usvg", "vista-sys", "zbus", "zeroize"]
 build = []
 dev = ["tempfile", "tessera-desktop", "tessera-ipc", "tessera-protocol", "tessera-shell"]
 
@@ -67,7 +67,7 @@ build = []
 dev = []
 
 [tessera-cast]
-normal = ["log", "tessera-env", "zbus"]
+normal = ["log", "serde", "serde_json", "tessera-desktop", "tessera-env", "zbus"]
 build = []
 dev = []
 
