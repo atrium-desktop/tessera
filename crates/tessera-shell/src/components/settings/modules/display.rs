@@ -295,7 +295,12 @@ impl SettingsModule for DisplayModule {
                                     i18n.text(Message::HorizontalPosition),
                                     design.typography.footnote,
                                 );
-                                if frame.textfield("##settings-display-position-x", &mut self.x) {
+                                let resp_x = frame.textfield_ex(
+                                    "##settings-display-position-x",
+                                    &mut self.x,
+                                    true,
+                                );
+                                if resp_x.changed || resp_x.submitted {
                                     self.dirty = true;
                                 }
                             },
@@ -312,7 +317,12 @@ impl SettingsModule for DisplayModule {
                                     i18n.text(Message::VerticalPosition),
                                     design.typography.footnote,
                                 );
-                                if frame.textfield("##settings-display-position-y", &mut self.y) {
+                                let resp_y = frame.textfield_ex(
+                                    "##settings-display-position-y",
+                                    &mut self.y,
+                                    true,
+                                );
+                                if resp_y.changed || resp_y.submitted {
                                     self.dirty = true;
                                 }
                             },

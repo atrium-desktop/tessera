@@ -150,6 +150,66 @@ impl Shell {
         }
     }
 
+    /// Create a headless shell without a GPU device, suitable for unit tests and headless layout.
+    pub fn headless() -> Result<Shell, ShellError> {
+        let ui = Ui::headless().map_err(ShellError::Create)?;
+        Ok(Shell {
+            ui,
+            windows: Vec::new(),
+            all_windows: Vec::new(),
+            space_use: tessera_desktop::window::SpaceUse::default(),
+            workspaces: WorkspaceSnapshot {
+                outputs: Vec::new(),
+            },
+            i18n: Localizer::from_env(),
+            system_status: SystemStatus::default(),
+            settings: None,
+            resource_stats: ResourceStats::default(),
+            interaction_domains:
+                tessera_authority::interaction_domain::InteractionDomainModel::new().snapshot(),
+            catalog: AppCatalog::default(),
+            events: ChromeEvents::default(),
+            components: Vec::new(),
+            reduced_motion: false,
+            scale: 1.0,
+            design: tessera_design::Design::dark(),
+            screenshot_freeze: false,
+        })
+    }
+
+    /// Execute one UI layout frame headlessly without submitting to a GPU canvas.
+    pub fn frame_headless(&mut self, input: &Input) {
+        if self.components.is_empty() {
+            return;
+        }
+        let windows = &self.windows;
+        let workspaces = &self.workspaces;
+        let i18n = &self.i18n;
+        let events = &mut self.events;
+        let components = &mut self.components;
+        let freeze = self.screenshot_freeze;
+        let modal_active = components.iter().any(|component| component.modal_active());
+        let window_switcher_active = components
+            .iter()
+            .any(|component| component.window_switcher_active());
+        let exclusive_presentation_active = components
+            .iter()
+            .any(|component| component.exclusive_presentation_active());
+        self.ui.frame(input, |f| {
+            for component in components.iter_mut() {
+                if participates_in_shell_pass(
+                    component.as_ref(),
+                    freeze,
+                    modal_active,
+                    window_switcher_active,
+                    exclusive_presentation_active,
+                ) {
+                    component.render(f, input, windows, workspaces, i18n, events);
+                }
+            }
+        });
+    }
+
     /// Register a chrome component. Components render once per frame, in
     /// registration order.
     pub fn add(&mut self, mut component: Box<dyn Chrome>) {
@@ -824,8 +884,15 @@ impl Shell {
                 component.captures_pointer(x, y, display, &self.windows, &self.workspaces)
             })
             .and_then(|component| {
-                component.cursor_shape_at(x, y, display, &self.windows, &self.workspaces)
+                component
+                    .cursor_shape_at(x, y, display, &self.windows, &self.workspaces)
+                    .or_else(|| self.cursor_hint())
             })
+    }
+
+    /// Semantic cursor shape requested by the UI framework on the last frame, if any.
+    pub fn cursor_hint(&self) -> Option<CursorShape> {
+        CursorShape::from_hint(self.ui.cursor_hint())
     }
 
     /// Replace the host application catalog and push it to every registered
@@ -1506,12 +1573,88 @@ mod tests {
         let out = r.inset(tessera_primitives::Rect::new(0, 0, 100, 100));
         assert_eq!(out.size, tessera_primitives::Size { w: 100, h: 0 });
     }
+
+    #[test]
+    fn cursor_shape_from_lens_cursor_hint() {
+        assert_eq!(CursorShape::from_hint(lens::CursorHint::Default), None);
+        assert_eq!(
+            CursorShape::from_hint(lens::CursorHint::Pointer),
+            Some(CursorShape::Pointer)
+        );
+        assert_eq!(
+            CursorShape::from_hint(lens::CursorHint::Text),
+            Some(CursorShape::Text)
+        );
+        assert_eq!(
+            CursorShape::from_hint(lens::CursorHint::ResizeNs),
+            Some(CursorShape::ResizeNs)
+        );
+        assert_eq!(
+            CursorShape::from_hint(lens::CursorHint::ResizeEw),
+            Some(CursorShape::ResizeEw)
+        );
+    }
+
+    #[test]
+    fn cursor_shape_at_falls_back_to_ui_cursor_hint() {
+        struct CapturingComponent;
+        impl Chrome for CapturingComponent {
+            fn render(
+                &mut self,
+                frame: &mut Frame,
+                _input: &Input,
+                _windows: &[Window],
+                _workspaces: &WorkspaceSnapshot,
+                _i18n: &Localizer,
+                _out: &mut ChromeEvents,
+            ) {
+                frame.set_cursor_hint(lens::CursorHint::Text);
+            }
+
+            fn captures_pointer(
+                &self,
+                _x: f32,
+                _y: f32,
+                _display: (f32, f32),
+                _windows: &[Window],
+                _workspaces: &WorkspaceSnapshot,
+            ) -> bool {
+                true
+            }
+        }
+
+        let mut shell = Shell::headless().unwrap();
+        shell.add(Box::new(CapturingComponent));
+        let input = Input::default();
+        shell.frame_headless(&input);
+        assert_eq!(shell.cursor_hint(), Some(CursorShape::Text));
+        assert_eq!(
+            shell.cursor_shape_at(10.0, 10.0, (1920.0, 1080.0)),
+            Some(CursorShape::Text)
+        );
+    }
+
+    #[test]
+    fn pattern_scaffolding_smoke() {
+        use crate::widgets::datagrid::{DataGrid, DataGridCol};
+        use crate::widgets::menu::{MenuItem, MenubarItem};
+        use crate::widgets::tree::{TreeItem, TreeView};
+
+        let _col = DataGridCol::new("Col").width(100.0);
+        let _grid = DataGrid::new("grid");
+
+        let _item = TreeItem::new("Node").depth(0).leaf(true);
+        let _tree = TreeView::new("tree");
+
+        let _menu_item = MenuItem::new("Action");
+        let _menubar_item = MenubarItem::new("File", "file_menu");
+    }
 }
 
 pub mod component;
 pub mod components;
 
-mod widgets;
+pub mod widgets;
 
 pub mod layout;
 

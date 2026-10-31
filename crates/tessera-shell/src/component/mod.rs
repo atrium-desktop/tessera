@@ -557,6 +557,21 @@ pub enum CursorShape {
     Crosshair = 3,
     Text = 9,
     NotAllowed = 15,
+    ResizeEw = 26,
+    ResizeNs = 27,
+}
+
+impl CursorShape {
+    /// Map a Lens immediate-mode UI cursor hint to the corresponding Wayland cursor shape.
+    pub fn from_hint(hint: lens::CursorHint) -> Option<Self> {
+        match hint {
+            lens::CursorHint::Default => None,
+            lens::CursorHint::Pointer => Some(Self::Pointer),
+            lens::CursorHint::Text => Some(Self::Text),
+            lens::CursorHint::ResizeNs => Some(Self::ResizeNs),
+            lens::CursorHint::ResizeEw => Some(Self::ResizeEw),
+        }
+    }
 }
 
 impl Reserved {

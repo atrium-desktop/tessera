@@ -437,7 +437,8 @@ fn text_field(
         },
         |frame| {
             frame.label_sized(label, design.typography.footnote);
-            changed = frame.textfield(id, buffer);
+            let resp = frame.textfield_ex(id, buffer, true);
+            changed = resp.changed || resp.submitted;
         },
     );
     changed

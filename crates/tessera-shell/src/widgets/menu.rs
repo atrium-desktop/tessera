@@ -1,5 +1,8 @@
 //! Context menus, popup action lists, and menu item scaffolding.
 
+#[allow(unused_imports)]
+pub use lens::patterns::menu::{MenuItem, MenubarItem, menubar, popup_menu};
+
 /// Standard width for popup context menus.
 pub const DEFAULT_MENU_WIDTH: f32 = 236.0;
 /// Standard inner padding for popup context menus.

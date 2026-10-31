@@ -17,6 +17,11 @@ project cuts a tagged release.
 ## [0.0.84] - 2026-11-01
 
 ### Added
+- **Adopt Optics v0.0.66 with compound UI patterns, textedit submission, and cursor hint pipeline.**
+  - Added first-class widget scaffolding in `tessera-shell::widgets` for Optics compound patterns: `DataGrid` (sortable and resizable tables), `TreeView` (hierarchical navigation), and `Menu` / `Menubar` (`MenuItem`, `MenubarItem`, `popup_menu`, `menubar`).
+  - Integrated `lens::CursorHint` with the compositor's `wp_cursor_shape_device_v1` shape resolution (`ResizeNs`, `ResizeEw`, `Text`, `Pointer`), enabling automatic cursor shapes over chrome text inputs and interactive widgets.
+  - Adopted `textfield_ex` across shell settings modules (`display`, `appearance`), adding Enter submission (`submitted`), Tab navigation (`tabbed`), and automatic focus selection.
+  - Updated workspace Optics dependencies to `v0.0.66` across all 10 binding crates.
 - **Unified desktop screen recording CLI and pipeline (`tessera-cast record`).** Added
   first-party screen recording capability to `tessera-cast`, sharing the exact same
   `ScreenCastSession` portal and PipeWire hardware-encoded capture substrate with Miracast

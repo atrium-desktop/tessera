@@ -11,6 +11,7 @@
 #![allow(dead_code)]
 
 pub mod chip;
+pub mod datagrid;
 pub mod dialog;
 pub mod geom;
 pub mod icons;
@@ -20,3 +21,4 @@ pub mod picker;
 pub mod settings;
 pub mod shapes;
 pub mod tiered;
+pub mod tree;
