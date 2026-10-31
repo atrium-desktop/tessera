@@ -14,6 +14,20 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Added
+- **Unified desktop screen recording CLI and pipeline (`tessera-cast record`).** Added
+  first-party screen recording capability to `tessera-cast`, sharing the exact same
+  `ScreenCastSession` portal and PipeWire hardware-encoded capture substrate with Miracast
+  casting. Supports recording physical monitors (`--mirror`) or clean isolated session-scoped
+  virtual outputs (`--virtual`, ADR-0186) directly into MP4/MKV/TS video files.
+
+### Changed
+- **Unified compositor offscreen stream pipeline (`OffscreenStream`).** Converged
+  parallel `WindowStream` (ADR-0127) and `VirtualOutputStream` (ADR-0186) implementations
+  in `tessera-composite` into a unified `OffscreenStream` model. Eliminated duplicated
+  offscreen drive loops, damage tracking, and SHM/DMABUF render passes into a single
+  `drive_offscreen_streams` engine.
+
 ## [0.0.83] - 2026-10-31
 
 ### Added

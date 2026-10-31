@@ -378,7 +378,7 @@ impl CompositorRuntime<'_> {
                     security_generation,
                     pixels,
                 } => {
-                    self.deliver_window_stream_frame(stream_id, security_generation, pixels);
+                    self.deliver_offscreen_stream_frame(stream_id, security_generation, pixels);
                 }
             }
             if finishes_reserved_job {
@@ -494,10 +494,10 @@ impl CompositorRuntime<'_> {
                 }
             }
         }
-        // Per-window streams (ADR-0127): completed offscreen readbacks leave
+        // Offscreen streams (ADR-0127, ADR-0186): completed offscreen readbacks leave
         // for the capture worker's conversion lane here; their deliveries
         // arrive as `CaptureCompletion::StreamWindow` above.
-        self.poll_window_stream_readbacks();
+        self.poll_offscreen_stream_readbacks();
         if self.pending_interaction_domain_capture.is_some() {
             let interaction_domain = self
                 .pending_interaction_domain_capture
@@ -951,74 +951,15 @@ impl CompositorRuntime<'_> {
                                     // rendering (`[INV-ARCH-76]`, ADR-0186).
                                     match virtual_output_geometry(self.server, connector) {
                                         Err(reason) => Err(reason),
-                                        Ok(geometry) => {
-                                            let size =
-                                                (geometry.physical_width, geometry.physical_height);
-                                            let virtual_state = |shm| VirtualOutputStream {
-                                                connector: geometry.connector.clone(),
-                                                shm,
-                                                geometry_sig: (
-                                                    self.server.all_windows_signature(),
-                                                    self.server.outputs_revision(),
-                                                ),
-                                                origin: geometry.origin,
-                                                logical_size: geometry.logical_size,
-                                                scale_milli: geometry.scale_milli,
-                                                generations: std::collections::HashMap::new(),
-                                                last_cursor: None,
-                                                dirty: true,
-                                                stage: WindowStreamStage::Idle,
-                                                held_since: None,
-                                            };
-                                            let mut capture = None;
-                                            if allow_dmabuf {
-                                                match self.create_dmabuf_capture(size.0, size.1) {
-                                                    Ok(created) => capture = Some(created),
-                                                    Err(reason) => log::warn!(
-                                                        "stream: dmabuf capture unavailable ({reason}); \
-                                                         falling back to shm"
-                                                    ),
-                                                }
-                                            }
-                                            match capture {
-                                                Some(capture) => {
-                                                    let info = self.streams.start_dmabuf(
-                                                        request.conn_id,
-                                                        max_fps,
-                                                        size,
-                                                        target.clone(),
-                                                        cursor,
-                                                        capture,
-                                                    );
-                                                    self.streams.attach_virtual_output(
-                                                        info.stream_id,
-                                                        virtual_state(None),
-                                                    );
-                                                    Ok(info)
-                                                }
-                                                None => match WindowShmTarget::new(
-                                                    self.device,
-                                                    size.0,
-                                                    size.1,
-                                                ) {
-                                                    Ok(target_shm) => {
-                                                        let info = self.streams.start(
-                                                            request.conn_id,
-                                                            max_fps,
-                                                            size,
-                                                            target.clone(),
-                                                            cursor,
-                                                        );
-                                                        self.streams.attach_virtual_output(
-                                                            info.stream_id,
-                                                            virtual_state(Some(target_shm)),
-                                                        );
-                                                        Ok(info)
-                                                    }
-                                                    Err(reason) => Err(reason),
-                                                },
-                                            }
-                                        }
+                                        Ok(geometry) => self.start_offscreen_stream(
+                                            request.conn_id,
+                                            max_fps,
+                                            target.clone(),
+                                            cursor,
+                                            allow_dmabuf,
+                                            OffscreenTarget::VirtualOutput(connector.to_string()),
+                                            geometry,
+                                        ),
                                     }
                                 } else {
                                     // A physical connector selector (IPC
@@ -1091,72 +1032,15 @@ impl CompositorRuntime<'_> {
                                 // cached until the stream stops.
                                 match window_tree_geometry(self.server, *window) {
                                     Err(reason) => Err(reason),
-                                    Ok(geometry) => {
-                                        let size =
-                                            (geometry.physical_width, geometry.physical_height);
-                                        let window_state = |shm| WindowStream {
-                                            shm,
-                                            geometry_sig: (
-                                                self.server.all_windows_signature(),
-                                                self.server.outputs_revision(),
-                                            ),
-                                            origin: geometry.origin,
-                                            logical_size: geometry.logical_size,
-                                            scale_milli: geometry.scale_milli,
-                                            generations: std::collections::HashMap::new(),
-                                            dirty: true,
-                                            stage: WindowStreamStage::Idle,
-                                            held_since: None,
-                                        };
-                                        let mut capture = None;
-                                        if allow_dmabuf {
-                                            match self.create_dmabuf_capture(size.0, size.1) {
-                                                Ok(created) => capture = Some(created),
-                                                Err(reason) => log::warn!(
-                                                    "stream: dmabuf capture unavailable ({reason}); \
-                                                     falling back to shm"
-                                                ),
-                                            }
-                                        }
-                                        match capture {
-                                            Some(capture) => {
-                                                let info = self.streams.start_dmabuf(
-                                                    request.conn_id,
-                                                    max_fps,
-                                                    size,
-                                                    target.clone(),
-                                                    cursor,
-                                                    capture,
-                                                );
-                                                self.streams.attach_window(
-                                                    info.stream_id,
-                                                    window_state(None),
-                                                );
-                                                Ok(info)
-                                            }
-                                            None => match WindowShmTarget::new(
-                                                self.device,
-                                                size.0,
-                                                size.1,
-                                            ) {
-                                                Ok(target_shm) => {
-                                                    let info = self.streams.start(
-                                                        request.conn_id,
-                                                        max_fps,
-                                                        size,
-                                                        target.clone(),
-                                                        cursor,
-                                                    );
-                                                    self.streams.attach_window(
-                                                        info.stream_id,
-                                                        window_state(Some(target_shm)),
-                                                    );
-                                                    Ok(info)
-                                                }
-                                                Err(reason) => Err(reason),
-                                            },
-                                        }
-                                    }
+                                    Ok(geometry) => self.start_offscreen_stream(
+                                        request.conn_id,
+                                        max_fps,
+                                        target.clone(),
+                                        cursor,
+                                        allow_dmabuf,
+                                        OffscreenTarget::Window(*window),
+                                        geometry,
+                                    ),
                                 }
                             }
                         }
@@ -1232,7 +1116,7 @@ impl CompositorRuntime<'_> {
                                     }
                                 }
                                 let offscreen_shm = if capture.is_none() && is_offscreen {
-                                    match WindowShmTarget::new(self.device, size.0, size.1) {
+                                    match OffscreenShmTarget::new(self.device, size.0, size.1) {
                                         Ok(shm) => Some(shm),
                                         Err(reason) => {
                                             let _ = reply.send(Err(reason));
@@ -1354,12 +1238,10 @@ impl CompositorRuntime<'_> {
                 }
             }
         }
-        // Window and virtual-output streams produce independently of
-        // physical presentation (ADR-0127/0186): geometry re-checks,
-        // dirty-driven and liveness renders into each stream's cached
-        // offscreen target.
-        self.drive_window_streams();
-        self.drive_virtual_output_streams();
+        // Offscreen streams (window ADR-0127 and virtual-output ADR-0186) produce
+        // independently of physical presentation: geometry re-checks, dirty-driven
+        // and liveness renders into each stream's cached offscreen target.
+        self.drive_offscreen_streams();
         // The recording indicator follows the live stream set after every
         // mutation above (start, stop, disconnect) — the same frame the
         // change drained in, so it paints promptly (ADR-0128).

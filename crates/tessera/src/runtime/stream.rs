@@ -39,11 +39,11 @@ use super::*;
 // Stream value layer re-exports: every bin module reaches these through the
 // runtime's glob chain, exactly as when they lived here.
 pub(super) use tessera_composite::presentation::{
-    CaptureCursorState, DmabufCapture, OutputStreams, PresentedFrameRef, StreamCursorBlit,
-    StreamPainter, SurfaceDamageFrame, VirtualOutputGeometry, VirtualOutputStream,
-    VirtualOutputStreamDrive, WindowShmTarget, WindowStream, WindowStreamDrive, WindowStreamStage,
-    WindowTreeGeometry, blit_presented_frame, crop_stream_frame, damage_in_target,
-    enumerate_slot_ring, full_target_damage, output_cursor_blit, resolve_output_rect,
+    CaptureCursorState, DmabufCapture, OffscreenGeometry, OffscreenShmTarget, OffscreenStream,
+    OffscreenStreamDrive, OffscreenStreamStage, OffscreenTarget, OutputStreams, PresentedFrameRef,
+    StreamCursorBlit, StreamPainter, SurfaceDamageFrame, blit_presented_frame, crop_stream_frame,
+    damage_in_target, enumerate_slot_ring, full_target_damage, output_cursor_blit,
+    resolve_output_rect,
 };
 
 /// One control message from an IPC connection thread, applied on the main
@@ -118,72 +118,70 @@ struct RuntimePainter<'a> {
 }
 
 impl StreamPainter for RuntimePainter<'_> {
-    fn paint_window_frame(
+    fn paint_offscreen_frame(
         &mut self,
         device: &flux::Device,
         canvas: &flux::CanvasCommands<'_>,
-        geometry: &WindowTreeGeometry,
+        target: &OffscreenTarget,
+        geometry: &OffscreenGeometry,
         cursor: Option<(u32, (f32, f32))>,
     ) {
-        draw_window_tree(device, self.renderer, self.server, canvas, geometry);
-        if let Some((shape, position)) = cursor {
-            let scale = geometry.scale_milli as f32 / 1000.0;
-            draw_software_cursor(canvas, device, self.cursor_cache, position, shape, scale);
-        }
-    }
-
-    fn paint_virtual_output_frame(
-        &mut self,
-        device: &flux::Device,
-        canvas: &flux::CanvasCommands<'_>,
-        geometry: &VirtualOutputGeometry,
-        cursor: Option<(u32, (f32, f32))>,
-    ) {
-        let scale = geometry.scale_milli as f32 / 1000.0;
-        // Parity with physical outputs: the extended screen paints the desktop
-        // wallpaper behind its windows, not the raw clear colour. The
-        // wallpaper is already uploaded at the desktop resolution, so this is
-        // a GPU-scaled draw and never re-decodes.
-        draw_wallpaper_background(
-            canvas,
-            device,
-            self.wallpaper,
-            (
-                geometry.logical_size.w.max(0) as u32,
-                geometry.logical_size.h.max(0) as u32,
-            ),
-            scale,
-        );
-        canvas.save();
-        if scale != 1.0 {
-            canvas.scale(scale, scale);
-        }
-        let origin = geometry.origin;
-        let map = move |_: Option<tessera_desktop::window::WindowId>,
-                        natural: tessera_primitives::Rect| {
-            tessera_primitives::Rect::new(
-                natural.origin.x - origin.x,
-                natural.origin.y - origin.y,
-                natural.size.w,
-                natural.size.h,
-            )
-        };
-        let shm = self.server.output_capture_frames(&geometry.connector);
-        let dmabuf = self
-            .server
-            .output_capture_dmabuf_frames(&geometry.connector);
-        let surface_order = self.server.output_capture_frame_order(&geometry.connector);
-        self.renderer.draw_surfaces_ordered_mapped(
-            device,
-            canvas,
-            &surface_order,
-            &shm,
-            &dmabuf,
-            &map,
-        );
-        canvas.restore();
-        if let Some((shape, position)) = cursor {
-            draw_software_cursor(canvas, device, self.cursor_cache, position, shape, scale);
+        match target {
+            OffscreenTarget::Window(window) => {
+                draw_window_tree(device, self.renderer, self.server, canvas, *window, geometry);
+                if let Some((shape, position)) = cursor {
+                    let scale = geometry.scale_milli as f32 / 1000.0;
+                    draw_software_cursor(canvas, device, self.cursor_cache, position, shape, scale);
+                }
+            }
+            OffscreenTarget::VirtualOutput(connector) => {
+                let scale = geometry.scale_milli as f32 / 1000.0;
+                // Parity with physical outputs: the extended screen paints the desktop
+                // wallpaper behind its windows, not the raw clear colour. The
+                // wallpaper is already uploaded at the desktop resolution, so this is
+                // a GPU-scaled draw and never re-decodes.
+                draw_wallpaper_background(
+                    canvas,
+                    device,
+                    self.wallpaper,
+                    (
+                        geometry.logical_size.w.max(0) as u32,
+                        geometry.logical_size.h.max(0) as u32,
+                    ),
+                    scale,
+                );
+                canvas.save();
+                if scale != 1.0 {
+                    canvas.scale(scale, scale);
+                }
+                let origin = geometry.origin;
+                let map = move |_: Option<tessera_desktop::window::WindowId>,
+                                natural: tessera_primitives::Rect| {
+                    tessera_primitives::Rect::new(
+                        natural.origin.x - origin.x,
+                        natural.origin.y - origin.y,
+                        natural.size.w,
+                        natural.size.h,
+                    )
+                };
+                let shm = self.server.output_capture_frames(connector);
+                let dmabuf = self
+                    .server
+                    .output_capture_dmabuf_frames(connector);
+                let surface_order = self.server.output_capture_frame_order(connector);
+                self.renderer.draw_surfaces_ordered_mapped(
+                    device,
+                    canvas,
+                    &surface_order,
+                    &shm,
+                    &dmabuf,
+                    &map,
+                );
+                canvas.restore();
+                if let Some((shape, position)) = cursor {
+                    draw_software_cursor(canvas, device, self.cursor_cache, position, shape, scale);
+                }
+            }
         }
     }
 }
@@ -191,7 +189,7 @@ impl StreamPainter for RuntimePainter<'_> {
 pub(super) fn virtual_output_geometry(
     server: &tessera_wayland::Server,
     connector: &str,
-) -> Result<VirtualOutputGeometry, String> {
+) -> Result<OffscreenGeometry, String> {
     let info = server
         .output_infos()
         .into_iter()
@@ -208,8 +206,7 @@ pub(super) fn virtual_output_geometry(
         ));
     }
     let scale_milli = (info.geometry.scale.as_f32() * 1000.0).round().max(1.0) as u32;
-    Ok(VirtualOutputGeometry {
-        connector: info.connector,
+    Ok(OffscreenGeometry {
         scale_milli,
         physical_width: physical_width as u32,
         physical_height: physical_height as u32,
@@ -522,6 +519,84 @@ impl CompositorRuntime<'_> {
         enumerate_slot_ring(self.device, modifier, width, height)
     }
 
+    /// Register and start an offscreen stream (window or virtual-output, ADR-0127/0186),
+    /// allocating dmabuf slots or an offscreen SHM readback surface.
+    pub(super) fn start_offscreen_stream(
+        &mut self,
+        conn_id: u64,
+        max_fps: Option<u32>,
+        target: tessera_protocol::StreamTarget,
+        cursor: tessera_protocol::StreamCursorMode,
+        allow_dmabuf: bool,
+        offscreen_target: OffscreenTarget,
+        geometry: OffscreenGeometry,
+    ) -> Result<tessera_primitives::stream::StreamInfo, String> {
+        let size = (geometry.physical_width, geometry.physical_height);
+        let offscreen_state = |shm| OffscreenStream {
+            target: offscreen_target,
+            shm,
+            geometry_sig: (
+                self.server.all_windows_signature(),
+                self.server.outputs_revision(),
+            ),
+            origin: geometry.origin,
+            logical_size: geometry.logical_size,
+            scale_milli: geometry.scale_milli,
+            generations: std::collections::HashMap::new(),
+            last_cursor: None,
+            dirty: true,
+            stage: OffscreenStreamStage::Idle,
+            held_since: None,
+        };
+        let mut capture = None;
+        if allow_dmabuf {
+            match self.create_dmabuf_capture(size.0, size.1) {
+                Ok(created) => capture = Some(created),
+                Err(reason) => log::warn!(
+                    "stream: dmabuf capture unavailable ({reason}); falling back to shm"
+                ),
+            }
+        }
+        match capture {
+            Some(capture) => {
+                let info = self.streams.start_dmabuf(
+                    conn_id,
+                    max_fps,
+                    size,
+                    target,
+                    cursor,
+                    capture,
+                );
+                self.streams.attach_offscreen(
+                    info.stream_id,
+                    offscreen_state(None),
+                );
+                Ok(info)
+            }
+            None => match OffscreenShmTarget::new(
+                self.device,
+                size.0,
+                size.1,
+            ) {
+                Ok(target_shm) => {
+                    let info = self.streams.start(
+                        conn_id,
+                        max_fps,
+                        size,
+                        target,
+                        cursor,
+                    );
+                    self.streams.attach_offscreen(
+                        info.stream_id,
+                        offscreen_state(Some(target_shm)),
+                    );
+                    Ok(info)
+                }
+                Err(reason) => Err(reason),
+            },
+        }
+    }
+
     /// Copy the just-presented frame into every due dmabuf stream's next ring
     /// slot (IPC protocol 25). Runs after a successful composite present; the
     /// frame event is delivered later, once the slot's acquire fence signals
@@ -768,11 +843,11 @@ impl CompositorRuntime<'_> {
         self.publish_stream_status();
     }
 
-    /// Drive every live window stream one step (ADR-0127). The drive itself
+    /// Drive every live offscreen stream one step (ADR-0127, ADR-0186). The drive itself
     /// is a registry-owned machine step; this observes the scene
-    /// (signatures, window geometry, tree generations, cursor state) and
-    /// applies the returned outcomes to the IPC lane.
-    pub(super) fn drive_window_streams(&mut self) {
+    /// (signatures, target geometry, tree generations, cursor state) and
+    /// applies the returned outcomes to the IPC lane and Wayland frame callbacks.
+    pub(super) fn drive_offscreen_streams(&mut self) {
         if self.server.session_locked() || !self.host.is_active() {
             return;
         }
@@ -784,16 +859,14 @@ impl CompositorRuntime<'_> {
             .streams
             .streams
             .values()
-            .any(|stream| !stream.frozen && stream.window.is_some())
+            .any(|stream| !stream.frozen && stream.offscreen.is_some())
         {
             return;
         }
         let now = Instant::now();
         let scheme = self.shell.design().scheme;
         let security_generation = self.capture_worker.security_generation();
-        // The theme cursor, when one is currently drawable. A client-owned
-        // cursor surface is not part of any window's surface tree, so
-        // window streams can never show it; nothing is drawn then.
+        // The theme cursor, when one is currently drawable.
         let cursor_state = {
             let state = self.capture_cursor_state();
             (!state.hidden && !state.client_surface).then_some(state)
@@ -809,19 +882,40 @@ impl CompositorRuntime<'_> {
             cursor_cache,
             wallpaper,
         };
-        let mut resolve_geometry = |window| window_tree_geometry(server, window);
-        let mut tree_generations = |window| window_tree_generations(server, window);
-        let damage_trackers = &mut self.offscreen_damage;
-        let mut tree_damage = |stream_id: u64, window: tessera_desktop::window::WindowId| {
-            let shm = server.window_capture_frames(window);
-            let dmabuf = server.window_capture_dmabuf_frames(window);
-            damage_trackers.entry(stream_id).or_default().assess(
-                shm.iter()
-                    .map(|frame| frame as &dyn SurfaceDamageFrame)
-                    .chain(dmabuf.iter().map(|frame| frame as &dyn SurfaceDamageFrame)),
-            )
+        let mut resolve_geometry = |target: &OffscreenTarget| match target {
+            OffscreenTarget::Window(window) => window_tree_geometry(server, *window),
+            OffscreenTarget::VirtualOutput(connector) => {
+                virtual_output_geometry(server, connector)
+            }
         };
-        let effects = self.streams.drive_window_streams(WindowStreamDrive {
+        let mut tree_generations = |target: &OffscreenTarget| match target {
+            OffscreenTarget::Window(window) => window_tree_generations(server, *window),
+            OffscreenTarget::VirtualOutput(connector) => {
+                virtual_output_tree_generations(server, connector)
+            }
+        };
+        let damage_trackers = &mut self.offscreen_damage;
+        let mut tree_damage = |stream_id: u64, target: &OffscreenTarget| match target {
+            OffscreenTarget::Window(window) => {
+                let shm = server.window_capture_frames(*window);
+                let dmabuf = server.window_capture_dmabuf_frames(*window);
+                damage_trackers.entry(stream_id).or_default().assess(
+                    shm.iter()
+                        .map(|frame| frame as &dyn SurfaceDamageFrame)
+                        .chain(dmabuf.iter().map(|frame| frame as &dyn SurfaceDamageFrame)),
+                )
+            }
+            OffscreenTarget::VirtualOutput(connector) => {
+                let shm = server.output_capture_frames(connector);
+                let dmabuf = server.output_capture_dmabuf_frames(connector);
+                damage_trackers.entry(stream_id).or_default().assess(
+                    shm.iter()
+                        .map(|frame| frame as &dyn SurfaceDamageFrame)
+                        .chain(dmabuf.iter().map(|frame| frame as &dyn SurfaceDamageFrame)),
+                )
+            }
+        };
+        let effects = self.streams.drive_offscreen_streams(OffscreenStreamDrive {
             now,
             device,
             signature: sig,
@@ -833,6 +927,10 @@ impl CompositorRuntime<'_> {
             security_generation,
             painter: &mut painter,
         });
+        let now_ms = self.start.elapsed().as_millis() as u32;
+        for connector in &effects.rendered_virtual_outputs {
+            self.server.send_output_frame_callbacks(connector, now_ms);
+        }
         let Some(ipc) = self.ipc.as_ref() else {
             return;
         };
@@ -852,95 +950,6 @@ impl CompositorRuntime<'_> {
         self.publish_stream_status();
     }
 
-    /// Drive every live virtual-output stream one step (ADR-0186). Runs
-    /// independently of physical KMS presentation and continues in clamshell /
-    /// `OutputsOff` mode (`[INV-ARCH-76]`), gated only on session lock and
-    /// backend activity.
-    pub(super) fn drive_virtual_output_streams(&mut self) {
-        if self.server.session_locked() || !self.host.is_active() {
-            return;
-        }
-        let sig = (
-            self.server.all_windows_signature(),
-            self.server.outputs_revision(),
-        );
-        if !self
-            .streams
-            .streams
-            .values()
-            .any(|stream| !stream.frozen && stream.virtual_output.is_some())
-        {
-            return;
-        }
-        let now = Instant::now();
-        let scheme = self.shell.design().scheme;
-        let security_generation = self.capture_worker.security_generation();
-        let cursor_state = {
-            let state = self.capture_cursor_state();
-            (!state.hidden && !state.client_surface).then_some(state)
-        };
-        let device = &self.device;
-        let server = &self.server;
-        let renderer = &mut self.renderer;
-        let cursor_cache = &mut self.cursor_cache;
-        let wallpaper = &mut self.wallpaper;
-        let mut painter = RuntimePainter {
-            renderer,
-            server,
-            cursor_cache,
-            wallpaper,
-        };
-        let mut resolve_geometry = |connector: &str| virtual_output_geometry(server, connector);
-        let mut tree_generations =
-            |connector: &str| virtual_output_tree_generations(server, connector);
-        let damage_trackers = &mut self.offscreen_damage;
-        let mut tree_damage = |stream_id: u64, connector: &str| {
-            let shm = server.output_capture_frames(connector);
-            let dmabuf = server.output_capture_dmabuf_frames(connector);
-            damage_trackers.entry(stream_id).or_default().assess(
-                shm.iter()
-                    .map(|frame| frame as &dyn SurfaceDamageFrame)
-                    .chain(dmabuf.iter().map(|frame| frame as &dyn SurfaceDamageFrame)),
-            )
-        };
-        let (effects, rendered_connectors) =
-            self.streams
-                .drive_virtual_output_streams(VirtualOutputStreamDrive {
-                    now,
-                    device,
-                    signature: sig,
-                    resolve_geometry: &mut resolve_geometry,
-                    tree_generations: &mut tree_generations,
-                    tree_damage: &mut tree_damage,
-                    cursor_state,
-                    clear: interaction_domain_clear(scheme),
-                    security_generation,
-                    painter: &mut painter,
-                });
-        let now_ms = self.start.elapsed().as_millis() as u32;
-        for connector in &rendered_connectors {
-            self.server.send_output_frame_callbacks(connector, now_ms);
-        }
-        let Some(ipc) = self.ipc.as_ref() else {
-            return;
-        };
-        for (stream_id, width, height) in &effects.frozen {
-            log::info!(
-                "stream {stream_id}: virtual-output geometry changed to {width}x{height}; freezing"
-            );
-            ipc.stream_geometry_changed(*stream_id, *width, *height);
-            self.streams.freeze(*stream_id);
-            self.offscreen_damage.remove(stream_id);
-        }
-        for (stream_id, reason) in &effects.ended {
-            log::info!("stream {stream_id}: {reason}; ending");
-            ipc.end_stream(*stream_id, reason);
-            self.streams.stop(*stream_id);
-            self.offscreen_damage.remove(stream_id);
-        }
-        self.publish_stream_status();
-    }
-
     /// Hand every completed offscreen-stream SHM readback (window or
     /// virtual-output) to the capture worker for BGRA conversion
     /// (ADR-0127/0186). The worker lane is shared with one-shot captures,
@@ -948,7 +957,7 @@ impl CompositorRuntime<'_> {
     /// waits on its surface (flux keeps the completed frame mapped), and a
     /// frame held that way for too long logs once instead of starving
     /// silently.
-    pub(super) fn poll_window_stream_readbacks(&mut self) {
+    pub(super) fn poll_offscreen_stream_readbacks(&mut self) {
         if self.server.session_locked() || !self.host.is_active() {
             return;
         }
@@ -958,10 +967,8 @@ impl CompositorRuntime<'_> {
             .streams
             .iter()
             .filter(|(_, stream)| {
-                stream.window.as_ref().is_some_and(|window| {
-                    matches!(window.stage, WindowStreamStage::AwaitingReadback { .. })
-                }) || stream.virtual_output.as_ref().is_some_and(|virt| {
-                    matches!(virt.stage, WindowStreamStage::AwaitingReadback { .. })
+                stream.offscreen.as_ref().is_some_and(|offscreen| {
+                    matches!(offscreen.stage, OffscreenStreamStage::AwaitingReadback { .. })
                 })
             })
             .map(|(stream_id, _)| *stream_id)
@@ -984,7 +991,7 @@ impl CompositorRuntime<'_> {
                         "stream {stream_id}: offscreen readback readiness failed: {error}{}",
                         flux_last_error_detail()
                     );
-                    *stage = WindowStreamStage::Idle;
+                    *stage = OffscreenStreamStage::Idle;
                     stream.dropped += 1;
                     stream.last_frame = Some(now);
                     continue;
@@ -1005,10 +1012,10 @@ impl CompositorRuntime<'_> {
                 }
                 continue;
             }
-            let WindowStreamStage::AwaitingReadback {
+            let OffscreenStreamStage::AwaitingReadback {
                 security_generation,
                 damage,
-            } = std::mem::replace(stage, WindowStreamStage::Idle)
+            } = std::mem::replace(stage, OffscreenStreamStage::Idle)
             else {
                 continue;
             };
@@ -1033,7 +1040,7 @@ impl CompositorRuntime<'_> {
             match captured {
                 Ok(capture) => {
                     *held_since_slot = None;
-                    *stage = WindowStreamStage::Converting { damage };
+                    *stage = OffscreenStreamStage::Converting { damage };
                     queue_captured_pixels(
                         &self.capture_worker,
                         capture,
@@ -1056,7 +1063,7 @@ impl CompositorRuntime<'_> {
     /// worker (ADR-0127/0186). Frames that crossed a lock/VT boundary or
     /// failed conversion count as dropped and fold their damage back; a
     /// stopped stream's late completion is discarded.
-    pub(super) fn deliver_window_stream_frame(
+    pub(super) fn deliver_offscreen_stream_frame(
         &mut self,
         stream_id: u64,
         security_generation: u64,
@@ -1070,8 +1077,8 @@ impl CompositorRuntime<'_> {
             .and_then(|stream| stream.offscreen_shm_parts())
         {
             Some((_shm, stage, _held_since)) => {
-                match std::mem::replace(stage, WindowStreamStage::Idle) {
-                    WindowStreamStage::Converting { damage } => Some(damage),
+                match std::mem::replace(stage, OffscreenStreamStage::Idle) {
+                    OffscreenStreamStage::Converting { damage } => Some(damage),
                     // The stream was re-rendered or stopped meanwhile; this
                     // completion is stale.
                     prev_stage => {
@@ -1142,8 +1149,8 @@ mod dmabuf_tests {
     use super::*;
     use std::os::fd::AsRawFd;
     use tessera_composite::presentation::{
-        DmabufStream, STREAM_SLOT_COUNT, SlotRing, render_window_stream_dmabuf,
-        render_window_stream_shm,
+        DmabufStream, STREAM_SLOT_COUNT, SlotRing, render_offscreen_stream_dmabuf,
+        render_offscreen_stream_shm,
     };
 
     /// End-to-end window-stream render exercise (ADR-0127): the SHM target
@@ -1172,8 +1179,7 @@ mod dmabuf_tests {
         };
         let mut renderer = tessera_composite::Renderer::new();
         let scheme = tessera_desktop::settings::ColorScheme::Dark;
-        let geometry = WindowTreeGeometry {
-            window: tessera_desktop::window::WindowId(1),
+        let geometry = OffscreenGeometry {
             scale_milli: 1000,
             physical_width: 64,
             physical_height: 48,
@@ -1185,14 +1191,17 @@ mod dmabuf_tests {
             server: &'a tessera_wayland::Server,
         }
         impl StreamPainter for EmptyPainter<'_> {
-            fn paint_window_frame(
+            fn paint_offscreen_frame(
                 &mut self,
                 device: &flux::Device,
                 canvas: &flux::CanvasCommands<'_>,
-                geometry: &WindowTreeGeometry,
+                target: &OffscreenTarget,
+                geometry: &OffscreenGeometry,
                 _cursor: Option<(u32, (f32, f32))>,
             ) {
-                draw_window_tree(device, self.renderer, self.server, canvas, geometry);
+                if let OffscreenTarget::Window(window) = target {
+                    draw_window_tree(device, self.renderer, self.server, canvas, *window, geometry);
+                }
             }
         }
         let mut painter = EmptyPainter {
@@ -1201,11 +1210,13 @@ mod dmabuf_tests {
         };
 
         // SHM: render into the cached readback target and read it back.
-        let mut target = WindowShmTarget::new(&device, 64, 48).expect("shm target");
-        render_window_stream_shm(
+        let mut target = OffscreenShmTarget::new(&device, 64, 48).expect("shm target");
+        let offscreen_target = OffscreenTarget::Window(tessera_desktop::window::WindowId(1));
+        render_offscreen_stream_shm(
             &device,
             &mut target,
             interaction_domain_clear(scheme),
+            &offscreen_target,
             &geometry,
             None,
             &mut painter,
@@ -1262,10 +1273,11 @@ mod dmabuf_tests {
             pending: Vec::new(),
             ring_stalled: false,
         };
-        let (slot, fence) = render_window_stream_dmabuf(
+        let (slot, fence) = render_offscreen_stream_dmabuf(
             &device,
             &mut dmabuf,
             interaction_domain_clear(scheme),
+            &offscreen_target,
             &geometry,
             None,
             &mut painter,
@@ -1285,7 +1297,7 @@ mod dmabuf_tests {
     #[test]
     fn virtual_output_stream_render_pipeline_smoke() {
         use tessera_composite::presentation::{
-            render_virtual_output_stream_dmabuf, render_virtual_output_stream_shm,
+            render_offscreen_stream_dmabuf, render_offscreen_stream_shm,
         };
 
         let Ok(device) = flux::Device::new_with_options(flux::DeviceOptions {
@@ -1331,11 +1343,13 @@ mod dmabuf_tests {
             wallpaper: &mut wallpaper,
         };
 
-        let mut target = WindowShmTarget::new(&device, 64, 64).expect("shm target");
-        render_virtual_output_stream_shm(
+        let mut target = OffscreenShmTarget::new(&device, 64, 64).expect("shm target");
+        let offscreen_target = OffscreenTarget::VirtualOutput("VIRTUAL-1".into());
+        render_offscreen_stream_shm(
             &device,
             &mut target,
             interaction_domain_clear(scheme),
+            &offscreen_target,
             &geometry,
             None,
             &mut painter,
@@ -1368,10 +1382,11 @@ mod dmabuf_tests {
             pending: Vec::new(),
             ring_stalled: false,
         };
-        let (slot, fence) = render_virtual_output_stream_dmabuf(
+        let (slot, fence) = render_offscreen_stream_dmabuf(
             &device,
             &mut dmabuf,
             interaction_domain_clear(scheme),
+            &offscreen_target,
             &geometry,
             None,
             &mut painter,

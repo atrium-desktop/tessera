@@ -32,12 +32,11 @@ pub(super) struct PreparedWindowCapture {
     pub(super) context: WindowCaptureContext,
 }
 
-/// One window's render geometry for an offscreen tree capture: the resolved
-/// capture scale, the physical-pixel target extent it implies, and the
-/// toplevel's logical placement at query time. Shared by the one-shot
-/// `CaptureWindow` path and the per-window stream render targets
-/// (ADR-0127). A pure value owned by `tessera-presentation`.
-pub(super) use tessera_composite::presentation::WindowTreeGeometry;
+/// One offscreen target's render geometry: the resolved capture scale,
+/// the physical-pixel target extent it implies, and the logical placement
+/// at query time. Shared by the one-shot `CaptureWindow` path and the offscreen
+/// stream render targets (ADR-0127, ADR-0186). A pure value owned by `tessera-presentation`.
+pub(super) use tessera_composite::presentation::OffscreenGeometry;
 
 /// Resolve one window's offscreen-capture geometry from the live model. The
 /// window is looked up across every workspace (`all_windows`): occluded,
@@ -48,7 +47,7 @@ pub(super) use tessera_composite::presentation::WindowTreeGeometry;
 pub(super) fn window_tree_geometry(
     server: &tessera_wayland::Server,
     window: tessera_desktop::window::WindowId,
-) -> Result<WindowTreeGeometry, String> {
+) -> Result<OffscreenGeometry, String> {
     let model = server
         .all_windows()
         .into_iter()
@@ -66,8 +65,7 @@ pub(super) fn window_tree_geometry(
         )
         .map_err(|_| "window capture extent overflows".to_owned())
     };
-    Ok(WindowTreeGeometry {
-        window,
+    Ok(OffscreenGeometry {
         scale_milli,
         physical_width: physical(model.size.w)?.max(1),
         physical_height: physical(model.size.h)?.max(1),
@@ -125,7 +123,8 @@ pub(super) fn draw_window_tree(
     renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     canvas: &flux::CanvasCommands<'_>,
-    geometry: &WindowTreeGeometry,
+    window: tessera_desktop::window::WindowId,
+    geometry: &OffscreenGeometry,
 ) {
     let scale = geometry.scale_milli as f32 / 1000.0;
     canvas.save();
@@ -142,9 +141,9 @@ pub(super) fn draw_window_tree(
             natural.size.h,
         )
     };
-    let shm = server.window_capture_frames(geometry.window);
-    let dmabuf = server.window_capture_dmabuf_frames(geometry.window);
-    let surface_order = server.window_capture_frame_order(geometry.window);
+    let shm = server.window_capture_frames(window);
+    let dmabuf = server.window_capture_dmabuf_frames(window);
+    let surface_order = server.window_capture_frame_order(window);
     renderer.draw_surfaces_ordered_mapped(device, canvas, &surface_order, &shm, &dmabuf, &map);
     canvas.restore();
 }
@@ -203,7 +202,7 @@ pub(super) fn begin_window_capture(
                 flux_last_error_detail()
             )
         })?;
-    draw_window_tree(device, renderer, server, &session, &geometry);
+    draw_window_tree(device, renderer, server, &session, window, &geometry);
     session.end().map_err(|error| {
         format!(
             "end window {} canvas: {error}{}",

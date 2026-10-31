@@ -11,7 +11,7 @@ use tessera_primitives::stream::StreamInfo;
 use crate::presentation::damage::{FrameDamage, union_frame_damage};
 
 use super::ring::SlotRing;
-use super::transport::{DRM_FORMAT_XRGB8888, DmabufCapture, DmabufStream, WindowShmTarget};
+use super::transport::{DRM_FORMAT_XRGB8888, DmabufCapture, DmabufStream, OffscreenShmTarget};
 
 /// Default frame-rate cap when the client leaves `max_fps` unset.
 pub const DEFAULT_MAX_FPS: u32 = 30;
@@ -81,10 +81,10 @@ pub fn damage_in_target(
     }
 }
 
-/// Production state of one window stream's SHM frame (ADR-0127). dmabuf
-/// window streams track their in-flight frames in the slot ring instead.
+/// Production state of one offscreen stream's SHM frame (ADR-0127, ADR-0186).
+/// dmabuf offscreen streams track their in-flight frames in the slot ring instead.
 #[derive(Debug)]
-pub enum WindowStreamStage {
+pub enum OffscreenStreamStage {
     /// No frame in flight: the stream may render when its pacing says so.
     Idle,
     /// A frame was submitted to the cached surface; its readback has not
@@ -98,53 +98,44 @@ pub enum WindowStreamStage {
     Converting { damage: SampledDamage },
 }
 
-/// Per-window-stream independent rendering state (ADR-0127). The window's
-/// complete surface tree renders into the stream's own target — never
-/// cropped from the desktop frame — so occlusion, minimization, and foreign
-/// workspaces cannot leak foreign pixels into the stream.
-pub struct WindowStream {
+/// What kind of offscreen scene an offscreen stream renders (ADR-0127, ADR-0186).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OffscreenTarget {
+    Window(tessera_desktop::window::WindowId),
+    VirtualOutput(String),
+}
+
+/// Per-offscreen-stream independent rendering state (ADR-0127, ADR-0186).
+/// Renders an isolated scene tree (a single window or a virtual extend output's
+/// visible surfaces) directly into the stream's own target — never expanding or
+/// cropping the physical KMS union framebuffer (`[INV-ARCH-76]`).
+pub struct OffscreenStream {
+    pub target: OffscreenTarget,
     /// The SHM readback target; `None` when the stream runs the dmabuf
     /// transport (its surface and canvas live in [`DmabufStream`]).
-    pub shm: Option<WindowShmTarget>,
+    pub shm: Option<OffscreenShmTarget>,
     /// Window/output model signatures at the last geometry re-resolution;
     /// the live geometry is re-resolved only when one of them moves.
     pub geometry_sig: (u64, u64),
-    /// Toplevel logical origin and extent at the last geometry
-    /// re-resolution, for renders between re-resolutions and the
-    /// cursor-over-window test.
+    /// Logical origin and extent at the last geometry re-resolution, for
+    /// renders between re-resolutions and the cursor hit test.
     pub origin: tessera_primitives::Point,
     pub logical_size: tessera_primitives::Size,
     /// Capture scale in milli-units at the last geometry re-resolution.
     pub scale_milli: u32,
-    /// Content generations of the window's surface tree at the last
+    /// Content generations of the scene's surface tree at the last
     /// rendered frame; a mismatch against the live tree marks it dirty.
     pub generations: std::collections::HashMap<usize, u64>,
+    /// Cursor shape and position at the last render, to detect cursor-only dirtiness.
+    pub last_cursor: Option<(u32, (f32, f32))>,
     /// The tree changed since the last rendered frame (recomputed each
     /// drive); a dirty tree paces renders at the stream's `max_fps`.
     pub dirty: bool,
     /// In-flight SHM frame state.
-    pub stage: WindowStreamStage,
+    pub stage: OffscreenStreamStage,
     /// When a completed readback first found the capture worker reserved by
     /// a one-shot; a frame held too long logs once instead of starving
     /// silently. Cleared when the frame leaves for the worker.
-    pub held_since: Option<Instant>,
-}
-
-/// Per-virtual-output independent offscreen rendering state (ADR-0186).
-/// Renders the virtual output's visible surface trees and optional embedded
-/// cursor directly into the stream's own target — never expanding or
-/// cropping the physical KMS union framebuffer (`[INV-ARCH-76]`).
-pub struct VirtualOutputStream {
-    pub connector: String,
-    pub shm: Option<WindowShmTarget>,
-    pub geometry_sig: (u64, u64),
-    pub origin: tessera_primitives::Point,
-    pub logical_size: tessera_primitives::Size,
-    pub scale_milli: u32,
-    pub generations: std::collections::HashMap<usize, u64>,
-    pub last_cursor: Option<(u32, (f32, f32))>,
-    pub dirty: bool,
-    pub stage: WindowStreamStage,
     pub held_since: Option<Instant>,
 }
 
@@ -178,12 +169,9 @@ pub struct OutputStream {
     pub frozen: bool,
     /// Zero-copy transport state (IPC protocol 25); `None` for SHM streams.
     pub dmabuf: Option<DmabufStream>,
-    /// Independent per-window rendering state (ADR-0127); `None` for output
-    /// targets.
-    pub window: Option<WindowStream>,
-    /// Independent per-virtual-output rendering state (ADR-0186); `None`
-    /// for physical outputs and window targets.
-    pub virtual_output: Option<VirtualOutputStream>,
+    /// Independent offscreen rendering state (ADR-0127, ADR-0186); `None` for physical
+    /// output targets.
+    pub offscreen: Option<OffscreenStream>,
     /// Damage accumulated since this stream's last *delivered* frame, in
     /// physical desktop pixels. Initialized full so the first frame is
     /// complete; sampled (cloned) when a frame is captured for the stream
@@ -196,7 +184,7 @@ pub struct OutputStream {
     pub damage_origin: Option<tessera_primitives::Point>,
     /// SHM output streams: the damage sample for the frame currently
     /// traversing the shared readback lane, cloned post-present for every
-    /// due stream (window and dmabuf streams carry theirs in their own
+    /// due stream (offscreen and dmabuf streams carry theirs in their own
     /// in-flight state).
     pub pending_frame_damage: Option<SampledDamage>,
 }
@@ -210,28 +198,27 @@ pub struct OutputStreams {
 
 impl OutputStream {
     /// Whether this stream renders into its own offscreen target
-    /// (`WindowStream` or `VirtualOutputStream`) rather than capturing from
-    /// the physical union presentation surface (`[INV-ARCH-76]`).
+    /// ([`OffscreenStream`]) rather than capturing from the physical union
+    /// presentation surface (`[INV-ARCH-76]`).
     pub fn is_offscreen(&self) -> bool {
-        self.window.is_some() || self.virtual_output.is_some()
+        self.offscreen.is_some()
     }
 
-    /// Mutable access to the shared SHM readback state of an offscreen stream
-    /// (`WindowStream` or `VirtualOutputStream`).
+    /// Mutable access to the shared SHM readback state of an offscreen stream.
     pub fn offscreen_shm_parts(
         &mut self,
     ) -> Option<(
-        &Option<WindowShmTarget>,
-        &mut WindowStreamStage,
+        &Option<OffscreenShmTarget>,
+        &mut OffscreenStreamStage,
         &mut Option<Instant>,
     )> {
-        if let Some(window) = self.window.as_mut() {
-            Some((&window.shm, &mut window.stage, &mut window.held_since))
-        } else if let Some(virt) = self.virtual_output.as_mut() {
-            Some((&virt.shm, &mut virt.stage, &mut virt.held_since))
-        } else {
-            None
-        }
+        self.offscreen.as_mut().map(|offscreen| {
+            (
+                &offscreen.shm,
+                &mut offscreen.stage,
+                &mut offscreen.held_since,
+            )
+        })
     }
 
     /// The frame was delivered: the damage accumulator restarts from here.
@@ -286,8 +273,7 @@ impl OutputStreams {
                 size,
                 frozen: false,
                 dmabuf: None,
-                window: None,
-                virtual_output: None,
+                offscreen: None,
                 damage_since_delivery: FrameDamage::Full,
                 damage_origin: None,
                 pending_frame_damage: None,
@@ -302,20 +288,12 @@ impl OutputStreams {
         }
     }
 
-    /// Attach the independent-rendering state to a freshly started window
-    /// stream (ADR-0127). The IPC reply is already computed; the state only
-    /// takes part in the frame drives that follow.
-    pub fn attach_window(&mut self, stream_id: u64, window: WindowStream) {
-        if let Some(stream) = self.streams.get_mut(&stream_id) {
-            stream.window = Some(window);
-        }
-    }
-
     /// Attach the independent offscreen rendering state to a freshly started
-    /// virtual-output stream (ADR-0186).
-    pub fn attach_virtual_output(&mut self, stream_id: u64, virtual_output: VirtualOutputStream) {
+    /// offscreen stream (ADR-0127, ADR-0186). The IPC reply is already
+    /// computed; the state only takes part in the frame drives that follow.
+    pub fn attach_offscreen(&mut self, stream_id: u64, offscreen: OffscreenStream) {
         if let Some(stream) = self.streams.get_mut(&stream_id) {
-            stream.virtual_output = Some(virtual_output);
+            stream.offscreen = Some(offscreen);
         }
     }
 
@@ -330,7 +308,7 @@ impl OutputStreams {
         max_fps: Option<u32>,
         size: (u32, u32),
         dmabuf_capture: Option<DmabufCapture>,
-        offscreen_shm: Option<WindowShmTarget>,
+        offscreen_shm: Option<OffscreenShmTarget>,
     ) -> Result<StreamInfo, String> {
         let Some(stream) = self.streams.get_mut(&stream_id) else {
             return Err(format!("unknown stream {stream_id}"));
@@ -349,27 +327,17 @@ impl OutputStreams {
         stream.damage_origin = None;
         stream.pending_frame_damage = None;
 
-        if let Some(window) = stream.window.as_mut() {
-            window.shm = if dmabuf_capture.is_some() {
+        if let Some(offscreen) = stream.offscreen.as_mut() {
+            offscreen.shm = if dmabuf_capture.is_some() {
                 None
             } else {
                 offscreen_shm
             };
-            window.generations.clear();
-            window.dirty = true;
-            window.stage = WindowStreamStage::Idle;
-            window.held_since = None;
-        } else if let Some(virtual_output) = stream.virtual_output.as_mut() {
-            virtual_output.shm = if dmabuf_capture.is_some() {
-                None
-            } else {
-                offscreen_shm
-            };
-            virtual_output.generations.clear();
-            virtual_output.last_cursor = None;
-            virtual_output.dirty = true;
-            virtual_output.stage = WindowStreamStage::Idle;
-            virtual_output.held_since = None;
+            offscreen.generations.clear();
+            offscreen.last_cursor = None;
+            offscreen.dirty = true;
+            offscreen.stage = OffscreenStreamStage::Idle;
+            offscreen.held_since = None;
         }
 
         match dmabuf_capture {
@@ -565,7 +533,13 @@ impl OutputStreams {
     pub fn live_virtual_outputs(&self) -> u32 {
         self.streams
             .values()
-            .filter(|stream| !stream.frozen && stream.virtual_output.is_some())
+            .filter(|stream| {
+                !stream.frozen
+                    && matches!(
+                        stream.offscreen.as_ref().map(|o| &o.target),
+                        Some(OffscreenTarget::VirtualOutput(_))
+                    )
+            })
             .count() as u32
     }
 
@@ -574,7 +548,7 @@ impl OutputStreams {
     /// streams exist. The main loop caps its idle wait with this. Output
     /// streams wake at their `frame_interval` deadline: a due output stream
     /// forces a presentation, so the loop must wake in time to drive it
-    /// (ADR-0130). Window (ADR-0127) and virtual-output (ADR-0186) streams
+    /// (ADR-0130). Offscreen streams (window ADR-0127 and virtual-output ADR-0186)
     /// additionally wake at their `max_fps` cadence while their tree is
     /// dirty, fall back to the liveness tick otherwise, and poll briefly
     /// while a readback is in flight.
@@ -586,27 +560,18 @@ impl OutputStreams {
                 let pacing = stream.last_frame.map_or(Duration::ZERO, |last| {
                     (last + stream.frame_interval).saturating_duration_since(now)
                 });
-                let offscreen = stream
-                    .window
-                    .as_ref()
-                    .map(|window| (&window.stage, window.dirty))
-                    .or_else(|| {
-                        stream
-                            .virtual_output
-                            .as_ref()
-                            .map(|virt| (&virt.stage, virt.dirty))
-                    });
+                let offscreen = stream.offscreen.as_ref().map(|o| (&o.stage, o.dirty));
                 let Some((stage, dirty)) = offscreen else {
                     return pacing;
                 };
                 let liveness = stream.last_frame.map_or(Duration::ZERO, |last| {
                     (last + LIVENESS_INTERVAL).saturating_duration_since(now)
                 });
-                if matches!(stage, WindowStreamStage::AwaitingReadback { .. }) {
+                if matches!(stage, OffscreenStreamStage::AwaitingReadback { .. }) {
                     // The GPU readback is in flight; poll for it shortly.
                     return liveness.min(Duration::from_millis(1));
                 }
-                if dirty && matches!(stage, WindowStreamStage::Idle) {
+                if dirty && matches!(stage, OffscreenStreamStage::Idle) {
                     return liveness.min(pacing);
                 }
                 liveness
@@ -1124,18 +1089,20 @@ mod tests {
     fn attach_stub_window(
         streams: &mut OutputStreams,
         stream_id: u64,
-        stage: WindowStreamStage,
+        stage: OffscreenStreamStage,
         dirty: bool,
     ) {
-        streams.attach_window(
+        streams.attach_offscreen(
             stream_id,
-            WindowStream {
+            OffscreenStream {
+                target: OffscreenTarget::Window(tessera_desktop::window::WindowId(1)),
                 shm: None,
                 geometry_sig: (0, 0),
                 origin: tessera_primitives::Point { x: 0, y: 0 },
                 logical_size: tessera_primitives::Size { w: 100, h: 50 },
                 scale_milli: 1000,
                 generations: std::collections::HashMap::new(),
+                last_cursor: None,
                 dirty,
                 stage,
                 held_since: None,
@@ -1148,7 +1115,7 @@ mod tests {
         let mut streams = OutputStreams::new();
         let t0 = Instant::now();
         let id = start(&mut streams, 1, Some(60), (100, 50));
-        attach_stub_window(&mut streams, id, WindowStreamStage::Idle, true);
+        attach_stub_window(&mut streams, id, OffscreenStreamStage::Idle, true);
         // Window streams render independently of presentation: they never
         // appear in the shared-readback or presentation-forcing sets.
         assert!(streams.due_shm_ids(t0).is_empty());
@@ -1165,7 +1132,7 @@ mod tests {
         let mut streams = OutputStreams::new();
         let t0 = Instant::now();
         let id = start(&mut streams, 1, Some(60), (100, 50));
-        attach_stub_window(&mut streams, id, WindowStreamStage::Idle, true);
+        attach_stub_window(&mut streams, id, OffscreenStreamStage::Idle, true);
         streams.record_frame(id, t0, true);
         // Dirty and idle: the wake is the fps deadline, not the liveness tick.
         let wait = streams
@@ -1180,7 +1147,7 @@ mod tests {
             .streams
             .get_mut(&id)
             .unwrap()
-            .window
+            .offscreen
             .as_mut()
             .unwrap()
             .dirty = false;
@@ -1196,10 +1163,10 @@ mod tests {
             .streams
             .get_mut(&id)
             .unwrap()
-            .window
+            .offscreen
             .as_mut()
             .unwrap()
-            .stage = WindowStreamStage::AwaitingReadback {
+            .stage = OffscreenStreamStage::AwaitingReadback {
             security_generation: 1,
             damage: SampledDamage {
                 origin: tessera_primitives::Point { x: 0, y: 0 },
@@ -1426,7 +1393,7 @@ mod tests {
         streams.stop(embedded);
         let window = start(&mut streams, 1, None, (100, 100));
         streams.streams.get_mut(&window).unwrap().cursor = StreamCursorMode::Embedded;
-        attach_stub_window(&mut streams, window, WindowStreamStage::Idle, false);
+        attach_stub_window(&mut streams, window, OffscreenStreamStage::Idle, false);
         assert!(!streams.any_shm_embedded());
     }
 
@@ -1493,17 +1460,19 @@ mod tests {
                 StreamCursorMode::Hidden,
             )
             .stream_id;
-        streams.attach_window(
+        streams.attach_offscreen(
             window,
-            WindowStream {
+            OffscreenStream {
+                target: OffscreenTarget::Window(tessera_desktop::window::WindowId(1)),
                 shm: None,
                 geometry_sig: (0, 0),
                 origin: tessera_primitives::Point { x: 0, y: 0 },
                 logical_size: tessera_primitives::Size { w: 64, h: 64 },
                 scale_milli: 1000,
                 generations: std::collections::HashMap::new(),
+                last_cursor: None,
                 dirty: false,
-                stage: WindowStreamStage::Idle,
+                stage: OffscreenStreamStage::Idle,
                 held_since: None,
             },
         );
@@ -1518,10 +1487,10 @@ mod tests {
                 StreamCursorMode::Embedded,
             )
             .stream_id;
-        streams.attach_virtual_output(
+        streams.attach_offscreen(
             cast,
-            VirtualOutputStream {
-                connector: "VIRTUAL-1".into(),
+            OffscreenStream {
+                target: OffscreenTarget::VirtualOutput("VIRTUAL-1".into()),
                 shm: None,
                 geometry_sig: (1, 1),
                 origin: tessera_primitives::Point { x: 1920, y: 0 },
@@ -1530,7 +1499,7 @@ mod tests {
                 generations: std::collections::HashMap::new(),
                 last_cursor: None,
                 dirty: false,
-                stage: WindowStreamStage::Idle,
+                stage: OffscreenStreamStage::Idle,
                 held_since: None,
             },
         );
@@ -1559,17 +1528,19 @@ mod tests {
                 StreamCursorMode::Hidden,
             )
             .stream_id;
-        streams.attach_window(
+        streams.attach_offscreen(
             window,
-            WindowStream {
+            OffscreenStream {
+                target: OffscreenTarget::Window(tessera_desktop::window::WindowId(1)),
                 shm: None,
                 geometry_sig: (0, 0),
                 origin: tessera_primitives::Point { x: 0, y: 0 },
                 logical_size: tessera_primitives::Size { w: 64, h: 64 },
                 scale_milli: 1000,
                 generations: std::collections::HashMap::new(),
+                last_cursor: None,
                 dirty: false,
-                stage: WindowStreamStage::Idle,
+                stage: OffscreenStreamStage::Idle,
                 held_since: None,
             },
         );
@@ -1588,10 +1559,10 @@ mod tests {
                 StreamCursorMode::Embedded,
             )
             .stream_id;
-        streams.attach_virtual_output(
+        streams.attach_offscreen(
             cast,
-            VirtualOutputStream {
-                connector: "VIRTUAL-1".into(),
+            OffscreenStream {
+                target: OffscreenTarget::VirtualOutput("VIRTUAL-1".into()),
                 shm: None,
                 geometry_sig: (1, 1),
                 origin: tessera_primitives::Point { x: 1920, y: 0 },
@@ -1600,7 +1571,7 @@ mod tests {
                 generations: std::collections::HashMap::new(),
                 last_cursor: None,
                 dirty: false,
-                stage: WindowStreamStage::Idle,
+                stage: OffscreenStreamStage::Idle,
                 held_since: None,
             },
         );
@@ -1630,17 +1601,19 @@ mod tests {
                 StreamCursorMode::Hidden,
             )
             .stream_id;
-        streams.attach_window(
+        streams.attach_offscreen(
             offscreen,
-            WindowStream {
+            OffscreenStream {
+                target: OffscreenTarget::Window(tessera_desktop::window::WindowId(3)),
                 shm: None,
                 geometry_sig: (0, 0),
                 origin: tessera_primitives::Point { x: 2000, y: 40 },
                 logical_size: tessera_primitives::Size { w: 64, h: 64 },
                 scale_milli: 1000,
                 generations: std::collections::HashMap::new(),
+                last_cursor: None,
                 dirty: false,
-                stage: WindowStreamStage::Idle,
+                stage: OffscreenStreamStage::Idle,
                 held_since: None,
             },
         );
@@ -1710,10 +1683,10 @@ mod tests {
                 StreamCursorMode::Embedded,
             )
             .stream_id;
-        streams.attach_virtual_output(
+        streams.attach_offscreen(
             id,
-            VirtualOutputStream {
-                connector: "VIRTUAL-1".into(),
+            OffscreenStream {
+                target: OffscreenTarget::VirtualOutput("VIRTUAL-1".into()),
                 shm: None,
                 geometry_sig: (1, 1),
                 origin: tessera_primitives::Point { x: 1920, y: 0 },
@@ -1722,7 +1695,7 @@ mod tests {
                 generations: std::collections::HashMap::new(),
                 last_cursor: None,
                 dirty: true,
-                stage: WindowStreamStage::Idle,
+                stage: OffscreenStreamStage::Idle,
                 held_since: None,
             },
         );

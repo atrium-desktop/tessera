@@ -32,25 +32,10 @@ pub fn begin_opaque_frame<'c, 'surface>(
     )
 }
 
-/// Logical geometry of one window's surface tree, resolved by the
-/// composition root from the live model: the toplevel's identity, capture
-/// scale in milli-units, physical extent, and logical placement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct WindowTreeGeometry {
-    pub window: tessera_desktop::window::WindowId,
-    pub scale_milli: u32,
-    pub physical_width: u32,
-    pub physical_height: u32,
-    pub origin: Point,
-    pub logical_size: Size,
-}
-
-/// Geometry of one human-domain virtual extend output (`VIRTUAL-*`,
-/// ADR-0186), resolved from the live output model for offscreen stream
-/// rendering.
+/// Geometry of one offscreen stream target (a window or a virtual extend output),
+/// resolved from the live model for offscreen stream rendering (ADR-0127, ADR-0186).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VirtualOutputGeometry {
-    pub connector: String,
+pub struct OffscreenGeometry {
     pub scale_milli: u32,
     pub physical_width: u32,
     pub physical_height: u32,
@@ -166,57 +151,46 @@ pub struct PresentedFrameRef<'a> {
 /// crate; the composition root supplies only the scene content itself,
 /// because painting it requires the renderer and the server (core tier).
 pub trait StreamPainter {
-    /// Paint one window stream frame: the window's complete surface tree
-    /// into `canvas`, plus the embedded cursor sprite when `cursor` is set
-    /// (its scale is `geometry.scale_milli` in milli-units).
-    fn paint_window_frame(
+    /// Paint one offscreen stream frame (window or virtual-output, ADR-0127, ADR-0186):
+    /// the target's complete visible scene into `canvas`, plus the embedded
+    /// cursor sprite when `cursor` is set.
+    fn paint_offscreen_frame(
         &mut self,
         device: &flux::Device,
         canvas: &flux::CanvasCommands<'_>,
-        geometry: &WindowTreeGeometry,
+        target: &super::registry::OffscreenTarget,
+        geometry: &OffscreenGeometry,
         cursor: Option<(u32, (f32, f32))>,
     );
-
-    /// Paint one virtual-output stream frame (ADR-0186): all visible
-    /// surfaces on `geometry.connector` into `canvas` mapped to `(0, 0)`,
-    /// plus the embedded cursor sprite when `cursor` is set.
-    fn paint_virtual_output_frame(
-        &mut self,
-        _device: &flux::Device,
-        _canvas: &flux::CanvasCommands<'_>,
-        _geometry: &VirtualOutputGeometry,
-        _cursor: Option<(u32, (f32, f32))>,
-    ) {
-    }
 }
 
-/// The cached offscreen readback target of an SHM window stream (ADR-0127):
+/// The cached offscreen readback target of an SHM offscreen stream (ADR-0127, ADR-0186):
 /// created at stream start at the negotiated physical extent and reused for
 /// every frame until the stream stops (a geometry restart is a fresh stream
 /// with a fresh target).
-pub struct WindowShmTarget {
+pub struct OffscreenShmTarget {
     pub surface: flux::Surface,
     pub canvas: flux::Canvas,
 }
 
-impl WindowShmTarget {
+impl OffscreenShmTarget {
     pub fn new(device: &flux::Device, width: u32, height: u32) -> Result<Self, String> {
         let surface =
             flux::Surface::offscreen_readback(device, width, height).map_err(|error| {
                 format!(
-                    "allocate window stream target: {error}{}",
+                    "allocate offscreen stream target: {error}{}",
                     crate::presentation::flux_last_error_detail()
                 )
             })?;
         surface.prepare_readback().map_err(|error| {
             format!(
-                "prepare window stream readback: {error}{}",
+                "prepare offscreen stream readback: {error}{}",
                 crate::presentation::flux_last_error_detail()
             )
         })?;
         let canvas = flux::Canvas::new(&surface).map_err(|error| {
             format!(
-                "create window stream canvas: {error}{}",
+                "create offscreen stream canvas: {error}{}",
                 crate::presentation::flux_last_error_detail()
             )
         })?;
@@ -513,47 +487,49 @@ pub fn blit_presented_frame(
 /// the painter) into the SHM stream's cached readback target and submit the
 /// frame. Mirrors the one-shot `begin_window_capture` sequence, but reuses
 /// the per-stream surface and leaves the in-flight bookkeeping to the
-/// caller.
-pub fn render_window_stream_shm(
+/// Render an offscreen scene (window or virtual output) into the SHM stream's
+/// cached readback target and submit the frame (ADR-0127, ADR-0186).
+pub fn render_offscreen_stream_shm(
     device: &flux::Device,
-    target: &mut WindowShmTarget,
+    target: &mut OffscreenShmTarget,
     clear: u32,
-    geometry: &WindowTreeGeometry,
+    offscreen_target: &super::registry::OffscreenTarget,
+    geometry: &OffscreenGeometry,
     cursor: Option<(u32, (f32, f32))>,
     painter: &mut dyn StreamPainter,
 ) -> Result<(), String> {
     let mut frame = target.surface.begin_frame().map_err(|error| {
         format!(
-            "begin window stream frame: {error}{}",
+            "begin offscreen stream frame: {error}{}",
             crate::presentation::flux_last_error_detail()
         )
     })?;
     let session = begin_opaque_frame(&mut target.canvas, &mut frame, clear)
-        .map_err(|error| format!("begin window stream pass: {error}"))?;
-    painter.paint_window_frame(device, &session, geometry, cursor);
+        .map_err(|error| format!("begin offscreen stream pass: {error}"))?;
+    painter.paint_offscreen_frame(device, &session, offscreen_target, geometry, cursor);
     session
         .end()
-        .map_err(|error| format!("end window stream pass: {error}"))?;
+        .map_err(|error| format!("end offscreen stream pass: {error}"))?;
     frame
         .request_readback()
-        .map_err(|error| format!("request window stream readback: {error}"))?;
+        .map_err(|error| format!("request offscreen stream readback: {error}"))?;
     frame
         .submit()
         .and_then(flux::SubmittedFrame::present)
-        .map_err(|error| format!("submit window stream frame: {error}"))?;
+        .map_err(|error| format!("submit offscreen stream frame: {error}"))?;
     Ok(())
 }
 
-/// Render the window's surface tree (plus the negotiated cursor) into the
-/// dmabuf stream's next capture-surface slot and export it with its
-/// explicit acquire fence (ADR-0127). Shares the submit/export tail with
-/// the presented-frame blit so the ring bookkeeping — and its failure
-/// semantics — stay identical.
-pub fn render_window_stream_dmabuf(
+/// Render an offscreen scene (window or virtual output) into the dmabuf stream's
+/// next capture-surface slot and export it with its explicit acquire fence
+/// (ADR-0127, ADR-0186). Shares the submit/export tail with the presented-frame
+/// blit so the ring bookkeeping — and its failure semantics — stay identical.
+pub fn render_offscreen_stream_dmabuf(
     device: &flux::Device,
     dmabuf: &mut DmabufStream,
     clear: u32,
-    geometry: &WindowTreeGeometry,
+    offscreen_target: &super::registry::OffscreenTarget,
+    geometry: &OffscreenGeometry,
     cursor: Option<(u32, (f32, f32))>,
     painter: &mut dyn StreamPainter,
 ) -> Result<(usize, OwnedFd), BlitFailure> {
@@ -565,66 +541,7 @@ pub fn render_window_stream_dmabuf(
     })?;
     let session = begin_opaque_frame(&mut dmabuf.canvas, &mut frame, clear)
         .map_err(|error| BlitFailure::Retryable(format!("capture pass: {error}")))?;
-    painter.paint_window_frame(device, &session, geometry, cursor);
-    session
-        .end()
-        .map_err(|error| BlitFailure::Retryable(format!("capture pass: {error}")))?;
-    submit_capture_frame(dmabuf, frame)
-}
-
-/// Render a virtual output's visible surfaces (plus the negotiated cursor)
-/// into the SHM stream's cached readback target and submit the frame
-/// (ADR-0186).
-pub fn render_virtual_output_stream_shm(
-    device: &flux::Device,
-    target: &mut WindowShmTarget,
-    clear: u32,
-    geometry: &VirtualOutputGeometry,
-    cursor: Option<(u32, (f32, f32))>,
-    painter: &mut dyn StreamPainter,
-) -> Result<(), String> {
-    let mut frame = target.surface.begin_frame().map_err(|error| {
-        format!(
-            "begin virtual-output stream frame: {error}{}",
-            crate::presentation::flux_last_error_detail()
-        )
-    })?;
-    let session = begin_opaque_frame(&mut target.canvas, &mut frame, clear)
-        .map_err(|error| format!("begin virtual-output stream pass: {error}"))?;
-    painter.paint_virtual_output_frame(device, &session, geometry, cursor);
-    session
-        .end()
-        .map_err(|error| format!("end virtual-output stream pass: {error}"))?;
-    frame
-        .request_readback()
-        .map_err(|error| format!("request virtual-output stream readback: {error}"))?;
-    frame
-        .submit()
-        .and_then(flux::SubmittedFrame::present)
-        .map_err(|error| format!("submit virtual-output stream frame: {error}"))?;
-    Ok(())
-}
-
-/// Render a virtual output's visible surfaces (plus the negotiated cursor)
-/// into the dmabuf stream's next capture-surface slot and export it with its
-/// explicit acquire fence (ADR-0186).
-pub fn render_virtual_output_stream_dmabuf(
-    device: &flux::Device,
-    dmabuf: &mut DmabufStream,
-    clear: u32,
-    geometry: &VirtualOutputGeometry,
-    cursor: Option<(u32, (f32, f32))>,
-    painter: &mut dyn StreamPainter,
-) -> Result<(usize, OwnedFd), BlitFailure> {
-    let mut frame = dmabuf.surface.begin_frame().map_err(|error| {
-        BlitFailure::Retryable(format!(
-            "capture begin_frame: {error}{}",
-            crate::presentation::flux_last_error_detail()
-        ))
-    })?;
-    let session = begin_opaque_frame(&mut dmabuf.canvas, &mut frame, clear)
-        .map_err(|error| BlitFailure::Retryable(format!("capture pass: {error}")))?;
-    painter.paint_virtual_output_frame(device, &session, geometry, cursor);
+    painter.paint_offscreen_frame(device, &session, offscreen_target, geometry, cursor);
     session
         .end()
         .map_err(|error| BlitFailure::Retryable(format!("capture pass: {error}")))?;

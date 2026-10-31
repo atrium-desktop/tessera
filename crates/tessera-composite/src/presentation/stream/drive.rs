@@ -1,11 +1,10 @@
-//! The capture-stream drive policies: the per-iteration window-stream
+//! The capture-stream drive policies: the per-iteration offscreen-stream
 //! drive and the dmabuf fence poll. Both are pure state-machine steps over
 //! injected observations — the composition root supplies the scene painter,
 //! the geometry resolver, the security gate, and the delivery lane.
 
 use std::time::Instant;
 
-use tessera_desktop::window::WindowId;
 use tessera_primitives::stream::StreamFramePayload;
 
 use crate::presentation::damage::{
@@ -13,96 +12,67 @@ use crate::presentation::damage::{
 };
 
 use super::registry::{
-    OutputStreams, WindowStreamStage, damage_in_target, window_stream_render_due,
+    OffscreenStreamStage, OffscreenTarget, OutputStreams, damage_in_target, window_stream_render_due,
 };
 use super::ring::SLOT_FENCE_TIMEOUT;
 use super::transport::window_stream_cursor;
 use super::transport::{
-    BlitFailure, CaptureCursorState, DRM_FORMAT_XRGB8888, PendingSlotFrame, StreamPainter,
-    VirtualOutputGeometry, WindowTreeGeometry, fence_signaled, render_virtual_output_stream_dmabuf,
-    render_virtual_output_stream_shm, render_window_stream_dmabuf, render_window_stream_shm,
+    BlitFailure, CaptureCursorState, DRM_FORMAT_XRGB8888, OffscreenGeometry, PendingSlotFrame,
+    StreamPainter, fence_signaled, render_offscreen_stream_dmabuf, render_offscreen_stream_shm,
 };
 
-/// One window-stream drive invocation: the clock, the observations, and the
-/// content port. The composition root builds this once per main-loop
-/// iteration; the registry mutates its own state and returns the outcomes
-/// that must be applied to the world (freezes, ends).
-pub struct WindowStreamDrive<'a> {
+/// One offscreen-stream drive invocation (ADR-0127, ADR-0186): the clock, the
+/// observations, and the content port for offscreen streams (windows and `VIRTUAL-*`).
+pub struct OffscreenStreamDrive<'a> {
     pub now: Instant,
     pub device: &'a flux::Device,
     /// The window/output model signatures at this drive; geometry
     /// re-resolution is gated on them.
     pub signature: (u64, u64),
-    /// Resolve a window's live tree geometry. `Err("unknown window ...")`
-    /// means the window closed; any other error ends its stream.
-    pub resolve_geometry: &'a mut dyn FnMut(WindowId) -> Result<WindowTreeGeometry, String>,
-    /// Content-generation snapshot of a window's surface tree (the
-    /// per-window dirty signal).
-    pub tree_generations: &'a mut dyn FnMut(WindowId) -> std::collections::HashMap<usize, u64>,
-    /// The window tree's own committed damage since the previous call, in
+    /// Resolve an offscreen target's live geometry (window or virtual output).
+    /// `Err` ends the stream with its reason.
+    pub resolve_geometry: &'a mut dyn FnMut(&OffscreenTarget) -> Result<OffscreenGeometry, String>,
+    /// Content-generation snapshot of an offscreen scene's surface tree (the
+    /// dirty signal).
+    pub tree_generations: &'a mut dyn FnMut(&OffscreenTarget) -> std::collections::HashMap<usize, u64>,
+    /// The offscreen scene tree's own committed damage since the previous call, in
     /// compositor logical coordinates (ADR-0187). Called once per render,
     /// after the due decision, so the underlying tracker advances exactly
     /// once per rendered frame.
-    pub tree_damage: &'a mut dyn FnMut(u64, WindowId) -> ClientDamage,
-    /// The theme cursor, when one is currently drawable. A client-owned
-    /// cursor surface is not part of any window's surface tree, so window
-    /// streams can never show it; the caller filters.
-    pub cursor_state: Option<CaptureCursorState>,
-    /// The opaque clear colour for window frames (the interaction-domain
-    /// scene colour of the active scheme).
-    pub clear: u32,
-    /// The capture security generation snapshot at render time.
-    pub security_generation: u64,
-    pub painter: &'a mut dyn StreamPainter,
-}
-
-/// One virtual-output stream drive invocation (ADR-0186): the clock, the
-/// observations, and the content port for offscreen `VIRTUAL-*` streams.
-pub struct VirtualOutputStreamDrive<'a> {
-    pub now: Instant,
-    pub device: &'a flux::Device,
-    /// The window/output model signatures at this drive; geometry
-    /// re-resolution is gated on them.
-    pub signature: (u64, u64),
-    /// Resolve a virtual output's live geometry by connector name. `Err`
-    /// means the virtual output was destroyed or disconnected.
-    pub resolve_geometry: &'a mut dyn FnMut(&str) -> Result<VirtualOutputGeometry, String>,
-    /// Content-generation snapshot of all surfaces visible on the virtual
-    /// output (the per-output dirty signal).
-    pub tree_generations: &'a mut dyn FnMut(&str) -> std::collections::HashMap<usize, u64>,
-    /// The virtual output's own committed damage since the previous call, in
-    /// compositor logical coordinates (ADR-0187). Called once per render,
-    /// after the due decision.
-    pub tree_damage: &'a mut dyn FnMut(u64, &str) -> ClientDamage,
+    pub tree_damage: &'a mut dyn FnMut(u64, &OffscreenTarget) -> ClientDamage,
     /// The theme cursor, when one is currently drawable.
     pub cursor_state: Option<CaptureCursorState>,
-    /// The opaque clear colour for virtual-output frames.
+    /// The opaque clear colour for offscreen frames.
     pub clear: u32,
     /// The capture security generation snapshot at render time.
     pub security_generation: u64,
     pub painter: &'a mut dyn StreamPainter,
 }
 
-/// What a window-stream drive decided and the composition root must apply:
-/// streams to end (`StreamEnded`), and streams to freeze with
-/// `StreamGeometryChanged(w, h)`.
+/// What an offscreen-stream drive decided and the composition root must apply:
+/// streams to end (`StreamEnded`), streams to freeze with `StreamGeometryChanged(w, h)`,
+/// and virtual outputs that rendered (for Wayland frame callbacks).
 #[derive(Default)]
-pub struct WindowDriveEffects {
+pub struct OffscreenDriveEffects {
     pub ended: Vec<(u64, String)>,
     pub frozen: Vec<(u64, u32, u32)>,
+    pub rendered_virtual_outputs: Vec<String>,
 }
 
 impl OutputStreams {
-    /// Drive every live window stream one step (ADR-0127): re-resolve
-    /// geometry when the window/output model moved (a size change freezes
-    /// the stream with `StreamGeometryChanged`, a closed window ends it, a
-    /// pure position move is followed silently), then render the streams
+    /// Drive every live offscreen stream one step (ADR-0127, ADR-0186): re-resolve
+    /// geometry when the model moved (a size change freezes the stream with
+    /// `StreamGeometryChanged`, a closed window or destroyed output ends it,
+    /// a pure position move is followed silently), then render the streams
     /// whose pacing is due into their own offscreen targets — independently
     /// of presentation. Runs once per main-loop iteration; the loop's idle
-    /// wait consults [`OutputStreams::next_stream_wake_in`] so dirty
-    /// windows keep their `max_fps` cadence.
-    pub fn drive_window_streams(&mut self, drive: WindowStreamDrive<'_>) -> WindowDriveEffects {
-        let WindowStreamDrive {
+    /// wait consults [`OutputStreams::next_stream_wake_in`] so dirty targets
+    /// keep their `max_fps` cadence.
+    pub fn drive_offscreen_streams(
+        &mut self,
+        drive: OffscreenStreamDrive<'_>,
+    ) -> OffscreenDriveEffects {
+        let OffscreenStreamDrive {
             now,
             device,
             signature: sig,
@@ -114,31 +84,30 @@ impl OutputStreams {
             security_generation,
             painter,
         } = drive;
-        let mut effects = WindowDriveEffects::default();
+        let mut effects = OffscreenDriveEffects::default();
         let ids: Vec<u64> = self
             .streams
             .iter()
-            .filter(|(_, stream)| !stream.frozen && stream.window.is_some())
+            .filter(|(_, stream)| !stream.frozen && stream.offscreen.is_some())
             .map(|(stream_id, _)| *stream_id)
             .collect();
+
         for stream_id in ids {
             let Some(stream) = self.streams.get_mut(&stream_id) else {
                 continue;
             };
-            let window_id = match stream.target {
-                tessera_primitives::stream::StreamTarget::Window { window } => window,
-                _ => continue,
-            };
-            let window = stream
-                .window
+            let offscreen = stream
+                .offscreen
                 .as_mut()
-                .expect("window stream state attached");
+                .expect("offscreen stream state attached");
+            let target = offscreen.target.clone();
+
             // Geometry re-resolution is signature-gated: between signature
             // moves the cached origin/size/scale are authoritative.
             let mut fresh_geometry = None;
-            if window.geometry_sig != sig {
-                window.geometry_sig = sig;
-                match resolve_geometry(window_id) {
+            if offscreen.geometry_sig != sig {
+                offscreen.geometry_sig = sig;
+                match resolve_geometry(&target) {
                     Ok(geometry) => {
                         if (geometry.physical_width, geometry.physical_height) != stream.size {
                             effects.frozen.push((
@@ -148,15 +117,12 @@ impl OutputStreams {
                             ));
                             continue;
                         }
-                        window.origin = geometry.origin;
-                        window.logical_size = geometry.logical_size;
-                        window.scale_milli = geometry.scale_milli;
+                        offscreen.origin = geometry.origin;
+                        offscreen.logical_size = geometry.logical_size;
+                        offscreen.scale_milli = geometry.scale_milli;
                         fresh_geometry = Some(geometry);
                     }
                     Err(reason) => {
-                        // A window that vanished from the model closed; any
-                        // other resolution failure (e.g. a zero-sized
-                        // window) ends the stream with its own reason.
                         let reason = if reason.starts_with("unknown window") {
                             "window closed".to_owned()
                         } else {
@@ -167,39 +133,15 @@ impl OutputStreams {
                     }
                 }
             }
-            // Dirty check: the tree's content generations against the last
-            // rendered snapshot. A re-render of a clean tree happens only
-            // at the liveness tick.
-            let live = tree_generations(window_id);
-            window.dirty = live != window.generations;
-            let stage_idle = matches!(window.stage, WindowStreamStage::Idle);
-            if !window_stream_render_due(
-                window.dirty,
-                stage_idle,
-                stream.last_frame,
-                stream.frame_interval,
-                now,
-            ) {
-                continue;
-            }
-            let geometry = fresh_geometry.unwrap_or(WindowTreeGeometry {
-                window: window_id,
-                scale_milli: window.scale_milli,
+
+            let geometry = fresh_geometry.unwrap_or(OffscreenGeometry {
+                scale_milli: offscreen.scale_milli,
                 physical_width: stream.size.0,
                 physical_height: stream.size.1,
-                origin: window.origin,
-                logical_size: window.logical_size,
+                origin: offscreen.origin,
+                logical_size: offscreen.logical_size,
             });
-            // Damage for this frame is the window tree's own committed
-            // damage (ADR-0187), mapped onto the target's pixels; the
-            // physical desktop frame never contributes to a window stream.
-            let scale = geometry.scale_milli as f32 / 1000.0;
-            let own = offscreen_damage_to_target(
-                tree_damage(stream_id, window_id),
-                geometry.origin,
-                scale,
-                stream.size,
-            );
+
             let cursor_draw = (stream.cursor
                 == tessera_primitives::stream::StreamCursorMode::Embedded)
                 .then_some(cursor_state.as_ref())
@@ -207,35 +149,73 @@ impl OutputStreams {
                 .and_then(|state| {
                     window_stream_cursor(state, geometry.origin, geometry.logical_size)
                 });
+
+            // Dirty check: the scene's content generations and cursor position against
+            // the last rendered snapshot. A re-render of a clean scene happens only
+            // at the liveness tick.
+            let live = tree_generations(&target);
+            offscreen.dirty =
+                live != offscreen.generations || cursor_draw != offscreen.last_cursor;
+            let stage_idle = matches!(offscreen.stage, OffscreenStreamStage::Idle);
+            if !window_stream_render_due(
+                offscreen.dirty,
+                stage_idle,
+                stream.last_frame,
+                stream.frame_interval,
+                now,
+            ) {
+                continue;
+            }
+
+            // Damage for this frame is the scene tree's own committed
+            // damage (ADR-0187), mapped onto the target's pixels; the
+            // physical desktop frame never contributes to an offscreen stream.
+            let scale = geometry.scale_milli as f32 / 1000.0;
+            let own = offscreen_damage_to_target(
+                tree_damage(stream_id, &target),
+                geometry.origin,
+                scale,
+                stream.size,
+            );
             let sampled = self.seed_offscreen_damage(stream_id, own);
             let Some(stream) = self.streams.get_mut(&stream_id) else {
                 continue;
             };
-            let window = stream
-                .window
+            let offscreen = stream
+                .offscreen
                 .as_mut()
-                .expect("window stream state attached");
-            match &mut window.shm {
-                Some(target) => {
-                    match render_window_stream_shm(
+                .expect("offscreen stream state attached");
+
+            match &mut offscreen.shm {
+                Some(target_shm) => {
+                    match render_offscreen_stream_shm(
                         device,
-                        target,
+                        target_shm,
                         clear,
+                        &target,
                         &geometry,
                         cursor_draw,
                         painter,
                     ) {
                         Ok(()) => {
-                            window.generations = live;
-                            window.dirty = false;
-                            window.stage = WindowStreamStage::AwaitingReadback {
+                            offscreen.generations = live;
+                            offscreen.last_cursor = cursor_draw;
+                            offscreen.dirty = false;
+                            offscreen.stage = OffscreenStreamStage::AwaitingReadback {
                                 security_generation,
                                 damage: sampled,
                             };
                             stream.last_frame = Some(now);
+                            if let OffscreenTarget::VirtualOutput(ref conn) = target {
+                                if !effects.rendered_virtual_outputs.contains(conn) {
+                                    effects.rendered_virtual_outputs.push(conn.clone());
+                                }
+                            }
                         }
                         Err(reason) => {
-                            log::warn!("stream {stream_id}: window frame render failed: {reason}");
+                            log::warn!(
+                                "stream {stream_id}: offscreen frame render failed: {reason}"
+                            );
                             stream.dropped += 1;
                             stream.last_frame = Some(now);
                         }
@@ -246,7 +226,6 @@ impl OutputStreams {
                         continue;
                     };
                     let Some(_slot) = dmabuf.ring.next_submission_slot() else {
-                        // The consumer still owns the ring's next slot.
                         stream.dropped += 1;
                         stream.last_frame = Some(now);
                         if dmabuf.ring.next_is_pinned() && !dmabuf.ring_stalled {
@@ -260,10 +239,11 @@ impl OutputStreams {
                     };
                     let sequence = stream.sequence + 1;
                     let dropped = stream.dropped;
-                    match render_window_stream_dmabuf(
+                    match render_offscreen_stream_dmabuf(
                         device,
                         dmabuf,
                         clear,
+                        &target,
                         &geometry,
                         cursor_draw,
                         painter,
@@ -284,13 +264,21 @@ impl OutputStreams {
                                 security_generation,
                                 damage: sampled,
                             });
-                            window.generations = live;
-                            window.dirty = false;
+                            offscreen.generations = live;
+                            offscreen.last_cursor = cursor_draw;
+                            offscreen.dirty = false;
                             stream.sequence += 1;
                             stream.last_frame = Some(now);
+                            if let OffscreenTarget::VirtualOutput(ref conn) = target {
+                                if !effects.rendered_virtual_outputs.contains(conn) {
+                                    effects.rendered_virtual_outputs.push(conn.clone());
+                                }
+                            }
                         }
                         Err(BlitFailure::Retryable(reason)) => {
-                            log::warn!("stream {stream_id}: window dmabuf frame failed: {reason}");
+                            log::warn!(
+                                "stream {stream_id}: offscreen dmabuf frame failed: {reason}"
+                            );
                             stream.dropped += 1;
                             stream.last_frame = Some(now);
                         }
@@ -302,217 +290,6 @@ impl OutputStreams {
             }
         }
         effects
-    }
-
-    /// Drive every live virtual-output stream one step (ADR-0186): re-resolve
-    /// geometry when the window/output model moved (a mode/scale change
-    /// freezes the stream with `StreamGeometryChanged`, a destroyed virtual
-    /// output ends it, a pure logical-origin move is followed silently), then
-    /// render due streams into their own offscreen targets independently of
-    /// physical KMS presentation (`[INV-ARCH-76]`). Returns `(effects,
-    /// rendered_connectors)` so the composition root can dispatch per-output
-    /// `wl_surface.frame` callbacks.
-    pub fn drive_virtual_output_streams(
-        &mut self,
-        drive: VirtualOutputStreamDrive<'_>,
-    ) -> (WindowDriveEffects, Vec<String>) {
-        let VirtualOutputStreamDrive {
-            now,
-            device,
-            signature: sig,
-            resolve_geometry,
-            tree_generations,
-            tree_damage,
-            cursor_state,
-            clear,
-            security_generation,
-            painter,
-        } = drive;
-        let mut effects = WindowDriveEffects::default();
-        let mut rendered_connectors = Vec::new();
-        let ids: Vec<u64> = self
-            .streams
-            .iter()
-            .filter(|(_, stream)| !stream.frozen && stream.virtual_output.is_some())
-            .map(|(stream_id, _)| *stream_id)
-            .collect();
-        for stream_id in ids {
-            let Some(stream) = self.streams.get_mut(&stream_id) else {
-                continue;
-            };
-            let virtual_output = stream
-                .virtual_output
-                .as_mut()
-                .expect("virtual output stream state attached");
-            let connector = virtual_output.connector.clone();
-            let mut fresh_geometry = None;
-            if virtual_output.geometry_sig != sig {
-                virtual_output.geometry_sig = sig;
-                match resolve_geometry(&connector) {
-                    Ok(geometry) => {
-                        if (geometry.physical_width, geometry.physical_height) != stream.size {
-                            effects.frozen.push((
-                                stream_id,
-                                geometry.physical_width,
-                                geometry.physical_height,
-                            ));
-                            continue;
-                        }
-                        virtual_output.origin = geometry.origin;
-                        virtual_output.logical_size = geometry.logical_size;
-                        virtual_output.scale_milli = geometry.scale_milli;
-                        fresh_geometry = Some(geometry);
-                    }
-                    Err(reason) => {
-                        effects.ended.push((stream_id, reason));
-                        continue;
-                    }
-                }
-            }
-            let geometry = fresh_geometry.unwrap_or(VirtualOutputGeometry {
-                connector: connector.clone(),
-                scale_milli: virtual_output.scale_milli,
-                physical_width: stream.size.0,
-                physical_height: stream.size.1,
-                origin: virtual_output.origin,
-                logical_size: virtual_output.logical_size,
-            });
-            let cursor_draw = (stream.cursor
-                == tessera_primitives::stream::StreamCursorMode::Embedded)
-                .then_some(cursor_state.as_ref())
-                .flatten()
-                .and_then(|state| {
-                    window_stream_cursor(state, geometry.origin, geometry.logical_size)
-                });
-            let live = tree_generations(&connector);
-            virtual_output.dirty =
-                live != virtual_output.generations || cursor_draw != virtual_output.last_cursor;
-            let stage_idle = matches!(virtual_output.stage, WindowStreamStage::Idle);
-            if !window_stream_render_due(
-                virtual_output.dirty,
-                stage_idle,
-                stream.last_frame,
-                stream.frame_interval,
-                now,
-            ) {
-                continue;
-            }
-            let scale = geometry.scale_milli as f32 / 1000.0;
-            // The virtual output's own committed damage (ADR-0187), mapped
-            // onto the target's pixels; the physical desktop frame never
-            // contributes to a virtual-output stream.
-            let own = offscreen_damage_to_target(
-                tree_damage(stream_id, &connector),
-                geometry.origin,
-                scale,
-                stream.size,
-            );
-            let sampled = self.seed_offscreen_damage(stream_id, own);
-            let Some(stream) = self.streams.get_mut(&stream_id) else {
-                continue;
-            };
-            let virtual_output = stream
-                .virtual_output
-                .as_mut()
-                .expect("virtual output stream state attached");
-            match &mut virtual_output.shm {
-                Some(target) => {
-                    match render_virtual_output_stream_shm(
-                        device,
-                        target,
-                        clear,
-                        &geometry,
-                        cursor_draw,
-                        painter,
-                    ) {
-                        Ok(()) => {
-                            virtual_output.generations = live;
-                            virtual_output.last_cursor = cursor_draw;
-                            virtual_output.dirty = false;
-                            virtual_output.stage = WindowStreamStage::AwaitingReadback {
-                                security_generation,
-                                damage: sampled,
-                            };
-                            stream.last_frame = Some(now);
-                            if !rendered_connectors.contains(&connector) {
-                                rendered_connectors.push(connector);
-                            }
-                        }
-                        Err(reason) => {
-                            log::warn!(
-                                "stream {stream_id}: virtual-output frame render failed: {reason}"
-                            );
-                            stream.dropped += 1;
-                            stream.last_frame = Some(now);
-                        }
-                    }
-                }
-                None => {
-                    let Some(dmabuf) = stream.dmabuf.as_mut() else {
-                        continue;
-                    };
-                    let Some(_slot) = dmabuf.ring.next_submission_slot() else {
-                        stream.dropped += 1;
-                        stream.last_frame = Some(now);
-                        if dmabuf.ring.next_is_pinned() && !dmabuf.ring_stalled {
-                            dmabuf.ring_stalled = true;
-                            log::warn!(
-                                "stream {stream_id}: every capture slot is consumer-owned; \
-                                 dropping frames until the consumer releases one"
-                            );
-                        }
-                        continue;
-                    };
-                    let sequence = stream.sequence + 1;
-                    let dropped = stream.dropped;
-                    match render_virtual_output_stream_dmabuf(
-                        device,
-                        dmabuf,
-                        clear,
-                        &geometry,
-                        cursor_draw,
-                        painter,
-                    ) {
-                        Ok((slot, fence)) => {
-                            if dmabuf.ring_stalled {
-                                dmabuf.ring_stalled = false;
-                                log::info!("stream {stream_id}: capture slots are flowing again");
-                            }
-                            dmabuf.ring.submitted(slot);
-                            dmabuf.pending.push(PendingSlotFrame {
-                                slot,
-                                fence,
-                                source: None,
-                                sequence,
-                                dropped,
-                                submitted_at: now,
-                                security_generation,
-                                damage: sampled,
-                            });
-                            virtual_output.generations = live;
-                            virtual_output.last_cursor = cursor_draw;
-                            virtual_output.dirty = false;
-                            stream.sequence += 1;
-                            stream.last_frame = Some(now);
-                            if !rendered_connectors.contains(&connector) {
-                                rendered_connectors.push(connector);
-                            }
-                        }
-                        Err(BlitFailure::Retryable(reason)) => {
-                            log::warn!(
-                                "stream {stream_id}: virtual-output dmabuf frame failed: {reason}"
-                            );
-                            stream.dropped += 1;
-                            stream.last_frame = Some(now);
-                        }
-                        Err(BlitFailure::Submitted(reason)) => {
-                            effects.ended.push((stream_id, reason));
-                        }
-                    }
-                }
-            }
-        }
-        (effects, rendered_connectors)
     }
 
     /// Deliver dmabuf stream frames whose acquire fence signaled (IPC

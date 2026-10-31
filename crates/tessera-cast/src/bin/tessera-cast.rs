@@ -35,6 +35,7 @@ fn main() -> ExitCode {
         Some("handshake") => run_serve_command(&args[1..], false),
         Some("formats") => run_formats(&args[1..]),
         Some("sink") => run_sink(&args[1..]),
+        Some("record") => run_record(&args[1..]),
         Some("help" | "--help" | "-h") => {
             print_usage();
             ExitCode::SUCCESS
@@ -49,7 +50,7 @@ fn main() -> ExitCode {
 
 fn print_usage() {
     println!(
-        "tessera-cast: Miracast (Wi-Fi Display) source for the Tessera desktop (ADR-0192)\n\n\
+        "tessera-cast: Miracast and desktop recording for the Tessera desktop (ADR-0186, ADR-0192)\n\n\
          Miracast makes the SOURCE the RTSP server: the source listens on the control\n\
          port (7236 by default), the sink connects to it, and the sink sends the first\n\
          OPTIONS. `cast` and `handshake` therefore listen; they never dial the sink.\n\n\
@@ -60,7 +61,8 @@ fn print_usage() {
          tessera-cast cast [OPTIONS]           Serve a WFD session and stream H.264 media\n    \
          tessera-cast handshake [OPTIONS]      Serve a WFD session and trace the negotiation\n    \
          tessera-cast formats \"VALUE\"          Decode a wfd_video_formats value\n    \
-         tessera-cast sink [OPTIONS]           Act as a scripted SINK that connects to a source\n\n\
+         tessera-cast sink [OPTIONS]           Act as a scripted SINK that connects to a source\n    \
+         tessera-cast record [OPTIONS]         Record screen to video file (MP4/MKV/TS)\n\n\
          PROBE is read-only: it never enables an adapter, starts a scan, or writes a property.\n\
          DISCOVER is an action: it enables the P2P role and registers a Wi-Fi Display source.\n\
          HANDSHAKE is a diagnostic: it proves the negotiation, not the media.\n\
@@ -648,6 +650,115 @@ fn run_formats(args: &[String]) -> ExitCode {
         }
         Err(error) => {
             eprintln!("tessera-cast: {error}");
+            ExitCode::from(EXIT_BLOCKED)
+        }
+    }
+}
+
+fn run_record(args: &[String]) -> ExitCode {
+    let mut options = tessera_cast::media::RecordOptions::default();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-o" | "--output" => {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("tessera-cast record: missing argument for --output");
+                    return ExitCode::from(EXIT_BLOCKED);
+                }
+                options.output_path = std::path::PathBuf::from(&args[i]);
+            }
+            "--fps" => {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("tessera-cast record: missing argument for --fps");
+                    return ExitCode::from(EXIT_BLOCKED);
+                }
+                match args[i].parse::<u32>() {
+                    Ok(fps) if fps > 0 && fps <= 240 => options.fps = fps,
+                    _ => {
+                        eprintln!("tessera-cast record: invalid fps value (expected 1..240)");
+                        return ExitCode::from(EXIT_BLOCKED);
+                    }
+                }
+            }
+            "--virtual" => {
+                options.virtual_source = true;
+            }
+            "--mirror" => {
+                options.virtual_source = false;
+            }
+            "-d" | "--duration" => {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("tessera-cast record: missing argument for --duration");
+                    return ExitCode::from(EXIT_BLOCKED);
+                }
+                match args[i].parse::<u64>() {
+                    Ok(secs) if secs > 0 => options.duration = Some(Duration::from_secs(secs)),
+                    _ => {
+                        eprintln!("tessera-cast record: invalid duration (expected seconds > 0)");
+                        return ExitCode::from(EXIT_BLOCKED);
+                    }
+                }
+            }
+            "--help" | "-h" => {
+                println!(
+                    "USAGE:\n    tessera-cast record [OPTIONS]\n\n\
+                     OPTIONS:\n    \
+                     -o, --output <PATH>    Destination video file (default: recording.mp4)\n    \
+                     --fps <FPS>            Frame rate in frames/sec (default: 30)\n    \
+                     --virtual              Record an isolated virtual extend output (ADR-0186)\n    \
+                     --mirror               Record the physical desktop monitor (default)\n    \
+                     -d, --duration <SECS>  Record for fixed duration, then stop automatically\n"
+                );
+                return ExitCode::SUCCESS;
+            }
+            other => {
+                eprintln!("tessera-cast record: unknown option '{other}'");
+                return ExitCode::from(EXIT_UNKNOWN);
+            }
+        }
+        i += 1;
+    }
+
+    use std::io::IsTerminal;
+    let stop_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stop_flag_clone = stop_flag.clone();
+    if std::io::stdin().is_terminal() {
+        println!("Recording started. Press [Enter] to stop recording and finalize video file...");
+        std::thread::spawn(move || {
+            let mut line = String::new();
+            if let Ok(n) = std::io::stdin().read_line(&mut line) {
+                if n > 0 {
+                    stop_flag_clone.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
+        });
+    } else if options.duration.is_none() {
+        // In non-interactive mode without explicit duration, wait for stdin EOF (e.g. closed pipe)
+        std::thread::spawn(move || {
+            let mut line = String::new();
+            let _ = std::io::stdin().read_line(&mut line);
+            stop_flag_clone.store(true, std::sync::atomic::Ordering::Relaxed);
+        });
+    }
+
+    match tessera_cast::media::record_screen(options, Some(stop_flag)) {
+        Ok(report) => {
+            println!(
+                "Recording saved: {} ({}x{} @ {}fps, {:.2}s, {} bytes)",
+                report.output_path.display(),
+                report.resolution.0,
+                report.resolution.1,
+                report.fps,
+                report.duration.as_secs_f64(),
+                report.bytes_written
+            );
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprintln!("tessera-cast record failed: {err}");
             ExitCode::from(EXIT_BLOCKED)
         }
     }

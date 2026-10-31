@@ -28,15 +28,14 @@ pub use scheduler::{
 };
 pub use stream::{
     BlitFailure, CaptureCursorState, DRM_FORMAT_XRGB8888, DmabufCapture, DmabufStream,
-    GeometryAction, LIVENESS_INTERVAL, OutputStream, OutputStreams, PendingSlotFrame,
-    PresentedFrameRef, SLOT_FENCE_TIMEOUT, STREAM_SLOT_COUNT, SampledDamage, SlotRing, SlotState,
-    StreamCursorBlit, StreamPainter, VirtualOutputGeometry, VirtualOutputStream,
-    VirtualOutputStreamDrive, WindowDriveEffects, WindowShmTarget, WindowStream, WindowStreamDrive,
-    WindowStreamStage, WindowTreeGeometry, begin_opaque_frame, blit_presented_frame,
+    GeometryAction, LIVENESS_INTERVAL, OffscreenDriveEffects, OffscreenGeometry,
+    OffscreenShmTarget, OffscreenStream, OffscreenStreamDrive, OffscreenStreamStage,
+    OffscreenTarget, OutputStream, OutputStreams, PendingSlotFrame, PresentedFrameRef,
+    SLOT_FENCE_TIMEOUT, STREAM_SLOT_COUNT, SampledDamage, SlotRing, SlotState,
+    StreamCursorBlit, StreamPainter, begin_opaque_frame, blit_presented_frame,
     crop_stream_frame, damage_in_target, enumerate_slot_ring, fence_signaled, full_target_damage,
-    output_cursor_blit, render_virtual_output_stream_dmabuf, render_virtual_output_stream_shm,
-    render_window_stream_dmabuf, render_window_stream_shm, resolve_output_rect,
-    submit_capture_frame, window_stream_cursor, window_stream_render_due,
+    output_cursor_blit, render_offscreen_stream_dmabuf, render_offscreen_stream_shm,
+    resolve_output_rect, submit_capture_frame, window_stream_cursor, window_stream_render_due,
 };
 
 /// The trailing `" (detail)"` suffix for the most recent flux FFI error, or
