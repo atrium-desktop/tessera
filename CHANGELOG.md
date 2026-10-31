@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.82] - 2026-10-31
+
 ### Added
 - **Opt-in Miracast audio.** The source can capture the default PipeWire sink
   monitor (or the default microphone), encode AAC-LC 48 kHz stereo with ffmpeg,
