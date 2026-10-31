@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.84] - 2026-11-01
+
 ### Added
 - **Unified desktop screen recording CLI and pipeline (`tessera-cast record`).** Added
   first-party screen recording capability to `tessera-cast`, sharing the exact same
