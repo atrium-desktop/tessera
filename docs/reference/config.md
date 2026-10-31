@@ -43,6 +43,7 @@ untouched.
 | `[cast]` | table | validated 720p30 formats, desktop source, source opening, audio off, 30 fps, ports 7236/19000 | Out-of-process Miracast service: formats, source, pacing, ports, audio, and timeouts. See [Cast](#cast). |
 | `[[output]]` | array of tables | none | Per-connector display policy: mode, scale, position, transform, primary. See [Outputs](#outputs). |
 | `[screenshot]` | table | XDG Pictures directory, cursor included | Screenshot output policy. See [Screenshots](#screenshots). |
+| `[compositor]` | table | realtime on, frame pinned, rt 10, nice −10, watchdog 100 ms | Frame-loop scheduling protection: realtime priority, CPU pinning, mlock, stall watchdog. See [Compositor Scheduling](#compositor-scheduling). |
 | `[appearance]` | table | system color scheme, normal contrast, standard fonts and scale | Desktop-wide color, contrast, and typography preferences. See [Appearance](#appearance). |
 | `[agent]` | table | lockdown on | Agent authorization policy: whether unpaired connections keep privileged capabilities. See [Agent Authorization](#agent-authorization). |
 | `[audit]` | table | 2048 MiB ceiling, 512 MiB reserve | Durable authority-history storage and checkpoint policy. See [Audit Storage](#audit-storage). |
@@ -475,6 +476,49 @@ stereo, and interleaves it into the same MPEG-TS/RTP flow. The default sink must
 not be muted; the capture target is resolved at session start. See
 [Miracast Source §7.5](../explanation/miracast-source.md#75-audio) for the
 capture, grouping, pre-roll, and validation details.
+
+## Compositor Scheduling
+
+The `[compositor]` table protects the compositor's single frame loop from CPU
+starvation under a saturating workload (a `cargo build`, a desktop-app scan, an
+icon-decode storm). The frame loop runs on one event-loop thread; if that
+thread shares a runqueue with a greedy worker, the frame cadence collapses and
+the whole desktop (cursor, windows, shell chrome) stutters. These knobs apply
+the display-server best-practice schedule: raise the frame thread's priority,
+pin it to a dedicated CPU, and lock its memory so swap latency never reaches
+the frame path.
+
+Scheduling is **on by default** and degrades gracefully: if the kernel or the
+serviced environment forbids realtime (no `LimitRTPRIO`, `LimitNICE`, or
+`LimitMEMLOCK` in the shipped `tessera.service`), the compositor logs each
+rejected syscall and keeps running at the inherited scheduling class instead of
+failing to start.
+
+```toml
+[compositor]
+realtime = true # master switch for the whole scheduling layer
+
+[compositor.scheduling]
+pin_frame = true    # pin the frame loop to its own logical CPU
+pin_cpu = 0         # optional: specific CPU index (default: lowest online)
+rt_priority = 10    # SCHED_FIFO/SCHED_RR level, 1..=99
+frame_nice = -10    # fallback nice when realtime is not permitted
+watchdog_ms = 100   # stall budget before a frame-stall warning is logged
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `[compositor] realtime` | bool | `true` | Master switch. Off leaves the frame loop at the inherited scheduling class. |
+| `scheduling.pin_frame` | bool | `true` | Pin the frame loop to a dedicated logical CPU; background threads fan out across the rest. |
+| `scheduling.pin_cpu` | integer | `0` (lowest online) | Specific logical CPU for the frame loop when `pin_frame` is on. |
+| `scheduling.rt_priority` | integer | `10` | `SCHED_FIFO`/`SCHED_RR` priority, `1..=99`. Keep below the kernel's critical tasks. |
+| `scheduling.frame_nice` | integer | `-10` | Fallback `nice` for the frame thread when realtime is not permitted. |
+| `scheduling.watchdog_ms` | integer | `100` | If the frame loop stalls longer than this, the compositor logs a warning. `0` disables the watchdog. |
+
+The systemd unit `contrib/systemd/user/tessera.service` grants the capabilities
+this needs (`LimitRTPRIO=50`, `LimitNICE=-15`, `LimitMEMLOCK=infinity`). If you
+run the compositor outside the unit (bare TTY, nested development) the priority
+raise is skipped silently; pinning and nice still apply where permitted.
 
 
 ## Screenshots

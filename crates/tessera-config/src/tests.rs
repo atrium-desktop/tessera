@@ -69,6 +69,81 @@ fn cast_defaults_and_validation() {
 }
 
 #[test]
+fn compositor_realtime_defaults_and_validation() {
+    let defaults = Config::parse("schema_version = 2\n").unwrap();
+    // Realtime scheduling is on by default (graceful degradation when the
+    // kernel/unit forbids it).
+    assert!(defaults.compositor.realtime);
+    let s = &defaults.compositor.scheduling;
+    assert!(s.pin_frame);
+    assert_eq!(s.pin_cpu, None);
+    assert_eq!(s.rt_priority, 10);
+    assert_eq!(s.frame_nice, -10);
+    assert_eq!(s.watchdog_ms, 100);
+
+    let configured = Config::parse(
+        "schema_version = 2\n\
+         [compositor]\n\
+         realtime = true\n\
+         [compositor.scheduling]\n\
+         pin_frame = true\n\
+         pin_cpu = 2\n\
+         rt_priority = 20\n\
+         frame_nice = -15\n\
+         watchdog_ms = 250\n",
+    )
+    .unwrap();
+    assert!(configured.compositor.realtime);
+    let s = &configured.compositor.scheduling;
+    assert!(s.pin_frame);
+    assert_eq!(s.pin_cpu, Some(2));
+    assert_eq!(s.rt_priority, 20);
+    assert_eq!(s.frame_nice, -15);
+    assert_eq!(s.watchdog_ms, 250);
+
+    // Disabling realtime keeps a valid plan with default sub-values.
+    let off = Config::parse(
+        "schema_version = 2\n\
+         [compositor]\n\
+         realtime = false\n",
+    )
+    .unwrap();
+    assert!(!off.compositor.realtime);
+
+    // Out-of-range knobs are rejected.
+    for body in [
+        "rt_priority = 0",
+        "rt_priority = 100",
+        "frame_nice = 20",
+        "frame_nice = -21",
+        "watchdog_ms = 0",
+    ] {
+        assert!(
+            Config::parse(&format!(
+                "schema_version = 2\n\
+                 [compositor]\n\
+                 realtime = true\n\
+                 [compositor.scheduling]\n\
+                 {body}\n"
+            ))
+            .is_err(),
+            "invalid scheduling policy was accepted: {body}"
+        );
+    }
+
+    // Unrecognized scheduling keys are rejected (deny_unknown_fields).
+    assert!(
+        Config::parse(
+            "schema_version = 2\n\
+             [compositor.scheduling]\n\
+             bogus = true\n"
+        )
+        .is_err(),
+        "unknown scheduling key was accepted"
+    );
+}
+
+#[test]
 fn audit_storage_bounds_parse_and_validate() {
     let configured = Config::parse(
         "schema_version = 2\n\

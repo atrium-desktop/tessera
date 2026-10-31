@@ -97,6 +97,14 @@ pub(super) struct CompositorRuntime<'engine> {
         std::sync::Arc<std::sync::Mutex<tessera_desktop::notify::NotificationQueue>>,
     pub(super) config_path: Option<std::path::PathBuf>,
     pub(super) config: Option<tessera_config::Config>,
+    /// The scheduling plan applied to the frame loop and its background
+    /// threads. Resolved once at startup from `[compositor]`; coherent across
+    /// the frame/feeder/background split.
+    pub(super) sched_plan: tessera_sched::SchedPlan,
+    /// Deadline watchdog for the frame loop, armed if `[compositor]` realtime
+    /// scheduling is enabled. Observes frame stalls so a starved loop is
+    /// never silent.
+    pub(super) sched_watchdog: Option<tessera_sched::DeadlineWatchdog>,
     // Rust drops fields in declaration order. The canvas and its Vulkan
     // surface must disappear before a nested host tears down the Wayland
     // display that owns the swapchain's wl_buffers. Flux resources retain the

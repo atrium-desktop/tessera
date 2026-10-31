@@ -22,3 +22,20 @@ KillMode=control-group
 TimeoutStopSec=5
 UMask=0077
 LimitNOFILE=1048576
+
+# Frame-loop scheduling delegation. The compositor raises its frame loop to
+# realtime priority and pins it to a dedicated CPU so a CPU-saturating
+# workload (a `cargo build`, a desktop scan) cannot starve the desktop; it
+# also `mlockall`s so swap latency never reaches the frame path. Without the
+# RLIMIT grants below those syscalls fail with EPERM and the compositor
+# silently degrades to normal priority. These three are the display-server
+# standard (sway/KWin) grants:
+#   LimitRTPRIO  — allow sched_setscheduler(SCHED_FIFO/SCHED_RR) up to this
+#                  realtime priority (config `[compositor].scheduling.rt_priority`).
+#   LimitNICE    — allow setpriority()/nice() down to this nice (config
+#                  `frame_nice`). Negative nice raises priority.
+#   LimitMEMLOCK — allow mlockall() to lock the whole heap (the frame path
+#                  must never fault out to swap).
+LimitRTPRIO=50
+LimitNICE=-15
+LimitMEMLOCK=infinity

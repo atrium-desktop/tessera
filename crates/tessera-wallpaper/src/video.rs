@@ -81,7 +81,13 @@ impl VideoSource {
                 let path = path.to_path_buf();
                 let slot = slot.clone();
                 let shutdown = shutdown.clone();
-                move || reader_loop(path, target_w, target_h, slot, shutdown)
+                move || {
+                    // Feeds every rendered frame: elevated below the frame
+                    // thread and pinned off the frame CPU so decode never
+                    // competes with presentation.
+                    tessera_sched::mark_frame_feeder();
+                    reader_loop(path, target_w, target_h, slot, shutdown)
+                }
             })
             .map_err(Error::FfmpegSpawn)?;
 

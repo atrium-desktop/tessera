@@ -197,15 +197,15 @@ impl CompositorRuntime<'_> {
                         win.size.h + 96,
                     ));
                 }
-                if let Some(prev_id) = self.damage.last_focused_window {
-                    if let Some(prev_win) = windows.iter().find(|w| w.id == prev_id) {
-                        chrome_extra_rects.push(tessera_primitives::Rect::new(
-                            prev_win.position.x - 48,
-                            prev_win.position.y - 48,
-                            prev_win.size.w + 96,
-                            prev_win.size.h + 96,
-                        ));
-                    }
+                if let Some(prev_id) = self.damage.last_focused_window
+                    && let Some(prev_win) = windows.iter().find(|w| w.id == prev_id)
+                {
+                    chrome_extra_rects.push(tessera_primitives::Rect::new(
+                        prev_win.position.x - 48,
+                        prev_win.position.y - 48,
+                        prev_win.size.w + 96,
+                        prev_win.size.h + 96,
+                    ));
                 }
                 self.damage.last_focused_window = focused_id;
             }

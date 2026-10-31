@@ -188,7 +188,7 @@ pub(super) fn begin_window_capture(
             flux_last_error_detail()
         )
     })?;
-    let mut frame = surface.begin_frame().map_err(|error| {
+    let mut frame = surface.begin_frame_timeout(5_000_000).map_err(|error| {
         format!(
             "begin window {} frame: {error}{}",
             window.0,

@@ -170,6 +170,13 @@ pub struct Config {
     #[serde(default)]
     pub cast: CastConfig,
 
+    /// Compositor scheduling and realtime policy, written as a
+    /// `[compositor]` table. Controls whether the frame loop is raised above
+    /// the crowd (realtime priority / CPU pinning) so a `cargo build` cannot
+    /// starve the desktop.
+    #[serde(default)]
+    pub compositor: CompositorConfig,
+
     /// Development-only escape hatches, written as a `[dev]` table.
     /// Development-only; will be removed before release. Do not rely on it.
     #[serde(default)]
@@ -448,6 +455,105 @@ pub struct DevConfig {
     /// before release. Do not rely on it.
     #[serde(default)]
     pub allow_quit_while_locked: bool,
+}
+
+/// The `[compositor]` section: presentation-process scheduling and frame-loop
+/// protection.
+///
+/// The compositor's frame loop runs on a single event-loop thread. Under a
+/// CPU-saturating workload (a `cargo build`, a desktop-app scan) an
+/// unpinned, normal-priority thread is starved and the whole desktop
+/// stutters. These knobs apply the display-server best-practice schedule:
+/// raise the frame thread's priority and pin it to a dedicated CPU.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompositorConfig {
+    /// Master switch for the whole scheduling layer. `true` (the default)
+    /// raises the frame loop's priority and pins it to a dedicated CPU so a
+    /// CPU-saturating workload cannot starve the desktop; on kernels or
+    /// sandboxes where realtime is not possible the frame loop degrades
+    /// gracefully to the inherited scheduling class (logged, never fatal).
+    /// Set `false` to leave the frame loop at the process's inherited
+    /// scheduling class unconditionally.
+    #[serde(default = "default_compositor_realtime")]
+    pub realtime: bool,
+
+    /// Real-time scheduling for the frame loop.
+    #[serde(default)]
+    pub scheduling: SchedulingConfig,
+}
+
+fn default_compositor_realtime() -> bool {
+    true
+}
+
+impl Default for CompositorConfig {
+    fn default() -> Self {
+        Self {
+            realtime: default_compositor_realtime(),
+            scheduling: SchedulingConfig::default(),
+        }
+    }
+}
+
+/// The `[compositor.scheduling]` sub-table: concrete realtime and pinning
+/// parameters.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SchedulingConfig {
+    /// Pin the frame loop to its own logical CPU (`pin_cpu` selects which;
+    /// default: the lowest online CPU). Background threads fan out across the
+    /// rest. On by default.
+    #[serde(default = "default_pin_frame")]
+    pub pin_frame: bool,
+
+    /// The logical CPU index to dedicate to the frame loop when `pin_frame`
+    /// is on. `None` (the default) auto-selects the lowest online CPU.
+    #[serde(default)]
+    pub pin_cpu: Option<usize>,
+
+    /// The `SCHED_FIFO`/`SCHED_RR` priority level (1..=99). Lower than the
+    /// kernel's internal CRITICAL tasks so the compositor never stacks above
+    /// them. Default 10 (a modest realtime level; read the systemd unit's
+    /// `LimitRTPRIO` must grant at least this).
+    #[serde(default = "default_rt_priority")]
+    pub rt_priority: u8,
+
+    /// Fallback `nice` for the frame thread when realtime is not permitted
+    /// (no `CAP_SYS_NICE` / `RLIMIT_RTPRIO`). Negative numbers raise
+    /// priority. Default `-10`.
+    #[serde(default = "default_frame_nice")]
+    pub frame_nice: i32,
+
+    /// How long (milliseconds) the frame loop may stall past a deadbeat before
+    /// the compositor logs a scheduling-stall warning. Default `100`.
+    #[serde(default = "default_watchdog_ms")]
+    pub watchdog_ms: u64,
+}
+
+fn default_pin_frame() -> bool {
+    true
+}
+fn default_rt_priority() -> u8 {
+    10
+}
+fn default_frame_nice() -> i32 {
+    -10
+}
+fn default_watchdog_ms() -> u64 {
+    100
+}
+
+impl Default for SchedulingConfig {
+    fn default() -> Self {
+        Self {
+            pin_frame: default_pin_frame(),
+            pin_cpu: None,
+            rt_priority: default_rt_priority(),
+            frame_nice: default_frame_nice(),
+            watchdog_ms: default_watchdog_ms(),
+        }
+    }
 }
 
 /// The `[appearance]` section: desktop-wide visual and typography policy.
@@ -1251,6 +1357,7 @@ impl Config {
         validate_wallpaper(&cfg.wallpaper, &mut diagnostics);
         validate_lock_screen(&cfg.lock_screen, &mut diagnostics);
         validate_night_light(&cfg.night_light, &mut diagnostics);
+        validate_scheduling(&cfg.compositor, &mut diagnostics);
         diagnostics.extend(cfg.cast.validate());
         if !(64..=1_048_576).contains(&cfg.audit.max_store_mib) {
             diagnostics.push(Diagnostic::new(
@@ -1674,6 +1781,31 @@ impl Config {
             );
         }
         policies
+    }
+}
+
+fn validate_scheduling(config: &CompositorConfig, diagnostics: &mut Vec<Diagnostic>) {
+    if !config.realtime {
+        return;
+    }
+    let s = &config.scheduling;
+    if s.rt_priority == 0 || s.rt_priority > 99 {
+        diagnostics.push(Diagnostic::new(
+            Some("compositor.scheduling.rt_priority".into()),
+            "must be between 1 and 99",
+        ));
+    }
+    if !(-20..=19).contains(&s.frame_nice) {
+        diagnostics.push(Diagnostic::new(
+            Some("compositor.scheduling.frame_nice".into()),
+            "must be between -20 and 19",
+        ));
+    }
+    if s.watchdog_ms == 0 {
+        diagnostics.push(Diagnostic::new(
+            Some("compositor.scheduling.watchdog_ms".into()),
+            "must be greater than zero",
+        ));
     }
 }
 

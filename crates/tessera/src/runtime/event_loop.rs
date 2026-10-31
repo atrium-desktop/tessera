@@ -254,6 +254,11 @@ impl CompositorRuntime<'_> {
     }
 
     pub(super) fn run_loop(mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Arm the frame thread's realtime/pin schedule before the first
+        // frame. This is the exact main-thread boundary where the frame loop's
+        // CPU the system should treat as ours, distinct from every compile or
+        // scan worker. No-op when `[compositor]` realtime scheduling is off.
+        sched::arm_frame_thread(&self.sched_plan);
         while self.wait_for_work() {
             let work = match self.prepare_iteration() {
                 Ok(Some(work)) => work,
@@ -302,6 +307,7 @@ impl CompositorRuntime<'_> {
             let frame_dt = (render_at - self.previous_render_at)
                 .as_secs_f32()
                 .clamp(0.0, 1.0 / 15.0);
+            let frame_interval = render_at.saturating_duration_since(self.previous_render_at);
             self.previous_render_at = render_at;
             frame.set_dt(frame_dt);
 
@@ -315,6 +321,25 @@ impl CompositorRuntime<'_> {
             };
             self.update_animation_state();
             let now = std::time::Instant::now();
+            let execution_time = now.saturating_duration_since(render_at);
+
+            // Observe execution time and active animation pacing stalls under
+            // compile or IO load without false positives during idle sleep.
+            if let Some(watchdog) = self.sched_watchdog.as_ref() {
+                if let Some(stall) = watchdog.check_execution_stall(execution_time) {
+                    log::warn!(
+                        "compositor: frame render/presentation took {stall:?} (exceeding {}ms watchdog budget)",
+                        watchdog.budget().as_millis()
+                    );
+                }
+                if let Some(stall) = watchdog.check_pacing_stall(self.animating, frame_interval) {
+                    log::warn!(
+                        "compositor: frame pacing interval was {stall:?} during active animation (exceeding {}ms watchdog budget)",
+                        watchdog.budget().as_millis()
+                    );
+                }
+            }
+
             let refresh_interval = self.presentation_interval();
             match outcome {
                 PresentationOutcome::Submitted => {

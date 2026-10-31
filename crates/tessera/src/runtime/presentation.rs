@@ -536,7 +536,12 @@ impl CompositorRuntime<'_> {
                 cursor: self.stream_shm_cursor_state(),
             });
         }
-        match self.surface.begin_frame() {
+        // Bounded frame acquire (Optics ADR-0124 integration): wait at most
+        // 1 ms for the slot's previous submit fence to retire rather than
+        // blocking the main event-loop thread for up to 2 seconds. If the GPU
+        // is busy under compile load, yield immediately with `Retry` so the
+        // event loop can pump input and update pointer motion out-of-band.
+        match self.surface.begin_frame_timeout(1_000_000) {
             Ok(mut frame) => {
                 let frame_slot = frame.index() as usize;
                 // `repaint` also contains damage missed by this swapchain

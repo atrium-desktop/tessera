@@ -32,6 +32,7 @@ mod state;
 mod stream;
 mod system;
 mod window_capture;
+mod sched;
 
 pub(crate) use session::trusted_sibling_program;
 
@@ -59,6 +60,7 @@ use secret_prompt::*;
 use state::*;
 use stream::*;
 use system::*;
+use sched::*;
 use tessera_composite::presentation::{
     ActivationChange, PresentationAvailability, PresentationScheduler,
 };
@@ -150,6 +152,21 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config_path = tessera_config::default_path();
     let config = load_config(config_path.as_deref());
     let desktop_preferences = effective_desktop_preferences(config.as_ref());
+
+    // Resolve the compositor scheduling plan and frame watchdog from config
+    // once, before any worker thread is spawned, so every thread can adopt
+    // the same frame/feeder/background split. The plan pins/elevates the
+    // frame thread; the watchdog surfaces stalls.
+    let sched_plan = plan_from_config(config.as_ref());
+    let sched_watchdog = watchdog_from_config(config.as_ref());
+    // Publish the process-wide plan so worker threads tagged `mark_*` in this
+    // and helper crates read one coherent frame/feeder/background split.
+    tessera_sched::arm_global_plan(sched_plan.clone());
+    // Lock the process's memory so background-IO swap latency can never push
+    // the frame path to disk. Best-effort (needs the unit's CAP_IPC_LOCK).
+    if sched_plan.realtime_enabled() {
+        lockdown_frame_memory();
+    }
 
     // Select the presentation target before Vulkan creation: nested Wayland
     // requires WSI extensions, while DRM requires exportable offscreen images.
@@ -645,6 +662,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     std::thread::Builder::new()
         .name("tessera-status".into())
         .spawn(move || {
+            // Background status polling: de-prioritized and pinned off the
+            // frame CPU so probes never compete with presentation.
+            tessera_sched::mark_background();
             // Last-known values for the forked fields; carried across cheap
             // polls so the snapshot stays coherent between full probes.
             struct StatusProbe {
@@ -749,6 +769,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     std::thread::Builder::new()
         .name("tessera-config-write".into())
         .spawn(move || {
+            // Background serialized TOML writer: de-prioritized so a config
+            // write never competes with the frame loop.
+            tessera_sched::mark_background();
             while let Ok(job) = config_write_rx.recv() {
                 let result = job.store.apply(job.edit).map_err(|error| error.to_string());
                 let _ = job.receipt.send(result);
@@ -1084,6 +1107,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     std::thread::Builder::new()
         .name("tessera-app-scan".into())
         .spawn(move || {
+            // Background icon/catalog scan and decode: de-prioritized and
+            // pinned off the frame CPU so a large app catalog never steals
+            // the render core.
+            tessera_sched::mark_background();
             let mut last_theme = String::new();
             let mut last_scale = 0u32;
             let mut last_catalog = Vec::new();
@@ -1116,10 +1143,22 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let previous_render_at = std::time::Instant::now();
     let agent_activity_sequence = 0;
 
+    // Log what was configured so a realtime-capable setup is auditable and a
+    // degraded (unprivileged) fallback is visible instead of silent.
+    log::info!(
+        "compositor: realtime scheduling {} (frame_pin={:?}, rt_priority={}, fallback_nice={})",
+        if sched_plan.realtime_enabled() { "enabled" } else { "disabled" },
+        sched_plan.frame_cpu(),
+        sched_plan.rt_priority(),
+        sched_plan.nice_for(tessera_sched::ThreadRole::Frame),
+    );
+
     CompositorRuntime {
         notif_queue,
         config_path,
         config,
+        sched_plan,
+        sched_watchdog,
         device,
         host,
         surface,

@@ -79,7 +79,11 @@ impl CastHandle {
         let thread_snapshot = snapshot.clone();
         if let Err(err) = std::thread::Builder::new()
             .name("tessera-cast".into())
-            .spawn(move || run_client(socket, options, thread_snapshot, command_rx))
+            .spawn(move || {
+                // Background cast client: de-prioritized off the frame CPU.
+                tessera_sched::mark_background();
+                run_client(socket, options, thread_snapshot, command_rx)
+            })
         {
             log::error!("failed to spawn the cast service client: {err}");
         }
@@ -157,6 +161,7 @@ fn run_client(
         let (events_tx, events_rx) = mpsc::channel();
         let mut reader = stream;
         let reader_thread = std::thread::spawn(move || {
+            tessera_sched::mark_background();
             while let Ok(Some(event)) = daemon::read_frame::<_, Event>(&mut reader) {
                 if events_tx.send(event).is_err() {
                     break;

@@ -138,6 +138,8 @@ impl WirelessHandle {
         thread::Builder::new()
             .name("tessera-wireless".into())
             .spawn(move || {
+                // Background wireless bridge: de-prioritized off the frame CPU.
+                tessera_sched::mark_background();
                 let backend = Box::new(backend) as Box<dyn WirelessBackend>;
                 loop {
                     // Drain all pending commands non-blockingly or wait on first

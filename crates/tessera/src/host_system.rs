@@ -681,6 +681,7 @@ fn host_command_reaper() -> &'static HostCommandReaper {
         std::thread::Builder::new()
             .name("tessera-host-cmd-reaper".into())
             .spawn(move || {
+                tessera_sched::mark_background();
                 while let Ok(mut child) = rx.recv() {
                     let _ = child.wait();
                 }

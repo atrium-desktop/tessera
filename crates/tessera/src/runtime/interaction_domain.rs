@@ -323,7 +323,7 @@ pub(super) fn begin_interaction_domain_capture(
     let target = targets
         .get_mut(&interaction_domain)
         .expect("interaction_domain render target was just installed");
-    let mut frame = target.surface.begin_frame().map_err(|error| {
+    let mut frame = target.surface.begin_frame_timeout(5_000_000).map_err(|error| {
         format!(
             "begin interaction_domain {} frame: {error}{}",
             interaction_domain.0,

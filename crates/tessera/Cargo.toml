@@ -50,6 +50,8 @@ tessera-i18n = { workspace = true }
 tessera-wallpaper = { workspace = true }
 # Declarative configuration: TOML schema + live reload (ADR-0026).
 tessera-config = { workspace = true }
+# Realtime scheduling and CPU-pinning for the compositor frame loop.
+tessera-sched = { workspace = true }
 # IPC and introspection surface (ADR-0027).
 # Native resource commands dispatched through the same executable.
 # Launcher: enumerate `.desktop` entries and spawn them detached (ADR-0022, ADR-0160).

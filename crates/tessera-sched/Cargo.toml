@@ -1,0 +1,20 @@
+[package]
+name = "tessera-sched"
+description = "Realtime scheduling and CPU-pinning for the compositor frame loop"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+# Best-practice display-server scheduling: an RT-ish priority raise and
+# per-thread CPU pinning protect the frame loop from CPU starvation under
+# compile/scan load. It is a thin, hardened wrapper over libc scheduler and
+# affinity primitives; on non-Linux targets every call degrades to a no-op so
+# the crate (and anything depending on it) stays portable and testable.
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+libc.workspace = true
+log.workspace = true
+
+[lints]
+workspace = true

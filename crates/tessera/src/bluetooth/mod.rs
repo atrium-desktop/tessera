@@ -147,6 +147,8 @@ impl BluetoothHandle {
         thread::Builder::new()
             .name("tessera-bluetooth".into())
             .spawn(move || {
+                // Background bluetooth bridge: de-prioritized off the frame CPU.
+                tessera_sched::mark_background();
                 let backend = Box::new(backend) as Box<dyn BluetoothBackend>;
                 loop {
                     // Drain one pending command, or wait on the first.

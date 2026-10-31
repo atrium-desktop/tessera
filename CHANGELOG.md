@@ -14,6 +14,28 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Added
+- **Realtime compositor scheduling.** A new `tessera-sched` crate and a
+  `[compositor]` config table protect the frame loop from CPU starvation under
+  a saturating workload (a `cargo build`, a desktop scan). The frame thread is
+  raised to `SCHED_FIFO`/`SCHED_RR` (falling back to negative `nice`), pinned to
+  a dedicated logical CPU, and its memory is `mlockall`-ed. Background and
+  frame-feeder threads are tagged and pinned off the frame core. A per-thread
+  deadline watchdog logs frame stalls so a starved loop is never silent.
+  Scheduling is on by default and degrades gracefully when the environment has
+  no realtime privilege. See
+  [Compositor Scheduling](docs/reference/config.md#compositor-scheduling).
+- **Scheduling capability delegation for the systemd unit.** `tessera.service`
+  now grants `LimitRTPRIO=50`, `LimitNICE=-15`, and `LimitMEMLOCK=infinity`, so
+  the in-process realtime raise, negative-nice, and `mlockall` actually succeed
+  under the shipped unit.
+- **Bounded Vulkan frame acquisition (Optics integration).** Replaced the
+  blocking 2-second `begin_frame` acquire with `begin_frame_timeout(1_000_000)` (1 ms),
+  preventing GPU fence contention under heavy compile load from freezing the
+  main event-loop thread. Combined with Vulkan hardware queue priority
+  (`VK_QUEUE_GLOBAL_PRIORITY_HIGH_KHR`) in `../optics`, the GPU kernel
+  scheduler prioritizes compositor presentation over compute workers.
+
 ## [0.0.82] - 2026-10-31
 
 ### Added
