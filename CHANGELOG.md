@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.85] - 2026-11-02
+
 ### Changed
 - **Wireless worker publishes snapshots only when the daemon world moves.** The iwd backend's signal thread is now a dirty-flag setter (not a per-signal `GetManagedObjects` refetcher), and the worker's 250 ms cadence reads the backend only after a command or a signal-marked dirty flag. Idle windows do no D-Bus round-trips and no snapshot churn. Dead `request_refresh` API and `WirelessCommand::Refresh` removed.
 - **Idle coordinator restart uses capped exponential backoff.** A `tessera-idle` binary that exits immediately (e.g. an incompatible `--mode` argument) is retried at 5s → 10s → 20s → … capped at 5 minutes instead of every 5 s forever, and a coordinator that survives 20 s resets the streak.
