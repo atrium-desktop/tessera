@@ -15,7 +15,7 @@ impl ControlCenter {
         let type_scale = self.design.typography;
         let original = f.theme();
         let status = self.status.clone();
-        let wifi_active = status.wifi_enabled.unwrap_or(false);
+        let wifi_active = status.wifi_enabled.unwrap_or(false) || status.wifi_ssid.is_some();
 
         f.set_theme(themes::hud(&hud));
         f.place(

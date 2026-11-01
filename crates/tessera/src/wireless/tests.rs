@@ -164,3 +164,88 @@ fn wireless_handle_processes_forget_and_auto_connect() {
     assert!(!home.is_saved);
     assert!(!home.auto_connect);
 }
+
+/// A backend that counts snapshot reads, so tests can assert the worker
+/// publishes only when the world actually moved.
+struct CountingBackend {
+    inner: Arc<Mutex<MockState>>,
+    reads: Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl CountingBackend {
+    fn new() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(MockState::default())),
+            reads: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        }
+    }
+}
+
+impl WirelessBackend for CountingBackend {
+    fn scan(&self) -> Result<(), String> {
+        Ok(())
+    }
+    fn connect(&self, _ssid: &str, _passphrase: Option<&str>) -> Result<(), String> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).state = WifiLinkState::Connected;
+        Ok(())
+    }
+    fn disconnect(&self) -> Result<(), String> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).state = WifiLinkState::Disconnected;
+        Ok(())
+    }
+    fn set_enabled(&self, _enabled: bool) -> Result<(), String> {
+        Ok(())
+    }
+    fn forget(&self, _ssid: &str) -> Result<(), String> {
+        Ok(())
+    }
+    fn set_auto_connect(&self, _ssid: &str, _auto_connect: bool) -> Result<(), String> {
+        Ok(())
+    }
+    fn poll(&self) -> bool {
+        false
+    }
+    fn state(&self) -> WifiLinkState {
+        self.reads.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).state
+    }
+    fn networks(&self) -> Vec<WifiNetwork> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).networks.clone()
+    }
+    fn active_ssid(&self) -> Option<String> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).active_ssid.clone()
+    }
+    fn available(&self) -> bool {
+        true
+    }
+}
+
+#[test]
+fn worker_skips_snapshot_publish_while_quiet() {
+    let backend = CountingBackend::new();
+    let reads_counter = backend.reads.clone();
+    let initial_reads = reads_counter.load(std::sync::atomic::Ordering::Relaxed);
+    let handle = WirelessHandle::spawn_with_backend(backend);
+
+    // The spawn publishes the initial snapshot once.
+    std::thread::sleep(Duration::from_millis(400));
+    let after_idle = handle
+        .snapshot()
+        .networks
+        .len();
+    assert_eq!(after_idle, 3);
+
+    // In a quiet window the worker must not keep re-reading the backend:
+    // the snapshot reads stay at the initial + spawn count, i.e. the worker
+    // did no extra publish work while nothing changed.
+    let reads = reads_counter.load(std::sync::atomic::Ordering::Relaxed);
+    assert!(
+        reads <= initial_reads + 2,
+        "worker re-read the backend {reads} times while idle; expected no periodic publish"
+    );
+
+    // A command causes one publish.
+    handle.connect("Cafe-Guest-Open".to_string(), None);
+    std::thread::sleep(Duration::from_millis(600));
+    assert_eq!(handle.snapshot().state, WifiLinkState::Connected);
+}

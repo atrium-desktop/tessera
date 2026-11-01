@@ -168,7 +168,22 @@ const CONTROL_MESSAGE_LOCK: &[u8] = b"LOCK";
 const CONTROL_MESSAGE_STOP: &[u8] = b"STOP";
 const CONTROL_MESSAGE_MODE_PREFIX: &[u8] = b"MODE ";
 const RESTART_BACKOFF: std::time::Duration = std::time::Duration::from_secs(5);
+/// Ceiling for the crash-backoff series. A permanently broken sibling binary
+/// is retried at most every 5 minutes instead of every 5 seconds forever.
+const RESTART_BACKOFF_MAX: std::time::Duration = std::time::Duration::from_secs(300);
+/// A coordinator that survives this long is no longer considered crashing;
+/// the streak resets so a healthy process that dies later starts at the base
+/// backoff again.
+const IDLE_CRASH_THRESHOLD: std::time::Duration = std::time::Duration::from_secs(20);
 const OUTPUT_WAKE_RETRY: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// The restart delay after `crash_streak` consecutive immediate exits:
+/// exponential with a floor and a ceiling.
+fn idle_restart_delay(streak: u32) -> std::time::Duration {
+    let shift = streak.min(6);
+    let secs = RESTART_BACKOFF.as_secs().saturating_mul(1u64 << shift);
+    RESTART_BACKOFF_MAX.min(std::time::Duration::from_secs(secs))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum OutputWakeReason {
@@ -234,6 +249,11 @@ impl OutputWakeRecovery {
 /// normal Wayland client using ext-idle-notify-v1. A crashing coordinator is
 /// restarted, and a config update asks the old process to restore any dimmed
 /// or powered-down outputs before the replacement starts.
+///
+/// A coordinator that exits immediately is treated as a crash: the restart
+/// backoff doubles on every consecutive failure (capped) so a persistently
+/// broken sibling binary cannot hammer the session loop and the journal.
+/// Any run that survives past [`IDLE_CRASH_THRESHOLD`] resets the counter.
 pub(super) struct IdleProcess {
     child: Option<std::process::Child>,
     settings: tessera_desktop::settings::IdleSettings,
@@ -242,6 +262,11 @@ pub(super) struct IdleProcess {
     stopping: bool,
     restart_at: std::time::Instant,
     output_wake: OutputWakeRecovery,
+    /// Number of consecutive immediate exits; drives the exponential backoff.
+    crash_streak: u32,
+    /// When the current child was spawned; used to reset the streak once a
+    /// coordinator survives past [`IDLE_CRASH_THRESHOLD`].
+    spawned_at: Option<std::time::Instant>,
     /// Current session power mode (ADR-0140). Cached so a respawned
     /// coordinator re-arms the same mode the session selected, and so
     /// `set_mode` can skip redundant datagrams.
@@ -263,6 +288,8 @@ impl IdleProcess {
             stopping: false,
             restart_at: now,
             output_wake: OutputWakeRecovery::new(now),
+            crash_streak: 0,
+            spawned_at: None,
             mode: tessera_desktop::power::PowerMode::default(),
         };
         if available {
@@ -360,8 +387,24 @@ impl IdleProcess {
                 self.stopping = false;
                 self.restart_at = now;
             } else {
-                log::warn!("session: idle coordinator exited ({status}); scheduling restart");
-                self.restart_at = now + RESTART_BACKOFF;
+                // A deliberately stopped replacement is not a crash; only an
+                // unsolicited exit counts toward the backoff series. A
+                // coordinator that survived long enough is healthy: its
+                // eventual exit restarts from the base backoff.
+                if self
+                    .spawned_at
+                    .is_some_and(|at| now.saturating_duration_since(at) >= IDLE_CRASH_THRESHOLD)
+                {
+                    self.crash_streak = 0;
+                }
+                self.crash_streak = self.crash_streak.saturating_add(1);
+                let delay = idle_restart_delay(self.crash_streak);
+                log::warn!(
+                    "session: idle coordinator exited ({status}); scheduling restart in {delay:?} \
+                     (consecutive failure {})",
+                    self.crash_streak
+                );
+                self.restart_at = now + delay;
             }
         }
         if self.child.is_none() && std::time::Instant::now() >= self.restart_at {
@@ -435,7 +478,9 @@ impl IdleProcess {
             Ok(program) => program,
             Err(error) => {
                 log::warn!("session: could not start tessera-idle: {error}");
-                self.restart_at = std::time::Instant::now() + RESTART_BACKOFF;
+                self.crash_streak = self.crash_streak.saturating_add(1);
+                let delay = idle_restart_delay(self.crash_streak);
+                self.restart_at = std::time::Instant::now() + delay;
                 return;
             }
         };
@@ -486,11 +531,14 @@ impl IdleProcess {
                         "disabled"
                     }
                 );
+                self.spawned_at = Some(std::time::Instant::now());
                 self.child = Some(child);
             }
             Err(error) => {
                 log::warn!("session: could not start tessera-idle: {error}");
-                self.restart_at = std::time::Instant::now() + RESTART_BACKOFF;
+                self.crash_streak = self.crash_streak.saturating_add(1);
+                let delay = idle_restart_delay(self.crash_streak);
+                self.restart_at = std::time::Instant::now() + delay;
             }
         }
     }
@@ -617,5 +665,17 @@ mod tests {
         recovery.require(OutputWakeReason::CoordinatorRecovery, now);
         assert_eq!(recovery.due(true, now), None);
         assert_eq!(recovery.due(false, now), None);
+    }
+
+    #[test]
+    fn idle_restart_backoff_escalates_and_caps() {
+        // Base delay at the start of the series…
+        assert_eq!(idle_restart_delay(0), RESTART_BACKOFF);
+        assert_eq!(idle_restart_delay(1), std::time::Duration::from_secs(10));
+        assert_eq!(idle_restart_delay(2), std::time::Duration::from_secs(20));
+        assert_eq!(idle_restart_delay(3), std::time::Duration::from_secs(40));
+        // …exponentially up to the ceiling.
+        assert_eq!(idle_restart_delay(6), RESTART_BACKOFF_MAX);
+        assert_eq!(idle_restart_delay(50), RESTART_BACKOFF_MAX);
     }
 }

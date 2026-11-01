@@ -670,6 +670,20 @@ impl CompositorRuntime<'_> {
             self.system_status.wifi_networks = wireless_snap.networks;
             wireless_changed = true;
         }
+        if self.system_status.wifi_ssid.is_some() {
+            if self.system_status.wifi_enabled != Some(true) {
+                self.system_status.wifi_enabled = Some(true);
+                wireless_changed = true;
+            }
+            if self.system_status.wifi_state != tessera_desktop::system::WifiLinkState::Connected {
+                self.system_status.wifi_state = tessera_desktop::system::WifiLinkState::Connected;
+                wireless_changed = true;
+            }
+            if self.system_status.network != tessera_desktop::system::NetworkState::Wifi {
+                self.system_status.network = tessera_desktop::system::NetworkState::Wifi;
+                wireless_changed = true;
+            }
+        }
         if wireless_changed {
             publish_system_status_parts(
                 &self.system_status,

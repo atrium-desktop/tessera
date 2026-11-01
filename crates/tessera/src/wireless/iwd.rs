@@ -89,6 +89,10 @@ struct IwdCache {
     active_ssid: Option<String>,
     networks: Vec<WifiNetwork>,
     known_networks: HashMap<String, (String, bool)>,
+    /// Set by the signal thread on any iwd D-Bus signal and cleared by the
+    /// worker after it consumes one refresh. The worker treats this as its
+    /// coalescing gate: no flag, no `GetManagedObjects`, no snapshot churn.
+    dirty: bool,
 }
 
 impl IwdBackend {
@@ -115,18 +119,59 @@ impl IwdBackend {
         }
 
         let backend = Self {
-            conn,
+            conn: conn.clone(),
             cache: Arc::new(Mutex::new(IwdCache::default())),
             pending_passphrase,
         };
         backend.refresh()?;
+
+        // Subscribe to asynchronous iwd signals over D-Bus (PropertiesChanged,
+        // InterfacesAdded, InterfacesRemoved) to maintain zero-polling live state.
+        //
+        // The signal thread is deliberately a *dirty-flag setter*, not a
+        // refetcher: `MessageIterator` blocks on the next message, so doing a
+        // `GetManagedObjects` here would serialize behind the daemon's signal
+        // flood during scans/association and could stack up. The worker's
+        // existing cadence is the natural coalescing window: it sees the flag,
+        // runs one refresh, and clears it — a signal burst collapses to one
+        // round-trip regardless of how many signals the daemon emits.
+        let signal_conn = conn;
+        let signal_cache = backend.cache.clone();
+        std::thread::Builder::new()
+            .name("tessera-iwd-signals".into())
+            .spawn(move || {
+                tessera_sched::mark_background();
+                let iter = match zbus::blocking::MessageIterator::for_match_rule(
+                    "type='signal',sender='net.connman.iwd'",
+                    &signal_conn,
+                    Some(64),
+                ) {
+                    Ok(iter) => iter,
+                    Err(error) => {
+                        log::warn!(
+                            "wireless subsystem: could not subscribe to iwd signals: {error}"
+                        );
+                        return;
+                    }
+                };
+                for _msg in iter.flatten() {
+                    if let Ok(mut cache) = signal_cache.lock() {
+                        cache.dirty = true;
+                    }
+                }
+            })
+            .ok();
+
         Ok(backend)
     }
 
     /// Refresh cached managed objects and state from iwd.
     pub fn refresh(&self) -> Result<(), String> {
-        let reply = self
-            .conn
+        Self::refresh_cache(&self.conn, &self.cache)
+    }
+
+    fn refresh_cache(conn: &Connection, cache: &Arc<Mutex<IwdCache>>) -> Result<(), String> {
+        let reply = conn
             .call_method(
                 Some(IWD_SERVICE),
                 "/",
@@ -243,19 +288,46 @@ impl IwdBackend {
             });
         }
 
-        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
         cache.station_path = station_path;
         cache.device_path = device_path;
         cache.state = station_state;
         cache.active_ssid = active_ssid;
         cache.networks = final_networks;
         cache.known_networks = known_networks;
+        // `dirty` is deliberately left untouched here: the worker consumes it
+        // in `poll` before calling this, and a signal that lands while the
+        // reply is being deserialized must stay set for the next cadence,
+        // otherwise its state change would be dropped and never published.
 
         Ok(())
     }
 }
 
 impl WirelessBackend for IwdBackend {
+    fn refresh(&self) -> Result<(), String> {
+        Self::refresh_cache(&self.conn, &self.cache)
+    }
+
+    fn poll(&self) -> bool {
+        // Consume the flag atomically: read whether a signal arrived since
+        // the last poll, then clear it. A signal that lands *during* the
+        // refresh below leaves the flag set for the next cadence, so a state
+        // change can never be dropped by the clear.
+        let dirty = {
+            let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+            let dirty = cache.dirty;
+            cache.dirty = false;
+            dirty
+        };
+        if dirty {
+            let _ = self.refresh();
+            true
+        } else {
+            false
+        }
+    }
+
     fn scan(&self) -> Result<(), String> {
         let station = self
             .cache

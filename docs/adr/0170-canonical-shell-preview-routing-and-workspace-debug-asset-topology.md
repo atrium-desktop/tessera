@@ -14,6 +14,7 @@ negative_knowledge: true
 - Date: 2026-09-29
 - Deciders: Tessera Maintainers & Core Architects
 - Amends: [ADR-0194](0194-avatar-crate-xdg-conformant-vrm-aware.md), [ADR-0106](0106-shared-identity-portrait-contract-and-vrm-renderer-boundary.md), [ADR-0111](0111-persona-as-shell-domain-with-feature-gated-portrait-runtime.md), [ADR-0151](0151-pivot-unified-intent-and-action-surface.md), [ADR-0158](0158-clean-break-workspace-boundaries.md)
+- Amended by: [ADR-0201](0201-decouple-documentation-governance-from-agent-configuration-and-canonize-sandbox-isolation.md) — replaces citation to AGENTS.md with canonical architectural invariant [INV-ARCH-87]
 
 ---
 
@@ -89,7 +90,7 @@ We introduce `TESSERA_COLOR_SCHEME` (with alias `TESSERA_THEME`) into `Preferenc
 
 ### Force Developers to Use Host XDG Paths (`~/.local/share/tessera/avatars/`)
 - **Why considered**: Avoids storing local fixtures inside the git repository worktree altogether.
-- **Why rejected**: Violates test and workspace sandbox isolation rules (`AGENTS.md`: *“Never touch user home or global state paths”*). Polluting the developer's host user directory with mock avatars breaks repeatable local development, conflicts with everyday desktop usage, and prevents sandboxed execution.
+- **Why rejected**: Violates test and workspace sandbox isolation rules (`[INV-ARCH-87]`: *“Never touch user home or global state paths”*, codified in `docs/dev/standards/architecture.md`). Polluting the developer's host user directory with mock avatars breaks repeatable local development, conflicts with everyday desktop usage, and prevents sandboxed execution.
 
 ### Keep Fixtures in `crates/tessera-avatar/persona-debug-assets/`
 - **Why considered**: Fixes the path desync between `tessera-avatar` and `tessera-shell` by placing the directory adjacent to the avatar loader.

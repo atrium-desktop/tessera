@@ -565,12 +565,17 @@ impl Chrome for Hud {
                     (wifi_w - CELL_ICON - STATUS_LABEL_GAP).max(0.0),
                 )
             });
+            let net_icon = if self.status.wifi_ssid.is_some() {
+                "network-wireless-signal-excellent-symbolic"
+            } else {
+                network_icon_name(self.status.network)
+            };
             render_status_cell(
                 f,
                 &design,
                 "tessera-hud-network",
                 rect,
-                self.themed_icon(network_icon_name(self.status.network)),
+                self.themed_icon(net_icon),
                 CellGlyph::Builtin(Icon::Globe),
                 &wifi_text,
             );

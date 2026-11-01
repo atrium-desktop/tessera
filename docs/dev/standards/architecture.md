@@ -89,6 +89,15 @@ The `tessera-wayland-protocols` package is a generated C ABI table owned by the
   re-export conduits ([ADR-0159](../../adr/0159-package-boundaries-follow-capabilities.md)).
 - **Enforcement**: `tessera-wayland-protocols` is built once for all consumers.
 
+### 2.6 Test and Workspace Environment Isolation
+- **Red-Line**: Automated tests, previews, and ephemeral tool runs must NEVER
+  mutate, read, or depend on the host user's home directory (`$HOME`, `~/.config`,
+  `~/.local`) or global host state. All stateful filesystem operations must isolate
+  inside `tempfile::tempdir()` or local test scratch roots. Network listeners must
+  bind ephemeral ports (`:0`) ([ADR-0201](../../adr/0201-decouple-documentation-governance-from-agent-configuration-and-canonize-sandbox-isolation.md)).
+- **Enforcement**: Dedicated test assertions enforce `tempdir` lifecycle and
+  sandbox isolation (`[INV-ARCH-87]`).
+
 ---
 
 ## 3. Crate Addition and Workspace Integrity

@@ -31,6 +31,20 @@ pub trait WirelessBackend: Send + Sync {
     fn forget(&self, ssid: &str) -> Result<(), String>;
     /// Set auto-connect behavior for a saved network (ADR-0167).
     fn set_auto_connect(&self, ssid: &str, auto_connect: bool) -> Result<(), String>;
+    /// Refresh managed objects and state from the wireless backend daemon.
+    /// The backend may coalesce or ignore this; the worker calls it only
+    /// when a transition is plausibly in flight or a signal marked the
+    /// daemon world dirty.
+    fn refresh(&self) -> Result<(), String> {
+        Ok(())
+    }
+    /// Poll for in-flight asynchronous transitions (e.g. connecting/scanning).
+    /// Returns `true` when the poll observed a state that may have changed
+    /// since the last snapshot, so the worker knows to publish again.
+    /// A backend without asynchronous transitions returns `false`.
+    fn poll(&self) -> bool {
+        false
+    }
     /// Get current link state.
     fn state(&self) -> WifiLinkState;
     /// Get currently discovered networks.
@@ -142,25 +156,38 @@ impl WirelessHandle {
                 tessera_sched::mark_background();
                 let backend = Box::new(backend) as Box<dyn WirelessBackend>;
                 loop {
-                    // Drain all pending commands non-blockingly or wait on first
-                    match cmd_rx.recv_timeout(Duration::from_millis(500)) {
+                    // Drain all pending commands non-blockingly or wait with
+                    // 250 ms cadence. The cadence is the async-transition
+                    // coalescing window: when no command arrives and no
+                    // transition is in flight the worker does no work at all.
+                    let mut changed = false;
+                    match cmd_rx.recv_timeout(Duration::from_millis(250)) {
                         Ok(cmd) => match cmd {
+                            // Every verb refreshes the backend cache after its
+                            // D-Bus call, so the reads below are authoritative
+                            // for the command's outcome.
                             WirelessCommand::Scan => {
+                                changed = true;
                                 let _ = backend.scan();
                             }
                             WirelessCommand::Connect { ssid, passphrase } => {
+                                changed = true;
                                 let _ = backend.connect(&ssid, passphrase.as_deref());
                             }
                             WirelessCommand::Disconnect => {
+                                changed = true;
                                 let _ = backend.disconnect();
                             }
                             WirelessCommand::SetEnabled(enabled) => {
+                                changed = true;
                                 let _ = backend.set_enabled(enabled);
                             }
                             WirelessCommand::Forget { ssid } => {
+                                changed = true;
                                 let _ = backend.forget(&ssid);
                             }
                             WirelessCommand::SetAutoConnect { ssid, auto_connect } => {
+                                changed = true;
                                 let _ = backend.set_auto_connect(&ssid, auto_connect);
                             }
                         },
@@ -168,12 +195,20 @@ impl WirelessHandle {
                         Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     }
 
-                    // Update cached snapshot
-                    if let Ok(mut snap) = worker_snapshot.lock() {
-                        snap.state = backend.state();
-                        snap.active_ssid = backend.active_ssid();
-                        snap.networks = backend.networks();
-                        snap.available = backend.available();
+                    // Poll for in-flight transitions. The backend decides
+                    // whether its async world moved (signal-dirty flag, or a
+                    // connecting/scanning transition); `true` forces a
+                    // snapshot re-read on this cadence.
+                    changed = backend.poll() || changed;
+
+                    if changed {
+                        // Update cached snapshot only when the world moved.
+                        if let Ok(mut snap) = worker_snapshot.lock() {
+                            snap.state = backend.state();
+                            snap.active_ssid = backend.active_ssid();
+                            snap.networks = backend.networks();
+                            snap.available = backend.available();
+                        }
                     }
                 }
             })

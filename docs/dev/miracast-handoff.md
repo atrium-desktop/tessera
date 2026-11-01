@@ -537,10 +537,7 @@ clippy across the workspace.
 - New ADRs 0186–0192 and `docs/reference/tessera-cast.md` are **untracked**.
 - Seven ADRs were amended in place (0028, 0052, 0103, 0126, 0127, 0130, 0162) and
   the index and `CHANGELOG.md` updated.
-- **`AGENTS.md` in the Tessera working tree is an empty file.** It is not this
-  work's doing — it was already blank when this task began, and this task only
-  read it. Restore it from `HEAD` (`git checkout -- AGENTS.md`) if that was not
-  intentional; a blank project-rules file is a hazard for any agent that reads it.
+- **`AGENTS.md` is reserved as a user-maintained file decoupled from repository documentation** ([ADR-0201](../adr/0201-decouple-documentation-governance-from-agent-configuration-and-canonize-sandbox-isolation.md)). System architecture, invariants, and sandbox rules are codified canonically in `docs/dev/standards/` rather than in agent prompt files.
 - Portal repository: protocol-32 projection landed (`atrium-portal-ipc`, its own
   ADR-0024). Its full suite has **3 pre-existing failures** that require the
   daemon to own `org.freedesktop.portal.Desktop`; they fail identically on

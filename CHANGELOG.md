@@ -14,6 +14,15 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Changed
+- **Wireless worker publishes snapshots only when the daemon world moves.** The iwd backend's signal thread is now a dirty-flag setter (not a per-signal `GetManagedObjects` refetcher), and the worker's 250 ms cadence reads the backend only after a command or a signal-marked dirty flag. Idle windows do no D-Bus round-trips and no snapshot churn. Dead `request_refresh` API and `WirelessCommand::Refresh` removed.
+- **Idle coordinator restart uses capped exponential backoff.** A `tessera-idle` binary that exits immediately (e.g. an incompatible `--mode` argument) is retried at 5s → 10s → 20s → … capped at 5 minutes instead of every 5 s forever, and a coordinator that survives 20 s resets the streak.
+- **Decoupled documentation governance from agent configuration and canonized environment isolation ([ADR-0201](docs/adr/0201-decouple-documentation-governance-from-agent-configuration-and-canonize-sandbox-isolation.md)).**
+  - Purified documentation taxonomy (`docs/dev/standards/taxonomy.md`): whitelisted only canonical project documentation files at repository root; classified developer agent directives (`AGENTS.md`) as user-maintained tooling surfaces decoupled from the documentation hierarchy.
+  - Promoted test and state isolation rules to formal System Invariant `[INV-ARCH-87]` in `docs/dev/standards/architecture.md` and `docs/dev/standards/invariants.md`, requiring unit/integration tests and workspace tools to strictly isolate under ephemeral `tempfile::tempdir()` and bind ephemeral ports (`:0`) without touching `$HOME` or global state.
+  - Amended [ADR-0170](docs/adr/0170-canonical-shell-preview-routing-and-workspace-debug-asset-topology.md) to replace backward citation of `AGENTS.md` with canonical invariant `[INV-ARCH-87]`.
+  - Decoupled `AGENTS.md` from repository documentation and docgov directives, dedicating the file to user maintenance.
+
 ## [0.0.84] - 2026-11-01
 
 ### Added

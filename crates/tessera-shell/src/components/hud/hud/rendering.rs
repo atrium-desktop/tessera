@@ -105,12 +105,12 @@ pub(super) fn bluetooth_icon_name(enabled: bool) -> &'static str {
 }
 
 /// The Wi-Fi cell label: the associated network's name. `None` when the
-/// link is not wireless or carries no known association — the cell then
-/// falls back to bare-icon presentation.
+/// link carries no known association — the cell then falls back to bare-icon
+/// presentation.
 pub(super) fn wifi_label(status: &SystemStatus) -> Option<&str> {
-    (status.network == NetworkState::Wifi)
-        .then_some(status.wifi_ssid.as_deref())
-        .flatten()
+    status
+        .wifi_ssid
+        .as_deref()
         .filter(|ssid| !ssid.is_empty())
 }
 

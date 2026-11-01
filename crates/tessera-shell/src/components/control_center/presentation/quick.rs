@@ -44,7 +44,7 @@ impl ControlCenter {
         // silently pushed the trough into the card's bottom rim.
         let fader_h = 72.0;
 
-        let wifi_active = status.wifi_enabled.unwrap_or(false);
+        let wifi_active = status.wifi_enabled.unwrap_or(false) || status.wifi_ssid.is_some();
         let wifi_sub =
             status
                 .wifi_ssid

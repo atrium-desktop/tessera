@@ -904,22 +904,35 @@ impl CompositorRuntime<'_> {
                         // A Recompute skips the scene capture loop: the empty
                         // iterator keeps every downstream index/capture_ok
                         // assumption identical to a zero-region Refresh.
-                        let capture_loop_regions: &[flux::BlurRegion] = if recompute_only {
-                            &[]
+                        let capture_covers_output_tentative = capture_origin == (0, 0)
+                            && capture_extent == physical_size
+                            && capture_size == physical_size;
+                        let capture_render_areas: Vec<flux::CanvasRenderArea> = if recompute_only {
+                            Vec::new()
+                        } else if capture_covers_output_tentative {
+                            vec![flux::CanvasRenderArea {
+                                x: 0,
+                                y: 0,
+                                width: capture_size.0,
+                                height: capture_size.1,
+                            }]
                         } else {
-                            &effect_work_regions
-                        };
-                        for region in capture_loop_regions {
-                            let mut session = match self.backdrop_graph.begin_capture(
-                                self.canvas,
-                                &mut frame,
-                                self.clear,
-                                flux::CanvasRenderArea {
+                            effect_work_regions
+                                .iter()
+                                .map(|region| flux::CanvasRenderArea {
                                     x: region.x as i32,
                                     y: region.y as i32,
                                     width: region.width,
                                     height: region.height,
-                                },
+                                })
+                                .collect()
+                        };
+                        for render_area in capture_render_areas {
+                            let mut session = match self.backdrop_graph.begin_capture(
+                                self.canvas,
+                                &mut frame,
+                                self.clear,
+                                render_area,
                             ) {
                                 Some(s) => s,
                                 None => {
@@ -930,9 +943,7 @@ impl CompositorRuntime<'_> {
 
                             // The capture target only covers `capture_extent`:
                             // shift the scene so the capture origin lands at
-                            // (0, 0). Render-area scissoring means disconnected
-                            // HUD/Dock bands do not shade the empty pixels
-                            // between them.
+                            // (0, 0).
                             session.save();
                             session.translate(
                                 -(capture_origin.0 as f32) * capture_ratio,
@@ -987,12 +998,7 @@ impl CompositorRuntime<'_> {
                                         flux::CanvasPassOptions {
                                             clear: None,
                                             antialias: flux::CanvasAntialias::None,
-                                            render_area: Some(flux::CanvasRenderArea {
-                                                x: region.x as i32,
-                                                y: region.y as i32,
-                                                width: region.width,
-                                                height: region.height,
-                                            }),
+                                            render_area: Some(render_area),
                                             skip_stencil: true,
                                         },
                                     ) {
@@ -1021,8 +1027,16 @@ impl CompositorRuntime<'_> {
                                     self.server,
                                     capture_scale,
                                     window_switcher.is_some(),
-                                    None,
-                                    tessera_desktop::window::WindowShadowStyle::Resize,
+                                    if capture_covers_output_tentative {
+                                        soft_shadow_layer.as_ref()
+                                    } else {
+                                        None
+                                    },
+                                    if capture_covers_output_tentative {
+                                        shadow_style
+                                    } else {
+                                        tessera_desktop::window::WindowShadowStyle::Resize
+                                    },
                                 );
                                 if let Some(presentation) = window_switcher.as_ref() {
                                     draw_window_switcher_scrim(
@@ -1044,17 +1058,7 @@ impl CompositorRuntime<'_> {
                             }
                         }
                         let capture_pixel_scale = scale * capture_ratio;
-                        let capture_covers_output = capture_origin == (0, 0)
-                            && capture_extent == physical_size
-                            && capture_size == physical_size
-                            && effect_work_regions.len() == 1
-                            && effect_work_regions[0]
-                                == (flux::BlurRegion {
-                                    x: 0,
-                                    y: 0,
-                                    width: capture_size.0,
-                                    height: capture_size.1,
-                                });
+                        let capture_covers_output = capture_covers_output_tentative;
                         let layer_work: Vec<_> = backdrop_layers
                             .iter()
                             .zip(&backdrop_sources)
@@ -1505,7 +1509,7 @@ impl CompositorRuntime<'_> {
                         self.clear,
                         output_render_area,
                         model_active && !self.screenshot_freeze.active(),
-                        wallpaper_occluded,
+                        wallpaper_occluded || (capture_covers_output && refreshed),
                     )?;
                     if self.screenshot_freeze.active() {
                         if let Some(image) = self.screenshot_freeze.image() {

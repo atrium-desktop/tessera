@@ -73,13 +73,17 @@ documentation files are permitted at the root:
 - `README.md`
 - `CHANGELOG.md`
 - `CONTRIBUTING.md`
-- `AGENTS.md` (with `CLAUDE.md` and `GEMINI.md` as symlinks to it)
 - `LICENSE`
 - `SECURITY.md` (when vulnerability reporting policy exists)
 
 All other documentation must reside inside `docs/`. Scratch exports, session
 dumps, and editor artifacts never belong at the root; `/target`, `/.cargo/`,
 and the local `.muta/` workspace metadata directory are ignored by Git.
+
+Developer workspace configurations, local editor profiles, and AI agent
+directives (e.g. `AGENTS.md`) are user-maintained tooling surfaces, not
+repository documentation artifacts, and are decoupled from the documentation
+taxonomy ([ADR-0201](../../adr/0201-decouple-documentation-governance-from-agent-configuration-and-canonize-sandbox-isolation.md)).
 
 ---
 

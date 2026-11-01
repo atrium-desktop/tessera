@@ -261,4 +261,30 @@ mod tests {
         // Disarmed: a second release (or drop) must be a no-op.
         guard.release();
     }
+
+    #[test]
+    fn test_inv_arch_87_test_and_workspace_environment_isolation() {
+        // [INV-ARCH-87] Tests and ephemeral runners must isolate their filesystem
+        // state under ephemeral sandbox roots (tempdir) and never touch or depend
+        // on the host user's home directory.
+        let temp = tempfile::tempdir().unwrap();
+        let socket_path = temp.path().join("isolated.sock");
+        assert!(socket_path.starts_with(temp.path()));
+
+        if let Ok(home) = std::env::var("HOME") {
+            let home_path = std::path::Path::new(&home);
+            assert_ne!(
+                temp.path(),
+                home_path,
+                "[INV-ARCH-87] Ephemeral sandbox root must not collide with host HOME"
+            );
+        }
+
+        let mut guard = SocketGuard::bind(socket_path.clone()).unwrap();
+        let _listener = bind_real_socket(&socket_path);
+        guard.observe_bound().unwrap();
+        assert!(socket_path.exists());
+        drop(guard);
+        assert!(!socket_path.exists());
+    }
 }

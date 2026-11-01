@@ -507,11 +507,8 @@ fn wifi_label_requires_a_wireless_link_with_an_association() {
     let mut status = SystemStatus::default();
     assert_eq!(wifi_label(&status), None);
 
-    // An SSID without a live wireless link is stale, not current.
+    // An associated station publishes its active SSID directly.
     status.wifi_ssid = Some("Homelab-5G".into());
-    assert_eq!(wifi_label(&status), None);
-
-    status.network = NetworkState::Wifi;
     assert_eq!(wifi_label(&status), Some("Homelab-5G"));
 
     // An empty answer is a known-absent association, not a blank label.
