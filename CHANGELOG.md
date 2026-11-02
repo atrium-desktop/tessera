@@ -14,6 +14,13 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.86] - 2026-11-02
+
+### Changed
+- **Toast chrome wakes only at window expiry deadline.** A toast notification strip is a static presentation with no fade animations; `anim_pending` now returns false rather than pumping redraws continuously at output refresh rate for three seconds. The compositor schedules a single wake at the oldest toast's deadline to dismiss the strip in one frame.
+- **Uncaptured wheel damage bounding.** Wheel scrolling events inside a client window no longer trigger full compositor redraws of the output.
+- **Dock motion and component deadline coordination.** Dock motion refinements and component animation deadline reporting.
+
 ## [0.0.85] - 2026-11-02
 
 ### Changed
