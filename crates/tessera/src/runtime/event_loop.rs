@@ -170,17 +170,22 @@ impl CompositorRuntime<'_> {
         } else {
             None
         };
+        // Compositor-owned timed visual changes (a toast leaving its window)
+        // announce the exact instant they need a frame. They are not
+        // animations, so they must not pump the loop meanwhile; waking once at
+        // the deadline clears the strip with a single frame.
+        let chrome_deadline = self.shell.next_animation_deadline();
         // Media wallpapers expose their next source frame directly. A 3D
         // wallpaper is intentionally capped at 60 Hz independently of shell
         // and client pacing; using the render timestamp retains that cadence
         // across an intervening DRM page flip.
         let Some(wallpaper) = self.wallpaper.as_ref() else {
-            return stream_wait
+            return merge_wakes(stream_wait, chrome_deadline)
                 .unwrap_or(MAINTENANCE_INTERVAL)
                 .min(MAINTENANCE_INTERVAL);
         };
         if self.server.session_locked() || self.space_use.client_owns_output() {
-            return stream_wait
+            return merge_wakes(stream_wait, chrome_deadline)
                 .unwrap_or(MAINTENANCE_INTERVAL)
                 .min(MAINTENANCE_INTERVAL);
         }
@@ -191,6 +196,9 @@ impl CompositorRuntime<'_> {
         }
         if let Some(stream_wait) = stream_wait {
             wait = wait.min(stream_wait);
+        }
+        if let Some(chrome_deadline) = chrome_deadline {
+            wait = wait.min(chrome_deadline);
         }
         wait.min(MAINTENANCE_INTERVAL)
     }
@@ -379,6 +387,17 @@ impl CompositorRuntime<'_> {
         );
         self.device.wait_idle();
         Ok(())
+    }
+}
+
+fn merge_wakes(
+    a: Option<std::time::Duration>,
+    b: Option<std::time::Duration>,
+) -> Option<std::time::Duration> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (Some(a), None) => Some(a),
+        (None, b) => b,
     }
 }
 

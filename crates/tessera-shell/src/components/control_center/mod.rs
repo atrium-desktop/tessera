@@ -1525,13 +1525,18 @@ impl Chrome for ControlCenter {
 
     fn anim_pending(&self) -> bool {
         let target = if self.open { 1.0 } else { 0.0 };
+        // `settled_drain_frames` is swapchain-ring damage bookkeeping ("repaint
+        // this slot once more so every in-flight image shows the settled
+        // panel"), not an animation. Including it here closes the same
+        // feedback loop the Dock had: the drain asks for a frame, the frame
+        // re-primes the drain, and a closed control center is repainted at the
+        // output refresh rate forever.
         presentation_anim_pending(
             &self.reveal,
             target,
             self.open && self.avatar.as_ref().is_some_and(Portrait::is_animated),
             self.avatar_reload_pending(),
-        ) || self.settled_drain_frames > 0
-            || self.interaction_anim_pending()
+        ) || self.interaction_anim_pending()
     }
 
     /// The union of the panel's animated footprints — the region a frame

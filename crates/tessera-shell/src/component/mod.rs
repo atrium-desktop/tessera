@@ -1307,6 +1307,17 @@ pub trait Chrome {
         true
     }
 
+    /// The exact time until this component next needs a frame *without*
+    /// animating — a timed state change (a toast leaving its window) that
+    /// produces no queue event. Returning `Some(d)` lets the compositor
+    /// schedule a single wake at that deadline instead of pumping the frame
+    /// loop at the output refresh rate until the change happens. Components
+    /// whose visuals only move while [`Chrome::anim_pending`] is true leave
+    /// this `None`.
+    fn animation_deadline_in(&self) -> Option<std::time::Duration> {
+        None
+    }
+
     /// Blur width requested for the desktop behind compositor
     /// chrome, in logical pixels. The host takes the maximum across
     /// components and applies one shared backdrop capture before rendering

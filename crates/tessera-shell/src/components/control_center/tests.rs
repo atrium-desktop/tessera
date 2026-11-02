@@ -43,9 +43,10 @@ fn toggle_opens_and_closes_the_panel() {
     assert!(panel.modal_active());
     assert!(panel.exclusive_presentation_active());
     assert!(panel.requires_composition());
-    // The settle drain keeps the ring alive for FLUX_MAX_FRAMES_IN_FLIGHT
-    // frames even with reduced motion, so the opaque canvas reaches every slot.
-    assert!(panel.anim_pending());
+    // Reduced motion resolves the reveal in one frame, so the panel is
+    // settled and the settle drain (damage bookkeeping, not an animation)
+    // must not keep the frame loop alive.
+    assert!(!panel.anim_pending());
 
     // The panel paints its own opaque full-screen canvas; it declares no
     // backdrop capture, blur, or frost (ADR-0176).
@@ -112,7 +113,10 @@ fn the_settle_drain_keeps_the_panel_active_for_the_ring_depth() {
     }
     assert!(drain_primed, "the settle edge primes the ring drain");
     assert!(panel.active(), "the drain keeps the chrome layer");
-    assert!(panel.anim_pending(), "the drain keeps the frame loop alive");
+    assert!(
+        !panel.anim_pending(),
+        "the drain is damage bookkeeping; it must not pump the frame loop"
+    );
     assert!(
         panel.damage_region(&[], (1920.0, 1080.0)).is_none(),
         "the drain forces a full-output repaint"

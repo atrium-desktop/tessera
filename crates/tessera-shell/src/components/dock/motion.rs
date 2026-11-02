@@ -232,10 +232,17 @@ impl DockMotion {
     }
 
     /// Whether any chrome animation is pending and requires another frame.
+    ///
+    /// `settled_drain_frames` is deliberately excluded: it is a *swapchain
+    /// ring* bookkeeping counter ("repaint this slot once more so every
+    /// in-flight image shows the settled state"), not an animation. Letting
+    /// it gate frame production creates a self-sustaining loop — a drain
+    /// count keeps a frame requested, the frame re-primes the drain, and the
+    /// compositor repaints a fully static dock at the panel refresh rate
+    /// forever. The drain still drives damage; it must not drive the clock.
     #[must_use]
     pub fn anim_pending(&self, target_reveal: f32, dwell_active: bool, drag_active: bool) -> bool {
         self.reveal_animating(target_reveal)
-            || self.settled_drain_frames > 0
             || self.anim_active
             || dwell_active
             || drag_active

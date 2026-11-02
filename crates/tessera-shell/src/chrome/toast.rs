@@ -193,10 +193,34 @@ impl Chrome for Toast {
     }
 
     fn anim_pending(&self) -> bool {
-        // A toast aging out produces no queue event; keep the frames coming
-        // until the last visible toast crosses its window so the strip
-        // actually clears on screen.
-        !self.presentable().is_empty()
+        // A toast is a static strip that vanishes when its window closes. It
+        // has no fade, so it must not pump the frame loop for its whole
+        // lifetime: that repainted a fully static desktop at the output
+        // refresh rate for three seconds after every notification. The
+        // compositor instead schedules one wake at the exact moment the
+        // oldest toast leaves its window (`animation_deadline_in`), so the
+        // strip clears on screen without a single redundant frame.
+        false
+    }
+
+    fn animation_deadline_in(&self) -> Option<std::time::Duration> {
+        // Wake exactly when the oldest presentable toast crosses its window:
+        // that frame clears it, and no frame is needed before it.
+        let queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
+        if queue.do_not_disturb() {
+            return None;
+        }
+        let now_ms = queue.now_ms();
+        queue
+            .recent()
+            .iter()
+            .rev()
+            .filter(|n| within_window(n, now_ms))
+            .map(|n| {
+                let age = now_ms.saturating_sub(n.at_ms);
+                std::time::Duration::from_millis(TOAST_TTL_MS.saturating_sub(age).max(1))
+            })
+            .min()
     }
 
     fn damage_region(

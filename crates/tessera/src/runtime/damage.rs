@@ -254,9 +254,19 @@ impl CompositorRuntime<'_> {
 
         // Pointer-only input repaints the cursor sprite's swept area plus
         // the chrome region that reacts to the pointer (hover highlights,
-        // the software cursor, magnify tooltips). Any other input keeps the
-        // conservative full damage: a click can press a chrome control, a
-        // key can change focus, and those effects are not localized.
+        // the software cursor, magnify tooltips).
+        //
+        // Non-pointer input (keys, buttons, scroll, touch) never writes
+        // desktop pixels itself. Its visual consequences are all carried by
+        // signals that already exist on this exact frame: a client buffer
+        // commit is `ClientDamage`; a focus/stacking/state change moves the
+        // window signature into `base_full`; a chrome control activation
+        // moves `chrome_dirty`/`chrome_mode`; an animation moves
+        // `chrome_anim_region`. Collapsing every one of those into `Full`
+        // here (the old behaviour) made a scroll inside one window — whose
+        // actual footprint is a handful of damage rects on that window —
+        // repaint the entire output at 120 Hz on high-resolution panels.
+        // The input event itself therefore contributes no output damage.
         let input_damage: Option<Vec<tessera_primitives::Rect>> = if had_input && !base_full {
             if input_pointer_only {
                 let display = self.input_acc.display_size;
@@ -311,16 +321,21 @@ impl CompositorRuntime<'_> {
                         }
                     }
                 }
-            } else if !self.shell.requires_composition() && !self.shell.captures_keyboard() {
-                // Non-pointer input (keys, buttons, scroll) routed to a client
-                // while no shell chrome is visible or capturing keyboard
-                // cannot dirty compositor-owned pixels on its own. If the
-                // event changed window focus, stacking, or state, the window
-                // signature in `base_full` above already flags full damage;
-                // otherwise only the client's subsequent buffer commit
-                // produces damage.
+            } else if !self.shell.captures_keyboard() {
+                // See the comment above: non-pointer input aimed at the
+                // desktop/client scene has no compositor pixel footprint of
+                // its own and its client-visible consequences arrive as a
+                // buffer commit (`ClientDamage`) or a structural signal in
+                // `base_full`. A scroll inside one window must not repaint
+                // the whole output at the panel refresh rate.
                 Some(Vec::new())
             } else {
+                // Keyboard is captured by compositor chrome (launcher,
+                // control center, command panel). The chrome drew into
+                // compositor-owned pixels and its own change report is the
+                // only reliable signal, but a captured key has unbounded
+                // chrome reach (cursor keys, typed text that reshapes the
+                // panel) — keep the conservative full repaint.
                 None
             }
         } else {

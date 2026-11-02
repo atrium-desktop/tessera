@@ -2103,23 +2103,30 @@ fn autohide_collapse_settle_drains_swapchain_ring_frames() {
         }
     }
     assert_eq!(dock.autohide_reveal, 0.0);
-    // When the animation settles, it primes 3 drain frames
+    // When the animation settles, it primes 3 drain frames. The drain is
+    // swapchain-ring *damage* bookkeeping, not an animation: it must not keep
+    // requesting frames, or a settled dock is repainted at the output refresh
+    // rate forever (the self-sustaining repaint loop this test now guards).
     assert_eq!(dock.settled_drain_frames, 3);
-    assert!(dock.anim_pending(), "drain frames keep animation pending");
+    assert!(
+        !dock.anim_pending(),
+        "a settled dock must not pump the frame loop just to drain the ring"
+    );
 
-    // Frame 1 of drain
+    // Frame 1 of drain: the counter advances, and the dock still asks for no
+    // frames -- the ring drains across the frames real work produces.
     ui.frame(&input, |f| {
         dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
     });
     assert_eq!(dock.settled_drain_frames, 2);
-    assert!(dock.anim_pending());
+    assert!(!dock.anim_pending());
 
     // Frame 2 of drain
     ui.frame(&input, |f| {
         dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
     });
     assert_eq!(dock.settled_drain_frames, 1);
-    assert!(dock.anim_pending());
+    assert!(!dock.anim_pending());
 
     // Frame 3 of drain
     ui.frame(&input, |f| {

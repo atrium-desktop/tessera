@@ -1118,6 +1118,31 @@ impl Shell {
             .fold(0.0_f32, f32::max)
     }
 
+    /// The nearest compositor-owned wakeup that is *not* an animation: a timed
+    /// visual change (a toast leaving its window) that produces no queue event
+    /// and must not pump frames meanwhile. `None` when no component needs one.
+    pub fn next_animation_deadline(&self) -> Option<std::time::Duration> {
+        let modal_active = self
+            .components
+            .iter()
+            .any(|component| component.modal_active());
+        let window_switcher_active = self.window_switcher_active();
+        let exclusive_presentation_active = self.exclusive_presentation_active();
+        self.components
+            .iter()
+            .filter(|component| {
+                participates_in_shell_pass(
+                    component.as_ref(),
+                    self.screenshot_freeze,
+                    modal_active,
+                    window_switcher_active,
+                    exclusive_presentation_active,
+                )
+            })
+            .filter_map(|component| component.animation_deadline_in())
+            .min()
+    }
+
     /// Run the animation clock and geometry prepass for components eligible
     /// to render this frame (ADR-0171, ADR-0178). Call once after input is built
     /// and before querying damage or backdrop regions.
@@ -1648,6 +1673,81 @@ mod tests {
 
         let _menu_item = MenuItem::new("Action");
         let _menubar_item = MenubarItem::new("File", "file_menu");
+    }
+
+    /// A component that owns a glass recipe but exposes whatever visible
+    /// backdrop footprint its current state declares.
+    struct GlassChrome {
+        visible: bool,
+        frost: Vec<BackdropRegion>,
+    }
+
+    impl Chrome for GlassChrome {
+        fn render(
+            &mut self,
+            _frame: &mut Frame,
+            _input: &Input,
+            _windows: &[Window],
+            _workspaces: &WorkspaceSnapshot,
+            _i18n: &Localizer,
+            _out: &mut ChromeEvents,
+        ) {
+        }
+
+        fn requires_composition(&self) -> bool {
+            self.visible
+        }
+
+        fn backdrop_blur_sigma(&self) -> f32 {
+            if self.visible { 12.0 } else { 0.0 }
+        }
+
+        fn backdrop_regions(
+            &self,
+            _display: (f32, f32),
+            _windows: &[Window],
+            _workspaces: &WorkspaceSnapshot,
+        ) -> Vec<BackdropRegion> {
+            self.frost.clone()
+        }
+    }
+
+    #[test]
+    fn hidden_glass_component_does_not_claim_a_live_backdrop() {
+        let mut shell = Shell::headless().unwrap();
+        shell.add(Box::new(GlassChrome {
+            visible: false,
+            frost: Vec::new(),
+        }));
+        let requirements = shell.composition_requirements((1920.0, 1080.0));
+        assert!(
+            !requirements.live_backdrop_effect,
+            "a glass recipe on a component with no visible output must not \
+             block direct scanout"
+        );
+        assert!(!requirements.visible_pixels);
+    }
+
+    #[test]
+    fn visible_glass_component_claims_a_live_backdrop() {
+        let mut shell = Shell::headless().unwrap();
+        shell.add(Box::new(GlassChrome {
+            visible: true,
+            frost: vec![BackdropRegion {
+                x: 0.0,
+                y: 1000.0,
+                w: 1920.0,
+                h: 80.0,
+                wash: None,
+                opacity: 1.0,
+            }],
+        }));
+        let requirements = shell.composition_requirements((1920.0, 1080.0));
+        assert!(requirements.visible_pixels);
+        assert!(
+            requirements.live_backdrop_effect,
+            "visible glass that consumes backdrop pixels must be reported"
+        );
     }
 }
 

@@ -455,10 +455,15 @@ impl Chrome for Dock {
             && self.autohide_idle < idle_timeout
             && !self.app_menu.is_open();
         let drag_active = self.press.as_ref().is_some_and(|p| p.dragging);
+        // `settled_drain_frames` and `hover_drain_frames` are *damage* bookkeeping
+        // (repaint the swapchain ring slots once more so every in-flight image
+        // shows the settled chrome), not animations in flight. Folding them
+        // into the frame-production predicate closes a feedback loop: a drain
+        // count requests a frame, the frame re-primes the drain, and a fully
+        // static dock is repainted at the output refresh rate forever. They
+        // remain in the damage footprint; they must not drive the clock.
         self.anim_active
             || idle_counting
-            || self.settled_drain_frames > 0
-            || self.hover_drain_frames > 0
             || self.motion.anim_pending(target, dwell_active, drag_active)
     }
 
