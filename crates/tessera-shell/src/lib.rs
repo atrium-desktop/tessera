@@ -29,6 +29,15 @@ pub mod accessibility;
 /// with the chips (the notification toast stack) can share the value without
 /// depending on the component crate.
 pub const HUD_HEIGHT: f32 = 32.0;
+
+/// Logical height of a HUD chip row measured from the output's top edge: the
+/// chips float below it and are [`component::HUD_HEIGHT`] tall.
+pub use crate::component::HUD_BAND_HEIGHT;
+
+/// Upper bound on the rectangles [`Shell::chrome_damage_regions`] collects from a
+/// single Lens frame. Matches `LENS_DAMAGE_RECTS_CAPACITY`; fixing it at compile
+/// time keeps the damage path allocation-free.
+pub const LENS_DAMAGE_CAPACITY: usize = 64;
 use tessera_authority::interaction_domain::InteractionDomainSnapshot;
 use tessera_desktop::app::BuiltInApplication;
 use tessera_desktop::app::Entry;
@@ -447,7 +456,15 @@ impl Shell {
 
     /// Replace the persistent-settings snapshot and notify chrome hosting
     /// settings UI.
+    ///
+    /// Guarded on equality like the other snapshot setters: the host republishes
+    /// this every frame from the status poller, so an unconditional dirty flag
+    /// would rebuild the whole chrome scene each frame and defeat the quiescent
+    /// elision that keeps a static desktop from recompiling display lists.
     pub fn set_settings(&mut self, snapshot: tessera_desktop::settings::SettingsSnapshot) {
+        if self.settings.as_ref() == Some(&snapshot) {
+            return;
+        }
         self.settings = Some(snapshot);
         self.dirty = true;
         if let Some(settings) = self.settings.as_ref() {
@@ -459,7 +476,14 @@ impl Shell {
 
     /// Replace the host resource-utilisation sample and notify interested
     /// status surfaces.
+    ///
+    /// Guarded on equality: the sample arrives on a poller tick many times a
+    /// second, and a `dirty` flag for an unchanged sample rebuilds every
+    /// component's scene for no pixel difference.
     pub fn set_resource_stats(&mut self, stats: ResourceStats) {
+        if self.resource_stats == stats {
+            return;
+        }
         self.resource_stats = stats;
         self.dirty = true;
         for component in self.components.iter_mut() {
@@ -470,6 +494,9 @@ impl Shell {
     /// Replace the Interaction Domain authority snapshot and notify the overview and
     /// Agent Workspaces before their next frame.
     pub fn set_interaction_domains(&mut self, snapshot: InteractionDomainSnapshot) {
+        if self.interaction_domains == snapshot {
+            return;
+        }
         self.interaction_domains = snapshot;
         self.dirty = true;
         for component in self.components.iter_mut() {
@@ -1044,23 +1071,30 @@ impl Shell {
         self.ui.anim_pending()
     }
 
-    /// The output-logical rectangle every in-flight chrome animation can
-    /// touch this frame, or `None` when any animated component cannot state
-    /// its footprint. The compositor uses this to turn animation-driven
-    /// frames into partial repaints instead of full-output composites;
-    /// `None` preserves the conservative full-repaint behaviour.
+    /// The output-logical rectangles this frame's chrome scene repaints, or
+    /// `None` when a participating component cannot state its footprint.
     ///
-    /// Lens reports its own eased-value and caret-blink footprints through
-    /// [`lens::Ui::damage_rect`], so a settling lens widget narrows the
-    /// repaint exactly like a chrome component's [`Chrome::damage_region`]
-    /// does. Only a component that returns `None` widens the frame.
+    /// Chrome damage has two independent triggers and both are answered here:
     ///
-    /// This only describes *chrome* animation damage. Client windows, the
-    /// software cursor, and the backdrop-effect source have their own damage
-    /// paths and are unioned by the host separately.
-    pub fn anim_damage_regions(
+    /// * `scene_changed` — a component mutated its own presentation structure
+    ///   (a dock tile's context menu opening or closing). The whole scene was
+    ///   rebuilt, so every participating component repainted its pixels.
+    /// * otherwise — only components with an animation in flight repaint, plus
+    ///   Lens's own eased values and caret blink.
+    ///
+    /// Lens reports its damage through [`lens::Ui::damage_rects`], which
+    /// localizes per placed body and per drawn leaf, so a settling widget
+    /// narrows the repaint exactly like a component's [`Chrome::damage_regions`].
+    /// Only a component that returns `None` widens the frame — that is a genuine
+    /// "repaint everything" instruction and is preserved as such.
+    ///
+    /// This describes *chrome* damage only. Client windows, the software cursor,
+    /// and the backdrop-effect source have their own paths and are unioned by the
+    /// host separately.
+    pub fn chrome_damage_regions(
         &self,
         display: (f32, f32),
+        scene_changed: bool,
     ) -> Option<Vec<tessera_primitives::Rect>> {
         let modal_active = self
             .components
@@ -1068,12 +1102,11 @@ impl Shell {
             .any(|component| component.modal_active());
         let window_switcher_active = self.window_switcher_active();
         let exclusive_presentation_active = self.exclusive_presentation_active();
-        // Rectangles stay disjoint. Unioning them into one bounding box is
-        // what makes an animation-driven repaint worthless in practice: the
-        // HUD sits at the top of the output and the Dock at the bottom, so
-        // their union is the whole panel, and every frame in which both ease
-        // becomes a full-output composite again. The compositor's damage list
-        // is a list precisely so unrelated regions stay unrelated (ADR-0203).
+        // Rectangles stay disjoint. Unioning them into one bounding box is what
+        // makes a regional repaint worthless in practice: the HUD sits at the top
+        // of the output and the Dock at the bottom, so their union is the whole
+        // panel. The compositor's damage list is a list precisely so unrelated
+        // regions stay unrelated (ADR-0203).
         let mut regions: Vec<tessera_primitives::Rect> = Vec::new();
         for component in self
             .components
@@ -1087,65 +1120,48 @@ impl Shell {
                     exclusive_presentation_active,
                 )
             })
-            .filter(|c| c.anim_pending())
+            .filter(|component| scene_changed || component.anim_pending())
         {
-            // `?` is deliberate: a component that cannot localize its own
-            // animation is a genuine "repaint everything" instruction.
-            let rect = component.damage_region(&self.windows, display)?;
-            if !rect.is_empty() {
-                regions.push(rect);
+            // `?` is deliberate: a component that cannot localize its own paint
+            // is a genuine "repaint everything" instruction.
+            for rect in component.damage_regions(&self.windows, display)? {
+                /* Outward on both edges: flooring the origin and ceiling only the
+                 * extent leaves the far edge short, which under-covers. */
+                let x0 = rect.x.floor();
+                let y0 = rect.y.floor();
+                let x1 = (rect.x + rect.w).ceil();
+                let y1 = (rect.y + rect.h).ceil();
+                let rect = tessera_primitives::Rect::new(
+                    x0 as i32,
+                    y0 as i32,
+                    (x1 - x0).max(0.0) as i32,
+                    (y1 - y0).max(0.0) as i32,
+                );
+                if !rect.is_empty() {
+                    regions.push(rect);
+                }
             }
         }
-        if self.ui.anim_pending() {
-            let lens_damage = self.ui.damage_rect();
-            let footprint = tessera_primitives::Rect::new(
-                lens_damage.x as i32,
-                lens_damage.y as i32,
-                lens_damage.w.ceil().max(0.0) as i32,
-                lens_damage.h.ceil().max(0.0) as i32,
-            );
-            if footprint.is_empty() {
-                // Lens is animating but cannot name a cell (`damage_rect` is
-                // only meaningful for a frame that was built; `prepare_frame`
-                // builds one every frame, so reaching here means the query
-                // itself found nothing). There is no footprint to add, and
-                // inventing one would be worse than adding none.
-                return Some(regions);
-            }
-            let covers_full_display =
-                footprint.size.w >= display.0 as i32 && footprint.size.h >= display.1 as i32;
-            let immersive_active = modal_active
-                || window_switcher_active
-                || exclusive_presentation_active
-                || self.components.iter().any(|c| {
-                    c.pivot_active()
-                        || c.control_center_active()
-                        || c.command_panel_active()
-                        || c.overview_active()
-                });
-            if covers_full_display && !immersive_active {
-                // An easing Lens control fell back to ui->root->final_rect because its
-                // internal delta is not localized to a single dirty node bounding box.
-                // When only persistent chrome (HUD, Dock) is live, constrain the damage
-                // to the decoration bands so client windows (like foot) in the center are
-                // not forced into full-output recomposition (ADR-0210, INV-ARCH-98).
-                let reserved = self.reserved();
-                let top_h = reserved.top.max(36);
-                let bottom_h = reserved.bottom.max(80);
-                regions.push(tessera_primitives::Rect::new(
-                    0,
-                    0,
-                    display.0 as i32,
-                    top_h,
-                ));
-                regions.push(tessera_primitives::Rect::new(
-                    0,
-                    (display.1 as i32).saturating_sub(bottom_h),
-                    display.0 as i32,
-                    bottom_h,
-                ));
-            } else {
-                regions.push(footprint);
+        if scene_changed || self.ui.anim_pending() {
+            // Lens answers with the frame's regional damage list, already
+            // localized per drawn leaf and per placed body. Taking it as-is is
+            // the whole point of the list contract: a direction that must be
+            // second-guessed here (band substitution, "looks too big" clamping)
+            // would reintroduce exactly the guessed footprint the list replaces.
+            let mut buffer = [lens::Rect::default(); LENS_DAMAGE_CAPACITY];
+            let count = self.ui.damage_rects(&mut buffer[..]);
+            for damage in buffer.iter().take(count) {
+                /* Lens already rounds its damage outward to whole logical pixels,
+                 * so a truncating conversion is exact here. */
+                let rect = tessera_primitives::Rect::new(
+                    damage.x as i32,
+                    damage.y as i32,
+                    damage.w as i32,
+                    damage.h as i32,
+                );
+                if !rect.is_empty() {
+                    regions.push(rect);
+                }
             }
         }
         Some(regions)
@@ -1175,8 +1191,17 @@ impl Shell {
     }
 
     /// Whether any participating chrome component can touch pixels inside `area`
-    /// (in physical pixels). When false, the compositor can skip the secondary
-    /// stencil overlay render pass entirely for localized client repaints (ADR-0210).
+    /// (in physical pixels). When false, the compositor skips the secondary
+    /// stencil overlay pass entirely for an otherwise-localized client repaint
+    /// (ADR-0210, `[INV-ARCH-102]`).
+    ///
+    /// The test is the chrome's *own* union footprint, not a per-edge band
+    /// guess. Persistent chrome is not guaranteed to occupy an edge strip: the
+    /// HUD floats inside the top band, and a dock can sit on any of four edges,
+    /// so a test that only compared `area.y` against a top and bottom threshold
+    /// answered "no chrome here" for a left or right dock and clipped its pixels
+    /// away. Testing the real footprint keeps the answer correct on every dock
+    /// position and needs no `reserved` arithmetic in physical space.
     pub fn chrome_intersects_render_area(
         &self,
         area: flux::CanvasRenderArea,
@@ -1195,35 +1220,88 @@ impl Shell {
                 || c.command_panel_active()
                 || c.overview_active()
         });
-        if modal_active || window_switcher_active || exclusive_presentation_active || immersive_active {
+        if modal_active
+            || window_switcher_active
+            || exclusive_presentation_active
+            || immersive_active
+        {
             return true;
         }
-
-        let non_persistent = self.components.iter().any(|c| {
-            !c.persistent_decoration() && c.requires_composition()
-        });
-        if non_persistent {
+        // Any chrome that is not a persistent decoration owns arbitrary pixels
+        // while it is visible: it cannot be bounded by an edge strip, so it
+        // disqualifies the elision outright.
+        if self
+            .components
+            .iter()
+            .any(|c| !c.persistent_decoration() && c.requires_composition())
+        {
             return true;
         }
+        let Some(footprint) = self.persistent_chrome_footprint(scale, logical_size) else {
+            // No persistent chrome is visible this frame, so no chrome pixel can
+            // be inside the render area.
+            return false;
+        };
+        // `footprint` is `(x0, y0, x1, y1)`; the render area intersects it when it
+        // starts before the footprint's far edge and ends after its near edge on
+        // both axes.
+        let (x0, y0, x1, y1) = footprint;
+        area.x < x1
+            && area.x + area.width as i32 > x0
+            && area.y < y1
+            && area.y + area.height as i32 > y0
+    }
 
-        let reserved = self.reserved();
-        let top_physical = (reserved.top.max(36) as f32 * scale).ceil() as i32;
-        let dock_h = reserved.bottom.max(80) as f32 * scale;
-        let bottom_physical = (logical_size.1 as f32 * scale - dock_h).floor() as i32;
-
-        let area_y0 = area.x;
-        let _ = area_y0;
-        let area_y0 = area.y;
-        let area_y1 = area.y + area.height as i32;
-
-        if area_y0 < top_physical {
-            return true;
+    /// Union of every visible persistent decoration's footprint, in physical
+    /// pixels, as `(x0, y0, x1, y1)`. `None` when no persistent decoration is
+    /// currently visible.
+    ///
+    /// A decoration reports its footprint through
+    /// [`Chrome::damage_regions`], which is the same rectangle its animation
+    /// repaints — for the Dock that is the whole magnified strip envelope plus
+    /// its shadow skirt, which is exactly the extent the painted body can reach.
+    fn persistent_chrome_footprint(
+        &self,
+        scale: f32,
+        logical_size: (u32, u32),
+    ) -> Option<(i32, i32, i32, i32)> {
+        let display = (logical_size.0 as f32, logical_size.1 as f32);
+        let mut union: Option<(i32, i32, i32, i32)> = None;
+        for component in &self.components {
+            if !component.persistent_decoration() || !component.requires_composition() {
+                continue;
+            }
+            let Some(component_regions) = component.damage_regions(&self.windows, display) else {
+                continue;
+            };
+            for region in component_regions {
+                let x0 = region.x.floor() as i32;
+                let y0 = region.y.floor() as i32;
+                let x1 = (region.x + region.w).ceil() as i32;
+                let y1 = (region.y + region.h).ceil() as i32;
+                if x1 <= x0 || y1 <= y0 {
+                    continue;
+                }
+                union = Some(match union {
+                    None => (x0, y0, x1, y1),
+                    Some((ax0, ay0, ax1, ay1)) => {
+                        (ax0.min(x0), ay0.min(y0), ax1.max(x1), ay1.max(y1))
+                    }
+                });
+            }
         }
-        if area_y1 > bottom_physical {
-            return true;
-        }
-
-        false
+        let bounds = union?;
+        let s = if scale.is_finite() && scale > 0.0 {
+            scale
+        } else {
+            1.0
+        };
+        Some((
+            (bounds.0 as f32 * s).floor() as i32,
+            (bounds.1 as f32 * s).floor() as i32,
+            (bounds.2 as f32 * s).ceil() as i32,
+            (bounds.3 as f32 * s).ceil() as i32,
+        ))
     }
 
     /// Return the precise compositor-owned work that would affect the next
@@ -1316,10 +1394,10 @@ impl Shell {
     /// or backdrop regions (ADR-0171, ADR-0178, ADR-0203).
     ///
     /// The scene is built here rather than at draw time so that everything
-    /// damage assessment reads — `anim_pending`, `anim_damage_region`, and
+    /// damage assessment reads — `anim_pending`, `chrome_damage_regions`, and
     /// lens's own `damage_rect` — describes the tree the renderer is about to
     /// draw. Building at draw time made the lens damage query describe the
-    /// *previous* frame, which is why `anim_damage_region` had to fall back to
+    /// *previous* frame, which is why `chrome_damage_regions` had to fall back to
     /// a full-output repaint for any settling lens widget.
     pub fn prepare_frame(&mut self, input: &Input) {
         let modal_active = self
@@ -1581,7 +1659,7 @@ impl Shell {
     /// Build this frame's chrome scene without drawing it.
     ///
     /// Runs the lens frame and captures the resulting snapshot into
-    /// [`Shell::pending_scene`], so [`Shell::anim_damage_region`] can report the
+    /// [`Shell::pending_scene`], so [`Shell::chrome_damage_regions`] can report the
     /// real damage footprint (ADR-0203) and [`Shell::submit`] can draw it later
     /// inside a canvas pass. Every state mutation of a frame happens here.
     unsafe fn build_scene(&mut self, input: &Input) -> Result<(), ShellError> {
@@ -1649,6 +1727,17 @@ impl Shell {
             self.dirty = false;
             Ok(())
         }
+    }
+
+    /// Take the one-shot "a component changed its own presentation structure"
+    /// report from the last scene build.
+    ///
+    /// Consumed by damage assessment so a popup that opened or closed without an
+    /// animation still repaints its footprint on this frame. Reading clears it:
+    /// the rebuild it asks for has already happened, so re-reporting it would
+    /// keep the frame loop awake forever.
+    pub fn take_scene_changed(&mut self) -> bool {
+        std::mem::take(&mut self.events.scene_changed)
     }
 }
 
@@ -1994,6 +2083,8 @@ mod tests {
         );
     }
 
+    use lens::Rect;
+
     /// A component whose animation footprint is a small band.
     struct LocalizedAnim {
         pending: bool,
@@ -2014,12 +2105,15 @@ mod tests {
         fn anim_pending(&self) -> bool {
             self.pending
         }
-        fn damage_region(
-            &self,
-            _windows: &[Window],
-            _display: (f32, f32),
-        ) -> Option<tessera_primitives::Rect> {
-            self.footprint
+        fn damage_regions(&self, _windows: &[Window], _display: (f32, f32)) -> Option<Vec<Rect>> {
+            self.footprint.map(|rect| {
+                vec![Rect {
+                    x: rect.origin.x as f32,
+                    y: rect.origin.y as f32,
+                    w: rect.size.w as f32,
+                    h: rect.size.h as f32,
+                }]
+            })
         }
     }
 
@@ -2083,7 +2177,7 @@ mod tests {
         // Damage assessment still reads the frame it built, not a cleared one.
         // Headless has no chrome, so the region is empty — but the query must
         // answer rather than panic on a built-but-undrawn scene.
-        let _ = shell.anim_damage_regions((1920.0, 1080.0));
+        let _ = shell.chrome_damage_regions((1920.0, 1080.0), false);
 
         // A successful build followed by a fresh build refreshes in place.
         shell.prepare_frame(&Input::default());
@@ -2101,10 +2195,49 @@ mod tests {
             footprint: Some(tessera_primitives::Rect::new(0, 0, 400, 32)),
         }));
         assert_eq!(
-            shell.anim_damage_regions((1920.0, 1080.0)),
+            shell.chrome_damage_regions((1920.0, 1080.0), false),
             Some(vec![tessera_primitives::Rect::new(0, 0, 400, 32)]),
             "a self-localized animation must not widen to a full-output repaint"
         );
+    }
+
+    /// A persistent decoration — the shape of the HUD strip or the Dock — that
+    /// claims a fixed band of the output.
+    struct PersistentBand {
+        footprint: Option<tessera_primitives::Rect>,
+        visible: bool,
+    }
+
+    impl Chrome for PersistentBand {
+        fn render(
+            &mut self,
+            _frame: &mut Frame,
+            _input: &Input,
+            _windows: &[Window],
+            _workspaces: &WorkspaceSnapshot,
+            _i18n: &Localizer,
+            _out: &mut ChromeEvents,
+        ) {
+        }
+
+        fn persistent_decoration(&self) -> bool {
+            true
+        }
+
+        fn requires_composition(&self) -> bool {
+            self.visible
+        }
+
+        fn damage_regions(&self, _windows: &[Window], _display: (f32, f32)) -> Option<Vec<Rect>> {
+            self.footprint.map(|rect| {
+                vec![Rect {
+                    x: rect.origin.x as f32,
+                    y: rect.origin.y as f32,
+                    w: rect.size.w as f32,
+                    h: rect.size.h as f32,
+                }]
+            })
+        }
     }
 
     /// Two chrome bodies animating at opposite edges of the output must
@@ -2123,7 +2256,7 @@ mod tests {
             footprint: Some(tessera_primitives::Rect::new(500, 1040, 900, 40)),
         }));
         let regions = shell
-            .anim_damage_regions((1920.0, 1080.0))
+            .chrome_damage_regions((1920.0, 1080.0), false)
             .expect("both components localize their animation");
         assert_eq!(
             regions,
@@ -2154,7 +2287,7 @@ mod tests {
             pending: true,
             footprint: None,
         }));
-        assert_eq!(shell.anim_damage_regions((1920.0, 1080.0)), None);
+        assert_eq!(shell.chrome_damage_regions((1920.0, 1080.0), false), None);
     }
 
     #[test]
@@ -2165,9 +2298,166 @@ mod tests {
             footprint: Some(tessera_primitives::Rect::new(0, 0, 400, 32)),
         }));
         assert_eq!(
-            shell.anim_damage_regions((1920.0, 1080.0)),
+            shell.chrome_damage_regions((1920.0, 1080.0), false),
             Some(Vec::new()),
             "nothing is animating, so there is no chrome animation damage"
+        );
+    }
+
+    /// A structural chrome change with no animation — a dock tile's context menu
+    /// opening or closing — must still repaint its footprint on that frame.
+    /// `anim_pending` deliberately stays false for it, so `scene_changed` is the
+    /// only signal, and dropping it left the popup rendered into the model but
+    /// never into a rebuilt scene.
+    #[test]
+    fn a_scene_change_repaints_without_an_animation() {
+        let mut shell = Shell::headless().unwrap();
+        shell.add(Box::new(LocalizedAnim {
+            pending: false,
+            footprint: Some(tessera_primitives::Rect::new(500, 700, 236, 180)),
+        }));
+        assert_eq!(
+            shell.chrome_damage_regions((1920.0, 1080.0), false),
+            Some(Vec::new()),
+            "a quiescent component contributes nothing"
+        );
+        assert_eq!(
+            shell.chrome_damage_regions((1920.0, 1080.0), true),
+            Some(vec![tessera_primitives::Rect::new(500, 700, 236, 180)]),
+            "a structural change must repaint its footprint even without an animation"
+        );
+    }
+
+    /// The one-shot report is cleared by reading it: the rebuild it asks for has
+    /// already happened, and re-reporting it would keep the frame loop awake.
+    #[test]
+    fn a_scene_change_is_reported_once() {
+        let mut shell = Shell::headless().unwrap();
+        assert!(!shell.take_scene_changed());
+        shell.events.scene_changed = true;
+        assert!(shell.take_scene_changed());
+        assert!(!shell.take_scene_changed());
+    }
+
+    /// The status strip's chips float below the output edge and are
+    /// [`component::HUD_HEIGHT`] tall, so the band they occupy is taller than
+    /// `HUD_HEIGHT`. Reporting `[0, HUD_HEIGHT)` left their bottom pixels stale on
+    /// every clock tick, so the relationship is a compile-time invariant rather
+    /// than something a runtime test has to re-derive.
+    const _: () = assert!(HUD_BAND_HEIGHT >= 8.0 + 32.0, "HUD band too short");
+
+    /// The overlay-pass elision must answer from chrome's real footprint, not
+    /// from a per-edge threshold. A dock on the left or right edge occupies no
+    /// top or bottom band, so a y-only test answered "no chrome here" and the
+    /// compositor clipped the dock's pixels away.
+    #[test]
+    fn the_overlay_elision_respects_chrome_on_any_edge() {
+        let mut shell = Shell::headless().unwrap();
+        // A persistent decoration claiming the left edge only — a left-docked bar.
+        shell.add(Box::new(PersistentBand {
+            footprint: Some(tessera_primitives::Rect::new(0, 0, 86, 1080)),
+            visible: true,
+        }));
+
+        let left_edge = flux::CanvasRenderArea {
+            x: 0,
+            y: 400,
+            width: 40,
+            height: 200,
+        };
+        assert!(
+            shell.chrome_intersects_render_area(left_edge, 1.0, (1920, 1080)),
+            "a left-edge decoration owns pixels in a left-edge render area"
+        );
+
+        let middle = flux::CanvasRenderArea {
+            x: 800,
+            y: 400,
+            width: 40,
+            height: 200,
+        };
+        assert!(
+            !shell.chrome_intersects_render_area(middle, 1.0, (1920, 1080)),
+            "the central workspace carries no chrome pixels"
+        );
+    }
+
+    /// A decoration that is not visible owns no pixels, so it must not block the
+    /// elision at all.
+    #[test]
+    fn an_invisible_decoration_blocks_nothing() {
+        let mut shell = Shell::headless().unwrap();
+        shell.add(Box::new(PersistentBand {
+            footprint: Some(tessera_primitives::Rect::new(0, 0, 86, 1080)),
+            visible: false,
+        }));
+        let anywhere = flux::CanvasRenderArea {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        assert!(
+            !shell.chrome_intersects_render_area(anywhere, 1.0, (1920, 1080)),
+            "dormant chrome cannot intersect anything"
+        );
+    }
+
+    /// A non-decoration that is visible owns arbitrary pixels and cannot be
+    /// bounded by any band, so it must disqualify the elision outright.
+    #[test]
+    fn a_visible_overlay_always_blocks_the_elision() {
+        let mut shell = Shell::headless().unwrap();
+        shell.add(Box::new(LocalizedAnim {
+            pending: false,
+            footprint: Some(tessera_primitives::Rect::new(800, 400, 236, 180)),
+        }));
+        let middle = flux::CanvasRenderArea {
+            x: 800,
+            y: 400,
+            width: 40,
+            height: 40,
+        };
+        assert!(
+            shell.chrome_intersects_render_area(middle, 1.0, (1920, 1080)),
+            "an unbounded overlay disqualifies the elision"
+        );
+    }
+
+    /// Publishing an unchanged snapshot must not dirty the scene. The host pushes
+    /// settings, resource samples, and Interaction Domain state every frame, so an
+    /// unconditional dirty flag would recompile every display list per frame and
+    /// defeat the quiescent elision.
+    #[test]
+    fn republishing_an_unchanged_snapshot_stays_quiescent() {
+        let mut shell = Shell::headless().unwrap();
+        let stats = ResourceStats::default();
+        shell.set_resource_stats(stats);
+        shell.prepare_frame(&Input::default());
+        assert!(!shell.dirty);
+
+        shell.set_resource_stats(stats);
+        assert!(
+            !shell.dirty,
+            "an unchanged resource sample must not request a rebuild"
+        );
+
+        let domains = InteractionDomainSnapshot {
+            revision: 0,
+            principals: Vec::new(),
+            interaction_domains: Vec::new(),
+            seats: Vec::new(),
+            clients: Vec::new(),
+            interaction_groups: Vec::new(),
+        };
+        shell.set_interaction_domains(domains.clone());
+        assert!(shell.dirty, "a changed snapshot must request a rebuild");
+        shell.prepare_frame(&Input::default());
+        assert!(!shell.dirty);
+        shell.set_interaction_domains(domains);
+        assert!(
+            !shell.dirty,
+            "an unchanged Interaction Domain snapshot must not request a rebuild"
         );
     }
 }

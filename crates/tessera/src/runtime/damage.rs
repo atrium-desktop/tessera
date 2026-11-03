@@ -164,7 +164,11 @@ impl CompositorRuntime<'_> {
         if self.damage.last_present_minute != Some(wall_clock_minute())
             || self.system_status.do_not_disturb != do_not_disturb
         {
-            let panel_h = reserved.top.max(32);
+            // The status strip's real extent, measured from the output edge. A
+            // hardcoded `max(32)` here left the HUD chips' bottom 8 px stale on
+            // every clock tick, because the chips float below the edge rather
+            // than starting at it.
+            let panel_h = tessera_shell::HUD_BAND_HEIGHT as i32;
             chrome_extra_rects.push(tessera_primitives::Rect::new(
                 0,
                 0,
@@ -238,19 +242,23 @@ impl CompositorRuntime<'_> {
                     .map(|(_, switcher, _, _)| switcher)
                     .unwrap_or(false);
 
-        // Chrome animations repaint only the band they animate in when the
-        // shell can state it; `None` (an animated component without a
-        // footprint, or lens's own eased state) keeps the conservative
-        // full-output repaint. The region is damage in its own right — a
-        // ticking dock spring advances every frame with no input and no
-        // client commit — so it joins the output rects below, not just the
+        // Chrome damage: in-flight animations, plus the one-shot structural
+        // changes a component reported while building the scene (a dock tile's
+        // context menu opening or closing). Both repaint only what the shell can
+        // localize; `None` (a component without a footprint) keeps the
+        // conservative full-output repaint. The regions are damage in their own
+        // right — a ticking dock spring advances every frame with no input and no
+        // client commit — so they join the output rects below, not just the
         // pointer-path union.
-        let chrome_anim_region = if self.shell.anim_pending() {
-            self.shell.anim_damage_regions(self.input_acc.display_size)
+        let scene_changed = self.shell.take_scene_changed();
+        let chrome_anim_region = if scene_changed || self.shell.anim_pending() {
+            self.shell
+                .chrome_damage_regions(self.input_acc.display_size, scene_changed)
         } else {
             None
         };
-        let base_full = base_full || (self.shell.anim_pending() && chrome_anim_region.is_none());
+        let base_full = base_full
+            || ((scene_changed || self.shell.anim_pending()) && chrome_anim_region.is_none());
 
         // Pointer-only input repaints the cursor sprite's swept area plus
         // the chrome region that reacts to the pointer (hover highlights,

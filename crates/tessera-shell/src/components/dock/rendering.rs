@@ -131,7 +131,7 @@ impl Chrome for Dock {
                 && cursor.y < current_panel.y + current_panel.h;
             let inside_menu = self.app_menu.contains(cursor.x, cursor.y, (disp.x, disp.y));
             if !inside_panel && !over_hover_surface && !inside_menu {
-                self.dismiss_expanded_autohide();
+                out.scene_changed |= self.dismiss_expanded_autohide();
             }
         }
 
@@ -210,7 +210,7 @@ impl Chrome for Dock {
 
         // The popup belongs to a tile rather than the pointer coordinate.
         // Re-anchor every frame so it follows the tile's live spring geometry.
-        self.reanchor_app_menu(&tiles, &icon_rects);
+        out.scene_changed |= self.reanchor_app_menu(&tiles, &icon_rects);
 
         // The bar and collapsed indicator are the same placed surface, and
         // both are analytic glass bodies: as it drains, the bar morphs into
@@ -305,9 +305,43 @@ impl Chrome for Dock {
         );
 
         self.app_menu.set_design(self.design);
-        self.app_menu.render(f, input, &self.all_windows, i18n, out);
+        // A closed menu's last footprint is erased exactly once: it stays in
+        // `menu_damage_rect` through the dismissal frame so `damage_regions`
+        // repaints it, then it is dropped at the top of the next render.
         if !self.app_menu.is_open() {
+            self.menu_damage_rect = None;
+        }
+        let menu_was_open = self.app_menu.is_open();
+        self.app_menu.render(f, input, &self.all_windows, i18n, out);
+        let menu_now_open = self.app_menu.is_open();
+        if !menu_now_open && menu_was_open {
             self.menu_tile = None;
+            // `AppMenu::render` closes itself on a click outside it or when its
+            // owned windows all vanished. Both are structural changes with no
+            // animation and no host snapshot behind them, so the shell has to be
+            // told or the popup's pixels stay on screen forever.
+            out.scene_changed = true;
+        }
+        // The popup follows its tile, and a tile rides the magnification spring.
+        // When the anchor rect moves, the pixels at the previous rect still hold
+        // the old frame; record that band so the vacated area repaints too. This
+        // is the same discipline `record_hover_surface_damage` applies to the
+        // tooltip and live-preview popovers.
+        if menu_now_open && let Some(bounds) = self.app_menu.bounds((disp.x, disp.y)) {
+            let damaging = tessera_primitives::Rect::new(
+                bounds.x.floor() as i32,
+                bounds.y.floor() as i32,
+                bounds.w.ceil().max(1.0) as i32,
+                bounds.h.ceil().max(1.0) as i32,
+            );
+            let moved = self.menu_damage_rect != Some(damaging);
+            Self::record_menu_damage(&mut self.menu_damage_rect, bounds);
+            // A travelling popup must repaint the band it vacated, which no
+            // animation predicate reports: the tile's spring is the animating
+            // element, not the menu.
+            if moved {
+                out.scene_changed = true;
+            }
         }
 
         self.motion.anim_active = self.anim_active;
@@ -467,11 +501,7 @@ impl Chrome for Dock {
             || self.motion.anim_pending(target, dwell_active, drag_active)
     }
 
-    fn damage_region(
-        &self,
-        _windows: &[Window],
-        display: (f32, f32),
-    ) -> Option<tessera_primitives::Rect> {
+    fn damage_regions(&self, _windows: &[Window], display: (f32, f32)) -> Option<Vec<Rect>> {
         if self.fullscreen_locked() {
             return None;
         }
@@ -479,7 +509,11 @@ impl Chrome for Dock {
         // inside the same envelope the backdrop capture uses — a strip one
         // panel thick on the dock's edge, wide enough for every tile at full
         // magnification plus overshoot.
-        let mut region = {
+        // Each painted body is its own region. Unioning them would make the strip
+        // and a popup above it one box spanning the gap between them, which is
+        // exactly the over-repaint the list exists to prevent.
+        let mut regions: Vec<Rect> = Vec::new();
+        let strip = {
             let rect = self.capture_footprint(display);
             // Optics casts the SDF shadow up to twice its blur radius outside
             // the body. Repaint the full shadow envelope, including the old
@@ -500,15 +534,47 @@ impl Chrome for Dock {
                 (y1 - y0).max(0.0) as i32,
             )
         };
+        Dock::push_damage(
+            &mut regions,
+            strip.origin.x as f32,
+            strip.origin.y as f32,
+            strip.size.w as f32,
+            strip.size.h as f32,
+        );
         if let Some(hover_rect) = self.hover_damage_rect {
-            region = region.union(hover_rect);
+            Dock::push_damage(
+                &mut regions,
+                hover_rect.origin.x as f32,
+                hover_rect.origin.y as f32,
+                hover_rect.size.w as f32,
+                hover_rect.size.h as f32,
+            );
         }
         // A live-preview panel animates open above the strip (or beside it
         // for a side dock); its panel rect is computed for presentation each
         // frame, so the union with the strip covers both the panel and the
         // strip it emerges from.
         if let Some(preview) = self.live_preview_presentation() {
-            region = region.union(preview.panel);
+            Dock::push_damage(
+                &mut regions,
+                preview.panel.origin.x as f32,
+                preview.panel.origin.y as f32,
+                preview.panel.size.w as f32,
+                preview.panel.size.h as f32,
+            );
+        }
+        // The tile context menu floats above the strip (or beside it on a side
+        // dock) and is part of this component's painted output. `menu_damage_rect`
+        // additionally carries the band it vacated while its anchor tile moved, so
+        // a travelling popup does not strand its previous frame behind it.
+        if let Some(menu) = self.menu_damage_rect {
+            Dock::push_damage(
+                &mut regions,
+                menu.origin.x as f32,
+                menu.origin.y as f32,
+                menu.size.w as f32,
+                menu.size.h as f32,
+            );
         }
         // Tooltips float above the hovered tile while their dwell fade runs;
         // a hover band reaching from the strip toward the screen centre is
@@ -535,9 +601,15 @@ impl Chrome for Dock {
                     )
                 }
             };
-            region = region.union(band);
+            Dock::push_damage(
+                &mut regions,
+                band.origin.x as f32,
+                band.origin.y as f32,
+                band.size.w as f32,
+                band.size.h as f32,
+            );
         }
-        Some(region)
+        Some(regions)
     }
 
     fn requires_composition(&self) -> bool {
@@ -918,7 +990,7 @@ impl Dock {
 
         // Advance tile magnification springs in the pre-pass whenever tiles are
         // already initialized so `liquid_glass_region` (`visual_panel_bounds`)
-        // and `damage_region` observe the exact same frame-T geometry as `render`.
+        // and `damage_regions` observe the exact same frame-T geometry as `render`.
         let mut unsettled = false;
         if !tile_keys.is_empty() {
             let over_rest_bounds = cursor.0 >= rest_bounds.x
@@ -1101,7 +1173,7 @@ impl Dock {
 /// widths, a preview `order` permutation, and the section boundary.
 ///
 /// Both the compositor pre-pass ([`Dock::step_autohide_motion`], which must
-/// publish frame-T geometry to `damage_region` and `liquid_glass_regions`) and
+/// publish frame-T geometry to `damage_regions` and `liquid_glass_regions`) and
 /// `render` (which paints it) derive their layout from
 /// [`Dock::resolve_strip_geometry`], so the panel rect, tile centres, icon
 /// rects, and drain progress can never disagree (ADR-0171, ADR-0180).
@@ -1680,7 +1752,7 @@ impl Dock {
         }
     }
 
-    fn reanchor_app_menu(&mut self, tiles: &[Tile], icon_rects: &[Rect]) {
+    fn reanchor_app_menu(&mut self, tiles: &[Tile], icon_rects: &[Rect]) -> bool {
         if self.app_menu.is_open() {
             if let Some((index, _)) = self
                 .menu_tile
@@ -1691,11 +1763,14 @@ impl Dock {
             } else {
                 self.app_menu.dismiss();
                 self.menu_tile = None;
+                return true;
             }
         }
+        false
     }
 
-    fn dismiss_expanded_autohide(&mut self) {
+    fn dismiss_expanded_autohide(&mut self) -> bool {
+        let had_menu = self.app_menu.is_open();
         self.app_menu.dismiss();
         self.menu_tile = None;
         self.press = None;
@@ -1718,6 +1793,7 @@ impl Dock {
         self.autohide_dwell = 0.0;
         self.anim_active = true;
         self.motion.anim_active = true;
+        had_menu
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2401,6 +2477,10 @@ impl Dock {
                     pin_action,
                 );
                 self.menu_tile = Some(tile.key.clone());
+                // A popup is a structural change with no animation and no
+                // host-owned snapshot to carry it: without this the menu opens
+                // into the model but never into a rebuilt scene.
+                out.scene_changed = true;
             }
         }
 

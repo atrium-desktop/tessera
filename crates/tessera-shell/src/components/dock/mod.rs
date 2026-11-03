@@ -179,6 +179,10 @@ pub struct Dock {
     pub hovered_preview: Option<tessera_desktop::window::WindowId>,
     /// Retained damage footprint for active or recently dismissed hover surfaces (tooltip / preview).
     pub hover_damage_rect: Option<tessera_primitives::Rect>,
+    /// Damage footprint of the tile context menu: the popup rect plus the band it
+    /// vacated on a previous frame. Repainted until the menu closes so a moving
+    /// anchor never strands pixels.
+    pub menu_damage_rect: Option<tessera_primitives::Rect>,
     /// Swapchain ring drain frames remaining after a hover surface closes or moves.
     pub hover_drain_frames: u8,
     pub reduced_motion: bool,
@@ -242,6 +246,7 @@ impl Dock {
             hover_owner_bounds: None,
             hovered_preview: None,
             hover_damage_rect: None,
+            menu_damage_rect: None,
             hover_drain_frames: 0,
             reduced_motion: false,
             tile_cache: RefCell::new(TileCache {
@@ -778,6 +783,61 @@ impl Dock {
         self.tooltip_tile = None;
         self.tooltip_alpha = 0.0;
         self.dismiss_hover_surface();
+    }
+
+    /// Append a damage region, dropping degenerate ones and collapsing exact
+    /// duplicates. Anchored bands can coincide (the tooltip band contains the
+    /// strip), and a repeated region would make the host walk the same scissor
+    /// twice.
+    pub(crate) fn push_damage(regions: &mut Vec<lens::Rect>, x: f32, y: f32, w: f32, h: f32) {
+        if w <= 0.0 || h <= 0.0 {
+            return;
+        }
+        /* Outward on both edges, so the far edge is never short. */
+        let x0 = x.floor();
+        let y0 = y.floor();
+        let rect = lens::Rect {
+            x: x0,
+            y: y0,
+            w: (x + w).ceil() - x0,
+            h: (y + h).ceil() - y0,
+        };
+        if !regions.contains(&rect) {
+            regions.push(rect);
+        }
+    }
+
+    /// Record the damage footprint of the dock's tile context menu.
+    ///
+    /// A popup pixel belongs to this component, so it must appear in
+    /// [`Chrome::damage_regions`]. Omitting it left the menu outside the frame's
+    /// render area: it only appeared on frames where an unrelated backdrop
+    /// refresh happened to widen the damage, which is the "sometimes renders,
+    /// sometimes flickers" popup behaviour.
+    ///
+    /// The union keeps a moving anchor repaintable: while a tile rides the
+    /// magnification spring the menu travels with it, and the band it vacated has
+    /// to be repainted or the previous frame's popup lingers behind the new one.
+    pub(crate) fn record_menu_damage(
+        menu_damage_rect: &mut Option<tessera_primitives::Rect>,
+        bounds: Rect,
+    ) {
+        /* Outward on both edges: flooring the origin while ceiling only the
+         * extent leaves the far edge short by the fractional part. */
+        let x0 = bounds.x.floor();
+        let y0 = bounds.y.floor();
+        let x1 = (bounds.x + bounds.w).ceil();
+        let y1 = (bounds.y + bounds.h).ceil();
+        let padded = tessera_primitives::Rect::new(
+            x0 as i32,
+            y0 as i32,
+            (x1 - x0).max(1.0) as i32,
+            (y1 - y0).max(1.0) as i32,
+        );
+        *menu_damage_rect = Some(match *menu_damage_rect {
+            Some(existing) => existing.union(padded),
+            None => padded,
+        });
     }
 
     /// Record damage footprint for a hover surface (tooltip or live preview)

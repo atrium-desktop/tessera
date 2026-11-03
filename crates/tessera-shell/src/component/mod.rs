@@ -49,6 +49,16 @@ use std::os::raw::c_void;
 /// depending on the component crate.
 pub const HUD_HEIGHT: f32 = 32.0;
 
+/// Logical height of the top status band measured from the output's top edge.
+///
+/// The chips float `CHIP_TOP` (8) below the edge and are [`HUD_HEIGHT`] (32)
+/// tall, so they occupy `[0, 40)`. Every damage path that repaints the strip must
+/// cover that whole range: the chip's own `damage_regions`, the clock-rollover
+/// tick in the runtime, and the overlay-pass intersection test each used to
+/// invent their own number (32, 32, 36) and all three came up short, leaving the
+/// bottom 8 px of the chips stale on every tick.
+pub const HUD_BAND_HEIGHT: f32 = 40.0;
+
 use tessera_authority::interaction_domain::InteractionDomainId;
 use tessera_authority::interaction_domain::InteractionDomainSnapshot;
 use tessera_desktop::app::ApplicationTarget;
@@ -590,7 +600,7 @@ impl Reserved {
     }
 }
 
-use lens::Frame;
+use lens::{Frame, Rect};
 
 /// Re-export so callers can construct input snapshots without depending on
 /// lens directly.
@@ -795,6 +805,16 @@ pub type PanelEvents = ChromeEvents;
 pub struct ChromeEvents {
     /// The chrome requested the session to quit.
     pub quit: bool,
+    /// A component changed its own presentation state in a way no host-owned
+    /// snapshot describes — a dock tile's context menu opening or closing, a
+    /// transient popup appearing. The host must rebuild the chrome scene and
+    /// repaint the popup's footprint on this frame.
+    ///
+    /// Distinct from [`Chrome::anim_pending`]: that keeps the frame *clock*
+    /// running for an easing value, while this is a one-shot structural change
+    /// that produces no animation and no snapshot revision. Without it a popup
+    /// that opens and closes without animating never reaches the output.
+    pub scene_changed: bool,
     /// The chrome asked to lock the session immediately (the command panel's
     /// Lock now row). Drained by the main loop into the same lock path as the
     /// Super+L binding.
@@ -1238,7 +1258,7 @@ pub trait Chrome {
 
     /// Advance animation clocks and query watchers whose results must be
     /// known before [`Chrome::backdrop_blur_sigma`],
-    /// [`Chrome::backdrop_regions`], and [`Chrome::damage_region`] are
+    /// [`Chrome::backdrop_regions`], and [`Chrome::damage_regions`] are
     /// resolved for this frame (ADR-0171, ADR-0178).
     fn prepare_frame(
         &mut self,
@@ -1274,29 +1294,30 @@ pub trait Chrome {
         false
     }
 
-    /// The output-logical rectangle this component's in-flight animation can
-    /// touch **this frame**, for hosts that convert animation ticks into
-    /// partial-output repaints instead of a full composite.
+    /// The output-logical **regions** this component's paint touches this frame,
+    /// for hosts that convert a change into a partial-output repaint instead of a
+    /// full composite.
+    ///
+    /// A list, not a rectangle: a component can touch unrelated areas at once
+    /// (a strip at the top and a popup above it, a tile and the menu it owns), and
+    /// collapsing them into one box asks the host to repaint everything between
+    /// them. The compositor's damage pipeline is a list for the same reason.
     ///
     /// Contract:
-    /// * Only consulted while [`Chrome::anim_pending`] returns true; a
-    ///   static component's region is never read.
-    /// * The rectangle must cover every pixel the animation may change
-    ///   between the previous presented frame and the next one — including
-    ///   the area vacated by a moving element (union of the previous and
-    ///   current position), plus any soft shadow/blur halo.
-    /// * Returning `None` is always safe: the host falls back to a
-    ///   full-output repaint for this frame. Third-party components should
-    ///   keep the `None` default unless they can state their footprint.
+    /// * Consulted while [`Chrome::anim_pending`] is true, and on any frame where
+    ///   the component reported [`ChromeEvents::scene_changed`]. A quiescent
+    ///   component's regions are never read.
+    /// * The regions must cover every pixel the component may change between the
+    ///   previous presented frame and the next — including the area vacated by a
+    ///   moving element, plus any soft shadow/blur halo.
+    /// * Returning `None` is always safe: the host falls back to a full-output
+    ///   repaint. Third-party components should keep the `None` default unless
+    ///   they can state their footprint.
     ///
-    /// Damage reported this way also has to be **re-reported** every animated
-    /// frame while the element keeps moving, because each partial repaint
-    /// consumes the previous frame's rectangle.
-    fn damage_region(
-        &self,
-        _windows: &[Window],
-        _display: (f32, f32),
-    ) -> Option<tessera_primitives::Rect> {
+    /// Damage reported this way has to be **re-reported** on every frame the
+    /// element keeps moving, because each partial repaint consumes the previous
+    /// frame's regions.
+    fn damage_regions(&self, _windows: &[Window], _display: (f32, f32)) -> Option<Vec<Rect>> {
         None
     }
 

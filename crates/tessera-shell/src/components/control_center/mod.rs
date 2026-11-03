@@ -1547,15 +1547,11 @@ impl Chrome for ControlCenter {
     /// reveal/close transition animates the opaque full-screen canvas, and the
     /// settle drain must overwrite a full screen of ring slots, so both stay
     /// full-output via `None`; only the micro-interactions localize.
-    fn damage_region(
-        &self,
-        _windows: &[Window],
-        display: (f32, f32),
-    ) -> Option<tessera_primitives::Rect> {
+    fn damage_regions(&self, _windows: &[Window], display: (f32, f32)) -> Option<Vec<Rect>> {
         if !self.active() {
             return None;
         }
-        animated_damage_region(
+        animated_damage_regions(
             display,
             self.reserved,
             // The reveal/close transition animates the opaque full-screen
@@ -1588,7 +1584,7 @@ impl Chrome for ControlCenter {
 /// "this is still moving" signals. Pure so the mapping is unit-testable
 /// without a GPU (the avatar path needs a live flux device). `None` means the
 /// frame must be a conservative full-output repaint.
-fn animated_damage_region(
+fn animated_damage_regions(
     display: (f32, f32),
     reserved: Reserved,
     conservative: bool,
@@ -1597,23 +1593,42 @@ fn animated_damage_region(
     avatar: bool,
     work_mode_tooltip: bool,
     session_tooltip: bool,
-) -> Option<tessera_primitives::Rect> {
+) -> Option<Vec<Rect>> {
     if conservative {
         return None;
     }
     let rects = ControlCenter::cluster_bounds(display, reserved);
-    let mut region: Option<tessera_primitives::Rect> = None;
+    /* Distinct animated bands stay distinct: the work-mode tooltip and the
+     * session tooltip live in different clusters, and their union would span the
+     * whole column between them. */
+    let mut region: Vec<Rect> = Vec::new();
     let mut merge = |rect: Rect, pad_top: f32| {
+        /* Round *outward on both edges*. Flooring the origin and ceiling the
+         * extent instead leaves the far edge short by the fractional part, which
+         * is an under-covering region — the one unsafe direction: a band whose
+         * bottom lands on 1042.2 must report 1043, not 1042. */
+        let x0 = rect.x.floor();
+        let y0 = (rect.y - pad_top).floor();
+        let x1 = (rect.x + rect.w).ceil();
+        let y1 = (rect.y + rect.h).ceil();
         let as_rect = tessera_primitives::Rect::new(
-            rect.x.floor() as i32,
-            (rect.y - pad_top).floor() as i32,
-            rect.w.ceil() as i32,
-            (rect.h + pad_top).ceil() as i32,
+            x0 as i32,
+            y0 as i32,
+            (x1 - x0).max(0.0) as i32,
+            (y1 - y0).max(0.0) as i32,
         );
-        region = Some(match region {
-            Some(existing) => existing.union(as_rect),
-            None => as_rect,
-        });
+        if as_rect.is_empty() {
+            return;
+        }
+        let as_lens = Rect {
+            x: as_rect.origin.x as f32,
+            y: as_rect.origin.y as f32,
+            w: as_rect.size.w as f32,
+            h: as_rect.size.h as f32,
+        };
+        if !region.contains(&as_lens) {
+            region.push(as_lens);
+        }
     };
     if work_mode {
         merge(rects.5, 0.0); // work-mode band
@@ -1630,5 +1645,8 @@ fn animated_damage_region(
     if avatar {
         merge(rects.0, 0.0); // profile block
     }
-    region
+    /* No signal localized anything, so this frame cannot name its damage: `None`
+     * is the honest answer and forces a full-output repaint. An empty list would
+     * claim "nothing changed", which is a different and wrong statement. */
+    (!region.is_empty()).then_some(region)
 }

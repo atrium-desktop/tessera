@@ -118,7 +118,7 @@ fn the_settle_drain_keeps_the_panel_active_for_the_ring_depth() {
         "the drain is damage bookkeeping; it must not pump the frame loop"
     );
     assert!(
-        panel.damage_region(&[], (1920.0, 1080.0)).is_none(),
+        panel.damage_regions(&[], (1920.0, 1080.0)).is_none(),
         "the drain forces a full-output repaint"
     );
 
@@ -663,7 +663,7 @@ fn animated_frames_localize_damage_to_the_moving_bands() {
 
     // Nothing animating: no footprint at all.
     assert_eq!(
-        animated_damage_region(
+        animated_damage_regions(
             display,
             bottom_dock_reserved(),
             false,
@@ -679,7 +679,7 @@ fn animated_frames_localize_damage_to_the_moving_bands() {
     // The reveal transition stays conservative (None => full repaint) because
     // it animates the full-screen backdrop cover.
     assert_eq!(
-        animated_damage_region(
+        animated_damage_regions(
             display,
             bottom_dock_reserved(),
             true,
@@ -693,7 +693,7 @@ fn animated_frames_localize_damage_to_the_moving_bands() {
     );
 
     // A ticking work-mode spring repaints only its band, never the screen.
-    let region = animated_damage_region(
+    let region = animated_damage_regions(
         display,
         bottom_dock_reserved(),
         false,
@@ -705,13 +705,18 @@ fn animated_frames_localize_damage_to_the_moving_bands() {
     )
     .expect("a ticking spring states its footprint");
     assert!(
-        region.size.w < full.size.w && region.size.h < full.size.h,
-        "the spring footprint must be a band: {region:?}"
+        region.iter().all(|band| band.h < (full.size.h as f32)),
+        "every spring footprint must be a band, never the output: {region:?}"
     );
-    assert!(region.origin.y >= work_mode.y as i32);
+    assert!(
+        region
+            .iter()
+            .any(|band| band.y <= work_mode.y && band.y + band.h >= (work_mode.y + work_mode.h)),
+        "the work-mode band must be covered: {region:?}"
+    );
 
     // The notification-scrollbar reveal covers only the notification stream.
-    let notif = animated_damage_region(
+    let notif = animated_damage_regions(
         display,
         bottom_dock_reserved(),
         false,
@@ -722,11 +727,19 @@ fn animated_frames_localize_damage_to_the_moving_bands() {
         false,
     )
     .expect("scrollbar reveal states its footprint");
-    assert!(notif.origin.x >= notifications.x as i32);
-    assert!(notif.origin.x + notif.size.w <= (notifications.x + notifications.w).ceil() as i32);
+    assert!(
+        notif.iter().all(|band| band.x >= notifications.x),
+        "the reveal band starts at the stream: {notif:?}"
+    );
+    assert!(
+        notif
+            .iter()
+            .all(|band| band.x + band.w <= (notifications.x + notifications.w).ceil()),
+        "the reveal band stays inside the stream: {notif:?}"
+    );
 
     // An animating avatar narrows to the profile block, never the full output.
-    let avatar = animated_damage_region(
+    let avatar = animated_damage_regions(
         display,
         bottom_dock_reserved(),
         false,
@@ -737,12 +750,21 @@ fn animated_frames_localize_damage_to_the_moving_bands() {
         false,
     )
     .expect("an animating avatar states its footprint");
-    assert!(avatar.size.w < full.size.w && avatar.size.h < full.size.h);
-    assert!(avatar.origin.x >= profile.x as i32);
-    assert!(avatar.origin.x + avatar.size.w <= (profile.x + profile.w).ceil() as i32);
+    assert!(
+        avatar
+            .iter()
+            .all(|band| band.h < (full.size.h as f32) && band.w < (full.size.w as f32)),
+        "the avatar band must never be the output: {avatar:?}"
+    );
+    assert!(
+        avatar
+            .iter()
+            .all(|band| band.x >= profile.x && band.x + band.w <= (profile.x + profile.w).ceil()),
+        "the avatar band must stay inside the profile block: {avatar:?}"
+    );
 
     // Tooltip reveals stay localized to their cluster anchor bands.
-    let tip = animated_damage_region(
+    let tip = animated_damage_regions(
         display,
         bottom_dock_reserved(),
         false,
@@ -753,9 +775,13 @@ fn animated_frames_localize_damage_to_the_moving_bands() {
         false,
     )
     .expect("work mode tooltip states localized footprint");
-    assert!(tip.size.w < full.size.w && tip.size.h < full.size.h);
+    assert!(
+        tip.iter()
+            .all(|band| band.h < (full.size.h as f32) && band.w < (full.size.w as f32)),
+        "a tooltip reveal must stay a band: {tip:?}"
+    );
 
-    let session_tip = animated_damage_region(
+    let session_tip = animated_damage_regions(
         display,
         bottom_dock_reserved(),
         false,
@@ -766,12 +792,20 @@ fn animated_frames_localize_damage_to_the_moving_bands() {
         true,
     )
     .expect("session tooltip states localized footprint");
-    assert!(session_tip.size.w < full.size.w && session_tip.size.h < full.size.h);
-    assert!(session_tip.origin.x >= power.x as i32);
+    assert!(
+        session_tip
+            .iter()
+            .all(|band| band.h < (full.size.h as f32) && band.w < (full.size.w as f32)),
+        "a tooltip reveal must stay a band: {session_tip:?}"
+    );
+    assert!(
+        session_tip.iter().all(|band| band.x >= power.x),
+        "the session tooltip band anchors at the power cluster: {session_tip:?}"
+    );
 
     // Independent signals union, so simultaneous motion still stays bounded
     // to the moving bands rather than the whole screen.
-    let union = animated_damage_region(
+    let union = animated_damage_regions(
         display,
         bottom_dock_reserved(),
         false,
@@ -782,7 +816,12 @@ fn animated_frames_localize_damage_to_the_moving_bands() {
         false,
     )
     .unwrap();
-    assert!(union.size.w < full.size.w && union.size.h < full.size.h);
+    assert!(
+        union
+            .iter()
+            .all(|band| band.h < (full.size.h as f32) && band.w < (full.size.w as f32)),
+        "simultaneous motion stays bounded to the moving bands: {union:?}"
+    );
 }
 
 static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

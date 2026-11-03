@@ -29,8 +29,8 @@ use tessera_desktop::window::Window;
 use tessera_desktop::workspace::WorkspaceSnapshot;
 
 use crate::component::{
-    BackdropRegion, Chrome, ChromeEvents, ChromeUpdate, HUD_HEIGHT, IconSet, LiquidGlassRegion,
-    Localizer, Message, SystemStatus, ellipsize, liquid_glass_region_id,
+    BackdropRegion, Chrome, ChromeEvents, ChromeUpdate, HUD_BAND_HEIGHT, HUD_HEIGHT, IconSet,
+    LiquidGlassRegion, Localizer, Message, SystemStatus, ellipsize, liquid_glass_region_id,
 };
 use tessera_desktop::system::BatteryStatus;
 use tessera_desktop::system::NetworkState;
@@ -858,16 +858,18 @@ impl Chrome for Hud {
             || (self.workspace_position - self.workspace_target).abs() > 0.002
     }
 
-    fn damage_region(
-        &self,
-        _windows: &[Window],
-        display: (f32, f32),
-    ) -> Option<tessera_primitives::Rect> {
-        // Every animated HUD element (chip fades, the workspace pager
-        // slide) lives inside the top status band; one chip tall is the
-        // whole band regardless of how many chips are visible.
+    fn damage_regions(&self, _windows: &[Window], display: (f32, f32)) -> Option<Vec<Rect>> {
+        // Every animated HUD element (chip fades, the workspace pager slide)
+        // lives inside the top status band. The band is the chips' real extent —
+        // they start at CHIP_TOP and are CHIP_HEIGHT tall — not HUD_HEIGHT
+        // measured from zero, which left their bottom 8 px unrepainted.
         (!self.dormant()).then(|| {
-            tessera_primitives::Rect::new(0, 0, display.0.max(1.0) as i32, HUD_HEIGHT as i32)
+            vec![Rect {
+                x: 0.0,
+                y: 0.0,
+                w: display.0.max(1.0),
+                h: HUD_BAND_HEIGHT,
+            }]
         })
     }
 

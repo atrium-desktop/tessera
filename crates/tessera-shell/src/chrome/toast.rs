@@ -223,11 +223,7 @@ impl Chrome for Toast {
             .min()
     }
 
-    fn damage_region(
-        &self,
-        _windows: &[Window],
-        display: (f32, f32),
-    ) -> Option<tessera_primitives::Rect> {
+    fn damage_regions(&self, _windows: &[Window], display: (f32, f32)) -> Option<Vec<Rect>> {
         let count = self.presentable().len();
         (count > 0).then(|| {
             // The stacked strip in the top-right corner: every slot a toast
@@ -237,12 +233,12 @@ impl Chrome for Toast {
             let height = TOAST_TOP_MARGIN
                 + count as f32 * TOAST_H
                 + (count.saturating_sub(1)) as f32 * TOAST_GAP;
-            tessera_primitives::Rect::new(
-                (display.0 - width).max(0.0) as i32,
-                0,
-                width.ceil() as i32,
-                height.ceil() as i32,
-            )
+            vec![Rect {
+                x: (display.0 - width).max(0.0),
+                y: 0.0,
+                w: width.ceil(),
+                h: height.ceil(),
+            }]
         })
     }
 

@@ -2045,13 +2045,13 @@ fn dock_morph_keeps_capture_and_shadow_damage_stable() {
         dock.set_position(position);
         dock.set_autohide(true);
         let footprint = dock.capture_footprint(display);
-        let damage = dock.damage_region(&[], display).unwrap();
+        let damage = dock.damage_regions(&[], display).unwrap();
         for progress in [0.0, 0.001, 0.25, 0.75, 1.0] {
             for active in [false, true] {
                 dock.autohide_reveal = progress;
                 dock.anim_active = active;
                 assert_eq!(dock.capture_footprint(display), footprint);
-                assert_eq!(dock.damage_region(&[], display), Some(damage));
+                assert_eq!(dock.damage_regions(&[], display), Some(damage.clone()));
                 let glass = dock.liquid_glass_regions(display, &[], &workspace_snapshot())[0];
                 assert!(footprint.x <= glass.bounds.x && footprint.y <= glass.bounds.y);
                 assert!(footprint.x + footprint.w >= glass.bounds.x + glass.bounds.w);
@@ -2067,10 +2067,14 @@ fn dock_morph_keeps_capture_and_shadow_damage_stable() {
                 let y1 = (glass.bounds.y + glass.bounds.h + fringe + glass.shadow_offset_y.max(0.0))
                     .min(display.1)
                     .ceil() as i32;
-                assert_eq!(
-                    damage.union(tessera_primitives::Rect::new(x0, y0, x1 - x0, y1 - y0)),
-                    damage
-                );
+                /* The strip region must already cover the glass body plus its
+                 * shadow envelope: the popup bands are separate regions, so this
+                 * is asserted per-region rather than on a union. */
+                let strip = damage.first().expect("the strip is always reported");
+                assert!(strip.x <= x0 as f32);
+                assert!(strip.y <= y0 as f32);
+                assert!(strip.x + strip.w >= x1 as f32);
+                assert!(strip.y + strip.h >= y1 as f32);
             }
         }
     }
@@ -2457,4 +2461,98 @@ fn resolved_strip_geometry_lands_icons_on_the_resting_model() {
             assert!((rect.w - DOCK_TILE).abs() < 1e-3 && (rect.h - DOCK_TILE).abs() < 1e-3);
         }
     }
+}
+
+/// A tile context menu is a popup the dock paints, so it must appear in the
+/// dock's damage footprint. Omitting it left the menu outside the frame's render
+/// area, and it only appeared on frames where an unrelated backdrop refresh
+/// happened to widen the damage.
+#[test]
+fn the_tile_context_menu_is_part_of_the_dock_damage() {
+    let mut dock = dock_with(vec![app("foot")]);
+    let display = (1920.0f32, 1080.0f32);
+
+    // No menu: the footprint is the strip plus its shadow, nowhere near mid-screen.
+    let quiet = dock
+        .damage_regions(&[], display)
+        .expect("the dock localizes its own paint");
+    assert!(
+        quiet.iter().all(|band| band.y > 900.0),
+        "a closed menu leaves only the strip band: {quiet:?}"
+    );
+
+    // Open one anchored at the strip, then check the popup's band is covered.
+    dock.app_menu.open(
+        "foot",
+        Some(app("foot")),
+        std::iter::empty(),
+        lens_rect(600.0, 980.0, 84.0, 74.0),
+        None,
+    );
+    let menu = dock
+        .app_menu
+        .bounds(display)
+        .expect("an open menu has bounds");
+    Dock::record_menu_damage(&mut dock.menu_damage_rect, menu);
+
+    let with_menu = dock
+        .damage_regions(&[], display)
+        .expect("the dock localizes its own paint");
+    let menu_rect = tessera_primitives::Rect::new(
+        menu.x.floor() as i32,
+        menu.y.floor() as i32,
+        menu.w.ceil() as i32,
+        menu.h.ceil() as i32,
+    );
+    /* The popup is its own region, not folded into the strip: one of the
+     * reported bands must cover it exactly, and no band may span the gap between
+     * the strip and the popup. */
+    assert!(
+        with_menu.iter().any(|band| {
+            band.x <= menu_rect.origin.x as f32
+                && band.y <= menu_rect.origin.y as f32
+                && band.x + band.w >= (menu_rect.origin.x + menu_rect.size.w) as f32
+                && band.y + band.h >= (menu_rect.origin.y + menu_rect.size.h) as f32
+        }),
+        "the popup {menu_rect:?} must be a reported region: {with_menu:?}"
+    );
+    assert!(
+        with_menu.len() > quiet.len(),
+        "an open popup adds a region instead of widening the strip"
+    );
+    let strip = quiet.first().expect("strip");
+    assert!(
+        with_menu
+            .iter()
+            .any(|band| band.y + band.h == strip.y + strip.h && band.h == strip.h),
+        "the strip keeps its own extent while the popup is open: {with_menu:?}"
+    );
+}
+
+/// A popup that follows its tile must repaint the band it vacated: the previous
+/// frame's menu is still on screen, and no animation predicate reports the move.
+#[test]
+fn a_moving_menu_footprint_keeps_the_vacated_band() {
+    let mut dock = dock_with(vec![app("foot")]);
+    let first = lens_rect(600.0, 980.0, 84.0, 74.0);
+    let second = lens_rect(900.0, 980.0, 84.0, 74.0);
+
+    Dock::record_menu_damage(&mut dock.menu_damage_rect, first);
+    let after_first = dock.menu_damage_rect.expect("recorded");
+    Dock::record_menu_damage(&mut dock.menu_damage_rect, second);
+    let after_second = dock.menu_damage_rect.expect("recorded");
+
+    assert!(
+        after_second.origin.x <= after_first.origin.x,
+        "the vacated band's left edge must stay covered"
+    );
+    assert!(
+        after_second.size.w >= after_first.size.w,
+        "the union of both anchor positions must stay covered"
+    );
+}
+
+/// A `lens::Rect` from corners, so the popup fixtures stay readable.
+fn lens_rect(x: f32, y: f32, w: f32, h: f32) -> Rect {
+    Rect { x, y, w, h }
 }

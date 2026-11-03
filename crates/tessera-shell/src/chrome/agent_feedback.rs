@@ -546,14 +546,12 @@ impl Chrome for AgentFeedback {
         })
     }
 
-    fn damage_region(
-        &self,
-        windows: &[Window],
-        display: (f32, f32),
-    ) -> Option<tessera_primitives::Rect> {
+    fn damage_regions(&self, windows: &[Window], display: (f32, f32)) -> Option<Vec<Rect>> {
         let now = Instant::now();
         let display = (display.0.max(1.0), display.1.max(1.0));
-        let mut region: Option<tessera_primitives::Rect> = None;
+        // Each annotated window is its own region: two pointer operations on
+        // distant windows must not become one box spanning both.
+        let mut regions: Vec<Rect> = Vec::new();
         let mut background_count = 0usize;
         for (id, activity) in &self.activity {
             let expired = now.saturating_duration_since(activity.latest_at) >= VISIBLE_FOR;
@@ -615,14 +613,20 @@ impl Chrome for AgentFeedback {
                         240,
                         50,
                     );
-                    region = Some(match region {
-                        Some(existing) => existing
-                            .union(mask)
-                            .union(label)
-                            .union(ripple)
-                            .union(keycast_rect),
-                        None => mask.union(label).union(ripple).union(keycast_rect),
-                    });
+                    for rect in [mask, label, ripple, keycast_rect] {
+                        if rect.is_empty() {
+                            continue;
+                        }
+                        let as_lens = Rect {
+                            x: rect.origin.x as f32,
+                            y: rect.origin.y as f32,
+                            w: rect.size.w as f32,
+                            h: rect.size.h as f32,
+                        };
+                        if !regions.contains(&as_lens) {
+                            regions.push(as_lens);
+                        }
+                    }
                 }
                 None => background_count += 1,
             }
@@ -634,12 +638,14 @@ impl Chrome for AgentFeedback {
                 display.0 as i32,
                 (BACKGROUND_HEIGHT * background_count as f32).ceil() as i32,
             );
-            region = Some(match region {
-                Some(existing) => existing.union(band),
-                None => band,
+            regions.push(Rect {
+                x: band.origin.x as f32,
+                y: band.origin.y as f32,
+                w: band.size.w as f32,
+                h: band.size.h as f32,
             });
         }
-        region
+        Some(regions)
     }
 }
 

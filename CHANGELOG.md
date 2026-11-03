@@ -14,6 +14,23 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Fixed
+- **Chrome damage is consumed as a list, and chrome footprints are measured instead of guessed ([ADR-0211](docs/adr/0211-regional-damage-is-consumed-as-a-list-and-chrome-footprints-are-measured.md)).** Repairs regional composition end to end and removes the correctness defect it had masked.
+  - The shell forwards Lens's regional damage list verbatim. The `covers_full_display` band substitution (`INV-ARCH-98`) is retired: it existed to contain a Lens query that over-reported the whole display, and it then *discarded the middle of the screen* for genuine full-output changes. Accurate producer-side localization (Optics [ADR-0143](../../optics/docs/adr/0143-regional-damage-rect-lists-and-paint-bounds-localization.md)) removes the need for it.
+  - `Shell::anim_damage_regions` is replaced by `Shell::chrome_damage_regions`, which answers for both triggers — in-flight animations and one-shot structural changes — in one query.
+  - `ChromeEvents::scene_changed` reports a component mutating its own presentation structure (a dock tile's context menu opening or closing). `anim_pending` drives the frame clock and is not a change notification, so a popup that opened without animating previously rendered into the model and never into a frame; it was visible only on frames where an unrelated backdrop refresh widened the damage.
+  - The dock's tile context menu is now part of `Dock::damage_region`; it was outside the render area and clipped away.
+  - `chrome_intersects_render_area` answers from the measured union of every visible persistent decoration's `damage_region`, on both axes. The previous y-only test derived thresholds from `reserved`, which is a window-placement inset rather than a paint footprint, so a left- or right-docked bar reserved `left`/`right` and the predicate answered "no chrome here" and clipped it.
+  - The status strip is repainted over its real extent. `HUD_BAND_HEIGHT` is the single pinned definition (`CHIP_TOP + HUD_HEIGHT`); the HUD's own `damage_region`, the runtime's clock-rollover tick, and the overlay-elision test previously each invented a different number (32, 32, 36) and all fell short of the chips' `[8, 40)` extent.
+  - `set_settings`, `set_resource_stats`, and `set_interaction_domains` are equality-guarded. The host republishes all three every frame, so their unconditional dirty flag defeated the quiescent scene elision from `INV-ARCH-103`.
+- **Overlay-elision dead code removed.** `chrome_intersects_render_area` computed and discarded `area.x`.
+- **Logical-to-integer damage conversions round outward on both edges.** Flooring an origin while ceiling only an extent leaves the far edge short by the fractional part, so a band ending at 1042.2 reported 1042 and stranded a row. Fixed in the control center's band merge, the dock's popup accumulator, and the shell's region conversion.
+
+### Changed
+- **Adopted Optics v0.0.71 regional damage API, with no single-rect fallback.** `lens_damage_rects` is the only damage query; `lens_damage_rect` no longer exists, and `Ui::damage_rect` is gone from the Rust binding.
+- **`Chrome::damage_region` is now `Chrome::damage_regions`, returning a list.** A component's painted output can touch unrelated areas at once (a dock strip and the menu above it, two annotated windows); folding them into one rectangle asks the host to repaint everything between them.
+- **An empty region list means "nothing", `None` means "cannot localize".** The two are different claims and are never conflated: `None` still forces a full-output repaint.
+
 ## [0.0.88] - 2026-11-03
 
 ### Changed
