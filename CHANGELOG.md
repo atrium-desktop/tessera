@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.88] - 2026-11-03
+
 ### Changed
 - **Capacity-aware frame CPU allocation (ADR-0210).** The realtime frame loop now selects a full-capacity Performance Core from EAS capacity data instead of blindly taking the highest-numbered CPU, keeping it off both the IRQ core and Low-Power Island E-cores.
 - **Persistent decoration damage containment (ADR-0210).** Unlocalized Lens root damage is clamped to the HUD and Dock bands when no immersive component is active, so chrome easing no longer forces full-output recomposition of client workspaces.
