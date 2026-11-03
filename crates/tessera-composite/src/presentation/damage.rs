@@ -219,18 +219,21 @@ pub enum ClientDamage {
 impl ClientDamage {
     /// Map logical damage rectangles onto the physical framebuffer. Each
     /// logical rect is mapped independently, preserving disjoint regions for
-    /// the KMS hint. A logical area that does not map cleanly onto the
-    /// framebuffer must not silently become "no damage": if any rect is
-    /// unmappable the whole frame is Full.
+    /// the KMS hint. Rectangles outside the visible framebuffer contribute no
+    /// pixels and are discarded without degrading the whole frame to Full.
+    /// Only invalid coordinate systems (non-finite or non-positive scale, or
+    /// zero-sized physical target) degrade to `FrameDamage::Full`.
     pub fn into_frame_damage(self, scale: f32, physical_size: (u32, u32)) -> FrameDamage {
+        if !scale.is_finite() || scale <= 0.0 || physical_size.0 == 0 || physical_size.1 == 0 {
+            return FrameDamage::Full;
+        }
         match self {
             ClientDamage::None => FrameDamage::None,
             ClientDamage::Area(logical) => {
                 let mut physical = Vec::with_capacity(logical.len());
                 for rect in logical {
-                    match logical_to_physical(rect, scale, physical_size) {
-                        Some(p) => physical.push(p),
-                        None => return FrameDamage::Full,
+                    if let Some(p) = logical_to_physical(rect, scale, physical_size) {
+                        physical.push(p);
                     }
                 }
                 if physical.is_empty() {
@@ -507,24 +510,30 @@ pub fn logical_to_physical(rect: Rect, scale: f32, physical: (u32, u32)) -> Opti
     ))
 }
 
-/// Map logical damage rectangles into a [`FrameDamage`], degrading to `Full`
-/// when any rectangle cannot be represented on the physical framebuffer —
-/// the same policy as client damage mapping.
+/// Map logical damage rectangles into a [`FrameDamage`]. Rectangles outside
+/// the physical framebuffer contribute no pixels and are discarded without
+/// degrading the whole frame to Full. Only an untrustworthy coordinate system
+/// (non-finite or non-positive scale, or zero-sized physical target) degrades to
+/// `FrameDamage::Full`.
 pub fn logical_rects_to_frame(
     logical: Vec<Rect>,
     scale: f32,
     physical_size: (u32, u32),
 ) -> FrameDamage {
+    if !scale.is_finite() || scale <= 0.0 || physical_size.0 == 0 || physical_size.1 == 0 {
+        return FrameDamage::Full;
+    }
     let mut physical = Vec::with_capacity(logical.len());
     for rect in logical {
-        match logical_to_physical(rect, scale, physical_size) {
-            Some(mapped) => physical.push(mapped),
-            // Unmappable means "cannot express this damage as rectangles";
-            // the only safe output is a full repaint.
-            None => return FrameDamage::Full,
+        if let Some(mapped) = logical_to_physical(rect, scale, physical_size) {
+            physical.push(mapped);
         }
     }
-    FrameDamage::from_rects(physical)
+    if physical.is_empty() {
+        FrameDamage::None
+    } else {
+        FrameDamage::from_rects(physical)
+    }
 }
 
 /// Map one offscreen stream's own-tree logical damage onto its physical
@@ -1013,7 +1022,21 @@ mod tests {
             damage.clone().into_frame_damage(1.0, (100, 100)),
             FrameDamage::Area(vec![Rect::new(0, 0, 5, 5), Rect::new(10, 10, 5, 5)])
         );
-        // One unmappable rect degrades the whole frame to Full.
+        // Offscreen rectangles contribute zero physical damage without degrading to Full (INV-ARCH-99).
+        let with_offscreen = ClientDamage::Area(vec![
+            Rect::new(0, 0, 5, 5),
+            Rect::new(-50, -50, 20, 20),
+        ]);
+        assert_eq!(
+            with_offscreen.into_frame_damage(1.0, (100, 100)),
+            FrameDamage::Area(vec![Rect::new(0, 0, 5, 5)])
+        );
+        let all_offscreen = ClientDamage::Area(vec![Rect::new(-50, -50, 20, 20)]);
+        assert_eq!(
+            all_offscreen.into_frame_damage(1.0, (100, 100)),
+            FrameDamage::None
+        );
+        // An invalid scale degrades the whole frame to Full.
         assert_eq!(damage.into_frame_damage(0.0, (100, 100)), FrameDamage::Full);
         assert_eq!(
             ClientDamage::None.into_frame_damage(1.0, (100, 100)),

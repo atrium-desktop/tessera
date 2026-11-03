@@ -383,6 +383,15 @@ impl Server {
         &self.socket
     }
 
+    /// Read the current presentation clock timestamp in milliseconds.
+    ///
+    /// This clock is `CLOCK_MONOTONIC` — the same clock announced by the
+    /// `wp_presentation` global — ensuring that `wl_surface.frame` and
+    /// `wp_presentation_feedback` share a single coherent epoch.
+    pub fn monotonic_ms(&self) -> u32 {
+        crate::monotonic_ms()
+    }
+
     /// Raw fd of the server's Wayland event loop, for embedding in an outer
     /// poll set. It reads ready when client requests (surface commits, new
     /// connections) are pending, which is how an idle compositor gets woken

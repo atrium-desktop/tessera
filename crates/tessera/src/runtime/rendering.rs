@@ -65,29 +65,6 @@ pub(super) fn begin_opaque_frame_repaint<'c, 'surface>(
     )
 }
 
-/// Offscreen-target counterpart to [`begin_opaque_frame`].
-#[allow(dead_code)]
-pub(super) fn begin_opaque_target<'c, 'borrow, 'surface>(
-    canvas: &'c mut flux::Canvas,
-    frame: &'borrow mut flux::Frame<'surface>,
-    target: &'borrow mut flux::Image,
-    clear: u32,
-) -> Result<flux::CanvasSession<'c, flux::ImageTarget<'borrow, 'surface>>, flux::Error> {
-    debug_assert_eq!(clear >> 24, 0xff, "compositor pass clear must be opaque");
-    canvas.begin_session(
-        flux::ImageTarget {
-            frame,
-            image: target,
-        },
-        flux::CanvasPassOptions {
-            clear: Some(clear),
-            antialias: flux::CanvasAntialias::None,
-            render_area: None,
-            skip_stencil: true,
-        },
-    )
-}
-
 /// Connected groups of declared backdrop regions in physical pixels,
 /// expanded by the blur footprint and aligned to the capture grid.
 ///
@@ -1215,14 +1192,6 @@ impl BackdropGraphExecutor {
                 None
             }
         }
-    }
-
-    #[allow(dead_code)]
-    pub(super) fn target(&self, slot: usize) -> Option<&flux::Image> {
-        self.captures
-            .get(slot)
-            .and_then(Option::as_ref)
-            .map(|capture| &capture.image)
     }
 
     pub(super) fn target_mut(&mut self, slot: usize) -> Option<&mut flux::Image> {

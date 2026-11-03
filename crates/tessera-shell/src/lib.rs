@@ -121,6 +121,11 @@ pub struct Shell {
     /// built scene here lets `prepare_frame` (before damage assessment) do the
     /// building and `submit` (inside the pass) do only the drawing.
     pending_scene: Option<lens::Snapshot>,
+    /// Whether any component, layout, or model state changed requiring
+    /// a new UI scene build (ADR-0210, INV-ARCH-103).
+    dirty: bool,
+    /// Last sampled input cursor coordinates to detect pointer motion.
+    last_input_cursor: (f32, f32),
 }
 
 impl Shell {
@@ -157,6 +162,8 @@ impl Shell {
                 design: tessera_design::Design::dark(),
                 screenshot_freeze: false,
                 pending_scene: None,
+                dirty: true,
+                last_input_cursor: (-1.0, -1.0),
             })
         }
     }
@@ -186,6 +193,8 @@ impl Shell {
             design: tessera_design::Design::dark(),
             screenshot_freeze: false,
             pending_scene: None,
+            dirty: true,
+            last_input_cursor: (-1.0, -1.0),
         })
     }
 
@@ -222,9 +231,15 @@ impl Shell {
         });
     }
 
+    /// Mark the shell scene as dirty, requiring a scene rebuild on the next prepared frame.
+    pub fn mark_dirty(&mut self) {
+        self.dirty = true;
+    }
+
     /// Register a chrome component. Components render once per frame, in
     /// registration order.
     pub fn add(&mut self, mut component: Box<dyn Chrome>) {
+        self.dirty = true;
         component.update(ChromeUpdate::SystemStatus(&self.system_status));
         component.update(ChromeUpdate::ResourceStats(&self.resource_stats));
         component.update(ChromeUpdate::InteractionDomains(&self.interaction_domains));
@@ -251,10 +266,13 @@ impl Shell {
     /// Set the shell-wide reduced-motion policy (ADR-0029): every component
     /// transition and every lens eased value resolves in one frame when on.
     pub fn set_reduced_motion(&mut self, reduced: bool) {
-        self.reduced_motion = reduced;
-        self.ui.set_reduced_motion(reduced);
-        for component in &mut self.components {
-            component.update(ChromeUpdate::ReducedMotion(reduced));
+        if self.reduced_motion != reduced {
+            self.reduced_motion = reduced;
+            self.dirty = true;
+            self.ui.set_reduced_motion(reduced);
+            for component in &mut self.components {
+                component.update(ChromeUpdate::ReducedMotion(reduced));
+            }
         }
     }
 
@@ -268,9 +286,15 @@ impl Shell {
     /// chrome rasterises crisply on a scaled output. The main loop reports the
     /// backend's output scale here each time it changes.
     pub fn set_scale(&mut self, scale: f32) {
+        let scale = if scale.is_finite() && scale > 0.0 {
+            scale.clamp(0.25, 16.0)
+        } else {
+            1.0
+        };
         self.ui.set_scale(scale);
         if self.scale != scale {
             self.scale = scale;
+            self.dirty = true;
             for component in self.components.iter_mut() {
                 component.update(ChromeUpdate::Scale(scale));
             }
@@ -286,6 +310,7 @@ impl Shell {
         let design = tessera_design::Design::for_scheme(scheme);
         if self.design != design {
             self.design = design;
+            self.dirty = true;
             // Keep lens's own widget defaults on the same tonal side as the
             // design: bare icons and any unstyled widget draw with the
             // context theme's foreground, which otherwise stays on the
@@ -309,6 +334,7 @@ impl Shell {
     /// with the process message locale (`LC_ALL` > `LC_MESSAGES` > `LANG`).
     pub fn set_locale(&mut self, locale: &str) {
         self.i18n = Localizer::new(locale);
+        self.dirty = true;
     }
 
     /// Canonical locale tag of the active shell translation catalog.
@@ -331,6 +357,7 @@ impl Shell {
     /// by the main loop with `server.windows()`.
     pub fn set_windows(&mut self, windows: Vec<Window>) {
         self.windows = windows;
+        self.dirty = true;
         for component in self.components.iter_mut() {
             component.update(ChromeUpdate::Windows(&self.windows));
         }
@@ -343,6 +370,7 @@ impl Shell {
     /// [`Self::set_windows`] snapshot.
     pub fn set_all_windows(&mut self, windows: Vec<Window>) {
         self.all_windows = windows;
+        self.dirty = true;
         for component in self.components.iter_mut() {
             component.update(ChromeUpdate::AllWindows(&self.all_windows));
         }
@@ -354,16 +382,22 @@ impl Shell {
     /// derives it, because only the server resolves physical coverage, declared
     /// opacity, and output layout.
     pub fn set_space_use(&mut self, space_use: tessera_desktop::window::SpaceUse) {
-        self.space_use = space_use;
-        for component in self.components.iter_mut() {
-            component.update(ChromeUpdate::SpaceUse(space_use));
+        if self.space_use != space_use {
+            self.space_use = space_use;
+            self.dirty = true;
+            for component in self.components.iter_mut() {
+                component.update(ChromeUpdate::SpaceUse(space_use));
+            }
         }
     }
 
     /// Replace the host's workspace snapshot. Called once per frame by the
     /// main loop with `server.workspace_snapshot()`.
     pub fn set_workspaces(&mut self, workspaces: WorkspaceSnapshot) {
-        self.workspaces = workspaces;
+        if self.workspaces != workspaces {
+            self.workspaces = workspaces;
+            self.dirty = true;
+        }
     }
 
     /// Drain the surface id of the window a component asked to focus this
@@ -402,9 +436,12 @@ impl Shell {
     /// Replace the normalized system snapshot and notify interested shell
     /// applications and compact status surfaces.
     pub fn set_system_status(&mut self, status: SystemStatus) {
-        self.system_status = status;
-        for component in self.components.iter_mut() {
-            component.update(ChromeUpdate::SystemStatus(&self.system_status));
+        if self.system_status != status {
+            self.system_status = status;
+            self.dirty = true;
+            for component in self.components.iter_mut() {
+                component.update(ChromeUpdate::SystemStatus(&self.system_status));
+            }
         }
     }
 
@@ -412,6 +449,7 @@ impl Shell {
     /// settings UI.
     pub fn set_settings(&mut self, snapshot: tessera_desktop::settings::SettingsSnapshot) {
         self.settings = Some(snapshot);
+        self.dirty = true;
         if let Some(settings) = self.settings.as_ref() {
             for component in self.components.iter_mut() {
                 component.update(ChromeUpdate::Settings(settings));
@@ -423,6 +461,7 @@ impl Shell {
     /// status surfaces.
     pub fn set_resource_stats(&mut self, stats: ResourceStats) {
         self.resource_stats = stats;
+        self.dirty = true;
         for component in self.components.iter_mut() {
             component.update(ChromeUpdate::ResourceStats(&self.resource_stats));
         }
@@ -432,6 +471,7 @@ impl Shell {
     /// Agent Workspaces before their next frame.
     pub fn set_interaction_domains(&mut self, snapshot: InteractionDomainSnapshot) {
         self.interaction_domains = snapshot;
+        self.dirty = true;
         for component in self.components.iter_mut() {
             component.update(ChromeUpdate::InteractionDomains(&self.interaction_domains));
         }
@@ -821,7 +861,10 @@ impl Shell {
     /// draws only the screenshot selector; every other component is part of
     /// the frozen snapshot the compositor presents underneath.
     pub fn set_screenshot_freeze(&mut self, frozen: bool) {
-        self.screenshot_freeze = frozen;
+        if self.screenshot_freeze != frozen {
+            self.screenshot_freeze = frozen;
+            self.dirty = true;
+        }
     }
 
     /// Whether any registered component currently captures keyboard input
@@ -911,6 +954,7 @@ impl Shell {
     /// component. The shell keeps a copy to seed components added later.
     pub fn set_app_catalog(&mut self, catalog: AppCatalog) {
         self.catalog = catalog;
+        self.dirty = true;
         for component in self.components.iter_mut() {
             component.update(ChromeUpdate::AppCatalog(&self.catalog));
         }
@@ -1068,7 +1112,41 @@ impl Shell {
                 // inventing one would be worse than adding none.
                 return Some(regions);
             }
-            regions.push(footprint);
+            let covers_full_display =
+                footprint.size.w >= display.0 as i32 && footprint.size.h >= display.1 as i32;
+            let immersive_active = modal_active
+                || window_switcher_active
+                || exclusive_presentation_active
+                || self.components.iter().any(|c| {
+                    c.pivot_active()
+                        || c.control_center_active()
+                        || c.command_panel_active()
+                        || c.overview_active()
+                });
+            if covers_full_display && !immersive_active {
+                // An easing Lens control fell back to ui->root->final_rect because its
+                // internal delta is not localized to a single dirty node bounding box.
+                // When only persistent chrome (HUD, Dock) is live, constrain the damage
+                // to the decoration bands so client windows (like foot) in the center are
+                // not forced into full-output recomposition (ADR-0210, INV-ARCH-98).
+                let reserved = self.reserved();
+                let top_h = reserved.top.max(36);
+                let bottom_h = reserved.bottom.max(80);
+                regions.push(tessera_primitives::Rect::new(
+                    0,
+                    0,
+                    display.0 as i32,
+                    top_h,
+                ));
+                regions.push(tessera_primitives::Rect::new(
+                    0,
+                    (display.1 as i32).saturating_sub(bottom_h),
+                    display.0 as i32,
+                    bottom_h,
+                ));
+            } else {
+                regions.push(footprint);
+            }
         }
         Some(regions)
     }
@@ -1094,6 +1172,58 @@ impl Shell {
                 )
             })
             .any(|component| component.requires_composition())
+    }
+
+    /// Whether any participating chrome component can touch pixels inside `area`
+    /// (in physical pixels). When false, the compositor can skip the secondary
+    /// stencil overlay render pass entirely for localized client repaints (ADR-0210).
+    pub fn chrome_intersects_render_area(
+        &self,
+        area: flux::CanvasRenderArea,
+        scale: f32,
+        logical_size: (u32, u32),
+    ) -> bool {
+        let modal_active = self
+            .components
+            .iter()
+            .any(|component| component.modal_active());
+        let window_switcher_active = self.window_switcher_active();
+        let exclusive_presentation_active = self.exclusive_presentation_active();
+        let immersive_active = self.components.iter().any(|c| {
+            c.pivot_active()
+                || c.control_center_active()
+                || c.command_panel_active()
+                || c.overview_active()
+        });
+        if modal_active || window_switcher_active || exclusive_presentation_active || immersive_active {
+            return true;
+        }
+
+        let non_persistent = self.components.iter().any(|c| {
+            !c.persistent_decoration() && c.requires_composition()
+        });
+        if non_persistent {
+            return true;
+        }
+
+        let reserved = self.reserved();
+        let top_physical = (reserved.top.max(36) as f32 * scale).ceil() as i32;
+        let dock_h = reserved.bottom.max(80) as f32 * scale;
+        let bottom_physical = (logical_size.1 as f32 * scale - dock_h).floor() as i32;
+
+        let area_y0 = area.x;
+        let _ = area_y0;
+        let area_y0 = area.y;
+        let area_y1 = area.y + area.height as i32;
+
+        if area_y0 < top_physical {
+            return true;
+        }
+        if area_y1 > bottom_physical {
+            return true;
+        }
+
+        false
     }
 
     /// Return the precise compositor-owned work that would affect the next
@@ -1210,9 +1340,32 @@ impl Shell {
                 component.prepare_frame(input, &self.windows, &self.workspaces);
             }
         }
+
+        let raw = input.as_raw();
+        let cursor = (raw.cursor.x, raw.cursor.y);
+        let input_active = cursor != self.last_input_cursor
+            || raw.mouse_pressed.iter().any(|&p| p)
+            || raw.mouse_released.iter().any(|&r| r)
+            || raw.mouse_down.iter().any(|&d| d)
+            || raw.scroll_x != 0.0
+            || raw.scroll_y != 0.0
+            || raw.scroll_pixels_x != 0.0
+            || raw.scroll_pixels_y != 0.0
+            || raw.key_count > 0
+            || raw.text_utf8[0] != 0
+            || raw.preedit_utf8[0] != 0;
+        self.last_input_cursor = cursor;
+
+        let needs_build = self.dirty
+            || input_active
+            || self.anim_pending()
+            || self.pending_scene.is_none();
+
         // SAFETY: the device behind `ui` outlives the Shell (construction
         // contract), and this mutates no host state.
-        if let Err(error) = unsafe { self.build_scene(input) } {
+        if needs_build
+            && let Err(error) = unsafe { self.build_scene(input) }
+        {
             // A failed build leaves `pending_scene` empty; `submit` then draws
             // nothing and the frame degrades to a chrome-less desktop rather
             // than dropping the presentation.
@@ -1392,24 +1545,6 @@ impl Shell {
         layers
     }
 
-    /// Run every registered component and render the chrome into `canvas`,
-    /// using `input` for interaction.
-    ///
-    /// # Safety
-    /// `canvas` must be a live `flux_canvas` (from `flux::Canvas::as_raw`)
-    /// currently inside a `begin`/`end` recording pair on the active frame.
-    pub unsafe fn render(&mut self, canvas: *mut c_void, input: &Input) -> Result<(), ShellError> {
-        // Building belongs to `prepare_frame`; reaching here with nothing built
-        // means the caller skipped it (headless paths, tests). Build now so a
-        // stray caller still draws a correct frame rather than a stale one.
-        if self.pending_scene.is_none() {
-            self.prepare_frame(input);
-        }
-        // SAFETY: `canvas` is the caller's live `flux_canvas`, open for
-        // drawing; the obligation is the same one `render` accepted.
-        unsafe { self.submit(canvas) }
-    }
-
     /// Draw the scene `prepare_frame` built onto `canvas`.
     ///
     /// This is the half of a frame that must run inside an open canvas pass.
@@ -1421,8 +1556,7 @@ impl Shell {
     /// # Safety
     /// `canvas` must be a live `flux_canvas` (from `flux::Canvas::as_raw`)
     /// whose pass is currently open for drawing and whose target outlives the
-    /// call. It must outlive every `Snapshot` this `Shell` has produced, which
-    /// is the same obligation [`Shell::render`] carries.
+    /// call. It must outlive every `Snapshot` this `Shell` has produced.
     pub unsafe fn submit(&mut self, canvas: *mut c_void) -> Result<(), ShellError> {
         // Take a copy of the handle rather than moving the field: the scene
         // stays available if drawing fails, so a retry, a diagnostic read of
@@ -1512,6 +1646,7 @@ impl Shell {
             });
             let snapshot = self.ui.snapshot().map_err(ShellError::Render)?;
             self.pending_scene = Some(snapshot);
+            self.dirty = false;
             Ok(())
         }
     }
@@ -1906,6 +2041,24 @@ mod tests {
         // than accumulating or leaving a stale scene.
         shell.prepare_frame(&Input::default());
         assert!(shell.has_pending_scene());
+    }
+
+    #[test]
+    fn quiescent_shell_preserves_scene_without_rebuilding() {
+        let mut shell = Shell::headless().unwrap();
+        shell.prepare_frame(&Input::default());
+        assert!(shell.has_pending_scene());
+        assert!(!shell.dirty);
+
+        // Calling prepare_frame with quiescent input preserves the existing scene
+        shell.prepare_frame(&Input::default());
+        assert!(shell.has_pending_scene());
+
+        // Marking dirty triggers rebuild
+        shell.mark_dirty();
+        assert!(shell.dirty);
+        shell.prepare_frame(&Input::default());
+        assert!(!shell.dirty);
     }
 
     /// The scene is a *presentable artifact*, and presenting it clears it — but

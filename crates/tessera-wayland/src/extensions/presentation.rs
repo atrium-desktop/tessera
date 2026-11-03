@@ -84,7 +84,7 @@ unsafe extern "C" fn presentation_feedback(
             rec as *mut c_void,
             Some(feedback_resource_destroy),
         );
-        (*rec).presentation_feedback.push(fb);
+        (*rec).pending_presentation_feedback.push(fb);
     }
 }
 
@@ -98,6 +98,7 @@ unsafe extern "C" fn feedback_resource_destroy(resource: *mut ffi::wl_resource) 
             return;
         }
         (*rec).presentation_feedback.retain(|&f| f != resource);
+        (*rec).pending_presentation_feedback.retain(|&f| f != resource);
     }
 }
 
@@ -106,14 +107,16 @@ unsafe extern "C" fn feedback_resource_destroy(resource: *mut ffi::wl_resource) 
 /// that never reaches the display cannot be reported as presented.
 pub(crate) unsafe fn discard_surface_feedback(rec: *mut SurfaceRec) {
     unsafe {
-        if rec.is_null() || (*rec).presentation_feedback.is_empty() {
+        if rec.is_null() {
             return;
         }
-        let pending = std::mem::take(&mut (*rec).presentation_feedback);
-        for fb in pending {
+        let active = std::mem::take(&mut (*rec).presentation_feedback);
+        let pending = std::mem::take(&mut (*rec).pending_presentation_feedback);
+        for fb in active.into_iter().chain(pending) {
             if fb.is_null() {
                 continue;
             }
+            ffi::wl_resource_set_implementation(fb, std::ptr::null(), std::ptr::null_mut(), None);
             ffi::wl_resource_post_event(fb, ffi::WP_PRESENTATION_FEEDBACK_DISCARDED);
             // The queue is already emptied, so the destroy hook's `retain` is a
             // no-op and the resource cannot dangle in a partially-drained list.

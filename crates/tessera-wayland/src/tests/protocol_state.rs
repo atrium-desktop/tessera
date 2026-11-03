@@ -2449,3 +2449,116 @@ fn touch_dnd_full_lifecycle_state_machine() {
     assert!(state.drag.is_none());
     assert!(!state.touch_grab_active);
 }
+
+#[test]
+fn monotonic_ms_and_ns_are_coherent() {
+    let ns = monotonic_ns();
+    let ms = monotonic_ms();
+    assert!(ns > 0);
+    assert!(ms > 0);
+    let expected_ms = (ns / 1_000_000) as u32;
+    assert!(ms.abs_diff(expected_ms) <= 20);
+}
+
+#[test]
+fn frame_callbacks_are_double_buffered_and_pending_until_commit() {
+    let mut server = Server::new().expect("Server::new");
+    let mut surface = mapped_toplevel_fixture(tessera_desktop::window::WindowId(1), 0x1000);
+    let mock_cb = 0x2000usize as *mut ffi::wl_resource;
+
+    // Simulate surface_frame: queued in pending_frame_callbacks
+    surface.pending_frame_callbacks.push(mock_cb);
+
+    server.state.surfaces.push(surface.as_mut());
+
+    // Before commit, frame_callbacks is empty, so no callbacks are pending presentation
+    assert!(!server.frame_callbacks_pending());
+    assert_eq!(surface.pending_frame_callbacks.len(), 1);
+    assert!(surface.frame_callbacks.is_empty());
+
+    // Simulate commit: pending_frame_callbacks moves to frame_callbacks
+    surface.frame_callbacks.append(&mut surface.pending_frame_callbacks);
+
+    // Now committed and waiting for output presentation
+    assert!(server.frame_callbacks_pending());
+    assert!(surface.pending_frame_callbacks.is_empty());
+    assert_eq!(surface.frame_callbacks.len(), 1);
+
+    // Clean up mock state before teardown
+    surface.frame_callbacks.clear();
+    server.state.surfaces.clear();
+}
+
+#[test]
+fn synchronized_subsurface_frame_callbacks_stay_pending_until_parent_commit() {
+    let mut server = Server::new().expect("Server::new");
+    let mut parent = mapped_toplevel_fixture(tessera_desktop::window::WindowId(1), 0x1000);
+    let mut child = mapped_toplevel_fixture(tessera_desktop::window::WindowId(2), 0x2000);
+    child.parent = parent.as_mut();
+    child.subsurface_sync = true;
+    parent.children.push(child.as_mut());
+
+    server.state.surfaces.push(parent.as_mut());
+    server.state.surfaces.push(child.as_mut());
+
+    let mock_cb = 0x3000usize as *mut ffi::wl_resource;
+    child.pending_frame_callbacks.push(mock_cb);
+
+    // Child is synchronized: before parent commit applies state, callbacks are not pending presentation
+    assert!(!server.frame_callbacks_pending());
+    assert_eq!(child.pending_frame_callbacks.len(), 1);
+    assert!(child.frame_callbacks.is_empty());
+
+    // Parent commit applies cached subsurface state
+    child.frame_callbacks.append(&mut child.pending_frame_callbacks);
+
+    assert!(server.frame_callbacks_pending());
+    assert_eq!(child.frame_callbacks.len(), 1);
+    assert!(child.pending_frame_callbacks.is_empty());
+
+    child.frame_callbacks.clear();
+    parent.children.clear();
+    server.state.surfaces.clear();
+}
+
+#[test]
+fn unmapped_surface_never_receives_frame_callbacks_even_on_background_heartbeat() {
+    let mut server = Server::new().expect("Server::new");
+    let mut surface = mapped_toplevel_fixture(tessera_desktop::window::WindowId(1), 0x1000);
+    surface.mapped = false; // Unmapped surface
+    server.state.surfaces.push(surface.as_mut());
+
+    // Even if background heartbeat is due (1000ms), unmapped surface must NOT receive callbacks
+    let sent = server.send_frame_callbacks(1000, PresentedSurfaces::Nothing);
+    assert_eq!(sent, 0);
+
+    server.state.surfaces.clear();
+}
+
+#[test]
+fn presentation_feedback_is_double_buffered_and_pending_until_commit() {
+    let mut server = Server::new().expect("Server::new");
+    let mut surface = mapped_toplevel_fixture(tessera_desktop::window::WindowId(1), 0x1000);
+    let mock_fb = 0x2000usize as *mut ffi::wl_resource;
+
+    // Simulate presentation_feedback: queued in pending_presentation_feedback
+    surface.pending_presentation_feedback.push(mock_fb);
+    server.state.surfaces.push(surface.as_mut());
+
+    // Before commit, presentation_feedback is empty, so no feedback is pending presentation
+    assert!(!extensions::presentation_feedback_pending(&server.state));
+    assert_eq!(surface.pending_presentation_feedback.len(), 1);
+    assert!(surface.presentation_feedback.is_empty());
+
+    // Simulate commit: pending_presentation_feedback moves to presentation_feedback
+    surface.presentation_feedback.append(&mut surface.pending_presentation_feedback);
+
+    // Now committed and awaiting presentation
+    assert!(extensions::presentation_feedback_pending(&server.state));
+    assert!(surface.pending_presentation_feedback.is_empty());
+    assert_eq!(surface.presentation_feedback.len(), 1);
+
+    // Clean up mock state before teardown
+    surface.presentation_feedback.clear();
+    server.state.surfaces.clear();
+}

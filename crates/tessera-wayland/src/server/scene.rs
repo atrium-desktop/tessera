@@ -800,6 +800,10 @@ impl Server {
             if p.is_null() {
                 continue;
             }
+            let rec = unsafe { &mut *p };
+            if !rec.mapped {
+                continue;
+            }
             let output_visible = unsafe {
                 surface_receives_output_frame_callback(
                     p,
@@ -812,9 +816,15 @@ impl Server {
             if !output_visible {
                 continue;
             }
-            let rec = unsafe { &mut *p };
-            for cb in rec.frame_callbacks.drain(..) {
+            let pending_cb = std::mem::take(&mut rec.frame_callbacks);
+            for cb in pending_cb {
                 unsafe {
+                    ffi::wl_resource_set_implementation(
+                        cb,
+                        std::ptr::null(),
+                        std::ptr::null_mut(),
+                        None,
+                    );
                     ffi::wl_resource_post_event(cb, ffi::WL_CALLBACK_DONE, time_ms);
                     ffi::wl_resource_destroy(cb);
                 }
@@ -2266,6 +2276,12 @@ impl Server {
                     continue;
                 }
                 unsafe {
+                    ffi::wl_resource_set_implementation(
+                        fb,
+                        std::ptr::null(),
+                        std::ptr::null_mut(),
+                        None,
+                    );
                     post_presentation_presented(fb, now_ns, refresh_ns, seq);
                     ffi::wl_resource_destroy(fb);
                 }
@@ -2317,6 +2333,10 @@ impl Server {
             if p.is_null() {
                 continue;
             }
+            let rec = unsafe { &mut *p };
+            if !rec.mapped {
+                continue;
+            }
             let physically_visible = unsafe {
                 surface_receives_output_frame_callback(
                     p,
@@ -2329,10 +2349,16 @@ impl Server {
             if !physically_visible && !background_due {
                 continue;
             }
-            let rec = unsafe { &mut *p };
             let before = sent;
-            for cb in rec.frame_callbacks.drain(..) {
+            let pending_cb = std::mem::take(&mut rec.frame_callbacks);
+            for cb in pending_cb {
                 unsafe {
+                    ffi::wl_resource_set_implementation(
+                        cb,
+                        std::ptr::null(),
+                        std::ptr::null_mut(),
+                        None,
+                    );
                     ffi::wl_resource_post_event(cb, ffi::WL_CALLBACK_DONE, time_ms);
                     ffi::wl_resource_destroy(cb);
                 }

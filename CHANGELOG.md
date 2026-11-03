@@ -14,6 +14,16 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Changed
+- **Capacity-aware frame CPU allocation (ADR-0210).** The realtime frame loop now selects a full-capacity Performance Core from EAS capacity data instead of blindly taking the highest-numbered CPU, keeping it off both the IRQ core and Low-Power Island E-cores.
+- **Persistent decoration damage containment (ADR-0210).** Unlocalized Lens root damage is clamped to the HUD and Dock bands when no immersive component is active, so chrome easing no longer forces full-output recomposition of client workspaces.
+- **Off-screen damage discard discipline (ADR-0210).** Damage rectangles lying outside the framebuffer are discarded instead of degrading the whole frame to `Full`; only an invalid coordinate system triggers a full repaint.
+- **Zero-copy strided SHM uploads (ADR-0210).** Incremental SHM damage uploads transfer directly from the strided client buffer via `update_region_strided`, removing the per-frame CPU staging copy.
+- **Chrome overlay pass elision (ADR-0210).** The secondary stencil overlay pass is skipped when shell chrome does not intersect the output render area.
+- **Quiescent scene rebuild elision (ADR-0210).** `prepare_frame` skips redundant scene builds when no input, animation, or model mutation touched shell chrome.
+- **Commit-scoped frame callbacks and presentation feedback (ADR-0210).** `wl_surface.frame` callbacks and `wp_presentation.feedback` objects are now double-buffered surface state applied on commit, sharing a single `CLOCK_MONOTONIC` epoch with the presentation extension.
+- **Adopt Optics v0.0.71.** Brings localized placed-band damage rects and dirty-band invalidation for Lens.
+
 ## [0.0.87] - 2026-11-03
 
 ### Added

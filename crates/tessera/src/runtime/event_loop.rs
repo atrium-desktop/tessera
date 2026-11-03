@@ -93,12 +93,12 @@ impl CompositorRuntime<'_> {
                     // `wl_callback.done` pace clients; only a real presented
                     // frame may complete `wp_presentation_feedback`.
                     let _ = self.server.send_frame_callbacks(
-                        self.start.elapsed().as_millis() as u32,
+                        self.server.monotonic_ms(),
                         PresentedSurfaces::Nothing,
                     );
                 } else {
                     let callbacks_sent = self.server.send_frame_callbacks(
-                        self.start.elapsed().as_millis() as u32,
+                        self.server.monotonic_ms(),
                         PresentedSurfaces::Nothing,
                     ) > 0;
                     let refresh_interval = self.presentation_interval();

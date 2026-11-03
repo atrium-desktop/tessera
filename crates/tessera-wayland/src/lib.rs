@@ -441,7 +441,7 @@ const CLOCK_MONOTONIC: std::os::raw::c_int = 1;
 /// this clock so a client can derive presentation latency by subtracting its
 /// own `CLOCK_MONOTONIC` reading (ADR-0122, `[INV-PACE-02]`). Returns 0 when
 /// the clock cannot be read; a 0 timestamp is the protocol's "unknown" value.
-pub(crate) fn monotonic_ns() -> u64 {
+pub fn monotonic_ns() -> u64 {
     let mut ts = Timespec {
         tv_sec: 0,
         tv_nsec: 0,
@@ -453,6 +453,14 @@ pub(crate) fn monotonic_ns() -> u64 {
     (ts.tv_sec as u64)
         .saturating_mul(1_000_000_000)
         .saturating_add(ts.tv_nsec as u64)
+}
+
+/// Monotonic clock timestamp in milliseconds (`CLOCK_MONOTONIC`).
+///
+/// Shared across `wl_surface.frame` and `wp_presentation` so that presentation
+/// and client frame pacing operate on the same time base.
+pub fn monotonic_ms() -> u32 {
+    (monotonic_ns() / 1_000_000) as u32
 }
 
 /// A compositor-invented placement offset (ADR-0131). Recorded when a newly
@@ -518,14 +526,16 @@ pub struct SurfaceRec {
     explicit_sync: *mut c_void,
     committed_acquire_fence: i32,
     committed_explicit_release: *mut ffi::wl_resource,
-    frame_callbacks: Vec<*mut ffi::wl_resource>,
+    pub(crate) frame_callbacks: Vec<*mut ffi::wl_resource>,
+    pub(crate) pending_frame_callbacks: Vec<*mut ffi::wl_resource>,
     /// `wp_presentation_feedback` objects awaiting the frame that carries the
     /// surface's next commit. They are completed with a real presentation
     /// timestamp once that frame reaches the display, or discarded if the
     /// surface goes away first (ADR-0122, `[INV-PACE-02]`). The list is drained
     /// on completion and unlinked by `feedback_resource_destroy` when a client
     /// or a teardown frees the object, so no entry outlives its resource.
-    presentation_feedback: Vec<*mut ffi::wl_resource>,
+    pub(crate) presentation_feedback: Vec<*mut ffi::wl_resource>,
+    pub(crate) pending_presentation_feedback: Vec<*mut ffi::wl_resource>,
     // xdg-shell role state.
     xdg_surface: *mut ffi::wl_resource,
     xdg_toplevel: *mut ffi::wl_resource,
@@ -711,7 +721,9 @@ impl SurfaceRec {
             committed_acquire_fence: -1,
             committed_explicit_release: std::ptr::null_mut(),
             frame_callbacks: Vec::new(),
+            pending_frame_callbacks: Vec::new(),
             presentation_feedback: Vec::new(),
+            pending_presentation_feedback: Vec::new(),
             xdg_surface: std::ptr::null_mut(),
             xdg_toplevel: std::ptr::null_mut(),
             xdg_decoration: std::ptr::null_mut(),

@@ -927,7 +927,7 @@ impl CompositorRuntime<'_> {
             security_generation,
             painter: &mut painter,
         });
-        let now_ms = self.start.elapsed().as_millis() as u32;
+        let now_ms = self.server.monotonic_ms();
         for connector in &effects.rendered_virtual_outputs {
             self.server.send_output_frame_callbacks(connector, now_ms);
         }

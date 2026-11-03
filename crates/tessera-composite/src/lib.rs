@@ -511,11 +511,6 @@ pub struct Renderer {
     gc_live: std::collections::HashSet<usize>,
     gc_dead_shm: Vec<usize>,
     gc_dead_dmabuf: Vec<(usize, u64)>,
-    /// Scratch staging buffer for incremental SHM damage uploads, grown to
-    /// the session's high-water damage-box size and reused across frames so
-    /// the partial-refresh path does not allocate (and zero) per frame.
-    /// Mirrors the `gc_*` scratch-buffer policy above.
-    shm_staging: Vec<u8>,
     /// Parsed ICC profiles (flux) keyed by a hash of the profile bytes, so a
     /// color-tagged surface does not re-parse per texture creation. The
     /// value's second field is the frame epoch of the last lookup (LRU).
@@ -827,7 +822,6 @@ impl Renderer {
             gc_live: std::collections::HashSet::new(),
             gc_dead_shm: Vec::new(),
             gc_dead_dmabuf: Vec::new(),
-            shm_staging: Vec::new(),
             icc_profiles: HashMap::new(),
             icc_failed: std::collections::HashSet::new(),
         }
@@ -1615,28 +1609,25 @@ impl Renderer {
                             // snapshot, no extraction copy.
                             img.update_region(0, 0, bw, bh, f.pixels)
                         } else {
-                            // Tightly packed BGRA8: stride = width * 4. The
-                            // staging scratch is reused across frames: a
-                            // terminal cursor blink or a scrolling browser
-                            // hits this path at commit rate, and a fresh
-                            // allocation per frame (up to several MiB for a
-                            // large damage box) showed up as avoidable heap
-                            // churn in the CPU profile.
+                            // Tightly packed BGRA8: stride = width * 4.
+                            // Leverage Optics' `update_region_strided` to upload directly
+                            // from the strided SHM buffer to the GPU sub-region without
+                            // intermediate row-by-row CPU staging copies (ADR-0210, INV-ARCH-100).
                             let bpp = 4usize;
                             let stride = f.width as usize * bpp;
-                            let row_bytes = bw as usize * bpp;
-                            self.shm_staging.clear();
-                            self.shm_staging.resize(bh as usize * row_bytes, 0);
-                            for row in 0..bh as usize {
-                                let src_off = (y0 as usize + row) * stride + x0 as usize * bpp;
-                                let dst_off = row * row_bytes;
-                                // src_off + len must stay within f.pixels.
-                                let avail = f.pixels.len().saturating_sub(src_off);
-                                let take = row_bytes.min(avail);
-                                self.shm_staging[dst_off..dst_off + take]
-                                    .copy_from_slice(&f.pixels[src_off..src_off + take]);
+                            let start = y0 as usize * stride + x0 as usize * bpp;
+                            if start < f.pixels.len() {
+                                img.update_region_strided(
+                                    x0 as u32,
+                                    y0 as u32,
+                                    bw,
+                                    bh,
+                                    stride,
+                                    &f.pixels[start..],
+                                )
+                            } else {
+                                img.update_region(0, 0, f.width as u32, f.height as u32, f.pixels)
                             }
-                            img.update_region(x0 as u32, y0 as u32, bw, bh, &self.shm_staging)
                         };
                         match updated {
                             Ok(()) => {

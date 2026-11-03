@@ -307,7 +307,7 @@ impl CompositorRuntime<'_> {
                     // pace clients via `wl_callback.done` without claiming any
                     // surface was presented.
                     self.server.send_frame_callbacks(
-                        self.start.elapsed().as_millis() as u32,
+                        self.server.monotonic_ms(),
                         PresentedSurfaces::Nothing,
                     );
                     self.damage.last_present_minute = Some(wall_clock_minute());
@@ -364,7 +364,7 @@ impl CompositorRuntime<'_> {
             // forcing empty composites.
             let callbacks_sent = self.presentation.frame_callbacks_allowed()
                 && self.server.send_frame_callbacks(
-                    self.start.elapsed().as_millis() as u32,
+                    self.server.monotonic_ms(),
                     PresentedSurfaces::Nothing,
                 ) > 0;
             self.renderer.gc(self.server.live_surface_ids());
@@ -434,7 +434,7 @@ impl CompositorRuntime<'_> {
                         );
                     }
                     self.server.send_frame_callbacks(
-                        self.start.elapsed().as_millis() as u32,
+                        self.server.monotonic_ms(),
                         PresentedSurfaces::Sampled {
                             ids: &sampled_surface_ids,
                             drew_preview_sources: false,
@@ -1588,7 +1588,14 @@ impl CompositorRuntime<'_> {
                         }
                     }
 
+                    let chrome_in_render_area = if let Some(area) = output_render_area {
+                        self.shell.chrome_intersects_render_area(area, scale, logical_size)
+                    } else {
+                        true
+                    };
+
                     if shell_requires_composition
+                        && chrome_in_render_area
                         && (!self.screenshot_freeze.active() || self.screenshot_freeze.opened)
                     {
                         base_session.end()?;
@@ -2667,7 +2674,7 @@ impl CompositorRuntime<'_> {
                 // complete `wp_presentation_feedback` for exactly the surfaces
                 // this frame sampled (ADR-0122, `[INV-ARCH-84]`).
                 self.server.send_frame_callbacks(
-                    self.start.elapsed().as_millis() as u32,
+                    self.server.monotonic_ms(),
                     PresentedSurfaces::Sampled {
                         ids: &sampled_surface_ids,
                         drew_preview_sources,

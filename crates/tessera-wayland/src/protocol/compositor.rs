@@ -1072,6 +1072,10 @@ pub(crate) unsafe extern "C" fn surface_commit(
         }
         (*rec).buffer_transform = (*rec).pending_transform;
         (*rec).buffer_scale = (*rec).pending_scale;
+        // wl_surface.frame: double-buffered surface state, applied on commit.
+        (*rec).frame_callbacks.append(&mut (*rec).pending_frame_callbacks);
+        // wp_presentation.feedback: commit-correlated, applied on commit.
+        (*rec).presentation_feedback.append(&mut (*rec).pending_presentation_feedback);
 
         // xdg-shell initial configure: on the first commit of a surface that has an
         // xdg role, send a configure and wait for the client to ack and attach a
@@ -1281,8 +1285,50 @@ unsafe extern "C" fn surface_frame(
     unsafe {
         let rec = ffi::wl_resource_get_user_data(resource) as *mut SurfaceRec;
         let cb = ffi::checked_resource_create(client, &ffi::wl_callback_interface, 1, callback_id);
-        if !cb.is_null() {
-            (*rec).frame_callbacks.push(cb);
+        if cb.is_null() {
+            return;
+        }
+        if rec.is_null() {
+            ffi::wl_resource_destroy(cb);
+            return;
+        }
+        ffi::wl_resource_set_implementation(
+            cb,
+            std::ptr::null(),
+            rec as *mut c_void,
+            Some(frame_resource_destroy),
+        );
+        (*rec).pending_frame_callbacks.push(cb);
+    }
+}
+
+/// Unlink a destroyed frame callback resource from the surface that queued it.
+unsafe extern "C" fn frame_resource_destroy(resource: *mut ffi::wl_resource) {
+    unsafe {
+        let rec = ffi::wl_resource_get_user_data(resource) as *mut SurfaceRec;
+        if rec.is_null() {
+            return;
+        }
+        (*rec).frame_callbacks.retain(|&f| f != resource);
+        (*rec).pending_frame_callbacks.retain(|&f| f != resource);
+    }
+}
+
+/// Destroy all outstanding frame callbacks queued on `rec` without emitting
+/// events (e.g. when the surface is destroyed before presenting).
+pub(crate) unsafe fn discard_surface_frame_callbacks(rec: *mut SurfaceRec) {
+    if rec.is_null() {
+        return;
+    }
+    unsafe {
+        let callbacks = std::mem::take(&mut (*rec).frame_callbacks);
+        let pending = std::mem::take(&mut (*rec).pending_frame_callbacks);
+        for cb in callbacks.into_iter().chain(pending) {
+            if cb.is_null() {
+                continue;
+            }
+            ffi::wl_resource_set_implementation(cb, std::ptr::null(), std::ptr::null_mut(), None);
+            ffi::wl_resource_destroy(cb);
         }
     }
 }
@@ -1557,6 +1603,7 @@ unsafe extern "C" fn surface_resource_destroy(resource: *mut ffi::wl_resource) {
         // No frame can carry this surface any more; finish its outstanding
         // presentation feedback as discarded (ADR-0122).
         extensions::discard_surface_feedback(rec);
+        discard_surface_frame_callbacks(rec);
         retire_surface_buffer(rec);
         if (*rec).committed_acquire_fence >= 0 {
             libc_close((*rec).committed_acquire_fence);

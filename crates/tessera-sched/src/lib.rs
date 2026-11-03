@@ -322,19 +322,70 @@ const CPU_SETSIZE: usize = 1024;
 /// a hot primary core. Pinning a latency-critical realtime thread to that
 /// runqueue competes with interrupt delivery for the same physical core.
 ///
-/// Preference order:
-/// 1. An explicit `pin_cpu` from configuration (see [`SchedPlan::with_frame_pin`]).
-/// 2. The highest-numbered online CPU, which on a hybrid Intel part is an
-///    E-core that the scheduler already prefers to leave idle, and on a
-///    uniform part is the least likely to carry boot-strap IRQ affinity.
-/// 3. Whatever the affinity set offers, as a last resort.
+/// Query the hardware capacity score for a logical CPU on Linux.
 ///
-/// The choice is deliberately *not* "lowest online CPU": that is the value the
-/// kernel gives every unmanaged IRQ and the one every naive pin selects, which
-/// puts the frame loop in the busiest possible company.
+/// 1. Reads `/sys/devices/system/cpu/cpu{cpu}/cpu_capacity` (EAS/heterogeneous capacity,
+///    where P-cores are 1024, standard E-cores ~741, and low-power SoC E-cores ~294).
+/// 2. If unavailable, reads `/sys/devices/system/cpu/cpu{cpu}/cpufreq/cpuinfo_max_freq`.
+/// 3. Returns 1000 as neutral baseline when sysfs attributes are absent.
+#[cfg(target_os = "linux")]
+fn query_cpu_score(cpu: usize) -> u64 {
+    let capacity_path = format!("/sys/devices/system/cpu/cpu{cpu}/cpu_capacity");
+    if let Ok(content) = std::fs::read_to_string(capacity_path)
+        && let Ok(cap) = content.trim().parse::<u64>()
+    {
+        return cap;
+    }
+    let freq_path = format!("/sys/devices/system/cpu/cpu{cpu}/cpufreq/cpuinfo_max_freq");
+    if let Ok(content) = std::fs::read_to_string(freq_path)
+        && let Ok(freq) = content.trim().parse::<u64>()
+    {
+        return freq;
+    }
+    1000
+}
+
+#[cfg(not(target_os = "linux"))]
+fn query_cpu_score(_cpu: usize) -> u64 {
+    1000
+}
+
+/// Select the dedicated CPU for the compositor frame loop (INV-ARCH-95, ADR-0210).
+///
+/// Principles:
+/// 1. An explicit `pin_cpu` from configuration overrides automatic detection.
+/// 2. Never choose CPU 0 unless it is the only online core: CPU 0 carries legacy
+///    interrupt delivery, IO-APIC routing, ACPI SCI, and kernel worker churn.
+/// 3. On heterogeneous/hybrid architectures (Intel hybrid, AMD heterogeneous, ARM big.LITTLE),
+///    select a full-capability Performance Core (P-Core). NEVER assign the latency-critical
+///    frame loop to a Low-Power Island / SoC E-core (e.g. Arrow Lake Crestmont cores 14-15),
+///    which run at half the clock rate and one-third the execution capacity.
+/// 4. Break score ties by choosing the lowest non-zero index (e.g. CPU 1), placing the frame
+///    loop on the first clean Performance Core.
 fn preferred_frame_cpu(available: &[usize]) -> usize {
     debug_assert!(!available.is_empty(), "detect() rejects an empty set");
-    available.iter().copied().max().unwrap_or(0)
+    if available.len() == 1 {
+        return available[0];
+    }
+    let non_zero: Vec<usize> = available.iter().copied().filter(|&cpu| cpu != 0).collect();
+    let candidates = if non_zero.is_empty() {
+        available
+    } else {
+        &non_zero[..]
+    };
+
+    let mut best_cpu = candidates[0];
+    let mut best_score = query_cpu_score(best_cpu);
+
+    for &cpu in &candidates[1..] {
+        let score = query_cpu_score(cpu);
+        if score > best_score {
+            best_score = score;
+            best_cpu = cpu;
+        }
+    }
+
+    best_cpu
 }
 
 /// Release a child's inherited CPU affinity back to `plan`'s full available
@@ -708,9 +759,9 @@ mod tests {
     fn test_inv_arch_95_frame_cpu_avoids_the_irq_cpu() {
         // `[INV-ARCH-95]`: CPU 0 carries the legacy IRQ routes and the ACPI
         // SCI, so it is never the dedicated frame CPU unless it is the only
-        // online CPU.
-        assert_eq!(preferred_frame_cpu(&[0, 1, 2, 3]), 3);
-        assert_eq!(preferred_frame_cpu(&[4, 5]), 5);
+        // online CPU. Furthermore, a Performance Core is prioritized over LP E-cores.
+        assert_ne!(preferred_frame_cpu(&[0, 1, 2, 3]), 0);
+        assert_ne!(preferred_frame_cpu(&[4, 5]), 0);
         assert_eq!(
             preferred_frame_cpu(&[0]),
             0,
@@ -722,6 +773,20 @@ mod tests {
         {
             assert_ne!(cpu, 0, "frame loop must not share CPU 0's runqueue");
         }
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn test_frame_cpu_avoids_low_power_e_cores() {
+        let available: Vec<usize> = (0..16).collect();
+        let chosen = preferred_frame_cpu(&available);
+        assert_ne!(chosen, 0, "CPU 0 must not be chosen");
+        assert_ne!(chosen, 14, "LP E-core 14 must not be chosen");
+        assert_ne!(chosen, 15, "LP E-core 15 must not be chosen");
+        assert!(
+            (1..=5).contains(&chosen),
+            "expected a P-core (1..=5), got {chosen}"
+        );
     }
 
     #[test]

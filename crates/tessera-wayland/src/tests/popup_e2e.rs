@@ -154,7 +154,7 @@ fn pump(server: &mut Server, iterations: usize) {
         // entirely when frame callbacks stall. The probe presents the whole
         // scene, so it claims `All` rather than a fabricated empty set.
         server.send_frame_callbacks(
-            server.now_ms() as u32,
+            server.monotonic_ms(),
             crate::server::PresentedSurfaces::All,
         );
         server.presentation_complete();
