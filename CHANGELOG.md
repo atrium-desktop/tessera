@@ -14,6 +14,15 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.90] - 2026-11-04
+
+### Changed
+- **Adopted Optics v0.0.73.** A patch release pinning the regional-damage work Tessera already consumes, plus three correctness fixes that reach it through the shared bindings.
+  - Regional damage now survives a node leaving the tree. `lensi_store_reap` detaches a departed node on the frame it stops being built but keeps its last-painted geometry for the leave grace window, so `damage_walk` could never reach it and never reported the band it vacated — worst for a **trailing** child, where no sibling moves in and nothing else in the frame covers those pixels. A closing dock menu whose row was the last in its column could therefore leave stale chrome on screen. Damage now sweeps the store's live list for `LENS_NODE_LEAVING` nodes (Optics ADR-0144).
+  - A sub-rect pass no longer renders into a rotating swapchain. The output base pass requests a `renderArea` from `frame_damage_render_area` on every regional frame, which is correct for one persistent buffer but wrong for a swapchain: a partial pass advances only the acquired image, so each image accumulated a different patch set. Every damage rectangle Tessera hands Optics for a surface is now widened to a full pass, and the images stay identical by construction. Caller-owned `flux_image` targets — the offscreen stream path — still take partial passes, so capture localization is unchanged (Optics ADR-0144).
+  - The Wayland host no longer aborts on the first presented frame. `feedback_listener` left `wp_presentation_feedback.sync_output` NULL and libwayland answers an unimplemented event with `wl_abort`; compositors send that event before every `presented`, so a session died as soon as presentation-time was bound. `data_source_listener` and `text_input_listener` gained the events their bound interface versions make dispatchable, so raising a bind version later cannot turn a working clipboard or IME into the same abort (Optics ADR-0145).
+  - Composed layers advance in lockstep. The UI subsurface is now synchronized and both layers are recorded before being presented base-first, so one loop iteration commits once instead of twice. Tessera's own canvas backdrop under animated chrome no longer composes at twice the base layer's rate (Optics ADR-0146).
+
 ## [0.0.89] - 2026-11-03
 
 ### Fixed
