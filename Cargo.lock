@@ -74,18 +74,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
-name = "arrayref"
-version = "0.3.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76a2e8124351fda1ef8aaaa3bbd7ebbcb486bbcd4225aca0aa0d84bb2db8fecb"
-
-[[package]]
-name = "arrayvec"
-version = "0.7.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
-
-[[package]]
 name = "ash"
 version = "0.38.0+1.3.281"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -236,12 +224,6 @@ name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
-
-[[package]]
-name = "base64"
-version = "0.22.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "bindgen"
@@ -527,26 +509,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "const-random"
-version = "0.1.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87e00182fe74b066627d63b85fd550ac2998d4b0bd86bfed477a0ae4c7c71359"
-dependencies = [
- "const-random-macro",
-]
-
-[[package]]
-name = "const-random-macro"
-version = "0.1.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9d839f2a20b0aee515dc581a6172f2321f96cab76c1a38a4c584a194955390e"
-dependencies = [
- "getrandom 0.2.17",
- "once_cell",
- "tiny-keccak",
-]
-
-[[package]]
 name = "core_detect"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -586,12 +548,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
 
 [[package]]
-name = "crunchy"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
-
-[[package]]
 name = "crypto-common"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -608,12 +564,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 
 [[package]]
-name = "data-url"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
-
-[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -625,42 +575,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "dirs"
-version = "5.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44c45a9d03d6676652bcb5e724c7e988de1acad23a711b5217ab9cbecbec2225"
-dependencies = [
- "dirs-sys",
-]
-
-[[package]]
-name = "dirs-sys"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "520f05a5cbd335fae5a99ff7a6ab8627577660ee5cfd6a94a6a929b52ff0321c"
-dependencies = [
- "libc",
- "option-ext",
- "redox_users",
- "windows-sys 0.48.0",
-]
-
-[[package]]
 name = "dlib"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab8ecd87370524b461f8557c119c405552c396ed91fc0a8eec68679eab26f94a"
 dependencies = [
  "libloading",
-]
-
-[[package]]
-name = "dlv-list"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "442039f5147480ba31067cb00ada1adae6892028e40e45fc5de7b7df6dcc1b5f"
-dependencies = [
- "const-random",
 ]
 
 [[package]]
@@ -760,15 +680,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "euclid"
-version = "0.22.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1a05365e3b1c6d1650318537c7460c6923f1abdd272ad6842baa2b509957a06"
-dependencies = [
- "num-traits",
-]
-
-[[package]]
 name = "event-listener"
 version = "5.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -821,23 +732,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "float-cmp"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98de4bbd547a563b716d8dfa9aad1cb19bfab00f4fa09a6a4ed21dbcf44ce9c4"
-
-[[package]]
 name = "flux"
-version = "0.0.67"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.67#df031b3af92de14c2d946af4864725b105064ba3"
+version = "0.0.70"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.70#4131d273d8bc50228f59ef389e08a997b3971e85"
 dependencies = [
  "flux-sys",
 ]
 
 [[package]]
 name = "flux-sys"
-version = "0.0.67"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.67#df031b3af92de14c2d946af4864725b105064ba3"
+version = "0.0.70"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.70#4131d273d8bc50228f59ef389e08a997b3971e85"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -913,17 +818,6 @@ dependencies = [
 
 [[package]]
 name = "getrandom"
-version = "0.2.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff2abc00be7fca6ebc474524697ae276ad847ad0a6b3faa4bcb027e9a4614ad0"
-dependencies = [
- "cfg-if",
- "libc",
- "wasi",
-]
-
-[[package]]
-name = "getrandom"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099"
@@ -985,12 +879,6 @@ dependencies = [
  "serde_derive",
  "serde_json",
 ]
-
-[[package]]
-name = "hashbrown"
-version = "0.14.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
 
 [[package]]
 name = "hashbrown"
@@ -1060,12 +948,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "imagesize"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09e54e57b4c48b40f7aec75635392b12b3421fa26fe8b4332e63138ed278459c"
-
-[[package]]
 name = "include_dir"
 version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1091,7 +973,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
 dependencies = [
  "equivalent",
- "hashbrown 0.17.1",
+ "hashbrown",
 ]
 
 [[package]]
@@ -1203,18 +1085,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kurbo"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b60dfc32f652b926df6192e55525b16d186c69d47876c3ead4da5cc9f8450e2"
-dependencies = [
- "arrayvec",
- "euclid",
- "polycool",
- "smallvec",
-]
-
-[[package]]
 name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1222,8 +1092,8 @@ checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
 name = "lens"
-version = "0.0.67"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.67#df031b3af92de14c2d946af4864725b105064ba3"
+version = "0.0.70"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.70#4131d273d8bc50228f59ef389e08a997b3971e85"
 dependencies = [
  "flux",
  "lens-sys",
@@ -1231,8 +1101,8 @@ dependencies = [
 
 [[package]]
 name = "lens-sys"
-version = "0.0.67"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.67#df031b3af92de14c2d946af4864725b105064ba3"
+version = "0.0.70"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.70#4131d273d8bc50228f59ef389e08a997b3971e85"
 dependencies = [
  "bindgen",
  "flux-sys",
@@ -1253,15 +1123,6 @@ checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
 dependencies = [
  "cfg-if",
  "windows-link",
-]
-
-[[package]]
-name = "libredox"
-version = "0.1.25"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61ff90caf6077a803a240f62fdbe88645a890bbca49ef8174c3cb0404362171d"
-dependencies = [
- "libc",
 ]
 
 [[package]]
@@ -1461,22 +1322,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
-name = "option-ext"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
-
-[[package]]
-name = "ordered-multimap"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49203cdcae0030493bad186b28da2fa25645fa276a51b6fec8010d281e02ef79"
-dependencies = [
- "dlv-list",
- "hashbrown 0.14.5",
-]
-
-[[package]]
 name = "ordered-stream"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1491,12 +1336,6 @@ name = "parking"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f38d5652c16fde515bb1ecef450ab0f6a219d619a7274976324d5e377f7dceba"
-
-[[package]]
-name = "pico-args"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5be167a7af36ee22fe3115051bc51f6e6c7054c9348e28deb4f49bd6f705a315"
 
 [[package]]
 name = "pin-project-lite"
@@ -1549,15 +1388,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "polycool"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50596ddc09eb5ad5f75cacd40209568e66df71baf86e1499a0e99c4cff12a5a6"
-dependencies = [
- "arrayvec",
-]
-
-[[package]]
 name = "prettyplease"
 version = "0.2.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1569,8 +1399,8 @@ dependencies = [
 
 [[package]]
 name = "prism"
-version = "0.0.67"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.67#df031b3af92de14c2d946af4864725b105064ba3"
+version = "0.0.70"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.70#4131d273d8bc50228f59ef389e08a997b3971e85"
 dependencies = [
  "flux",
  "flux-sys",
@@ -1579,8 +1409,8 @@ dependencies = [
 
 [[package]]
 name = "prism-sys"
-version = "0.0.67"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.67#df031b3af92de14c2d946af4864725b105064ba3"
+version = "0.0.70"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.70#4131d273d8bc50228f59ef389e08a997b3971e85"
 dependencies = [
  "bindgen",
  "flux-sys",
@@ -1673,7 +1503,7 @@ version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65c9fb96cbc91e3478eaae79a69fcd3f1ae4ad052e471fe6732fff548984b4af"
 dependencies = [
- "getrandom 0.4.3",
+ "getrandom",
  "rand_core",
 ]
 
@@ -1690,17 +1520,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "60aa6af80be32871323012e02e6e65f8a7cc7890931ae421d217ad8fe0df2ccf"
 dependencies = [
  "rand_core",
-]
-
-[[package]]
-name = "redox_users"
-version = "0.4.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba009ff324d1fc1b900bd1fdb31564febe58a8ccc8a6fdbb93b543d33b13ca43"
-dependencies = [
- "getrandom 0.2.17",
- "libredox",
- "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -1731,48 +1550,6 @@ name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
-
-[[package]]
-name = "resvg"
-version = "0.47.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9be183ad6a216aa96f33e4c8033b0988b8b3ea6fd2359d19af5bac4643fd8e81"
-dependencies = [
- "log",
- "pico-args",
- "rgb",
- "svgtypes",
- "tiny-skia",
- "usvg",
-]
-
-[[package]]
-name = "rgb"
-version = "0.8.53"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47b34b781b31e5d73e9fbc8689c70551fd1ade9a19e3e28cfec8580a79290cc4"
-dependencies = [
- "bytemuck",
-]
-
-[[package]]
-name = "roxmltree"
-version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1964b10c76125c36f8afe190065a4bf9a87bf324842c05701330bba9f1cacbb"
-dependencies = [
- "memchr",
-]
-
-[[package]]
-name = "rust-ini"
-version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e0698206bcb8882bf2a9ecb4c1e7785db57ff052297085a6efd4fe42302068a"
-dependencies = [
- "cfg-if",
- "ordered-multimap",
-]
 
 [[package]]
 name = "rustc-hash"
@@ -1938,21 +1715,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 
 [[package]]
-name = "simplecss"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a9c6883ca9c3c7c90e888de77b7a5c849c779d25d74a1269b0218b14e8b136c"
-dependencies = [
- "log",
-]
-
-[[package]]
-name = "siphasher"
-version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
-
-[[package]]
 name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1979,7 +1741,7 @@ dependencies = [
  "memmap2",
  "pkg-config",
  "rustix",
- "thiserror 2.0.21",
+ "thiserror",
  "wayland-client",
  "wayland-csd-frame",
  "wayland-cursor",
@@ -1988,17 +1750,8 @@ dependencies = [
  "wayland-protocols-misc",
  "wayland-protocols-wlr",
  "wayland-scanner",
- "xkbcommon 0.8.0",
+ "xkbcommon",
  "xkeysym",
-]
-
-[[package]]
-name = "strict-num"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6637bab7722d379c8b41ba849228d680cc12d0a45ba1fa2b48f2a30577a06731"
-dependencies = [
- "float-cmp",
 ]
 
 [[package]]
@@ -2012,16 +1765,6 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
-
-[[package]]
-name = "svgtypes"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "695b5790b3131dafa99b3bbfd25a216edb3d216dad9ca208d4657bfb8f2abc3d"
-dependencies = [
- "kurbo",
- "siphasher",
-]
 
 [[package]]
 name = "syn"
@@ -2052,7 +1795,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -2082,7 +1825,6 @@ dependencies = [
  "log",
  "prism",
  "prism-sys",
- "resvg",
  "serde",
  "serde_json",
  "sha2",
@@ -2096,7 +1838,6 @@ dependencies = [
  "tessera-design",
  "tessera-desktop",
  "tessera-env",
- "tessera-i18n",
  "tessera-ipc",
  "tessera-launch-services",
  "tessera-platform",
@@ -2106,12 +1847,9 @@ dependencies = [
  "tessera-shell",
  "tessera-wallpaper",
  "tessera-wayland",
- "thiserror 2.0.21",
- "tiny-skia",
  "tracing",
  "transit",
  "transit-sys",
- "usvg",
  "vista-sys",
  "zbus",
  "zeroize",
@@ -2122,7 +1860,7 @@ name = "tessera-audit"
 version = "0.0.86"
 dependencies = [
  "flate2",
- "getrandom 0.4.3",
+ "getrandom",
  "hmac",
  "libc",
  "serde",
@@ -2130,7 +1868,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "tessera-protocol",
- "thiserror 2.0.21",
+ "thiserror",
  "zeroize",
 ]
 
@@ -2138,14 +1876,11 @@ dependencies = [
 name = "tessera-authority"
 version = "0.0.86"
 dependencies = [
- "getrandom 0.4.3",
- "libc",
+ "getrandom",
  "serde",
  "serde_json",
- "tempfile",
  "tessera-desktop",
  "tessera-primitives",
- "thiserror 2.0.21",
  "zeroize",
 ]
 
@@ -2153,17 +1888,15 @@ dependencies = [
 name = "tessera-avatar"
 version = "0.0.86"
 dependencies = [
- "fastrand",
  "flux",
  "flux-sys",
  "image",
- "lens",
  "libc",
  "log",
  "notify",
  "tempfile",
  "tessera-launch-services",
- "thiserror 2.0.21",
+ "thiserror",
  "vista",
  "vista-sys",
 ]
@@ -2199,7 +1932,7 @@ dependencies = [
  "tessera-launch-services",
  "tessera-primitives",
  "tessera-protocol",
- "thiserror 2.0.21",
+ "thiserror",
  "zeroize",
 ]
 
@@ -2214,20 +1947,18 @@ dependencies = [
  "log",
  "tessera-desktop",
  "tessera-primitives",
- "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "tessera-config"
 version = "0.0.86"
 dependencies = [
- "dirs",
  "libc",
  "serde",
  "tempfile",
  "tessera-desktop",
  "tessera-primitives",
- "thiserror 2.0.21",
+ "thiserror",
  "toml",
  "toml_edit",
 ]
@@ -2256,7 +1987,7 @@ version = "0.0.86"
 dependencies = [
  "log",
  "tessera-ipc",
- "thiserror 2.0.21",
+ "thiserror",
  "tracing-log",
  "tracing-subscriber",
 ]
@@ -2296,7 +2027,7 @@ dependencies = [
  "tessera-desktop",
  "tessera-primitives",
  "tessera-protocol",
- "thiserror 2.0.21",
+ "thiserror",
  "zeroize",
 ]
 
@@ -2304,14 +2035,13 @@ dependencies = [
 name = "tessera-launch-services"
 version = "0.0.86"
 dependencies = [
- "dirs",
  "libc",
  "log",
- "rust-ini",
  "tempfile",
  "tessera-desktop",
  "tessera-i18n",
- "thiserror 2.0.21",
+ "tessera-sched",
+ "thiserror",
 ]
 
 [[package]]
@@ -2332,11 +2062,11 @@ dependencies = [
  "tessera-design",
  "tessera-env",
  "tessera-wallpaper",
- "thiserror 2.0.21",
+ "thiserror",
  "vista-sys",
  "wayland-client",
  "wayland-protocols",
- "xkbcommon 0.9.0",
+ "xkbcommon",
  "zeroize",
 ]
 
@@ -2344,11 +2074,9 @@ dependencies = [
 name = "tessera-mcp"
 version = "0.0.86"
 dependencies = [
- "base64",
  "clap",
  "serde",
  "serde_json",
- "tempfile",
  "tessera-audit",
  "tessera-authority",
  "tessera-desktop",
@@ -2357,7 +2085,7 @@ dependencies = [
  "tessera-launch-services",
  "tessera-primitives",
  "tessera-protocol",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -2376,7 +2104,7 @@ dependencies = [
  "tessera-desktop",
  "tessera-primitives",
  "tessera-wayland-protocols",
- "thiserror 2.0.21",
+ "thiserror",
  "udev",
 ]
 
@@ -2385,7 +2113,6 @@ name = "tessera-primitives"
 version = "0.0.86"
 dependencies = [
  "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -2395,7 +2122,6 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
- "tempfile",
  "tessera-audit",
  "tessera-authority",
  "tessera-desktop",
@@ -2423,9 +2149,6 @@ dependencies = [
  "lens-sys",
  "libc",
  "log",
- "resvg",
- "serde",
- "tempfile",
  "tessera-authority",
  "tessera-avatar",
  "tessera-design",
@@ -2433,12 +2156,9 @@ dependencies = [
  "tessera-i18n",
  "tessera-launch-services",
  "tessera-primitives",
- "thiserror 2.0.21",
- "tiny-skia",
- "toml",
+ "thiserror",
  "transit",
  "transit-sys",
- "usvg",
  "vista-sys",
  "zbus",
  "zeroize",
@@ -2453,7 +2173,7 @@ dependencies = [
  "image",
  "log",
  "tessera-sched",
- "thiserror 2.0.21",
+ "thiserror",
  "transit",
  "vista",
  "vista-sys",
@@ -2463,7 +2183,7 @@ dependencies = [
 name = "tessera-wayland"
 version = "0.0.86"
 dependencies = [
- "getrandom 0.4.3",
+ "getrandom",
  "log",
  "pkg-config",
  "serde",
@@ -2473,8 +2193,8 @@ dependencies = [
  "tessera-desktop",
  "tessera-primitives",
  "tessera-wayland-protocols",
- "thiserror 2.0.21",
- "xkbcommon 0.9.0",
+ "thiserror",
+ "xkbcommon",
 ]
 
 [[package]]
@@ -2486,31 +2206,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
-dependencies = [
- "thiserror-impl 1.0.69",
-]
-
-[[package]]
-name = "thiserror"
 version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e"
 dependencies = [
- "thiserror-impl 2.0.21",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
+ "thiserror-impl",
 ]
 
 [[package]]
@@ -2531,41 +2231,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ad99c4c6d32803332c548b1af0540b357b3f5fc0be8f6c6bfe8b2e6ae784070"
 dependencies = [
  "cfg-if",
-]
-
-[[package]]
-name = "tiny-keccak"
-version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c9d3793400a45f954c52e73d068316d76b6f4e36977e3fcebb13a2721e80237"
-dependencies = [
- "crunchy",
-]
-
-[[package]]
-name = "tiny-skia"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47ffee5eaaf5527f630fb0e356b90ebdec84d5d18d937c5e440350f88c5a91ea"
-dependencies = [
- "arrayref",
- "arrayvec",
- "bytemuck",
- "cfg-if",
- "log",
- "png",
- "tiny-skia-path",
-]
-
-[[package]]
-name = "tiny-skia-path"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edca365c3faccca67d06593c5980fa6c57687de727a03131735bb85f01fdeeb9"
-dependencies = [
- "arrayref",
- "bytemuck",
- "strict-num",
 ]
 
 [[package]]
@@ -2695,16 +2360,16 @@ dependencies = [
 
 [[package]]
 name = "transit"
-version = "0.0.67"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.67#df031b3af92de14c2d946af4864725b105064ba3"
+version = "0.0.70"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.70#4131d273d8bc50228f59ef389e08a997b3971e85"
 dependencies = [
  "transit-sys",
 ]
 
 [[package]]
 name = "transit-sys"
-version = "0.0.67"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.67#df031b3af92de14c2d946af4864725b105064ba3"
+version = "0.0.70"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.70#4131d273d8bc50228f59ef389e08a997b3971e85"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -2752,28 +2417,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 
 [[package]]
-name = "usvg"
-version = "0.47.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d46cf96c5f498d36b7a9693bc6a7075c0bb9303189d61b2249b0dc3d309c07de"
-dependencies = [
- "base64",
- "data-url",
- "flate2",
- "imagesize",
- "kurbo",
- "log",
- "pico-args",
- "roxmltree",
- "simplecss",
- "siphasher",
- "strict-num",
- "svgtypes",
- "tiny-skia-path",
- "xmlwriter",
-]
-
-[[package]]
 name = "utf8parse"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2804,8 +2447,8 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vista"
-version = "0.0.67"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.67#df031b3af92de14c2d946af4864725b105064ba3"
+version = "0.0.70"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.70#4131d273d8bc50228f59ef389e08a997b3971e85"
 dependencies = [
  "flux",
  "gltf",
@@ -2815,8 +2458,8 @@ dependencies = [
 
 [[package]]
 name = "vista-sys"
-version = "0.0.67"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.67#df031b3af92de14c2d946af4864725b105064ba3"
+version = "0.0.70"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.70#4131d273d8bc50228f59ef389e08a997b3971e85"
 dependencies = [
  "bindgen",
  "flux-sys",
@@ -3211,17 +2854,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "xkbcommon"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7a974f48060a14e95705c01f24ad9c3345022f4d97441b8a36beb7ed5c4a02d"
-dependencies = [
- "libc",
- "memmap2",
- "xkeysym",
-]
-
-[[package]]
 name = "xkeysym"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3231,21 +2863,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "xmlwriter"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
-
-[[package]]
 name = "xtask"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "serde",
  "tempfile",
  "toml",
- "walkdir",
 ]
 
 [[package]]

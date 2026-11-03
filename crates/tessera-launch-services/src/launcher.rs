@@ -321,11 +321,13 @@ impl ProcessCgroup {
 
     fn attach_on_exec(&self, command: &mut Command) {
         let procs = self.procs.as_raw_fd();
-        // SAFETY: `pre_exec` runs after fork. The closure performs only one
-        // async-signal-safe `write(2)` to a pre-opened cgroup.procs fd. Writing
-        // "0" moves the calling child itself before it can exec or fork.
+        // SAFETY: `pre_exec` runs after fork. The closure performs only
+        // async-signal-safe calls: one `write(2)` to a pre-opened cgroup.procs
+        // fd and one `sched_setaffinity(2)`. Writing "0" moves the calling
+        // child itself before it can exec or fork.
         unsafe {
             command.pre_exec(move || {
+                release_inherited_affinity()?;
                 let attached = libc::write(procs, b"0".as_ptr().cast(), 1);
                 if attached == 1 {
                     Ok(())
@@ -449,6 +451,32 @@ pub enum LaunchError {
     InvalidSandbox(String),
 }
 
+/// Release any CPU affinity this process's forking thread inherited from the
+/// compositor's realtime plan before `exec`.
+///
+/// `[INV-ARCH-96]` A child inherits the forking thread's affinity mask. The
+/// frame thread is pinned to one dedicated CPU, so a client spawned from it
+/// would be born single-CPU and pinned to the compositor's own core — the
+/// precise starvation the pin exists to prevent, inverted. Every spawn path
+/// must clear the mask before `exec`.
+///
+/// Async-signal-safe: one `sched_setaffinity(2)`, no allocation. Called from
+/// `pre_exec` closures, hence the `unsafe` at the `pre_exec` site rather than
+/// here.
+fn release_inherited_affinity() -> std::io::Result<()> {
+    tessera_sched::release_inherited_affinity_to_global_plan()
+}
+
+/// Attach the affinity release to a command about to spawn a client.
+fn detach_from_frame_pin(command: &mut Command) {
+    // SAFETY: `pre_exec` runs between fork and exec. The closure calls only
+    // `sched_setaffinity(2)`, which is async-signal-safe, and allocates
+    // nothing.
+    unsafe {
+        command.pre_exec(release_inherited_affinity);
+    }
+}
+
 /// Launch `source` detached, returning immediately.
 ///
 /// Builds the effective command line (`sh -c '<expanded>'`, optionally wrapped
@@ -465,6 +493,7 @@ pub fn launch(source: &dyn LaunchSource, opts: &LaunchOpts) -> Result<LaunchRepo
     let effective = effective_command(source, opts)?;
 
     let mut cmd = Command::new(SETSID);
+    detach_from_frame_pin(&mut cmd);
     cmd.arg("--fork");
     if opts.foreground {
         // `setsid --wait` reaps the child and mirrors its exit status so a

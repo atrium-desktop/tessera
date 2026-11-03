@@ -26,16 +26,14 @@ tessera-protocol.workspace = true
 # Shared runtime-environment resolution (ADR-0147 D2).
 tessera-env = { workspace = true }
 tessera-launch-services = { workspace = true }
-base64 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-clap = { version = "4", features = ["derive"] }
+clap = { workspace = true }
 
 [dev-dependencies]
 tessera-ipc.workspace = true
 tessera-audit.workspace = true
-tempfile = "3"
 
 [lints]
 workspace = true

@@ -192,28 +192,34 @@ struct RasterCursor {
     pixels: Vec<u8>,
 }
 
-/// Render `svg` to a square `out`×`out` premultiplied BGRA8 sprite, applying
-/// the stamped hotspot scaled from the native viewBox space. Returns `None`
-/// on any parse/render failure so the caller can try the next candidate.
-fn rasterize(svg: &[u8], out: u32) -> Option<RasterCursor> {
+/// Load a pre-baked PNG sprite and convert to premultiplied BGRA8, applying
+/// the stamped hotspot scaled from the native viewBox space (ADR-0207).
+fn decode_cursor_sprite(png: &[u8], svg_meta_source: Option<&[u8]>, out: u32) -> Option<RasterCursor> {
     let out = out.clamp(1, 256);
-    let meta = svg_meta(svg);
-    let tree = usvg::Tree::from_data(svg, &usvg::Options::default()).ok()?;
-    let (nw, nh) = meta.native;
-    let mut pixmap = tiny_skia::Pixmap::new(out, out)?;
-    let transform = tiny_skia::Transform::from_scale(out as f32 / nw, out as f32 / nh);
-    resvg::render(&tree, transform, &mut pixmap.as_mut());
-    let mut pixels = pixmap.data().to_vec();
-    // tiny-skia emits premultiplied RGBA8; flux samples premultiplied BGRA8.
+    let dyn_img = image::load_from_memory(png).ok()?;
+    let resized = if dyn_img.width() == out && dyn_img.height() == out {
+        dyn_img.to_rgba8()
+    } else {
+        dyn_img
+            .resize_exact(out, out, image::imageops::FilterType::Triangle)
+            .to_rgba8()
+    };
+    let mut pixels = resized.into_raw();
     for chunk in pixels.chunks_exact_mut(4) {
-        chunk.swap(0, 2);
+        chunk.swap(0, 2); // RGBA -> BGRA
     }
-    let xhot = (meta.hotspot.0 * out as f32 / nw)
-        .round()
-        .clamp(0.0, out as f32 - 1.0) as u32;
-    let yhot = (meta.hotspot.1 * out as f32 / nh)
-        .round()
-        .clamp(0.0, out as f32 - 1.0) as u32;
+    let (xhot, yhot) = if let Some(svg) = svg_meta_source {
+        let meta = svg_meta(svg);
+        let x = (meta.hotspot.0 * out as f32 / meta.native.0)
+            .round()
+            .clamp(0.0, out as f32 - 1.0) as u32;
+        let y = (meta.hotspot.1 * out as f32 / meta.native.1)
+            .round()
+            .clamp(0.0, out as f32 - 1.0) as u32;
+        (x, y)
+    } else {
+        (0, 0)
+    };
     Some(RasterCursor {
         width: out,
         height: out,
@@ -280,6 +286,27 @@ enum Source {
 }
 
 impl Source {
+    /// Resolve `name` to pre-baked PNG bytes from this source, if present (ADR-0207).
+    fn png(&self, name: &str) -> Option<Cow<'_, [u8]>> {
+        match self {
+            Source::Dir(dir) => std::fs::read(dir.join(format!("{name}.png")))
+                .ok()
+                .map(Cow::Owned),
+            Source::BundledDark => BUNDLED_DARK_THEME
+                .get_file(format!("cursors/{name}.png"))
+                .map(|file| Cow::Borrowed(file.contents())),
+            Source::Bundled => BUNDLED_THEME
+                .get_file(format!("cursors/{name}.png"))
+                .map(|file| Cow::Borrowed(file.contents())),
+            Source::BundledAiLight => BUNDLED_AI_THEME
+                .get_file(format!("cursors/{name}.png"))
+                .map(|file| Cow::Borrowed(file.contents())),
+            Source::BundledAiDark => BUNDLED_AI_DARK_THEME
+                .get_file(format!("cursors/{name}.png"))
+                .map(|file| Cow::Borrowed(file.contents())),
+        }
+    }
+
     /// Resolve `name` to raw SVG bytes from this source, if present.
     fn svg(&self, name: &str) -> Option<Cow<'_, [u8]>> {
         match self {
@@ -385,16 +412,17 @@ impl CursorTheme {
         })
     }
 
-    /// Rasterize the best SVG for a `wp_cursor_shape` value at `scale`,
+    /// Load the best cursor for a `wp_cursor_shape` value at `scale`,
     /// trying each candidate name down the inheritance chain.
     fn load_shape(&self, shape: u32, scale: f32) -> Option<RasterCursor> {
         let out = ((self.size as f32 * scale.max(0.25)).round() as u32).max(1);
         for name in shape_candidates(shape) {
             for source in &self.chain {
-                if let Some(bytes) = source.svg(name)
-                    && let Some(raster) = rasterize(&bytes, out)
-                {
-                    return Some(raster);
+                if let Some(png) = source.png(name) {
+                    let svg = source.svg(name);
+                    if let Some(raster) = decode_cursor_sprite(&png, svg.as_deref(), out) {
+                        return Some(raster);
+                    }
                 }
             }
         }

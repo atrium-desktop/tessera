@@ -188,13 +188,18 @@ impl AgentCursorSet {
     fn upload(device: &flux::Device, theme: &Dir<'static>) -> Option<Self> {
         let load_cursor = |shape: u32| -> Option<LoadedCursor> {
             for candidate in shape_candidates(shape) {
-                if let Some(file) = theme.get_file(format!("cursors/{candidate}.svg")) {
+                if let Some(file) = theme.get_file(format!("cursors/{candidate}.png")) {
                     let bytes = file.contents();
-                    let meta = svg_meta(bytes);
-                    let text = std::str::from_utf8(bytes).ok()?;
-                    let image = upload_sprite(device, text, 96, 96)?;
-                    let hx = (meta.hotspot.0 / meta.native.0).clamp(0.0, 1.0);
-                    let hy = (meta.hotspot.1 / meta.native.1).clamp(0.0, 1.0);
+                    let image = upload_sprite(device, bytes, 96, 96)?;
+                    let (hx, hy) = if let Some(svg_file) = theme.get_file(format!("cursors/{candidate}.svg")) {
+                        let meta = svg_meta(svg_file.contents());
+                        (
+                            (meta.hotspot.0 / meta.native.0).clamp(0.0, 1.0),
+                            (meta.hotspot.1 / meta.native.1).clamp(0.0, 1.0),
+                        )
+                    } else {
+                        (0.0, 0.0)
+                    };
                     return Some(LoadedCursor {
                         image: std::rc::Rc::new(image),
                         hotspot: (hx, hy),
@@ -1108,16 +1113,16 @@ fn scaled_alpha(alpha: u8, numerator: u16, denominator: u16) -> u8 {
     u8::try_from(scaled.min(255)).unwrap_or(255)
 }
 
-fn upload_sprite(device: &flux::Device, svg: &str, width: u32, height: u32) -> Option<flux::Image> {
-    let tree = usvg::Tree::from_data(svg.as_bytes(), &usvg::Options::default()).ok()?;
-    let mut pixmap = tiny_skia::Pixmap::new(width, height)?;
-    let size = tree.size();
-    let transform = tiny_skia::Transform::from_scale(
-        width as f32 / size.width(),
-        height as f32 / size.height(),
-    );
-    resvg::render(&tree, transform, &mut pixmap.as_mut());
-    let mut pixels = pixmap.take();
+fn upload_sprite(device: &flux::Device, png: &[u8], width: u32, height: u32) -> Option<flux::Image> {
+    let dyn_img = image::load_from_memory(png).ok()?;
+    let resized = if dyn_img.width() == width && dyn_img.height() == height {
+        dyn_img.to_rgba8()
+    } else {
+        dyn_img
+            .resize_exact(width, height, image::imageops::FilterType::Triangle)
+            .to_rgba8()
+    };
+    let mut pixels = resized.into_raw();
     for chunk in pixels.chunks_exact_mut(4) {
         chunk.swap(0, 2);
     }
@@ -1231,24 +1236,16 @@ mod tests {
         let shapes = ["default", "pointer", "text", "crosshair", "wait"];
         for shape in shapes {
             let light_file = AI_THEME_LIGHT
-                .get_file(format!("cursors/{shape}.svg"))
+                .get_file(format!("cursors/{shape}.png"))
                 .expect("light shape exists");
             let dark_file = AI_THEME_DARK
-                .get_file(format!("cursors/{shape}.svg"))
+                .get_file(format!("cursors/{shape}.png"))
                 .expect("dark shape exists");
 
-            let render = |svg: &[u8]| {
-                let tree = usvg::Tree::from_data(svg, &usvg::Options::default()).unwrap();
-                let mut pixels = tiny_skia::Pixmap::new(24, 24).unwrap();
-                resvg::render(
-                    &tree,
-                    tiny_skia::Transform::from_scale(
-                        24.0 / tree.size().width(),
-                        24.0 / tree.size().height(),
-                    ),
-                    &mut pixels.as_mut(),
-                );
-                pixels.take()
+            let render = |png: &[u8]| {
+                let dyn_img = image::load_from_memory(png).unwrap();
+                let resized = dyn_img.resize_exact(24, 24, image::imageops::FilterType::Triangle).to_rgba8();
+                resized.into_raw()
             };
             let a = render(light_file.contents());
             let b = render(dark_file.contents());

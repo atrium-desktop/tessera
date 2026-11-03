@@ -19,8 +19,8 @@ impl IconCache {
     }
 }
 
-/// Fallback SVG icon used for applications and windows without a desktop icon.
-pub(super) const DEFAULT_APP_ICON_SVG: &str = include_str!("../../../../assets/icons/unknown.svg");
+/// Fallback icon used for applications and windows without a desktop icon (ADR-0207).
+pub(super) const DEFAULT_APP_ICON_PNG: &[u8] = include_bytes!("../../../../assets/icons/unknown.png");
 pub(super) const DEFAULT_ICON_KEY: &str = "__tessera_default_app_icon__";
 
 /// Raster extensions the `image` crate decodes directly. SVG/SVGZ uses the
@@ -244,21 +244,18 @@ pub(super) struct DecodedIcon {
     pub(super) overwrite: bool,
 }
 
-/// Rasterize an SVG byte slice into a BGRA8 pixel buffer using `usvg`/`resvg`/`tiny-skia`.
-pub(super) fn rasterize_svg_bgra(svg: &[u8], target_size: u32) -> Option<Vec<u8>> {
-    let tree = usvg::Tree::from_data(svg, &usvg::Options::default()).ok()?;
-    let size = tree.size();
-    if size.width() <= 0.0 || size.height() <= 0.0 {
-        return None;
-    }
+/// Decode a PNG byte slice into a BGRA8 pixel buffer using `image` (ADR-0207).
+pub(super) fn decode_png_bgra(png: &[u8], target_size: u32) -> Option<Vec<u8>> {
     let target = target_size.clamp(1, 512);
-    let mut pixmap = tiny_skia::Pixmap::new(target, target)?;
-    let scale = (target as f32 / size.width()).min(target as f32 / size.height());
-    let dx = (target as f32 - size.width() * scale) * 0.5;
-    let dy = (target as f32 - size.height() * scale) * 0.5;
-    let transform = tiny_skia::Transform::from_scale(scale, scale).post_translate(dx, dy);
-    resvg::render(&tree, transform, &mut pixmap.as_mut());
-    let mut bgra = pixmap.take();
+    let dyn_img = image::load_from_memory(png).ok()?;
+    let resized = if dyn_img.width() == target && dyn_img.height() == target {
+        dyn_img.to_rgba8()
+    } else {
+        dyn_img
+            .resize_exact(target, target, image::imageops::FilterType::Triangle)
+            .to_rgba8()
+    };
+    let mut bgra = resized.into_raw();
     for chunk in bgra.chunks_exact_mut(4) {
         chunk.swap(0, 2); // RGBA -> BGRA
     }
@@ -275,11 +272,11 @@ pub(super) fn decode_icons(
 ) -> Vec<DecodedIcon> {
     let mut decoded = Vec::new();
 
-    // Default application fallback icon decoded from embedded SVG.
+    // Default application fallback icon decoded from embedded PNG (ADR-0207).
     let default_target = tessera_launch_services::DEFAULT_ICON_SIZE
         .saturating_mul(icon_scale.max(1))
         .min(512);
-    if let Some(default_bgra) = rasterize_svg_bgra(DEFAULT_APP_ICON_SVG.as_bytes(), default_target)
+    if let Some(default_bgra) = decode_png_bgra(DEFAULT_APP_ICON_PNG, default_target)
     {
         decoded.push(DecodedIcon {
             keys: vec![
@@ -467,20 +464,13 @@ pub(super) fn decode_icon(
     {
         return Some(img);
     }
-    let data = std::fs::read(path).ok()?;
-    let tree = usvg::Tree::from_data(&data, &usvg::Options::default()).ok()?;
-    let size = tree.size();
-    if size.width() <= 0.0 || size.height() <= 0.0 {
-        return None;
+    // Fall back to image crate decoding if file is standard raster format (ADR-0207).
+    if let Ok(data) = std::fs::read(path)
+        && let Ok(img) = image::load_from_memory(&data)
+    {
+        return Some(img);
     }
-    let mut pixmap = tiny_skia::Pixmap::new(target_u32, target_u32)?;
-    let scale = (target_u32 as f32 / size.width()).min(target_u32 as f32 / size.height());
-    let dx = (target_u32 as f32 - size.width() * scale) * 0.5;
-    let dy = (target_u32 as f32 - size.height() * scale) * 0.5;
-    let transform = tiny_skia::Transform::from_scale(scale, scale).post_translate(dx, dy);
-    resvg::render(&tree, transform, &mut pixmap.as_mut());
-    let rgba = image::RgbaImage::from_raw(target_u32, target_u32, pixmap.take())?;
-    Some(image::DynamicImage::ImageRgba8(rgba))
+    None
 }
 
 #[cfg(test)]
@@ -566,9 +556,9 @@ mod tests {
     }
 
     #[test]
-    fn default_app_icon_svg_rasterizes_successfully() {
-        let bgra = rasterize_svg_bgra(DEFAULT_APP_ICON_SVG.as_bytes(), 48);
-        assert!(bgra.is_some(), "default unknown.svg must rasterize cleanly");
+    fn default_app_icon_png_decodes_successfully() {
+        let bgra = decode_png_bgra(DEFAULT_APP_ICON_PNG, 48);
+        assert!(bgra.is_some(), "default unknown.png must decode cleanly");
         let bytes = bgra.unwrap();
         assert_eq!(bytes.len(), 48 * 48 * 4);
     }

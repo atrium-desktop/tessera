@@ -9,7 +9,7 @@
 use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
 
-use ini::Ini;
+use crate::ini::Ini;
 
 use super::DEFAULT_ICON_THEME;
 use super::xdg::icon_search_bases;

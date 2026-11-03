@@ -25,13 +25,13 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 zeroize.workspace = true
 clap = { version = "4", features = ["derive", "wrap_help", "string"] }
-clap_complete = "4"
+clap_complete = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
 tessera-primitives.workspace = true
 tessera-ipc.workspace = true
-tempfile = "3"
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

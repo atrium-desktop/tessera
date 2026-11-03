@@ -1,5 +1,8 @@
 //! Single integration test target for tessera-launch-services.
 
+#[path = "launch_services/affinity_integration.rs"]
+mod affinity_integration;
+
 #[path = "launch_services/entries_integration.rs"]
 mod entries_integration;
 #[path = "launch_services/entries_staging.rs"]

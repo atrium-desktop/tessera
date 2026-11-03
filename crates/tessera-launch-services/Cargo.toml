@@ -9,14 +9,13 @@ rust-version.workspace = true
 [dependencies]
 tessera-desktop.workspace = true
 tessera-i18n = { workspace = true }
-dirs.workspace = true
-ini.workspace = true
+tessera-sched = { workspace = true }
 libc.workspace = true
 log.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-tempfile = "3"
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

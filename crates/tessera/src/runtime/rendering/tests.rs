@@ -552,9 +552,12 @@ fn damaged_base_and_stencil_overlay_preserve_pixels_outside_the_scissor() {
     // proves the overlay really has stencil rather than merely being a
     // second no-stencil LOAD pass.
     session.end().unwrap();
-    let session =
-        begin_stencil_frame_overlay(&mut canvas, &mut frame, frame_damage_render_area(&repaint))
-            .unwrap();
+    let session = begin_stencil_frame_overlay(
+        &mut canvas,
+        &mut frame,
+        frame_damage_render_area(&repaint, (256, 256)),
+    )
+    .unwrap();
     let arena = flux::Arena::with_capacity(4096).unwrap();
     let path = flux::Path::new(&arena).unwrap();
     path.move_to(11.0, 8.0)
@@ -660,14 +663,15 @@ fn frost_opacity_drains_the_cover_between_sharp_and_blurred() {
             tint_strength: 0.0,
         }];
         let material = filter
-            .apply(
-                &frame,
-                &input,
-                &blurred,
-                &frost,
-                &[],
-                prism::LiquidGlassParams::default(),
-            )
+            .apply(&prism::BackdropLayerApplyOpts {
+                frame: &frame,
+                input: &input,
+                blurred: &blurred,
+                frost: &frost,
+                groups: &[],
+                params: prism::LiquidGlassParams::default(),
+                revision: None,
+            })
             .expect("layered backdrop applies");
         let session = canvas
             .begin_session(
@@ -678,7 +682,7 @@ fn frost_opacity_drains_the_cover_between_sharp_and_blurred() {
                 },
             )
             .unwrap();
-        material.draw(&session, 0.0, 0.0, W as f32, H as f32);
+        material.draw(&session);
         session.end().unwrap();
         frame.submit().unwrap().present().unwrap();
         let mut pixels = vec![0; (W * H * 4) as usize];
@@ -745,7 +749,7 @@ fn frame_damage_render_area_uses_the_exact_union() {
         tessera_primitives::Rect::new(29, 3, 4, 8),
     ]);
     assert_eq!(
-        frame_damage_render_area(&damage),
+        frame_damage_render_area(&damage, (256, 256)),
         Some(flux::CanvasRenderArea {
             x: 11,
             y: 3,
@@ -753,8 +757,62 @@ fn frame_damage_render_area_uses_the_exact_union() {
             height: 13,
         })
     );
-    assert_eq!(frame_damage_render_area(&FrameDamage::Full), None);
-    assert_eq!(frame_damage_render_area(&FrameDamage::None), None);
+    assert_eq!(
+        frame_damage_render_area(&FrameDamage::Full, (256, 256)),
+        None
+    );
+    assert_eq!(
+        frame_damage_render_area(&FrameDamage::None, (256, 256)),
+        None
+    );
+}
+
+/// Both flux backends reject a `renderArea` that is out of bounds, has a
+/// negative origin, or has exactly one zero dimension
+/// (`canvas_pass_render_area`). Handing one out does not merely skip a
+/// rectangle: the pass fails to begin and the frame loses its chrome, which
+/// surfaced as `shell chrome render failed: Render(FLUX_ERROR_INVALID_ARGUMENT)`.
+#[test]
+fn test_inv_arch_94_render_area_is_clamped_to_the_framebuffer() {
+    // Damage straddling the right and bottom edges clamps inward.
+    let edge = FrameDamage::Area(vec![tessera_primitives::Rect::new(1800, 1000, 400, 400)]);
+    assert_eq!(
+        frame_damage_render_area(&edge, (1920, 1080)),
+        Some(flux::CanvasRenderArea {
+            x: 1800,
+            y: 1000,
+            width: 120,
+            height: 80,
+        })
+    );
+    // A negative origin clamps to zero without changing the far edge.
+    let negative = FrameDamage::Area(vec![tessera_primitives::Rect::new(-30, -20, 100, 90)]);
+    assert_eq!(
+        frame_damage_render_area(&negative, (1920, 1080)),
+        Some(flux::CanvasRenderArea {
+            x: 0,
+            y: 0,
+            width: 70,
+            height: 70,
+        })
+    );
+    // Damage wholly off the framebuffer has no usable area: the caller must
+    // fall back to a full-destination pass, never to a rejected rect.
+    let offscreen = FrameDamage::Area(vec![tessera_primitives::Rect::new(5000, 5000, 100, 100)]);
+    assert_eq!(frame_damage_render_area(&offscreen, (1920, 1080)), None);
+    let negative_far = FrameDamage::Area(vec![tessera_primitives::Rect::new(-500, 0, 100, 100)]);
+    assert_eq!(frame_damage_render_area(&negative_far, (1920, 1080)), None);
+    // A one-pixel-wide sliver is still a legal area, not a degenerate one.
+    let sliver = FrameDamage::Area(vec![tessera_primitives::Rect::new(10, 10, 1, 40)]);
+    assert_eq!(
+        frame_damage_render_area(&sliver, (1920, 1080)),
+        Some(flux::CanvasRenderArea {
+            x: 10,
+            y: 10,
+            width: 1,
+            height: 40,
+        })
+    );
 }
 
 #[test]
@@ -778,4 +836,53 @@ fn glass_curvature_invalidates_material_cache() {
         tessera_desktop::settings::ColorScheme::Dark,
     );
     assert_eq!(groups[0].curvature, Some(1.0));
+}
+
+#[test]
+fn backdrop_layer_slab_quantization() {
+    let key = BackdropCacheKey::new(
+        (100, 200),
+        (1820, 880),
+        (1920, 1080),
+        8.0,
+        1.0,
+        false,
+        &[],
+        &[
+            // Layer 0: Dock at bottom center
+            vec![BackdropCaptureRegion {
+                origin: (500, 900),
+                extent: (600, 80),
+            }],
+            // Layer 1: Top bar
+            vec![BackdropCaptureRegion {
+                origin: (100, 200),
+                extent: (1820, 32),
+            }],
+        ],
+        &[],
+        None,
+    );
+
+    let (dock_origin, dock_size) = super::layer_slab_dims(0, &key, (1820, 880));
+    // (500 - 100) / 1 = 400, (900 - 200) / 1 = 700
+    assert_eq!(dock_origin, (400, 700));
+    assert_eq!(dock_size, (600, 80));
+    assert_eq!(flux::bucket_extent(dock_size.0, 128), 640);
+    assert_eq!(flux::bucket_extent(dock_size.1, 128), 128);
+
+    let (bar_origin, bar_size) = super::layer_slab_dims(1, &key, (1820, 880));
+    assert_eq!(bar_origin, (0, 0));
+    assert_eq!(bar_size, (1820, 32));
+    assert_eq!(flux::bucket_extent(bar_size.0, 128), 1920);
+    assert_eq!(flux::bucket_extent(bar_size.1, 128), 128);
+}
+
+#[test]
+fn backdrop_graph_executor_warmup_and_revision_advancement() {
+    let Ok(device) = flux::Device::new(true, &[], &[], 0) else {
+        return;
+    };
+    let executor = super::BackdropGraphExecutor::new(&device).unwrap();
+    assert_eq!(executor.content_revision, 1);
 }

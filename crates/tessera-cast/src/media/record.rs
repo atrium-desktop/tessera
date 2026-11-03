@@ -95,10 +95,11 @@ pub fn record_screen(
         return Err(RecordError::InvalidOutput("output path is empty".into()));
     }
 
-    if let Some(parent) = options.output_path.parent() {
-        if !parent.as_os_str().is_empty() && !parent.exists() {
-            std::fs::create_dir_all(parent)?;
-        }
+    if let Some(parent) = options.output_path.parent()
+        && !parent.as_os_str().is_empty()
+        && !parent.exists()
+    {
+        std::fs::create_dir_all(parent)?;
     }
 
     eprintln!(
@@ -184,19 +185,19 @@ pub fn record_screen(
         }
 
         // Check external stop signal
-        if let Some(ref stop) = stop_signal {
-            if stop.load(Ordering::Relaxed) {
-                stopped_manually = true;
-                break;
-            }
+        if let Some(ref stop) = stop_signal
+            && stop.load(Ordering::Relaxed)
+        {
+            stopped_manually = true;
+            break;
         }
 
         // Check duration limit
-        if let Some(duration) = options.duration {
-            if start_time.elapsed() >= duration {
-                stopped_manually = true;
-                break;
-            }
+        if let Some(duration) = options.duration
+            && start_time.elapsed() >= duration
+        {
+            stopped_manually = true;
+            break;
         }
 
         std::thread::sleep(poll_interval);

@@ -6,6 +6,7 @@
 //! command channel drained by one plain worker thread, and a shared snapshot
 //! the compositor reads without blocking.
 
+#[cfg(feature = "dbus-system")]
 pub mod bluez;
 pub mod mock;
 
@@ -14,6 +15,7 @@ use std::thread;
 use std::time::Duration;
 use tessera_desktop::system::{BluetoothDevice, BluetoothLinkState};
 
+#[cfg(feature = "dbus-system")]
 pub use bluez::BluezBackend;
 pub use mock::{MockBluetoothBackend, MockState};
 
@@ -193,15 +195,18 @@ impl BluetoothHandle {
     }
 
     /// Try spawning with the native BlueZ backend, falling back to an inert
-    /// unavailable backend when the host has no Bluetooth service.
+    /// unavailable backend when the host has no Bluetooth service or when
+    /// the compositor is built without D-Bus system services.
     pub fn spawn_auto() -> Self {
-        if let Ok(backend) = BluezBackend::open() {
-            log::info!("bluetooth subsystem: initialized native BlueZ backend");
-            Self::spawn_with_backend(backend)
-        } else {
-            log::info!("bluetooth subsystem: BlueZ not available, adapter reported unavailable");
-            Self::spawn_with_backend(UnavailableBackend)
+        #[cfg(feature = "dbus-system")]
+        {
+            if let Ok(backend) = BluezBackend::open() {
+                log::info!("bluetooth subsystem: initialized native BlueZ backend");
+                return Self::spawn_with_backend(backend);
+            }
         }
+        log::info!("bluetooth subsystem: BlueZ not available, adapter reported unavailable");
+        Self::spawn_with_backend(UnavailableBackend)
     }
 
     /// Dispatch an asynchronous adapter power change.

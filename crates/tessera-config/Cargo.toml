@@ -18,17 +18,14 @@ toml = { workspace = true }
 # Preserving edits to the user-editable TOML file (e.g. dock pins). Kept on
 # the same 0.25 line as the rest of the workspace TOML stack (toml 1.x) so
 # only one parser copy is compiled.
-toml_edit = "0.25"
-# `$XDG_CONFIG_HOME` / `~/.config` resolution for the default config path.
-# Already a workspace dependency (tessera-launch-services uses it for XDG data dirs).
-dirs = { workspace = true }
+toml_edit.workspace = true
 libc.workspace = true
 
 # Typed errors without handwritten Display/From impls (matches tessera-shell).
 thiserror.workspace = true
 
 [dev-dependencies]
-tempfile = "3"
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

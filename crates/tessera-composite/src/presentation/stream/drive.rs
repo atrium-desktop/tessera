@@ -12,7 +12,8 @@ use crate::presentation::damage::{
 };
 
 use super::registry::{
-    OffscreenStreamStage, OffscreenTarget, OutputStreams, damage_in_target, window_stream_render_due,
+    OffscreenStreamStage, OffscreenTarget, OutputStreams, damage_in_target,
+    window_stream_render_due,
 };
 use super::ring::SLOT_FENCE_TIMEOUT;
 use super::transport::window_stream_cursor;
@@ -34,7 +35,8 @@ pub struct OffscreenStreamDrive<'a> {
     pub resolve_geometry: &'a mut dyn FnMut(&OffscreenTarget) -> Result<OffscreenGeometry, String>,
     /// Content-generation snapshot of an offscreen scene's surface tree (the
     /// dirty signal).
-    pub tree_generations: &'a mut dyn FnMut(&OffscreenTarget) -> std::collections::HashMap<usize, u64>,
+    pub tree_generations:
+        &'a mut dyn FnMut(&OffscreenTarget) -> std::collections::HashMap<usize, u64>,
     /// The offscreen scene tree's own committed damage since the previous call, in
     /// compositor logical coordinates (ADR-0187). Called once per render,
     /// after the due decision, so the underlying tracker advances exactly
@@ -154,8 +156,7 @@ impl OutputStreams {
             // the last rendered snapshot. A re-render of a clean scene happens only
             // at the liveness tick.
             let live = tree_generations(&target);
-            offscreen.dirty =
-                live != offscreen.generations || cursor_draw != offscreen.last_cursor;
+            offscreen.dirty = live != offscreen.generations || cursor_draw != offscreen.last_cursor;
             let stage_idle = matches!(offscreen.stage, OffscreenStreamStage::Idle);
             if !window_stream_render_due(
                 offscreen.dirty,
@@ -206,10 +207,10 @@ impl OutputStreams {
                                 damage: sampled,
                             };
                             stream.last_frame = Some(now);
-                            if let OffscreenTarget::VirtualOutput(ref conn) = target {
-                                if !effects.rendered_virtual_outputs.contains(conn) {
-                                    effects.rendered_virtual_outputs.push(conn.clone());
-                                }
+                            if let OffscreenTarget::VirtualOutput(ref conn) = target
+                                && !effects.rendered_virtual_outputs.contains(conn)
+                            {
+                                effects.rendered_virtual_outputs.push(conn.clone());
                             }
                         }
                         Err(reason) => {
@@ -269,10 +270,10 @@ impl OutputStreams {
                             offscreen.dirty = false;
                             stream.sequence += 1;
                             stream.last_frame = Some(now);
-                            if let OffscreenTarget::VirtualOutput(ref conn) = target {
-                                if !effects.rendered_virtual_outputs.contains(conn) {
-                                    effects.rendered_virtual_outputs.push(conn.clone());
-                                }
+                            if let OffscreenTarget::VirtualOutput(ref conn) = target
+                                && !effects.rendered_virtual_outputs.contains(conn)
+                            {
+                                effects.rendered_virtual_outputs.push(conn.clone());
                             }
                         }
                         Err(BlitFailure::Retryable(reason)) => {

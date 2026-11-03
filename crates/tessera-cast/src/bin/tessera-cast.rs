@@ -729,10 +729,10 @@ fn run_record(args: &[String]) -> ExitCode {
         println!("Recording started. Press [Enter] to stop recording and finalize video file...");
         std::thread::spawn(move || {
             let mut line = String::new();
-            if let Ok(n) = std::io::stdin().read_line(&mut line) {
-                if n > 0 {
-                    stop_flag_clone.store(true, std::sync::atomic::Ordering::Relaxed);
-                }
+            if let Ok(n) = std::io::stdin().read_line(&mut line)
+                && n > 0
+            {
+                stop_flag_clone.store(true, std::sync::atomic::Ordering::Relaxed);
             }
         });
     } else if options.duration.is_none() {

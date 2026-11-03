@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use ini::Ini;
+use crate::ini::{Ini, Properties};
 use tessera_desktop::app::ApplicationTarget;
 use tessera_desktop::app::Entry;
 
@@ -146,7 +146,7 @@ fn parse_text(
     context: &ParseContext<'_>,
 ) -> Result<Option<Entry>, AppsError> {
     let ini = Ini::load_from_str(text)
-        .map_err(|e| AppsError::Parse(path.to_path_buf(), e.to_string()))?;
+        .map_err(|e| AppsError::Parse(path.to_path_buf(), e))?;
     // Only the main entry; `[Desktop Action …]` quicklists are ignored.
     let Some(section) = ini.section(Some("Desktop Entry")) else {
         return Ok(None);
@@ -237,7 +237,7 @@ fn parse_text(
 
 /// Pick the best value for a localized key. Tries each locale variant suffix
 /// `[xx_YY]` in precedence, then the unlocalized base value.
-fn pick_localized(section: &ini::Properties, base: &str, locale: &Locale) -> Option<String> {
+fn pick_localized(section: &Properties, base: &str, locale: &Locale) -> Option<String> {
     for variant in locale.variants() {
         let key = format!("{base}[{variant}]");
         if let Some(v) = section.get(&key) {
@@ -271,7 +271,7 @@ fn current_desktops() -> Vec<String> {
 
 /// Apply the Desktop Entry Specification's ordered OnlyShowIn/NotShowIn
 /// decision against the colon-separated XDG_CURRENT_DESKTOP names.
-fn visible_on_desktop(section: &ini::Properties, desktops: &[String]) -> bool {
+fn visible_on_desktop(section: &Properties, desktops: &[String]) -> bool {
     let only = section
         .get("OnlyShowIn")
         .map(split_semicol)

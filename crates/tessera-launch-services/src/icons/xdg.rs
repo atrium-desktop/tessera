@@ -65,7 +65,7 @@ fn absolute_nonempty(value: Option<&OsStr>) -> Option<PathBuf> {
 }
 
 fn home_dir() -> Option<PathBuf> {
-    absolute_nonempty(std::env::var_os("HOME").as_deref()).or_else(dirs::home_dir)
+    absolute_nonempty(std::env::var_os("HOME").as_deref())
 }
 
 fn push_unique(out: &mut Vec<PathBuf>, path: PathBuf) {

@@ -2901,4 +2901,225 @@ mod tests {
 
 pub mod presentation;
 
+#[cfg(test)]
+mod placement_agreement {
+    //! `[INV-ARCH-92]` Placement is the single mapping authority.
+    //!
+    //! Three sites resolve where a surface lands on the output: the renderer's
+    //! blit (`destination_size`, this module), the damage pass
+    //! (`SurfacePlacement::resolve`, `presentation::damage`), and the
+    //! ownership/occlusion query (`SurfacePresentation::logical_extent`,
+    //! `tessera-desktop`). A damage rectangle that disagrees with the drawn
+    //! rectangle is a stale pixel or a wasted repaint, and neither shows up in
+    //! a test that only inspects one site.
+    //!
+    //! This test walks a matrix of viewport, scale, transform, and transition
+    //! states and asserts the renderer and the damage pass agree exactly.
+
+    use super::*;
+    use presentation::SurfacePlacement;
+    use tessera_primitives::{Rect, Size, SurfaceGeometry, Transform};
+
+    /// The renderer's destination extent, modelled exactly as the draw path
+    /// computes it: `destination_size` for the base extent, then the
+    /// transition override applied afterwards (see the `transition_size` arm in
+    /// `draw_client_scene`, which rewrites `dst_w`/`dst_h` when a transition is
+    /// in flight and no placement map owns the rect).
+    fn renderer_extent(geometry: &SurfaceGeometry, width: i32, height: i32) -> (i32, i32) {
+        let (tw, th) = transformed_dims(width, height, geometry.transform);
+        let (w, h) = destination_size(
+            (tw, th),
+            geometry.viewport_src,
+            geometry.viewport_dst,
+            geometry.buffer_scale,
+        );
+        if let Some(size) = geometry.transition_size {
+            return (size.w.max(1), size.h.max(1));
+        }
+        (w.round() as i32, h.round() as i32)
+    }
+
+    fn cases() -> Vec<(&'static str, SurfaceGeometry, i32, i32)> {
+        let base = SurfaceGeometry::default();
+        vec![
+            ("plain", base, 800, 600),
+            (
+                "buffer scale 2",
+                SurfaceGeometry {
+                    buffer_scale: 2,
+                    ..base
+                },
+                1600,
+                1200,
+            ),
+            (
+                "viewport destination",
+                SurfaceGeometry {
+                    viewport_dst: Some(Size { w: 512, h: 384 }),
+                    ..base
+                },
+                1024,
+                768,
+            ),
+            (
+                "viewport source crop",
+                SurfaceGeometry {
+                    viewport_src: Some(Rect::new(100, 100, 400, 300)),
+                    ..base
+                },
+                800,
+                600,
+            ),
+            (
+                "scale 2 plus destination",
+                SurfaceGeometry {
+                    buffer_scale: 2,
+                    viewport_dst: Some(Size { w: 300, h: 200 }),
+                    ..base
+                },
+                1600,
+                1200,
+            ),
+            (
+                "rotate 90",
+                SurfaceGeometry {
+                    transform: Transform::Rotate90,
+                    ..base
+                },
+                800,
+                600,
+            ),
+            (
+                "transition overrides destination",
+                SurfaceGeometry {
+                    viewport_dst: Some(Size { w: 400, h: 300 }),
+                    transition_size: Some(Size { w: 200, h: 150 }),
+                    ..base
+                },
+                400,
+                300,
+            ),
+            (
+                "fullscreen HiDPI viewport",
+                SurfaceGeometry {
+                    buffer_scale: 2,
+                    viewport_src: Some(Rect::new(0, 0, 3072, 1920)),
+                    viewport_dst: Some(Size { w: 1536, h: 960 }),
+                    ..base
+                },
+                3072,
+                1920,
+            ),
+            (
+                // A crop whose origin is non-zero *moves* where the visible
+                // content begins. This is the case that a scale-only map gets
+                // silently wrong.
+                "offset source crop",
+                SurfaceGeometry {
+                    viewport_src: Some(Rect::new(100, 100, 400, 300)),
+                    ..base
+                },
+                800,
+                600,
+            ),
+            (
+                "offset source crop with scaled destination",
+                SurfaceGeometry {
+                    viewport_src: Some(Rect::new(200, 100, 400, 300)),
+                    viewport_dst: Some(Size { w: 200, h: 150 }),
+                    ..base
+                },
+                800,
+                600,
+            ),
+            (
+                "offset crop, buffer scale, transition",
+                SurfaceGeometry {
+                    buffer_scale: 2,
+                    viewport_src: Some(Rect::new(50, 50, 300, 200)),
+                    transition_size: Some(Size { w: 120, h: 80 }),
+                    ..base
+                },
+                1600,
+                1200,
+            ),
+        ]
+    }
+
+    #[test]
+    fn test_inv_arch_92_renderer_and_damage_resolve_the_same_extent() {
+        for (name, geometry, width, height) in cases() {
+            let drawn = renderer_extent(&geometry, width, height);
+            let placement = SurfacePlacement::resolve(&geometry, width, height);
+            assert_eq!(
+                placement.dest_extent, drawn,
+                "{name}: damage placement destination {:?} disagrees with the drawn extent {drawn:?}",
+                placement.dest_extent
+            );
+        }
+    }
+
+    #[test]
+    fn test_inv_arch_92_placement_rect_matches_the_drawn_rect() {
+        for (name, geometry, width, height) in cases() {
+            let mut geometry = geometry;
+            geometry.position = tessera_primitives::Point { x: 37, y: 41 };
+            let (w, h) = renderer_extent(&geometry, width, height);
+            let placement = SurfacePlacement::resolve(&geometry, width, height);
+            assert_eq!(
+                placement.rect(),
+                Rect::new(37, 41, w, h),
+                "{name}: placement rect disagrees with the drawn rect"
+            );
+        }
+    }
+
+    /// The renderer draws the visible content at `geometry.position`, whatever
+    /// the viewport crop is. Damage at the visible content's own origin must
+    /// therefore land at `geometry.position` — not at some crop-offset
+    /// multiple of it. A scale-only map passes the extent test above and fails
+    /// this one, which is exactly how the crop-offset defect survived.
+    #[test]
+    fn test_inv_arch_92_damage_at_the_visible_origin_lands_at_the_drawn_origin() {
+        for (name, geometry, width, height) in cases() {
+            let mut geometry = geometry;
+            geometry.position = tessera_primitives::Point { x: 37, y: 41 };
+            let placement = SurfacePlacement::resolve(&geometry, width, height);
+            // The top-left pixel of whatever is visible.
+            let visible_origin = tessera_primitives::Rect::new(
+                placement.source_origin.0,
+                placement.source_origin.1,
+                1,
+                1,
+            );
+            let landed = placement
+                .place(visible_origin)
+                .unwrap_or_else(|| panic!("{name}: the visible origin must map onto the output"));
+            assert_eq!(
+                (landed.origin.x, landed.origin.y),
+                (37, 41),
+                "{name}: damage at the visible origin landed at {landed:?}, but the renderer \
+                 draws the visible content at (37, 41)"
+            );
+        }
+    }
+
+    #[test]
+    fn test_inv_arch_93_full_surface_damage_covers_exactly_the_drawn_rect() {
+        // The empty-damage convention ("no usable information → the whole
+        // surface changed") must produce exactly the rectangle the renderer
+        // draws, never a larger one.
+        for (name, geometry, width, height) in cases() {
+            let placement = SurfacePlacement::resolve(&geometry, width, height);
+            let rects = placement.place_damage(&[]);
+            assert_eq!(rects.len(), 1, "{name}: expected one whole-surface rect");
+            assert_eq!(
+                rects[0],
+                placement.rect(),
+                "{name}: whole-surface damage does not match the drawn rect"
+            );
+        }
+    }
+}
+
 pub mod capture;

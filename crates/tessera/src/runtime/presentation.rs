@@ -1216,7 +1216,12 @@ impl CompositorRuntime<'_> {
                     }
                 };
                 let has_cached_effects = refreshed;
-                output_render_area = frame_damage_render_area(&repaint);
+                // Clamp to the framebuffer before this becomes a Vulkan
+                // dynamic render area: an off-screen or edge-straddling damage
+                // rect (a partially off-screen surface, a widening saturated at
+                // the i32 edge) is rejected by the backend, and the pass then
+                // fails to begin and drops the frame's chrome.
+                output_render_area = frame_damage_render_area(&repaint, physical_size);
 
                 // [INV-ARCH-70]: the frame sampled client dma-bufs beyond the
                 // visible desktop set whenever it drew overview thumbnails,
@@ -1377,7 +1382,7 @@ impl CompositorRuntime<'_> {
                                     },
                                 )?;
                                 let _uploads = self.device.uploads_begin();
-                                let _ = unsafe { self.shell.render(s3.as_raw() as *mut _, &input) };
+                                let _ = unsafe { self.shell.submit(s3.as_raw() as *mut _) };
                                 if !session_locked {
                                     draw_client_overlays(
                                         &s3,
@@ -1494,7 +1499,7 @@ impl CompositorRuntime<'_> {
                     // the desktop scene, exactly as the screenshot path below
                     // degrades. Propagating here would drop a live
                     // `CanvasSession` mid-pass and forfeit the whole frame.
-                    if let Err(error) = unsafe { self.shell.render(s.as_raw() as *mut _, &input) } {
+                    if let Err(error) = unsafe { self.shell.submit(s.as_raw() as *mut _) } {
                         log::warn!("compositor: shell chrome render failed: {error}");
                     }
                     s
@@ -1596,9 +1601,7 @@ impl CompositorRuntime<'_> {
                         // See the occluded branch above: a shell chrome draw
                         // failure degrades to a chrome-less frame instead of
                         // dropping the still-open overlay session.
-                        if let Err(error) =
-                            unsafe { self.shell.render(s.as_raw() as *mut _, &input) }
-                        {
+                        if let Err(error) = unsafe { self.shell.submit(s.as_raw() as *mut _) } {
                             log::warn!("compositor: shell chrome render failed: {error}");
                         }
                         s

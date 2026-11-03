@@ -111,6 +111,16 @@ pub struct Shell {
     /// itself renders; every other component is part of the frozen snapshot
     /// and must not draw (or advance its animations) on top of it.
     screenshot_freeze: bool,
+    /// The scene `prepare_frame` built this frame, awaiting [`Shell::submit`]
+    /// at draw time (ADR-0203).
+    ///
+    /// Building the tree and drawing it are two phases of one frame. Damage
+    /// assessment must observe the tree the renderer is about to draw — the
+    /// lens damage query is only meaningful for a frame already built — but it
+    /// cannot run between a canvas pass's begin and its draws. Holding the
+    /// built scene here lets `prepare_frame` (before damage assessment) do the
+    /// building and `submit` (inside the pass) do only the drawing.
+    pending_scene: Option<lens::Snapshot>,
 }
 
 impl Shell {
@@ -146,6 +156,7 @@ impl Shell {
                 scale: 1.0,
                 design: tessera_design::Design::dark(),
                 screenshot_freeze: false,
+                pending_scene: None,
             })
         }
     }
@@ -174,6 +185,7 @@ impl Shell {
             scale: 1.0,
             design: tessera_design::Design::dark(),
             screenshot_freeze: false,
+            pending_scene: None,
         })
     }
 
@@ -989,23 +1001,36 @@ impl Shell {
     }
 
     /// The output-logical rectangle every in-flight chrome animation can
-    /// touch this frame, or `None` when any animated component (or lens's
-    /// own eased state) cannot state its footprint. The compositor uses this
-    /// to turn animation-driven frames into partial repaints instead of
-    /// full-output composites; `None` preserves the conservative
-    /// full-repaint behaviour.
+    /// touch this frame, or `None` when any animated component cannot state
+    /// its footprint. The compositor uses this to turn animation-driven
+    /// frames into partial repaints instead of full-output composites;
+    /// `None` preserves the conservative full-repaint behaviour.
+    ///
+    /// Lens reports its own eased-value and caret-blink footprints through
+    /// [`lens::Ui::damage_rect`], so a settling lens widget narrows the
+    /// repaint exactly like a chrome component's [`Chrome::damage_region`]
+    /// does. Only a component that returns `None` widens the frame.
     ///
     /// This only describes *chrome* animation damage. Client windows, the
     /// software cursor, and the backdrop-effect source have their own damage
     /// paths and are unioned by the host separately.
-    pub fn anim_damage_region(&self, display: (f32, f32)) -> Option<tessera_primitives::Rect> {
+    pub fn anim_damage_regions(
+        &self,
+        display: (f32, f32),
+    ) -> Option<Vec<tessera_primitives::Rect>> {
         let modal_active = self
             .components
             .iter()
             .any(|component| component.modal_active());
         let window_switcher_active = self.window_switcher_active();
         let exclusive_presentation_active = self.exclusive_presentation_active();
-        let mut region: Option<tessera_primitives::Rect> = None;
+        // Rectangles stay disjoint. Unioning them into one bounding box is
+        // what makes an animation-driven repaint worthless in practice: the
+        // HUD sits at the top of the output and the Dock at the bottom, so
+        // their union is the whole panel, and every frame in which both ease
+        // becomes a full-output composite again. The compositor's damage list
+        // is a list precisely so unrelated regions stay unrelated (ADR-0203).
+        let mut regions: Vec<tessera_primitives::Rect> = Vec::new();
         for component in self
             .components
             .iter()
@@ -1020,19 +1045,32 @@ impl Shell {
             })
             .filter(|c| c.anim_pending())
         {
+            // `?` is deliberate: a component that cannot localize its own
+            // animation is a genuine "repaint everything" instruction.
             let rect = component.damage_region(&self.windows, display)?;
-            region = Some(match region {
-                Some(existing) => existing.union(rect),
-                None => rect,
-            });
+            if !rect.is_empty() {
+                regions.push(rect);
+            }
         }
-        // Lens's internal eased values (hover/active fades on buttons, the
-        // agent-feedback cursor sprite) have no exposed footprint; while any
-        // is still settling the shell cannot narrow the repaint.
         if self.ui.anim_pending() {
-            return None;
+            let lens_damage = self.ui.damage_rect();
+            let footprint = tessera_primitives::Rect::new(
+                lens_damage.x as i32,
+                lens_damage.y as i32,
+                lens_damage.w.ceil().max(0.0) as i32,
+                lens_damage.h.ceil().max(0.0) as i32,
+            );
+            if footprint.is_empty() {
+                // Lens is animating but cannot name a cell (`damage_rect` is
+                // only meaningful for a frame that was built; `prepare_frame`
+                // builds one every frame, so reaching here means the query
+                // itself found nothing). There is no footprint to add, and
+                // inventing one would be worse than adding none.
+                return Some(regions);
+            }
+            regions.push(footprint);
         }
-        region
+        Some(regions)
     }
 
     /// Whether any component that would participate in the next chrome pass
@@ -1143,9 +1181,16 @@ impl Shell {
             .min()
     }
 
-    /// Run the animation clock and geometry prepass for components eligible
-    /// to render this frame (ADR-0171, ADR-0178). Call once after input is built
-    /// and before querying damage or backdrop regions.
+    /// Run the animation clock and geometry prepass, then build this frame's
+    /// chrome scene. Call once after input is built and before querying damage
+    /// or backdrop regions (ADR-0171, ADR-0178, ADR-0203).
+    ///
+    /// The scene is built here rather than at draw time so that everything
+    /// damage assessment reads — `anim_pending`, `anim_damage_region`, and
+    /// lens's own `damage_rect` — describes the tree the renderer is about to
+    /// draw. Building at draw time made the lens damage query describe the
+    /// *previous* frame, which is why `anim_damage_region` had to fall back to
+    /// a full-output repaint for any settling lens widget.
     pub fn prepare_frame(&mut self, input: &Input) {
         let modal_active = self
             .components
@@ -1165,6 +1210,21 @@ impl Shell {
                 component.prepare_frame(input, &self.windows, &self.workspaces);
             }
         }
+        // SAFETY: the device behind `ui` outlives the Shell (construction
+        // contract), and this mutates no host state.
+        if let Err(error) = unsafe { self.build_scene(input) } {
+            // A failed build leaves `pending_scene` empty; `submit` then draws
+            // nothing and the frame degrades to a chrome-less desktop rather
+            // than dropping the presentation.
+            log::warn!("shell: chrome scene build failed: {error}");
+        }
+    }
+
+    /// Whether a scene is built and awaiting [`Shell::submit`]. Test and
+    /// diagnostic seam for the `prepare_frame` → `submit` split.
+    #[doc(hidden)]
+    pub fn has_pending_scene(&self) -> bool {
+        self.pending_scene.is_some()
     }
 
     /// Whether any participating component completely occludes the desktop
@@ -1339,7 +1399,59 @@ impl Shell {
     /// `canvas` must be a live `flux_canvas` (from `flux::Canvas::as_raw`)
     /// currently inside a `begin`/`end` recording pair on the active frame.
     pub unsafe fn render(&mut self, canvas: *mut c_void, input: &Input) -> Result<(), ShellError> {
-        unsafe {
+        // Building belongs to `prepare_frame`; reaching here with nothing built
+        // means the caller skipped it (headless paths, tests). Build now so a
+        // stray caller still draws a correct frame rather than a stale one.
+        if self.pending_scene.is_none() {
+            self.prepare_frame(input);
+        }
+        // SAFETY: `canvas` is the caller's live `flux_canvas`, open for
+        // drawing; the obligation is the same one `render` accepted.
+        unsafe { self.submit(canvas) }
+    }
+
+    /// Draw the scene `prepare_frame` built onto `canvas`.
+    ///
+    /// This is the half of a frame that must run inside an open canvas pass.
+    /// All of the building — and therefore every state mutation — happened
+    /// earlier, so this performs no layout and touches no chrome state. It
+    /// takes exactly the `pending_scene` `prepare_frame` stored; calling it
+    /// twice in one frame draws once and then nothing.
+    ///
+    /// # Safety
+    /// `canvas` must be a live `flux_canvas` (from `flux::Canvas::as_raw`)
+    /// whose pass is currently open for drawing and whose target outlives the
+    /// call. It must outlive every `Snapshot` this `Shell` has produced, which
+    /// is the same obligation [`Shell::render`] carries.
+    pub unsafe fn submit(&mut self, canvas: *mut c_void) -> Result<(), ShellError> {
+        // Take a copy of the handle rather than moving the field: the scene
+        // stays available if drawing fails, so a retry, a diagnostic read of
+        // `anim_pending`, or the next `submit` in the same frame still has the
+        // tree. `Snapshot` is a refcounted handle, so this is a retain, not a
+        // rebuild. Clearing `pending_scene` is the *success* path's job.
+        let Some(snapshot) = self.pending_scene.as_ref() else {
+            // Nothing was built this frame (no participating chrome). Draw
+            // nothing: the pass keeps the desktop it already holds.
+            return Ok(());
+        };
+        // SAFETY: `canvas` is the caller's live `flux_canvas`, open for
+        // drawing; the snapshot borrows only its own display list.
+        unsafe { snapshot.submit(canvas as *mut lens::sys::flux_canvas) }
+            .map_err(ShellError::Render)?;
+        self.ui.activate(snapshot).map_err(ShellError::Render)?;
+        // Present exactly once: the scene has been drawn and activated.
+        self.pending_scene = None;
+        Ok(())
+    }
+
+    /// Build this frame's chrome scene without drawing it.
+    ///
+    /// Runs the lens frame and captures the resulting snapshot into
+    /// [`Shell::pending_scene`], so [`Shell::anim_damage_region`] can report the
+    /// real damage footprint (ADR-0203) and [`Shell::submit`] can draw it later
+    /// inside a canvas pass. Every state mutation of a frame happens here.
+    unsafe fn build_scene(&mut self, input: &Input) -> Result<(), ShellError> {
+        {
             let windows = &self.windows;
             let workspaces = &self.workspaces;
             let i18n = &self.i18n;
@@ -1399,10 +1511,7 @@ impl Shell {
                 }
             });
             let snapshot = self.ui.snapshot().map_err(ShellError::Render)?;
-            snapshot
-                .submit(canvas as *mut lens::sys::flux_canvas)
-                .map_err(ShellError::Render)?;
-            self.ui.activate(&snapshot).map_err(ShellError::Render)?;
+            self.pending_scene = Some(snapshot);
             Ok(())
         }
     }
@@ -1747,6 +1856,165 @@ mod tests {
         assert!(
             requirements.live_backdrop_effect,
             "visible glass that consumes backdrop pixels must be reported"
+        );
+    }
+
+    /// A component whose animation footprint is a small band.
+    struct LocalizedAnim {
+        pending: bool,
+        footprint: Option<tessera_primitives::Rect>,
+    }
+
+    impl Chrome for LocalizedAnim {
+        fn render(
+            &mut self,
+            _f: &mut Frame,
+            _input: &Input,
+            _windows: &[Window],
+            _workspaces: &WorkspaceSnapshot,
+            _i18n: &Localizer,
+            _out: &mut ChromeEvents,
+        ) {
+        }
+        fn anim_pending(&self) -> bool {
+            self.pending
+        }
+        fn damage_region(
+            &self,
+            _windows: &[Window],
+            _display: (f32, f32),
+        ) -> Option<tessera_primitives::Rect> {
+            self.footprint
+        }
+    }
+
+    /// `[INV-ARCH-92]`-adjacent: the scene must be **built** by the time damage
+    /// is assessed, because lens's damage query only describes a frame that
+    /// exists. Confirm `prepare_frame` is what builds it, so a host that
+    /// assesses damage between `prepare_frame` and `submit` reads this frame.
+    #[test]
+    fn prepare_frame_builds_the_scene_damage_assessment_reads() {
+        let mut shell = Shell::headless().unwrap();
+        // Nothing built until a frame is prepared.
+        assert!(!shell.has_pending_scene());
+        shell.prepare_frame(&Input::default());
+        assert!(
+            shell.has_pending_scene(),
+            "prepare_frame must build the scene, or damage assessment reports the previous frame"
+        );
+        // Building is idempotent within a frame: a second call rebuilds rather
+        // than accumulating or leaving a stale scene.
+        shell.prepare_frame(&Input::default());
+        assert!(shell.has_pending_scene());
+    }
+
+    /// The scene is a *presentable artifact*, and presenting it clears it — but
+    /// only on success. A failed draw must leave it available so the caller can
+    /// degrade and still inspect the frame it built (ADR-0203).
+    #[test]
+    fn a_built_scene_presents_once_and_is_retained_until_it_does() {
+        let mut shell = Shell::headless().unwrap();
+        shell.prepare_frame(&Input::default());
+        assert!(shell.has_pending_scene());
+
+        // A submit against a bogus canvas fails, but the scene survives: the
+        // failure path must not consume the frame.
+        let mut bogus = 0u8;
+        let result = unsafe { shell.submit(&mut bogus as *mut u8 as *mut std::ffi::c_void) };
+        assert!(result.is_err(), "a null canvas must not silently succeed");
+        assert!(
+            shell.has_pending_scene(),
+            "a failed draw must not consume the scene"
+        );
+
+        // Damage assessment still reads the frame it built, not a cleared one.
+        // Headless has no chrome, so the region is empty — but the query must
+        // answer rather than panic on a built-but-undrawn scene.
+        let _ = shell.anim_damage_regions((1920.0, 1080.0));
+
+        // A successful build followed by a fresh build refreshes in place.
+        shell.prepare_frame(&Input::default());
+        assert!(shell.has_pending_scene());
+    }
+
+    #[test]
+    fn a_localized_chrome_animation_narrows_the_repaint() {
+        // `[INV-ARCH-93]`-adjacent shell contract: a component that names its
+        // footprint must produce a region, so the compositor repaints the band
+        // instead of the whole output.
+        let mut shell = Shell::headless().unwrap();
+        shell.add(Box::new(LocalizedAnim {
+            pending: true,
+            footprint: Some(tessera_primitives::Rect::new(0, 0, 400, 32)),
+        }));
+        assert_eq!(
+            shell.anim_damage_regions((1920.0, 1080.0)),
+            Some(vec![tessera_primitives::Rect::new(0, 0, 400, 32)]),
+            "a self-localized animation must not widen to a full-output repaint"
+        );
+    }
+
+    /// Two chrome bodies animating at opposite edges of the output must
+    /// produce two rectangles, not one bounding box spanning the panel. The
+    /// HUD sits at the top and the Dock at the bottom, so a union is the whole
+    /// screen and the narrow repaint is lost (ADR-0203).
+    #[test]
+    fn disjoint_chrome_animations_stay_disjoint() {
+        let mut shell = Shell::headless().unwrap();
+        shell.add(Box::new(LocalizedAnim {
+            pending: true,
+            footprint: Some(tessera_primitives::Rect::new(0, 0, 800, 32)),
+        }));
+        shell.add(Box::new(LocalizedAnim {
+            pending: true,
+            footprint: Some(tessera_primitives::Rect::new(500, 1040, 900, 40)),
+        }));
+        let regions = shell
+            .anim_damage_regions((1920.0, 1080.0))
+            .expect("both components localize their animation");
+        assert_eq!(
+            regions,
+            vec![
+                tessera_primitives::Rect::new(0, 0, 800, 32),
+                tessera_primitives::Rect::new(500, 1040, 900, 40),
+            ],
+            "regions must stay disjoint; a union would cover the whole output"
+        );
+        // And the union of what we did report must be smaller than the panel.
+        let total: i64 = regions
+            .iter()
+            .map(|r| r.size.w as i64 * r.size.h as i64)
+            .sum();
+        let panel = 1920i64 * 1080;
+        assert!(
+            total * 10 < panel,
+            "reported chrome damage ({total}px^2) should be a small fraction of the panel ({panel}px^2)"
+        );
+    }
+
+    #[test]
+    fn a_component_without_a_footprint_still_forces_full_output() {
+        // The conservative escape hatch must survive: `None` still means
+        // "repaint everything".
+        let mut shell = Shell::headless().unwrap();
+        shell.add(Box::new(LocalizedAnim {
+            pending: true,
+            footprint: None,
+        }));
+        assert_eq!(shell.anim_damage_regions((1920.0, 1080.0)), None);
+    }
+
+    #[test]
+    fn an_idle_component_contributes_no_region() {
+        let mut shell = Shell::headless().unwrap();
+        shell.add(Box::new(LocalizedAnim {
+            pending: false,
+            footprint: Some(tessera_primitives::Rect::new(0, 0, 400, 32)),
+        }));
+        assert_eq!(
+            shell.anim_damage_regions((1920.0, 1080.0)),
+            Some(Vec::new()),
+            "nothing is animating, so there is no chrome animation damage"
         );
     }
 }

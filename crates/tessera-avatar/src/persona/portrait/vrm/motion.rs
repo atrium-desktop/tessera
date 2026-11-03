@@ -56,26 +56,73 @@ struct Playback {
     elapsed: f32,
 }
 
+/// Lightweight in-tree XorShift64 PRNG and Fisher-Yates shuffle (ADR-0208).
+#[derive(Debug, Clone)]
+struct Rng {
+    state: u64,
+}
+
+impl Rng {
+    fn new() -> Self {
+        use std::time::SystemTime;
+        let seed = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0x853c49e6748fea9b);
+        Self::with_seed(seed ^ 0xda942042e4dd58b5)
+    }
+
+    fn with_seed(seed: u64) -> Self {
+        Self {
+            state: if seed == 0 { 0x853c49e6748fea9b } else { seed },
+        }
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        let mut x = self.state;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.state = x;
+        x
+    }
+
+    fn gen_range(&mut self, upper_inclusive: usize) -> usize {
+        if upper_inclusive == 0 {
+            0
+        } else {
+            (self.next_u64() % (upper_inclusive as u64 + 1)) as usize
+        }
+    }
+
+    fn shuffle<T>(&mut self, slice: &mut [T]) {
+        for i in (1..slice.len()).rev() {
+            let j = self.gen_range(i);
+            slice.swap(i, j);
+        }
+    }
+}
+
 /// A shuffle bag guarantees full-pool coverage before refill and avoids the
 /// boundary repeat that a naive random index commonly produces.
 struct ShuffleBag {
     members: Vec<usize>,
     remaining: Vec<usize>,
     last: Option<usize>,
-    rng: fastrand::Rng,
+    rng: Rng,
 }
 
 impl ShuffleBag {
     fn new(members: Vec<usize>) -> Self {
-        Self::with_rng(members, fastrand::Rng::new())
+        Self::with_rng(members, Rng::new())
     }
 
     #[cfg(test)]
     fn with_seed(members: Vec<usize>, seed: u64) -> Self {
-        Self::with_rng(members, fastrand::Rng::with_seed(seed))
+        Self::with_rng(members, Rng::with_seed(seed))
     }
 
-    fn with_rng(members: Vec<usize>, rng: fastrand::Rng) -> Self {
+    fn with_rng(members: Vec<usize>, rng: Rng) -> Self {
         Self {
             members,
             remaining: Vec::new(),

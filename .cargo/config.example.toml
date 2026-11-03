@@ -12,8 +12,11 @@ xtask = "run --package xtask --"
 
 [build]
 # Optional compiler cache wrapper. Requires `sccache` in your PATH.
-# Alternatively, set `export RUSTC_WRAPPER=sccache` in your shell profile.
-rustc-wrapper = "sccache"
+# Note: sccache is incompatible with `incremental = true` in profile.dev
+# (yields 0% cache hits). If using sccache, set `incremental = false` in
+# Cargo.toml [profile.dev]; otherwise keep this commented out for native
+# rustc incremental compilation without wrapper IPC overhead.
+# rustc-wrapper = "sccache"
 
 # Optional fast linker & v0 symbol mangling for Linux x86_64 targets.
 [target.x86_64-unknown-linux-gnu]

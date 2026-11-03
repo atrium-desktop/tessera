@@ -48,12 +48,12 @@ pub(super) use tessera_composite::presentation::begin_opaque_frame;
 pub(super) fn begin_opaque_frame_repaint<'c, 'surface>(
     canvas: &'c mut flux::Canvas,
     frame: &'c mut flux::Frame<'surface>,
-    _size: (u32, u32),
+    size: (u32, u32),
     clear: u32,
     repaint: &FrameDamage,
 ) -> Result<flux::CanvasSession<'c, &'c mut flux::Frame<'surface>>, flux::Error> {
     debug_assert_eq!(clear >> 24, 0xff, "compositor pass clear must be opaque");
-    let render_area = frame_damage_render_area(repaint);
+    let render_area = frame_damage_render_area(repaint, size);
     canvas.begin_session(
         frame,
         flux::CanvasPassOptions {
@@ -589,6 +589,9 @@ pub(super) struct BackdropCapture {
 
 struct BackdropLayerCapture {
     composite: flux::Image,
+    origin: (u32, u32),
+    size: (u32, u32),
+    allocated_size: (u32, u32),
     resolved: Option<flux::Image>,
 }
 
@@ -827,6 +830,10 @@ pub(super) struct BackdropGraphExecutor {
     /// the composite flickering between two versions every time the slots
     /// rotate.
     material: Vec<Option<BackdropStackMaterialKey>>,
+    /// Monotonically incrementing content revision tag (ADR-0137, ADR-0142, ADR-0208).
+    /// Bumps ONLY when background source damage intersects capture regions or
+    /// when material parameters/geometry change. Unchanged when scene is static.
+    content_revision: u64,
     was_active: bool,
     failed_session: bool,
     unsupported: bool,
@@ -844,14 +851,59 @@ pub(super) enum BackdropPlan {
     Cached,
 }
 
+fn layer_slab_dims(
+    layer_index: usize,
+    config: &BackdropCacheKey,
+    content_size: (u32, u32),
+) -> ((u32, u32), (u32, u32)) {
+    if let Some(first) = config.layer_regions.get(layer_index).and_then(|r| r.first()) {
+        let mut min_x = first.origin.0;
+        let mut min_y = first.origin.1;
+        let mut max_x = first.origin.0 + first.extent.0;
+        let mut max_y = first.origin.1 + first.extent.1;
+        if let Some(regions) = config.layer_regions.get(layer_index) {
+            for r in &regions[1..] {
+                min_x = min_x.min(r.origin.0);
+                min_y = min_y.min(r.origin.1);
+                max_x = max_x.max(r.origin.0 + r.extent.0);
+                max_y = max_y.max(r.origin.1 + r.extent.1);
+            }
+        }
+        let rel_x0 = min_x.saturating_sub(config.capture_origin.0);
+        let rel_y0 = min_y.saturating_sub(config.capture_origin.1);
+        let rel_x1 = max_x.saturating_sub(config.capture_origin.0);
+        let rel_y1 = max_y.saturating_sub(config.capture_origin.1);
+        let scale_x = content_size.0 as f32 / config.capture_extent.0.max(1) as f32;
+        let scale_y = content_size.1 as f32 / config.capture_extent.1.max(1) as f32;
+        let x0 = ((rel_x0 as f32 * scale_x).floor() as u32).min(content_size.0);
+        let y0 = ((rel_y0 as f32 * scale_y).floor() as u32).min(content_size.1);
+        let x1 = ((rel_x1 as f32 * scale_x).ceil() as u32).min(content_size.0);
+        let y1 = ((rel_y1 as f32 * scale_y).ceil() as u32).min(content_size.1);
+        let raw_w = x1.saturating_sub(x0).max(1);
+        let raw_h = y1.saturating_sub(y0).max(1);
+        ((x0, y0), (raw_w, raw_h))
+    } else {
+        ((0, 0), content_size)
+    }
+}
+
 impl BackdropGraphExecutor {
-    pub(super) fn new(_device: &flux::Device) -> Result<Self, flux::Error> {
+    pub(super) fn new(device: &flux::Device) -> Result<Self, flux::Error> {
+        // Eagerly pre-warm material compute pipelines in the device pipeline cache (ADR-0141, ADR-0208).
+        if let Ok(mut filter) = prism::BackdropLayerFilter::new(device) {
+            let warmup_opts = prism::WarmupOpts {
+                format: flux::Format::Rgba8Unorm,
+                stats: true,
+            };
+            let _ = filter.warmup(Some(&warmup_opts));
+        }
         Ok(Self {
             operators: Vec::new(),
             captures: Vec::new(),
             source_slot_damage: Vec::new(),
             config: None,
             material: Vec::new(),
+            content_revision: 1,
             was_active: false,
             failed_session: false,
             unsupported: false,
@@ -862,6 +914,7 @@ impl BackdropGraphExecutor {
         &mut self,
         device: &flux::Device,
         layers: &[tessera_shell::component::BackdropLayer],
+        format: flux::Format,
     ) -> Result<(), flux::Error> {
         if self.operators.len() == layers.len()
             && self
@@ -872,12 +925,18 @@ impl BackdropGraphExecutor {
         {
             return Ok(());
         }
+        let warmup_opts = prism::WarmupOpts {
+            format,
+            stats: true,
+        };
         let mut operators = Vec::with_capacity(layers.len());
         for layer in layers {
+            let mut glass = prism::BackdropLayerFilter::new(device)?;
+            let _ = glass.warmup(Some(&warmup_opts));
             operators.push(BackdropOperator {
                 id: layer.id,
                 blur: flux::BlurFilter::new(device)?,
-                glass: prism::BackdropLayerFilter::new(device)?,
+                glass,
             });
         }
         self.operators = operators;
@@ -924,7 +983,18 @@ impl BackdropGraphExecutor {
         if self.unsupported || self.failed_session || extent.0 == 0 || extent.1 == 0 {
             return BackdropPlan::Direct;
         }
-        if let Err(error) = self.ensure_operators(device, layers) {
+        let format = match surface.format() {
+            flux::Format::Rgba8Unorm | flux::Format::Bgra8Unorm => flux::Format::Rgba8Unorm,
+            other => {
+                log::warn!(
+                    "backdrop: realtime graph unavailable for surface format {other:?}; using translucent fallback"
+                );
+                self.unsupported = true;
+                return BackdropPlan::Direct;
+            }
+        };
+
+        if let Err(error) = self.ensure_operators(device, layers, format) {
             log::warn!(
                 "backdrop: failed to allocate layer operators ({error}); using translucent fallback"
             );
@@ -944,16 +1014,6 @@ impl BackdropGraphExecutor {
             }
         }
         self.material[slot] = Some(material);
-        let format = match surface.format() {
-            flux::Format::Rgba8Unorm | flux::Format::Bgra8Unorm => flux::Format::Rgba8Unorm,
-            other => {
-                log::warn!(
-                    "backdrop: realtime graph unavailable for surface format {other:?}; using translucent fallback"
-                );
-                self.unsupported = true;
-                return BackdropPlan::Direct;
-            }
-        };
 
         let raw_w = extent.0.div_ceil(BACKDROP_DOWNSAMPLE).max(1);
         let raw_h = extent.1.div_ceil(BACKDROP_DOWNSAMPLE).max(1);
@@ -1000,7 +1060,19 @@ impl BackdropGraphExecutor {
                     .layers
                     .iter()
                     .zip(&resolved_needed)
-                    .any(|(capture, needed)| capture.resolved.is_some() != *needed)
+                    .enumerate()
+                    .any(|(i, (layer_cap, needed))| {
+                        let (_, l_size) = layer_slab_dims(i, &config, content_size);
+                        let l_bucket = (
+                            flux::bucket_extent(l_size.0, 128),
+                            flux::bucket_extent(l_size.1, 128),
+                        );
+                        layer_cap.allocated_size.0 < l_bucket.0
+                            || layer_cap.allocated_size.1 < l_bucket.1
+                            || layer_cap.allocated_size.0 > max_w
+                            || layer_cap.allocated_size.1 > max_h
+                            || layer_cap.resolved.is_some() != *needed
+                    })
         });
         if target_stale {
             let alloc_size = self.captures[slot].as_ref().map_or(bucket_size, |prev| {
@@ -1012,14 +1084,31 @@ impl BackdropGraphExecutor {
             let allocated = (|| -> Result<BackdropCapture, flux::Error> {
                 let image = flux::Image::render_target(device, alloc_size.0, alloc_size.1, format)?;
                 let mut layer_targets = Vec::with_capacity(layers.len());
-                for needed in &resolved_needed {
+                for (i, needed) in resolved_needed.iter().enumerate() {
+                    let (l_origin, l_size) = layer_slab_dims(i, &config, content_size);
+                    let l_bucket = (
+                        flux::bucket_extent(l_size.0, 128),
+                        flux::bucket_extent(l_size.1, 128),
+                    );
+                    let l_alloc = self.captures[slot]
+                        .as_ref()
+                        .and_then(|prev| prev.layers.get(i))
+                        .map_or(l_bucket, |prev| {
+                            (
+                                prev.allocated_size.0.max(l_bucket.0).min(max_w),
+                                prev.allocated_size.1.max(l_bucket.1).min(max_h),
+                            )
+                        });
                     layer_targets.push(BackdropLayerCapture {
                         composite: flux::Image::render_target(
                             device,
-                            alloc_size.0,
-                            alloc_size.1,
+                            l_alloc.0,
+                            l_alloc.1,
                             format,
                         )?,
+                        origin: l_origin,
+                        size: l_size,
+                        allocated_size: l_alloc,
                         resolved: if *needed {
                             Some(flux::Image::render_target(
                                 device,
@@ -1053,6 +1142,11 @@ impl BackdropGraphExecutor {
             }
         } else if let Some(capture) = self.captures[slot].as_mut() {
             capture.size = content_size;
+            for (i, layer_cap) in capture.layers.iter_mut().enumerate() {
+                let (l_origin, l_size) = layer_slab_dims(i, &config, content_size);
+                layer_cap.origin = l_origin;
+                layer_cap.size = l_size;
+            }
         }
         let missed =
             union_frame_damage(self.source_slot_damage[slot].clone(), source_damage.clone());
@@ -1075,6 +1169,7 @@ impl BackdropGraphExecutor {
             // change (fade, adaptation step, focus field) rebuilds just the
             // effect composite.
             if material_changed {
+                self.content_revision = self.content_revision.wrapping_add(1).max(1);
                 BackdropPlan::Recompute
             } else {
                 BackdropPlan::Cached
@@ -1083,6 +1178,7 @@ impl BackdropGraphExecutor {
             // `finish_refresh` rebuilds every capture region's composite with
             // the current material, so the fingerprint written above is
             // already satisfied for this slot.
+            self.content_revision = self.content_revision.wrapping_add(1).max(1);
             BackdropPlan::Refresh(refresh_regions)
         }
     }
@@ -1228,14 +1324,15 @@ impl BackdropGraphExecutor {
                             .blur
                             .apply_regions(frame, input, work.sigma, &material_regions)?
                     };
-                    let material = match operator.glass.apply(
+                    let material = match operator.glass.apply(&prism::BackdropLayerApplyOpts {
                         frame,
                         input,
-                        &blurred,
-                        &work.frost,
-                        &work.glass,
-                        glass_params,
-                    ) {
+                        blurred: &blurred,
+                        frost: &work.frost,
+                        groups: &work.glass,
+                        params: glass_params,
+                        revision: Some(self.content_revision),
+                    }) {
                         Ok(image) => Some(image),
                         Err(error) => {
                             log::warn!(
@@ -1245,7 +1342,10 @@ impl BackdropGraphExecutor {
                             None
                         }
                     };
+                    let (slab_ox, slab_oy) = current.origin;
                     for region in &material_regions {
+                        let rel_rx = (region.x as i32).saturating_sub(slab_ox as i32);
+                        let rel_ry = (region.y as i32).saturating_sub(slab_oy as i32);
                         let session = canvas.begin_session(
                             flux::ImageTarget {
                                 frame,
@@ -1255,22 +1355,18 @@ impl BackdropGraphExecutor {
                                 clear: Some(flux::rgba(0, 0, 0, 0)),
                                 antialias: flux::CanvasAntialias::None,
                                 render_area: Some(flux::CanvasRenderArea {
-                                    x: region.x as i32,
-                                    y: region.y as i32,
+                                    x: rel_rx,
+                                    y: rel_ry,
                                     width: region.width,
                                     height: region.height,
                                 }),
                                 skip_stencil: true,
                             },
                         )?;
+                        session.save();
+                        session.translate(-(slab_ox as f32), -(slab_oy as f32));
                         if let Some(image) = material.as_ref() {
-                            image.draw(
-                                &session,
-                                0.0,
-                                0.0,
-                                capture.allocated_size.0 as f32,
-                                capture.allocated_size.1 as f32,
-                            );
+                            image.draw(&session);
                         } else {
                             for frost in &work.fallback {
                                 session.save();
@@ -1290,6 +1386,7 @@ impl BackdropGraphExecutor {
                                 session.restore();
                             }
                         }
+                        session.restore();
                         session.end()?;
                     }
                 }
@@ -1323,6 +1420,11 @@ impl BackdropGraphExecutor {
                             capture.allocated_size.0 as f32,
                             capture.allocated_size.1 as f32,
                         );
+                        let (slab_ox, slab_oy) = current.origin;
+                        let (raw_w, raw_h) = current.size;
+                        let (slab_w, slab_h) = current.allocated_size;
+                        let u_span = (raw_w.min(slab_w) as f32) / (slab_w.max(1) as f32);
+                        let v_span = (raw_h.min(slab_h) as f32) / (slab_h.max(1) as f32);
                         for material_region in &work.regions {
                             session.save();
                             session.clip_rect(
@@ -1331,12 +1433,16 @@ impl BackdropGraphExecutor {
                                 material_region.width as f32,
                                 material_region.height as f32,
                             );
-                            session.draw_image(
+                            session.draw_image_sub(
                                 &current.composite,
+                                slab_ox as f32,
+                                slab_oy as f32,
+                                raw_w as f32,
+                                raw_h as f32,
                                 0.0,
                                 0.0,
-                                capture.allocated_size.0 as f32,
-                                capture.allocated_size.1 as f32,
+                                u_span,
+                                v_span,
                             );
                             session.restore();
                         }
@@ -1408,11 +1514,18 @@ impl BackdropGraphExecutor {
         let Some(config) = self.config.as_ref() else {
             return false;
         };
-        let (img_w, img_h) = capture.allocated_size;
-        let (raw_w, raw_h) = capture.size;
-        let u_span = (raw_w.min(img_w) as f32) / (img_w.max(1) as f32);
-        let v_span = (raw_h.min(img_h) as f32) / (img_h.max(1) as f32);
+        let scale_x = capture.size.0 as f32 / extent.0.max(1) as f32;
+        let scale_y = capture.size.1 as f32 / extent.1.max(1) as f32;
         for (layer, regions) in capture.layers.iter().zip(&config.layer_regions) {
+            let (slab_w, slab_h) = layer.allocated_size;
+            let (raw_w, raw_h) = layer.size;
+            let (slab_ox, slab_oy) = layer.origin;
+            let u_span = (raw_w.min(slab_w) as f32) / (slab_w.max(1) as f32);
+            let v_span = (raw_h.min(slab_h) as f32) / (slab_h.max(1) as f32);
+            let layer_dst_x = origin.0 as f32 + (slab_ox as f32 / scale_x.max(0.001));
+            let layer_dst_y = origin.1 as f32 + (slab_oy as f32 / scale_y.max(0.001));
+            let layer_dst_w = raw_w as f32 / scale_x.max(0.001);
+            let layer_dst_h = raw_h as f32 / scale_y.max(0.001);
             for region in regions {
                 canvas.save();
                 canvas.clip_rect(
@@ -1423,10 +1536,10 @@ impl BackdropGraphExecutor {
                 );
                 canvas.draw_image_sub(
                     &layer.composite,
-                    origin.0 as f32,
-                    origin.1 as f32,
-                    extent.0 as f32,
-                    extent.1 as f32,
+                    layer_dst_x,
+                    layer_dst_y,
+                    layer_dst_w,
+                    layer_dst_h,
                     0.0,
                     0.0,
                     u_span,

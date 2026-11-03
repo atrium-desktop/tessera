@@ -14,7 +14,7 @@ tessera-primitives.workspace = true
 tessera-wayland-protocols = { workspace = true }
 flux = { workspace = true }
 flux-sys = { workspace = true }
-ash = "0.38"
+ash = { workspace = true }
 drm.workspace = true
 libseat.workspace = true
 input.workspace = true
@@ -24,7 +24,7 @@ log.workspace = true
 thiserror.workspace = true
 
 [build-dependencies]
-pkg-config = "0.3"
+pkg-config.workspace = true
 
 [package.metadata.cargo-machete]
 ignored = ["flux-sys", "pkg-config"]

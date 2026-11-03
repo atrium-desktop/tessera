@@ -858,12 +858,26 @@ pub struct ScreenshotConfig {
     pub include_cursor: bool,
 }
 
+/// Standard XDG config directory: `$XDG_CONFIG_HOME`, falling back to `~/.config`.
+pub fn xdg_config_dir() -> Option<PathBuf> {
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
+}
+
+/// Standard XDG pictures directory: `$XDG_PICTURES_DIR`, falling back to `~/Pictures`.
+pub fn xdg_picture_dir() -> Option<PathBuf> {
+    std::env::var_os("XDG_PICTURES_DIR")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Pictures")))
+}
+
 /// Default screenshot directory from the XDG user Pictures directory,
 /// falling back to `~/Pictures/screenshots` and then
 /// `<current-directory>/screenshots`.
 pub fn default_screenshot_dir() -> PathBuf {
-    dirs::picture_dir()
-        .or_else(|| dirs::home_dir().map(|home| home.join("Pictures")))
+    xdg_picture_dir()
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join("Pictures")))
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
         .join("screenshots")
 }
@@ -2500,10 +2514,9 @@ fn write_document_atomic(path: &Path, contents: &str) -> Result<(), LoadError> {
 }
 
 /// The default config path: `$XDG_CONFIG_HOME/tessera/config.toml`, falling back
-/// to `~/.config/tessera/config.toml` per the `dirs` crate. `None` when the home
-/// directory cannot be determined.
+/// to `~/.config/tessera/config.toml` (ADR-0208). `None` when the home directory cannot be determined.
 pub fn default_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("tessera").join("config.toml"))
+    xdg_config_dir().map(|d| d.join("tessera").join("config.toml"))
 }
 
 /// Convert a byte offset into a 1-based source line by counting newlines

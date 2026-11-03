@@ -3,6 +3,7 @@
 
 pub mod entries;
 pub mod icons;
+pub mod ini;
 pub mod launcher;
 pub mod search;
 

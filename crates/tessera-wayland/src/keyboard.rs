@@ -238,6 +238,19 @@ impl Keyboard {
         }
         // Map, write, unmap. We use PROT_WRITE for the brief write and tear
         // it down before sealing — sealing requires the write mapping closed.
+        //
+        // The memfd was just ftruncated to exactly `size`, so `mmap` beyond the
+        // end is impossible and every touched offset is backed. Reading it back
+        // through a short `write(2)` (an alternative that looks simpler) is
+        // *not* equivalent: a memfd is a real shmem file, so a reader at a page
+        // beyond EOF is not merely short, it raises `SIGBUS` and takes the
+        // compositor down. Mapping a fully-backed file is the only shape that
+        // cannot fault on a partial buffer.
+        if size == 0 {
+            // An empty keymap cannot be mmapped at all (`mmap` rejects len 0).
+            // ftruncate already produced the correct empty file.
+            return Ok(fd);
+        }
         let map = unsafe {
             mmap(
                 std::ptr::null_mut(),
@@ -253,8 +266,19 @@ impl Keyboard {
             unsafe { close(fd) };
             return Err(e);
         }
+        // The source is a `CString` built from the keymap text with an explicit
+        // NUL re-appended, and `size` was derived from that same value, so the
+        // copy cannot read or write past its allocation. Assert rather than
+        // assume: a future caller passing a mismatched `size` would otherwise
+        // corrupt the shared buffer silently.
+        debug_assert_eq!(
+            s.as_bytes_with_nul().len(),
+            size,
+            "keymap size must match the string it is copied from"
+        );
+        let copy_len = size.min(s.as_bytes_with_nul().len());
         unsafe {
-            std::ptr::copy_nonoverlapping(s.as_bytes_with_nul().as_ptr(), map as *mut u8, size);
+            std::ptr::copy_nonoverlapping(s.as_bytes_with_nul().as_ptr(), map as *mut u8, copy_len);
             munmap(map, size);
         }
         // Seal the file so a hostile client can't mutate the shared copy.

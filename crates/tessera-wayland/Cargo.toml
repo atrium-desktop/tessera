@@ -20,13 +20,13 @@ getrandom.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-xkbcommon = "0.9"
+xkbcommon.workspace = true
 
 [build-dependencies]
-pkg-config = "0.3"
+pkg-config.workspace = true
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true
 
 [package.metadata.cargo-machete]
 ignored = ["pkg-config"]

@@ -3,6 +3,7 @@
 //! Provides a daemon-neutral asynchronous bridge to host wireless services
 //! (primarily `iwd`), with deterministic mock support for test suites.
 
+#[cfg(feature = "dbus-system")]
 pub mod iwd;
 pub mod mock;
 
@@ -11,6 +12,7 @@ use std::thread;
 use std::time::Duration;
 use tessera_desktop::system::{WifiLinkState, WifiNetwork};
 
+#[cfg(feature = "dbus-system")]
 pub use iwd::IwdBackend;
 pub use mock::{MockState, MockWirelessBackend};
 
@@ -224,19 +226,22 @@ impl WirelessHandle {
     /// fallback — it is reachable only through the explicit preview entry
     /// point (`[INV-ARCH-82]`).
     pub fn spawn_auto() -> Self {
-        match IwdBackend::open() {
-            Ok(iwd) => {
-                log::info!("wireless subsystem: initialized native iwd backend");
-                Self::spawn_with_backend(iwd)
-            }
-            Err(error) => {
-                log::info!(
-                    "wireless subsystem: no wireless service available ({error}); \
-                     reporting wireless as unavailable"
-                );
-                Self::spawn_with_backend(UnavailableWirelessBackend)
+        #[cfg(feature = "dbus-system")]
+        {
+            match IwdBackend::open() {
+                Ok(iwd) => {
+                    log::info!("wireless subsystem: initialized native iwd backend");
+                    return Self::spawn_with_backend(iwd);
+                }
+                Err(error) => {
+                    log::info!(
+                        "wireless subsystem: no wireless service available ({error}); \
+                         reporting wireless as unavailable"
+                    );
+                }
             }
         }
+        Self::spawn_with_backend(UnavailableWirelessBackend)
     }
 
     /// Dispatch an asynchronous scan request.

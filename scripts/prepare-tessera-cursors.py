@@ -564,6 +564,12 @@ def main() -> None:
                 f"Directories=cursors\n{inherits}\n"
                 f"[cursors]\nSize=24\nMinSize=8\nMaxSize=512\nType=Fixed\n"
             )
+            # Pre-bake 64x64 PNG cursor sprites for zero-runtime-rasterization scanout (ADR-0207).
+            import subprocess
+            if subprocess.run(["which", "rsvg-convert"], capture_output=True).returncode == 0:
+                for svg_file in cursors.glob("*.svg"):
+                    png_file = svg_file.with_suffix(".png")
+                    subprocess.run(["rsvg-convert", "-w", "64", "-h", "64", str(svg_file), "-o", str(png_file)], check=True)
             print(f"wrote {name}")
     if args.preview:
         write_preview(args.out, args.preview)

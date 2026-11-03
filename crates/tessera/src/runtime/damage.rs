@@ -246,7 +246,7 @@ impl CompositorRuntime<'_> {
         // client commit — so it joins the output rects below, not just the
         // pointer-path union.
         let chrome_anim_region = if self.shell.anim_pending() {
-            self.shell.anim_damage_region(self.input_acc.display_size)
+            self.shell.anim_damage_regions(self.input_acc.display_size)
         } else {
             None
         };
@@ -304,9 +304,23 @@ impl CompositorRuntime<'_> {
                 // known, and the pointer-capture band when it is not (the
                 // shell reports no footprint only when it cannot localize,
                 // which then falls back to full below).
-                match (chrome_anim_region, cursor_rect) {
-                    (Some(region), Some(rect)) => Some(vec![rect.union(region)]),
-                    (Some(region), None) => Some(vec![region]),
+                match (chrome_anim_region.as_ref(), cursor_rect) {
+                    // Chrome animation footprints stay disjoint from each
+                    // other and from the pointer sweep: a region that does not
+                    // intersect the pointer simply travels alongside it, and
+                    // the compositor's KMS hint takes the list as-is.
+                    (Some(regions), Some(rect)) => {
+                        let mut regions = regions.clone();
+                        match regions
+                            .iter_mut()
+                            .find(|region| region.intersect(rect).is_some())
+                        {
+                            Some(region) => *region = region.union(rect),
+                            None => regions.push(rect),
+                        }
+                        Some(regions)
+                    }
+                    (Some(regions), None) => Some(regions.clone()),
                     (None, cursor_rect) => {
                         if self.shell.captures_pointer_at(
                             cursor_position.0,
@@ -359,9 +373,7 @@ impl CompositorRuntime<'_> {
         let backdrop_source = if backdrop_full {
             FrameDamage::Full
         } else {
-            let base = client
-                .clone()
-                .into_frame_damage(scale, physical_size);
+            let base = client.clone().into_frame_damage(scale, physical_size);
             if transition_rects.is_empty() {
                 base
             } else {
@@ -378,8 +390,9 @@ impl CompositorRuntime<'_> {
             // Pointer-only input, localized chrome animations, and chrome dirty
             // footprints join the client damage as additional physical rectangles.
             let mut extra: Vec<tessera_primitives::Rect> = Vec::new();
-            if let Some(region) = chrome_anim_region {
-                extra.push(region);
+            if let Some(regions) = chrome_anim_region {
+                // Already disjoint per component; do not union here.
+                extra.extend(regions);
             }
             if let Some(rects) = input_damage {
                 extra.extend(rects);

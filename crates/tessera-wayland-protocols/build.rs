@@ -75,11 +75,13 @@ fn main() {
             build.include(dir);
         }
     }
+    let mut tasks = Vec::new();
     for &(category, base) in protocols {
         let xml = PathBuf::from(&pkgdatadir)
             .join(category)
             .join(format!("{base}.xml"));
-        compile_protocol(&mut build, &out, &xml, base);
+        let cfile = out.join(format!("{base}-protocol.c"));
+        tasks.push((xml, cfile));
     }
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     for base in [
@@ -88,33 +90,39 @@ fn main() {
         "xdg-toplevel-drag-v1",
     ] {
         let xml = manifest.join("protocols").join(format!("{base}.xml"));
-        compile_protocol(&mut build, &out, &xml, base);
+        let cfile = out.join(format!("{base}-protocol.c"));
+        tasks.push((xml, cfile));
     }
+
+    // Parallelize wayland-scanner invocations across worker threads to eliminate
+    // the single-threaded code generation bottleneck (ADR-0206).
+    std::thread::scope(|s| {
+        for (xml, cfile) in &tasks {
+            s.spawn(move || {
+                assert!(xml.exists(), "missing protocol xml: {}", xml.display());
+                let status = Command::new("wayland-scanner")
+                    .arg("private-code")
+                    .arg(xml)
+                    .arg(cfile)
+                    .status()
+                    .expect("failed to run wayland-scanner");
+                assert!(
+                    status.success(),
+                    "wayland-scanner private-code failed for {}",
+                    xml.display()
+                );
+            });
+        }
+    });
+
+    for (xml, cfile) in &tasks {
+        build.file(cfile);
+        println!("cargo:rerun-if-changed={}", xml.display());
+    }
+
     build.compile("tessera_wayland_protocols");
 
     println!("cargo:rerun-if-changed=build.rs");
-}
-
-fn compile_protocol(
-    build: &mut cc::Build,
-    out: &std::path::Path,
-    xml: &std::path::Path,
-    base: &str,
-) {
-    assert!(xml.exists(), "missing protocol xml: {}", xml.display());
-    let cfile = out.join(format!("{base}-protocol.c"));
-    let status = Command::new("wayland-scanner")
-        .arg("private-code")
-        .arg(xml)
-        .arg(&cfile)
-        .status()
-        .expect("failed to run wayland-scanner");
-    assert!(
-        status.success(),
-        "wayland-scanner private-code failed for {base}"
-    );
-    build.file(&cfile);
-    println!("cargo:rerun-if-changed={}", xml.display());
 }
 
 /// Parse `-I<dir>` flags out of `pkg-config --cflags-only-I <pkg>`. Returns

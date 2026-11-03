@@ -1,6 +1,5 @@
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 
-use base64::Engine;
 use serde_json::{Value, json};
 
 use crate::BridgeConfig;
@@ -310,6 +309,31 @@ fn parse_tool_call(params: Option<&Value>) -> Result<(&str, Value), String> {
     Ok((name, arguments))
 }
 
+/// In-tree standard base64 encoding without external dependencies (ADR-0208).
+fn base64_encode(data: &[u8]) -> String {
+    const B64_CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0];
+        let b1 = chunk.get(1).copied().unwrap_or(0);
+        let b2 = chunk.get(2).copied().unwrap_or(0);
+
+        out.push(B64_CHARS[(b0 >> 2) as usize] as char);
+        out.push(B64_CHARS[(((b0 & 0x03) << 4) | (b1 >> 4)) as usize] as char);
+        if chunk.len() > 1 {
+            out.push(B64_CHARS[(((b1 & 0x0f) << 2) | (b2 >> 6)) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(B64_CHARS[(b2 & 0x3f) as usize] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
+
 fn render_tool_success(result: ToolCallResult) -> Value {
     let text = serde_json::to_string(&result.value)
         .unwrap_or_else(|error| format!("{{\"serialization_error\":{error:?}}}"));
@@ -317,7 +341,7 @@ fn render_tool_success(result: ToolCallResult) -> Value {
     if let Some(png) = result.image_png {
         content.push(json!({
             "type": "image",
-            "data": base64::engine::general_purpose::STANDARD.encode(png),
+            "data": base64_encode(&png),
             "mimeType": "image/png"
         }));
     }

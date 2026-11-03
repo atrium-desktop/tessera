@@ -201,11 +201,19 @@ pub fn record_composite_present(slots: &mut Vec<FrameDamage>, slot: usize, curre
 /// coordinates. `Area` preserves the *list* of disjoint dirty rectangles so
 /// unrelated regions (a video window and a clock tick) are not unioned into
 /// one spanning rect before reaching the KMS hint.
+///
+/// There is no `Full` tier. A surface commit is always expressible as
+/// rectangles because [ADR-0203] maps it through `SurfacePlacement`; the only
+/// way a commit damages everything is a surface that occupies everything, and
+/// that arrives as a full-output `Area` rect. Keeping an unreachable `Full`
+/// variant would let a future caller reintroduce the blanket repaint without
+/// noticing.
+///
+/// [ADR-0203]: ../../../../docs/adr/0203-damage-is-a-placement-mapped-rectangle.md
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClientDamage {
     None,
     Area(Vec<Rect>),
-    Full,
 }
 
 impl ClientDamage {
@@ -217,7 +225,6 @@ impl ClientDamage {
     pub fn into_frame_damage(self, scale: f32, physical_size: (u32, u32)) -> FrameDamage {
         match self {
             ClientDamage::None => FrameDamage::None,
-            ClientDamage::Full => FrameDamage::Full,
             ClientDamage::Area(logical) => {
                 let mut physical = Vec::with_capacity(logical.len());
                 for rect in logical {
@@ -247,9 +254,8 @@ pub trait SurfaceDamageFrame {
     /// Surface-local logical damage rectangles since the last commit; empty
     /// means "no usable damage information; the whole surface changed".
     fn damage(&self) -> &[Rect];
-    fn geometry(&self) -> &SurfaceGeometry;
-    fn width(&self) -> i32;
-    fn height(&self) -> i32;
+    /// Where this surface's buffer lands on the output this frame.
+    fn placement(&self) -> SurfacePlacement;
 }
 
 impl SurfaceDamageFrame for SurfacePixels<'_> {
@@ -262,14 +268,8 @@ impl SurfaceDamageFrame for SurfacePixels<'_> {
     fn damage(&self) -> &[Rect] {
         self.damage
     }
-    fn geometry(&self) -> &SurfaceGeometry {
-        &self.geometry
-    }
-    fn width(&self) -> i32 {
-        self.width
-    }
-    fn height(&self) -> i32 {
-        self.height
+    fn placement(&self) -> SurfacePlacement {
+        SurfacePlacement::resolve(&self.geometry, self.width, self.height)
     }
 }
 
@@ -283,70 +283,182 @@ impl SurfaceDamageFrame for SurfaceDmabuf {
     fn damage(&self) -> &[Rect] {
         &self.damage
     }
-    fn geometry(&self) -> &SurfaceGeometry {
-        &self.geometry
-    }
-    fn width(&self) -> i32 {
-        self.width
-    }
-    fn height(&self) -> i32 {
-        self.height
+    fn placement(&self) -> SurfacePlacement {
+        SurfacePlacement::resolve(&self.geometry, self.width, self.height)
     }
 }
 
-/// Per-surface state as of the previous damage assessment. Geometry belongs
-/// in the baseline alongside content generation: moving/resizing a surface
-/// exposes its old pixels even when the buffer itself did not change.
+/// Per-surface state as of the previous damage assessment. The placement
+/// belongs in the baseline alongside content generation: moving, resizing, or
+/// re-viewporting a surface exposes its old pixels even when the buffer itself
+/// did not change.
 #[derive(Clone, Copy)]
 struct SurfaceDamageBaseline {
     generation: u64,
-    geometry: SurfaceGeometry,
-    width: i32,
-    height: i32,
+    placement: SurfacePlacement,
+}
+
+/// Where one surface's buffer lands on the output, expressed as the exact
+/// affine map every surface-local coordinate — `wl_surface.damage`,
+/// `damage_buffer` after its commit-time conversion, an opaque region — takes
+/// to reach output-logical pixels (ADR-0203).
+///
+/// `wp_viewport` and window transitions change this map; they never destroy
+/// it. A damage rectangle therefore stays a rectangle. Only a rectangle that
+/// reaches no visible content is unmappable, and it contributes no damage
+/// rather than forcing a full repaint.
+///
+/// The map is `p -> origin + (p - source_origin) * dest_extent / source_extent`.
+/// The subtraction matters: `wp_viewport.set_source` selects which part of the
+/// buffer is visible *and* moves where the visible content begins, so a crop
+/// at `(100, 100)` draws surface pixel `(100, 100)` at the surface's output
+/// origin — not 200 px into it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct SurfacePlacement {
+    /// Output-logical origin the visible content is drawn at.
+    pub origin: tessera_primitives::Point,
+    /// Full post-transform buffer extent in logical pixels (`buffer_scale`
+    /// applied). The coordinate space the client's damage rectangles live in.
+    pub local: (i32, i32),
+    /// Origin of the visible content within `local`: the
+    /// `wp_viewport.set_source` origin, else `(0, 0)`.
+    pub source_origin: (i32, i32),
+    /// Extent of the visible content within `local`: the
+    /// `wp_viewport.set_source` size, else the whole `local` extent.
+    pub source_extent: (i32, i32),
+    /// Extent the visible content is drawn at on the output: an in-flight
+    /// transition's interpolated size, else the `wp_viewport.set_destination`
+    /// size, else `source_extent`.
+    pub dest_extent: (i32, i32),
+}
+
+impl SurfacePlacement {
+    /// Resolve the placement the renderer will draw this frame with.
+    ///
+    /// Mirrors `destination_size` plus the transition override in
+    /// `tessera-composite::lib` (the draw path two calls down) and
+    /// `SurfacePresentation::logical_extent` in `tessera-desktop` (the
+    /// ownership path). The draw path and this function must agree exactly,
+    /// because damage validity is precisely "the renderer drew the same
+    /// rectangle the damage pass assumed"; `placement_agreement` in
+    /// `tessera-composite` asserts that over a matrix of states.
+    ///
+    /// `logical_extent` deliberately ignores `transition_size` — it answers
+    /// "which model rect does this surface own", which does not move while a
+    /// transition animates — and agrees on every non-transition case.
+    pub fn resolve(geometry: &SurfaceGeometry, width: i32, height: i32) -> Self {
+        let scale = geometry.buffer_scale.max(1) as f32;
+        let (bw, bh) = if geometry.transform.swap_axes() {
+            (height, width)
+        } else {
+            (width, height)
+        };
+        let local = (
+            (bw as f32 / scale).round().max(1.0) as i32,
+            (bh as f32 / scale).round().max(1.0) as i32,
+        );
+        // A source crop selects which part of `local` is visible and where the
+        // visible content begins. Damage outside it reaches no output pixel.
+        let (source_origin, source_extent) = match geometry.viewport_src {
+            Some(src) => (
+                (src.origin.x, src.origin.y),
+                (src.size.w.max(1), src.size.h.max(1)),
+            ),
+            None => ((0, 0), local),
+        };
+        // `viewport_dst` wins (it is what the client asked to occupy), else the
+        // visible content is drawn at its own size.
+        let mut dest_extent = match geometry.viewport_dst {
+            Some(dst) => (dst.w.max(1), dst.h.max(1)),
+            None => source_extent,
+        };
+        // An in-flight transition (ADR-0029) draws the texture at the
+        // interpolated rect and overrides the viewport-derived size.
+        if let Some(size) = geometry.transition_size {
+            dest_extent = (size.w.max(1), size.h.max(1));
+        }
+        Self {
+            origin: geometry.position,
+            local,
+            source_origin,
+            source_extent,
+            dest_extent,
+        }
+    }
+
+    /// The output-logical rectangle this placement draws into.
+    pub fn rect(&self) -> Rect {
+        Rect::new(
+            self.origin.x,
+            self.origin.y,
+            self.dest_extent.0,
+            self.dest_extent.1,
+        )
+    }
+
+    /// The surface-local rectangle that is actually visible.
+    fn visible_local(&self) -> Rect {
+        Rect::new(
+            self.source_origin.0,
+            self.source_origin.1,
+            self.source_extent.0,
+            self.source_extent.1,
+        )
+    }
+
+    /// Map one surface-local damage rectangle onto the output. Outward
+    /// rounding keeps every touched output pixel inside the damage. `None`
+    /// means the rectangle reaches no output pixel (entirely outside the
+    /// visible content).
+    pub fn place(&self, local_rect: Rect) -> Option<Rect> {
+        if self.source_extent.0 <= 0 || self.source_extent.1 <= 0 {
+            return None;
+        }
+        let clipped = local_rect.intersect(self.visible_local())?;
+        let sx = self.dest_extent.0 as f64 / self.source_extent.0 as f64;
+        let sy = self.dest_extent.1 as f64 / self.source_extent.1 as f64;
+        let ox = self.origin.x as f64 - self.source_origin.0 as f64 * sx;
+        let oy = self.origin.y as f64 - self.source_origin.1 as f64 * sy;
+        let x0 = (ox + clipped.origin.x as f64 * sx).floor();
+        let y0 = (oy + clipped.origin.y as f64 * sy).floor();
+        let x1 = (ox + (clipped.origin.x as i64 + clipped.size.w as i64) as f64 * sx).ceil();
+        let y1 = (oy + (clipped.origin.y as i64 + clipped.size.h as i64) as f64 * sy).ceil();
+        let clamp_i32 = |value: f64| value.clamp(i32::MIN as f64, i32::MAX as f64) as i32;
+        let (x0, y0, x1, y1) = (clamp_i32(x0), clamp_i32(y0), clamp_i32(x1), clamp_i32(y1));
+        (x1 > x0 && y1 > y0).then(|| Rect::new(x0, y0, x1 - x0, y1 - y0))
+    }
+
+    /// Changed region(s) in compositor logical coordinates: the surface's
+    /// damage rects mapped through this placement, or the whole visible content
+    /// when the commit carried no usable damage information (`damage` empty).
+    /// Each rect is preserved individually rather than unioned, so disjoint
+    /// dirty regions stay disjoint for the KMS hint.
+    pub fn place_damage(&self, damage: &[Rect]) -> Vec<Rect> {
+        if damage.is_empty() {
+            // No usable damage information: the whole visible surface changed.
+            return self.place(self.visible_local()).into_iter().collect();
+        }
+        damage.iter().filter_map(|rect| self.place(*rect)).collect()
+    }
+
+    /// Visual bounds of this placement, inflated by the soft-shadow skirt the
+    /// compositor draws around a window. Used whenever a surface's placement
+    /// moves or disappears: the pixels it vacated must repaint too.
+    pub fn bounds(&self) -> Rect {
+        Rect::new(
+            self.origin.x.saturating_sub(SURFACE_SHADOW_MARGIN),
+            self.origin.y.saturating_sub(SURFACE_SHADOW_MARGIN),
+            self.dest_extent.0.saturating_add(SURFACE_SHADOW_MARGIN * 2),
+            self.dest_extent.1.saturating_add(SURFACE_SHADOW_MARGIN * 2),
+        )
+    }
 }
 
 struct SurfaceDamageSample<'a> {
     id: usize,
     generation: u64,
     damage: &'a [Rect],
-    geometry: &'a SurfaceGeometry,
-    width: i32,
-    height: i32,
-}
-
-/// One surface's changed region(s) in compositor logical coordinates: the
-/// (clamped) damage rects translated by the surface's compositor position, or
-/// the whole surface rect when the commit carried no usable damage information
-/// (`damage` empty). Each damage rect is preserved individually rather than
-/// unioned, so disjoint dirty regions stay disjoint for the KMS hint. The
-/// clamping mirrors the renderer's incremental-upload path so both agree on
-/// what "usable damage" means.
-fn surface_damage_logical(
-    position: tessera_primitives::Point,
-    width: i32,
-    height: i32,
-    damage: &[Rect],
-) -> Vec<Rect> {
-    if width <= 0 || height <= 0 {
-        return Vec::new();
-    }
-    if damage.is_empty() {
-        return vec![Rect::new(position.x, position.y, width, height)];
-    }
-    let mut out = Vec::with_capacity(damage.len());
-    let surface = Rect::new(0, 0, width, height);
-    for d in damage {
-        let Some(clipped) = d.intersect(surface) else {
-            continue;
-        };
-        out.push(Rect::new(
-            position.x.saturating_add(clipped.origin.x),
-            position.y.saturating_add(clipped.origin.y),
-            clipped.size.w,
-            clipped.size.h,
-        ));
-    }
-    out
+    placement: SurfacePlacement,
 }
 
 fn union_bbox(bbox: &mut Option<Rect>, rect: Rect) {
@@ -429,7 +541,6 @@ pub fn offscreen_damage_to_target(
     physical_size: (u32, u32),
 ) -> FrameDamage {
     match damage {
-        ClientDamage::Full => FrameDamage::Full,
         ClientDamage::None => FrameDamage::None,
         ClientDamage::Area(logical) => {
             let shifted: Vec<Rect> = logical
@@ -452,112 +563,105 @@ pub fn offscreen_damage_to_target(
 /// Vulkan dynamic rendering. `None` deliberately means a full-destination
 /// pass: both [`FrameDamage::Full`] and the conservative empty-area fallback
 /// must leave scissoring disabled.
-pub fn frame_damage_render_area(repaint: &FrameDamage) -> Option<flux::CanvasRenderArea> {
-    repaint.area_union().and_then(|rect| {
-        (!rect.is_empty()).then_some(flux::CanvasRenderArea {
-            x: rect.origin.x,
-            y: rect.origin.y,
-            width: rect.size.w as u32,
-            height: rect.size.h as u32,
-        })
+/// Convert output damage to the single physical-pixel rectangle accepted by
+/// Vulkan dynamic rendering, clamped to the framebuffer it will be drawn into.
+///
+/// Vulkan's dynamic `renderArea` must be fully inside the attachment: both flux
+/// backends reject a rect that is out of bounds, has a negative origin, or has
+/// exactly one zero dimension (`canvas_pass_render_area`). A damage rect
+/// reaching the output pass is usually clamped already, but three sources can
+/// still hand out a rect that is not:
+///
+/// * a fully off-screen surface maps to a rect outside the framebuffer,
+/// * an `i32`-domain damage rect widened by [`SurfacePlacement`] saturation can
+///   exceed `u32`,
+/// * a window straddling the right/bottom edge while its ring-slot history
+///   still holds the pre-clamp rect.
+///
+/// Returning a rejected descriptor is not a harmless no-op: the pass fails to
+/// begin and the frame loses its chrome (the `shell chrome render failed:
+/// Render(FLUX_ERROR_INVALID_ARGUMENT)` symptom). Clamping here, and answering
+/// `None` — a full-destination pass — when nothing usable survives, keeps the
+/// failure in the damage domain where it belongs.
+pub fn frame_damage_render_area(
+    repaint: &FrameDamage,
+    physical_size: (u32, u32),
+) -> Option<flux::CanvasRenderArea> {
+    clamp_render_area(repaint.area_union()?, physical_size.0, physical_size.1)
+}
+
+/// Intersect one physical rect with the framebuffer and express it as a
+/// `CanvasRenderArea`. `None` means "no usable area" — either the rect reaches
+/// no framebuffer pixel, or it degenerates in one dimension (which Vulkan would
+/// reject, and which visually means "nothing to draw").
+fn clamp_render_area(rect: Rect, max_w: u32, max_h: u32) -> Option<flux::CanvasRenderArea> {
+    if rect.is_empty() {
+        return None;
+    }
+    let x0 = rect.origin.x.max(0).min(max_w as i32) as i64;
+    let y0 = rect.origin.y.max(0).min(max_h as i32) as i64;
+    let x1 = (rect.origin.x as i64 + rect.size.w as i64).min(max_w as i64);
+    let y1 = (rect.origin.y as i64 + rect.size.h as i64).min(max_h as i64);
+    if x1 <= x0 || y1 <= y0 {
+        return None;
+    }
+    Some(flux::CanvasRenderArea {
+        x: x0 as i32,
+        y: y0 as i32,
+        width: (x1 - x0) as u32,
+        height: (y1 - y0) as u32,
     })
 }
 
 const SURFACE_SHADOW_MARGIN: i32 = 48;
 
-fn surface_visual_bounds(geometry: &SurfaceGeometry, width: i32, height: i32) -> Rect {
-    let scale = geometry.buffer_scale.max(1) as f32;
-    let (lw, lh) = if geometry.transform.swap_axes() {
-        (height, width)
-    } else {
-        (width, height)
-    };
-    let logical_width = (lw as f32 / scale).round().max(1.0) as i32;
-    let logical_height = (lh as f32 / scale).round().max(1.0) as i32;
-    Rect::new(
-        geometry.position.x - SURFACE_SHADOW_MARGIN,
-        geometry.position.y - SURFACE_SHADOW_MARGIN,
-        logical_width + SURFACE_SHADOW_MARGIN * 2,
-        logical_height + SURFACE_SHADOW_MARGIN * 2,
-    )
-}
-
-/// Record one visible surface into the generation diff. Returns `true` when
-/// this surface alone forces full damage: its contents changed in a way that
-/// cannot be mapped to a rectangle (wp_viewport crop/destination, or an
-/// in-flight window transition).
+/// Record one visible surface into the placement+generation diff, pushing the
+/// output-logical rectangles it dirties into `rects`.
+///
+/// There is deliberately no "this surface forces a full repaint" return value.
+/// Every surface-local rectangle is expressible on the output through
+/// [`SurfacePlacement`], and a surface whose placement collapses contributes no
+/// damage instead. A `bool` here would be a standing invitation to reintroduce
+/// the full-repaint verdict [ADR-0203] deleted.
+///
+/// [ADR-0203]: ../../../../docs/adr/0203-damage-is-a-placement-mapped-rectangle.md
 fn accumulate_surface(
     old: &std::collections::HashMap<usize, SurfaceDamageBaseline>,
     new: &mut std::collections::HashMap<usize, SurfaceDamageBaseline>,
     sample: SurfaceDamageSample<'_>,
     rects: &mut Vec<Rect>,
-) -> bool {
+) {
     let SurfaceDamageSample {
         id,
         generation,
         damage,
-        geometry,
-        width,
-        height,
+        placement,
     } = sample;
+    let previous = old.get(&id).copied();
     new.insert(
         id,
         SurfaceDamageBaseline {
             generation,
-            geometry: *geometry,
-            width,
-            height,
+            placement,
         },
     );
-    let Some(previous) = old.get(&id) else {
+    let Some(previous) = previous else {
         // A newly appeared surface: dirty its own visual bounds.
-        rects.push(surface_visual_bounds(geometry, width, height));
-        return false;
+        rects.push(placement.bounds());
+        return;
     };
 
-    let mappable = geometry.viewport_src.is_none()
-        && geometry.viewport_dst.is_none()
-        && geometry.transition_size.is_none()
-        && previous.geometry.viewport_src.is_none()
-        && previous.geometry.viewport_dst.is_none()
-        && previous.geometry.transition_size.is_none()
-        && geometry.transform == previous.geometry.transform
-        && geometry.buffer_scale == previous.geometry.buffer_scale;
-    if !mappable {
-        // Complex unmappable viewport/transition changes force full redraw.
-        return true;
-    }
-
-    let geometry_moved_or_resized = previous.width != width
-        || previous.height != height
-        || previous.geometry.position != geometry.position
-        || previous.geometry.window_geometry != geometry.window_geometry;
-
-    if geometry_moved_or_resized {
-        let old_rect = surface_visual_bounds(&previous.geometry, previous.width, previous.height);
-        let new_rect = surface_visual_bounds(geometry, width, height);
-        rects.push(old_rect);
-        rects.push(new_rect);
+    if previous.placement != placement {
+        // The surface moved, resized, re-viewport'd, or changed transition
+        // extent. Repaint both the rect it vacated and the one it now covers.
+        rects.push(previous.placement.bounds());
+        rects.push(placement.rect());
+        return;
     }
 
     if previous.generation != generation {
-        let scale = geometry.buffer_scale.max(1) as f32;
-        let (lw, lh) = if geometry.transform.swap_axes() {
-            (height, width)
-        } else {
-            (width, height)
-        };
-        let logical_width = (lw as f32 / scale).round().max(1.0) as i32;
-        let logical_height = (lh as f32 / scale).round().max(1.0) as i32;
-        rects.extend(surface_damage_logical(
-            geometry.position,
-            logical_width,
-            logical_height,
-            damage,
-        ));
+        rects.extend(placement.place_damage(damage));
     }
-
-    false
 }
 
 /// Double-buffered per-surface generation baseline for the client-damage
@@ -589,33 +693,28 @@ impl ClientDamageTracker {
         new.clear();
         new.reserve(old.len());
         let mut rects: Vec<Rect> = Vec::new();
-        let mut full = false;
 
         for frame in frames {
-            full |= accumulate_surface(
+            accumulate_surface(
                 old,
                 new,
                 SurfaceDamageSample {
                     id: frame.id(),
                     generation: frame.generation(),
                     damage: frame.damage(),
-                    geometry: frame.geometry(),
-                    width: frame.width(),
-                    height: frame.height(),
+                    placement: frame.placement(),
                 },
                 &mut rects,
             );
         }
         for (id, prev) in old {
             if !new.contains_key(id) {
-                rects.push(surface_visual_bounds(&prev.geometry, prev.width, prev.height));
+                rects.push(prev.placement.bounds());
             }
         }
         self.scratch.clear();
 
-        if full {
-            ClientDamage::Full
-        } else if rects.is_empty() {
+        if rects.is_empty() {
             ClientDamage::None
         } else {
             ClientDamage::Area(rects)
@@ -627,65 +726,188 @@ impl ClientDamageTracker {
 mod tests {
     use super::*;
 
+    /// A placement for a surface whose buffer maps 1:1 onto logical pixels.
+    fn placement_at(origin: (i32, i32), width: i32, height: i32) -> SurfacePlacement {
+        SurfacePlacement {
+            origin: tessera_primitives::Point {
+                x: origin.0,
+                y: origin.1,
+            },
+            local: (width, height),
+            source_origin: (0, 0),
+            source_extent: (width, height),
+            dest_extent: (width, height),
+        }
+    }
+
     #[test]
-    fn surface_damage_maps_and_clamps_to_surface() {
+    fn test_inv_arch_94_placement_maps_and_clamps_damage_to_the_surface() {
+        let placement = placement_at((100, 50), 800, 600);
         // Tight damage translates by the compositor position.
-        let area = surface_damage_logical(
-            tessera_primitives::Point { x: 100, y: 50 },
-            800,
-            600,
-            &[Rect::new(10, 20, 30, 40)],
+        assert_eq!(
+            placement.place_damage(&[Rect::new(10, 20, 30, 40)]),
+            vec![Rect::new(110, 70, 30, 40)]
         );
-        assert_eq!(area, vec![Rect::new(110, 70, 30, 40)]);
-        // Out-of-bounds damage clamps like the renderer's upload path.
-        let clamped = surface_damage_logical(
-            tessera_primitives::Point { x: 0, y: 0 },
-            800,
-            600,
-            &[Rect::new(-20, 590, 900, 50)],
+        // Out-of-bounds damage clamps to the surface extent.
+        assert_eq!(
+            placement.place_damage(&[Rect::new(-20, 590, 900, 50)]),
+            vec![Rect::new(100, 640, 800, 10)]
         );
-        assert_eq!(clamped, vec![Rect::new(0, 590, 800, 10)]);
         // Partial negative damage clips by intersection rather than moving the
         // origin to zero while preserving the original width.
-        let partial_negative = surface_damage_logical(
-            tessera_primitives::Point { x: 10, y: 20 },
-            800,
-            600,
-            &[Rect::new(-20, 10, 30, 20)],
+        assert_eq!(
+            placement_at((10, 20), 800, 600).place_damage(&[Rect::new(-20, 10, 30, 20)]),
+            vec![Rect::new(10, 30, 10, 20)]
         );
-        assert_eq!(partial_negative, vec![Rect::new(10, 30, 10, 20)]);
-        // A report wholly outside the surface contributes no invented edge
-        // damage.
+        // A report wholly outside the surface contributes no invented damage.
         assert!(
-            surface_damage_logical(
-                tessera_primitives::Point { x: 0, y: 0 },
-                800,
-                600,
-                &[Rect::new(-50, 10, 20, 20)],
-            )
-            .is_empty()
+            placement
+                .place_damage(&[Rect::new(-50, 10, 20, 20)])
+                .is_empty()
         );
         // No damage information damages the whole surface.
-        let whole = surface_damage_logical(tessera_primitives::Point { x: 5, y: 6 }, 800, 600, &[]);
-        assert_eq!(whole, vec![Rect::new(5, 6, 800, 600)]);
-        // Fully degenerate damage reports nothing.
-        let degenerate = surface_damage_logical(
-            tessera_primitives::Point { x: 0, y: 0 },
-            800,
-            600,
-            &[Rect::new(10, 10, 0, 0)],
+        assert_eq!(
+            placement.place_damage(&[]),
+            vec![Rect::new(100, 50, 800, 600)]
         );
-        assert!(degenerate.is_empty());
+        // Fully degenerate damage reports nothing.
+        assert!(
+            placement
+                .place_damage(&[Rect::new(10, 10, 0, 0)])
+                .is_empty()
+        );
         // Disjoint damage rects are preserved individually, not unioned.
-        let disjoint = surface_damage_logical(
-            tessera_primitives::Point { x: 0, y: 0 },
+        assert_eq!(
+            placement_at((0, 0), 800, 600)
+                .place_damage(&[Rect::new(10, 10, 5, 5), Rect::new(500, 400, 8, 8)]),
+            vec![Rect::new(10, 10, 5, 5), Rect::new(500, 400, 8, 8)]
+        );
+    }
+
+    #[test]
+    fn test_inv_arch_93_viewport_destination_scales_damage_instead_of_forcing_full() {
+        // A HiDPI client committing a 2048x1536 buffer at scale 2 with a
+        // 512x384 wp_viewport destination: the damage rect must land scaled
+        // into the viewport rectangle (ADR-0203).
+        let placement = SurfacePlacement::resolve(
+            &SurfaceGeometry {
+                position: tessera_primitives::Point { x: 100, y: 50 },
+                buffer_scale: 2,
+                viewport_dst: Some(tessera_primitives::Size { w: 512, h: 384 }),
+                ..Default::default()
+            },
+            2048,
+            1536,
+        );
+        assert_eq!(placement.local, (1024, 768));
+        assert_eq!(placement.source_extent, (1024, 768));
+        assert_eq!(placement.dest_extent, (512, 384));
+        assert_eq!(placement.rect(), Rect::new(100, 50, 512, 384));
+        // A full-surface damage covers the whole destination.
+        assert_eq!(
+            placement.place_damage(&[]),
+            vec![Rect::new(100, 50, 512, 384)]
+        );
+        // Half the surface in local coordinates maps to half the destination.
+        assert_eq!(
+            placement.place_damage(&[Rect::new(0, 0, 512, 768)]),
+            vec![Rect::new(100, 50, 256, 384)]
+        );
+    }
+
+    /// `wp_viewport.set_source` selects which part of the buffer is visible and
+    /// **moves where the visible content begins**. A crop at (100, 100) draws
+    /// surface pixel (100, 100) at the surface's output origin, so damage at
+    /// the crop's own origin must land at the output origin — not offset by
+    /// the crop's coordinates.
+    ///
+    /// An earlier revision divided by `local` without subtracting
+    /// `source_origin`, which placed every cropped surface's damage at
+    /// `origin + crop_origin * scale`; the compositor repainted the wrong
+    /// pixels and left the changed ones stale.
+    #[test]
+    fn test_inv_arch_92_viewport_source_crop_rebases_damage_at_the_drawn_origin() {
+        let placement = SurfacePlacement::resolve(
+            &SurfaceGeometry {
+                position: tessera_primitives::Point { x: 0, y: 0 },
+                viewport_src: Some(Rect::new(100, 100, 400, 300)),
+                ..Default::default()
+            },
             800,
             600,
-            &[Rect::new(10, 10, 5, 5), Rect::new(500, 400, 8, 8)],
+        );
+        assert_eq!(placement.local, (800, 600));
+        assert_eq!(placement.source_origin, (100, 100));
+        assert_eq!(placement.source_extent, (400, 300));
+        assert_eq!(placement.dest_extent, (400, 300));
+        assert_eq!(placement.rect(), Rect::new(0, 0, 400, 300));
+
+        // Damage at the crop's origin lands at the output origin.
+        assert_eq!(
+            placement.place(Rect::new(100, 100, 200, 150)),
+            Some(Rect::new(0, 0, 200, 150))
+        );
+        // Damage in the crop's middle lands proportionally inside the rect.
+        assert_eq!(
+            placement.place(Rect::new(300, 250, 200, 150)),
+            Some(Rect::new(200, 150, 200, 150))
+        );
+        // Damage wholly outside the crop reaches no output pixel.
+        assert_eq!(placement.place(Rect::new(0, 0, 100, 100)), None);
+        assert_eq!(placement.place(Rect::new(600, 500, 200, 100)), None);
+        // A crop straddling the boundary clips to the visible part.
+        assert_eq!(
+            placement.place(Rect::new(50, 100, 100, 100)),
+            Some(Rect::new(0, 0, 50, 100))
+        );
+        // "No usable damage" means the whole *visible* content.
+        assert_eq!(placement.place_damage(&[]), vec![Rect::new(0, 0, 400, 300)]);
+    }
+
+    /// A source crop combined with a destination that scales it: the map is
+    /// `origin + (p - source_origin) * dest/source`.
+    #[test]
+    fn test_inv_arch_92_viewport_source_and_destination_compose() {
+        let placement = SurfacePlacement::resolve(
+            &SurfaceGeometry {
+                position: tessera_primitives::Point { x: 10, y: 20 },
+                viewport_src: Some(Rect::new(200, 100, 400, 300)),
+                viewport_dst: Some(tessera_primitives::Size { w: 200, h: 150 }),
+                ..Default::default()
+            },
+            800,
+            600,
+        );
+        // Source (400x300) drawn at 200x150: a 0.5 scale.
+        assert_eq!(
+            placement.place(Rect::new(200, 100, 400, 300)),
+            Some(Rect::new(10, 20, 200, 150))
         );
         assert_eq!(
-            disjoint,
-            vec![Rect::new(10, 10, 5, 5), Rect::new(500, 400, 8, 8)]
+            placement.place(Rect::new(200, 100, 200, 150)),
+            Some(Rect::new(10, 20, 100, 75))
+        );
+    }
+
+    #[test]
+    fn test_inv_arch_93_transition_extent_overrides_the_viewport_destination() {
+        // ADR-0029: an in-flight transition draws the texture at the
+        // interpolated size, so damage must follow that rect, not the
+        // viewport destination the client declared.
+        let placement = SurfacePlacement::resolve(
+            &SurfaceGeometry {
+                position: tessera_primitives::Point { x: 10, y: 10 },
+                viewport_dst: Some(tessera_primitives::Size { w: 400, h: 300 }),
+                transition_size: Some(tessera_primitives::Size { w: 200, h: 150 }),
+                ..Default::default()
+            },
+            400,
+            300,
+        );
+        assert_eq!(placement.dest_extent, (200, 150));
+        assert_eq!(
+            placement.place_damage(&[Rect::new(0, 0, 400, 300)]),
+            vec![Rect::new(10, 10, 200, 150)]
         );
     }
 
@@ -797,10 +1019,6 @@ mod tests {
             ClientDamage::None.into_frame_damage(1.0, (100, 100)),
             FrameDamage::None
         );
-        assert_eq!(
-            ClientDamage::Full.into_frame_damage(1.0, (100, 100)),
-            FrameDamage::Full
-        );
     }
 
     #[test]
@@ -820,14 +1038,8 @@ mod tests {
             fn damage(&self) -> &[Rect] {
                 &self.damage
             }
-            fn geometry(&self) -> &SurfaceGeometry {
-                &self.geometry
-            }
-            fn width(&self) -> i32 {
-                100
-            }
-            fn height(&self) -> i32 {
-                80
+            fn placement(&self) -> SurfacePlacement {
+                SurfacePlacement::resolve(&self.geometry, 100, 80)
             }
         }
         let geometry = SurfaceGeometry {
@@ -845,7 +1057,10 @@ mod tests {
             damage: Vec::new(),
             geometry,
         } as &dyn SurfaceDamageFrame]);
-        assert!(matches!(initial, ClientDamage::Area(_)), "first sighting emits surface area");
+        assert!(
+            matches!(initial, ClientDamage::Area(_)),
+            "first sighting emits surface area"
+        );
         assert!(matches!(
             tracker.assess([&Sample {
                 generation: 3,
@@ -879,14 +1094,8 @@ mod tests {
             fn damage(&self) -> &[Rect] {
                 &self.damage
             }
-            fn geometry(&self) -> &SurfaceGeometry {
-                &self.geometry
-            }
-            fn width(&self) -> i32 {
-                100
-            }
-            fn height(&self) -> i32 {
-                80
+            fn placement(&self) -> SurfacePlacement {
+                SurfacePlacement::resolve(&self.geometry, 100, 80)
             }
         }
         let geometry = SurfaceGeometry {
@@ -934,14 +1143,8 @@ mod tests {
             fn damage(&self) -> &[Rect] {
                 &self.damage
             }
-            fn geometry(&self) -> &SurfaceGeometry {
-                &self.geometry
-            }
-            fn width(&self) -> i32 {
-                200
-            }
-            fn height(&self) -> i32 {
-                160
+            fn placement(&self) -> SurfacePlacement {
+                SurfacePlacement::resolve(&self.geometry, 200, 160)
             }
         }
         let geometry = SurfaceGeometry {
@@ -990,15 +1193,6 @@ mod tests {
         assert_eq!(scaled.area_rects(), Some(&[Rect::new(10, 90, 20, 20)][..]));
 
         // Non-area verdicts pass through unchanged.
-        assert!(matches!(
-            offscreen_damage_to_target(
-                ClientDamage::Full,
-                tessera_primitives::Point { x: 0, y: 0 },
-                1.0,
-                (64, 64)
-            ),
-            FrameDamage::Full
-        ));
         assert!(matches!(
             offscreen_damage_to_target(
                 ClientDamage::None,

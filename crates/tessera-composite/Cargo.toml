@@ -9,7 +9,6 @@ rust-version.workspace = true
 build = "build.rs"
 
 [dependencies]
-thiserror.workspace = true
 image.workspace = true
 tessera-desktop.workspace = true
 tessera-primitives.workspace = true

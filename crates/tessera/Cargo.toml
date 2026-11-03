@@ -25,9 +25,9 @@ chrome-pivot = ["tessera-shell/chrome-pivot"]
 # The composition root owns the single tray service used by either surface.
 chrome-hud = ["tessera-shell/chrome-hud"]
 chrome-control-center = ["tessera-shell/chrome-control-center"]
+dbus-system = ["dep:zbus"]
 
 [dependencies]
-thiserror = { workspace = true }
 tessera-cli = { workspace = true }
 tessera-cast = { workspace = true }
 tessera-desktop.workspace = true
@@ -42,8 +42,6 @@ tessera-design = { workspace = true }
 tessera-wayland = { workspace = true }
 tessera-platform = { workspace = true }
 tessera-shell = { workspace = true, default-features = false }
-# The Chrome contract consumed by the runtime's chrome driving code.
-tessera-i18n = { workspace = true }
 # Chrome components split out of tessera-shell (ADR-0044); only the binary
 # composes them into the shell.
 # Modal control center (ADR-0080).
@@ -63,13 +61,7 @@ lens = { workspace = true }
 prism = { workspace = true }
 image = { workspace = true }
 libc = { workspace = true }
-# SVG cursor rasterization for the software cursor (ADR-0070). Pure Rust,
-# with text/raster-image features off since the bundled cursor art is
-# path/fill/stroke only.
-resvg = { workspace = true }
-usvg = { workspace = true }
-tiny-skia = { workspace = true }
-# Embeds the bundled Tessera cursor theme as the default fallback.
+# Embeds the bundled Tessera cursor theme as the default fallback (ADR-0207).
 include_dir = { workspace = true }
 sha2.workspace = true
 serde.workspace = true
@@ -78,7 +70,7 @@ zeroize.workspace = true
 log.workspace = true
 tracing.workspace = true
 tessera-env.workspace = true
-zbus = { workspace = true }
+zbus = { workspace = true, optional = true }
 # Direct deps purely so this binary's build script receives DEP_FLUX_RPATHS /
 # DEP_LENS_RPATHS (published via the -sys crates' `links` metadata) and can
 # re-emit the rpaths — `rustc-link-arg` does not propagate across crates.
@@ -90,13 +82,13 @@ transit = { workspace = true }
 transit-sys = { workspace = true }
 
 [package.metadata.cargo-machete]
-ignored = ["vista-sys", "lens-sys", "prism-sys", "transit-sys"]
+ignored = ["vista-sys", "prism-sys", "transit-sys"]
 
 [dev-dependencies]
 tessera-desktop = { workspace = true }
 tessera-ipc = { workspace = true }
 tessera-protocol = { workspace = true }
-tempfile = "3"
+tempfile = { workspace = true }
 # Chrome-host integration tests render components through the real shell.
 tessera-shell = { workspace = true, default-features = false }
 

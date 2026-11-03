@@ -2,6 +2,14 @@
 resolver = "3"
 # Package boundaries are checked from Cargo metadata by `cargo xtask lint-deps`.
 members = ["crates/*", "tooling/*"]
+default-members = [
+    "crates/tessera",
+    "crates/tessera-cli",
+    "crates/tessera-lock",
+    "crates/tessera-idle",
+    "crates/tessera-cast",
+    "tooling/xtask",
+]
 
 [workspace.package]
 version = "0.0.86"
@@ -27,21 +35,21 @@ tessera-sched = { path = "crates/tessera-sched" }
 # development worktree can patch these sources through
 # .cargo/optics-local.toml without making a sibling checkout mandatory for CI
 # or downstream packagers.
-flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.67" }
-flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.67" }
-vista = { git = "https://github.com/ming2k/optics", tag = "v0.0.67" }
-vista-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.67" }
+flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.70" }
+flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.70" }
+vista = { git = "https://github.com/ming2k/optics", tag = "v0.0.70" }
+vista-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.70" }
 # Renderer-neutral offscreen DAG planning above Flux image operators.
-lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.67" }
-lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.67" }
+lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.70" }
+lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.70" }
 # prism (material library; ADR-0063) carries the liquid-glass compositor.
 # Canonical resolution needs an optics tag containing prism-rs.
-prism = { git = "https://github.com/ming2k/optics", tag = "v0.0.67" }
-prism-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.67" }
+prism = { git = "https://github.com/ming2k/optics", tag = "v0.0.70" }
+prism-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.70" }
 # transit (motion vocabulary; ADR-0172) provides analytic springs and easing;
 # v0.0.53 adds the explicit `reduced_motion` flag to every advance entry point.
-transit = { git = "https://github.com/ming2k/optics", tag = "v0.0.67" }
-transit-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.67" }
+transit = { git = "https://github.com/ming2k/optics", tag = "v0.0.70" }
+transit-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.70" }
 
 # Observability: crates emit through the `log` facade; each binary installs a
 # `tracing`-based subscriber through the shared `tessera-env` crate, which
@@ -62,14 +70,11 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
 # tessera-mcp is the platform's MCP bridge. tessera exposes the bridge so any
 # agent can discover scoped desktop and Interaction Domain tools without
 # linking an agent stack into the compositor (ADR-0047, ADR-0087).
-base64 = "0.22"
-fastrand = "2"
 flate2 = "1"
 getrandom = "0.4"
 hmac = "0.12"
 notify = "8.2"
 sha2 = "0.10"
-async-io = "2"
 
 # Session D-Bus for the StatusNotifierItem system tray (internal to tessera-shell,
 # shared by HUD and control-center).
@@ -97,11 +102,6 @@ input = { version = "0.10", default-features = false, features = [
 ] }
 udev = "0.9"
 libc = "0.2"
-
-# Desktop application subsystem (tessera-launch-services): XDG base-directory resolution,
-# desktop-entry parsing, and index.theme INI parsing. Kept off every other crate.
-dirs = "5"
-ini = { package = "rust-ini", version = "0.20" }
 
 # Shared, effect-free Tessera state and deterministic state rules (ADR-0155).
 # Pure presentation-domain value layer: frame damage verdicts, slot-ring
@@ -165,15 +165,6 @@ image = { version = "0.25", default-features = false, features = [
     "webp",
 ] }
 
-# SVG cursor rasterization (pure Rust; see ADR-0070 and cursor.rs). The
-# bundled Tessera cursors are path/fill/stroke art with no text and no
-# embedded raster images, so resvg/usvg default-features stay off: that
-# drops the text-shaping (rustybuzz/fontdb/unicode) and image-decode
-# (gif/webp/jpeg) trees from the compositor build entirely.
-resvg = { version = "0.47", default-features = false }
-usvg = { version = "0.47", default-features = false }
-tiny-skia = "0.12"
-
 # Embed the bundled Tessera cursor theme into the binary so a
 # sane default exists even with no XCURSOR_THEME and a bare TTY.
 include_dir = "0.7"
@@ -189,21 +180,19 @@ wayland-protocols = { version = "0.32.13", features = [
 wayland-backend = { version = "0.3.15", features = ["client_system"] }
 smithay-client-toolkit = { version = "0.21.1", features = ["calloop", "xkbcommon"] }
 ash = "0.38"
-xkbcommon = "0.9"
+xkbcommon = "0.8"
 zeroize = "1.8"
 
 # CLI, automation, and shared utility tooling
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 anyhow = "1"
-rustc-hash = "2"
-walkdir = "2"
 tempfile = "3"
 # Property-based testing for the wire schema. The IPC wire is a versioned
 # serde surface with strict tags and serde-defaulted fields; generated
 # round-trips catch attribute regressions that example tests miss.
 proptest = "1"
-toml_edit = "0.22"
+toml_edit = "0.25"
 cc = "1"
 pkg-config = "0.3"
 
@@ -215,27 +204,16 @@ split-debuginfo = "unpacked"
 incremental = true
 codegen-units = 256
 
-# Accelerate proc-macro expansion and code generation in dev builds
+# High-computation graphics kernels benefit from optimization even in dev
+# builds to prevent frame drops, while macro crates stay unoptimized so they
+# do not serialize Cargo's dependency graph during compilation (ADR-0206).
 [profile.dev.package]
-syn = { opt-level = 3 }
-quote = { opt-level = 3 }
-proc-macro2 = { opt-level = 3 }
-serde_derive = { opt-level = 3 }
-thiserror-impl = { opt-level = 3 }
-zbus_macros = { opt-level = 3 }
-serde_json = { opt-level = 3 }
-resvg = { opt-level = 3 }
-tiny-skia = { opt-level = 3 }
-usvg = { opt-level = 3 }
-image = { opt-level = 3 }
-tessera-design = { codegen-units = 1 }
-tessera-env = { codegen-units = 1 }
+image = { opt-level = 2 }
 
-# Keep the compositor responsive without applying full release optimization to
-# workspace crates on every edit. Dependencies change less often, so their
-# one-time optimization cost is amortized by Cargo's build cache.
+# Dependencies change infrequently; opt-level 1 provides sufficient inlining
+# and performance without incurring LLVM -O2 compilation pauses (ADR-0206).
 [profile.dev.package."*"]
-opt-level = 2
+opt-level = 1
 
 # Dedicated profiling & benchmark profile: avoids ThinLTO compile delays
 # while maintaining near-release runtime speed with full debug symbols.

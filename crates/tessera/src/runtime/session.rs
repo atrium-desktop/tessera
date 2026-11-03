@@ -12,6 +12,23 @@
 /// project name, matching what `tessera-launch-services` compares `OnlyShowIn=` against.
 const DESKTOP_NAME: &str = "tessera";
 
+/// Release the compositor's dedicated-CPU pin from a child before `exec`.
+///
+/// `[INV-ARCH-96]` A child inherits the **forking thread's** CPU affinity mask.
+/// The frame thread and every background worker the plan pinned hold a
+/// one-CPU mask, so a daemon spawned from them would run entirely on the core
+/// reserved for presentation. Every supervised child (the idle coordinator, the
+/// trusted locker, the lock-now requester) goes through this seam.
+pub(crate) fn detach_from_frame_pin(command: &mut std::process::Command) {
+    use std::os::unix::process::CommandExt;
+    // SAFETY: `pre_exec` runs between fork and exec, where the only permitted
+    // calls are async-signal-safe. The closure performs exactly one
+    // `sched_setaffinity(2)` and allocates nothing.
+    unsafe {
+        command.pre_exec(tessera_sched::release_inherited_affinity_to_global_plan);
+    }
+}
+
 /// Session variables every Wayland client of this compositor needs.
 const SESSION_VARS: [&str; 3] = ["WAYLAND_DISPLAY", "XDG_SESSION_TYPE", "XDG_CURRENT_DESKTOP"];
 
@@ -441,11 +458,13 @@ impl IdleProcess {
         // The daemon may still be between exec and bind. Its one-shot mode
         // retries the control path and securely falls back to tessera-lock.
         let result = trusted_sibling_program("tessera-idle").and_then(|program| {
-            std::process::Command::new(program)
+            let mut command = std::process::Command::new(program);
+            command
                 .arg("--lock-now")
                 .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .spawn()
+                .stdout(std::process::Stdio::null());
+            detach_from_frame_pin(&mut command);
+            command.spawn()
         });
         if let Err(error) = result {
             log::error!("session: could not request lock: {error}");
@@ -455,10 +474,12 @@ impl IdleProcess {
 
     fn start_direct_lock(&self) {
         let fallback = trusted_sibling_program("tessera-lock").and_then(|program| {
-            std::process::Command::new(program)
+            let mut command = std::process::Command::new(program);
+            command
                 .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .spawn()
+                .stdout(std::process::Stdio::null());
+            detach_from_frame_pin(&mut command);
+            command.spawn()
         });
         if let Err(error) = fallback {
             log::error!("session: could not start tessera-lock fallback: {error}");
@@ -521,6 +542,10 @@ impl IdleProcess {
         if self.nested {
             command.arg("--no-logind");
         }
+        // `[INV-ARCH-96]`: the child must not inherit the frame thread's
+        // dedicated-CPU pin, or the whole idle/lock daemon runs on the core the
+        // compositor reserved for presentation.
+        detach_from_frame_pin(&mut command);
         match command.spawn() {
             Ok(child) => {
                 log::info!(

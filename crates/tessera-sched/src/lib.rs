@@ -157,12 +157,17 @@ impl SchedPlan {
         let frame_nice = frame_nice.clamp(-20, 19);
         let available = detect_online_cpus();
         let available = available.filter(|cpus| !cpus.is_empty());
-        // Pin to the first (lowest) online CPU; feeders/background fan out
+        // Pin to the plan's preferred dedicated CPU; feeders/background fan out
         // across everything after it.
         let (frame_mask, rest) = match (&available, pin_frame) {
             (Some(cpus), true) => {
-                let (head, tail) = cpus.split_first().unwrap_or((&0, &[]));
-                (Some(vec![*head]), tail.to_vec())
+                let dedicated = preferred_frame_cpu(cpus);
+                let rest = cpus
+                    .iter()
+                    .copied()
+                    .filter(|cpu| *cpu != dedicated)
+                    .collect::<Vec<_>>();
+                (Some(vec![dedicated]), rest)
             }
             (Some(cpus), false) => (None, cpus.clone()),
             (None, _) => (None, Vec::new()),
@@ -176,6 +181,16 @@ impl SchedPlan {
             frame_nice,
             rest,
         }
+    }
+
+    /// Every logical CPU the plan discovered as available to this process.
+    ///
+    /// Empty when the plan is disabled or the platform has no affinity query.
+    /// Callers that need to reason about the whole topology (a launch path
+    /// widening a child's mask, a diagnostic) read this instead of re-querying
+    /// the kernel and racing the ambient affinity.
+    pub fn available_cpus(&self) -> Vec<usize> {
+        self.available.clone().unwrap_or_default()
     }
 
     /// The logical CPU reserved for the frame loop, if any.
@@ -220,13 +235,11 @@ impl SchedPlan {
         }
         match role {
             ThreadRole::Frame => Pin::new(self.frame_mask.clone()?),
-            ThreadRole::FrameFeeder | ThreadRole::Background => {
-                Pin::new(if self.rest.is_empty() {
-                    self.available.clone()?
-                } else {
-                    self.rest.clone()
-                })
-            }
+            ThreadRole::FrameFeeder | ThreadRole::Background => Pin::new(if self.rest.is_empty() {
+                self.available.clone()?
+            } else {
+                self.rest.clone()
+            }),
         }
     }
 
@@ -288,11 +301,7 @@ fn detect_online_cpus() -> Option<Vec<usize>> {
         let cpus = (0..max)
             .filter(|cpu| unsafe { libc::CPU_ISSET(*cpu, &set) })
             .collect::<Vec<_>>();
-        if cpus.is_empty() {
-            None
-        } else {
-            Some(cpus)
-        }
+        if cpus.is_empty() { None } else { Some(cpus) }
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -303,6 +312,86 @@ fn detect_online_cpus() -> Option<Vec<usize>> {
 
 #[cfg(target_os = "linux")]
 const CPU_SETSIZE: usize = 1024;
+
+/// Choose the logical CPU the frame loop should own.
+///
+/// `[INV-ARCH-95]` The frame loop must not be pinned to a CPU whose SMT sibling
+/// or IRQ affinity it shares with the desktop. `CPU 0` is the worst candidate
+/// on almost every x86 machine: the 8259/IO-APIC legacy IRQs, the i8042, the
+/// ACPI SCI, and every `kworker/0:*` land there, and its SMT sibling is often
+/// a hot primary core. Pinning a latency-critical realtime thread to that
+/// runqueue competes with interrupt delivery for the same physical core.
+///
+/// Preference order:
+/// 1. An explicit `pin_cpu` from configuration (see [`SchedPlan::with_frame_pin`]).
+/// 2. The highest-numbered online CPU, which on a hybrid Intel part is an
+///    E-core that the scheduler already prefers to leave idle, and on a
+///    uniform part is the least likely to carry boot-strap IRQ affinity.
+/// 3. Whatever the affinity set offers, as a last resort.
+///
+/// The choice is deliberately *not* "lowest online CPU": that is the value the
+/// kernel gives every unmanaged IRQ and the one every naive pin selects, which
+/// puts the frame loop in the busiest possible company.
+fn preferred_frame_cpu(available: &[usize]) -> usize {
+    debug_assert!(!available.is_empty(), "detect() rejects an empty set");
+    available.iter().copied().max().unwrap_or(0)
+}
+
+/// Release a child's inherited CPU affinity back to `plan`'s full available
+/// set.
+///
+/// `[INV-ARCH-96]` A child process inherits the **forking thread's** affinity
+/// mask, not the process's original one. Launching a client from the frame
+/// thread — or from any thread the plan pinned — would hand that client a
+/// single-CPU mask and force the entire application onto the compositor's
+/// dedicated core, which is the exact starvation the pin exists to prevent.
+///
+/// Every `pre_exec` closure that spawns a child must call this before `exec`.
+/// It is async-signal-safe: one `sched_setaffinity(2)`, no allocation.
+///
+/// The `Result` is always `Ok`: widening a CPU mask to the set the process
+/// already ran on cannot fail in a way that matters, and a launch that refuses
+/// to start because an affinity write returned `EPERM` would be strictly worse
+/// than one that starts with an inherited mask. The shape exists so the
+/// function can be passed directly to `CommandExt::pre_exec`.
+#[cfg(target_os = "linux")]
+pub fn release_inherited_affinity(plan: &SchedPlan) -> std::io::Result<()> {
+    if !plan.enabled {
+        return Ok(());
+    }
+    let Some(available) = plan.available.as_ref().filter(|cpus| !cpus.is_empty()) else {
+        return Ok(());
+    };
+    let mut set: libc::cpu_set_t = unsafe { std::mem::zeroed() };
+    unsafe { libc::CPU_ZERO(&mut set) };
+    for cpu in available {
+        if *cpu < CPU_SETSIZE {
+            unsafe { libc::CPU_SET(*cpu, &mut set) };
+        }
+    }
+    let size = std::mem::size_of::<libc::cpu_set_t>();
+    // SAFETY: `set` is a fully initialised cpu_set_t of `size` bytes, and this
+    // runs in the forked child before `exec`, where only async-signal-safe
+    // calls are permitted.
+    let _ = unsafe { libc::sched_setaffinity(0, size, &set) };
+    Ok(())
+}
+
+/// Non-Linux builds have no affinity to release.
+#[cfg(not(target_os = "linux"))]
+pub fn release_inherited_affinity(plan: &SchedPlan) -> std::io::Result<()> {
+    let _ = plan;
+    Ok(())
+}
+
+/// [`release_inherited_affinity`] against the process-wide plan armed at
+/// startup.
+///
+/// The launch path does not thread a plan through every spawn site, so this is
+/// the entry point `pre_exec` closures use.
+pub fn release_inherited_affinity_to_global_plan() -> std::io::Result<()> {
+    release_inherited_affinity(global_plan())
+}
 
 /// Apply `plan` to the calling thread for `role`, logging each outcome.
 ///
@@ -357,7 +446,9 @@ fn apply_sched_policy_fallback(plan: &SchedPlan, role: ThreadRole, policy: Sched
 }
 
 fn try_set_sched(policy: i32, priority: i32) -> bool {
-    let param = libc::sched_param { sched_priority: priority };
+    let param = libc::sched_param {
+        sched_priority: priority,
+    };
     let rc = unsafe { libc::sched_setscheduler(0, policy, &param) };
     if rc == 0 {
         true
@@ -441,7 +532,9 @@ pub fn lockdown_memory() {
             log::info!("sched: compositor memory locked (mlockall)");
         } else {
             let err = std::io::Error::last_os_error();
-            log::warn!("sched: mlockall rejected ({err}); run under tessera.service for memory locking");
+            log::warn!(
+                "sched: mlockall rejected ({err}); run under tessera.service for memory locking"
+            );
         }
     }
     #[cfg(not(target_os = "linux"))]
@@ -508,7 +601,10 @@ impl DeadlineWatchdog {
 
     /// Check if a single frame iteration (processing input + layout + render)
     /// exceeded the stall budget.
-    pub fn check_execution_stall(&self, elapsed: std::time::Duration) -> Option<std::time::Duration> {
+    pub fn check_execution_stall(
+        &self,
+        elapsed: std::time::Duration,
+    ) -> Option<std::time::Duration> {
         (elapsed > self.budget).then_some(elapsed)
     }
 
@@ -533,10 +629,16 @@ mod tests {
         assert!(plan.realtime_enabled());
         if let Some(cpu) = plan.frame_cpu() {
             assert!(plan.frame_mask.is_some());
-            assert!(plan.rest.iter().all(|c| *c != cpu), "frame cpu leaks into rest");
+            assert!(
+                plan.rest.iter().all(|c| *c != cpu),
+                "frame cpu leaks into rest"
+            );
         }
         assert_eq!(plan.policy_for(ThreadRole::Frame), SchedPolicy::Fifo);
-        assert_eq!(plan.policy_for(ThreadRole::FrameFeeder), SchedPolicy::RoundRobin);
+        assert_eq!(
+            plan.policy_for(ThreadRole::FrameFeeder),
+            SchedPolicy::RoundRobin
+        );
         assert_eq!(plan.policy_for(ThreadRole::Background), SchedPolicy::Other);
     }
 
@@ -563,7 +665,9 @@ mod tests {
     #[test]
     fn feeder_is_one_below_frame() {
         let plan = SchedPlan::detect(true, 10, -10);
-        assert!(plan.rt_priority_for(ThreadRole::FrameFeeder) < plan.rt_priority_for(ThreadRole::Frame));
+        assert!(
+            plan.rt_priority_for(ThreadRole::FrameFeeder) < plan.rt_priority_for(ThreadRole::Frame)
+        );
         assert_eq!(plan.rt_priority_for(ThreadRole::FrameFeeder), 9);
         assert_eq!(plan.rt_priority_for(ThreadRole::Frame), 10);
     }
@@ -572,14 +676,20 @@ mod tests {
     fn watchdog_evaluates_active_stalls_without_idle_false_positives() {
         let w = DeadlineWatchdog::new(std::time::Duration::from_millis(50));
         // Under budget: no stall
-        assert!(w.check_execution_stall(std::time::Duration::from_millis(16)).is_none());
+        assert!(
+            w.check_execution_stall(std::time::Duration::from_millis(16))
+                .is_none()
+        );
         // Over budget: stall reported
         assert_eq!(
             w.check_execution_stall(std::time::Duration::from_millis(80)),
             Some(std::time::Duration::from_millis(80))
         );
         // Idle (not animating): long interval does NOT trigger stall
-        assert!(w.check_pacing_stall(false, std::time::Duration::from_millis(1000)).is_none());
+        assert!(
+            w.check_pacing_stall(false, std::time::Duration::from_millis(1000))
+                .is_none()
+        );
         // Active animating: long interval DOES trigger stall
         assert_eq!(
             w.check_pacing_stall(true, std::time::Duration::from_millis(120)),
@@ -592,5 +702,133 @@ mod tests {
         let plan = SchedPlan::detect(false, 10, -10);
         assert!(plan.frame_cpu().is_none());
         assert!(plan.pin_for(ThreadRole::Frame).is_none());
+    }
+
+    #[test]
+    fn test_inv_arch_95_frame_cpu_avoids_the_irq_cpu() {
+        // `[INV-ARCH-95]`: CPU 0 carries the legacy IRQ routes and the ACPI
+        // SCI, so it is never the dedicated frame CPU unless it is the only
+        // online CPU.
+        assert_eq!(preferred_frame_cpu(&[0, 1, 2, 3]), 3);
+        assert_eq!(preferred_frame_cpu(&[4, 5]), 5);
+        assert_eq!(
+            preferred_frame_cpu(&[0]),
+            0,
+            "single-CPU host still needs a pin"
+        );
+        let plan = SchedPlan::detect(true, 10, -10);
+        if let Some(cpu) = plan.frame_cpu()
+            && plan.available.as_ref().is_some_and(|cpus| cpus.len() > 1)
+        {
+            assert_ne!(cpu, 0, "frame loop must not share CPU 0's runqueue");
+        }
+    }
+
+    #[test]
+    fn test_inv_arch_97_frame_mask_and_rest_partition_the_available_set() {
+        let plan = SchedPlan::detect(true, 10, -10);
+        let (Some(available), Some(mask)) = (plan.available.as_ref(), plan.frame_mask.as_ref())
+        else {
+            // Non-Linux or a host with no discoverable affinity set.
+            return;
+        };
+        assert_eq!(mask.len(), 1, "the frame loop owns exactly one CPU");
+        let frame = mask[0];
+        assert!(available.contains(&frame));
+        // Every other CPU is a feeder/background CPU, and the frame CPU is in
+        // neither.
+        assert!(!plan.rest.contains(&frame));
+        assert_eq!(plan.rest.len() + 1, available.len());
+    }
+
+    #[test]
+    fn test_inv_arch_96_child_affinity_release_is_always_ok() {
+        // The `pre_exec` contract: this must never fail a launch, because a
+        // client that starts with an inherited pin is strictly better than one
+        // that refuses to start.
+        assert!(release_inherited_affinity_to_global_plan().is_ok());
+    }
+
+    /// `[INV-ARCH-96]` end-to-end: a child forked by a pinned thread inherits
+    /// that one-CPU mask, and [`release_inherited_affinity`] widens it back to
+    /// the plan's full set before `exec`.
+    ///
+    /// Runs the experiment on a thread the test itself pins, so it works even
+    /// when the test runner is already confined to one CPU.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_inv_arch_96_a_pinned_threads_child_escapes_the_pin() {
+        use std::os::unix::process::CommandExt;
+
+        // A plan whose available set is every CPU, independent of the ambient
+        // affinity the test runner inherited.
+        let plan = SchedPlan::detect(true, 10, -10);
+        let Some(available) = plan.available.clone().filter(|cpus| cpus.len() > 1) else {
+            // A genuinely single-CPU environment cannot express the property.
+            return;
+        };
+
+        let handle = std::thread::spawn(move || {
+            // Pin this thread to exactly one CPU, imitating the frame loop.
+            let pinned = vec![available[0]];
+            let mut set: libc::cpu_set_t = unsafe { std::mem::zeroed() };
+            unsafe { libc::CPU_ZERO(&mut set) };
+            unsafe { libc::CPU_SET(available[0], &mut set) };
+            let size = std::mem::size_of::<libc::cpu_set_t>();
+            // SAFETY: `set` is a fully initialised cpu_set_t.
+            assert_eq!(unsafe { libc::sched_setaffinity(0, size, &set) }, 0);
+
+            let plan_for_child = plan.clone();
+            let mut spoiled = std::process::Command::new("sh");
+            spoiled
+                .arg("-c")
+                .arg("grep Cpus_allowed_list /proc/self/status");
+            // SAFETY: `pre_exec` runs between fork and exec; the closure calls
+            // one async-signal-safe syscall and allocates nothing.
+            unsafe {
+                spoiled.pre_exec(move || release_inherited_affinity(&plan_for_child));
+            }
+            let inherited = spoiled.output().expect("spawn without release");
+            let inherited = String::from_utf8_lossy(&inherited.stdout).into_owned();
+
+            let plan_for_child = plan.clone();
+            let mut released = std::process::Command::new("sh");
+            released
+                .arg("-c")
+                .arg("grep Cpus_allowed_list /proc/self/status");
+            // SAFETY: as above.
+            unsafe {
+                released.pre_exec(move || release_inherited_affinity(&plan_for_child));
+            }
+            // The first command also applies the release, so compare against a
+            // child that inherits the pin with no hook at all.
+            let bare = std::process::Command::new("sh")
+                .arg("-c")
+                .arg("grep Cpus_allowed_list /proc/self/status")
+                .output()
+                .expect("spawn bare child");
+            let bare = String::from_utf8_lossy(&bare.stdout).into_owned();
+            let released = released.output().expect("spawn with release");
+            let released = String::from_utf8_lossy(&released.stdout).into_owned();
+            (pinned, bare, inherited, released, available)
+        });
+
+        let (pinned, bare, _, released, available) = handle.join().expect("experiment thread");
+        let mask_of = |line: &str| {
+            line.trim()
+                .strip_prefix("Cpus_allowed_list:")
+                .unwrap_or_default()
+                .trim()
+                .to_owned()
+        };
+        // The bare child inherited the thread's single-CPU pin.
+        assert_eq!(mask_of(&bare), pinned[0].to_string());
+        // The released child owns every CPU the plan knew about.
+        let released_mask = mask_of(&released);
+        assert!(
+            released_mask.contains('-') || released_mask.split(',').count() == available.len(),
+            "expected the full CPU set {available:?}, got {released_mask:?}"
+        );
+        assert_ne!(released_mask, mask_of(&bare));
     }
 }

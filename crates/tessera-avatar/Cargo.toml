@@ -19,8 +19,6 @@ vista = { workspace = true, optional = true }
 vista-sys = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 notify = { workspace = true, optional = true }
-fastrand = { workspace = true, optional = true }
-lens = { workspace = true }
 log.workspace = true
 thiserror.workspace = true
 
@@ -29,7 +27,6 @@ default = []
 # Full portrait runtime. The lightweight `persona::Profile` contract remains
 # available without this feature.
 persona = [
-    "dep:fastrand",
     "dep:flux-sys",
     "dep:vista",
     "dep:vista-sys",
@@ -41,7 +38,7 @@ persona = [
 ignored = ["vista-sys", "flux-sys"]
 
 [dev-dependencies]
-tempfile = "3"
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

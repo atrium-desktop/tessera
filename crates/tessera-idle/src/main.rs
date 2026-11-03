@@ -200,13 +200,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     let policy = options.policy.validate()?;
-    let control = bind_control_socket(&options.control_socket)?;
+    // Take cleanup ownership BEFORE the bind, exactly as
+    // `tessera_ipc::server` does (ADR-0147 Decision 4): `SocketGuard::bind`
+    // reclaims a stale socket file so the bind finds a free path, and the
+    // identity is observed afterwards so `Drop` unlinks precisely what this
+    // process bound. Binding first and constructing the guard second made the
+    // guard delete the socket it was supposed to own, so `observe_bound`
+    // always failed with ENOENT and the idle coordinator never started.
     let mut socket_guard = SocketGuard::bind(options.control_socket.clone())?;
-    let bound = socket_guard.observe_bound();
-    if bound.is_err() {
+    let control = bind_control_socket(&options.control_socket)?;
+    if let Err(error) = socket_guard.observe_bound() {
         drop(socket_guard);
+        return Err(error.into());
     }
-    bound?;
     let (sleep_tx, sleep_rx) = mpsc::channel();
     if options.logind {
         logind::spawn_signal_monitor(sleep_tx);
@@ -968,6 +974,57 @@ mod tests {
         drop(original);
         drop(replacement);
         std::fs::remove_file(path).unwrap();
+    }
+
+    /// Binding the control socket *before* constructing its guard makes the
+    /// guard reclaim (unlink) the socket that was just bound, so
+    /// `observe_bound` fails with ENOENT and the coordinator dies on startup.
+    /// The order is load-bearing; this pins the production sequence.
+    #[test]
+    fn control_socket_guard_is_taken_before_the_bind() {
+        let path = test_socket("startup-order");
+        let _ = std::fs::remove_file(&path);
+
+        // The production order from `run()`: guard, bind, observe.
+        let mut guard = SocketGuard::bind(path.clone()).unwrap();
+        let socket = bind_control_socket(&path).unwrap();
+        assert!(
+            path.exists(),
+            "the bind must leave a socket file behind for the guard to own"
+        );
+        assert!(
+            guard.observe_bound().is_ok(),
+            "observing the socket the guard is supposed to own must succeed"
+        );
+        drop(guard);
+        assert!(
+            !path.exists(),
+            "dropping the guard unlinks exactly the socket it observed"
+        );
+        drop(socket);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// The inverse order — bind, then guard — is the historical defect.
+    /// Pinning it here makes the failure mode explicit rather than a comment.
+    #[test]
+    fn binding_before_the_guard_loses_the_socket() {
+        let path = test_socket("inverted-order");
+        let _ = std::fs::remove_file(&path);
+        let socket = bind_control_socket(&path).unwrap();
+        // `SocketGuard::bind` sees an existing socket and reclaims it.
+        let mut guard = SocketGuard::bind(path.clone()).unwrap();
+        assert!(
+            !path.exists(),
+            "the guard reclaimed the freshly bound socket — this is the bug"
+        );
+        assert!(
+            guard.observe_bound().is_err(),
+            "nothing is left at the path, so observation must fail"
+        );
+        drop(guard);
+        drop(socket);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
