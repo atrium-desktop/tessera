@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.89] - 2026-11-03
+
 ### Fixed
 - **Chrome damage is consumed as a list, and chrome footprints are measured instead of guessed ([ADR-0211](docs/adr/0211-regional-damage-is-consumed-as-a-list-and-chrome-footprints-are-measured.md)).** Repairs regional composition end to end and removes the correctness defect it had masked.
   - The shell forwards Lens's regional damage list verbatim. The `covers_full_display` band substitution (`INV-ARCH-98`) is retired: it existed to contain a Lens query that over-reported the whole display, and it then *discarded the middle of the screen* for genuine full-output changes. Accurate producer-side localization (Optics [ADR-0143](../../optics/docs/adr/0143-regional-damage-rect-lists-and-paint-bounds-localization.md)) removes the need for it.
