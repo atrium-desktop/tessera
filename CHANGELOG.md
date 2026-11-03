@@ -14,6 +14,22 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.87] - 2026-11-03
+
+### Added
+- **Pre-baked hardware cursor assets (ADR-0207).** Shipped pre-rendered cursor theme bitmaps for `tessera-ai-dark` and `tessera-user-light`, eliminating runtime SVG rasterization and reducing compositor startup overhead.
+- **In-tree desktop entry and INI parser (ADR-0209).** Added lightweight in-tree INI reader in `tessera-launch-services`, replacing external `rust-ini` dependency.
+
+### Changed
+- **Placement-mapped damage bounding (ADR-0203).** Replaced full-output repaints with placement-mapped damage rectangles across presentation and composite pipelines.
+- **Compositor frame scheduling runqueue reservation (ADR-0204).** Dedicated frame scheduling runqueue reservation isolated from desktop worker tasks.
+- **Byte-budgeted transient GPU resource pools (ADR-0205).** Transient GPU pools bounded by byte budgets rather than slot counts.
+- **Pure compositor dependency hygiene and build parallelism (ADR-0206).** Pruned unused dependencies and optimized build profiles for parallel crate compilation.
+- **Compositor D-Bus isolation (ADR-0207).** Decoupled compositor runtime from session D-Bus.
+- **Backdrop graph warmup, revision caching, and slab quantization (ADR-0208).** Warmup pipeline initialization, content revision tracking, and quantized composite slabs.
+- **In-tree dependency minimalism (ADR-0209).** Pruned auxiliary workspace dependencies.
+- **Adopt Optics v0.0.70.** Compute pipeline prewarming and safe descriptor modernization across all workspace dependencies.
+
 ## [0.0.86] - 2026-11-02
 
 ### Changed
