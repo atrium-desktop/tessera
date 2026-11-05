@@ -1073,9 +1073,13 @@ pub(crate) unsafe extern "C" fn surface_commit(
         (*rec).buffer_transform = (*rec).pending_transform;
         (*rec).buffer_scale = (*rec).pending_scale;
         // wl_surface.frame: double-buffered surface state, applied on commit.
-        (*rec).frame_callbacks.append(&mut (*rec).pending_frame_callbacks);
+        (*rec)
+            .frame_callbacks
+            .append(&mut (*rec).pending_frame_callbacks);
         // wp_presentation.feedback: commit-correlated, applied on commit.
-        (*rec).presentation_feedback.append(&mut (*rec).pending_presentation_feedback);
+        (*rec)
+            .presentation_feedback
+            .append(&mut (*rec).pending_presentation_feedback);
 
         // xdg-shell initial configure: on the first commit of a surface that has an
         // xdg role, send a configure and wait for the client to ack and attach a

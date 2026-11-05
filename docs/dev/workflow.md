@@ -16,12 +16,12 @@ documentation that must move in the same change:
 | **New or changed CLI command or flag** | `docs/reference/cli.md` and `docs/reference/keyboard-shortcuts.md` where a global binding is added |
 | **Wire protocol, IPC message, or audit vocabulary change** | `docs/reference/ipc.md`, `CHANGELOG.md`, and an ADR when the change alters a boundary |
 | **Render, scanout, damage, or plane-role behavior** | `docs/reference/rendering.md` |
-| **Subsystem architectural refactoring or crate boundary change** | New ADR under `docs/adr/`, plus `docs/dev/standards/architecture.md` and `tooling/xtask/dependency-policy.toml` when edges move |
+| **Subsystem architectural refactoring or crate boundary change** | New ADR under `docs/adr/`, plus `docs/dev/architecture.md` and `tooling/xtask/dependency-policy.toml` when edges move |
 | **Chrome, control surface, or user-visible workflow change** | The matching `docs/how-to/` guide and `docs/dev/design/` where visual language is affected |
-| **Build system, test runner, or CI pipeline change** | `docs/dev/setup.md`, `docs/dev/surface-testing.md`, and this document |
+| **Build system, test runner, or CI pipeline change** | `docs/dev/setup.md`, `docs/dev/testing/surface-testing.md`, and this document |
 | **Contributor bootstrap or worktree workflow change** | `docs/dev/setup.md` or `docs/dev/cross-repository-development.md` |
 | **New end-to-end user journey or capability** | `CHANGELOG.md`, a `docs/how-to/` guide, and `docs/tutorials/` when it changes first-run flow |
-| **Production outage, security incident, or data loss** | A postmortem following [Postmortem Standards](postmortems.md), and a triage page when the symptom class is recurring |
+| **Production outage, security incident, or data loss** | A postmortem following [Postmortem Standards](standards/postmortems.md), and a triage page when the symptom class is recurring |
 | **New invariant tag** | The declaring ADR's `### Invariants & Behavioral Boundaries` section, following [Invariant Standards](invariants.md) |
 
 Every entry in the matrix also produces a `CHANGELOG.md` line when it is
@@ -53,14 +53,14 @@ enforced by reviewers on the corresponding changes.
 ### Gate B: Reasoning Gates (Reviewer-Verified)
 
 - [ ] A proposed ADR satisfies the 3-Question Significance Test
-  ([ADR Standards](adr.md)).
+  ([ADR Standards](standards/adr.md)).
 - [ ] A proposed ADR explicitly details rejected alternatives and failure modes.
 - [ ] Declared invariant tags have a real enforcement mechanism
   ([Invariant Standards](invariants.md)).
 - [ ] New implementation code introduces no superseded or rejected patterns.
 - [ ] Code changes have synchronized documentation per the matrix above.
 - [ ] Public documentation contains no links into `docs/dev/**`
-  ([Taxonomy](taxonomy.md)).
+  ([Taxonomy](standards/taxonomy.md)).
 
 ---
 
@@ -73,7 +73,7 @@ enforced by reviewers on the corresponding changes.
    `Cargo.toml` must be created with local Optics mode disabled, staging the
    regenerated canonical `Cargo.lock` together with the version bump, and
    verified with `cargo check --locked --workspace`. See
-   [Cross-Repository Development](../cross-repository-development.md) for the
+   [Cross-Repository Development](cross-repository-development.md) for the
    worktree mechanics.
 3. **Changelog Integrity**: Add user-visible features, breaking changes, and
    migrations to `CHANGELOG.md` under `## [Unreleased]`, following

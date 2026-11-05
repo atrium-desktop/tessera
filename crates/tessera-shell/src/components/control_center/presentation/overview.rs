@@ -267,7 +267,7 @@ impl ControlCenter {
                     radius: self.design.radii.glass_panel,
                     border: hud.border,
                     border_width: 1.0,
-                    ..materials::hud_panel(&hud)
+                    ..materials::canvas_panel(&hud)
                 },
             ),
             |f| {

@@ -49,7 +49,7 @@ negative_knowledge: true
 > stereo → the same MPEG2-TS/RTP flow, with the sink's AAC echoed in M5. It is
 > not a default; `[cast] audio = false`. HDCP and UIBC remain non-goals. See
 > [Miracast Source](../explanation/miracast-source.md#75-audio) and the
-> [lessons](../dev/miracast-lessons.md).
+> [operational runbook](../dev/runbooks/miracast.md).
 
 ## Context and Problem Statement
 

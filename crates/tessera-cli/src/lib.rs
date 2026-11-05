@@ -748,6 +748,22 @@ fn dispatch_system(socket: &Path, command: SystemCmd, json: bool) -> Result<Stri
             tessera_protocol::SystemAction::SetVolume { level },
             "volume change queued",
         ),
+        SystemCmd::AudioOutput { name } => (
+            tessera_protocol::SystemAction::SetAudioOutput { name },
+            "audio output change queued",
+        ),
+        SystemCmd::MicMute => (
+            tessera_protocol::SystemAction::ToggleMicrophoneMute,
+            "microphone mute toggled",
+        ),
+        SystemCmd::MicVolume { level } => (
+            tessera_protocol::SystemAction::SetMicrophoneVolume { level },
+            "microphone volume change queued",
+        ),
+        SystemCmd::AudioInput { name } => (
+            tessera_protocol::SystemAction::SetAudioInput { name },
+            "audio input change queued",
+        ),
         SystemCmd::Brightness { level } => (
             tessera_protocol::SystemAction::SetBrightness { level },
             "brightness change queued",
@@ -1511,10 +1527,59 @@ fn format_system_status(status: &tessera_protocol::SystemStatus) -> String {
         .find(|device| device.connected)
         .map(|device| format!("\nbluetooth device: {}", device.name))
         .unwrap_or_default();
+    // Outputs and inputs are named by their stable node name, because that is
+    // the handle `tessera system audio-output` and `audio-input` take; the
+    // description is there for the human reading the list (ADR-0215, ADR-0216).
+    let audio_outputs = status
+        .audio_outputs
+        .iter()
+        .map(|output| {
+            format!(
+                "\n  {}{} — {}",
+                if output.is_default { "* " } else { "  " },
+                output.name,
+                output.description
+            )
+        })
+        .collect::<String>();
+    let audio_inputs = status
+        .audio_inputs
+        .iter()
+        .map(|input| {
+            format!(
+                "\n  {}{} — {}",
+                if input.is_default { "* " } else { "  " },
+                input.name,
+                input.description
+            )
+        })
+        .collect::<String>();
+    // The microphone line says three things a script can act on: the capture
+    // level (or absence of one), the server's mute, and whether a client is
+    // capturing right now. "in use" is an observation, so it is never inferred
+    // from anything the CLI itself did (ADR-0216).
+    let microphone = format!(
+        "microphone: {} ({}; {})",
+        status
+            .microphone_volume
+            .map(|level| format!("{level}%"))
+            .unwrap_or_else(|| "unavailable".into()),
+        if status.microphone_muted {
+            "muted"
+        } else {
+            "unmuted"
+        },
+        if status.microphone_active {
+            "in use"
+        } else {
+            "idle"
+        }
+    );
     format!(
-        "audio: {volume} ({})\nnetwork: {network}; wifi: {}; bluetooth: {}{bluetooth_device}\n\
+        "audio: {volume} ({})\n{microphone}\nnetwork: {network}; wifi: {}; bluetooth: {}{bluetooth_device}\n\
          battery: {battery}; brightness: {brightness}\n\
-         do not disturb: {}",
+         do not disturb: {}\
+         {audio_outputs}{audio_inputs}",
         if status.muted { "muted" } else { "unmuted" },
         format_optional_switch(status.wifi_enabled),
         format_optional_switch(status.bluetooth_enabled),

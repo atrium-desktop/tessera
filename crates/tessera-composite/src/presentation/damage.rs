@@ -1023,10 +1023,8 @@ mod tests {
             FrameDamage::Area(vec![Rect::new(0, 0, 5, 5), Rect::new(10, 10, 5, 5)])
         );
         // Offscreen rectangles contribute zero physical damage without degrading to Full (INV-ARCH-99).
-        let with_offscreen = ClientDamage::Area(vec![
-            Rect::new(0, 0, 5, 5),
-            Rect::new(-50, -50, 20, 20),
-        ]);
+        let with_offscreen =
+            ClientDamage::Area(vec![Rect::new(0, 0, 5, 5), Rect::new(-50, -50, 20, 20)]);
         assert_eq!(
             with_offscreen.into_frame_damage(1.0, (100, 100)),
             FrameDamage::Area(vec![Rect::new(0, 0, 5, 5)])

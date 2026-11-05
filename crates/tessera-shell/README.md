@@ -9,7 +9,7 @@ as typed intents to the compositor loop.
 - Host pluggable `Chrome` components in a defined render order.
 - Own the shared chrome contract — `Chrome`, `ChromeCommand`, `ChromeUpdate`,
   `ChromeEvents`, and the `AppCatalog` snapshot — and provide the built-in
-  chrome components (`dock`, `hud`, `pivot`, `control_center`, and `settings`)
+  chrome components (`dock`, `pivot`, `control_center`, and `settings`)
   under `components/`.
 - Provide the shared live-preview card model, hit-testing, optical focus,
   brightness hierarchy, and foreground materials used by Dock previews and

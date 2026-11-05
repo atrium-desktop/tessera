@@ -33,7 +33,6 @@ untouched.
 | `[[window_rule]]` | array of tables | none | Placement rules applied to newly-mapped toplevels. See [Window Rules](#window-rules). |
 | `[layout]` | table | gaps `8`, master_ratio `0.5` | Tiling policy parameters. See [Layout](#layout). |
 | `[dock]` | table | automatic pins | Applications pinned to the dock. See [Dock](#dock). |
-| `[hud]` | table | `enabled = true` | Whether the display-only session HUD chips are registered at startup. See [HUD](#hud). |
 | `[ui]` | table | `hicolor` icons, `default` 24 px cursor, borderless windows, full motion | Desktop-wide UI and window-presentation policy. See [UI](#ui). |
 | `[input.keyboard]`, `[input.mouse]`, `[input.touchpad]` | tables | repeat 25/250 ms, neutral mouse, natural touchpad | Keyboard repeat, and mouse and touchpad motion and scrolling. See [Input](#input). |
 | `[wallpaper]` | table | built-in image | Image, video, 3D, or multi-plane parallax wallpaper. See [Wallpaper](#wallpaper). |
@@ -679,43 +678,39 @@ file changes. Raster icons decode in process; SVG icons use `rsvg-convert`
 when it is installed and otherwise fall back to the generic application
 glyph.
 
-## HUD
+## Status readings
 
-The `[hud]` table controls whether the session HUD is registered at
-startup. The HUD (ADR-0080, ADR-0081, ADR-0083) is display-only: two
-floating frosted chips composited over the desktop — system status
-(network, Bluetooth, battery), the StatusNotifierItem tray row, the clock,
-and the notification count on the left, and workspace dots in the center.
-The top-right belongs to the frameless notification toast strip, and the
-Agent Workspaces status lives in the command panel's System tab. The
-chips reserve no space, so tiled and maximized windows run
-underneath; they accept no pointer input, so clicks fall through to
-windows; and each chip fades out while the cursor is near it. Changes apply
-on the next launch; the flag is read once during compositor startup.
+The display-only status HUD was removed (ADR-0213): the top of the screen
+belongs to windows. Its readings now live where the question is asked.
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `enabled` | boolean | `true` | Whether the HUD chips are registered. When `false`, the chips are unavailable; the dock, launcher, command panel, and Agent Workspaces are unaffected, and live controls remain available in the command panel and over IPC. |
+- **Workspace position** is the Dock's leading reading cell. It appears with the
+  Dock itself, so it answers "which desktop am I on" at the moment a user reaches
+  for the Dock instead of occupying a band above every window all day.
+- **Charge, link state, and device state** are transient system readings
+  (ADR-0214): a small surface above the Dock, shown for a couple of seconds when
+  a value changes. It captures no pointer and no keyboard and keeps no history.
+- **Notification history and every former status-bar interaction** stay in the
+  command panel (`Super+S`, or a four-finger touchpad swipe down; see
+  [Key Bindings](#key-bindings) and [System Shortcuts](keyboard-shortcuts.md)).
 
-```toml
-[hud]
-enabled = false
-```
+`[hud]` is no longer a recognized table. A configuration that still carries it is
+rejected with a diagnostic rather than silently honoured, so a stale setting
+cannot leave you believing you configured a surface that no longer exists.
 
-Every interaction the old status bar hosted — quick settings, tray
-activation and context menus, notification dismissal — lives in the command
-panel (`Super+S`, or a four-finger touchpad swipe down; see
-[Key Bindings](#key-bindings) and [System Shortcuts](keyboard-shortcuts.md)).
+### Low-battery reporting
 
-The tray row contains only StatusNotifierItem (SNI) entries explicitly
-registered on the session D-Bus. Ordinary windows do not become tray icons.
-SNI support runs silently: without a session bus, or when another watcher
-already owns the `org.kde.StatusNotifierWatcher` name, no tray icons appear
-and startup is unaffected. Tray icons in the HUD are display-only;
-activating an item or opening its dbusmenu happens in the command panel's
-always-visible tray grid. The row fits a five-slot budget; any excess collapses into a
-`+N` overflow indicator.
+`[battery] warn_at` is graduated on purpose, and the two ends of the gradient are
+reported differently (ADR-0214):
 
+- every threshold **above the lowest** raises the transient reading;
+- the **lowest** threshold raises the modal barrier, because that is the crossing
+  after which the session ends.
+
+A policy of `warn_at = [20, 5]` therefore produces one reading at 20% and one
+barrier at 5%. The latch reports each threshold once per discharge cycle and
+rearms when the machine is plugged in.
+
+## Window Rules
 ## Window Rules
 
 Each `[[window_rule]]` table matches a toplevel when it first maps and

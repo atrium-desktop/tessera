@@ -284,7 +284,6 @@ impl CompositorRuntime<'_> {
             physical_size,
         });
         let mut damage = assessed_damage.output;
-        let backdrop_source_damage = assessed_damage.backdrop_source;
         let sampled_surface_ids = assessed_damage.sampled_surface_ids;
         let cursor_plane_changed = self.host.supports_hardware_cursor()
             && (self.damage.last_presented_cursor != Some((cursor_shape, cursor_hidden))
@@ -363,10 +362,10 @@ impl CompositorRuntime<'_> {
             // arriving before that boundary remain pending instead of
             // forcing empty composites.
             let callbacks_sent = self.presentation.frame_callbacks_allowed()
-                && self.server.send_frame_callbacks(
-                    self.server.monotonic_ms(),
-                    PresentedSurfaces::Nothing,
-                ) > 0;
+                && self
+                    .server
+                    .send_frame_callbacks(self.server.monotonic_ms(), PresentedSurfaces::Nothing)
+                    > 0;
             self.renderer.gc(self.server.live_surface_ids());
             self.renderer.begin_frame();
             return Ok(PresentationOutcome::NoDamage { callbacks_sent });
@@ -400,10 +399,6 @@ impl CompositorRuntime<'_> {
                 Ok(completion_fence) => {
                     let entered_scanout = self.primary_plane_state.commit_direct(candidate.id);
                     self.scanout_telemetry.record_success();
-                    // No backdrop slot was maintained while the compositor
-                    // was bypassed. Re-entering composition must rebuild from
-                    // the then-current desktop rather than reuse an old effect.
-                    self.backdrop_graph.invalidate();
                     if entered_scanout {
                         log::info!(
                             "{}: direct scanout active for {:#x} (mod {:#x}); composite bypassed",
@@ -511,7 +506,6 @@ impl CompositorRuntime<'_> {
         if was_scanout {
             self.damage.force_full_redraw = true;
             damage = FrameDamage::Full;
-            self.backdrop_graph.invalidate();
         }
         // Opportunistic stream capture: this frame composites for real
         // damage, so every due SHM stream may piggyback on it with the
@@ -548,8 +542,8 @@ impl CompositorRuntime<'_> {
                 // slot; only this logical frame's damage may be fanned out to
                 // the other slots after present, otherwise first-use Full
                 // damage circulates around the ring forever.
-                let mut presented_damage = damage.clone();
-                let mut repaint = composite_repaint_for_slot(
+                let presented_damage = damage.clone();
+                let repaint = composite_repaint_for_slot(
                     &mut self.damage.composite_slot_damage,
                     frame_slot,
                     damage,
@@ -600,84 +594,6 @@ impl CompositorRuntime<'_> {
                 } else {
                     Vec::new()
                 };
-                let mut backdrop_layers = self.shell.backdrop_layers(self.input_acc.display_size);
-                // Region-level backdrop adaptation: fold the statistics this
-                // frame slot submitted FLUX_MAX_FRAMES_IN_FLIGHT frames ago
-                // into the smoothed policy, then write it back into the
-                // declared regions before cache keys and prism groups are
-                // built from them.
-                let glass_slot = frame.index() as usize;
-                let submitted = self
-                    .submitted_glass_ids
-                    .get(glass_slot)
-                    .map(Vec::as_slice)
-                    .unwrap_or(&[]);
-                if !submitted.is_empty() {
-                    let mut stats = [prism::BackdropStats::default(); 64];
-                    if let Ok(count) = self.backdrop_graph.glass_stats(&frame, &mut stats) {
-                        let dt = input.as_raw().dt_seconds.max(0.0);
-                        for (index, stat) in
-                            stats.iter().take(count.min(submitted.len())).enumerate()
-                        {
-                            let id = submitted[index];
-                            if id != 0 {
-                                self.glass_adaptation.observe(
-                                    id,
-                                    stat.mean_luminance,
-                                    stat.high_freq_energy,
-                                    dt,
-                                );
-                            }
-                        }
-                    }
-                }
-                let mut live_glass_ids = Vec::new();
-                for layer in &mut backdrop_layers {
-                    for region in &mut layer.glass {
-                        self.glass_adaptation.apply_to(region);
-                        if region.id != 0 {
-                            live_glass_ids.push(region.id);
-                        }
-                    }
-                }
-                self.glass_adaptation.retain(&live_glass_ids);
-                let graph_plan =
-                    match plan_backdrop_graph(&backdrop_layers, logical_size, physical_size, scale)
-                    {
-                        Ok(plan) => Some(plan),
-                        Err(error) => {
-                            log::warn!(
-                                "backdrop graph rejected ({error}); using translucent fallback"
-                            );
-                            None
-                        }
-                    };
-                let (
-                    backdrop_layers,
-                    backdrop_sources,
-                    planned_layer_regions,
-                    planned_resolve_regions,
-                    planned_capture_regions,
-                ) = if let Some(plan) = graph_plan {
-                    let ordered = plan
-                        .order
-                        .iter()
-                        .map(|index| backdrop_layers[*index].clone())
-                        .collect::<Vec<_>>();
-                    (
-                        ordered,
-                        plan.sources,
-                        plan.layer_regions,
-                        plan.resolve_regions,
-                        plan.capture_regions,
-                    )
-                } else {
-                    (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())
-                };
-                let blur_sigma = backdrop_layers
-                    .iter()
-                    .map(|layer| layer.blur_sigma)
-                    .fold(0.0_f32, f32::max);
                 // When an unoccluded fullscreen surface owns the output with
                 // no active transition, workspace slide, or overview, the
                 // wallpaper (both 2D background and 3D model) cannot reach any
@@ -697,10 +613,6 @@ impl CompositorRuntime<'_> {
                         .wallpaper
                         .as_ref()
                         .is_some_and(wallpaper::Wallpaper::has_model);
-                // Once frozen, the immutable screenshot image is the backdrop
-                // source even if the live wallpaper owns a 3D model. Keep the
-                // effect capture local to the glass footprint in that state.
-                let backdrop_model_active = model_active && !self.screenshot_freeze.active();
                 // Overview mode (M9) swaps the whole client scene for the
                 // thumbnail grid and skips the backdrop graph capture path.
                 // The grid stays up while the reveal animation runs in
@@ -771,456 +683,6 @@ impl CompositorRuntime<'_> {
                         entries: soft_shadow_entries.as_slice(),
                     },
                 );
-                // Restrict the backdrop capture to the union of the declared
-                // blur regions (plus the blur footprint): the offscreen pass
-                // re-renders the scene every frame, so covering only what the
-                // blur can sample avoids a second full-screen scene render.
-                // A live 3D wallpaper still draws its model into the whole
-                // capture image, so it keeps the full-frame extent.
-                //
-                // Optics propagates each layer's requested material footprint
-                // backwards through its source edge. A three-level chain
-                // therefore accumulates all three sampling radii without
-                // turning the UI hierarchy into implicit saveLayer calls.
-                let capture_active =
-                    !backdrop_layers.is_empty() && !planned_capture_regions.is_empty();
-                let capture_bounds = (capture_active && !backdrop_model_active).then(|| {
-                    let x0 = planned_capture_regions
-                        .iter()
-                        .map(|region| region.origin.0)
-                        .min()
-                        .unwrap_or(0);
-                    let y0 = planned_capture_regions
-                        .iter()
-                        .map(|region| region.origin.1)
-                        .min()
-                        .unwrap_or(0);
-                    let x1 = planned_capture_regions
-                        .iter()
-                        .map(|region| region.origin.0 + region.extent.0)
-                        .max()
-                        .unwrap_or(physical_size.0);
-                    let y1 = planned_capture_regions
-                        .iter()
-                        .map(|region| region.origin.1 + region.extent.1)
-                        .max()
-                        .unwrap_or(physical_size.1);
-                    ((x0, y0), (x1 - x0, y1 - y0))
-                });
-                let (capture_origin, capture_extent) =
-                    capture_bounds.unwrap_or(((0, 0), physical_size));
-                // Keep disconnected chrome bodies disconnected all the way
-                // through Optics' blur pyramid.  The capture image remains a
-                // single allocation (needed by the shared frost/liquid
-                // composition), but the compute passes no longer dispatch
-                // the otherwise-empty bounding box between a top HUD and a
-                // bottom Dock.
-                let capture_regions = if capture_active {
-                    if backdrop_model_active {
-                        vec![BackdropCaptureRegion {
-                            origin: (0, 0),
-                            extent: physical_size,
-                        }]
-                    } else {
-                        planned_capture_regions
-                    }
-                } else {
-                    Vec::new()
-                };
-                let capture_target_extent = (
-                    capture_extent.0.div_ceil(BACKDROP_DOWNSAMPLE).max(1),
-                    capture_extent.1.div_ceil(BACKDROP_DOWNSAMPLE).max(1),
-                );
-                let backdrop_key = BackdropCacheKey::new(
-                    capture_origin,
-                    capture_extent,
-                    physical_size,
-                    blur_sigma,
-                    scale,
-                    backdrop_model_active,
-                    &capture_regions,
-                    &planned_layer_regions,
-                    &backdrop_layers,
-                    window_switcher.as_ref(),
-                );
-                let backdrop_material_key =
-                    BackdropStackMaterialKey::new(&backdrop_layers, glass_tint(color_scheme));
-                let backdrop_plan = if overview_active {
-                    self.backdrop_graph.invalidate();
-                    BackdropPlan::Direct
-                } else {
-                    self.backdrop_graph.prepare(
-                        capture_active,
-                        self.device,
-                        self.surface,
-                        &frame,
-                        backdrop_key,
-                        backdrop_material_key,
-                        &backdrop_layers,
-                        &backdrop_source_damage,
-                    )
-                };
-                let recompute_only = matches!(&backdrop_plan, BackdropPlan::Recompute);
-                let refresh_capture_regions = match &backdrop_plan {
-                    BackdropPlan::Refresh(regions) => regions.clone(),
-                    BackdropPlan::Direct | BackdropPlan::Recompute | BackdropPlan::Cached => {
-                        Vec::new()
-                    }
-                };
-                let effect_work_regions = match &backdrop_plan {
-                    BackdropPlan::Refresh(regions) => blur_regions_in_capture(
-                        regions,
-                        capture_origin,
-                        capture_extent,
-                        capture_target_extent,
-                    ),
-                    BackdropPlan::Recompute => blur_regions_in_capture(
-                        &capture_regions,
-                        capture_origin,
-                        capture_extent,
-                        capture_target_extent,
-                    ),
-                    BackdropPlan::Direct | BackdropPlan::Cached => Vec::new(),
-                };
-                let refresh_requested = matches!(&backdrop_plan, BackdropPlan::Refresh(_));
-                // Only a Refresh renders the scene into the capture; a
-                // Recompute reuses the still-valid capture image and skips
-                // the capture passes entirely.
-                let capture_started = refresh_requested && !effect_work_regions.is_empty();
-                let recompute_ready = recompute_only && !effect_work_regions.is_empty();
-
-                let (refreshed, capture_covers_output) = match backdrop_plan {
-                    BackdropPlan::Refresh(_) | BackdropPlan::Recompute
-                        if capture_started || recompute_ready =>
-                    {
-                        let capture_size = self
-                            .backdrop_graph
-                            .capture_size(frame_slot)
-                            .unwrap_or(capture_extent);
-                        let capture_ratio = capture_size.0 as f32 / capture_extent.0.max(1) as f32;
-                        let capture_scale = scale * capture_ratio;
-
-                        let mut capture_ok = true;
-                        // A Recompute skips the scene capture loop: the empty
-                        // iterator keeps every downstream index/capture_ok
-                        // assumption identical to a zero-region Refresh.
-                        let capture_covers_output_tentative = capture_origin == (0, 0)
-                            && capture_extent == physical_size
-                            && capture_size == physical_size;
-                        let capture_render_areas: Vec<flux::CanvasRenderArea> = if recompute_only {
-                            Vec::new()
-                        } else if capture_covers_output_tentative {
-                            vec![flux::CanvasRenderArea {
-                                x: 0,
-                                y: 0,
-                                width: capture_size.0,
-                                height: capture_size.1,
-                            }]
-                        } else {
-                            effect_work_regions
-                                .iter()
-                                .map(|region| flux::CanvasRenderArea {
-                                    x: region.x as i32,
-                                    y: region.y as i32,
-                                    width: region.width,
-                                    height: region.height,
-                                })
-                                .collect()
-                        };
-                        for render_area in capture_render_areas {
-                            let mut session = match self.backdrop_graph.begin_capture(
-                                self.canvas,
-                                &mut frame,
-                                self.clear,
-                                render_area,
-                            ) {
-                                Some(s) => s,
-                                None => {
-                                    capture_ok = false;
-                                    break;
-                                }
-                            };
-
-                            // The capture target only covers `capture_extent`:
-                            // shift the scene so the capture origin lands at
-                            // (0, 0).
-                            session.save();
-                            session.translate(
-                                -(capture_origin.0 as f32) * capture_ratio,
-                                -(capture_origin.1 as f32) * capture_ratio,
-                            );
-
-                            if self.screenshot_freeze.active() {
-                                // During selection the trigger frame is the
-                                // effect's immutable source. Sampling the live
-                                // scene here would make glass contents drift
-                                // while the rest of the screenshot stays frozen.
-                                if let Some(image) = self.screenshot_freeze.image() {
-                                    session.draw_image(
-                                        image,
-                                        0.0,
-                                        0.0,
-                                        physical_size.0 as f32 * capture_ratio,
-                                        physical_size.1 as f32 * capture_ratio,
-                                    );
-                                }
-                            } else {
-                                draw_wallpaper_background(
-                                    &session,
-                                    self.device,
-                                    &mut self.wallpaper,
-                                    logical_size,
-                                    capture_scale,
-                                );
-
-                                if model_active {
-                                    session.restore();
-                                    if let Err(error) = session.end() {
-                                        log::warn!(
-                                            "backdrop: graph capture pass failed ({error}); using translucent fallback"
-                                        );
-                                        capture_ok = false;
-                                        break;
-                                    }
-                                    let Some(target) = self.backdrop_graph.target_mut(frame_slot)
-                                    else {
-                                        capture_ok = false;
-                                        break;
-                                    };
-                                    if let Some(wallpaper) = self.wallpaper.as_mut() {
-                                        wallpaper.draw_model_to(self.device, &mut frame, target);
-                                    }
-                                    match self.canvas.begin_session(
-                                        flux::ImageTarget {
-                                            frame: &mut frame,
-                                            image: target,
-                                        },
-                                        flux::CanvasPassOptions {
-                                            clear: None,
-                                            antialias: flux::CanvasAntialias::None,
-                                            render_area: Some(render_area),
-                                            skip_stencil: true,
-                                        },
-                                    ) {
-                                        Ok(resumed) => {
-                                            session = resumed;
-                                            session.save();
-                                            session.translate(
-                                                -(capture_origin.0 as f32) * capture_ratio,
-                                                -(capture_origin.1 as f32) * capture_ratio,
-                                            );
-                                        }
-                                        Err(error) => {
-                                            log::warn!(
-                                                "backdrop: failed to resume graph capture ({error}); using translucent fallback"
-                                            );
-                                            capture_ok = false;
-                                            break;
-                                        }
-                                    }
-                                }
-
-                                draw_client_scene(
-                                    &session,
-                                    self.device,
-                                    self.renderer,
-                                    self.server,
-                                    capture_scale,
-                                    window_switcher.is_some(),
-                                    if capture_covers_output_tentative {
-                                        soft_shadow_layer.as_ref()
-                                    } else {
-                                        None
-                                    },
-                                    if capture_covers_output_tentative {
-                                        shadow_style
-                                    } else {
-                                        tessera_desktop::window::WindowShadowStyle::Resize
-                                    },
-                                );
-                                if let Some(presentation) = window_switcher.as_ref() {
-                                    draw_window_switcher_scrim(
-                                        &session,
-                                        logical_size,
-                                        capture_scale,
-                                        presentation,
-                                        color_scheme,
-                                    );
-                                }
-                            }
-                            session.restore();
-                            if let Err(error) = session.end() {
-                                log::warn!(
-                                    "backdrop: graph capture pass failed ({error}); using translucent fallback"
-                                );
-                                capture_ok = false;
-                                break;
-                            }
-                        }
-                        let capture_pixel_scale = scale * capture_ratio;
-                        let capture_covers_output = capture_covers_output_tentative;
-                        let layer_work: Vec<_> = backdrop_layers
-                            .iter()
-                            .zip(&backdrop_sources)
-                            .zip(&planned_layer_regions)
-                            .zip(&planned_resolve_regions)
-                            .map(|(((layer, source), regions), resolve_regions)| {
-                                // Frost remains inside the layer-local Prism
-                                // operator. Only the resolved image crossing
-                                // the explicit dependency edge is visible to
-                                // a later layer.
-                                let frost = backdrop_frost_in_capture(
-                                    &layer.frost,
-                                    capture_origin,
-                                    capture_extent,
-                                    capture_size,
-                                    scale,
-                                );
-                                let fallback_frost: Vec<_> = layer
-                                    .frost
-                                    .iter()
-                                    .copied()
-                                    .filter(|region| {
-                                        !layer.glass.iter().any(|glass| glass.bounds == *region)
-                                    })
-                                    .chain(layer.glass.iter().map(|region| region.bounds))
-                                    .collect();
-                                BackdropLayerWork {
-                                    source: *source,
-                                    sigma: layer.blur_sigma * capture_scale,
-                                    regions: blur_regions_in_capture(
-                                        regions,
-                                        capture_origin,
-                                        capture_extent,
-                                        capture_size,
-                                    ),
-                                    resolve_regions: blur_regions_in_capture(
-                                        resolve_regions,
-                                        capture_origin,
-                                        capture_extent,
-                                        capture_size,
-                                    ),
-                                    frost,
-                                    fallback: backdrop_regions_in_capture(
-                                        &fallback_frost,
-                                        capture_origin,
-                                        capture_extent,
-                                        capture_size,
-                                        scale,
-                                    ),
-                                    glass: liquid_glass_groups(
-                                        &layer.glass,
-                                        capture_origin,
-                                        scale,
-                                        capture_ratio,
-                                        color_scheme,
-                                    ),
-                                }
-                            })
-                            .collect();
-                        let refreshed = if recompute_only {
-                            self.backdrop_graph.recompute_effects(
-                                self.canvas,
-                                &mut frame,
-                                &effect_work_regions,
-                                &layer_work,
-                                prism::LiquidGlassParams {
-                                    refraction: 8.0 * capture_pixel_scale,
-                                    chromatic_aberration: 1.25 * capture_pixel_scale,
-                                    edge_width: 18.0 * capture_pixel_scale,
-                                    size_reference: 72.0 * capture_pixel_scale,
-                                    ..Default::default()
-                                },
-                            )
-                        } else {
-                            capture_ok
-                                && self.backdrop_graph.finish_refresh(
-                                    self.canvas,
-                                    &mut frame,
-                                    &effect_work_regions,
-                                    &layer_work,
-                                    prism::LiquidGlassParams {
-                                        refraction: 8.0 * capture_pixel_scale,
-                                        chromatic_aberration: 1.25 * capture_pixel_scale,
-                                        edge_width: 18.0 * capture_pixel_scale,
-                                        size_reference: 72.0 * capture_pixel_scale,
-                                        ..Default::default()
-                                    },
-                                )
-                        };
-
-                        // Bookkeep which region ids this slot's submission
-                        // carries so the frame-lagged prism statistics can be
-                        // resolved back to regions. A failed effect pass
-                        // leaves no trustworthy stats for the slot.
-                        if self.submitted_glass_ids.len() <= glass_slot {
-                            self.submitted_glass_ids
-                                .resize_with(glass_slot + 1, Vec::new);
-                        }
-                        self.submitted_glass_ids[glass_slot] = if refreshed {
-                            backdrop_layers
-                                .iter()
-                                .flat_map(|layer| layer.glass.iter())
-                                .filter(|region| glass_region_active(region))
-                                .map(|region| region.id)
-                                .collect()
-                        } else {
-                            Vec::new()
-                        };
-
-                        // Refreshing the sampled input may change every visible
-                        // effect pixel even when the source damage itself lies
-                        // just outside the glass body (inside the blur radius).
-                        // Add those regions to the final output repaint.
-                        let effect_damage_source = if recompute_only {
-                            &capture_regions
-                        } else {
-                            &refresh_capture_regions
-                        };
-                        let effect_damage: Vec<_> = effect_damage_source
-                            .iter()
-                            .map(|region| {
-                                tessera_primitives::Rect::new(
-                                    region.origin.0 as i32,
-                                    region.origin.1 as i32,
-                                    region.extent.0 as i32,
-                                    region.extent.1 as i32,
-                                )
-                            })
-                            .collect();
-                        repaint = repaint.with_rects(effect_damage.clone());
-                        presented_damage = presented_damage.with_rects(effect_damage);
-                        (refreshed, capture_covers_output)
-                    }
-                    BackdropPlan::Cached => (true, false),
-                    BackdropPlan::Refresh(_) | BackdropPlan::Recompute | BackdropPlan::Direct => {
-                        if refresh_requested {
-                            // Capture setup failed. Repaint the previous effect
-                            // footprint with the direct scene so stale cached
-                            // glass cannot survive in this swapchain image.
-                            let effect_damage: Vec<_> = refresh_capture_regions
-                                .iter()
-                                .map(|region| {
-                                    tessera_primitives::Rect::new(
-                                        region.origin.0 as i32,
-                                        region.origin.1 as i32,
-                                        region.extent.0 as i32,
-                                        region.extent.1 as i32,
-                                    )
-                                })
-                                .collect();
-                            repaint = repaint.with_rects(effect_damage.clone());
-                            presented_damage = presented_damage.with_rects(effect_damage);
-                        }
-                        (false, false)
-                    }
-                };
-                let has_cached_effects = refreshed;
-                // Clamp to the framebuffer before this becomes a Vulkan
-                // dynamic render area: an off-screen or edge-straddling damage
-                // rect (a partially off-screen surface, a widening saturated at
-                // the i32 edge) is rejected by the backend, and the pass then
-                // fails to begin and drops the frame's chrome.
                 output_render_area = frame_damage_render_area(&repaint, physical_size);
 
                 // [INV-ARCH-70]: the frame sampled client dma-bufs beyond the
@@ -1342,14 +804,6 @@ impl CompositorRuntime<'_> {
                                     );
                                 }
                             }
-                            if has_cached_effects {
-                                self.backdrop_graph.draw_cached(
-                                    &s2,
-                                    frame_slot,
-                                    capture_origin,
-                                    capture_extent,
-                                );
-                            }
                             s2.end()?;
 
                             let (include_live_cursor, cursor_position) =
@@ -1468,14 +922,12 @@ impl CompositorRuntime<'_> {
                 // directly into a single clearing stencil pass.
                 //
                 // The consumer list below is exhaustive and load-bearing: every
-                // surface that draws scene-derived content outside
-                // `Shell::backdrop_layers` (overview thumbnails, the interactive
+                // surface that draws scene-derived content (overview thumbnails, the interactive
                 // screenshot picker's scrim, the window switcher, live window
                 // previews) must appear here, or it renders over the clear
                 // colour instead of the desktop (ADR-0181, [INV-ARCH-65]).
                 let desktop_occluded = shell_requires_composition
                     && self.shell.occludes_desktop()
-                    && !capture_active
                     && !overview_active
                     && !self.shell.screenshot_active()
                     && !self.screenshot_freeze.active()
@@ -1514,7 +966,7 @@ impl CompositorRuntime<'_> {
                         self.clear,
                         output_render_area,
                         model_active && !self.screenshot_freeze.active(),
-                        wallpaper_occluded || (capture_covers_output && refreshed),
+                        wallpaper_occluded,
                     )?;
                     if self.screenshot_freeze.active() {
                         if let Some(image) = self.screenshot_freeze.image() {
@@ -1526,18 +978,6 @@ impl CompositorRuntime<'_> {
                                 physical_size.1 as f32,
                             );
                         }
-                    } else if capture_covers_output
-                        && refreshed
-                        && self.backdrop_graph.draw_capture_opaque(
-                            &active,
-                            frame_slot,
-                            physical_size,
-                        )
-                    {
-                        // The capture pass already rendered this exact
-                        // desktop.  Reuse it as the base output rather than
-                        // acquiring every client dma-buf and drawing the
-                        // complete scene a second time in the same frame.
                     } else {
                         // A local capture has no pixels for the rest of the
                         // output (or the effect failed), so draw the normal
@@ -1555,14 +995,6 @@ impl CompositorRuntime<'_> {
                             soft_shadow_layer.as_ref(),
                             shadow_style,
                         )?;
-                    }
-                    if has_cached_effects && !self.screenshot_freeze.active() {
-                        self.backdrop_graph.draw_cached(
-                            &active,
-                            frame_slot,
-                            capture_origin,
-                            capture_extent,
-                        );
                     }
                     let base_session = active;
 
@@ -1589,7 +1021,8 @@ impl CompositorRuntime<'_> {
                     }
 
                     let chrome_in_render_area = if let Some(area) = output_render_area {
-                        self.shell.chrome_intersects_render_area(area, scale, logical_size)
+                        self.shell
+                            .chrome_intersects_render_area(area, scale, logical_size)
                     } else {
                         true
                     };
@@ -2172,6 +1605,9 @@ impl CompositorRuntime<'_> {
                 if !system_actions.is_empty() {
                     let mut applied = false;
                     for action in system_actions {
+                        // The reading describes the request that succeeds, so it
+                        // needs the action after the call that consumes it.
+                        let applied_action = action.clone();
                         // Destructive lifecycle transitions route through the
                         // system-level confirmation first: the same consent
                         // chrome the portal flows use, so a stray click on the
@@ -2207,6 +1643,16 @@ impl CompositorRuntime<'_> {
                         ) {
                             Ok(()) => {
                                 applied = true;
+                                // A reading acknowledges a completed action, so
+                                // it is raised against the value the machine
+                                // reached rather than the one it was asked for.
+                                if let Some(params) = super::system::osd_for_action(
+                                    &applied_action,
+                                    &self.system_status,
+                                    self.shell.localizer(),
+                                ) {
+                                    self.shell.show_osd(params);
+                                }
                                 tessera_protocol::Effect::Applied
                             }
                             Err(reason) => {
@@ -2231,8 +1677,8 @@ impl CompositorRuntime<'_> {
                             &self.ipc,
                         );
                         // Reconcile the optimistic hardware state out of
-                        // cycle: `apply_system_action` already updated the HUD
-                        // with optimistic values, and the poller thread
+                        // cycle: `apply_system_action` already published
+                        // optimistic values, and the poller thread
                         // re-probes the host right away so the main loop never
                         // blocks on a subprocess.
                         let _ = self.status_refresh_tx.send(());
@@ -2624,8 +2070,6 @@ impl CompositorRuntime<'_> {
                     frame_slot,
                     presented_damage,
                 );
-                self.backdrop_graph
-                    .record_present(frame_slot, backdrop_source_damage);
                 if let Some(capture) = capture_for_present {
                     debug_assert!(self.pending_capture.is_none());
                     self.pending_capture = Some(capture);

@@ -14,7 +14,6 @@ mod config;
 mod confirm_pick;
 mod damage;
 mod event_loop;
-mod glass_adapt;
 mod idle;
 mod input;
 mod interaction_domain;
@@ -24,6 +23,7 @@ mod pick;
 mod presentation;
 mod rendering;
 mod scanout;
+mod sched;
 mod scheme;
 mod secret_prompt;
 mod session;
@@ -32,7 +32,6 @@ mod state;
 mod stream;
 mod system;
 mod window_capture;
-mod sched;
 
 pub(crate) use session::trusted_sibling_program;
 
@@ -45,7 +44,6 @@ use commands::*;
 use config::*;
 use confirm_pick::*;
 use damage::*;
-use glass_adapt::*;
 use idle::*;
 use input::*;
 use interaction_domain::*;
@@ -55,12 +53,12 @@ use pick::*;
 use presentation::*;
 use rendering::*;
 use scanout::*;
+use sched::*;
 use scheme::*;
 use secret_prompt::*;
 use state::*;
 use stream::*;
 use system::*;
-use sched::*;
 use tessera_composite::presentation::{
     ActivationChange, PresentationAvailability, PresentationScheduler,
 };
@@ -217,7 +215,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         host.scale()
     );
 
-    let backdrop_graph = BackdropGraphExecutor::new(device)?;
     let window_shadows = WindowShadowRenderer::new(device)?;
     // Frozen-frame snapshot behind the screenshot selector: allocated lazily
     // on the first trigger, reused across later sessions.
@@ -309,35 +306,22 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Interaction Domain seat remains the actual input-authority boundary in the server.
     shell.add(Box::new(tessera_shell::ControlledWindowGuard::new()));
     // Agent input feedback is compositor-owned and non-interactive. Register
-    // it above the mirror guard so activity remains legible, but below the HUD,
-    // notifications, and modal trusted chrome. Directed Interaction Domain capture renders
-    // client surfaces directly and therefore never includes this layer.
+    // it above the mirror guard so activity remains legible, but below
+    // notifications and modal trusted chrome. Directed Interaction Domain capture
+    // renders client surfaces directly and therefore never includes this layer.
     shell.add(Box::new(tessera_shell::AgentFeedback::new(device)));
     // The optional SNI tray service is spawned once when at least one compiled
     // consumer is active. The cloneable handle keeps the snapshot and command
-    // side together across HUD-only, panel-only, and combined builds.
-    #[cfg(any(
-        feature = "chrome-hud",
-        feature = "chrome-control-center",
-        feature = "chrome-command-panel"
-    ))]
-    let tray = if cfg!(any(
-        feature = "chrome-control-center",
-        feature = "chrome-command-panel"
-    )) || config.as_ref().map(|c| c.hud.enabled).unwrap_or(true)
-    {
-        tessera_shell::tray::spawn()
-    } else {
-        None
-    };
-    #[cfg(feature = "chrome-hud")]
-    if config.as_ref().map(|c| c.hud.enabled).unwrap_or(true) {
-        shell.add(Box::new(tessera_shell::components::hud::Hud::with_sources(
-            device,
-            tray.clone(),
-            std::sync::Arc::clone(&notif_queue),
-        )));
-    }
+    // side together; the dock reads the snapshot for its status shelf, and the
+    // control center reads it with command access.
+    #[cfg(feature = "chrome-control-center")]
+    let tray = tessera_shell::tray::spawn();
+    // Transient system readings (battery, volume, wireless). A reading is not a
+    // notification: it acknowledges a change the user just made or should
+    // notice, lives for a couple of seconds, and takes no input. Notifications
+    // stay in the toast strip; anything worth keeping belongs to the command
+    // panel's history.
+    shell.add(Box::new(tessera_shell::SystemOsd::new()));
     shell.add(Box::new(tessera_shell::Toast::new(std::sync::Arc::clone(
         &notif_queue,
     ))));
@@ -668,40 +652,25 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             // Last-known values for the forked fields; carried across cheap
             // polls so the snapshot stays coherent between full probes.
             struct StatusProbe {
-                last_volume: Option<u8>,
-                last_muted: bool,
-                last_wifi: Option<bool>,
-                last_ssid: Option<String>,
+                last: crate::host_system::ForkedStatus,
             }
             impl StatusProbe {
                 fn full(
                     &mut self,
                     hs: &dyn crate::host_system::HostSystem,
                 ) -> tessera_shell::component::SystemStatus {
-                    let (volume, muted, wifi, ssid) = hs.detect_forked_status();
-                    self.last_volume = volume;
-                    self.last_muted = muted;
-                    self.last_wifi = wifi;
-                    self.last_ssid = ssid.clone();
-                    hs.detect_status_lightweight(volume, muted, wifi, ssid)
+                    self.last = hs.detect_forked_status();
+                    hs.detect_status_lightweight(&self.last)
                 }
                 fn cheap(
                     &self,
                     hs: &dyn crate::host_system::HostSystem,
                 ) -> tessera_shell::component::SystemStatus {
-                    hs.detect_status_lightweight(
-                        self.last_volume,
-                        self.last_muted,
-                        self.last_wifi,
-                        self.last_ssid.clone(),
-                    )
+                    hs.detect_status_lightweight(&self.last)
                 }
             }
             let mut probe = StatusProbe {
-                last_volume: None,
-                last_muted: false,
-                last_wifi: None,
-                last_ssid: None,
+                last: crate::host_system::ForkedStatus::default(),
             };
             // Drain any refresh requests queued during the previous probe so a
             // burst of volume key presses collapses into one full probe.
@@ -1147,7 +1116,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // degraded (unprivileged) fallback is visible instead of silent.
     log::info!(
         "compositor: realtime scheduling {} (frame_pin={:?}, rt_priority={}, fallback_nice={})",
-        if sched_plan.realtime_enabled() { "enabled" } else { "disabled" },
+        if sched_plan.realtime_enabled() {
+            "enabled"
+        } else {
+            "disabled"
+        },
         sched_plan.frame_cpu(),
         sched_plan.rt_priority(),
         sched_plan.nice_for(tessera_sched::ThreadRole::Frame),
@@ -1163,10 +1136,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         host,
         surface,
         canvas,
-        backdrop_graph,
         window_shadows,
-        glass_adaptation: GlassAdaptation::new(),
-        submitted_glass_ids: Vec::new(),
         screenshot_freeze,
         pending_capture,
         capture_worker,

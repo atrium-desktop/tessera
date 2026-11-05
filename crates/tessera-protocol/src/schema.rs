@@ -46,7 +46,17 @@ use crate::journal::{JournalEntry, JournalSnapshot};
 
 /// The protocol major version this build speaks. A client offering a newer
 /// major version is refused at the [`Request::Hello`] handshake; an older
-/// client is answered at its own version. Version 32 adds session-scoped
+/// client is answered at its own version. Version 33 adds the audio **capture**
+/// half (`SystemAction::SetAudioInput`, `SetMicrophoneVolume`,
+/// `ToggleMicrophoneMute`) and the `SystemStatus` capture readings (ADR-0216).
+///
+/// Version 33 is not vanity. The `SystemStatus` half is additive in both
+/// directions — a peer that predates it deserializes the same snapshot without
+/// the keys — but a new **variant of a tagged `SystemAction` enum** is not: a
+/// server built before it cannot decode the request at all, and the failure
+/// surfaces as a transport deserialization error rather than a refusal. Bumping
+/// the version is what turns that into an honest handshake rejection against a
+/// client that believes it may use the new verbs. Version 32 adds session-scoped
 /// virtual extend outputs (`CreateVirtualOutput`, `ResizeVirtualOutput`,
 /// `DestroyVirtualOutput`), in-place stream geometry renegotiation
 /// (`StreamOutputRenegotiate`), output-bounded remote input
@@ -121,7 +131,7 @@ use crate::journal::{JournalEntry, JournalSnapshot};
 /// `Event::StreamFrame`, `Event::StreamEnded`, `StreamOutputStop`,
 /// ADR-0052). Version 4 adds revisioned desktop-settings snapshots,
 /// subscriptions, and confirmed settings transactions.
-pub const PROTOCOL_VERSION: u32 = 32;
+pub const PROTOCOL_VERSION: u32 = 33;
 /// Built-in owner-only scope used by native `tessera` commands for Interaction Domain
 /// recovery and administration. The Unix socket remains user-private; naming
 /// this scope opts the connection into the high-risk Interaction Domain operation allowlist

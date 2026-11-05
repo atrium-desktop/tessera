@@ -8,6 +8,10 @@
 /// code does not depend on the package topology.
 pub mod composition_graph;
 
+/// Deferred effect outputs: one materialization boundary for every consumer
+/// (Optics ADR-0147).
+pub mod effects;
+
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::os::fd::BorrowedFd;

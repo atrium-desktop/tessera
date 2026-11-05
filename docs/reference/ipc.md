@@ -312,6 +312,11 @@ chrome and external IPC clients:
 |-------|------|---------|
 | `volume` | optional percentage | Default audio-sink volume; absent when unavailable. |
 | `muted` | boolean | Default audio-sink mute state. |
+| `audio_outputs` | array of `{ name, description, kind, is_default }` | Every audio output the sound server exposes, ordered by transport rank then default then name (ADR-0215). `name` is the server's stable `node.name` and is the handle `SetAudioOutput` takes; `kind` is one of `Speaker`, `Wired`, `Hdmi`, `Bluetooth`, `Usb`, `Other`. Additive with an empty default, which reads as "no sound server answered". |
+| `audio_inputs` | array of `{ name, description, kind, is_default }` | Every audio input (capture device) the sound server exposes, ordered and addressed exactly like `audio_outputs` (ADR-0216). `kind` is one of `BuiltIn`, `Headset`, `Bluetooth`, `Usb`, `Other`; `name` is the handle `SetAudioInput` takes. Additive with an empty default. |
+| `microphone_volume` | optional percentage | Default audio-source capture volume. Absent means unknown — never "silent" (ADR-0216). |
+| `microphone_muted` | boolean | Default audio-source mute state as the server reports it. |
+| `microphone_active` | boolean | Whether a client currently captures audio: true exactly when a live link feeds a capture stream from an `Audio/Source` node (ADR-0216). Observed from the sound server's link graph, so a browser tab, an encoder, and an agent process all report the same way. A sink-monitor link (screen recording with sound) is **not** a microphone capture. Additive with a `false` default, which is the honest reading for a peer that predates the field: absence is not evidence of capture. |
 | `network` | `Offline`, `Wifi`, or `Wired` | Coarse active connectivity. |
 | `battery` | optional `{ percent, charging }` | Battery state when a battery is present. |
 | `wifi_enabled` | optional boolean | Wi-Fi radio state; absent when its service is unavailable. |
@@ -332,6 +337,10 @@ chrome and external IPC clients:
 | `ToggleMute` | — | Toggle the default audio sink. |
 | `StepVolume` | `delta` | Signed percentage step from -100 through 100. |
 | `SetVolume` | `level` | Percentage from 0 through 100. |
+| `SetAudioOutput` | `name` | Route playback to the named audio output (ADR-0215). The name is a `node.name` from `audio_outputs`, never a node number, which the sound server reassigns on restart; an empty or over-long name is refused. The default marker is the server's next statement, not an optimistic local edit. |
+| `SetAudioInput` | `name` | Route new capture streams to the named audio input (ADR-0216). Same handle discipline and same pre-write validation as `SetAudioOutput`: the name must appear in `audio_inputs`, because an unresolvable capture default is accepted by the server and then persisted by WirePlumber. |
+| `SetMicrophoneVolume` | `level` | Percentage from 0 through 100. A level write also ends the server-side mute, which the next snapshot reports. |
+| `ToggleMicrophoneMute` | — | Toggle the default input's mute (ADR-0216). Deliberately distinct from `ToggleMute`, which addresses the output: silencing a microphone is a privacy action and is never reachable from the playback verb. |
 | `SetBrightness` | `level` | Percentage from 1 through 100. |
 | `SetWifi` | `enabled` | Enable or disable the Wi-Fi radio. |
 | `SetBluetooth` | `enabled` | Power the Bluetooth adapter on or off (ADR-0175) through the BlueZ adapter's `Powered` property; no host command is spawned. |

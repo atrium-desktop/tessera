@@ -24,6 +24,7 @@ mod controlled_window_guard;
 mod overview;
 mod screenshot;
 mod secret_prompt;
+mod system_osd;
 mod toast;
 mod window_switcher;
 
@@ -36,5 +37,6 @@ pub use controlled_window_guard::ControlledWindowGuard;
 pub use overview::Overview;
 pub use screenshot::ScreenshotSelector;
 pub use secret_prompt::SecretPrompt;
+pub use system_osd::SystemOsd;
 pub use toast::Toast;
 pub use window_switcher::WindowSwitcher;

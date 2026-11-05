@@ -10,6 +10,7 @@
 //! - [`motion`]: Motion dynamics powered by Optics `transit` (reveal & magnification springs).
 //! - [`rendering`]: Pure presentation projection onto Lens Frame, glass materials, and backdrops.
 
+pub mod bento;
 pub mod motion;
 pub mod rendering;
 pub mod state;
@@ -24,12 +25,12 @@ use std::hash::Hasher;
 
 pub(crate) use lens::{Align, Color, Frame, Icon, Input, LayoutOpts, Rect};
 pub(crate) use tessera_design::materials::{chrome_place, surface_layout};
-pub(crate) use tessera_design::{Design, GlassRole, materials};
+pub(crate) use tessera_design::{Design, SurfaceRole, materials};
 
 pub(crate) use crate::component::{
-    AppCatalog, AppMenu, BackdropRegion, Chrome, ChromeEvents, ChromeUpdate, CursorShape, IconSet,
-    LiquidGlassRegion, LivePreviewPresentation, Localizer, Message, PinAction, PopupSide,
-    PreviewCard, Reserved, ellipsize, liquid_glass_region_id, preview,
+    AppCatalog, AppMenu, Chrome, ChromeEvents, ChromeUpdate, CursorShape, IconSet,
+    LivePreviewPresentation, Localizer, Message, PinAction, PopupSide, PreviewCard, Reserved,
+    ellipsize, preview,
 };
 pub(crate) use tessera_desktop::app::Entry;
 pub(crate) use tessera_desktop::dock::DockPosition;
@@ -37,6 +38,7 @@ pub(crate) use tessera_desktop::window::{SpaceUse, Window};
 pub(crate) use tessera_desktop::workspace::WorkspaceSnapshot;
 pub(crate) use tessera_primitives::input::{KeyAction, KeyChar, key_action};
 
+pub use bento::{BentoCell, TileKind};
 pub use motion::{
     AUTOHIDE_CONTENT_DRAIN_END, AUTOHIDE_CONTENT_INTERACTION_MIN, AUTOHIDE_DWELL_THRESHOLD,
     AUTOHIDE_HANDLE_APPROACH_BAND, AUTOHIDE_HANDLE_EDGE_MARGIN, AUTOHIDE_HANDLE_HEIGHT,
@@ -48,8 +50,8 @@ pub use motion::{
     PREVIEW_CARD_MIN_WIDTH, PREVIEW_LABEL_HEIGHT, PREVIEW_PANEL_GAP, PREVIEW_PANEL_PAD,
     PREVIEW_SCREEN_MARGIN, REVEAL_SETTLE_VALUE_EPS, REVEAL_SETTLE_VELOCITY_EPS,
     SETTLED_DRAIN_FRAMES, SPRING_DAMPING, SPRING_OVERSHOOT_MARGIN, SPRING_STIFFNESS, TOOLTIP_BAND,
-    TOOLTIP_DWELL, TOOLTIP_FADE_SPEED, TOOLTIP_GAP, TOOLTIP_HEIGHT, detect_cursor_retreat,
-    edge_margin_for_surface_progress,
+    TOOLTIP_DWELL, TOOLTIP_FADE_SPEED, TOOLTIP_GAP, TOOLTIP_HEIGHT, collapsed_reveal_depth,
+    detect_cursor_retreat, edge_margin_for_surface_progress,
 };
 pub use state::{DockApp, DockState, DropSection, PressState, PressTarget};
 
@@ -140,6 +142,18 @@ pub struct Dock {
     pub space_use: SpaceUse,
     /// Configured dock screen edge.
     pub position: DockPosition,
+    /// How many workspaces the output the dock is drawn on has.
+    ///
+    /// The pager's width depends on it, so it participates in the strip length
+    /// and therefore in the bar's resting bounds. Refreshed from the workspace
+    /// snapshot each frame the dock paints.
+    pub workspace_tick_count: usize,
+    /// Index of the workspace that output is currently showing.
+    pub workspace_current: usize,
+    /// Stable identifiers of the workspaces observed from the output snapshot.
+    pub workspace_ids: Vec<tessera_desktop::workspace::WorkspaceId>,
+    /// Currently hovered workspace tick index, if pointer is over the workspace rail.
+    pub hovered_workspace_tick: Option<usize>,
     /// Whether collapsed indicator entry is armed.
     pub hidden_trigger_armed: bool,
     /// Previous frame's cursor position.
@@ -222,6 +236,10 @@ impl Dock {
             collapse_pending: false,
             space_use: SpaceUse::Available,
             position: DockPosition::Bottom,
+            workspace_tick_count: 1,
+            workspace_current: 0,
+            workspace_ids: Vec::new(),
+            hovered_workspace_tick: None,
             hidden_trigger_armed: true,
             last_cursor: None,
             last_display: None,
@@ -424,14 +442,69 @@ impl Dock {
     }
 
     #[inline]
+    /// The dock's Bento (non-icon) cells, in strip order.
+    ///
+    /// Status leads: the interactive workspace rail sits at the leading edge.
+    /// When only 1 workspace exists, it auto-hides (reserving zero space so the
+    /// dock stays pure and compact). When 2 or more exist, it presents as a
+    /// compact, interactive segmented pill.
     #[must_use]
+    pub fn bento_cells(&self) -> Vec<BentoCell> {
+        if self.workspace_tick_count <= 1 {
+            return Vec::new();
+        }
+        vec![BentoCell::workspace_pager(self.workspace_tick_count)]
+    }
+
+    /// Fold this frame's workspace snapshot into the pager's readings.
+    ///
+    /// The dock paints whichever output the presentation domain draws on, and
+    /// the snapshot is keyed by output; taking the first output keeps the pager
+    /// honest on a multi-output session instead of inventing a global count.
+    pub fn observe_workspaces(&mut self, workspaces: &WorkspaceSnapshot) {
+        let Some(output) = workspaces.outputs.first() else {
+            self.workspace_tick_count = 1;
+            self.workspace_current = 0;
+            self.workspace_ids.clear();
+            return;
+        };
+        self.workspace_tick_count = output.workspaces.len().max(1);
+        self.workspace_current = output
+            .current
+            .and_then(|current| output.workspaces.iter().position(|ws| ws.id == current))
+            .unwrap_or(0);
+        self.workspace_ids = output.workspaces.iter().map(|ws| ws.id).collect();
+    }
+
+    /// The resting bar for `tile_count` icons with no Bento cells.
+    ///
+    /// Kept for callers that reason about the icon strip alone (geometry tests,
+    /// the damage envelope). The live layout goes through
+    /// [`Dock::rest_bounds_with_cells`] so the pager's width is included.
     pub fn rest_bounds(
         tile_count: usize,
         pinned_count: usize,
         position: DockPosition,
         display: (f32, f32),
     ) -> Rect {
-        DockState::rest_bounds(tile_count, pinned_count, position, display)
+        DockState::rest_bounds_with_cells(tile_count, pinned_count, &[], position, display)
+    }
+
+    /// The resting bar including this dock's Bento cells.
+    #[must_use]
+    pub fn live_rest_bounds(
+        &self,
+        tile_count: usize,
+        pinned_count: usize,
+        display: (f32, f32),
+    ) -> Rect {
+        DockState::rest_bounds_with_cells(
+            tile_count,
+            pinned_count,
+            &self.bento_cells(),
+            self.position,
+            display,
+        )
     }
 
     #[inline]
@@ -539,6 +612,24 @@ impl Dock {
         DockState::rest_centre_estimate(i, n, pinned_count, axis_len)
     }
 
+    /// The resting centre of icon `i` on this dock's actual bar, which leads with
+    /// its Bento reading section.
+    ///
+    /// Every live call site goes through this rather than the cells-free
+    /// estimate: the magnification springs settle on these centres, so a bar
+    /// length that forgets the reading section would park every icon slightly off
+    /// its own paint.
+    #[must_use]
+    pub fn live_rest_centre(&self, i: usize, n: usize, pinned_count: usize, axis_len: f32) -> f32 {
+        DockState::rest_centre_estimate_with_cells(
+            i,
+            n,
+            pinned_count,
+            &self.bento_cells(),
+            axis_len,
+        )
+    }
+
     #[inline]
     #[must_use]
     pub fn section_extra(pinned_count: usize, n: usize) -> f32 {
@@ -638,7 +729,7 @@ impl Dock {
             None,
         );
         let pinned_count = tiles.iter().filter(|tile| tile.pinned).count();
-        Self::rest_bounds(tiles.len(), pinned_count, self.position, display)
+        self.live_rest_bounds(tiles.len(), pinned_count, display)
     }
 
     /// Bounds of the animated panel material.
@@ -658,10 +749,13 @@ impl Dock {
                 .get(&tile.key)
                 .map_or(DOCK_TILE, |state| state.value.max(DOCK_TILE))
         });
-        let pinned_count = tiles.iter().filter(|tile| tile.pinned).count();
-        let gaps = tiles.len().saturating_sub(1) as f32 * DOCK_TILE_GAP
-            + Self::section_extra(pinned_count, tiles.len());
-        let bar_len = widths.sum::<f32>() + gaps + 2.0 * DOCK_PAD;
+        // One resolved length for the whole bar: the leading Bento reading
+        // section, one section gap, then the icon strip at its current widths.
+        // Deriving the visual extent from its own arithmetic is how the reading
+        // section would silently go missing from the hit-test.
+        let bento = self.bento_cells();
+        let bar_len =
+            crate::components::dock::bento::strip_length(widths, &bento, DOCK_TILE_GAP, DOCK_PAD);
         Self::panel_rect_for(self.position, bar_len, display)
     }
 
@@ -686,16 +780,27 @@ impl Dock {
             &self.all_windows,
             None,
         );
+        // The envelope is the widest body the morph can produce, so it measures
+        // the *maximum* tile width — not the resting one — and it includes the
+        // leading reading section, whose width does not scale with the tile
+        // count at all. Deriving it from the icons alone let a wide reading
+        // section push the painted bar outside the region that gets repainted,
+        // and those pixels then never updated.
         let pinned_count = tiles.iter().filter(|tile| tile.pinned).count();
-        let gaps = tiles.len().saturating_sub(1) as f32 * DOCK_TILE_GAP
-            + Self::section_extra(pinned_count, tiles.len());
-        let max_len =
-            tiles.len() as f32 * (DOCK_TILE_MAX * SPRING_OVERSHOOT_MARGIN) + gaps + 2.0 * DOCK_PAD;
+        let max_widths = std::iter::repeat_n(DOCK_TILE_MAX * SPRING_OVERSHOOT_MARGIN, tiles.len());
+        let max_len = crate::components::dock::bento::strip_length(
+            max_widths,
+            &self.bento_cells(),
+            DOCK_TILE_GAP,
+            DOCK_PAD,
+        );
         let panel =
             Self::panel_rect_for(self.position, max_len.max(AUTOHIDE_HANDLE_WIDTH), display);
-        // The collapsed capsule sits `DOCK_EDGE_MARGIN - AUTOHIDE_HANDLE_EDGE_MARGIN`
-        // closer to the edge than the resting bar; grow the envelope by exactly
-        // that band so no morphed body ever paints outside its own capture.
+        let _ = pinned_count;
+        // Both states hold `DOCK_EDGE_MARGIN` (ADR-0213 unification), so the
+        // capsule is not tucked closer to the edge than the bar and there is no
+        // extra band to grow. The expression stays because it is the invariant
+        // that matters: the envelope covers whichever endpoint reaches furthest.
         let tuck = (DOCK_EDGE_MARGIN - AUTOHIDE_HANDLE_EDGE_MARGIN).max(0.0);
         match self.position {
             DockPosition::Bottom => Rect {
@@ -1150,7 +1255,7 @@ impl Dock {
             if tile.launchpad || tile.windows.is_empty() {
                 continue;
             }
-            let centre = Self::rest_centre_estimate(i, n, pinned_count, axis_len);
+            let centre = self.live_rest_centre(i, n, pinned_count, axis_len);
             let rect = self.minimize_target(centre, display);
             for &window in &tile.windows {
                 out.push((window, rect));

@@ -50,7 +50,7 @@ plausible — a coordinate translation that only papered over the mismatch.
 - The client-damage math (generation diff, geometry-move detection, transform
   axis swap, viewport/transition unmappability, per-surface committed damage)
   already exists once; a second copy is forbidden
-  ([Single Source of Truth](../dev/standards/architecture.md)).
+  ([Single Source of Truth](../dev/architecture.md)).
 - Over-reporting damage is always safe; a *wrong* region is not.
 - The tracker must advance exactly once per *rendered* frame, not once per
   main-loop iteration (an iteration that merely observes a change it does not

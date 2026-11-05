@@ -381,12 +381,25 @@ fn pointer_bounds_stay_at_rest_while_tiles_are_magnified() {
     let display = (1920.0, 1080.0);
     let bounds = dock.pointer_bounds(display);
     let visual_bounds = dock.visual_panel_bounds(display);
-    let expected_width = 2.0 * DOCK_TILE + DOCK_TILE_GAP + 2.0 * DOCK_PAD;
-    assert_eq!(bounds.w, expected_width);
-    assert_eq!(
-        visual_bounds.w,
-        2.0 * DOCK_TILE_MAX + DOCK_TILE_GAP + 2.0 * DOCK_PAD
+    // The bar leads with its reading section, so its width is that section plus
+    // the icon strip — not the icons alone. The expected value comes from the
+    // strip's single length source: a hand-rolled sum here is how a newly added
+    // reading silently falls out of the assertion.
+    let cells = dock.bento_cells();
+    let expected_width = crate::components::dock::bento::strip_length(
+        [DOCK_TILE; 2],
+        &cells,
+        DOCK_TILE_GAP,
+        DOCK_PAD,
     );
+    let expected_visual = crate::components::dock::bento::strip_length(
+        [DOCK_TILE_MAX; 2],
+        &cells,
+        DOCK_TILE_GAP,
+        DOCK_PAD,
+    );
+    assert_eq!(bounds.w, expected_width);
+    assert_eq!(visual_bounds.w, expected_visual);
     assert_eq!(bounds.y, display.1 - DOCK_PANEL_HEIGHT - DOCK_EDGE_MARGIN);
     assert_eq!(bounds.h, DOCK_PANEL_HEIGHT);
     assert!(!dock.captures_pointer(
@@ -500,7 +513,6 @@ fn maximized_state_forces_an_animated_collapse_without_geometric_invasion() {
     assert!(!dock.hidden_trigger_armed);
     assert!(dock.anim_pending());
     assert_eq!(dock.reserved(), Reserved::default());
-    assert_eq!(dock.backdrop_blur_sigma(), 12.0);
 
     let mut restored = maximized;
     restored.state.maximized = false;
@@ -564,33 +576,33 @@ fn dock_surface_morphs_between_panel_and_exact_handle_geometry() {
 }
 
 #[test]
-fn collapsed_capsule_hugs_the_screen_edge_instead_of_floating_with_the_bar() {
+fn both_dock_states_hold_the_same_distance_from_the_screen_edge() {
     let display = (1920.0, 1080.0);
     let expanded_width = 320.0;
     let expanded = Dock::collapsed_panel_rect(DockPosition::Bottom, display, expanded_width, 1.0);
     let collapsed = Dock::collapsed_panel_rect(DockPosition::Bottom, display, expanded_width, 0.0);
 
-    // The capsule is the parked edge affordance, not a floating panel: it keeps
-    // only a hairline gap so the shadow still reads, and its whole band above
-    // the screen edge (gap + stadium) stays far below the bar's own float.
+    // The dock is one surface at two sizes, so it holds one offset: it grows and
+    // shrinks in place instead of sliding toward the edge as it parks. Two
+    // independent constants let the collapsed and expanded geometry drift apart,
+    // which is exactly what this pins shut.
     assert_eq!(
         display.1 - (collapsed.y + collapsed.h),
-        AUTOHIDE_HANDLE_EDGE_MARGIN
+        DOCK_EDGE_MARGIN,
+        "the collapsed capsule holds the bar's float"
     );
-    const {
-        assert!(
-            AUTOHIDE_HANDLE_EDGE_MARGIN < DOCK_EDGE_MARGIN,
-            "the capsule must sit closer to the edge than the floating bar"
-        );
-    }
-    assert!(
-        display.1 - collapsed.y <= display.1 - (expanded.y + expanded.h) + AUTOHIDE_HANDLE_HEIGHT,
-        "the collapsed band must not inherit the bar's full edge margin"
+    assert_eq!(
+        display.1 - (expanded.y + expanded.h),
+        DOCK_EDGE_MARGIN,
+        "the expanded bar holds it too"
+    );
+    assert_eq!(
+        AUTOHIDE_HANDLE_EDGE_MARGIN, DOCK_EDGE_MARGIN,
+        "the two names resolve to one value"
     );
 
-    // The tuck is continuous: the gap grows monotonically with the morph and
-    // lands exactly on the bar's float at full reveal, so the Dock lifts off
-    // the edge instead of jumping between two offsets.
+    // Because the offset is constant, the bottom edge does not move at all
+    // across the morph: only the top edge travels as the surface changes size.
     let mut previous_bottom = f32::MAX;
     for step in 0..=20 {
         let reveal = step as f32 / 20.0;
@@ -598,34 +610,66 @@ fn collapsed_capsule_hugs_the_screen_edge_instead_of_floating_with_the_bar() {
             Dock::collapsed_panel_rect(DockPosition::Bottom, display, expanded_width, reveal);
         let bottom = rect.y + rect.h;
         assert!(
-            bottom <= previous_bottom + f32::EPSILON,
-            "the surface bottom must only rise toward the bar as reveal grows"
+            (bottom - previous_bottom).abs() <= f32::EPSILON || previous_bottom == f32::MAX,
+            "the anchored edge must not move during the morph: {bottom} vs {previous_bottom}"
         );
         previous_bottom = bottom;
-        assert!(
-            bottom <= display.1 - AUTOHIDE_HANDLE_EDGE_MARGIN + f32::EPSILON
-                && bottom >= expanded.y + expanded.h - f32::EPSILON,
-            "every morph frame keeps its bottom between the capsule tuck and the bar float"
-        );
     }
     assert_eq!(previous_bottom, expanded.y + expanded.h);
 }
 
 #[test]
-fn edge_margin_interpolates_between_the_capsule_tuck_and_the_bar_float() {
-    assert_eq!(
-        edge_margin_for_surface_progress(0.0),
-        AUTOHIDE_HANDLE_EDGE_MARGIN
-    );
-    assert_eq!(edge_margin_for_surface_progress(1.0), DOCK_EDGE_MARGIN);
-    // Clamped so a spring overshoot cannot push the body past either endpoint.
-    assert_eq!(
-        edge_margin_for_surface_progress(-0.5),
-        AUTOHIDE_HANDLE_EDGE_MARGIN
-    );
-    assert_eq!(edge_margin_for_surface_progress(1.5), DOCK_EDGE_MARGIN);
-    let mid = edge_margin_for_surface_progress(0.5);
-    assert!(mid > AUTOHIDE_HANDLE_EDGE_MARGIN && mid < DOCK_EDGE_MARGIN);
+fn the_edge_margin_is_constant_across_the_morph() {
+    // One answer for every reveal, including a spring overshoot past either
+    // endpoint: the body cannot leave its offset.
+    for progress in [-0.5, 0.0, 0.25, 0.5, 0.75, 1.0, 1.5] {
+        assert_eq!(
+            edge_margin_for_surface_progress(progress),
+            DOCK_EDGE_MARGIN,
+            "reveal {progress} holds the dock's one offset"
+        );
+    }
+}
+
+#[test]
+fn the_reveal_corridor_still_reaches_the_physical_screen_edge() {
+    // The pointer target and the painted body are separate concerns: the capsule
+    // now floats clear of the edge, and a pointer thrown at the screen must
+    // still summon it without being aimed.
+    for position in [
+        DockPosition::Bottom,
+        DockPosition::Left,
+        DockPosition::Right,
+    ] {
+        let display = (1920.0, 1080.0);
+        let corridor = Dock::collapsed_reveal_corridor(position, display);
+        let visual = Dock::collapsed_indicator_bounds(position, display);
+        match position {
+            DockPosition::Bottom => {
+                assert_eq!(
+                    corridor.y + corridor.h,
+                    display.1,
+                    "the corridor reaches the bottom screen edge"
+                );
+                assert!(
+                    corridor.y < visual.y,
+                    "the corridor extends above the floating capsule"
+                );
+            }
+            DockPosition::Left => {
+                assert_eq!(corridor.x, 0.0, "the corridor reaches the left screen edge");
+                assert!(corridor.x < visual.x);
+            }
+            DockPosition::Right => {
+                assert_eq!(
+                    corridor.x + corridor.w,
+                    display.0,
+                    "the corridor reaches the right screen edge"
+                );
+                assert!(corridor.x + corridor.w > visual.x + visual.w);
+            }
+        }
+    }
 }
 
 #[test]
@@ -734,9 +778,13 @@ fn capsule_is_the_only_collapsed_reveal_target() {
         &[],
         &workspaces,
     ));
-    // The reveal corridor is deeper than the tucked visual capsule, so the
-    // reachable strip is unchanged even though the capsule moved to the edge.
-    assert!(corridor.y < indicator.y);
+    // The reveal corridor reaches past the floating capsule to the physical
+    // edge, so the reachable strip is a deliberate band rather than an aim at a
+    // 4 px pill hovering 12 px clear of the screen.
+    assert!(
+        corridor.y < indicator.y,
+        "the corridor must reach above the capsule's float"
+    );
     assert!(dock.captures_pointer(
         indicator.x + indicator.w * 0.5,
         corridor.y + 1.0,
@@ -770,8 +818,14 @@ fn tucked_capsule_keeps_its_reveal_corridor_deeper_than_the_capsule() {
 
     // ADR-0146's dwell verification tests against this rectangle, so its depth
     // is a first-class contract: the capsule can be summoned by reaching the
-    // bottom band, not by aiming at a 4 px stadium.
-    assert_eq!(display.1 - corridor.y, AUTOHIDE_HANDLE_APPROACH_BAND);
+    // bottom band, not by aiming at a 4 px pill. The depth is the union of the
+    // edge float, the capsule body, and the approach band — a flat band would be
+    // shallower than the capsule it owns once that capsule floats clear.
+    assert_eq!(display.1 - corridor.y, collapsed_reveal_depth());
+    assert_eq!(
+        collapsed_reveal_depth(),
+        DOCK_EDGE_MARGIN + AUTOHIDE_HANDLE_HEIGHT + AUTOHIDE_HANDLE_APPROACH_BAND
+    );
     assert!(corridor.w >= indicator.w);
     assert!(
         corridor.y < indicator.y,
@@ -785,7 +839,7 @@ fn tucked_capsule_keeps_its_reveal_corridor_deeper_than_the_capsule() {
     // Dock clickable — the trapping failure ADR-0146 exists to prevent.
     const {
         assert!(
-            AUTOHIDE_HANDLE_APPROACH_BAND < DOCK_PANEL_HEIGHT,
+            collapsed_reveal_depth() < DOCK_PANEL_HEIGHT,
             "the corridor must not span a resting bar's depth"
         );
     }
@@ -793,11 +847,11 @@ fn tucked_capsule_keeps_its_reveal_corridor_deeper_than_the_capsule() {
     // Side docks get the same contract on their own axis, with the capsule's
     // long axis preserved.
     let left = Dock::collapsed_reveal_corridor(DockPosition::Left, display);
-    assert_eq!(left.w, AUTOHIDE_HANDLE_APPROACH_BAND);
+    assert_eq!(left.w, collapsed_reveal_depth());
     assert_eq!(left.x, 0.0);
     let right = Dock::collapsed_reveal_corridor(DockPosition::Right, display);
     assert_eq!(right.x + right.w, display.0);
-    assert_eq!(right.w, AUTOHIDE_HANDLE_APPROACH_BAND);
+    assert_eq!(right.w, collapsed_reveal_depth());
 }
 
 #[test]
@@ -853,13 +907,15 @@ fn collapsed_dock_does_not_reuse_its_old_resting_region_as_a_trigger() {
 #[test]
 fn expanded_autohide_dock_keeps_pointer_across_bottom_gap() {
     let display = (1920.0, 1080.0);
-    let mut dock = Dock::new();
+    let mut dock = dock_with(vec![
+        app("org.example.Editor.desktop"),
+        app("org.example.Terminal.desktop"),
+    ]);
     dock.set_autohide(true);
     dock.autohide_reveal = 1.0;
     let rest = dock.pointer_bounds(display);
     let gap_y = rest.y + rest.h + DOCK_EDGE_MARGIN * 0.5;
     let indicator = Dock::collapsed_indicator_bounds(DockPosition::Bottom, display);
-    let former_indicator_edge_x = indicator.x + 1.0;
 
     assert!(Dock::expanded_trigger_contains(
         DockPosition::Bottom,
@@ -868,12 +924,16 @@ fn expanded_autohide_dock_keeps_pointer_across_bottom_gap() {
         display,
     ));
     assert!(dock.captures_pointer(display.0 * 0.5, gap_y, display, &[], &workspace_snapshot(),));
+    // The bar leads with its reading cells, so a hardcoded x from the icon-only
+    // layout is now *inside* the bar. The invariant the test exists for is that
+    // the pointer stops at the bar's edge, so the probe is one pixel past it —
+    // and the capsule, being narrower, is inside that edge too.
     assert!(
-        former_indicator_edge_x < rest.x,
-        "the regression point must be outside the expanded panel"
+        indicator.x > rest.x,
+        "the expanded bar reaches further left than the collapsed capsule"
     );
     assert!(!dock.captures_pointer(
-        former_indicator_edge_x,
+        rest.x - 1.0,
         indicator.y + indicator.h * 0.5,
         display,
         &[],
@@ -895,65 +955,58 @@ fn fullscreen_window_locks_dock_hidden_without_hot_edge() {
     assert_eq!(dock.space_use, SpaceUse::Fullscreen);
     assert_eq!(dock.autohide_reveal, 0.0);
     assert_eq!(dock.reserved(), Reserved::default());
-    assert_eq!(dock.backdrop_blur_sigma(), 0.0);
     assert!(!dock.requires_composition());
-    assert!(
-        dock.backdrop_regions((1920.0, 1080.0), &[], &workspace_snapshot())
-            .is_empty()
-    );
     assert!(!dock.captures_pointer(960.0, 1079.0, (1920.0, 1080.0), &[], &workspace_snapshot(),));
 }
 
 #[test]
-fn dock_backdrop_is_one_analytic_rounded_body() {
+fn the_dock_body_is_one_painted_strip_inside_a_stable_footprint() {
     let dock = dock_with(vec![app("org.example.Editor.desktop")]);
     let display = (1920.0, 1080.0);
-    let workspaces = workspace_snapshot();
 
-    let backdrop = dock.backdrop_regions(display, &[], &workspaces);
-    let glass = dock.liquid_glass_regions(display, &[], &workspaces);
-
-    // The panel declares no backdrop region of its own: its glass body
-    // carries an animation-stable capture footprint, so reveal and
-    // magnification morphs cannot invalidate the compositor's capture.
-    assert!(backdrop.is_empty());
-    assert_eq!(glass.len(), 1);
-    let footprint = glass[0].capture_bounds.expect("panel declares a footprint");
-    let bounds = glass[0].bounds;
+    // The body is painted by the dock itself. Its footprint is the stable
+    // envelope the damage path repaints, so reveal and magnification morphs
+    // never force a full-output repaint.
+    let (bounds, material) = dock
+        .body_material(display)
+        .expect("a settled dock paints a body");
+    let footprint = dock.capture_footprint(display);
     assert!(footprint.x <= bounds.x && footprint.y <= bounds.y);
     assert!(footprint.x + footprint.w >= bounds.x + bounds.w);
     assert!(footprint.y + footprint.h >= bounds.y + bounds.h);
-    assert_eq!(glass[0].corner_radius, Design::dark().radii.glass_panel);
-    assert_eq!(glass[0].opacity, 1.0);
+    assert_eq!(material.radius, Design::dark().radii.glass_panel);
+    let style = Design::dark().surfaces.for_role(SurfaceRole::Dock);
+    assert!(material.bg.components().3 >= 236, "the bar body is opaque");
+    assert!(style.shadow_alpha > 0.0, "the bar casts a shadow");
 }
 
 #[test]
-fn collapsed_autohide_handle_stays_an_analytic_glass_body() {
+fn the_collapsed_capsule_is_a_painted_pill_at_rest() {
     let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
     dock.set_autohide(true);
     dock.autohide_reveal = 0.0;
     let display = (1920.0, 1080.0);
-    let workspaces = workspace_snapshot();
 
     assert!(dock.requires_composition());
-    assert_eq!(dock.backdrop_blur_sigma(), 12.0);
-    let backdrop = dock.backdrop_regions(display, &[], &workspaces);
-    let glass = dock.liquid_glass_regions(display, &[], &workspaces);
-    assert!(backdrop.is_empty());
-    assert_eq!(glass.len(), 1);
-    // Rest uses the same capture envelope as the reveal animation.
-    assert_eq!(
-        glass[0].capture_bounds,
-        Some(dock.capture_footprint(display).into())
-    );
-    assert_eq!(glass[0].bounds.w, AUTOHIDE_HANDLE_WIDTH);
-    assert_eq!(glass[0].bounds.h, AUTOHIDE_HANDLE_HEIGHT);
-    assert_eq!(glass[0].corner_radius, AUTOHIDE_HANDLE_HEIGHT * 0.5);
-    assert_eq!(glass[0].opacity, 1.0);
+    let (bounds, material) = dock
+        .body_material(display)
+        .expect("the resting capsule is still a body");
+    // The resting capsule is a small pill, not a flat hairline: a control
+    // sitting on the screen edge has to read as a control.
+    assert_eq!(bounds.w, AUTOHIDE_HANDLE_WIDTH);
+    assert_eq!(bounds.h, AUTOHIDE_HANDLE_HEIGHT);
+    assert_eq!(material.radius, AUTOHIDE_HANDLE_HEIGHT * 0.5);
+    // The resting capsule takes the palette's collapsed tone. The dwell glow
+    // is a separate micro-interaction, so it is cleared here to pin the rest
+    // value itself.
+    dock.autohide_dwell = 0.0;
+    let (_, material) = dock.body_material(display).expect("resting body");
+    assert_eq!(material.bg, Design::dark().dock.bar_surface_collapsed);
+    assert!(material.bg.components().3 >= 236, "the capsule is opaque");
 }
 
 #[test]
-fn settled_maximized_collapse_keeps_the_capsule_composited() {
+fn settled_maximized_collapse_keeps_the_capsule_painted() {
     let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
     let mut maximized = window(7, "org.example.Editor", true);
     maximized.state.maximized = true;
@@ -964,28 +1017,23 @@ fn settled_maximized_collapse_keeps_the_capsule_composited() {
 
     assert_eq!(dock.space_use, SpaceUse::Maximized);
     assert!(dock.requires_composition());
-    assert_eq!(dock.backdrop_blur_sigma(), 12.0);
-    let glass = dock.liquid_glass_regions(
-        (1920.0, 1080.0),
-        &[maximized.clone()],
-        &workspace_snapshot(),
-    );
-    assert_eq!(glass.len(), 1);
-    assert_eq!(glass[0].bounds.w, AUTOHIDE_HANDLE_WIDTH);
-    assert_eq!(glass[0].bounds.h, AUTOHIDE_HANDLE_HEIGHT);
+    let display = (1920.0, 1080.0);
+    let (rest, _) = dock.body_material(display).expect("the capsule is painted");
+    assert_eq!(rest.w, AUTOHIDE_HANDLE_WIDTH);
+    assert_eq!(rest.h, AUTOHIDE_HANDLE_HEIGHT);
 
     dock.autohide_reveal = 0.25;
     assert!(dock.requires_composition());
-    assert_eq!(dock.backdrop_blur_sigma(), 12.0);
-    // Mid-reveal the glass body morphs, but its capture footprint is the
-    // stable full-panel envelope.
-    let glass = dock.liquid_glass_regions((1920.0, 1080.0), &[maximized], &workspace_snapshot());
-    assert_eq!(glass.len(), 1);
-    let footprint = glass[0].capture_bounds.expect("panel declares a footprint");
+    // Mid-reveal the body morphs inside one stable footprint, so no frame of
+    // the morph paints outside what the damage path already covers.
+    let (morphing, _) = dock.body_material(display).expect("mid-reveal body");
+    let footprint = dock.capture_footprint(display);
     assert!(footprint.w >= AUTOHIDE_HANDLE_WIDTH);
+    assert!(footprint.x <= morphing.x && footprint.y <= morphing.y);
+    assert!(footprint.x + footprint.w >= morphing.x + morphing.w);
+    assert!(footprint.y + footprint.h >= morphing.y + morphing.h);
     // The envelope spans from the bar's float down to the capsule's tuck, so
-    // no frame of the morph paints outside its own capture (ADR-0171).
-    let display = (1920.0, 1080.0);
+    // no frame of the morph paints outside its own footprint (ADR-0171).
     assert_eq!(
         footprint.h,
         DOCK_PANEL_HEIGHT + (DOCK_EDGE_MARGIN - AUTOHIDE_HANDLE_EDGE_MARGIN)
@@ -1124,9 +1172,12 @@ fn live_preview_adds_one_panel_body_and_keeps_its_pointer_bridge() {
     });
     dock.live_preview = Some(presentation);
 
-    let glass = dock.liquid_glass_regions((1920.0, 1080.0), &[], &workspace_snapshot());
-    assert_eq!(glass.len(), 2);
-    assert_eq!(glass[1].corner_radius, Design::dark().radii.glass_panel);
+    // The preview panel is a second painted body above the bar, at the
+    // floating-panel radius.
+    let (_, hover) = dock
+        .hover_body_material()
+        .expect("the preview panel is painted");
+    assert_eq!(hover.radius, Design::dark().radii.glass_panel);
     let bridge_y = (panel.origin.y + panel.size.h) as f32 + PREVIEW_PANEL_GAP * 0.5;
     assert!(dock.captures_pointer(
         owner.x + owner.w * 0.5,
@@ -1175,27 +1226,18 @@ fn hovered_live_preview_uses_one_parent_body_with_an_optical_focus_field() {
     dock.hovered_preview = Some(window);
     dock.live_preview = Some(focused_presentation);
 
-    let glass = dock.liquid_glass_regions((1920.0, 1080.0), &[], &workspace_snapshot());
-    assert_eq!(glass.len(), 2);
-    let focus = glass[1].focus.expect("preview panel should carry focus");
-    assert_eq!(
-        focus.bounds.x,
-        presentation.cards[0].geometry.outer.origin.x as f32
+    // Selection is a painted wash over the focused card, inside the preview
+    // panel's single body — never a nested body or an outline.
+    let design = Design::dark();
+    let focused_card = presentation.cards[0].geometry.outer;
+    let focus = preview::card_material(
+        &design,
+        preview::PreviewCardState::Selected,
+        presentation.cards[0].corner_radius,
     );
-    assert_eq!(
-        focus.bounds.y,
-        presentation.cards[0].geometry.outer.origin.y as f32
-    );
-    assert_eq!(
-        focus.bounds.w,
-        presentation.cards[0].geometry.outer.size.w as f32
-    );
-    assert_eq!(
-        focus.bounds.h,
-        presentation.cards[0].geometry.outer.size.h as f32
-    );
-    assert_eq!(focus.corner_radius, Design::dark().radii.control);
-    assert_eq!(focus.strength, Design::dark().glass_focus.field_strength);
+    assert_eq!(focus.bg, design.selection.selected_tint);
+    assert_eq!(focus.border_width, 0.0);
+    assert!(focused_card.size.w > 0 && focused_card.size.h > 0);
 }
 
 #[test]
@@ -1267,14 +1309,20 @@ fn live_strip_centres_settle_onto_the_rest_estimates() {
 
     let order: Vec<usize> = (0..n).collect();
     let eased = vec![DOCK_TILE; n];
-    let bar_len = n as f32 * DOCK_TILE
-        + (n as f32 - 1.0) * DOCK_TILE_GAP
-        + (DOCK_SECTION_GAP - DOCK_TILE_GAP)
-        + 2.0 * DOCK_PAD;
-    let origin = (1920.0 - bar_len) * 0.5;
+    // Both sides of this assertion read the strip's single length source: the
+    // bar leads with the dock's Bento reading section, and comparing against a
+    // hand-rolled icon-only sum would compare two different bars.
+    let bento = dock.bento_cells();
+    let bar_len = crate::components::dock::bento::strip_length(
+        eased.iter().copied(),
+        &bento,
+        DOCK_TILE_GAP,
+        DOCK_PAD,
+    );
+    let origin = (1920.0 - bar_len) * 0.5 + DockState::reading_extent(&bento);
     let centres = strip_centres(&eased, &order, origin, pinned_count, DOCK_SECTION_GAP);
     for (i, centre) in centres.iter().enumerate() {
-        let rest = Dock::rest_centre_estimate(i, n, pinned_count, 1920.0);
+        let rest = dock.live_rest_centre(i, n, pinned_count, 1920.0);
         assert!(
             (centre - rest).abs() < 1e-4,
             "tile {i}: live centre {centre} != rest estimate {rest}"
@@ -1459,9 +1507,9 @@ fn side_dock_collapsed_geometry_anchors_to_its_edge() {
         display.1 * 0.5,
         "the side handle is centred vertically"
     );
-    assert!(
-        collapsed.x < expanded.x,
-        "the tucked side handle sits closer to its edge than the floating bar"
+    assert_eq!(
+        collapsed.x, expanded.x,
+        "the side capsule holds the bar's offset: the dock grows in place"
     );
 
     let right = Dock::collapsed_panel_rect(DockPosition::Right, display, expanded_len, 1.0);
@@ -1472,7 +1520,11 @@ fn side_dock_collapsed_geometry_anchors_to_its_edge() {
         right_collapsed.x,
         display.0 - AUTOHIDE_HANDLE_EDGE_MARGIN - AUTOHIDE_HANDLE_HEIGHT
     );
-    assert!(right_collapsed.x > right.x);
+    assert_eq!(
+        right_collapsed.x + right_collapsed.w,
+        right.x + right.w,
+        "the right capsule holds the bar's anchored edge"
+    );
 }
 
 #[test]
@@ -1999,7 +2051,6 @@ fn preview_hover_locks_magnification_axis_to_owner_tile_centre() {
 #[test]
 fn app_menu_follows_dock_dark_and_light_theme() {
     let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
-    let display = (1920.0, 1080.0);
     let owner = lens::Rect {
         x: 900.0,
         y: 970.0,
@@ -2015,22 +2066,13 @@ fn app_menu_follows_dock_dark_and_light_theme() {
     );
     assert!(dock.app_menu.is_open());
 
-    // Initially dark
-    let glass_dark = dock.liquid_glass_regions(display, &[], &workspace_snapshot());
-    let menu_glass_dark = glass_dark
-        .iter()
-        .find(|g| g.id == crate::component::liquid_glass_region_id("tessera-dock-context-menu"))
-        .expect("menu glass exists in dark appearance");
-    assert_eq!(menu_glass_dark.plate_polarity, 0.0);
-
-    // Switch to light theme
+    let dark_menu_body = Design::dark().surfaces.for_role(SurfaceRole::Menu).body;
     dock.update(ChromeUpdate::Appearance(&Design::light()));
-    let glass_light = dock.liquid_glass_regions(display, &[], &workspace_snapshot());
-    let menu_glass_light = glass_light
-        .iter()
-        .find(|g| g.id == crate::component::liquid_glass_region_id("tessera-dock-context-menu"))
-        .expect("menu glass exists in light appearance");
-    assert_eq!(menu_glass_light.plate_polarity, 1.0);
+    let light_menu_body = Design::light().surfaces.for_role(SurfaceRole::Menu).body;
+    assert_ne!(
+        light_menu_body, dark_menu_body,
+        "the dock's menu re-tones with the appearance"
+    );
 }
 
 #[test]
@@ -2052,24 +2094,31 @@ fn dock_morph_keeps_capture_and_shadow_damage_stable() {
                 dock.anim_active = active;
                 assert_eq!(dock.capture_footprint(display), footprint);
                 assert_eq!(dock.damage_regions(&[], display), Some(damage.clone()));
-                let glass = dock.liquid_glass_regions(display, &[], &workspace_snapshot())[0];
-                assert!(footprint.x <= glass.bounds.x && footprint.y <= glass.bounds.y);
-                assert!(footprint.x + footprint.w >= glass.bounds.x + glass.bounds.w);
-                assert!(footprint.y + footprint.h >= glass.bounds.y + glass.bounds.h);
-                let fringe = glass.shadow_blur * 2.0;
-                let x0 = (glass.bounds.x - fringe).max(0.0).floor() as i32;
-                let y0 = (glass.bounds.y - fringe + glass.shadow_offset_y.min(0.0))
-                    .max(0.0)
-                    .floor() as i32;
-                let x1 = (glass.bounds.x + glass.bounds.w + fringe)
-                    .min(display.0)
-                    .ceil() as i32;
-                let y1 = (glass.bounds.y + glass.bounds.h + fringe + glass.shadow_offset_y.max(0.0))
+                let body = dock.body_rect(display).expect("a morphing dock paints");
+                assert!(footprint.x <= body.x && footprint.y <= body.y);
+                assert!(footprint.x + footprint.w >= body.x + body.w);
+                assert!(footprint.y + footprint.h >= body.y + body.h);
+                // The body's shadow reaches twice its blur radius, and the
+                // shadow scales with the panel thickness as it collapses.
+                let style = Design::dark().surfaces.for_role(SurfaceRole::Dock);
+                let shadow_factor = ((if dock.position.is_vertical() {
+                    body.w
+                } else {
+                    body.h
+                }) / DOCK_PANEL_HEIGHT)
+                    .clamp(0.35, 1.0);
+                let blur = style.shadow_blur * shadow_factor;
+                let offset = style.shadow_offset_y * shadow_factor;
+                let fringe = blur * 2.0;
+                let x0 = (body.x - fringe).max(0.0).floor() as i32;
+                let y0 = (body.y - fringe + offset.min(0.0)).max(0.0).floor() as i32;
+                let x1 = (body.x + body.w + fringe).min(display.0).ceil() as i32;
+                let y1 = (body.y + body.h + fringe + offset.max(0.0))
                     .min(display.1)
                     .ceil() as i32;
-                /* The strip region must already cover the glass body plus its
-                 * shadow envelope: the popup bands are separate regions, so this
-                 * is asserted per-region rather than on a union. */
+                /* The strip region must already cover the painted body plus
+                 * its shadow envelope: the popup bands are separate regions, so
+                 * this is asserted per-region rather than on a union. */
                 let strip = damage.first().expect("the strip is always reported");
                 assert!(strip.x <= x0 as f32);
                 assert!(strip.y <= y0 as f32);
@@ -2309,10 +2358,16 @@ fn dock_interaction_sets_interacted_flag_and_standard_timeout() {
 
     assert!(!dock.dock_interacted);
 
-    // Hover over a tile and dwell
+    // Hover over a tile and dwell. The bar leads with its reading cells now, so
+    // the target comes from the live geometry rather than a cells-free estimate
+    // that would land on a reading instead of an icon.
     let mut input = Input::new(display, 0.016);
-    let rest_bounds = Dock::rest_bounds(2, 1, DockPosition::Bottom, display);
-    input.set_cursor(rest_bounds.x + 30.0, rest_bounds.y + 30.0);
+    let rest_bounds = dock.pointer_bounds(display);
+    let reading = crate::components::dock::DockState::reading_extent(&dock.bento_cells());
+    input.set_cursor(
+        rest_bounds.x + reading + DOCK_TILE * 0.5,
+        rest_bounds.y + rest_bounds.h * 0.5,
+    );
 
     for _ in 0..30 {
         dock.prepare_frame(&input, &windows, &workspaces);
@@ -2361,12 +2416,28 @@ fn prepass_and_render_agree_on_the_hovered_tile() {
     let pinned_count = tiles.iter().filter(|tile| tile.pinned).count();
 
     // Resolve the strip at rest width — the exact geometry the pre-pass
-    // publishes — and aim at the centre of tile 1.
+    // publishes — and aim at the centre of tile 1. The dock's pager reading is
+    // part of that geometry, so the observation the pre-pass makes must be in
+    // place before this resolves the bar.
+    dock.observe_workspaces(&workspaces);
     let eased = vec![DOCK_TILE; keys.len()];
     let order: Vec<usize> = (0..keys.len()).collect();
     let geometry = dock.resolve_strip_geometry(&eased, &order, pinned_count, display.0, display);
     let target = geometry.icon_rects[1];
     let cursor = (target.x + target.w * 0.5, target.y + target.h * 0.5);
+
+    // Settle the magnification springs on the resting width, so the geometry the
+    // pre-pass publishes is the geometry this test aims at. A tooltip that is
+    // already open is a settled state by definition.
+    for key in &keys {
+        dock.sizes.insert(
+            key.clone(),
+            SpringState {
+                value: DOCK_TILE,
+                velocity: 0.0,
+            },
+        );
+    }
 
     // Model a tooltip already open over tile 1.
     dock.hovered_tile = Some(keys[1].clone());
@@ -2433,16 +2504,21 @@ fn resolved_strip_geometry_lands_icons_on_the_resting_model() {
         let geometry =
             dock.resolve_strip_geometry(&eased, &order, pinned_count, axis_disp, display);
 
-        let bar_len = n as f32 * DOCK_TILE
-            + (n as f32 - 1.0) * DOCK_TILE_GAP
-            + (DOCK_SECTION_GAP - DOCK_TILE_GAP)
-            + 2.0 * DOCK_PAD;
+        // The expected length comes from the strip's own single source rather
+        // than a second copy of the arithmetic: a hand-rolled sum here is how
+        // the leading Bento section would silently fall out of the layout.
+        let bar_len = crate::components::dock::bento::strip_length(
+            eased.iter().copied(),
+            &dock.bento_cells(),
+            DOCK_TILE_GAP,
+            DOCK_PAD,
+        );
         let expected_panel = Dock::panel_rect_for(position, bar_len, display);
         assert_eq!(geometry.panel_rect, expected_panel);
         assert_eq!(geometry.section_gap, DOCK_SECTION_GAP);
 
         for i in 0..n {
-            let rest = Dock::rest_centre_estimate(i, n, pinned_count, axis_disp);
+            let rest = dock.live_rest_centre(i, n, pinned_count, axis_disp);
             assert!(
                 (geometry.centres[i] - rest).abs() < 1e-3,
                 "{position:?} tile {i}: centre {} != rest estimate {rest}",
@@ -2555,4 +2631,369 @@ fn a_moving_menu_footprint_keeps_the_vacated_band() {
 /// A `lens::Rect` from corners, so the popup fixtures stay readable.
 fn lens_rect(x: f32, y: f32, w: f32, h: f32) -> Rect {
     Rect { x, y, w, h }
+}
+
+#[test]
+fn the_capsule_body_interpolates_without_double_premultiplying() {
+    let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
+    dock.set_autohide(true);
+    let display = (1920.0, 1080.0);
+
+    // At rest the body is exactly the palette's collapsed tone. The palette is
+    // stored premultiplied, so this also pins that the interpolation works on
+    // straight channels and repremultiplies once — mixing premultiplied bytes
+    // and repremultiplying landed the capsule darker than either endpoint.
+    dock.autohide_reveal = 0.0;
+    dock.autohide_dwell = 0.0;
+    let (_, rest) = dock.body_material(display).expect("resting capsule");
+    assert_eq!(rest.bg, Design::dark().dock.bar_surface_collapsed);
+
+    // At full reveal it is exactly the palette's expanded tone.
+    dock.autohide_reveal = 1.0;
+    let (_, open) = dock.body_material(display).expect("expanded bar");
+    assert_eq!(open.bg, Design::dark().dock.bar_surface_expanded);
+
+    // Mid-morph it sits between the two, in straight-channel terms.
+    dock.autohide_reveal = 0.5;
+    let (_, mid) = dock.body_material(display).expect("morphing body");
+    let straight = |c: Color| c.with_alpha(c.components().3).components();
+    let (cr, _, _, _) = straight(Design::dark().dock.bar_surface_collapsed);
+    let (er, _, _, _) = straight(Design::dark().dock.bar_surface_expanded);
+    let (mr, _, _, _) = straight(mid.bg);
+    assert!(
+        mr >= cr.min(er) && mr <= cr.max(er),
+        "mid-morph red {mr} stays inside [{}, {}]",
+        cr.min(er),
+        cr.max(er)
+    );
+}
+
+#[test]
+fn dwelling_on_the_capsule_lifts_its_body_without_changing_its_alpha() {
+    let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
+    dock.set_autohide(true);
+    dock.autohide_reveal = 0.0;
+
+    dock.autohide_dwell = 0.0;
+    let (_, calm) = dock.body_material((1920.0, 1080.0)).expect("calm capsule");
+    dock.autohide_dwell = dock.autohide_dwell_threshold;
+    let (_, dwelling) = dock
+        .body_material((1920.0, 1080.0))
+        .expect("dwelling capsule");
+
+    // The dwell lifts the tone and leaves the body's coverage alone: the
+    // capsule is already opaque, so an alpha lift would be invisible.
+    assert_eq!(
+        calm.bg.components().3,
+        dwelling.bg.components().3,
+        "dwell never changes the body's alpha"
+    );
+    assert!(
+        dwelling.bg.components().0 > calm.bg.components().0,
+        "dwell brightens the body: {:?} vs {:?}",
+        calm.bg.components(),
+        dwelling.bg.components()
+    );
+    assert_eq!(
+        calm.radius, dwelling.radius,
+        "dwell is a tone change, not a geometry change"
+    );
+}
+
+#[test]
+fn an_open_menu_holds_the_dock_open_past_its_idle_timeout() {
+    let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
+    dock.set_autohide(true);
+    dock.autohide_timeout = 0.01;
+
+    assert!(!dock.interaction_locked(), "a resting dock locks nothing");
+
+    let owner = lens_rect(900.0, 970.0, 84.0, 84.0);
+    dock.app_menu.open(
+        "Editor",
+        None,
+        [tessera_desktop::window::WindowId(7)],
+        owner,
+        None,
+    );
+    assert!(
+        dock.interaction_locked(),
+        "a popup the dock owns outranks the idle timer: the pointer is inside \
+         the popup, not the bar, and collapsing would destroy the menu mid-use"
+    );
+
+    dock.app_menu.dismiss();
+    assert!(
+        !dock.interaction_locked(),
+        "closing the menu releases the veto"
+    );
+}
+
+#[test]
+fn a_held_press_holds_the_dock_open_until_it_resolves() {
+    let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
+    dock.set_autohide(true);
+    dock.autohide_timeout = 0.01;
+    let display = (1920.0, 1080.0);
+
+    let _ = display;
+    assert!(!dock.interaction_locked());
+    // A press that has not resolved yet, exactly as the render pass records it.
+    dock.press = Some(PressState {
+        origin: (960.0, 1040.0),
+        target: PressTarget::Panel,
+        dragging: false,
+        section: DropSection::Pinned,
+        insert: None,
+        start_position: DockPosition::Bottom,
+    });
+    assert!(
+        dock.interaction_locked(),
+        "a press that ends outside the bar is still the same gesture"
+    );
+
+    dock.press = None;
+    assert!(
+        !dock.interaction_locked(),
+        "the resolved press releases the veto"
+    );
+}
+
+#[test]
+fn a_locked_dock_does_not_collapse_no_matter_how_long_it_idles() {
+    let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
+    dock.set_autohide(true);
+    dock.autohide_timeout = 0.01;
+    dock.autohide_reveal = 1.0;
+
+    let owner = lens_rect(900.0, 970.0, 84.0, 84.0);
+    dock.app_menu.open(
+        "Editor",
+        None,
+        [tessera_desktop::window::WindowId(7)],
+        owner,
+        None,
+    );
+
+    // Ten idle timeouts' worth of stepping while the popup is open.
+    for _ in 0..200 {
+        dock.apply_space_use(SpaceUse::Available);
+        dock.autohide_idle = 10.0;
+    }
+    assert!(
+        dock.autohide_reveal > 0.9,
+        "the dock stayed revealed under an open popup: {}",
+        dock.autohide_reveal
+    );
+}
+
+/// A snapshot with `count` workspaces on one output, `current` active.
+fn ws_snapshot(count: usize, current: usize) -> WorkspaceSnapshot {
+    use tessera_desktop::workspace::{OutputId, OutputSnapshot, WorkspaceEntry, WorkspaceId};
+    let entries: Vec<WorkspaceEntry> = (0..count)
+        .map(|i| WorkspaceEntry {
+            id: WorkspaceId(i as u64 + 1),
+            label: None,
+            tiled: true,
+            toplevels: Vec::new(),
+        })
+        .collect();
+    WorkspaceSnapshot {
+        outputs: vec![OutputSnapshot {
+            id: OutputId(0),
+            connector: "HEADLESS-1".to_string(),
+            current: entries.get(current).map(|w| w.id),
+            workspaces: entries,
+        }],
+    }
+}
+
+/// The damage envelope must cover the painted body for every shape the reading
+/// section can take.
+///
+/// The footprint used to be derived from the icon tiles alone, so a wide reading
+/// section — many workspaces, few icons — pushed the painted bar outside the
+/// region the compositor repaints. The excess pixels simply never updated.
+#[test]
+fn the_damage_envelope_covers_a_reading_section_of_any_width() {
+    let display = (1920.0, 1080.0);
+    for workspaces in [1_usize, 4, 9, 20, 40] {
+        for running in [0_usize, 1, 3] {
+            let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
+            if running > 0 {
+                let mut w = window(1, "org.example.Editor", true);
+                w.app_id = Some("org.example.Editor".to_string());
+                let mut windows = vec![w];
+                for id in 2..=running as u32 {
+                    windows.push(window(id.into(), "org.example.Other", false));
+                }
+                dock.update_windows(&windows);
+            }
+            dock.observe_workspaces(&ws_snapshot(workspaces, 0));
+
+            let pointer = dock.pointer_bounds(display);
+            let visual = dock.visual_panel_bounds(display);
+            let footprint = dock.capture_footprint(display);
+
+            assert!(
+                visual.w + 1.0 >= pointer.w,
+                "{workspaces} workspaces / {running} running: the visual body {} must cover \
+                 the pointer body {}",
+                visual.w,
+                pointer.w
+            );
+            assert!(
+                footprint.w + 1.0 >= visual.w,
+                "{workspaces} workspaces / {running} running: the damage envelope {} must cover \
+                 the painted body {}",
+                footprint.w,
+                visual.w
+            );
+        }
+    }
+}
+
+#[test]
+fn workspace_rail_auto_hides_on_single_workspace() {
+    let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
+    dock.observe_workspaces(&ws_snapshot(1, 0));
+    assert!(
+        dock.bento_cells().is_empty(),
+        "a single workspace leaves the dock pure and centered with no rail"
+    );
+}
+
+#[test]
+fn workspace_rail_shows_on_multiple_workspaces() {
+    let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
+    dock.observe_workspaces(&ws_snapshot(4, 0));
+    let cells = dock.bento_cells();
+    assert_eq!(cells.len(), 1, "carries the workspace rail");
+    assert_eq!(cells[0].kind, BentoCell::workspace_pager(4).kind);
+    assert_eq!(
+        cells[0].rest_width(),
+        65.0,
+        "compact width for 4 workspaces"
+    );
+}
+
+#[test]
+fn workspace_rail_click_switches_workspace() {
+    let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
+    let workspaces = ws_snapshot(3, 0);
+    let ws_ids: Vec<_> = workspaces.outputs[0]
+        .workspaces
+        .iter()
+        .map(|w| w.id)
+        .collect();
+    dock.observe_workspaces(&workspaces);
+
+    let display = (1920.0, 1080.0);
+    let mut input = Input::new(display, 0.05);
+
+    let bounds = dock.visual_panel_bounds(display);
+    let rail_x = bounds.x + DOCK_PAD;
+    let rail_y = bounds.y + (bounds.h - DOCK_TILE) * 0.5;
+
+    // Hover over tick 1
+    let tick1_x = rail_x
+        + crate::components::dock::bento::RAIL_INNER_PAD
+        + crate::components::dock::bento::ACTIVE_TICK
+        + crate::components::dock::bento::TICK_GAP
+        + 2.0;
+    let tick1_y = rail_y + DOCK_TILE * 0.5;
+
+    // Hover to let magnification settle
+    input.set_cursor(tick1_x, tick1_y);
+    let mut ui = lens::Ui::headless().unwrap();
+    let mut out = ChromeEvents::default();
+    let i18n = Localizer::default();
+    ui.frame(&input, |f| {
+        dock.render(f, &input, &[], &workspaces, &i18n, &mut out);
+    });
+
+    // Press on tick 1
+    input.set_mouse_down(lens::MouseButton::Left, true);
+    ui.frame(&input, |f| {
+        dock.render(f, &input, &[], &workspaces, &i18n, &mut out);
+    });
+
+    // Release on tick 1
+    input.set_mouse_down(lens::MouseButton::Left, false);
+
+    let mut out2 = ChromeEvents::default();
+    ui.frame(&input, |f| {
+        dock.render(f, &input, &[], &workspaces, &i18n, &mut out2);
+    });
+
+    assert_eq!(
+        out2.switch_workspace,
+        Some(ws_ids[1]),
+        "clicking tick 1 emits switch to workspace 1"
+    );
+}
+
+#[test]
+fn workspace_rail_wheel_scroll_switches_workspace() {
+    let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
+    let workspaces = ws_snapshot(3, 0);
+    let ws_ids: Vec<_> = workspaces.outputs[0]
+        .workspaces
+        .iter()
+        .map(|w| w.id)
+        .collect();
+    dock.observe_workspaces(&workspaces);
+
+    let display = (1920.0, 1080.0);
+    let mut input = Input::new(display, 0.05);
+
+    let bounds = dock.visual_panel_bounds(display);
+    let rail_x = bounds.x + DOCK_PAD + 10.0;
+    let rail_y = bounds.y + (bounds.h - DOCK_TILE) * 0.5 + 10.0;
+
+    // Hover over rail to let magnification and hover settle
+    input.set_cursor(rail_x, rail_y);
+    let mut ui = lens::Ui::headless().unwrap();
+    let mut out = ChromeEvents::default();
+    let i18n = Localizer::default();
+    ui.frame(&input, |f| {
+        dock.render(f, &input, &[], &workspaces, &i18n, &mut out);
+    });
+
+    // Scroll down (negative scroll_y)
+    input.as_raw_mut().scroll_y = -1.0;
+    let mut out2 = ChromeEvents::default();
+    ui.frame(&input, |f| {
+        dock.render(f, &input, &[], &workspaces, &i18n, &mut out2);
+    });
+
+    assert_eq!(
+        out2.switch_workspace,
+        Some(ws_ids[1]),
+        "scrolling down switches to next workspace"
+    );
+}
+
+#[test]
+fn workspace_rail_renders_on_vertical_dock_positions() {
+    let display = (1920.0, 1080.0);
+    let workspaces = ws_snapshot(3, 0);
+
+    for position in [DockPosition::Left, DockPosition::Right] {
+        let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
+        dock.set_position(position);
+        dock.observe_workspaces(&workspaces);
+
+        let bounds = dock.visual_panel_bounds(display);
+        assert!(bounds.w > 0.0 && bounds.h > 0.0);
+        assert!(bounds.x >= 0.0, "{position:?} dock x is inside display");
+
+        let input = Input::new(display, 0.05);
+        let mut ui = lens::Ui::headless().unwrap();
+        let mut out = ChromeEvents::default();
+        let i18n = Localizer::default();
+        ui.frame(&input, |f| {
+            dock.render(f, &input, &[], &workspaces, &i18n, &mut out);
+        });
+    }
 }

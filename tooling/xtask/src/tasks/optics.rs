@@ -37,14 +37,14 @@ pub struct OpticsArgs {
 /// source at the pinned tag.
 const OPTICS_API_DEPENDENCIES: &[(&str, &str, &str)] = &[
     (
-        "lens::Ui::damage_rect",
+        "lens::Ui::damage_rects",
         "bindings/lens-rs/crates/lens/src/lib.rs",
-        "fn damage_rect",
+        "fn damage_rects",
     ),
     (
-        "lens_damage_rect (C)",
+        "lens_damage_rects (C)",
         "libs/lens/include/lens/lens.h",
-        "lens_damage_rect",
+        "lens_damage_rects",
     ),
     (
         "flux effect byte budget (ADR-0205)",
@@ -60,6 +60,16 @@ const OPTICS_API_DEPENDENCIES: &[(&str, &str, &str)] = &[
         "prism_material_output (ADR-0139)",
         "libs/prism/include/prism/types.h",
         "prism_material_output",
+    ),
+    (
+        "flux_frame_materialize_image (ADR-0147)",
+        "libs/flux/include/flux/core.h",
+        "flux_frame_materialize_image",
+    ),
+    (
+        "flux_frame_plan_stats (ADR-0147)",
+        "libs/flux/include/flux/core.h",
+        "flux_frame_plan_stats",
     ),
 ];
 

@@ -49,7 +49,7 @@ render thread must never stall on a worker, see `tray::TrayProjection`).
 ## 3. Rule 2 — No New Panic Sites (Ratchet)
 
 The production panic sites that remain are grandfathered in
-[`tooling/xtask/panic-baseline.toml`](../../../tooling/xtask/panic-baseline.toml).
+[`tooling/xtask/panic-baseline.toml`](../../tooling/xtask/panic-baseline.toml).
 The gate fails if any crate's count rises, or if a new crate appears with
 sites and no baseline. Counts may fall freely; when they do, regenerate the
 baseline in the same change so the ledger reflects reality:

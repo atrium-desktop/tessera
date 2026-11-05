@@ -13,21 +13,20 @@
 use lens::{Color, Frame, Input, LayoutOpts, Rect};
 
 use crate::component::{
-    BackdropRegion, BatteryAlertParams, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate,
-    CursorShape, LiquidGlassRegion, Localizer, Reserved, ellipsize, modal_scrim_backdrop,
+    BatteryAlertParams, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, Localizer,
+    Reserved, ellipsize,
 };
 use crate::widgets::dialog::ActionButtonStyle;
-use crate::widgets::dialog::DEFAULT_BACKDROP_BLUR_SIGMA;
 use crate::widgets::dialog::DEFAULT_BUTTON_HEIGHT;
 use crate::widgets::dialog::DEFAULT_BUTTON_WIDTH;
 use crate::widgets::dialog::DEFAULT_MODAL_PAD;
 use crate::widgets::dialog::DEFAULT_TITLE_HEIGHT;
-use crate::widgets::dialog::place_modal_panel;
 use crate::widgets::dialog::render_action_button;
+use crate::widgets::dialog::{place_modal_panel, place_modal_veil};
 use crate::widgets::geom::contains;
 use crate::widgets::geom::stretch;
 use crate::widgets::geom::stretch_top;
-use tessera_design::{Design, GlassRole, materials, themes};
+use tessera_design::{Design, materials, themes};
 use tessera_desktop::window::Window;
 use tessera_primitives::input::KeyAction;
 use tessera_primitives::input::KeyChar;
@@ -43,7 +42,6 @@ const TITLE_H: f32 = DEFAULT_TITLE_HEIGHT;
 const BODY_H: f32 = 20.0;
 const BUTTON_H: f32 = DEFAULT_BUTTON_HEIGHT;
 const BUTTON_W: f32 = DEFAULT_BUTTON_WIDTH;
-const BACKDROP_BLUR_SIGMA: f32 = DEFAULT_BACKDROP_BLUR_SIGMA;
 
 /// The resolved geometry of the panel for one frame.
 #[derive(Debug, Clone, Copy)]
@@ -193,8 +191,10 @@ impl Chrome for BatteryAlert {
         let original_theme = frame.theme();
         frame.set_theme(themes::application(&design));
 
-        // Minimal foreground tint only. The compositor-owned analytic pass
-        // supplies the body, refraction, rim light, and shadow.
+        // The veil first, then the panel: the veil dims the desktop so the panel
+        // reads as the only live surface, and the panel's own fill, hairline and
+        // painted halo are the whole body. No compositor-side material exists.
+        place_modal_veil(frame, display, &design, 1.0);
         place_modal_panel(frame, "tessera-battery-alert-panel", layout.panel, &design);
 
         // The gauge: a rounded outline with a charge-proportional fill and
@@ -411,49 +411,6 @@ impl Chrome for BatteryAlert {
     fn battery_alert_active(&self) -> bool {
         self.active
     }
-
-    fn backdrop_blur_sigma(&self) -> f32 {
-        if self.active {
-            BACKDROP_BLUR_SIGMA
-        } else {
-            0.0
-        }
-    }
-
-    fn backdrop_regions(
-        &self,
-        display: (f32, f32),
-        _windows: &[Window],
-        _workspaces: &crate::WorkspaceSnapshot,
-    ) -> Vec<BackdropRegion> {
-        if !self.active {
-            return Vec::new();
-        }
-        let _ = AlertLayout::for_display(display, self.modal_reserved);
-        // The modal's full-display dim is a wash INTO the frost (beneath the
-        // panel's glass body) — it used to be painted above the glass, which
-        // hid the lens's refraction and split the layer stack.
-        vec![modal_scrim_backdrop(display, &self.design)]
-    }
-
-    fn liquid_glass_regions(
-        &self,
-        display: (f32, f32),
-        _windows: &[Window],
-        _workspaces: &crate::WorkspaceSnapshot,
-    ) -> Vec<LiquidGlassRegion> {
-        if !self.active {
-            return Vec::new();
-        }
-        let layout = AlertLayout::for_display(display, self.modal_reserved);
-        vec![LiquidGlassRegion::from_role(
-            &self.design,
-            GlassRole::ProminentPanel,
-            BackdropRegion::from(layout.panel),
-            self.design.radii.glass_panel,
-            1.0,
-        )]
-    }
 }
 
 #[cfg(test)]
@@ -547,31 +504,29 @@ mod tests {
     }
 
     #[test]
-    fn the_active_panel_is_one_analytic_glass_body() {
-        let mut alert = BatteryAlert::new();
+    fn the_active_panel_is_painted_not_material() {
+        let mut chrome = BatteryAlert::new();
         let display = (1280.0, 800.0);
-        let workspaces = crate::WorkspaceSnapshot {
-            outputs: Vec::new(),
-        };
-        assert!(
-            alert
-                .liquid_glass_regions(display, &[], &workspaces)
-                .is_empty()
-        );
-        assert!(!alert.exclusive_presentation_active());
+        assert!(!chrome.exclusive_presentation_active());
 
-        alert.start_battery_alert(params());
-        let backdrop = alert.backdrop_regions(display, &[], &workspaces);
-        let glass = alert.liquid_glass_regions(display, &[], &workspaces);
-        assert_eq!(backdrop.len(), 1);
+        chrome.start_battery_alert(params());
         assert!(
-            backdrop[0].wash.is_some(),
-            "the dim is a wash into the frost"
+            chrome.exclusive_presentation_active(),
+            "a modal consent surface owns the chrome band while it is open"
         );
-        assert_eq!(glass.len(), 1);
-        assert_eq!(glass[0].bounds.w, 400.0);
-        assert_eq!(glass[0].corner_radius, Design::dark().radii.glass_panel);
-        assert_eq!(glass[0].opacity, 1.0);
-        assert!(alert.exclusive_presentation_active());
+        // The panel body is a flat painted fill the component draws itself;
+        // the compositor contributes no material, capture, or blur beneath it.
+        let design = Design::dark();
+        let body = design
+            .surfaces
+            .for_role(tessera_design::SurfaceRole::ProminentPanel);
+        assert_eq!(body.body.components().3, 242, "the panel body is opaque");
+        assert_eq!(body.radius, design.radii.glass_panel);
+        // The veil dims the whole output so the panel is the only live surface.
+        let veil = materials::modal_scrim(&design, 1.0);
+        assert_eq!(veil.radius, 0.0);
+        assert!(veil.bg.components().3 > 0);
+        let layout = AlertLayout::for_display(display, Reserved::default());
+        assert!(layout.panel.w > 0.0 && layout.panel.h > 0.0);
     }
 }

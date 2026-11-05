@@ -29,12 +29,11 @@ components:
 
 | Feature | Component | Additional service |
 |---------|-----------|--------------------|
-| `chrome-dock` | Persistent application Dock | None |
+| `chrome-dock` | Persistent application Dock, with its status reading cells | StatusNotifierItem tray |
 | `chrome-pivot` | System intent and action surface (ADR-0151) | None |
-| `chrome-hud` | Display-only status HUD | StatusNotifierItem tray |
 | `chrome-control-center` | Modal system control center | StatusNotifierItem tray |
 
-For example, build only the Dock and Prism on top of the shared shell:
+For example, build only the Dock and Pivot on top of the shared shell:
 
 ```bash
 cargo build -p tessera --no-default-features \
@@ -42,8 +41,8 @@ cargo build -p tessera --no-default-features \
 ```
 
 Cargo features determine which component crates enter the binary. Runtime
-configuration, such as `[hud] enabled`, controls a component only when its
-crate was compiled in.
+configuration, such as `[dock] enabled`, controls a component only when its crate
+was compiled in.
 
 ## Runtime Effect
 

@@ -3,10 +3,8 @@
 This document is the technical map of Tessera's first-party Miracast (Wi-Fi
 Display, WFD) source. It explains what protocols are used, how the pieces fit
 together, which parts are hardware-validated, and where the remaining limits
-are. The operational handoff is
-[`docs/dev/miracast-handoff.md`](../dev/miracast-handoff.md); the case-by-case
-debugging history and the traps that cost the most time are in
-[`docs/dev/miracast-lessons.md`](../dev/miracast-lessons.md). Decisions are
+are. The operational runbook, diagnostic playbook, and hardware quirks
+are in [`docs/dev/runbooks/miracast.md`](../dev/runbooks/miracast.md). Decisions are
 recorded in [ADR-0192](../adr/0192-first-party-miracast-caster.md) and
 [ADR-0191](../adr/0191-casting-p2p-belongs-to-the-system-wifi-authority.md).
 
@@ -255,7 +253,7 @@ both.
 
 These are protocol requirements for this sink, not optional tuning. Each one was
 observed as a hard failure; the detailed case files are in
-[`miracast-lessons.md`](../dev/miracast-lessons.md).
+[`miracast runbook`](../dev/runbooks/miracast.md).
 
 1. **The trigger belongs in the M5 body.** `wfd_trigger_method: SETUP` inside
    M5 is accepted. A separate source `SET_PARAMETER` after M6 (M7) gets no
@@ -361,9 +359,12 @@ The metadata choices are deliberate:
 
 - **Opt-in** (`[cast] audio = true` or `--audio`); the default is off because
   capturing the desktop's audio is a privacy decision.
-- Capture: `pw-record --target <default sink id> --raw` (system output) or the
-  default source (microphone). The local monitor test shows the tone at about
-  `-30 dB`; the default sink must not be muted.
+- Capture: `pw-record --target <default sink id> -P stream.capture.sink=true
+  --raw` (system output) or the default source (microphone). The
+  `stream.capture.sink` property is what makes the target a monitor: a sink is
+  an output-direction node, so without it PipeWire links the capture stream to
+  the default *source* and the "system" mode records the room. The local monitor
+  test shows the tone at about `-30 dB`; the default sink must not be muted.
 - Encode: `ffmpeg -f s16le -ar 48000 -ac 2 -i pipe:0 -c:a aac -b:a <kbps>k -f
   adts pipe:1`; AAC-LC, 48 kHz, stereo, 128 kbit/s default.
 - The reader splits ADTS frames, computes the 90 kHz PTS (1024 samples per
@@ -537,7 +538,6 @@ was already spawned does not pick up new spawn arguments.
 
 - [ADR-0192: first-party Miracast caster](../adr/0192-first-party-miracast-caster.md)
 - [ADR-0191: P2P belongs to the system Wi-Fi authority](../adr/0191-casting-p2p-belongs-to-the-system-wifi-authority.md)
-- [Miracast handoff](../dev/miracast-handoff.md)
-- [Miracast lessons and diagnostic playbook](../dev/miracast-lessons.md)
+- [Miracast operational runbook](../dev/runbooks/miracast.md)
 - [tessera-cast CLI reference](../reference/tessera-cast.md)
 - [Configuration reference](../reference/config.md)

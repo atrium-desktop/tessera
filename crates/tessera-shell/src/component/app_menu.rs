@@ -7,14 +7,14 @@ use crate::widgets::menu::DEFAULT_MENU_ROW_HEIGHT;
 use crate::widgets::menu::DEFAULT_MENU_SECTION_HEIGHT;
 use crate::widgets::menu::DEFAULT_MENU_WIDTH;
 use lens::{Frame, Input, LayoutOpts, Rect};
-use tessera_design::{Design, GlassRole, materials, themes};
+use tessera_design::{Design, materials, themes};
 use tessera_desktop::app::Entry;
 use tessera_desktop::window::Window;
 use tessera_desktop::window::WindowId;
 
 use crate::component::{
-    BackdropRegion, ChromeEvents, ChromeUpdate, LiquidGlassRegion, Localizer, Message, PinAction,
-    PopupSide, WindowAction, ellipsize, liquid_glass_region_id, place_popup_side,
+    ChromeEvents, ChromeUpdate, Localizer, Message, PinAction, PopupSide, WindowAction, ellipsize,
+    place_popup_side,
 };
 
 const MENU_WIDTH: f32 = DEFAULT_MENU_WIDTH;
@@ -190,28 +190,6 @@ impl AppMenu {
         if let ChromeUpdate::Appearance(design) = update {
             self.design = *design;
         }
-    }
-
-    /// The menu's analytic glass body while open. Owners chain this into
-    /// [`Chrome::backdrop_regions`](crate::component::Chrome::backdrop_regions) and
-    /// [`Chrome::liquid_glass_regions`](crate::component::Chrome::liquid_glass_regions)
-    /// so the compositor backs the popover with real backdrop blur and the
-    /// glass treatment on any background, not only where a blur happens to
-    /// sit underneath. The `Menu` role carries the legibility material
-    /// strengths, and the stable id opts the body into the compositor's
-    /// region-level backdrop adaptation.
-    pub fn liquid_glass_region(&self, display: (f32, f32)) -> Option<LiquidGlassRegion> {
-        let bounds = self.bounds(display)?;
-        Some(
-            LiquidGlassRegion::from_role(
-                &self.design,
-                GlassRole::Menu,
-                BackdropRegion::from(bounds),
-                self.design.radii.popover,
-                1.0,
-            )
-            .with_id(liquid_glass_region_id(self.layer_id)),
-        )
     }
 
     pub fn render(
@@ -535,41 +513,36 @@ mod tests {
     }
 
     #[test]
-    fn open_menu_declares_a_glass_region_over_its_bounds() {
-        let mut menu = AppMenu::new("test-menu", true);
-        let display = (800.0, 600.0);
-        assert!(menu.liquid_glass_region(display).is_none());
-
-        let owner = Rect {
-            x: 700.0,
-            y: 520.0,
-            w: 72.0,
-            h: 72.0,
-        };
-        menu.open("App", None, [WindowId(1)], owner, None);
-        let region = menu
-            .liquid_glass_region(display)
-            .expect("open menu declares a glass body");
-        let bounds = menu.bounds(display).expect("open menu has bounds");
-        assert_eq!(region.bounds, BackdropRegion::from(bounds));
-        assert_eq!(region.corner_radius, menu.design.radii.popover);
-        assert_eq!(region.opacity, 1.0);
-        // The Menu role carries the legibility material strengths and opts
-        // into region-level backdrop adaptation under a stable id.
-        let style = menu.design.glass.for_role(GlassRole::Menu);
-        assert_eq!(region.frost_strength, style.frost_strength);
-        assert_eq!(region.tint_strength, style.tint_strength);
-        assert_eq!(region.saturation, style.saturation);
-        assert_eq!(region.plate_polarity, style.plate_polarity);
-        assert!(region.frost_strength > 1.0 && region.tint_strength > 1.0);
-        assert_eq!(region.id, liquid_glass_region_id("test-menu"));
-        assert_eq!(region.adaptation, None);
+    fn the_menu_body_is_a_legible_painted_popover() {
+        let design = Design::dark();
+        let body = design.surfaces.for_role(tessera_design::SurfaceRole::Menu);
+        // A menu floats over arbitrary application content and carries text,
+        // so its body is near-opaque, keeps the popover radius, and is bounded
+        // by a hairline rather than by an optical rim.
+        assert_eq!(body.radius, design.radii.popover);
+        assert_eq!(body.body.components().3, 248, "menus are near-opaque");
+        assert_eq!(body.border, design.colors.popover_border);
+        assert!(body.border_width > 0.0);
+        // The light appearance swaps the body tone and keeps every metric.
+        let light = Design::light();
+        assert_eq!(
+            light
+                .surfaces
+                .for_role(tessera_design::SurfaceRole::Menu)
+                .radius,
+            body.radius
+        );
     }
 
     #[test]
     fn appearance_update_replaces_the_design_snapshot() {
         let mut menu = AppMenu::new("test-menu", true);
         assert!(!menu.design.is_light());
+        let dark_body = menu
+            .design
+            .surfaces
+            .for_role(tessera_design::SurfaceRole::Menu)
+            .body;
         let owner = Rect {
             x: 700.0,
             y: 520.0,
@@ -577,18 +550,19 @@ mod tests {
             h: 72.0,
         };
         menu.open("App", None, [WindowId(1)], owner, None);
-        let dark_region = menu
-            .liquid_glass_region((800.0, 600.0))
-            .expect("dark region exists");
-        assert_eq!(dark_region.plate_polarity, 0.0);
+        assert!(menu.bounds((800.0, 600.0)).is_some());
 
         let light = Design::light();
         menu.update(ChromeUpdate::Appearance(&light));
         assert!(menu.design.is_light());
-        let light_region = menu
-            .liquid_glass_region((800.0, 600.0))
-            .expect("light region exists");
-        assert_eq!(light_region.plate_polarity, 1.0);
+        assert_ne!(
+            menu.design
+                .surfaces
+                .for_role(tessera_design::SurfaceRole::Menu)
+                .body,
+            dark_body,
+            "the menu body re-tones with the appearance"
+        );
 
         // set_design also updates directly
         menu.set_design(Design::dark());

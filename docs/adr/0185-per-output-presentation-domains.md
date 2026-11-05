@@ -158,7 +158,7 @@ version of that one.
 
 These are the red-lines the implementation must prove; none is declared as an
 `INV-` tag yet, because the enforcement mechanism does not exist until the code
-lands ([Invariant Governance](../dev/standards/invariants.md) §3).
+lands ([Invariant Governance](../dev/invariants.md) §3).
 
 - A framebuffer referenced by a plane slot must not be destroyed, regardless of
   cache reuse flags, until that slot is reprogrammed or the CRTC is disabled.
@@ -176,7 +176,7 @@ lands ([Invariant Governance](../dev/standards/invariants.md) §3).
   framebuffer must not destroy it.
 - Unit: `plan_scanout` against per-output targets, including a candidate on the
   second output and a candidate spanning two outputs (rejected).
-- Hardware ([VT and DRM Testing](../dev/vt-drm-testing.md)), 165 Hz + 60 Hz:
+- Hardware ([VT and DRM Testing](../dev/testing/vt-drm-testing.md)), 165 Hz + 60 Hz:
   a full-output game on the fast output logs `direct scanout active`, its
   presented frame rate follows the fast output's vblank, and the slow output
   keeps a static frame without flipping.

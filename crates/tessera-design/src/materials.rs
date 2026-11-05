@@ -3,6 +3,7 @@
 use lens::{Align, Band, Color, LayoutOpts, PlaceMode, PlaceOpts, Rect};
 
 use crate::Design;
+use crate::tokens::SurfaceRole;
 
 /// Base layout for absolutely-placed tessera surfaces.
 ///
@@ -36,7 +37,7 @@ pub fn chrome_place(rect: Rect, layout: LayoutOpts) -> PlaceOpts {
     }
 }
 
-/// The frosted-glass material used by compact menus and popovers.
+/// The flat material used by compact menus and popovers.
 #[must_use]
 pub fn popover(design: &Design) -> LayoutOpts {
     LayoutOpts {
@@ -49,39 +50,123 @@ pub fn popover(design: &Design) -> LayoutOpts {
     }
 }
 
-/// The minimal painted foreground shared by analytic glass panels.
+/// The complete body of a floating chrome panel.
 ///
-/// The compositor's analytic liquid-glass pass supplies the physical body —
-/// refraction, adaptive tint and rim light — while this painted layer
-/// supplies subtle surface cohesion and a crisp hairline boundary stroke
-/// following the Optics Lens material specification.
+/// This is the whole surface — fill, hairline, corners — because the
+/// compositor no longer draws a material beneath chrome. A panel's cost is one
+/// rounded-rect fill; there is no capture to sample and no shader to run, which
+/// is what lets chrome sit on screen at a steady frame time.
 #[must_use]
-pub fn glass_panel(design: &Design) -> LayoutOpts {
+pub fn panel(design: &Design) -> LayoutOpts {
+    let style = design.surfaces.for_role(SurfaceRole::FloatingPanel);
     LayoutOpts {
-        bg: design.colors.glass_surface,
-        border: design.colors.glass_border,
-        border_width: design.strokes.hairline,
-        radius: design.radii.glass_panel,
+        bg: style.body,
+        border: style.border,
+        border_width: style.border_width,
+        radius: style.radius,
         pad: 0.0,
         cross: Align::Center,
         ..surface_layout()
     }
 }
 
-/// Interaction emphasis for content nested inside an existing glass body.
+/// Painted elevation halo for a floating body.
 ///
-/// This is a foreground wash, not another material body. The compositor's
-/// single-body focus field supplies optical lift for selected content; this
-/// layer provides a restrained fallback and immediate pointer feedback.
-/// Enter/exit fades belong to the lens opacity switch (`Frame::set_opacity`),
-/// so the tint is always returned at full strength.
+/// A flat product still needs to separate a floating surface from arbitrary
+/// content beneath it, and it cannot buy that separation from a blur or a
+/// shader. Instead each halo step is one inflated rounded rect at a low,
+/// pre-multiplied alpha: two steps approximate a soft edge at the cost of two
+/// fills, which is what keeps chrome's per-frame cost proportional to its
+/// area rather than to a sampling radius. The steps are ordered outermost
+/// first, so a caller places them beneath the body in iteration order.
+///
+/// Returns an empty list for a role that does not float (a tile sits on a
+/// panel canvas and must not cast).
 #[must_use]
-pub fn glass_focus(design: &Design, selected: bool) -> LayoutOpts {
+pub fn elevation_halo(
+    design: &Design,
+    role: SurfaceRole,
+    bounds: Rect,
+    opacity: f32,
+) -> Vec<(Rect, LayoutOpts)> {
+    if !role.floats() {
+        return Vec::new();
+    }
+    let style = design.surfaces.for_role(role);
+    if style.shadow_alpha <= 0.0 || style.shadow_blur <= 0.0 || opacity <= 0.0 {
+        return Vec::new();
+    }
+    let opacity = opacity.clamp(0.0, 1.0);
+    // Two steps, each reaching a fraction of the nominal blur: the wider step
+    // is fainter so the pair reads as a gradient rather than as two rings.
+    let steps = [(1.0, 0.38_f32), (0.55, 0.42_f32)];
+    steps
+        .iter()
+        .map(|(reach, share)| {
+            let spread = style.shadow_blur * reach;
+            let alpha = (style.shadow_alpha * share * opacity * 255.0)
+                .round()
+                .clamp(0.0, 255.0);
+            let halo = Rect {
+                x: bounds.x - spread,
+                y: bounds.y - spread + style.shadow_offset_y,
+                w: bounds.w + spread * 2.0,
+                h: bounds.h + spread * 2.0,
+            };
+            let material = LayoutOpts {
+                bg: design.colors.shadow_ink.with_alpha(alpha as u8),
+                border: Color::TRANSPARENT,
+                border_width: 0.0,
+                radius: style.radius + spread,
+                pad: 0.0,
+                ..surface_layout()
+            };
+            (halo, material)
+        })
+        .collect()
+}
+
+/// Place a floating body together with its painted elevation halo.
+///
+/// The halo steps are placed first (outermost first) and the body last, so the
+/// body always paints over its own shadow. `id` names the body; the halo steps
+/// derive stable child ids from it, which keeps lens's damage and hit-testing
+/// identity stable across frames.
+pub fn place_floating(
+    frame: &mut lens::Frame,
+    id: &str,
+    role: SurfaceRole,
+    design: &Design,
+    bounds: Rect,
+    opacity: f32,
+    body: LayoutOpts,
+    place: impl FnOnce(&mut lens::Frame),
+) {
+    for (index, (rect, material)) in elevation_halo(design, role, bounds, opacity)
+        .into_iter()
+        .enumerate()
+    {
+        frame.place(
+            &format!("{id}-elevation-{index}"),
+            &chrome_place(rect, material),
+            |_| {},
+        );
+    }
+    frame.place(id, &chrome_place(bounds, body), place);
+}
+
+/// Interaction emphasis for content nested inside an existing panel body.
+///
+/// This is a foreground wash, not another surface. Selection reads through
+/// luminance against the parent body; it never creates an outline, a second
+/// body, or an accent tint.
+#[must_use]
+pub fn selection(design: &Design, selected: bool) -> LayoutOpts {
     LayoutOpts {
         bg: if selected {
-            design.glass_focus.selected_tint
+            design.selection.selected_tint
         } else {
-            design.glass_focus.hover_tint
+            design.selection.hover_tint
         },
         border: Color::TRANSPARENT,
         border_width: 0.0,
@@ -103,14 +188,36 @@ pub fn card(design: &Design) -> LayoutOpts {
     }
 }
 
-/// The opaque elevated surface of the control center (ADR-0080).
+/// The opaque elevated surface of the control center's own canvas (ADR-0176).
 #[must_use]
-pub fn hud_panel(colors: &crate::ControlCenterColors) -> LayoutOpts {
+pub fn canvas_panel(colors: &crate::ControlCenterColors) -> LayoutOpts {
     LayoutOpts {
         bg: colors.surface,
         border: colors.border,
         border_width: 1.0,
         radius: 16.0,
+        pad: 0.0,
+        ..surface_layout()
+    }
+}
+
+/// A modal's full-output veil, painted in the chrome band beneath the modal
+/// panel.
+///
+/// A modal dims the whole output so its panel reads as the only live surface.
+/// This is a flat fill at the output's extent — there is no backdrop material
+/// to blend into, so the veiling is exactly one rounded-rect draw whose alpha
+/// the caller drains through `opacity` as the modal leaves.
+#[must_use]
+pub fn modal_scrim(design: &Design, opacity: f32) -> LayoutOpts {
+    let opacity = opacity.clamp(0.0, 1.0);
+    LayoutOpts {
+        bg: design.colors.modal_scrim.with_alpha(
+            (f32::from(design.colors.modal_scrim.components().3) * opacity).round() as u8,
+        ),
+        border: Color::TRANSPARENT,
+        border_width: 0.0,
+        radius: 0.0,
         pad: 0.0,
         ..surface_layout()
     }
@@ -161,11 +268,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn popover_material_preserves_the_existing_glass_values() {
+    fn popover_material_preserves_the_existing_surface_values() {
         let material = popover(&Design::dark());
         let colors = Design::dark().colors;
-        // The surface stays translucent for the compositor's backdrop blur,
-        // but opaque enough to read where blur is unavailable.
+        // A popover is a flat body: near-opaque so it reads over any content
+        // without a backdrop effect to lean on.
         assert_eq!(material.bg, colors.popover_surface);
         assert_eq!(material.border, colors.popover_border);
         assert_eq!(material.border_width, 1.0);
@@ -174,23 +281,69 @@ mod tests {
     }
 
     #[test]
-    fn glass_panel_material_keeps_the_painted_layer_minimal() {
+    fn panel_material_carries_the_whole_flat_body() {
         let dark = Design::dark();
-        let material = glass_panel(&dark);
-        assert_eq!(material.bg, dark.colors.glass_surface);
-        assert_eq!(material.border, dark.colors.glass_border);
+        let material = panel(&dark);
+        let style = dark.surfaces.for_role(SurfaceRole::FloatingPanel);
+        assert_eq!(material.bg, style.body);
+        assert_eq!(material.bg.components().3, 242, "the body is opaque");
+        assert_eq!(material.border, style.border);
         assert_eq!(material.border_width, dark.strokes.hairline);
         assert_eq!(material.radius, 18.0);
         assert_eq!(material.cross, Align::Center);
     }
 
     #[test]
-    fn glass_focus_is_neutral_and_never_draws_an_outline() {
+    fn elevation_halo_is_two_faint_fills_ordered_outermost_first() {
         let design = Design::dark();
-        let hover = glass_focus(&design, false);
-        let selected = glass_focus(&design, true);
-        assert_eq!(hover.bg, design.glass_focus.hover_tint);
-        assert_eq!(selected.bg, design.glass_focus.selected_tint);
+        let bounds = Rect {
+            x: 100.0,
+            y: 900.0,
+            w: 200.0,
+            h: 60.0,
+        };
+        let halo = elevation_halo(&design, SurfaceRole::Dock, bounds, 1.0);
+        assert_eq!(halo.len(), 2, "a soft edge from two fills, not a blur pass");
+        // Outermost first, so a caller places them in order beneath the body.
+        assert!(halo[0].0.w > halo[1].0.w, "the wider step comes first");
+        for (rect, material) in &halo {
+            assert!(rect.w >= bounds.w && rect.h >= bounds.h);
+            let alpha = material.bg.components().3;
+            assert!(
+                alpha > 0 && alpha < 140,
+                "each step is a faint wash: {alpha}"
+            );
+            assert_eq!(material.border_width, 0.0, "a halo never draws an edge");
+            assert_eq!(material.bg.components().0, 0, "a shadow is neutral black");
+        }
+    }
+
+    #[test]
+    fn elevation_halo_is_absent_for_a_role_that_does_not_float() {
+        let design = Design::dark();
+        let bounds = Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 40.0,
+            h: 40.0,
+        };
+        assert!(
+            elevation_halo(&design, SurfaceRole::Tile, bounds, 1.0).is_empty(),
+            "a tile sits on a panel canvas and must not cast"
+        );
+        assert!(
+            elevation_halo(&design, SurfaceRole::Dock, bounds, 0.0).is_empty(),
+            "a body faded to nothing casts nothing"
+        );
+    }
+
+    #[test]
+    fn selection_is_neutral_and_never_draws_an_outline() {
+        let design = Design::dark();
+        let hover = selection(&design, false);
+        let selected = selection(&design, true);
+        assert_eq!(hover.bg, design.selection.hover_tint);
+        assert_eq!(selected.bg, design.selection.selected_tint);
         assert_eq!(hover.border, Color::TRANSPARENT);
         assert_eq!(hover.border_width, 0.0);
         assert_eq!(hover.radius, design.radii.control);
@@ -207,12 +360,12 @@ mod tests {
     }
 
     #[test]
-    fn hud_panel_material_is_opaque_in_both_schemes() {
+    fn canvas_panel_material_is_opaque_in_both_schemes() {
         for colors in [
             crate::CommandPanelColors::dark(),
             crate::CommandPanelColors::light(),
         ] {
-            let material = hud_panel(&colors);
+            let material = canvas_panel(&colors);
             assert_eq!(material.bg, colors.surface);
             assert_eq!(material.border, colors.border);
             assert_eq!(material.border_width, 1.0);

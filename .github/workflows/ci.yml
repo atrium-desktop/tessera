@@ -146,7 +146,6 @@ jobs:
       - name: Check selective chrome builds
         run: |
           cargo check --locked -p tessera --no-default-features
-          cargo check --locked -p tessera --no-default-features --features chrome-hud
           cargo check --locked -p tessera --no-default-features --features chrome-control-center
           cargo check --locked -p tessera --no-default-features \
             --features chrome-dock,chrome-pivot

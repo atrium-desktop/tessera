@@ -16,6 +16,9 @@ impl Chrome for Dock {
         let cursor = input.as_raw().cursor;
         let down = input.as_raw().mouse_down.first().copied().unwrap_or(false);
         self.last_display = Some((disp.x, disp.y));
+        // Idempotent with the pre-pass: whichever runs first resolves the pager,
+        // and the other observes the same snapshot.
+        self.observe_workspaces(_workspaces);
 
         // A fullscreen client owns the whole output edge: no animation,
         // handle, hover target, popup, or residual tooltip may surface above
@@ -73,7 +76,7 @@ impl Chrome for Dock {
         // All tile layout runs along this axis and maps to x/y at the end.
         let axis_disp = if vertical { disp.y } else { disp.x };
         let cursor_axis = if vertical { cursor.y } else { cursor.x };
-        let rest_bounds = Self::rest_bounds(n, pinned_count, position, (disp.x, disp.y));
+        let rest_bounds = self.live_rest_bounds(n, pinned_count, (disp.x, disp.y));
 
         // Drop eased sizes for tiles no longer present so the map does not
         // grow unbounded across long sessions.
@@ -194,6 +197,8 @@ impl Chrome for Dock {
         let content_progress = geometry.content_progress;
         let panel_rect = geometry.panel_rect;
         let icon_baseline = geometry.icon_baseline;
+        // Resolved before `geometry` is partially moved below.
+        let reading_rect = self.bento_rect(&geometry, vertical);
         let mut icon_rects: Vec<Rect> = geometry.icon_rects;
 
         // During a reorder drag the dragged tile leaves its slot and floats
@@ -223,13 +228,32 @@ impl Chrome for Dock {
         // A placed surface with an empty body collapses to ~0 (the rect is
         // only an anchor, not a size); a fixed-size child forces it to the
         // bar size.
-        f.place(
+        materials::place_floating(
+            f,
             "tessera-dock",
-            &chrome_place(panel_rect, dock_material),
+            SurfaceRole::Dock,
+            &self.design,
+            panel_rect,
+            1.0,
+            dock_material,
             |f| {
                 f.column_ex(&sized(panel_rect.w, panel_rect.h), |_| {});
             },
         );
+
+        if let Some(rect) = reading_rect {
+            crate::components::dock::bento::render_workspace_rail(
+                f,
+                &self.design,
+                "tessera-dock-workspace-rail",
+                rect,
+                self.workspace_tick_count,
+                self.workspace_current,
+                self.hovered_workspace_tick,
+                content_progress,
+                vertical,
+            );
+        }
 
         // Hit-test only content that still exists in the morphing surface.
         // The resting bounds remain the outer ownership limit, while the
@@ -248,6 +272,25 @@ impl Chrome for Dock {
                 vertical,
             )
         };
+
+        let prev_ws_tick = self.hovered_workspace_tick;
+        self.hovered_workspace_tick = if drag_active {
+            None
+        } else if let Some(rail_rect) = reading_rect {
+            crate::components::dock::bento::hit_test_workspace_rail(
+                rail_rect,
+                (cursor.x, cursor.y),
+                self.workspace_tick_count,
+                self.workspace_current,
+                vertical,
+            )
+        } else {
+            None
+        };
+        if self.hovered_workspace_tick != prev_ws_tick {
+            self.anim_active = true;
+            out.scene_changed = true;
+        }
 
         // Draw each tile's icon, then its running dot. Once content has
         // reached the sink, no tile placements remain behind the stadium.
@@ -291,6 +334,38 @@ impl Chrome for Dock {
             position,
             out,
         );
+
+        // Wheel scroll over workspace rail cycles workspaces smoothly.
+        let raw = input.as_raw();
+        let scroll_delta = if raw.scroll_y.abs() > 0.001 {
+            -raw.scroll_y
+        } else if raw.scroll_x.abs() > 0.001 {
+            raw.scroll_x
+        } else if raw.scroll_pixels_y.abs() > 1.0 {
+            -raw.scroll_pixels_y.signum()
+        } else if raw.scroll_pixels_x.abs() > 1.0 {
+            raw.scroll_pixels_x.signum()
+        } else {
+            0.0
+        };
+
+        if self.hovered_workspace_tick.is_some()
+            && scroll_delta.abs() > 0.5
+            && !self.workspace_ids.is_empty()
+        {
+            let n = self.workspace_ids.len();
+            let new_idx = if scroll_delta > 0.0 {
+                (self.workspace_current + 1).min(n - 1)
+            } else {
+                self.workspace_current.saturating_sub(1)
+            };
+            if new_idx != self.workspace_current && new_idx < self.workspace_ids.len() {
+                out.switch_workspace = Some(self.workspace_ids[new_idx]);
+                self.workspace_current = new_idx;
+                self.dock_interacted = true;
+                out.scene_changed = true;
+            }
+        }
 
         self.update_hover_surfaces(
             f,
@@ -378,15 +453,15 @@ impl Chrome for Dock {
         }
     }
 
-    fn prepare_frame(
-        &mut self,
-        input: &Input,
-        windows: &[Window],
-        _workspaces: &WorkspaceSnapshot,
-    ) {
+    fn prepare_frame(&mut self, input: &Input, windows: &[Window], workspaces: &WorkspaceSnapshot) {
         if self.fullscreen_locked() {
             return;
         }
+        // The pager's width is part of the bar length, and the pre-pass
+        // publishes frame-T geometry the hit-test reads. Observing the snapshot
+        // only in `render` would let the pre-pass and the paint measure two
+        // different bars on any frame where the workspace count changed.
+        self.observe_workspaces(workspaces);
         // Apply the optimistic reorder here too: the pre-pass builds the tile
         // strip and the hover hit-test from `self.apps`, so a pending order that
         // only `render` applied would make the pre-pass publish frame-T geometry
@@ -403,42 +478,6 @@ impl Chrome for Dock {
         let drag_active = self.press.as_ref().is_some_and(|p| p.dragging);
         self.step_autohide_motion(dt, cursor, display, drag_active);
         self.autohide_stepped_in_prepass = true;
-    }
-
-    fn backdrop_blur_sigma(&self) -> f32 {
-        if self.fullscreen_locked() { 0.0 } else { 12.0 }
-    }
-
-    fn backdrop_regions(
-        &self,
-        display: (f32, f32),
-        _windows: &[Window],
-        _workspaces: &WorkspaceSnapshot,
-    ) -> Vec<BackdropRegion> {
-        // The panel itself declares no backdrop region: its glass body
-        // carries an animation-stable `capture_bounds` footprint instead, so
-        // reveal and magnification morphs never invalidate the capture.
-        let mut regions = Vec::with_capacity(2);
-        if let Some(region) = self.hover_liquid_glass_region() {
-            regions.push(region.bounds);
-        }
-        if let Some(region) = self.app_menu.liquid_glass_region(display) {
-            regions.push(region.bounds);
-        }
-        regions
-    }
-
-    fn liquid_glass_regions(
-        &self,
-        display: (f32, f32),
-        _windows: &[Window],
-        _workspaces: &WorkspaceSnapshot,
-    ) -> Vec<LiquidGlassRegion> {
-        self.liquid_glass_region(display)
-            .into_iter()
-            .chain(self.hover_liquid_glass_region())
-            .chain(self.app_menu.liquid_glass_region(display))
-            .collect()
     }
 
     fn live_preview_presentation(&self) -> Option<LivePreviewPresentation> {
@@ -472,22 +511,19 @@ impl Chrome for Dock {
         } else {
             AUTOHIDE_QUICK_DISMISS_TIMEOUT
         };
-        let target = if effective_autohide {
-            if self.autohide_idle >= idle_timeout && !self.app_menu.is_open() {
-                0.0
-            } else {
-                1.0
-            }
+        let locked = self.interaction_locked();
+        let target = if effective_autohide && !locked && self.autohide_idle >= idle_timeout {
+            0.0
         } else {
             1.0
         };
         let dwell_active =
             self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold;
         let idle_counting = effective_autohide
+            && !locked
             && self.autohide_reveal > 0.001
             && self.autohide_idle > 0.0
-            && self.autohide_idle < idle_timeout
-            && !self.app_menu.is_open();
+            && self.autohide_idle < idle_timeout;
         let drag_active = self.press.as_ref().is_some_and(|p| p.dragging);
         // `settled_drain_frames` and `hover_drain_frames` are *damage* bookkeeping
         // (repaint the swapchain ring slots once more so every in-flight image
@@ -515,10 +551,10 @@ impl Chrome for Dock {
         let mut regions: Vec<Rect> = Vec::new();
         let strip = {
             let rect = self.capture_footprint(display);
-            // Optics casts the SDF shadow up to twice its blur radius outside
+            // A painted shadow reaches up to twice its blur radius outside
             // the body. Repaint the full shadow envelope, including the old
             // expanded shadow while the body collapses, and round outward.
-            let style = self.design.glass.for_role(GlassRole::Dock);
+            let style = self.design.surfaces.for_role(SurfaceRole::Dock);
             let fringe = 2.0 * style.shadow_blur.max(0.0) + 1.0;
             let offset = style.shadow_offset_y;
             let x0 = (rect.x - fringe).floor().max(0.0);
@@ -628,6 +664,7 @@ impl Chrome for Dock {
                 self.app_menu.update(update);
             }
             ChromeUpdate::AppCatalog(catalog) => self.update_app_catalog(catalog),
+            ChromeUpdate::SystemStatus(_) => {}
             _ => {}
         }
     }
@@ -741,12 +778,23 @@ impl Dock {
         } else {
             0.0
         };
-        let bar_len = eased.iter().sum::<f32>()
-            + (n as f32 - 1.0) * DOCK_TILE_GAP
-            + (section_gap - DOCK_TILE_GAP).max(0.0)
-            + 2.0 * DOCK_PAD;
+        let bento = self.bento_cells();
+        let bar_len = crate::components::dock::bento::strip_length(
+            eased.iter().copied(),
+            &bento,
+            DOCK_TILE_GAP,
+            DOCK_PAD,
+        );
+        let _ = n;
         let bar_axis_origin = (axis_disp - bar_len) * 0.5;
-        let centres = strip_centres(eased, order, bar_axis_origin, section_slot, section_gap);
+        let reading_len = DockState::reading_extent(&bento);
+        let centres = strip_centres(
+            eased,
+            order,
+            bar_axis_origin + reading_len,
+            section_slot,
+            section_gap,
+        );
         let surface_progress = if effective_autohide {
             Self::collapse_surface_progress(self.autohide_reveal)
         } else {
@@ -843,13 +891,13 @@ impl Dock {
             );
             let n = tiles.len();
             let pinned_count = tiles.iter().filter(|t| t.pinned).count();
-            let rest_bounds = Self::rest_bounds(n, pinned_count, position, display);
+            let rest_bounds = self.live_rest_bounds(n, pinned_count, display);
             let owner_centre = self
                 .tooltip_tile
                 .as_ref()
                 .or(self.hovered_tile.as_ref())
                 .and_then(|key| tiles.iter().position(|t| &t.key == key))
-                .map(|owner_idx| Self::rest_centre_estimate(owner_idx, n, pinned_count, axis_disp));
+                .map(|owner_idx| self.live_rest_centre(owner_idx, n, pinned_count, axis_disp));
             let keys = if self.sizes.is_empty() {
                 Vec::new()
             } else {
@@ -933,9 +981,13 @@ impl Dock {
 
         let keeps_revealed = (over_dock_trigger || over_hover_surface) && !retreating;
         let menu_open = self.app_menu.is_open();
+        // One resolved veto, consumed here and by `anim_pending`: a gesture the
+        // user started outranks the idle timer, so a scrub, a drag, or an open
+        // menu cannot be collapsed out from under the pointer.
+        let locked = self.interaction_locked();
 
         if effective_autohide {
-            if keeps_revealed || menu_open || drag_active {
+            if keeps_revealed || locked {
                 self.autohide_idle = 0.0;
             } else if retreating {
                 self.autohide_idle = self.autohide_timeout;
@@ -945,12 +997,8 @@ impl Dock {
             }
         }
 
-        let target_reveal = if effective_autohide {
-            if self.autohide_idle >= idle_timeout && !menu_open {
-                0.0
-            } else {
-                1.0
-            }
+        let target_reveal = if effective_autohide && !locked && self.autohide_idle >= idle_timeout {
+            0.0
         } else {
             1.0
         };
@@ -989,7 +1037,7 @@ impl Dock {
         let over_hover_surface = self.hover_surface_contains(cursor.0, cursor.1);
 
         // Advance tile magnification springs in the pre-pass whenever tiles are
-        // already initialized so `liquid_glass_region` (`visual_panel_bounds`)
+        // already initialized so `body_rect` (`visual_panel_bounds`)
         // and `damage_regions` observe the exact same frame-T geometry as `render`.
         let mut unsettled = false;
         if !tile_keys.is_empty() {
@@ -1016,7 +1064,7 @@ impl Dock {
                 let target = Self::magnification_target(
                     in_band,
                     magnify_axis,
-                    Self::rest_centre_estimate(i, n, pinned_count, axis_disp),
+                    self.live_rest_centre(i, n, pinned_count, axis_disp),
                 );
                 // A key absent from the spring table only happens when the tile
                 // set changed since the table was primed. Seed it with the same
@@ -1086,11 +1134,81 @@ impl Dock {
         self.motion.anim_active = self.anim_active;
     }
 
-    /// Resolve the single animated Dock body once for both capture bounds and
-    /// the analytic glass pass. The foreground material uses the same radius
-    /// through `collapsing_dock_material`, eliminating the old two-rectangle
-    /// blur cross and its hard corner discontinuities.
-    fn liquid_glass_region(&self, display: (f32, f32)) -> Option<LiquidGlassRegion> {
+    /// Whether a sub-interaction the user started is holding the dock open.
+    ///
+    /// Three states veto the collapse, and each is a gesture rather than a
+    /// position:
+    ///
+    /// * a **drag** is in flight (a tile being reordered) — the pointer leaves
+    ///   the bar by definition;
+    /// * a **popup** owned by the dock is open (the app context menu) — the
+    ///   pointer lives inside the popup, not the bar;
+    /// * a **control is held** (a press that has not resolved), because a press
+    ///   that ends outside the bar is still the same gesture.
+    ///
+    /// Hover is deliberately absent: a pointer resting on a tile is already
+    /// covered by the reveal corridor, and treating presence as a lock would let
+    /// a parked pointer hold the dock open forever.
+    #[must_use]
+    pub fn interaction_locked(&self) -> bool {
+        let dragging = self.press.as_ref().is_some_and(|press| press.dragging);
+        dragging || self.app_menu.is_open() || self.press.is_some()
+    }
+
+    /// The Bento reading section's rect: the leading cells of the bar's content
+    /// row, on the bar's own baseline.
+    ///
+    /// The reading occupies the section the strip geometry reserved for it, so
+    /// the paint and the layout cannot disagree about where it ends and the
+    /// first icon begins.
+    pub(super) fn bento_rect(&self, geometry: &StripGeometry, vertical: bool) -> Option<Rect> {
+        let cells = self.bento_cells();
+        if cells.is_empty() || geometry.content_progress <= 0.001 {
+            return None;
+        }
+        let total: f32 = cells.iter().map(|cell| cell.rest_width()).sum::<f32>();
+        if total <= 0.0 {
+            return None;
+        }
+        // The reading row is as tall as a resting tile but sits on the same
+        // baseline, so the pager reads level with the icons rather than floating.
+        let thickness = DOCK_TILE * geometry.content_progress;
+        let pad = DOCK_PAD;
+        let start = if vertical {
+            geometry.panel_rect.y + pad
+        } else {
+            geometry.panel_rect.x + pad
+        };
+        Some(match self.position {
+            DockPosition::Left => Rect {
+                x: geometry.icon_baseline,
+                y: start,
+                w: thickness,
+                h: total,
+            },
+            DockPosition::Right => Rect {
+                x: geometry.icon_baseline - thickness,
+                y: start,
+                w: thickness,
+                h: total,
+            },
+            DockPosition::Bottom => Rect {
+                x: start,
+                y: geometry.icon_baseline - thickness,
+                w: total,
+                h: thickness,
+            },
+        })
+    }
+
+    /// The Dock's animated body rect, resolved once per frame for both the
+    /// damage envelope and the paint.
+    ///
+    /// Autohide morphs the whole panel between the expanded bar and the
+    /// collapsed capsule; this is the single source of that geometry, so the
+    /// painted body and the damage strip can never disagree.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(super) fn body_rect(&self, display: (f32, f32)) -> Option<Rect> {
         if self.fullscreen_locked() {
             return None;
         }
@@ -1100,72 +1218,68 @@ impl Dock {
         } else {
             expanded.w
         };
-        let bounds = if self.effective_autohide() {
+        Some(if self.effective_autohide() {
             Self::collapsed_panel_rect(self.position, display, expanded_len, self.autohide_reveal)
         } else {
             expanded
-        };
+        })
+    }
+
+    /// The Dock body's painted surface at its current reveal.
+    ///
+    /// This is the whole material: fill, hairline, corner radius, and the
+    /// shadow that separates the bar from the desktop. It morphs with the
+    /// capsule — the collapsed state is a small pill rather than a flat
+    /// hairline, because a resting edge control has to read as a control.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(super) fn body_material(&self, display: (f32, f32)) -> Option<(Rect, LayoutOpts)> {
+        let bounds = self.body_rect(display)?;
         let surface_progress = if self.effective_autohide() {
             Self::collapse_surface_progress(self.autohide_reveal)
         } else {
             1.0
         };
-        // The shadow follows the morph in logical pixels: the full bar
-        // casts the deep Dock shadow, the collapsed handle keeps a
-        // proportionally tight one. The panel's thickness is its height on
-        // the bottom edge and its width on a side edge.
         let thick = if self.position.is_vertical() {
             bounds.w
         } else {
             bounds.h
         };
-        let shadow_factor = (thick / DOCK_PANEL_HEIGHT).clamp(0.35, 1.0);
-        let design = self.design;
-        let mut region = LiquidGlassRegion::from_role(
-            &design,
-            GlassRole::Dock,
-            BackdropRegion::from(bounds),
-            collapsing_radius(&design, surface_progress, thick),
-            1.0,
-        );
-        region.shadow_blur *= shadow_factor;
-        region.shadow_offset_y *= shadow_factor;
-        Some(
-            region
-                .with_capture_bounds(BackdropRegion::from(self.capture_footprint(display)))
-                .with_id(liquid_glass_region_id("tessera-dock-bar")),
-        )
+        Some((
+            bounds,
+            collapsing_dock_material(&self.design, surface_progress, thick, self.autohide_dwell),
+        ))
     }
 
-    fn hover_liquid_glass_region(&self) -> Option<LiquidGlassRegion> {
+    /// The hover surface (name bubble or live preview panel) as painted
+    /// material, at its current fade.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(super) fn hover_body_material(&self) -> Option<(Rect, LayoutOpts)> {
         let bounds = self.hover_surface_bounds?;
         if self.tooltip_alpha <= 0.01 || bounds.w <= 0.0 || bounds.h <= 0.0 {
             return None;
         }
-        let is_preview = self.live_preview.is_some();
         let design = self.design;
-        let focus = self.live_preview.as_ref().and_then(|presentation| {
-            preview::focus_field(&presentation.cards, presentation.focused, &design)
+        let is_preview = self.live_preview.is_some();
+        let style = design.surfaces.for_role(if is_preview {
+            SurfaceRole::FloatingPanel
+        } else {
+            SurfaceRole::Tooltip
         });
-        Some(
-            LiquidGlassRegion::from_role(
-                &design,
-                if is_preview {
-                    GlassRole::FloatingPanel
-                } else {
-                    GlassRole::Tooltip
-                },
-                BackdropRegion::from(bounds),
-                if is_preview {
-                    design.radii.glass_panel
+        Some((
+            bounds,
+            LayoutOpts {
+                bg: style.body,
+                border: style.border,
+                border_width: style.border_width,
+                radius: if is_preview {
+                    style.radius
                 } else {
                     TOOLTIP_HEIGHT * 0.5
                 },
-                self.tooltip_alpha,
-            )
-            .with_id(liquid_glass_region_id("tessera-dock-hover"))
-            .with_focus(focus),
-        )
+                pad: 0.0,
+                ..surface_layout()
+            },
+        ))
     }
 }
 
@@ -1173,7 +1287,7 @@ impl Dock {
 /// widths, a preview `order` permutation, and the section boundary.
 ///
 /// Both the compositor pre-pass ([`Dock::step_autohide_motion`], which must
-/// publish frame-T geometry to `damage_regions` and `liquid_glass_regions`) and
+/// publish frame-T geometry to `damage_regions` and `bodies`) and
 /// `render` (which paints it) derive their layout from
 /// [`Dock::resolve_strip_geometry`], so the panel rect, tile centres, icon
 /// rects, and drain progress can never disagree (ADR-0171, ADR-0180).
@@ -1329,26 +1443,51 @@ fn collapsing_radius(design: &Design, surface_progress: f32, height: f32) -> f32
     radius.min(height * 0.5)
 }
 
+/// Straight (unpremultiplied) channels of a palette colour.
+///
+/// Palette values are stored premultiplied, but an interpolation between two of
+/// them has to run on straight channels and repremultiply once: mixing
+/// premultiplied bytes and feeding them back through [`Color::rgba`]
+/// premultiplies twice and lands the body darker than either endpoint.
+fn straight(color: Color) -> (u8, u8, u8, u8) {
+    let (r, g, b, a) = color.components();
+    if a == 0 || a == 255 {
+        return (r, g, b, a);
+    }
+    // The quotient is provably <= 255 because `c` is a premultiplied channel
+    // (`c <= a`), so the narrowing cannot truncate.
+    let un = |c: u8| ((u32::from(c) * 255 + u32::from(a) / 2) / u32::from(a)).min(255) as u8;
+    (un(r), un(g), un(b), a)
+}
+
+/// How far the resting capsule's body lifts while the pointer dwells on it.
+///
+/// The dwell is a micro-interaction acknowledgement, not a second state: it
+/// brightens the same fill slightly and resets with the pointer. It is
+/// deliberately a tone lift rather than an alpha lift — the capsule is already
+/// opaque, so pushing alpha would change nothing visible.
+const DOCK_DWELL_GLOW: f32 = 30.0;
+
 fn collapsing_dock_material(
     design: &Design,
     surface_progress: f32,
     height: f32,
     dwell_progress: f32,
 ) -> LayoutOpts {
-    let mut material = materials::glass_panel(design);
-    // The painted tint interpolates between the two palette endpoints as the
-    // surface morphs between the collapsed handle and the expanded bar.
-    let mut collapsed = design.dock.bar_surface_collapsed.components();
-    if surface_progress <= 0.001 && dwell_progress > 0.0 {
-        // Subtle micro-interaction glow on dwell
-        let boost = (30.0 * dwell_progress).round() as u8;
-        collapsed.3 = collapsed.3.saturating_add(boost);
-    }
-    let expanded = design.dock.bar_surface_expanded.components();
+    let mut material = materials::panel(design);
+    // The painted body interpolates between the two palette endpoints as the
+    // surface morphs between the collapsed capsule and the expanded bar.
+    let collapsed = straight(design.dock.bar_surface_collapsed);
+    let expanded = straight(design.dock.bar_surface_expanded);
+    let glow = if surface_progress <= 0.001 {
+        (DOCK_DWELL_GLOW * dwell_progress.clamp(0.0, 1.0)).round() as u8
+    } else {
+        0
+    };
     material.bg = Color::rgba(
-        mix_channel(collapsed.0, expanded.0, surface_progress),
-        mix_channel(collapsed.1, expanded.1, surface_progress),
-        mix_channel(collapsed.2, expanded.2, surface_progress),
+        mix_channel(collapsed.0, expanded.0, surface_progress).saturating_add(glow),
+        mix_channel(collapsed.1, expanded.1, surface_progress).saturating_add(glow),
+        mix_channel(collapsed.2, expanded.2, surface_progress).saturating_add(glow),
         mix_channel(collapsed.3, expanded.3, surface_progress),
     );
     material.radius = collapsing_radius(design, surface_progress, height);
@@ -1437,13 +1576,19 @@ fn render_tooltip(frame: &mut Frame, design: &Design, label: &str, rect: Rect, a
     let original = frame.theme();
     frame.set_theme(original.with_fg(design.colors.menu_text));
     frame.set_opacity(alpha);
-    let mut material = materials::glass_panel(design);
-    // The painted layer stays the design's glass whisper; the physical body
-    // comes from the analytic pass, and the fade rides the opacity switch.
+    let mut material = materials::panel(design);
+    // The bubble is one painted body: a rounded fill, a hairline, and the
+    // elevation halo that lifts it off the desktop. The fade rides the lens
+    // opacity switch, so the halo drains with the body rather than popping.
     material.radius = TOOLTIP_HEIGHT * 0.5;
-    frame.place(
+    materials::place_floating(
+        frame,
         "tessera-dock-app-name",
-        &chrome_place(rect, material),
+        tessera_design::SurfaceRole::Tooltip,
+        design,
+        rect,
+        alpha,
+        material,
         |frame| {
             frame.row_ex(
                 &LayoutOpts {
@@ -1601,9 +1746,14 @@ fn render_live_preview_chrome(
     // The whole popover fades through the lens opacity switch; per-card
     // content dimming multiplies on top of it below.
     frame.set_opacity(presentation.visibility);
-    frame.place(
+    materials::place_floating(
+        frame,
         "tessera-dock-live-previews",
-        &chrome_place(panel, material),
+        tessera_design::SurfaceRole::FloatingPanel,
+        design,
+        panel,
+        presentation.visibility,
+        material,
         |frame| {
             frame.column_ex(&sized(panel.w, panel.h), |_| {});
         },
@@ -1840,6 +1990,7 @@ impl Dock {
                         PressTarget::OtherTile(key) => tiles.iter().any(|tile| {
                             &tile.key == key && !tile.pinned && tile.pin_entry.is_some()
                         }),
+                        PressTarget::WorkspaceTick(_) => false,
                     };
                 }
                 if press.dragging {
@@ -1867,7 +2018,7 @@ impl Dock {
                                         let pinned_centres: Vec<f32> = (1..pinned_count)
                                             .filter(|slot| *slot != strip)
                                             .map(|slot| {
-                                                Self::rest_centre_estimate(
+                                                self.live_rest_centre(
                                                     slot,
                                                     n,
                                                     pinned_count,
@@ -1900,6 +2051,7 @@ impl Dock {
                                 self.anim_active = true;
                             }
                         }
+                        PressTarget::WorkspaceTick(_) => {}
                         PressTarget::OtherTile(key) => {
                             let strip = tiles.iter().position(|tile| &tile.key == key);
                             match strip {
@@ -1920,7 +2072,7 @@ impl Dock {
                                         // pinned-app rest centre.
                                         let pinned_centres: Vec<f32> = (1..pinned_count)
                                             .map(|slot| {
-                                                Self::rest_centre_estimate(
+                                                self.live_rest_centre(
                                                     slot,
                                                     n,
                                                     pinned_count,
@@ -2022,6 +2174,7 @@ impl Dock {
                                 self.pending_order = Some(ids);
                             }
                         }
+                        PressTarget::WorkspaceTick(_) => {}
                     }
                 }
             } else if keep_press {
@@ -2070,7 +2223,7 @@ impl Dock {
                 .as_ref()
                 .or(self.hovered_tile.as_ref())
                 .and_then(|key| tiles.iter().position(|t| &t.key == key))
-                .map(|owner_idx| Self::rest_centre_estimate(owner_idx, n, pinned_count, axis_disp))
+                .map(|owner_idx| self.live_rest_centre(owner_idx, n, pinned_count, axis_disp))
         } else {
             None
         };
@@ -2088,7 +2241,7 @@ impl Dock {
             let target = Self::magnification_target(
                 in_band,
                 magnify_axis,
-                Self::rest_centre_estimate(i, n, pinned_count, axis_disp),
+                self.live_rest_centre(i, n, pinned_count, axis_disp),
             );
             let mut newly_inserted = false;
             // Look up before inserting so an existing tile does not pay a
@@ -2389,7 +2542,16 @@ impl Dock {
         // reorder drag; a press on empty panel space may become an edge
         // drag. Anything else stays a pending click.
         if pressed_edge && !menu_was_open && !clicked_preview && self.press.is_none() {
-            if let Some(i) = hit {
+            if let Some(ws_idx) = self.hovered_workspace_tick {
+                self.press = Some(PressState {
+                    origin: (cursor.x, cursor.y),
+                    target: PressTarget::WorkspaceTick(ws_idx),
+                    dragging: false,
+                    section: DropSection::Pinned,
+                    insert: None,
+                    start_position: position,
+                });
+            } else if let Some(i) = hit {
                 let tile = &tiles[i];
                 let target = if tile.pinned && tile.app.is_some() {
                     PressTarget::PinnedTile(tile.key.clone())
@@ -2430,24 +2592,33 @@ impl Dock {
         // A click fires on the release edge, and only when the press began
         // on the same tile and never became a drag. A release after a drag,
         // or off the pressed tile, activates nothing.
-        if released_edge
-            && !suppress_release_click
-            && !menu_was_open
-            && let (Some(target), Some(i)) = (released_target, hit)
-        {
-            let pressed_this_tile = match &target {
-                PressTarget::PinnedTile(key) | PressTarget::OtherTile(key) => key == &tiles[i].key,
-                PressTarget::Panel => false,
-            };
-            if pressed_this_tile {
-                self.dock_interacted = true;
-                let t = &tiles[i];
-                if t.launchpad {
-                    out.toggle_pivot = true;
-                } else if let Some(id) = t.focus {
-                    out.clicked = Some(id);
-                } else if let Some(ai) = t.spawn {
-                    out.activate_entry(self.apps[ai].entry.clone());
+        if released_edge && !suppress_release_click && !menu_was_open {
+            if let Some(PressTarget::WorkspaceTick(orig_idx)) = released_target {
+                if self.hovered_workspace_tick == Some(orig_idx) {
+                    self.dock_interacted = true;
+                    if let Some(&target_id) = self.workspace_ids.get(orig_idx) {
+                        out.switch_workspace = Some(target_id);
+                        self.workspace_current = orig_idx;
+                        out.scene_changed = true;
+                    }
+                }
+            } else if let (Some(target), Some(i)) = (released_target, hit) {
+                let pressed_this_tile = match &target {
+                    PressTarget::PinnedTile(key) | PressTarget::OtherTile(key) => {
+                        key == &tiles[i].key
+                    }
+                    PressTarget::Panel | PressTarget::WorkspaceTick(_) => false,
+                };
+                if pressed_this_tile {
+                    self.dock_interacted = true;
+                    let t = &tiles[i];
+                    if t.launchpad {
+                        out.toggle_pivot = true;
+                    } else if let Some(id) = t.focus {
+                        out.clicked = Some(id);
+                    } else if let Some(ai) = t.spawn {
+                        out.activate_entry(self.apps[ai].entry.clone());
+                    }
                 }
             }
         }

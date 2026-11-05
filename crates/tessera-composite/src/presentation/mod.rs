@@ -1,17 +1,12 @@
 //! GPU presentation, frame damage, scanout planning, and capture-stream production.
 //! Delivery and security policy are supplied by the session through callbacks.
 
-mod backdrop;
 mod damage;
 mod geometry;
 mod scanout;
 mod scheduler;
 mod stream;
 
-pub use backdrop::{
-    BACKDROP_DOWNSAMPLE, BackdropCaptureRegion, backdrop_refresh_regions, blur_regions_in_capture,
-    intersect_blur_regions, refresh_regions_covering_material_change, slot_material_changed,
-};
 pub use damage::{
     AssessedFrameDamage, ClientDamage, ClientDamageTracker, DamageAssessment, FrameDamage,
     SurfaceDamageFrame, SurfacePlacement, composite_repaint_for_slot, frame_damage_render_area,

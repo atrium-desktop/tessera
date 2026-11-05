@@ -1,6 +1,6 @@
 # Chrome Animation, Backdrop Coherence, and Dock State-Machine Triage
 
-Engineering know-how and diagnostic guide for attributing and preventing frame drops, liquid-glass ghosting, swapchain flickering, and interaction state-machine deadlocks across `tessera-shell`, `tessera`, and `optics` (see [ADR-0171](../../adr/0171-chrome-animation-pre-pass-synchronization-and-surface-placement-invariants.md), [ADR-0177](../../adr/0177-dock-transit-spring-unification-and-anti-oscillation-latch.md), [ADR-0179](../../adr/0179-zero-redundancy-presentation-pipeline-substepped-motion-and-render-target-bucketing.md), [ADR-0180](../../adr/0180-single-pass-chrome-fades-backdrop-allocation-decoupling-and-dock-prepass-coherence.md), and [ADR-0181](../../adr/0181-canonical-chrome-prepass-seam-occlusion-elision-and-deferred-scanout-ownership.md)).
+Engineering know-how and diagnostic guide for attributing and preventing frame drops, ghosting, swapchain flickering, and interaction state-machine deadlocks across `tessera-shell`, `tessera`, and `optics` (see [ADR-0171](../../adr/0171-chrome-animation-pre-pass-synchronization-and-surface-placement-invariants.md), [ADR-0177](../../adr/0177-dock-transit-spring-unification-and-anti-oscillation-latch.md), [ADR-0179](../../adr/0179-zero-redundancy-presentation-pipeline-substepped-motion-and-render-target-bucketing.md), [ADR-0180](../../adr/0180-single-pass-chrome-fades-backdrop-allocation-decoupling-and-dock-prepass-coherence.md), and [ADR-0181](../../adr/0181-canonical-chrome-prepass-seam-occlusion-elision-and-deferred-scanout-ownership.md)).
 
 ---
 
@@ -14,7 +14,8 @@ Every chrome component that declares backdrop effects (`liquid_glass_regions`, `
   1. `shell.prepare_frame(&input)`
   2. `assess_frame_damage(...)` (queries `shell.anim_pending()` and `shell.anim_damage_region()`)
   3. `shell.backdrop_layers(...)` & `shell.live_preview_presentations()`
-  4. Offscreen backdrop capture + blur + Prism liquid-glass compute dispatch
+  4. Offscreen backdrop capture + blur + Prism material compute dispatch (removed
+     from chrome by ADR-0213; only the window-shadow filter remains)
   5. Main output pass + `shell.render(...)`
 - **Failure Mode**: If tile magnification springs (`Dock::sizes`) or VRM portrait advances (`ControlCenter::avatar`) run inside `render()`, the backdrop pass samples **Frame T-1** geometry while the Lens foreground pass draws **Frame T** geometry, producing a visible 1-frame double-edge ghosting (`重影`) or interleaving offscreen queue submissions inside an open output render pass.
 - **Single layout source**: `Dock::resolve_strip_geometry` produces the bar length, tile centres, panel rect, and icon rects for *both* the pre-pass and `render`. Do not re-inline that math in either caller — a second copy is how the pre-pass and `render` end up disagreeing about where a tile is. `Dock::apply_pending_order` runs in both so an optimistic reorder commit is visible to the pre-pass.
@@ -25,10 +26,18 @@ When offscreen render targets (`BackdropCapture`) are rounded up to 128-pixel bu
 
 - `BackdropCapture::size` (returned by `capture_size(slot)`) **must store the unpadded logical content extent** (`capture_extent / BACKDROP_DOWNSAMPLE`).
 - `BackdropCapture::allocated_size` **must store the physical padded texture dimensions**.
-- **Failure Mode**: Returning the padded bucket dimensions from `capture_size(slot)` causes `capture_ratio = capture_size / capture_extent` to become non-unit (e.g., `1280 / 1192 = 1.0738×` in X and `128 / 76 = 1.684×` in Y), stretching the Prism liquid-glass shape and blur regions relative to the unscaled `draw_cached` UV crop (`u_span = raw_w / img_w`).
+- **Historical (pre-ADR-0213)**: the padded-bucket `capture_size` failure stretched
+  the material shape against the unscaled `draw_cached` UV crop. The capture pass
+  and `draw_cached` are gone from chrome; the entry is retained only because the
+  same class of bug — a ratio computed against one extent and applied to another —
+  still applies to the window-shadow filter's offscreen buckets.
 
 ### Rule 3: Stable Capture Footprints Across Partial Opacity Fades
-When a component hosts multiple glass bodies (such as the HUD's left status chip and center workspace chip), individual bodies fading to `0.0` while sibling bodies remain visible **must not drop their `capture_bounds` from `liquid_glass_regions`**.
+**Historical (pre-ADR-0213)**: multiple material bodies fading independently had
+to keep their capture bounds declared, or a partially faded body held stale
+pixels. Chrome declares no capture bounds at all now; the equivalent invariant is
+that a body fading out still reports its painted halo as damage until it reaches
+zero opacity.
 
 - Keep visible chips in `liquid_glass_regions` with `.with_capture_bounds(bounds)` and clamp `opacity` to `0.0` once `fade <= 0.01`.
 - `glass_region_active(region)` (`opacity > 0.0`) automatically skips Prism compute dispatch for the transparent chip while keeping `BackdropCacheKey` invariant across single-chip proximity fades.
@@ -103,7 +112,7 @@ let desktop_occluded = shell_requires_composition
 
 | Observed Symptom | Primary Suspect | Where to Inspect |
 |------------------|-----------------|------------------|
-| Severe frame drops during Control Center open/close or HUD fade | Per-node `save_layer` pass explosion in `optics`, or mid-fade `BackdropCacheKey` invalidation | `../optics/libs/lens/src/render/replay.c` (`lensi_compile_node_body`), `crates/tessera-shell/src/components/hud/hud.rs` (`liquid_glass_regions`) |
+| Severe frame drops during Control Center open/close or a chrome fade | Per-node `save_layer` pass explosion in `optics`, or a damage envelope that misses a fading body's painted halo | `../optics/libs/lens/src/render/replay.c` (`lensi_compile_node_body`), `crates/tessera-shell/src/chrome/system_osd.rs` (`damage_regions`) |
 | Dock glass background appears wider/taller or shifted relative to the Dock border (`重影`) | `BackdropCapture::size` returning padded 128px bucket dimensions instead of logical content dimensions, `BackdropCacheKey` quantizing `capture_origin`/`capture_extent`, or `Dock::sizes` stepped in `render()` instead of `prepare_frame()` | `crates/tessera/src/runtime/rendering.rs` (`BackdropGraphExecutor::prepare`, `BackdropCacheKey::new`), `crates/tessera-shell/src/components/dock/rendering.rs` (`step_autohide_motion`, `resolve_strip_geometry`) |
 | Old magnified Dock tiles, tooltips, or preview cards flicker every 2–3 frames on cursor movement (`闪烁`) | `Dock::anim_pending()` returning `false` during magnification/hover drain, or `hover_damage_rect` not unioned into `Dock::damage_region()` for 3 drain frames | `crates/tessera-shell/src/components/dock/rendering.rs` (`anim_pending`, `damage_region`, `record_hover_surface_damage`) |
 | Region screenshot selection cannot be dragged; Enter/Space closes the picker with no capture (`截图不可用`) | `ScreenshotSelector::prepare_backdrop` never dispatched (`Chrome::prepare_frame` default consumed the call), so `update_pointer` never ran and `confirmed` stayed `None` | `crates/tessera-shell/src/component/mod.rs` (`Chrome::prepare_frame`), `crates/tessera-shell/src/chrome/screenshot.rs` (`prepare_frame`, `update_pointer`) |

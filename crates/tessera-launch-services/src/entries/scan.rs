@@ -145,8 +145,7 @@ fn parse_text(
     id: &str,
     context: &ParseContext<'_>,
 ) -> Result<Option<Entry>, AppsError> {
-    let ini = Ini::load_from_str(text)
-        .map_err(|e| AppsError::Parse(path.to_path_buf(), e))?;
+    let ini = Ini::load_from_str(text).map_err(|e| AppsError::Parse(path.to_path_buf(), e))?;
     // Only the main entry; `[Desktop Action …]` quicklists are ignored.
     let Some(section) = ini.section(Some("Desktop Entry")) else {
         return Ok(None);

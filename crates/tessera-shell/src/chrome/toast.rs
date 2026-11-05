@@ -26,8 +26,8 @@ use tessera_desktop::workspace::WorkspaceSnapshot;
 const TOAST_W: f32 = 300.0;
 const TOAST_H: f32 = 64.0;
 const TOAST_GAP: f32 = 8.0;
-const TOAST_TOP_MARGIN: f32 = crate::HUD_HEIGHT + 10.0;
-const TOAST_RIGHT_MARGIN: f32 = 10.0;
+const TOAST_TOP_MARGIN: f32 = crate::component::SCREEN_CORNER_INSET;
+const TOAST_RIGHT_MARGIN: f32 = crate::component::SCREEN_CORNER_INSET;
 /// Cap the visible stack so a flood does not fill the screen.
 const MAX_VISIBLE: usize = 5;
 /// How long a toast stays on screen. Aging out is not a queue mutation, so

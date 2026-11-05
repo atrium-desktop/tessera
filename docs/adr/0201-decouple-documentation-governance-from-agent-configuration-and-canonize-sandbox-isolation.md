@@ -43,13 +43,13 @@ During the transition from the legacy external `docgov` meta-framework to flat i
    - `AGENTS.md` is decoupled from repository documentation governance. It does not carry documentation standards, review matrices, or docgov residue; it is dedicated to user maintenance.
 
 2. **Canonization of `[INV-ARCH-87]` (Environment & State Isolation)**:
-   - The test and state isolation rule previously referenced in ADR-0170 is promoted to a formal System Invariant in `docs/dev/standards/architecture.md` §2.6 and `docs/dev/standards/invariants.md`.
+   - The test and state isolation rule previously referenced in ADR-0170 is promoted to a formal System Invariant in `docs/dev/architecture.md` §2.6 and `docs/dev/invariants.md`.
 
 3. **Purification of Documentation Taxonomy**:
    - `docs/dev/standards/taxonomy.md` §3 is purified to whitelist only canonical top-level documentation files (`README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `LICENSE`, `SECURITY.md`). Developer workspace configs and agent files are formally classified as user-maintained tooling decoupled from the documentation hierarchy.
 
 4. **Amending ADR-0170**:
-   - The citation in [ADR-0170](0170-canonical-shell-preview-routing-and-workspace-debug-asset-topology.md) is updated to cite `[INV-ARCH-87]` and `docs/dev/standards/architecture.md`.
+   - The citation in [ADR-0170](0170-canonical-shell-preview-routing-and-workspace-debug-asset-topology.md) is updated to cite `[INV-ARCH-87]` and `docs/dev/architecture.md`.
 
 ### Invariants & Behavioral Boundaries
 
@@ -59,7 +59,7 @@ During the transition from the legacy external `docgov` meta-framework to flat i
 
 ### Retaining `AGENTS.md` as an Invariant Anchor
 - **Why considered**: `AGENTS.md` already contained natural-language summaries of isolation rules.
-- **Why rejected**: Violates the core governance philosophy (*Mechanisms Over Exhortations*, `docs/dev/standards/invariants.md`). Prompt files are mutable consumer inputs, not authoritative architectural foundations. Citing prompt files in ADRs creates circular dependencies and epistemic rot.
+- **Why rejected**: Violates the core governance philosophy (*Mechanisms Over Exhortations*, `docs/dev/invariants.md`). Prompt files are mutable consumer inputs, not authoritative architectural foundations. Citing prompt files in ADRs creates circular dependencies and epistemic rot.
 
 ### Prescribing Vendor Symlinks (`CLAUDE.md`, `GEMINI.md`) in Taxonomy
 - **Why considered**: Convenient for developers utilizing multiple AI editor clients.

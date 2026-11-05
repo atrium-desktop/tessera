@@ -17,13 +17,10 @@ default = ["full-chrome"]
 full-chrome = [
     "chrome-dock",
     "chrome-pivot",
-    "chrome-hud",
     "chrome-control-center",
 ]
 chrome-dock = ["tessera-shell/chrome-dock"]
 chrome-pivot = ["tessera-shell/chrome-pivot"]
-# The composition root owns the single tray service used by either surface.
-chrome-hud = ["tessera-shell/chrome-hud"]
 chrome-control-center = ["tessera-shell/chrome-control-center"]
 dbus-system = ["dep:zbus"]
 
@@ -57,8 +54,6 @@ tessera-sched = { workspace = true }
 tessera-launch-services = { workspace = true }
 flux = { workspace = true }
 lens = { workspace = true }
-# Liquid-glass material compositor (ADR-0063 moved it out of flux).
-prism = { workspace = true }
 image = { workspace = true }
 libc = { workspace = true }
 # Embeds the bundled Tessera cursor theme as the default fallback (ADR-0207).
@@ -77,12 +72,11 @@ zbus = { workspace = true, optional = true }
 flux-sys = { workspace = true }
 vista-sys = { workspace = true }
 lens-sys = { workspace = true }
-prism-sys = { workspace = true }
 transit = { workspace = true }
 transit-sys = { workspace = true }
 
 [package.metadata.cargo-machete]
-ignored = ["vista-sys", "prism-sys", "transit-sys"]
+ignored = ["vista-sys", "transit-sys"]
 
 [dev-dependencies]
 tessera-desktop = { workspace = true }

@@ -3,8 +3,6 @@
 pub mod control_center;
 #[cfg(feature = "chrome-dock")]
 pub mod dock;
-#[cfg(feature = "chrome-hud")]
-pub mod hud;
 #[cfg(feature = "chrome-pivot")]
 pub mod pivot;
 #[cfg(feature = "chrome-control-center")]

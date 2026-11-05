@@ -2477,7 +2477,9 @@ fn frame_callbacks_are_double_buffered_and_pending_until_commit() {
     assert!(surface.frame_callbacks.is_empty());
 
     // Simulate commit: pending_frame_callbacks moves to frame_callbacks
-    surface.frame_callbacks.append(&mut surface.pending_frame_callbacks);
+    surface
+        .frame_callbacks
+        .append(&mut surface.pending_frame_callbacks);
 
     // Now committed and waiting for output presentation
     assert!(server.frame_callbacks_pending());
@@ -2510,7 +2512,9 @@ fn synchronized_subsurface_frame_callbacks_stay_pending_until_parent_commit() {
     assert!(child.frame_callbacks.is_empty());
 
     // Parent commit applies cached subsurface state
-    child.frame_callbacks.append(&mut child.pending_frame_callbacks);
+    child
+        .frame_callbacks
+        .append(&mut child.pending_frame_callbacks);
 
     assert!(server.frame_callbacks_pending());
     assert_eq!(child.frame_callbacks.len(), 1);
@@ -2551,7 +2555,9 @@ fn presentation_feedback_is_double_buffered_and_pending_until_commit() {
     assert!(surface.presentation_feedback.is_empty());
 
     // Simulate commit: pending_presentation_feedback moves to presentation_feedback
-    surface.presentation_feedback.append(&mut surface.pending_presentation_feedback);
+    surface
+        .presentation_feedback
+        .append(&mut surface.pending_presentation_feedback);
 
     // Now committed and awaiting presentation
     assert!(extensions::presentation_feedback_pending(&server.state));

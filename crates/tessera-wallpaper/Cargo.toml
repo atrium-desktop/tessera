@@ -24,3 +24,9 @@ ignored = ["vista-sys", "flux-sys"]
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+# The deferred-effect materialization boundary (Optics ADR-0147). Production
+# wallpaper layers composite no effect outputs, so this edge exists only for
+# the live-blur test that exercises the contract.
+tessera-composite.workspace = true

@@ -1,4 +1,4 @@
-//! Enforce the panic discipline of `docs/dev/standards/error-handling.md`
+//! Enforce the panic discipline of `docs/dev/error-handling.md`
 //! (ADR-0195).
 //!
 //! Two rules over **production** code (test modules are excluded):

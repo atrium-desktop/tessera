@@ -194,7 +194,11 @@ struct RasterCursor {
 
 /// Load a pre-baked PNG sprite and convert to premultiplied BGRA8, applying
 /// the stamped hotspot scaled from the native viewBox space (ADR-0207).
-fn decode_cursor_sprite(png: &[u8], svg_meta_source: Option<&[u8]>, out: u32) -> Option<RasterCursor> {
+fn decode_cursor_sprite(
+    png: &[u8],
+    svg_meta_source: Option<&[u8]>,
+    out: u32,
+) -> Option<RasterCursor> {
     let out = out.clamp(1, 256);
     let dyn_img = image::load_from_memory(png).ok()?;
     let resized = if dyn_img.width() == out && dyn_img.height() == out {

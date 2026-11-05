@@ -139,7 +139,7 @@ them.
 
 Each invariant names its enforcement mechanism. The `test_inv_*` naming is the
 repository's audit convention for the invariant set
-(`docs/dev/standards/invariants.md`).
+(`docs/dev/invariants.md`).
 
 - `[INV-ARCH-98] Transient pools are byte-bounded.` No code path may admit a
   pooled transient that would take its pool past `EFFECT_POOL_BUDGET_BYTES`

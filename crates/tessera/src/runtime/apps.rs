@@ -20,7 +20,8 @@ impl IconCache {
 }
 
 /// Fallback icon used for applications and windows without a desktop icon (ADR-0207).
-pub(super) const DEFAULT_APP_ICON_PNG: &[u8] = include_bytes!("../../../../assets/icons/unknown.png");
+pub(super) const DEFAULT_APP_ICON_PNG: &[u8] =
+    include_bytes!("../../../../assets/icons/unknown.png");
 pub(super) const DEFAULT_ICON_KEY: &str = "__tessera_default_app_icon__";
 
 /// Raster extensions the `image` crate decodes directly. SVG/SVGZ uses the
@@ -276,8 +277,7 @@ pub(super) fn decode_icons(
     let default_target = tessera_launch_services::DEFAULT_ICON_SIZE
         .saturating_mul(icon_scale.max(1))
         .min(512);
-    if let Some(default_bgra) = decode_png_bgra(DEFAULT_APP_ICON_PNG, default_target)
-    {
+    if let Some(default_bgra) = decode_png_bgra(DEFAULT_APP_ICON_PNG, default_target) {
         decoded.push(DecodedIcon {
             keys: vec![
                 DEFAULT_ICON_KEY.to_string(),

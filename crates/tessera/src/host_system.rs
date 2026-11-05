@@ -3,18 +3,48 @@
 //! Separates real Linux host commands and sysfs probes from the compositor runtime,
 //! enabling deterministic, zero-side-effect simulation through [`MockHostSystem`] in
 //! preview and testing environments.
+//!
+//! Audio does **not** live here (ADR-0216). Its observation and intent contract
+//! is [`crate::audio`], which this module composes: the sound server's graph is
+//! a subsystem with its own parse seam, its own captured-document tests, and its
+//! own mock, and folding it into the same file as `brightnessctl` and battery
+//! sysfs would have made the one seam every test needs the least reviewable part
+//! of the crate. What stays here is the composition: one `ForkedStatus` per full
+//! probe, so a caller cannot accidentally observe two different moments of the
+//! audio graph.
 
 use std::fs;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex, OnceLock, mpsc};
+use std::sync::{Arc, Mutex};
 
-pub use tessera_desktop::settings::DisplayStatus;
+use crate::audio::{AudioBackend, AudioSnapshot, PipeWireBackend};
+use crate::host_command::spawn_host_command;
+
 pub use tessera_desktop::system::BatteryStatus;
 pub use tessera_desktop::system::NetworkState;
 pub use tessera_desktop::system::SystemStatus;
 
+/// Everything the status poller learns from probes that fork a subprocess, as
+/// one coherent record so a new field cannot be silently dropped by the cheap
+/// poll between full probes.
+///
+/// The cheap `/sys` pass reuses these values; it must carry all of them or the
+/// snapshot would forget, say, which outputs exist every second poll — the
+/// panel would then flicker its output list.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ForkedStatus {
+    /// The whole audio observation — inventories, defaults, levels, and the
+    /// live capture flag — as one value (ADR-0215, ADR-0216).
+    pub audio: AudioSnapshot,
+    pub wifi_enabled: Option<bool>,
+    pub wifi_ssid: Option<String>,
+}
+
 /// Backend-neutral contract for host system controls and status observation.
+///
+/// Audio is deliberately expressed here in the same verbs the compositor needs
+/// and delegated to [`crate::audio`] by both implementations, so the runtime has
+/// one dependency to inject and the audio contract has one owner.
 pub trait HostSystem: Send + Sync {
     /// Mutate audio output volume level (0..=100).
     fn set_volume(&self, level: u8) -> Result<(), String>;
@@ -24,6 +54,24 @@ pub trait HostSystem: Send + Sync {
 
     /// Toggle audio output mute state.
     fn toggle_mute(&self) -> Result<(), String>;
+
+    /// Route playback to the named audio output (ADR-0215), by the sound
+    /// server's own node name. The server owns the routing; this is a request
+    /// to it, and success means the request was accepted, not that every
+    /// already-running stream moved (a stream may pin its target).
+    fn set_audio_output(&self, name: &str) -> Result<(), String>;
+
+    /// Route new capture streams to the named audio input (ADR-0216), by the
+    /// sound server's own node name.
+    fn set_audio_input(&self, name: &str) -> Result<(), String>;
+
+    /// Set the default input's capture volume percentage (ADR-0216).
+    fn set_microphone_volume(&self, level: u8) -> Result<(), String>;
+
+    /// Toggle the default input's mute (ADR-0216). Separate from
+    /// [`HostSystem::toggle_mute`] on purpose: silencing the microphone is a
+    /// privacy action and must not be reachable from the playback fader.
+    fn toggle_microphone_mute(&self) -> Result<(), String>;
 
     /// Set screen backlight brightness (1..=100).
     fn set_brightness(&self, level: u8) -> Result<(), String>;
@@ -46,52 +94,63 @@ pub trait HostSystem: Send + Sync {
     /// Detect complete system status snapshot.
     fn detect_status(&self) -> SystemStatus;
 
-    /// Detect lightweight system status (cheap /sys read without forking).
-    fn detect_status_lightweight(
-        &self,
-        last_volume: Option<u8>,
-        last_muted: bool,
-        last_wifi_enabled: Option<bool>,
-        last_wifi_ssid: Option<String>,
-    ) -> SystemStatus;
+    /// Detect lightweight system status (cheap /sys read without forking),
+    /// reusing the forked readings it cannot observe.
+    fn detect_status_lightweight(&self, last: &ForkedStatus) -> SystemStatus;
 
-    /// Probe forked status (`(volume, muted, wifi_enabled, wifi_ssid)`).
-    fn detect_forked_status(&self) -> (Option<u8>, bool, Option<bool>, Option<String>);
+    /// Probe the forked half of the status snapshot.
+    fn detect_forked_status(&self) -> ForkedStatus;
 }
 
-/// Production Linux host system backend interacting with live OS services (`wpctl`, `brightnessctl`, `rfkill`, `systemctl`).
-#[derive(Debug, Default, Clone, Copy)]
-pub struct LiveHostSystem;
+/// Production Linux host system backend interacting with live OS services
+/// (`brightnessctl`, `rfkill`, `systemctl`) and, for audio, the sound server's
+/// own CLI bridge (ADR-0216).
+#[derive(Debug, Clone)]
+pub struct LiveHostSystem {
+    audio: Arc<dyn AudioBackend>,
+}
+
+impl Default for LiveHostSystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl LiveHostSystem {
     pub fn new() -> Self {
-        Self
+        Self {
+            audio: Arc::new(PipeWireBackend::new()),
+        }
     }
 }
 
 impl HostSystem for LiveHostSystem {
     fn set_volume(&self, level: u8) -> Result<(), String> {
-        let amount = format!("{level}%");
-        spawn_host_command(
-            "wpctl",
-            &["set-volume", "@DEFAULT_AUDIO_SINK@", &amount, "-l", "1.0"],
-        )
+        self.audio.set_output_volume(level)
     }
 
     fn step_volume(&self, delta: i8) -> Result<(), String> {
-        let amount = format!(
-            "{}%{}",
-            delta.unsigned_abs(),
-            if delta >= 0 { "+" } else { "-" }
-        );
-        spawn_host_command(
-            "wpctl",
-            &["set-volume", "@DEFAULT_AUDIO_SINK@", &amount, "-l", "1.0"],
-        )
+        self.audio.step_output_volume(delta)
     }
 
     fn toggle_mute(&self) -> Result<(), String> {
-        spawn_host_command("wpctl", &["set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"])
+        self.audio.toggle_output_mute()
+    }
+
+    fn set_audio_output(&self, name: &str) -> Result<(), String> {
+        self.audio.set_output(name)
+    }
+
+    fn set_audio_input(&self, name: &str) -> Result<(), String> {
+        self.audio.set_input(name)
+    }
+
+    fn set_microphone_volume(&self, level: u8) -> Result<(), String> {
+        self.audio.set_input_volume(level)
+    }
+
+    fn toggle_microphone_mute(&self) -> Result<(), String> {
+        self.audio.toggle_input_mute()
     }
 
     fn set_brightness(&self, level: u8) -> Result<(), String> {
@@ -139,6 +198,7 @@ impl HostSystem for LiveHostSystem {
         };
         self.set_keyboard_brightness(next)
     }
+
     fn suspend(&self) -> Result<(), String> {
         spawn_host_command("systemctl", &["suspend"])
     }
@@ -155,17 +215,11 @@ impl HostSystem for LiveHostSystem {
         detect_system_status()
     }
 
-    fn detect_status_lightweight(
-        &self,
-        last_volume: Option<u8>,
-        last_muted: bool,
-        last_wifi_enabled: Option<bool>,
-        last_wifi_ssid: Option<String>,
-    ) -> SystemStatus {
-        detect_system_status_lightweight(last_volume, last_muted, last_wifi_enabled, last_wifi_ssid)
+    fn detect_status_lightweight(&self, last: &ForkedStatus) -> SystemStatus {
+        detect_system_status_lightweight(last)
     }
 
-    fn detect_forked_status(&self) -> (Option<u8>, bool, Option<bool>, Option<String>) {
+    fn detect_forked_status(&self) -> ForkedStatus {
         detect_forked_status()
     }
 }
@@ -173,8 +227,6 @@ impl HostSystem for LiveHostSystem {
 /// Simulated in-memory host system state for deterministic testing and preview.
 #[derive(Debug, Clone)]
 pub struct MockHostState {
-    pub volume: Option<u8>,
-    pub muted: bool,
     pub brightness: Option<u8>,
     pub kbd_brightness: Option<u8>,
     /// Distinct illumination steps the simulated keyboard backlight exposes;
@@ -192,8 +244,6 @@ pub struct MockHostState {
 impl Default for MockHostState {
     fn default() -> Self {
         Self {
-            volume: Some(65),
-            muted: false,
             brightness: Some(80),
             kbd_brightness: Some(66),
             // The mock models a stepped backlight, matching the four-rung
@@ -214,15 +264,23 @@ impl Default for MockHostState {
 }
 
 /// Headless controllable mock host system backend for testing and preview.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct MockHostSystem {
     state: Arc<Mutex<MockHostState>>,
+    audio: Arc<crate::audio::MockAudioBackend>,
+}
+
+impl Default for MockHostSystem {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MockHostSystem {
     pub fn new() -> Self {
         Self {
             state: Arc::new(Mutex::new(MockHostState::default())),
+            audio: Arc::new(crate::audio::MockAudioBackend::new()),
         }
     }
 
@@ -230,7 +288,15 @@ impl MockHostSystem {
     pub fn with_state(state: MockHostState) -> Self {
         Self {
             state: Arc::new(Mutex::new(state)),
+            audio: Arc::new(crate::audio::MockAudioBackend::new()),
         }
+    }
+
+    /// The mock sound server this host delegates audio to, so a test can script
+    /// capture flags, inventories, and failures directly (ADR-0216).
+    #[allow(dead_code)]
+    pub fn audio(&self) -> &crate::audio::MockAudioBackend {
+        &self.audio
     }
 
     #[allow(dead_code)]
@@ -241,25 +307,31 @@ impl MockHostSystem {
 
 impl HostSystem for MockHostSystem {
     fn set_volume(&self, level: u8) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        st.volume = Some(level);
-        if st.muted {
-            st.muted = false;
-        }
-        Ok(())
+        self.audio.set_output_volume(level)
     }
 
     fn step_volume(&self, delta: i8) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        let cur = st.volume.unwrap_or(0) as i16;
-        st.volume = Some((cur + i16::from(delta)).clamp(0, 100) as u8);
-        Ok(())
+        self.audio.step_output_volume(delta)
     }
 
     fn toggle_mute(&self) -> Result<(), String> {
-        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        st.muted = !st.muted;
-        Ok(())
+        self.audio.toggle_output_mute()
+    }
+
+    fn set_audio_output(&self, name: &str) -> Result<(), String> {
+        self.audio.set_output(name)
+    }
+
+    fn set_audio_input(&self, name: &str) -> Result<(), String> {
+        self.audio.set_input(name)
+    }
+
+    fn set_microphone_volume(&self, level: u8) -> Result<(), String> {
+        self.audio.set_input_volume(level)
+    }
+
+    fn toggle_microphone_mute(&self) -> Result<(), String> {
+        self.audio.toggle_input_mute()
     }
 
     fn set_brightness(&self, level: u8) -> Result<(), String> {
@@ -327,9 +399,33 @@ impl HostSystem for MockHostSystem {
 
     fn detect_status(&self) -> SystemStatus {
         let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut status = self.sysfs_status(&st);
+        apply_audio(&mut status, &self.audio.snapshot());
+        status
+    }
+
+    fn detect_status_lightweight(&self, _last: &ForkedStatus) -> SystemStatus {
+        // The mock is free to observe; there is no process to fork.
+        self.detect_status()
+    }
+
+    fn detect_forked_status(&self) -> ForkedStatus {
+        // One lock, not one per field: `std::sync::Mutex` is not reentrant, and
+        // two acquisitions in one expression self-deadlock.
+        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        ForkedStatus {
+            audio: self.audio.snapshot(),
+            wifi_enabled: state.wifi_enabled,
+            wifi_ssid: state.wifi_ssid.clone(),
+        }
+    }
+}
+
+impl MockHostSystem {
+    /// The `/sys` half of the mock snapshot: everything the mock models that
+    /// does not come from the sound server.
+    fn sysfs_status(&self, st: &MockHostState) -> SystemStatus {
         SystemStatus {
-            volume: st.volume,
-            muted: st.muted,
             network: st.network,
             network_interface: st.network_interface.clone(),
             wifi_ssid: st.wifi_ssid.clone(),
@@ -349,101 +445,50 @@ impl HostSystem for MockHostSystem {
             brightness: st.brightness,
             kbd_brightness: st.kbd_brightness,
             kbd_brightness_levels: st.kbd_brightness_levels,
-            do_not_disturb: false,
-            input: tessera_primitives::input::InputStatus::default(),
-            display: DisplayStatus::default(),
-            idle_inhibited: false,
-            power_mode: tessera_desktop::power::PowerMode::default(),
-            capture_streams: 0,
-            virtual_displays: 0,
-            cast_streams: 0,
-            cast: tessera_desktop::system::CastStatus::default(),
+            ..SystemStatus::default()
         }
     }
+}
 
-    fn detect_status_lightweight(
-        &self,
-        _last_volume: Option<u8>,
-        _last_muted: bool,
-        _last_wifi_enabled: Option<bool>,
-        _last_wifi_ssid: Option<String>,
-    ) -> SystemStatus {
-        self.detect_status()
-    }
-
-    fn detect_forked_status(&self) -> (Option<u8>, bool, Option<bool>, Option<String>) {
-        let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        (st.volume, st.muted, st.wifi_enabled, st.wifi_ssid.clone())
-    }
+/// Overlay one audio observation onto a status snapshot.
+///
+/// The single place the audio fields are copied, so the full and the cheap pass
+/// cannot drift: a new audio field added to [`AudioSnapshot`] is wired here once
+/// and both passes gain it (`[INV-AUDIO-6]`).
+fn apply_audio(status: &mut SystemStatus, audio: &AudioSnapshot) {
+    status.volume = audio.output_volume;
+    status.muted = audio.output_muted;
+    status.audio_outputs = audio.outputs.clone();
+    status.audio_inputs = audio.inputs.clone();
+    status.microphone_volume = audio.input_volume;
+    status.microphone_muted = audio.input_muted;
+    status.microphone_active = audio.capturing;
 }
 
 /// Probe live host services through standard Linux interfaces.
 fn detect_system_status() -> SystemStatus {
-    let (volume, muted, wifi_enabled, wifi_ssid) = detect_forked_status();
-    let (network, network_interface) = detect_network();
-    let (kbd_level, kbd_levels) = detect_keyboard_backlight();
-    let wifi_state = if wifi_ssid.is_some() {
-        tessera_desktop::system::WifiLinkState::Connected
-    } else if wifi_enabled == Some(false) {
-        tessera_desktop::system::WifiLinkState::Disabled
-    } else {
-        tessera_desktop::system::WifiLinkState::Disconnected
-    };
-    SystemStatus {
-        volume,
-        muted,
-        network,
-        network_interface,
-        wifi_ssid,
-        battery: detect_battery(),
-        wifi_enabled,
-        wifi_state,
-        wifi_networks: Vec::new(),
-        bluetooth_enabled: detect_bluetooth_radio(),
-        // The Bluetooth subsystem (ADR-0175) overlays these from BlueZ each
-        // tick; the rfkill probe above is only the fallback for the boolean.
-        bluetooth_state: tessera_desktop::system::BluetoothLinkState::Disabled,
-        bluetooth_devices: Vec::new(),
-        brightness: detect_brightness(),
-        kbd_brightness: kbd_level,
-        kbd_brightness_levels: kbd_levels,
-        do_not_disturb: false,
-        input: tessera_primitives::input::InputStatus::default(),
-        display: DisplayStatus::default(),
-        idle_inhibited: false,
-        power_mode: tessera_desktop::power::PowerMode::default(),
-        capture_streams: 0,
-        virtual_displays: 0,
-        cast_streams: 0,
-        cast: tessera_desktop::system::CastStatus::default(),
-    }
+    detect_system_status_lightweight(&detect_forked_status())
 }
 
-/// Probe every status field whose source is a cheap `/sys` read, deferring the
-/// audio fork+exec probe (`wpctl get-volume`) to a separate full pass.
-fn detect_system_status_lightweight(
-    last_volume: Option<u8>,
-    last_muted: bool,
-    last_wifi_enabled: Option<bool>,
-    last_wifi_ssid: Option<String>,
-) -> SystemStatus {
+/// Probe every status field whose source is a cheap `/sys` read, reusing the
+/// fork+exec readings it cannot observe (the sound server's graph, the radio's
+/// soft-block).
+fn detect_system_status_lightweight(last: &ForkedStatus) -> SystemStatus {
     let (network, network_interface) = detect_network();
     let (kbd_level, kbd_levels) = detect_keyboard_backlight();
-    let wifi_state = if last_wifi_ssid.is_some() {
+    let wifi_state = if last.wifi_ssid.is_some() {
         tessera_desktop::system::WifiLinkState::Connected
-    } else if last_wifi_enabled == Some(false) {
+    } else if last.wifi_enabled == Some(false) {
         tessera_desktop::system::WifiLinkState::Disabled
     } else {
         tessera_desktop::system::WifiLinkState::Disconnected
     };
-    SystemStatus {
-        volume: last_volume,
-        muted: last_muted,
+    let mut status = SystemStatus {
         network,
         network_interface,
-        wifi_ssid: last_wifi_ssid,
+        wifi_ssid: last.wifi_ssid.clone(),
         battery: detect_battery(),
-        wifi_enabled: last_wifi_enabled,
+        wifi_enabled: last.wifi_enabled,
         wifi_state,
         wifi_networks: Vec::new(),
         bluetooth_enabled: detect_bluetooth_radio(),
@@ -453,36 +498,24 @@ fn detect_system_status_lightweight(
         brightness: detect_brightness(),
         kbd_brightness: kbd_level,
         kbd_brightness_levels: kbd_levels,
-        do_not_disturb: false,
-        input: tessera_primitives::input::InputStatus::default(),
-        display: DisplayStatus::default(),
-        idle_inhibited: false,
-        power_mode: tessera_desktop::power::PowerMode::default(),
-        capture_streams: 0,
-        virtual_displays: 0,
-        cast_streams: 0,
-        cast: tessera_desktop::system::CastStatus::default(),
+        ..SystemStatus::default()
+    };
+    apply_audio(&mut status, &last.audio);
+    status
+}
+
+/// Run every forked probe: the sound server's whole audio observation and the
+/// radio's soft-block.
+///
+/// The audio half is one call, so the inventories, the default markers, the
+/// levels, and the live capture flag always describe the same moment of a graph
+/// that is moving under the desktop (`[INV-AUDIO-6]`).
+fn detect_forked_status() -> ForkedStatus {
+    ForkedStatus {
+        audio: PipeWireBackend::new().snapshot(),
+        wifi_enabled: detect_wifi_radio(),
+        wifi_ssid: None,
     }
-}
-
-/// Run only the forked probes and return `(volume, muted, wifi_enabled, wifi_ssid)`.
-fn detect_forked_status() -> (Option<u8>, bool, Option<bool>, Option<String>) {
-    let (volume, muted) = detect_volume();
-    (volume, muted, detect_wifi_radio(), None)
-}
-
-fn detect_volume() -> (Option<u8>, bool) {
-    let volume_output = command_output("wpctl", &["get-volume", "@DEFAULT_AUDIO_SINK@"]);
-    volume_output
-        .as_deref()
-        .map(|output| {
-            let value = output
-                .split_whitespace()
-                .find_map(|part| part.parse::<f32>().ok())
-                .map(|value| (value * 100.0).round().clamp(0.0, 100.0) as u8);
-            (value, output.contains("MUTED"))
-        })
-        .unwrap_or((None, false))
 }
 
 fn detect_network() -> (NetworkState, String) {
@@ -636,61 +669,6 @@ fn read_u64(path: &Path) -> Option<u64> {
     fs::read_to_string(path).ok()?.trim().parse().ok()
 }
 
-fn command_output(program: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new(program)
-        .args(args)
-        .env("LC_ALL", "C")
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    output
-        .status
-        .success()
-        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
-}
-
-/// Spawn a short-lived host control command without blocking the compositor
-/// main loop, while still reaping the child to avoid zombie accumulation.
-fn spawn_host_command(program: &str, args: &[&str]) -> Result<(), String> {
-    let child = Command::new(program)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|error| format!("failed to start {program}: {error}"))?;
-    host_command_reaper().reap(child);
-    Ok(())
-}
-
-struct HostCommandReaper {
-    tx: mpsc::Sender<Child>,
-}
-
-impl HostCommandReaper {
-    fn reap(&self, child: Child) {
-        let _ = self.tx.send(child);
-    }
-}
-
-fn host_command_reaper() -> &'static HostCommandReaper {
-    static REAPER: OnceLock<HostCommandReaper> = OnceLock::new();
-    REAPER.get_or_init(|| {
-        let (tx, rx) = mpsc::channel::<Child>();
-        std::thread::Builder::new()
-            .name("tessera-host-cmd-reaper".into())
-            .spawn(move || {
-                tessera_sched::mark_background();
-                while let Ok(mut child) = rx.recv() {
-                    let _ = child.wait();
-                }
-            })
-            .expect("spawn host-command reaper");
-        HostCommandReaper { tx }
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -699,7 +677,14 @@ mod tests {
     fn default_status_marks_optional_devices_unavailable() {
         let status = SystemStatus::default();
         assert_eq!(status.network, NetworkState::Offline);
+        // Absent audio is unknown, never silent: a fader pinned at zero would
+        // claim the machine has no sound when the probe simply had not run.
         assert_eq!(status.volume, None);
+        assert_eq!(status.microphone_volume, None);
+        assert!(!status.microphone_muted);
+        assert!(!status.microphone_active);
+        assert!(status.audio_outputs.is_empty());
+        assert!(status.audio_inputs.is_empty());
         assert_eq!(status.brightness, None);
         assert_eq!(status.wifi_enabled, None);
         assert_eq!(status.bluetooth_enabled, None);
@@ -714,8 +699,95 @@ mod tests {
     }
 
     #[test]
+    fn test_inv_audio_6_one_observation_feeds_both_passes() {
+        // `[INV-AUDIO-6]`: the whole audio reading comes from one observation,
+        // and the cheap `/sys` pass reuses it through the single `apply_audio`
+        // wiring rather than re-deriving any field. Both passes must therefore
+        // report byte-identical audio, or the picker would flicker between them.
+        let mock = MockHostSystem::new();
+        let forked = mock.detect_forked_status();
+        let full = mock.detect_status();
+        let cheap = mock.detect_status_lightweight(&forked);
+        assert_eq!(full.volume, cheap.volume);
+        assert_eq!(full.muted, cheap.muted);
+        assert_eq!(full.audio_outputs, cheap.audio_outputs);
+        assert_eq!(full.audio_inputs, cheap.audio_inputs);
+        assert_eq!(full.microphone_volume, cheap.microphone_volume);
+        assert_eq!(full.microphone_muted, cheap.microphone_muted);
+        assert_eq!(full.microphone_active, cheap.microphone_active);
+        // And the live probe's cheap pass agrees with the full pass for the same
+        // reason, on whatever machine the suite runs on.
+        let live = detect_forked_status();
+        let full = detect_system_status_lightweight(&live);
+        let cheap = detect_system_status_lightweight(&live);
+        assert_eq!(full.audio_outputs, cheap.audio_outputs);
+        assert_eq!(full.audio_inputs, cheap.audio_inputs);
+        assert_eq!(full.microphone_active, cheap.microphone_active);
+    }
+
+    #[test]
     fn detect_wifi_radio_safely_evaluates() {
         let _ = detect_wifi_radio();
+    }
+
+    #[test]
+    fn the_live_audio_probe_reports_a_coherent_graph() {
+        // Live probe, like `detect_wifi_radio_safely_evaluates`: the inventory
+        // depends on the machine, so only the invariants are asserted. A host
+        // with no sound server yields an empty graph, which is also valid.
+        let audio = detect_forked_status().audio;
+        assert!(
+            audio
+                .outputs
+                .iter()
+                .filter(|output| output.is_default)
+                .count()
+                <= 1,
+            "at most one output can be the default: {:?}",
+            audio.outputs
+        );
+        assert!(
+            audio.inputs.iter().filter(|input| input.is_default).count() <= 1,
+            "at most one input can be the default: {:?}",
+            audio.inputs
+        );
+        let labelled = audio
+            .outputs
+            .iter()
+            .map(|output| (&output.name, &output.description))
+            .chain(
+                audio
+                    .inputs
+                    .iter()
+                    .map(|input| (&input.name, &input.description)),
+            );
+        for (name, description) in labelled {
+            assert!(!name.is_empty());
+            assert!(!description.is_empty(), "every row needs a label");
+        }
+        // The list is ordered by transport rank, so the pickers do not
+        // reshuffle between probes.
+        assert!(
+            audio
+                .outputs
+                .windows(2)
+                .all(|pair| pair[0].kind.sort_rank() <= pair[1].kind.sort_rank()),
+            "outputs are grouped by transport: {:?}",
+            audio.outputs
+        );
+        assert!(
+            audio
+                .inputs
+                .windows(2)
+                .all(|pair| pair[0].kind.sort_rank() <= pair[1].kind.sort_rank()),
+            "inputs are grouped by transport: {:?}",
+            audio.inputs
+        );
+        // The capture flag agrees with the graph it was read from: no server,
+        // no capture.
+        if audio.outputs.is_empty() && audio.inputs.is_empty() {
+            assert!(!audio.capturing);
+        }
     }
 
     #[test]
@@ -727,6 +799,12 @@ mod tests {
         assert!(!status.muted);
         assert_eq!(status.bluetooth_enabled, Some(true));
         assert_eq!(status.battery.unwrap().percent, 88);
+        // The microphone half is reported alongside the playback half, from the
+        // same observation.
+        assert_eq!(status.microphone_volume, Some(80));
+        assert!(!status.microphone_muted);
+        assert!(!status.microphone_active);
+        assert_eq!(status.audio_inputs.len(), 2);
 
         // Volume adjustments
         assert!(mock.set_volume(42).is_ok());
@@ -736,6 +814,18 @@ mod tests {
         assert!(mock.toggle_mute().is_ok());
         assert!(mock.detect_status().muted);
 
+        // Microphone adjustments travel the dedicated verbs, so silencing the
+        // microphone can never be reached through the playback fader.
+        assert!(mock.set_microphone_volume(30).is_ok());
+        assert_eq!(mock.detect_status().microphone_volume, Some(30));
+        assert!(mock.toggle_microphone_mute().is_ok());
+        let status = mock.detect_status();
+        assert!(status.microphone_muted);
+        assert!(
+            status.muted,
+            "the output mute is untouched by the microphone toggle"
+        );
+
         // Brightness and Bluetooth
         assert!(mock.set_brightness(95).is_ok());
         assert_eq!(mock.detect_status().brightness, Some(95));
@@ -744,42 +834,70 @@ mod tests {
         // `rfkill block/unblock` write path.
 
         // Keyboard backlight
-        assert_eq!(mock.detect_status().kbd_brightness, Some(66));
-        assert_eq!(mock.detect_status().kbd_brightness_levels, Some(4));
-        assert!(mock.set_keyboard_brightness(100).is_ok());
-        assert_eq!(mock.detect_status().kbd_brightness, Some(100));
+        assert!(mock.set_keyboard_brightness(50).is_ok());
+        assert_eq!(mock.detect_status().kbd_brightness, Some(50));
         assert!(mock.step_keyboard_brightness().is_ok());
-        assert_eq!(mock.detect_status().kbd_brightness, Some(0));
-        assert!(mock.step_keyboard_brightness().is_ok());
-        assert_eq!(mock.detect_status().kbd_brightness, Some(33));
+        assert_eq!(mock.detect_status().kbd_brightness, Some(67));
 
-        // Power actions record in mock state without touching host
+        // Power actions
         assert!(mock.suspend().is_ok());
         assert_eq!(
-            mock.state()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .last_power_action
-                .as_deref(),
+            mock.state().lock().unwrap().last_power_action.as_deref(),
             Some("suspend")
         );
         assert!(mock.reboot().is_ok());
         assert_eq!(
-            mock.state()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .last_power_action
-                .as_deref(),
+            mock.state().lock().unwrap().last_power_action.as_deref(),
             Some("reboot")
         );
         assert!(mock.power_off().is_ok());
         assert_eq!(
-            mock.state()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .last_power_action
-                .as_deref(),
+            mock.state().lock().unwrap().last_power_action.as_deref(),
             Some("power_off")
         );
+    }
+
+    #[test]
+    fn the_mock_reports_a_live_capture_only_when_the_sound_server_says_so() {
+        // `microphone_active` is an observation of the server's link graph, so
+        // preview and tests drive it explicitly rather than deriving it from
+        // chrome's own bookkeeping (`[INV-AUDIO-7]`).
+        let mock = MockHostSystem::new();
+        assert!(!mock.detect_status().microphone_active);
+        mock.audio()
+            .state()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .capturing = true;
+        assert!(mock.detect_status().microphone_active);
+        assert!(mock.detect_forked_status().audio.capturing);
+    }
+
+    #[test]
+    fn mock_audio_output_switch_moves_the_only_default() {
+        let mock = MockHostSystem::new();
+        assert_eq!(
+            mock.detect_forked_status()
+                .audio
+                .outputs
+                .iter()
+                .filter(|output| output.is_default)
+                .count(),
+            1,
+            "the mock starts with exactly one default"
+        );
+        assert!(mock.set_audio_output("mock_output_headphones").is_ok());
+        let outputs = mock.detect_status().audio_outputs;
+        assert_eq!(
+            outputs
+                .iter()
+                .filter(|output| output.is_default)
+                .map(|output| output.name.as_str())
+                .collect::<Vec<_>>(),
+            ["mock_output_headphones"]
+        );
+        // A name the mock does not expose is refused rather than silently
+        // ignored, matching the live backend's contract.
+        assert!(mock.set_audio_output("mock_output_nonexistent").is_err());
     }
 }

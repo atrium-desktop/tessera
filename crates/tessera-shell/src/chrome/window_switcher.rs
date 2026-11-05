@@ -9,12 +9,12 @@ use std::collections::{HashMap, HashSet};
 
 use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 use tessera_design::materials::{chrome_place, surface_layout};
-use tessera_design::{Design, GlassRole, PreviewSelectionStyle};
+use tessera_design::{Design, PreviewSelectionStyle};
 
 use crate::component::preview;
 use crate::component::{
-    BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, IconSet,
-    LiquidGlassRegion, Localizer, Message, PreviewCard, WindowSwitcherPresentation, ellipsize,
+    Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, IconSet, Localizer, Message,
+    PreviewCard, WindowSwitcherPresentation, ellipsize,
 };
 use tessera_desktop::window::Window;
 use tessera_desktop::window::WindowId;
@@ -25,7 +25,6 @@ use tessera_primitives::input::key_action;
 
 const FADE_RATE: f32 = 18.0;
 const SLIDE_RATE: f32 = 15.0;
-const BACKDROP_BLUR_SIGMA: f32 = 16.0;
 
 pub struct WindowSwitcher {
     open: bool,
@@ -304,9 +303,14 @@ impl Chrome for WindowSwitcher {
         let design = self.design;
         let panel = to_lens(presentation.panel);
         let panel_material = preview::panel_material(&design);
-        frame.place(
+        tessera_design::materials::place_floating(
+            frame,
             "tessera-window-switcher-panel",
-            &chrome_place(panel, panel_material),
+            tessera_design::SurfaceRole::FloatingPanel,
+            &design,
+            panel,
+            presentation.visibility,
+            panel_material,
             |frame| {
                 frame.column_ex(
                     &LayoutOpts {
@@ -496,57 +500,6 @@ impl Chrome for WindowSwitcher {
 
     fn requires_composition(&self) -> bool {
         self.open || self.visibility > 0.01
-    }
-
-    fn backdrop_blur_sigma(&self) -> f32 {
-        if self.open || self.visibility > 0.01 {
-            BACKDROP_BLUR_SIGMA
-        } else {
-            0.0
-        }
-    }
-
-    fn backdrop_regions(
-        &self,
-        _display: (f32, f32),
-        _windows: &[Window],
-        _workspaces: &WorkspaceSnapshot,
-    ) -> Vec<BackdropRegion> {
-        // The switcher panel is an analytic liquid-glass body, declared via
-        // `liquid_glass_regions` below. Declaring it here as a frost region
-        // would instruct the layered backdrop compositor to frost-blur the
-        // panel area beneath the glass and leave a lingering blurred rectangle
-        // on dismiss.
-        Vec::new()
-    }
-
-    fn liquid_glass_regions(
-        &self,
-        _display: (f32, f32),
-        _windows: &[Window],
-        _workspaces: &WorkspaceSnapshot,
-    ) -> Vec<LiquidGlassRegion> {
-        let design = self.design;
-        self.presentation
-            .as_ref()
-            .filter(|presentation| presentation.visibility > 0.01)
-            .map(|presentation| {
-                vec![
-                    LiquidGlassRegion::from_role(
-                        &design,
-                        GlassRole::FloatingPanel,
-                        BackdropRegion::from(presentation.panel),
-                        design.radii.glass_panel,
-                        presentation.visibility,
-                    )
-                    .with_focus(presentation.selection_indicator.map(
-                        |indicator| {
-                            preview::focus_for_rect(indicator.outer, design.radii.control, &design)
-                        },
-                    )),
-                ]
-            })
-            .unwrap_or_default()
     }
 
     fn update(&mut self, update: ChromeUpdate<'_>) {
@@ -874,7 +827,7 @@ mod tests {
     }
 
     #[test]
-    fn visible_switcher_panel_is_declared_as_liquid_glass() {
+    fn the_visible_switcher_panel_is_one_painted_body() {
         let mut switcher = WindowSwitcher::new();
         switcher.presentation = Some(WindowSwitcherPresentation {
             mode: crate::layout::window_switcher::Mode::Fixed,
@@ -885,58 +838,41 @@ mod tests {
             inactive_content_brightness: Design::dark().preview.inactive_content_brightness,
             visibility: 0.6,
         });
-        let workspaces = WorkspaceSnapshot {
-            outputs: Vec::new(),
-        };
 
-        let backdrop = switcher.backdrop_regions((1280.0, 720.0), &[], &workspaces);
-        let glass = switcher.liquid_glass_regions((1280.0, 720.0), &[], &workspaces);
-        assert!(backdrop.is_empty(), "switcher panel is a liquid glass body");
-        assert_eq!(glass.len(), 1);
-        assert_eq!(glass[0].bounds.x, 200.0);
-        assert_eq!(glass[0].bounds.w, 640.0);
-        assert_eq!(glass[0].corner_radius, Design::dark().radii.glass_panel);
-        assert_eq!(glass[0].opacity, 0.6);
-        let style = Design::dark().glass.floating_panel;
-        assert_eq!(glass[0].shadow_alpha, style.shadow_alpha);
-        assert_eq!(glass[0].shadow_blur, style.shadow_blur);
-        assert_eq!(glass[0].shadow_offset_y, style.shadow_offset_y);
-        assert!(glass[0].focus.is_none());
+        // The panel is one flat painted body at the floating-panel radius; no
+        // frost rect sits beneath it and no material body backs it.
+        let design = Design::dark();
+        let style = design
+            .surfaces
+            .for_role(tessera_design::SurfaceRole::FloatingPanel);
+        assert_eq!(style.radius, design.radii.glass_panel);
+        assert!(
+            style.shadow_alpha > 0.0,
+            "the panel casts a separating shadow"
+        );
+        assert!(style.body.components().3 >= 236, "the panel body is opaque");
     }
 
     #[test]
-    fn selected_switcher_card_is_a_focus_field_inside_the_panel_body() {
+    fn the_selected_switcher_card_reads_through_a_painted_wash() {
         let selected = WindowId(7);
         let card = crate::layout::window_switcher::Card {
             outer: tessera_primitives::Rect::new(240, 182, 220, 170),
             preview: tessera_primitives::Rect::new(240, 182, 220, 132),
             label: tessera_primitives::Rect::new(240, 314, 220, 38),
         };
-        let mut switcher = WindowSwitcher::new();
-        switcher.presentation = Some(WindowSwitcherPresentation {
-            mode: crate::layout::window_switcher::Mode::Fixed,
-            panel: tessera_primitives::Rect::new(200, 160, 640, 240),
-            cards: vec![PreviewCard {
-                window: selected,
-                geometry: card,
-                corner_radius: Design::dark().radii.control,
-            }],
-            selection_indicator: Some(card),
-            selected: Some(selected),
-            inactive_content_brightness: Design::dark().preview.inactive_content_brightness,
-            visibility: 0.6,
-        });
-        let workspaces = WorkspaceSnapshot {
-            outputs: Vec::new(),
-        };
-
-        let glass = switcher.liquid_glass_regions((1280.0, 720.0), &[], &workspaces);
-        assert_eq!(glass.len(), 1);
-        let focus = glass[0]
-            .focus
-            .expect("selected card should focus the panel");
-        assert_eq!(focus.bounds, BackdropRegion::from(card.outer));
-        assert_eq!(focus.corner_radius, Design::dark().radii.control);
-        assert_eq!(focus.strength, Design::dark().glass_focus.field_strength);
+        let design = Design::dark();
+        // Selection is a neutral wash on the parent body, at the shared
+        // control radius. It never becomes a second body or an accent outline.
+        let selected_wash = crate::component::preview::card_material(
+            &design,
+            crate::component::preview::PreviewCardState::Selected,
+            design.radii.control,
+        );
+        assert_eq!(selected_wash.bg, design.selection.selected_tint);
+        assert_eq!(selected_wash.border_width, 0.0);
+        assert_eq!(selected_wash.radius, design.radii.control);
+        assert_eq!(card.outer.size.w, 220);
+        assert_eq!(selected, WindowId(7));
     }
 }

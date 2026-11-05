@@ -1,7 +1,7 @@
 //! Modal dialog scaffolding, standard action buttons, and keyboard traps.
 
 use lens::{Frame, LayoutOpts, Rect};
-use tessera_design::{Design, materials};
+use tessera_design::{Design, SurfaceRole, materials};
 
 use crate::widgets::geom::contains;
 
@@ -15,8 +15,6 @@ pub const DEFAULT_TITLE_HEIGHT: f32 = 24.0;
 pub const DEFAULT_BUTTON_HEIGHT: f32 = 30.0;
 /// Standard action button width for binary yes/no dialogs.
 pub const DEFAULT_BUTTON_WIDTH: f32 = 96.0;
-/// Standard Gaussian blur sigma for modal backdrop regions.
-pub const DEFAULT_BACKDROP_BLUR_SIGMA: f32 = 18.0;
 
 /// Standard labels for the four ADR-0088 runtime grant persistence levels:
 /// Deny, Allow once, This session, Always.
@@ -36,11 +34,41 @@ pub enum ActionButtonStyle {
     Subtle,
 }
 
-/// Place the modal's Liquid Glass background panel.
-pub fn place_modal_panel(frame: &mut Frame, id: &str, panel_rect: Rect, design: &Design) {
+/// Paint a modal's full-output veil.
+///
+/// Call this before anything else the modal draws. The veil is the modal's own
+/// first fill: it dims the desktop so the panel reads as the only live
+/// surface, and `opacity` drains it while the modal leaves.
+pub fn place_modal_veil(frame: &mut Frame, display: (f32, f32), design: &Design, opacity: f32) {
     frame.place(
+        "tessera-modal-veil",
+        &materials::chrome_place(
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                w: display.0,
+                h: display.1,
+            },
+            materials::modal_scrim(design, opacity),
+        ),
+        |_| {},
+    );
+}
+
+/// Place a modal's panel body: one painted fill, one hairline, and the
+/// elevation halo that separates it from the desktop it dims.
+///
+/// The modal's full-output veil is placed by the caller first, so the halo
+/// darkens the veil rather than the desktop.
+pub fn place_modal_panel(frame: &mut Frame, id: &str, panel_rect: Rect, design: &Design) {
+    materials::place_floating(
+        frame,
         id,
-        &materials::chrome_place(panel_rect, materials::glass_panel(design)),
+        SurfaceRole::ProminentPanel,
+        design,
+        panel_rect,
+        1.0,
+        materials::panel(design),
         |_| {},
     );
 }

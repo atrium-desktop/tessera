@@ -48,9 +48,9 @@ pub(super) fn watchdog_from_config(
     if !cfg.realtime || cfg.scheduling.watchdog_ms == 0 {
         return None;
     }
-    Some(tessera_sched::DeadlineWatchdog::new(std::time::Duration::from_millis(
-        cfg.scheduling.watchdog_ms,
-    )))
+    Some(tessera_sched::DeadlineWatchdog::new(
+        std::time::Duration::from_millis(cfg.scheduling.watchdog_ms),
+    ))
 }
 
 /// Apply the frame-loop realtime/pin schedule to the **calling** thread. Must

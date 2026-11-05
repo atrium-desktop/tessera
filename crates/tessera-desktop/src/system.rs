@@ -290,12 +290,183 @@ impl BatteryWarningLatches {
     }
 }
 
+/// Which physical or logical transport carries an audio output (ADR-0215).
+///
+/// Mapped from the sound server's node vocabulary into a daemon-neutral enum,
+/// so presentation never sees PipeWire's `device.api` strings or node-name
+/// prefixes (`[INV-NET-DAEMON-NEUTRAL]`).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AudioOutputKind {
+    #[default]
+    Other,
+    /// The machine's built-in speakers.
+    Speaker,
+    /// A wired analog output: headphones, a line-out, a headset jack.
+    Wired,
+    /// An HDMI/DisplayPort output on a GPU.
+    Hdmi,
+    /// A Bluetooth audio sink (A2DP, or a headset's HFP output).
+    Bluetooth,
+    /// A USB audio interface or DAC.
+    Usb,
+}
+
+impl AudioOutputKind {
+    /// The order presentation groups outputs in: what a user reaches for
+    /// first (the machine itself, then wired, then radio) before the
+    /// display-carried and external transports. Stable ordering keeps the
+    /// list from reshuffling when the server reorders nodes.
+    pub fn sort_rank(self) -> u8 {
+        match self {
+            Self::Speaker => 0,
+            Self::Wired => 1,
+            Self::Bluetooth => 2,
+            Self::Usb => 3,
+            Self::Hdmi => 4,
+            Self::Other => 5,
+        }
+    }
+}
+
+/// One audio output the sound server can route playback to (ADR-0215).
+///
+/// Live service state, not configuration: the server owns the list, the
+/// default, and every stream's link. The compositor only observes it and
+/// forwards the user's intent back as a [`SystemAction::SetAudioOutput`].
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AudioOutput {
+    /// The server's stable node identity (PipeWire `node.name`), e.g.
+    /// `alsa_output.pci-0000_00_1f.3.analog-stereo`. This is the handle an
+    /// intent names, because the numeric id is reassigned across restarts.
+    pub name: String,
+    /// Human-readable description for presentation, e.g. `Built-in Audio
+    /// Analog Stereo` or a Bluetooth headset's alias.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub description: String,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub kind: AudioOutputKind,
+    /// True for the node the server routes new playback to.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub is_default: bool,
+}
+
+/// Which capture device an audio input is (ADR-0216).
+///
+/// The input-side counterpart of [`AudioOutputKind`]: mapped from the sound
+/// server's node vocabulary inside the host probe, so presentation never sees
+/// `device.api` strings or node-name prefixes (`[INV-NET-DAEMON-NEUTRAL]`).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AudioInputKind {
+    #[default]
+    Other,
+    /// The machine's own microphone array.
+    BuiltIn,
+    /// A wired headset or a microphone on a headset jack.
+    Headset,
+    /// A Bluetooth headset's microphone (HFP/HSP).
+    Bluetooth,
+    /// A USB microphone, interface, or webcam microphone.
+    Usb,
+}
+
+impl AudioInputKind {
+    /// The order presentation groups inputs in: the machine's own microphone
+    /// first, then wired, then radio, then external transports — the same
+    /// transport-first rhythm [`AudioOutputKind`] uses, so both pickers read
+    /// alike.
+    pub fn sort_rank(self) -> u8 {
+        match self {
+            Self::BuiltIn => 0,
+            Self::Headset => 1,
+            Self::Bluetooth => 2,
+            Self::Usb => 3,
+            Self::Other => 4,
+        }
+    }
+}
+
+/// One audio input (capture device) the sound server exposes (ADR-0216).
+///
+/// Live service state, exactly like [`AudioOutput`]: the server owns the list
+/// and the default. `muted` reports the *server's* per-node mute, which is what
+/// a user meets as "this microphone is muted" in another mixer.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AudioInput {
+    /// The server's stable node identity (PipeWire `node.name`), never a node
+    /// number, which is reassigned on every server restart.
+    pub name: String,
+    /// Human-readable description for presentation.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub description: String,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub kind: AudioInputKind,
+    /// True for the node new capture streams are attached to.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub is_default: bool,
+}
+
+/// Anything the sound server addresses by a stable node name (ADR-0215,
+/// ADR-0216).
+///
+/// The trait exists so the *handle discipline* — one name, no node numbers, no
+/// ordinals — is expressed once and enforced identically for sinks and sources,
+/// instead of being re-implemented (and eventually re-implemented differently)
+/// per inventory.
+pub trait AudioNode {
+    /// The server's stable `node.name`.
+    fn node_name(&self) -> &str;
+}
+
+impl AudioNode for AudioOutput {
+    fn node_name(&self) -> &str {
+        &self.name
+    }
+}
+
+impl AudioNode for AudioInput {
+    fn node_name(&self) -> &str {
+        &self.name
+    }
+}
+
 /// One coherent observation of live host and compositor-owned session state.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SystemStatus {
     pub volume: Option<u8>,
     pub muted: bool,
+    /// Every audio output the sound server exposes, ordered by
+    /// [`AudioOutputKind::sort_rank`] and then by description, with the
+    /// default first within its kind (ADR-0215). Empty when no sound server
+    /// answered, which is how presentation tells "no outputs" from "outputs
+    /// unknown".
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub audio_outputs: Vec<AudioOutput>,
+    /// Every audio input (capture device) the sound server exposes, ordered by
+    /// [`AudioInputKind::sort_rank`] then default then name (ADR-0216). Empty
+    /// when no sound server answered — the same honest reading as
+    /// `audio_outputs`, not "no hardware".
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub audio_inputs: Vec<AudioInput>,
+    /// The default input's capture volume, or `None` without a sound server.
+    /// Deliberately `None` rather than `Some(0)`: absent is not silent.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub microphone_volume: Option<u8>,
+    /// The default input's mute state as the server reports it (ADR-0216).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub microphone_muted: bool,
+    /// Whether any client is currently capturing audio (ADR-0216).
+    ///
+    /// Observed, never inferred from chrome's own state: a browser tab, a
+    /// recorder, or an agent session all show up the same way. This is what
+    /// makes the microphone indicator honest — it reports the sound server's
+    /// link graph, not a request the desktop hoped for.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub microphone_active: bool,
     pub network: NetworkState,
     /// The sysfs name of the interface behind `network` (e.g. `wlan0`,
     /// `enp3s0`), empty when offline. Presentation shows it beside the
@@ -429,6 +600,16 @@ impl Default for ResourceStats {
     }
 }
 
+/// Longest audio-output node name a [`SystemAction::SetAudioOutput`] may
+/// carry (ADR-0215). PipeWire node names are well under this; the bound keeps
+/// a peer from pushing an unbounded string through the journal and chrome.
+pub const MAX_AUDIO_OUTPUT_NAME: usize = 256;
+
+/// Longest audio-input node name a [`SystemAction::SetAudioInput`] may carry
+/// (ADR-0216). Same bound and same reason as [`MAX_AUDIO_OUTPUT_NAME`]: the
+/// two pickers must not disagree about what a name may look like.
+pub const MAX_AUDIO_INPUT_NAME: usize = MAX_AUDIO_OUTPUT_NAME;
+
 /// An immediate live-system mutation.
 ///
 /// Unlike [`crate::settings::SettingsAction`], applying one of these actions
@@ -444,6 +625,29 @@ pub enum SystemAction {
     SetVolume {
         level: u8,
     },
+    /// Route new playback to a named audio output, by the server's node name
+    /// (ADR-0215). This is an immediate service mutation: it changes the
+    /// session's live routing, not saved configuration.
+    SetAudioOutput {
+        name: String,
+    },
+    /// Route new capture streams to the named audio input, by the server's
+    /// node name (ADR-0216). The input-side counterpart of
+    /// [`SystemAction::SetAudioOutput`], with the same handle discipline: the
+    /// server's stable node name, never a node number.
+    SetAudioInput {
+        name: String,
+    },
+    /// Set the default input's capture volume percentage (ADR-0216).
+    SetMicrophoneVolume {
+        level: u8,
+    },
+    /// Toggle the default input's mute state on the server (ADR-0216).
+    ///
+    /// Distinct from [`SystemAction::ToggleMute`], which is the *output*
+    /// fader: muting a microphone is a privacy action and must never be
+    /// reachable by the control that silences playback.
+    ToggleMicrophoneMute,
     SetBrightness {
         level: u8,
     },
@@ -551,6 +755,21 @@ impl SystemAction {
                 Err("volume step is outside -100..=100")
             }
             Self::SetVolume { level } if *level > 100 => Err("volume is outside 0..=100"),
+            Self::SetAudioOutput { name } if name.trim().is_empty() => {
+                Err("audio output name cannot be empty")
+            }
+            Self::SetAudioOutput { name } if name.len() > MAX_AUDIO_OUTPUT_NAME => {
+                Err("audio output name is too long")
+            }
+            Self::SetAudioInput { name } if name.trim().is_empty() => {
+                Err("audio input name cannot be empty")
+            }
+            Self::SetAudioInput { name } if name.len() > MAX_AUDIO_INPUT_NAME => {
+                Err("audio input name is too long")
+            }
+            Self::SetMicrophoneVolume { level } if *level > 100 => {
+                Err("microphone volume is outside 0..=100")
+            }
             Self::SetBrightness { level } if !(1..=100).contains(level) => {
                 Err("brightness is outside 1..=100")
             }
@@ -579,6 +798,26 @@ impl SystemAction {
 }
 
 impl SystemStatus {
+    /// The default audio output, or `None` when no server answered (ADR-0215).
+    pub fn default_audio_output(&self) -> Option<&AudioOutput> {
+        self.audio_outputs.iter().find(|output| output.is_default)
+    }
+
+    /// The default audio input, or `None` when no server answered (ADR-0216).
+    pub fn default_audio_input(&self) -> Option<&AudioInput> {
+        self.audio_inputs.iter().find(|input| input.is_default)
+    }
+
+    /// Whether the microphone picker is worth offering: at least two inputs.
+    ///
+    /// The rule mirrors [`audio_outputs`](Self::audio_outputs) exactly, and for
+    /// the same reason: an empty inventory means no sound server answered, and
+    /// a single input leaves nothing to choose, so a disclosure would open a
+    /// page that cannot change anything.
+    pub fn has_audio_input_choice(&self) -> bool {
+        self.audio_inputs.len() > 1
+    }
+
     /// The discrete illumination tiers of the keyboard backlight, as
     /// percentages, when the hardware exposes a *stepped* backlight
     /// (ADR-0168 amendment).

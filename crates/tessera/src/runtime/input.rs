@@ -455,7 +455,19 @@ impl CompositorRuntime<'_> {
         match action {
             Action::TogglePivot => self.shell.toggle_pivot(),
             Action::ToggleOverview => self.shell.toggle_overview(),
-            Action::ToggleControlCenter => self.shell.toggle_control_center(),
+            Action::ToggleControlCenter => {
+                self.shell.toggle_control_center();
+                // The picker's fidelity is bounded by the probe cadence: the
+                // output inventory comes from the forked pass, which otherwise
+                // runs every 30 s. Wireless state is reconciled every tick, so
+                // without this a headset connected a second before the panel
+                // opened would be missing from the list while its Wi-Fi
+                // counterpart was already current. The panel is the one moment
+                // the user is looking at that list (ADR-0215).
+                if self.shell.control_center_active() {
+                    let _ = self.status_refresh_tx.send(());
+                }
+            }
             Action::CloseFocused => {
                 if let Some(id) = self.server.focused_toplevel_id() {
                     let cmd = tessera_protocol::Command::Close { id };

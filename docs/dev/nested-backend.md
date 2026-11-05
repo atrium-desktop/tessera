@@ -141,7 +141,7 @@ the Intel, AMD, or NVIDIA GPU rather than `llvmpipe`. A hardware renderer here
 isolates protocol negotiation and Flux import from direct-display concerns.
 Run the same check on the DRM backend before drawing conclusions about KMS
 page flips or direct scanout; see
-[VT/DRM Manual Testing](vt-drm-testing.md#verify-client-gpu-acceleration).
+[VT/DRM Manual Testing](testing/vt-drm-testing.md#verify-client-gpu-acceleration).
 
 ## Iterate on Changes
 
@@ -258,7 +258,7 @@ checks before completing work that crosses a backend boundary.
 | Software cursor on direct display | Not covered | Required |
 | Interaction Domain cgroup delegation | Direct run is insufficient | Packaged systemd service required |
 
-Use [VT/DRM Manual Testing](vt-drm-testing.md) when a change is ready to try on
+Use [VT/DRM Manual Testing](testing/vt-drm-testing.md) when a change is ready to try on
 real display and input hardware, especially after changes to DRM/KMS,
 libinput, libseat, VT switching, or device hotplug.
 

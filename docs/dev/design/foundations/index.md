@@ -11,8 +11,8 @@ drawing capabilities remain in Optics; adopted Tessera values live in
 |----|------------|--------|-------------------------|
 | 1.1 | [Color System](color.md) | Adopted | `colors`, `ProductColors`, `CommandPanelColors`, and `Design` |
 | 1.2 | [Space and Layout](spacing-and-layout.md) | Partial | Shared component metrics plus owner-local layouts |
-| 1.3 | [Shape and Border](shape-and-border.md) | Adopted | `Radii`, `Strokes`, and analytic glass geometry |
-| 1.4 | [Elevation and Materials](elevation-and-materials.md) | Adopted | Material factories and Liquid Glass roles |
+| 1.3 | [Shape and Border](shape-and-border.md) | Adopted | `Radii`, `Strokes`, and surface-role geometry |
+| 1.4 | [Elevation and Materials](elevation-and-materials.md) | Adopted | Material factories and surface roles |
 | 1.5 | [Typography](typography.md) | Partial | `TypeScale`; typeface and text-scale propagation remain incomplete |
 | 1.6 | [Motion](motion.md) | Partial | Window transition policy and `tessera-ui::motion` |
 | 1.7 | [Assets](assets.md) | Partial | XDG icon resolution, [cursor families](cursors.md), and owner-local media |

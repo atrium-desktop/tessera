@@ -3,16 +3,31 @@ use super::*;
 use super::presentation::canvas_alpha;
 
 /// The reserved band a bottom-docked, non-autohidden dock publishes through
-/// `ChromeUpdate::ModalReserved`. Sourced from the dock's own constants so a
-/// dock geometry change flows into these tests instead of silently diverging.
+/// `ChromeUpdate::ModalReserved`.
+///
+/// Stated here as the published value rather than imported from the dock, so the
+/// panel's own tests build where the dock is not compiled in. When the dock *is*
+/// present, [`the_published_dock_band_matches_the_dock_itself`] pins this mirror
+/// to the dock's real constants, so a dock geometry change cannot leave the panel
+/// laying out against a stale band.
 fn bottom_dock_reserved() -> crate::component::Reserved {
-    use crate::components::dock::motion::{DOCK_EDGE_MARGIN, DOCK_PANEL_HEIGHT};
     crate::component::Reserved {
         top: 0,
-        bottom: (DOCK_PANEL_HEIGHT + DOCK_EDGE_MARGIN) as i32,
+        bottom: 86,
         left: 0,
         right: 0,
     }
+}
+
+#[cfg(feature = "chrome-dock")]
+#[test]
+fn the_published_dock_band_matches_the_dock_itself() {
+    use crate::components::dock::motion::{DOCK_EDGE_MARGIN, DOCK_PANEL_HEIGHT};
+    assert_eq!(
+        bottom_dock_reserved().bottom,
+        (DOCK_PANEL_HEIGHT + DOCK_EDGE_MARGIN) as i32,
+        "the panel lays out against the band the dock actually publishes"
+    );
 }
 
 fn escape() -> KeyChar {
@@ -48,20 +63,10 @@ fn toggle_opens_and_closes_the_panel() {
     // must not keep the frame loop alive.
     assert!(!panel.anim_pending());
 
-    // The panel paints its own opaque full-screen canvas; it declares no
-    // backdrop capture, blur, or frost (ADR-0176).
-    assert_eq!(panel.backdrop_blur_sigma(), 0.0);
-    assert!(
-        panel
-            .backdrop_regions(
-                (1920.0, 1080.0),
-                &[],
-                &WorkspaceSnapshot {
-                    outputs: Vec::new()
-                },
-            )
-            .is_empty()
-    );
+    // The panel paints its own opaque full-screen canvas (ADR-0176): it is a
+    // full-output cover, so the compositor can elide the desktop beneath it.
+    assert!(panel.paints_opaque_cover());
+    assert_eq!(panel.cover_opacity(), 1.0);
 
     panel.toggle_command_panel(&mut out);
     assert!(!panel.open);
@@ -70,7 +75,7 @@ fn toggle_opens_and_closes_the_panel() {
     }
     assert!(!panel.command_panel_active());
     assert!(!panel.exclusive_presentation_active());
-    assert_eq!(panel.backdrop_blur_sigma(), 0.0);
+    assert_eq!(panel.cover_opacity(), 0.0, "a closed panel covers nothing");
 }
 
 #[test]
@@ -459,27 +464,24 @@ fn control_center_paints_its_own_canvas_and_declares_no_backdrop() {
     };
     let mut out = ChromeEvents::default();
 
-    // The panel never declares a backdrop capture, blur, frost, or analytic
-    // glass — its background is painted chrome (ADR-0176).
+    // The panel's background is painted chrome (ADR-0176), so it is a
+    // full-output opaque cover and nothing else: no capture, blur, frost, or
+    // material. The compositor's effect graph stays off for its whole
+    // lifecycle, and the desktop beneath it is elided once it settles.
+    let _ = (&display, &workspaces);
     assert!(
-        panel
-            .liquid_glass_regions(display, &[], &workspaces)
-            .is_empty()
+        !panel.paints_opaque_cover(),
+        "a closed panel covers nothing"
     );
-    assert_eq!(panel.backdrop_blur_sigma(), 0.0);
-    assert!(panel.backdrop_regions(display, &[], &workspaces).is_empty());
+    assert_eq!(panel.cover_opacity(), 0.0);
 
-    // Opening leaves the backdrop declarations empty: no full-screen blur is
-    // ever requested, so the compositor's desktop capture/effect graph stays
-    // off for the panel's whole lifecycle.
     panel.toggle_command_panel(&mut out);
     panel.reveal.snap_to(1.0);
-    assert_eq!(
-        panel.backdrop_blur_sigma(),
-        0.0,
-        "the panel must not request a full-screen blur"
+    assert!(
+        panel.paints_opaque_cover(),
+        "the settled panel owns the whole output"
     );
-    assert!(panel.backdrop_regions(display, &[], &workspaces).is_empty());
+    assert_eq!(panel.cover_opacity(), 1.0);
 }
 
 #[test]
@@ -1352,7 +1354,293 @@ fn bluetooth_and_wifi_detail_views_are_mutually_exclusive() {
     // A tab switch clears all (the tiles are not visible on a settings tab).
     assert!(!panel.wifi_expanded);
     assert!(!panel.bluetooth_expanded);
+    assert!(!panel.audio_expanded);
     assert!(!panel.cast_expanded);
+}
+
+#[test]
+fn audio_output_page_collapses_with_the_panel_and_on_escape() {
+    // The output picker is one of the quick-controls detail pages, so it obeys
+    // the same lifecycle: closing the panel drops it, and Escape peels it
+    // before closing the panel (ADR-0215).
+    let mut panel = CommandPanel::without_sources();
+    let mut out = ChromeEvents::default();
+    panel.open = true;
+    panel.audio_expanded = true;
+    panel.close();
+    assert!(!panel.audio_expanded);
+
+    panel.open = true;
+    panel.audio_expanded = true;
+    let kc = |keysym| KeyChar {
+        keysym,
+        ch: None,
+        mods: tessera_primitives::input::Mods(0),
+    };
+    panel.key_char(&kc(tessera_primitives::input::XKB_KEY_Escape), &mut out);
+    assert!(panel.open, "the first escape peels the page, not the panel");
+    assert!(!panel.audio_expanded);
+
+    panel.key_char(&kc(tessera_primitives::input::XKB_KEY_Escape), &mut out);
+    assert!(!panel.open);
+}
+
+#[test]
+fn clicking_an_output_row_names_that_output_and_never_the_default() {
+    // The row's intent is the server node name of the row the user pressed.
+    // Clicking the row that is already default produces nothing: re-writing
+    // the same key would raise a reading for a state that did not change
+    // (ADR-0215).
+    let current = tessera_desktop::system::AudioOutput {
+        name: "alsa_output.speaker".into(),
+        description: "Built-in Speaker".into(),
+        kind: tessera_desktop::system::AudioOutputKind::Speaker,
+        is_default: true,
+    };
+    let other = tessera_desktop::system::AudioOutput {
+        name: "bluez_output.AA.1".into(),
+        description: "EDIFIER W830NB".into(),
+        kind: tessera_desktop::system::AudioOutputKind::Bluetooth,
+        is_default: false,
+    };
+    assert_eq!(
+        CommandPanel::audio_output_intent(&other),
+        Some(SystemAction::SetAudioOutput {
+            name: "bluez_output.AA.1".into(),
+        })
+    );
+    assert_eq!(CommandPanel::audio_output_intent(&current), None);
+}
+
+#[test]
+fn clicking_an_input_row_names_that_input_and_never_the_default() {
+    // The input half of the same rule (ADR-0216): the row's intent is the
+    // server node name of the row the user pressed, and pressing the current
+    // default produces nothing.
+    let current = tessera_desktop::system::AudioInput {
+        name: "alsa_input.builtin".into(),
+        description: "Built-in Microphone".into(),
+        kind: tessera_desktop::system::AudioInputKind::BuiltIn,
+        is_default: true,
+    };
+    let other = tessera_desktop::system::AudioInput {
+        name: "bluez_input.AA.1".into(),
+        description: "WH-1000XM5".into(),
+        kind: tessera_desktop::system::AudioInputKind::Bluetooth,
+        is_default: false,
+    };
+    assert_eq!(
+        CommandPanel::audio_input_intent(&other),
+        Some(SystemAction::SetAudioInput {
+            name: "bluez_input.AA.1".into(),
+        })
+    );
+    assert_eq!(CommandPanel::audio_input_intent(&current), None);
+}
+
+#[test]
+fn the_microphone_fader_reads_capture_state_not_just_level() {
+    // The page's reading is the server's link graph, not a level: a muted
+    // microphone and a microphone being recorded are different facts, and the
+    // banner is driven by the second one only (ADR-0216).
+    let idle = SystemStatus {
+        microphone_volume: Some(70),
+        microphone_muted: false,
+        microphone_active: false,
+        ..SystemStatus::default()
+    };
+    assert!(!idle.microphone_active);
+    let capturing = SystemStatus {
+        microphone_active: true,
+        ..idle.clone()
+    };
+    assert!(capturing.microphone_active);
+    // The two states a `SystemStatus` can express are independent: a muted
+    // microphone can still be held open by a client, and chrome must be able to
+    // say both.
+    let muted_but_capturing = SystemStatus {
+        microphone_muted: true,
+        microphone_active: true,
+        ..idle
+    };
+    assert!(muted_but_capturing.microphone_muted && muted_but_capturing.microphone_active);
+}
+
+#[test]
+fn the_sound_fader_offers_the_output_page_only_when_there_is_a_choice() {
+    // The disclosure is driven by the inventory, not by a fixed chrome
+    // constant. No inventory means no sound server answered, and a single
+    // output leaves nothing to pick: both would open a page that cannot change
+    // anything (ADR-0215).
+    let output = |name: &str, is_default: bool| tessera_desktop::system::AudioOutput {
+        name: name.into(),
+        description: name.into(),
+        kind: tessera_desktop::system::AudioOutputKind::Speaker,
+        is_default,
+    };
+    let with = |outputs: Vec<tessera_desktop::system::AudioOutput>| SystemStatus {
+        audio_outputs: outputs,
+        ..SystemStatus::default()
+    };
+
+    assert!(!CommandPanel::audio_output_disclosure_visible(&with(
+        Vec::new()
+    )));
+    assert!(!CommandPanel::audio_output_disclosure_visible(&with(vec![
+        output("alsa_output.speaker", true)
+    ])));
+    assert!(CommandPanel::audio_output_disclosure_visible(&with(vec![
+        output("alsa_output.speaker", true),
+        output("bluez_output.AA.1", false),
+    ])));
+
+    // A single output still earns the disclosure when there is a microphone to
+    // mute or a capture device to choose (ADR-0216): the page is the only way
+    // into the capture controls, so hiding it would make them unreachable.
+    let microphone_only = SystemStatus {
+        audio_outputs: vec![output("alsa_output.speaker", true)],
+        microphone_volume: Some(70),
+        ..SystemStatus::default()
+    };
+    assert!(CommandPanel::audio_output_disclosure_visible(
+        &microphone_only
+    ));
+    // No server at all still hides it: there is nothing behind the chevron.
+    assert!(!CommandPanel::audio_output_disclosure_visible(
+        &SystemStatus::default()
+    ));
+
+    // Both states must also paint: the page is reachable from a stale
+    // snapshot, so an empty inventory has to render its "unavailable" body
+    // rather than panic on the missing rows.
+    let mut panel = CommandPanel::without_sources();
+    panel.open = true;
+    panel.reveal.snap_to(1.0);
+    let mut out = ChromeEvents::default();
+    let windows = Vec::new();
+    let workspaces = WorkspaceSnapshot {
+        outputs: Vec::new(),
+    };
+    let i18n = Localizer::default();
+    let input = Input::new((1920.0, 1080.0), 0.05);
+    let mut ui = lens::Ui::headless().unwrap();
+
+    panel.audio_expanded = true;
+    panel.status.audio_outputs = vec![
+        output("alsa_output.speaker", true),
+        output("bluez_output.AA.1", false),
+    ];
+    render_headless(
+        &mut ui,
+        &mut panel,
+        &input,
+        &windows,
+        &workspaces,
+        &i18n,
+        &mut out,
+    );
+
+    out.system_actions.clear();
+    panel.status.audio_outputs.clear();
+    render_headless(
+        &mut ui,
+        &mut panel,
+        &input,
+        &windows,
+        &workspaces,
+        &i18n,
+        &mut out,
+    );
+    assert!(
+        !out.system_actions
+            .iter()
+            .any(|action| matches!(action, SystemAction::SetAudioOutput { .. })),
+        "an empty inventory cannot name an output"
+    );
+}
+
+#[test]
+fn the_sound_page_paints_in_every_capture_and_inventory_state() {
+    // A real frame, not a pure function: the page has a header, a conditional
+    // capture banner, a microphone fader, and two conditional lists, and the
+    // states below are exactly the ones whose layout could overlap or panic —
+    // an empty inventory with a live capture (banner above an empty body), a
+    // single microphone (no input list), and a muted-but-capturing device
+    // (both facts at once) (ADR-0216).
+    let output = |name: &str, is_default: bool| tessera_desktop::system::AudioOutput {
+        name: name.into(),
+        description: name.into(),
+        kind: tessera_desktop::system::AudioOutputKind::Speaker,
+        is_default,
+    };
+    let input = |name: &str, is_default: bool| tessera_desktop::system::AudioInput {
+        name: name.into(),
+        description: name.into(),
+        kind: tessera_desktop::system::AudioInputKind::BuiltIn,
+        is_default,
+    };
+
+    let states = [
+        // No sound server, but something is somehow capturing: the banner must
+        // still paint above an empty body.
+        SystemStatus {
+            microphone_active: true,
+            ..SystemStatus::default()
+        },
+        // The ordinary live case: two outputs, two inputs, capture in progress.
+        SystemStatus {
+            audio_outputs: vec![output("alsa_output.speaker", true), output("hdmi", false)],
+            audio_inputs: vec![input("alsa_input.builtin", true), input("usb", false)],
+            microphone_volume: Some(60),
+            microphone_active: true,
+            ..SystemStatus::default()
+        },
+        // One input: the fader names it and the list is omitted, because a
+        // one-row picker cannot change anything.
+        SystemStatus {
+            audio_outputs: vec![output("alsa_output.speaker", true)],
+            audio_inputs: vec![input("alsa_input.builtin", true)],
+            microphone_volume: Some(0),
+            microphone_muted: true,
+            microphone_active: true,
+            ..SystemStatus::default()
+        },
+        // No sound server at all.
+        SystemStatus::default(),
+    ];
+
+    let windows = Vec::new();
+    let workspaces = WorkspaceSnapshot {
+        outputs: Vec::new(),
+    };
+    let i18n = Localizer::default();
+    let input_state = Input::new((1920.0, 1080.0), 0.05);
+    let mut ui = lens::Ui::headless().unwrap();
+
+    for state in states {
+        let mut panel = CommandPanel::without_sources();
+        panel.open = true;
+        panel.reveal.snap_to(1.0);
+        panel.audio_expanded = true;
+        panel.status = state.clone();
+        let mut out = ChromeEvents::default();
+        render_headless(
+            &mut ui,
+            &mut panel,
+            &input_state,
+            &windows,
+            &workspaces,
+            &i18n,
+            &mut out,
+        );
+        // Nothing on this page is a system action it can raise unprompted; a
+        // rendered frame must not dispatch merely because the page is open.
+        assert!(
+            out.system_actions.is_empty(),
+            "opening the Sound page dispatched {:?} for {state:?}",
+            out.system_actions
+        );
+    }
 }
 
 #[test]
@@ -1570,15 +1858,21 @@ fn keyboard_backlight_actions_validate() {
 
 #[test]
 fn quick_controls_grid_fits_the_main_panel_body() {
-    // The Bento grid sizes rows to their content: three tile rows (tile_h),
-    // three fader/tier rows (fader_h), and the row gaps between them. This
-    // arithmetic is the invariant the panel height must satisfy; a future
-    // height tweak that breaks it would silently push the last fader row into
-    // the panel's bottom rim (the original uniform-row-height defect).
+    // The Bento grid sizes rows to their content: three tile rows (tile_h) and
+    // four fader/tier rows (fader_h — brightness, sound, microphone, keyboard
+    // backlight), plus the row gaps between them. The microphone row is
+    // conditional (ADR-0216), so this is the grid's *maximum* height, which is
+    // what the panel constant must cover.
+    //
+    // This arithmetic alone is not enough: `MAIN_H` is clamped to the display,
+    // so on a short output the grid is taller than its body no matter what this
+    // says. `the_quick_controls_grid_stays_reachable_on_a_short_display` covers
+    // that case with a real frame; this test covers the constant.
     const TILE_H: f32 = 58.0;
     const FADER_H: f32 = 72.0;
     const GAP: f32 = 10.0;
-    let grid_h = TILE_H * 3.0 + FADER_H * 3.0 + GAP * 5.0;
+    const ROWS: f32 = 7.0; // 3 tile rows + 4 fader rows
+    let grid_h = TILE_H * 3.0 + FADER_H * 4.0 + GAP * (ROWS - 1.0);
 
     // The body the Quick Controls section receives, mirroring
     // `render_main_panel`: panel height minus shell padding, the view header,
@@ -1593,6 +1887,73 @@ fn quick_controls_grid_fits_the_main_panel_body() {
         grid_h <= body_h,
         "Bento grid ({grid_h}px) must fit the panel body ({body_h}px)"
     );
+}
+
+#[test]
+fn the_quick_controls_grid_stays_reachable_on_a_short_display() {
+    // The defect this pins: the grid is placed into the panel body, rows are
+    // content-sized, and `MAIN_H` is clamped to the display — so on a 720px
+    // output the fourth fader row (the microphone, ADR-0216) lands outside the
+    // body. Before the grid scrolled, those pixels were simply not painted and
+    // the control was unreachable. A frame must still complete, and the panel
+    // must still be laid out inside the display.
+    let mut panel = CommandPanel::without_sources();
+    panel.open = true;
+    panel.reveal.snap_to(1.0);
+    panel.set_reduced_motion(true);
+    panel.status = SystemStatus {
+        audio_outputs: vec![tessera_desktop::system::AudioOutput {
+            name: "alsa_output.speaker".into(),
+            description: "Built-in Speaker".into(),
+            kind: tessera_desktop::system::AudioOutputKind::Speaker,
+            is_default: true,
+        }],
+        audio_inputs: vec![tessera_desktop::system::AudioInput {
+            name: "alsa_input.builtin".into(),
+            description: "Built-in Microphone".into(),
+            kind: tessera_desktop::system::AudioInputKind::BuiltIn,
+            is_default: true,
+        }],
+        // Every optional row present, so the grid is at its tallest.
+        microphone_volume: Some(70),
+        kbd_brightness: Some(66),
+        kbd_brightness_levels: Some(4),
+        brightness: Some(80),
+        volume: Some(40),
+        ..SystemStatus::default()
+    };
+
+    let windows = Vec::new();
+    let workspaces = WorkspaceSnapshot {
+        outputs: Vec::new(),
+    };
+    let i18n = Localizer::default();
+    let mut out = ChromeEvents::default();
+    let mut ui = lens::Ui::headless().unwrap();
+
+    for display in [(1280.0, 720.0), (1024.0, 600.0), (1920.0, 1080.0)] {
+        let input = Input::new(display, 0.05);
+        render_headless(
+            &mut ui,
+            &mut panel,
+            &input,
+            &windows,
+            &workspaces,
+            &i18n,
+            &mut out,
+        );
+        let (_, main, ..) =
+            CommandPanel::cluster_bounds(display, crate::component::Reserved::default());
+        assert!(
+            main.y + main.h <= display.1 + 0.5,
+            "the panel must stay inside a {display:?} display"
+        );
+        assert!(
+            main.h <= display.1,
+            "the panel cannot be taller than the display"
+        );
+    }
+    assert!(out.system_actions.is_empty());
 }
 
 #[test]

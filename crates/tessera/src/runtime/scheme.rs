@@ -39,12 +39,5 @@ pub(super) fn interaction_domain_clear(scheme: ColorScheme) -> u32 {
     flux::rgba(r, g, b, a)
 }
 
-/// Liquid-glass body tint multiplier (`[255, 255, 255]` is neutral). The
-/// light appearance keeps the multiplier near-neutral, toned to its cool
-/// white surface instead of a pure white.
-pub(super) fn glass_tint(scheme: ColorScheme) -> [u8; 3] {
-    scene(scheme).glass_tint
-}
-
 #[cfg(test)]
 mod tests;

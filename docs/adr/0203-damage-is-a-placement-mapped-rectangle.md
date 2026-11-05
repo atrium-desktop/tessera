@@ -142,7 +142,7 @@ The predicate that forced full repaint is deleted, not narrowed. There is no
 
 Each invariant names its enforcement mechanism. The `test_inv_*` naming is the
 repository's audit convention for the invariant set
-(`docs/dev/standards/invariants.md`).
+(`docs/dev/invariants.md`).
 
 - `[INV-ARCH-92] Placement is the single mapping authority.` The renderer's
   destination arithmetic (`tessera-composite` `destination_size` plus the

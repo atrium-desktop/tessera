@@ -71,6 +71,19 @@ pub(super) fn volume_icon_raw(status: &SystemStatus) -> lens::sys::lens_icon_id 
     }
 }
 
+/// The microphone fader's glyph (ADR-0216).
+///
+/// Two states, not three: a capture device is either being listened to or it is
+/// not. There is no "quiet microphone" the way there is a quiet speaker, and a
+/// graduated glyph would imply one.
+pub(super) fn microphone_icon_raw(status: &SystemStatus) -> lens::sys::lens_icon_id {
+    if status.microphone_muted || status.microphone_volume == Some(0) {
+        lens::sys::lens_icon_id::LENS_ICON_MIC_OFF
+    } else {
+        lens::sys::lens_icon_id::LENS_ICON_MIC
+    }
+}
+
 /// A high-density compact quick toggle tile (1 column wide in a 4-column Bento grid).
 /// Used by simple boolean switches like Dark Mode and Do Not Disturb, keeping
 /// spatial efficiency high without dominating valuable control center real estate.
@@ -304,6 +317,17 @@ pub(super) fn render_expandable_quick_toggle_tile(
     (toggle_clicked, chevron_clicked)
 }
 
+/// The outcome of one [`render_horizontal_fader`] frame.
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct FaderOutcome {
+    /// A new level committed this frame (only when a slider drag moved).
+    pub level: Option<u8>,
+    /// The leading icon was pressed — the mute toggle on the sound fader.
+    pub icon_clicked: bool,
+    /// The trailing disclosure was pressed — "show me the outputs".
+    pub expand_clicked: bool,
+}
+
 pub(super) fn render_horizontal_fader(
     f: &mut Frame,
     id: &str,
@@ -316,7 +340,13 @@ pub(super) fn render_horizontal_fader(
     fill: Color,
     hud: ControlCenterColors,
     type_scale: TypeScale,
-) -> (Option<u8>, bool) {
+    // The accessible name of the disclosure, or `None` to omit it. A name
+    // rather than a flag: the sound fader opens the output picker and the
+    // microphone fader opens the same page for its input half, so a shared
+    // "Output" name would misdescribe one of them to an assistive surface
+    // (ADR-0216).
+    disclosure: Option<&str>,
+) -> FaderOutcome {
     let original = f.theme();
     let enabled = value.is_some();
     let mut level = value.unwrap_or(range.0) as f32;
@@ -334,6 +364,7 @@ pub(super) fn render_horizontal_fader(
     f.set_theme(theme);
     let mut changed = false;
     let mut icon_clicked = false;
+    let mut expand_clicked = false;
 
     f.column_ex(
         &LayoutOpts {
@@ -394,6 +425,36 @@ pub(super) fn render_horizontal_fader(
                             .unwrap_or_else(|| "--".to_string()),
                         type_scale.footnote,
                     );
+                    if let Some(disclosure) = disclosure {
+                        // The disclosure is its own pressable region, so a
+                        // click that opens the device list never also lands on
+                        // the trough beneath it.
+                        let (resp, _) = f.pressable_row(
+                            &format!("{id}-expand-btn"),
+                            // Distinct from the fader's own name: an assistive
+                            // surface would otherwise read the card's label
+                            // twice ("Sound, Sound").
+                            disclosure,
+                            &LayoutOpts {
+                                width: 28.0,
+                                height: 24.0,
+                                cross: Align::Center,
+                                radius: 6.0,
+                                bg: Color::TRANSPARENT,
+                                ..Default::default()
+                            },
+                            |f, _| {
+                                f.flex(1.0);
+                                f.spacer(0.0);
+                                f.icon_raw(lens::sys::lens_icon_id::LENS_ICON_CHEVRON_RIGHT, 16.0);
+                                f.flex(1.0);
+                                f.spacer(0.0);
+                            },
+                        );
+                        if resp.clicked {
+                            expand_clicked = true;
+                        }
+                    }
                 },
             );
 
@@ -407,10 +468,12 @@ pub(super) fn render_horizontal_fader(
         },
     );
     f.set_theme(original);
-    (
-        (changed && enabled).then(|| level.round().clamp(range.0 as f32, range.1 as f32) as u8),
+    FaderOutcome {
+        level: (changed && enabled)
+            .then(|| level.round().clamp(range.0 as f32, range.1 as f32) as u8),
         icon_clicked,
-    )
+        expand_clicked,
+    }
 }
 
 /// A tiered control card: the icon + label header shared with

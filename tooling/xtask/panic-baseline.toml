@@ -3,7 +3,7 @@
 # Poisonable-lock panics are a hard zero and are not listed here.
 
 [counts]
-tessera = 33
+tessera = 31
 tessera-audit = 5
 tessera-authority = 11
 tessera-avatar = 2
@@ -24,7 +24,7 @@ tessera-platform = 8
 tessera-primitives = 0
 tessera-protocol = 11
 tessera-sched = 0
-tessera-shell = 3
+tessera-shell = 2
 tessera-wallpaper = 1
 tessera-wayland = 27
 tessera-wayland-protocols = 0

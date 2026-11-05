@@ -49,7 +49,7 @@ internal maintainers:
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ Internal Surface (Maintainers, Core Contributors, Agents)   │
-│ `docs/dev/` (setup, internals, testing, triage, standards)  │
+│ `docs/dev/` (setup, internals, testing, triage, runbooks, standards) │
 │ `docs/adr/` (binding architectural decision records)        │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -98,3 +98,40 @@ taxonomy ([ADR-0201](../../adr/0201-decouple-documentation-governance-from-agent
 Superseded and rejected records are never deleted and never moved; their status
 is recorded in frontmatter. See [ADR Standards](adr.md) for the in-place
 lifecycle.
+
+---
+
+## 5. Experience Crystallization Pipeline
+
+Ad-hoc engineering trial-and-error, hard-won protocol discoveries, and hardware
+bring-up lessons must never linger as unorganized notes or flat scratchpads.
+Engineering experience must be actively crystallized through a four-stage pipeline:
+
+```text
+                  Engineering Bring-up & Field Lessons
+                                    │
+          ┌─────────────────────────┼─────────────────────────┐
+          ▼                         ▼                         ▼                         ▼
+    Stage 1: Code            Stage 2: ADRs             Stage 3: Explanation      Stage 4: Runbooks
+  (Mechanisms & Tests)    (Architectural Choice)     (Conceptual Understanding)   (Operational Manual)
+  ─────────────────────   ────────────────────────   ──────────────────────────   ────────────────────
+  • Typestate invariants  • Why path A over B        • System architecture        • Baseline environment
+  • Regression tests      • Rejected alternatives    • Protocol state machines    • Hardware quirks log
+  • Driver quirks table   • Irreversible boundaries  • Performance/timing models  • Diagnostic playbook
+```
+
+1. **Stage 1 — Mechanisms Over Documentation (Highest Priority)**:
+   Any constraint that can be verified by the Rust compiler (typestates, private
+   visibility) or caught by automated tests must be committed to code. Do not
+   document what a test or type system can enforce.
+2. **Stage 2 — Architectural Decisions (`docs/adr/`)**:
+   Lessons that reveal trade-offs, dead-ends, or boundary rules belong in the
+   governing ADR's context and rejected alternatives.
+3. **Stage 3 — System Architecture (`docs/explanation/`)**:
+   General protocol dynamics, framing mechanics, and component topologies belong
+   in Diátaxis Explanation documents.
+4. **Stage 4 — Subsystem Runbooks (`docs/dev/runbooks/`)**:
+   Residual operational knowledge that requires manual intervention, real-world
+   hardware interaction, or packet inspection belongs in a dedicated runbook
+   following [Runbook Standards](runbooks.md).
+

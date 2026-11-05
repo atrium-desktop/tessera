@@ -4,35 +4,26 @@
 use std::os::raw::c_void;
 
 pub use crate::component::{
-    AgentActivity, AppCatalog, AppPickParams, BackdropLayer, BackdropLayerId, BackdropLayerSource,
-    BackdropRegion, BatteryAlertParams, CapabilityPickParams, CapabilityPickResult, Chrome,
-    ChromeCommand, ChromeEvents, ChromeUpdate, CompositionRequirements, ConfirmAnswer,
-    ConfirmPickParams, CursorShape, Input, InteractionDomainIntent, LiquidGlassRegion,
-    LivePreviewPresentation, Localizer, MirrorMove, PickerMode, PinAction, Reserved, ResourceStats,
-    SecretPromptParams, SystemAction, SystemStatus, WindowAction, WindowSwitcherPresentation,
+    AgentActivity, AppCatalog, AppPickParams, BatteryAlertParams, CapabilityPickParams,
+    CapabilityPickResult, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate,
+    CompositionRequirements, ConfirmAnswer, ConfirmPickParams, CursorShape, Input,
+    InteractionDomainIntent, LivePreviewPresentation, Localizer, MirrorMove, OsdKind, OsdParams,
+    PickerMode, PinAction, Reserved, ResourceStats, SecretPromptParams, SystemAction, SystemStatus,
+    WindowAction, WindowSwitcherPresentation,
 };
 #[cfg(test)]
 use lens::Frame;
 use lens::Ui;
 
-pub mod chrome;
+mod chrome;
+pub mod clock;
 
 pub use chrome::{
     AgentFeedback, AppPicker, BatteryAlert, CapabilityPrompt, ConfirmPrompt, ControlledWindowGuard,
-    Overview, ScreenshotSelector, SecretPrompt, Toast, WindowSwitcher,
+    Overview, ScreenshotSelector, SecretPrompt, SystemOsd, Toast, WindowSwitcher,
 };
 
 pub mod accessibility;
-
-/// Logical height of the HUD chips (the `tessera-hud` component).
-/// Defined here, at the shell seam, so shell-resident chrome that must align
-/// with the chips (the notification toast stack) can share the value without
-/// depending on the component crate.
-pub const HUD_HEIGHT: f32 = 32.0;
-
-/// Logical height of a HUD chip row measured from the output's top edge: the
-/// chips float below it and are [`component::HUD_HEIGHT`] tall.
-pub use crate::component::HUD_BAND_HEIGHT;
 
 /// Upper bound on the rectangles [`Shell::chrome_damage_regions`] collects from a
 /// single Lens frame. Matches `LENS_DAMAGE_RECTS_CAPACITY`; fixing it at compile
@@ -349,6 +340,14 @@ impl Shell {
     /// Canonical locale tag of the active shell translation catalog.
     pub fn locale(&self) -> &'static str {
         self.i18n.locale()
+    }
+
+    /// The active translation catalog, so the composition root's own surfaces
+    /// (the battery policy) name things the way chrome does instead of carrying
+    /// a second copy of the strings.
+    #[must_use]
+    pub fn localizer(&self) -> Localizer {
+        self.i18n
     }
 
     /// Whether any component requested the session to quit this frame.
@@ -862,6 +861,17 @@ impl Shell {
     }
 
     /// Force-close the low-battery alert.
+    /// Raise a transient system OSD, replacing whatever reading is on screen.
+    pub fn show_osd(&mut self, params: OsdParams) {
+        self.broadcast_command(ChromeCommand::ShowOsd(&params));
+    }
+
+    /// Whether a transient system OSD is currently visible.
+    #[must_use]
+    pub fn osd_active(&self) -> bool {
+        self.components.iter().any(|c| c.osd_active())
+    }
+
     pub fn cancel_battery_alert(&mut self) {
         self.broadcast_command(ChromeCommand::CancelBatteryAlert);
     }
@@ -1308,7 +1318,7 @@ impl Shell {
     /// output frame.  Direct-scanout policy consumes this instead of treating
     /// registered components, dormant animations, or a non-zero blur setting
     /// as global blockers.
-    pub fn composition_requirements(&self, display: (f32, f32)) -> CompositionRequirements {
+    pub fn composition_requirements(&self, _display: (f32, f32)) -> CompositionRequirements {
         let modal_active = self
             .components
             .iter()
@@ -1327,41 +1337,11 @@ impl Shell {
         }) {
             let visible = component.requires_composition();
             requirements.visible_pixels |= visible;
-            // A blur request belonging to visually empty chrome is not live:
-            // there are no output pixels that could consume the backdrop.
-            let explicit_backdrop = component
-                .backdrop_layers(display, &self.windows, &self.workspaces)
-                .into_iter()
-                .any(|layer| !layer.frost.is_empty() || !layer.glass.is_empty());
-            requirements.live_backdrop_effect |=
-                visible && (component.backdrop_blur_sigma() > 0.0 || explicit_backdrop);
+            // A scene-sampling effect belonging to visually empty chrome is
+            // not live: there are no output pixels that could consume it.
+            requirements.live_scene_effect |= visible && component.samples_scene_effect();
         }
         requirements
-    }
-
-    /// Strongest backdrop blur requested by any registered component, in
-    /// logical pixels. The executable converts it to physical pixels before
-    /// invoking flux's realtime multi-resolution filter.
-    pub fn backdrop_blur_sigma(&self) -> f32 {
-        let modal_active = self
-            .components
-            .iter()
-            .any(|component| component.modal_active());
-        let window_switcher_active = self.window_switcher_active();
-        let exclusive_presentation_active = self.exclusive_presentation_active();
-        self.components
-            .iter()
-            .filter(|component| {
-                participates_in_shell_pass(
-                    component.as_ref(),
-                    self.screenshot_freeze,
-                    modal_active,
-                    window_switcher_active,
-                    exclusive_presentation_active,
-                )
-            })
-            .map(|component| component.backdrop_blur_sigma())
-            .fold(0.0_f32, f32::max)
     }
 
     /// The nearest compositor-owned wakeup that is *not* an animation: a timed
@@ -1434,16 +1414,12 @@ impl Shell {
             || raw.preedit_utf8[0] != 0;
         self.last_input_cursor = cursor;
 
-        let needs_build = self.dirty
-            || input_active
-            || self.anim_pending()
-            || self.pending_scene.is_none();
+        let needs_build =
+            self.dirty || input_active || self.anim_pending() || self.pending_scene.is_none();
 
         // SAFETY: the device behind `ui` outlives the Shell (construction
         // contract), and this mutates no host state.
-        if needs_build
-            && let Err(error) = unsafe { self.build_scene(input) }
-        {
+        if needs_build && let Err(error) = unsafe { self.build_scene(input) } {
             // A failed build leaves `pending_scene` empty; `submit` then draws
             // nothing and the frame degrades to a chrome-less desktop rather
             // than dropping the presentation.
@@ -1507,120 +1483,31 @@ impl Shell {
         targets
     }
 
-    /// Glass regions contributed by components that will render this frame.
-    /// Ordinary chrome is excluded while a modal is active, matching the
-    /// render path below.
-    pub fn backdrop_regions(&self, display: (f32, f32)) -> Vec<BackdropRegion> {
-        let modal_active = self
-            .components
-            .iter()
-            .any(|component| component.modal_active());
-        let window_switcher_active = self.window_switcher_active();
-        let exclusive_presentation_active = self.exclusive_presentation_active();
-        let mut regions = Vec::new();
-        for component in &self.components {
-            if participates_in_shell_pass(
-                component.as_ref(),
-                self.screenshot_freeze,
-                modal_active,
-                window_switcher_active,
-                exclusive_presentation_active,
-            ) && component.backdrop_blur_sigma() > 0.0
-            {
-                regions.extend(component.backdrop_regions(
-                    display,
-                    &self.windows,
-                    &self.workspaces,
-                ));
-            }
-        }
-        regions
-    }
-
-    /// Analytic liquid-glass bodies contributed by components that will
-    /// render this frame. Visibility filtering mirrors [`Self::backdrop_regions`].
-    pub fn liquid_glass_regions(&self, display: (f32, f32)) -> Vec<LiquidGlassRegion> {
-        let modal_active = self
-            .components
-            .iter()
-            .any(|component| component.modal_active());
-        let window_switcher_active = self.window_switcher_active();
-        let exclusive_presentation_active = self.exclusive_presentation_active();
-        let mut regions = Vec::new();
-        for component in &self.components {
-            if participates_in_shell_pass(
-                component.as_ref(),
-                self.screenshot_freeze,
-                modal_active,
-                window_switcher_active,
-                exclusive_presentation_active,
-            ) && component.backdrop_blur_sigma() > 0.0
-            {
-                regions.extend(component.liquid_glass_regions(
-                    display,
-                    &self.windows,
-                    &self.workspaces,
-                ));
-            }
-        }
-        regions
-    }
-
-    /// Complete declarative backdrop DAG for this frame.
+    /// Whether a participating component paints an opaque full-output cover
+    /// at full strength this frame, so no desktop pixel can survive it.
     ///
-    /// Legacy component requests are fused into one root layer. Explicit
-    /// layers remain separate so dependencies can accumulate resolved
-    /// offscreen results without teaching any material about nesting.
-    pub fn backdrop_layers(&self, display: (f32, f32)) -> Vec<BackdropLayer> {
+    /// The compositor consumes this to skip the base desktop pass. A cover
+    /// mid-fade is *not* opaque: its body is still draining, so the desktop
+    /// beneath it is visible and must be drawn.
+    pub fn opaque_cover_active(&self) -> bool {
         let modal_active = self
             .components
             .iter()
             .any(|component| component.modal_active());
         let window_switcher_active = self.window_switcher_active();
         let exclusive_presentation_active = self.exclusive_presentation_active();
-        let mut root = BackdropLayer::new(BackdropLayerId::ROOT, BackdropLayerSource::Scene, 0.0);
-        let mut explicit = Vec::new();
-        for component in &self.components {
-            if !participates_in_shell_pass(
-                component.as_ref(),
-                self.screenshot_freeze,
-                modal_active,
-                window_switcher_active,
-                exclusive_presentation_active,
-            ) {
-                continue;
-            }
-            let sigma = component.backdrop_blur_sigma().max(0.0);
-            if sigma > 0.0 {
-                root.blur_sigma = root.blur_sigma.max(sigma);
-                root.frost.extend(component.backdrop_regions(
-                    display,
-                    &self.windows,
-                    &self.workspaces,
-                ));
-                root.glass.extend(component.liquid_glass_regions(
-                    display,
-                    &self.windows,
-                    &self.workspaces,
-                ));
-            }
-            explicit.extend(component.backdrop_layers(display, &self.windows, &self.workspaces));
-        }
-        let root_active =
-            root.blur_sigma > 0.0 && (!root.frost.is_empty() || !root.glass.is_empty());
-        let mut layers = Vec::with_capacity(explicit.len() + usize::from(root_active));
-        if root_active {
-            layers.push(root);
-        }
-        // Unlike the compatibility API, an explicit node with sigma zero is
-        // still meaningful: it can resolve an unblurred material or act as a
-        // graph boundary sampled by a later node.
-        layers.extend(
-            explicit
-                .into_iter()
-                .filter(|layer| !layer.frost.is_empty() || !layer.glass.is_empty()),
-        );
-        layers
+        self.components
+            .iter()
+            .filter(|component| {
+                participates_in_shell_pass(
+                    component.as_ref(),
+                    self.screenshot_freeze,
+                    modal_active,
+                    window_switcher_active,
+                    exclusive_presentation_active,
+                )
+            })
+            .any(|component| component.paints_opaque_cover() && component.cover_opacity() >= 0.999)
     }
 
     /// Draw the scene `prepare_frame` built onto `canvas`.
@@ -2008,14 +1895,15 @@ mod tests {
         let _menubar_item = MenubarItem::new("File", "file_menu");
     }
 
-    /// A component that owns a glass recipe but exposes whatever visible
-    /// backdrop footprint its current state declares.
-    struct GlassChrome {
+    /// A component that samples the desktop scene through a compositor-owned
+    /// effect. The only such consumer is the soft window shadow layer, so the
+    /// flag exists to keep the desktop pass from being elided under it.
+    struct SceneEffectChrome {
         visible: bool,
-        frost: Vec<BackdropRegion>,
+        samples_scene: bool,
     }
 
-    impl Chrome for GlassChrome {
+    impl Chrome for SceneEffectChrome {
         fn render(
             &mut self,
             _frame: &mut Frame,
@@ -2031,56 +1919,85 @@ mod tests {
             self.visible
         }
 
-        fn backdrop_blur_sigma(&self) -> f32 {
-            if self.visible { 12.0 } else { 0.0 }
-        }
-
-        fn backdrop_regions(
-            &self,
-            _display: (f32, f32),
-            _windows: &[Window],
-            _workspaces: &WorkspaceSnapshot,
-        ) -> Vec<BackdropRegion> {
-            self.frost.clone()
+        fn samples_scene_effect(&self) -> bool {
+            self.samples_scene
         }
     }
 
     #[test]
-    fn hidden_glass_component_does_not_claim_a_live_backdrop() {
+    fn a_hidden_scene_effect_consumer_does_not_block_direct_scanout() {
         let mut shell = Shell::headless().unwrap();
-        shell.add(Box::new(GlassChrome {
+        shell.add(Box::new(SceneEffectChrome {
             visible: false,
-            frost: Vec::new(),
+            samples_scene: true,
         }));
         let requirements = shell.composition_requirements((1920.0, 1080.0));
         assert!(
-            !requirements.live_backdrop_effect,
-            "a glass recipe on a component with no visible output must not \
-             block direct scanout"
+            !requirements.live_scene_effect,
+            "an effect declared by chrome with no visible output must not block \
+             direct scanout"
         );
         assert!(!requirements.visible_pixels);
     }
 
     #[test]
-    fn visible_glass_component_claims_a_live_backdrop() {
+    fn a_visible_scene_effect_consumer_is_reported() {
         let mut shell = Shell::headless().unwrap();
-        shell.add(Box::new(GlassChrome {
+        shell.add(Box::new(SceneEffectChrome {
             visible: true,
-            frost: vec![BackdropRegion {
-                x: 0.0,
-                y: 1000.0,
-                w: 1920.0,
-                h: 80.0,
-                wash: None,
-                opacity: 1.0,
-            }],
+            samples_scene: true,
         }));
         let requirements = shell.composition_requirements((1920.0, 1080.0));
         assert!(requirements.visible_pixels);
         assert!(
-            requirements.live_backdrop_effect,
-            "visible glass that consumes backdrop pixels must be reported"
+            requirements.live_scene_effect,
+            "visible chrome that consumes scene pixels must be reported"
         );
+    }
+
+    /// A full-output cover reports its own opacity, so the compositor can tell
+    /// "the desktop is gone" from "the cover is still draining".
+    struct CoverChrome {
+        opacity: f32,
+    }
+
+    impl Chrome for CoverChrome {
+        fn render(
+            &mut self,
+            _frame: &mut Frame,
+            _input: &Input,
+            _windows: &[Window],
+            _workspaces: &WorkspaceSnapshot,
+            _i18n: &Localizer,
+            _out: &mut ChromeEvents,
+        ) {
+        }
+
+        fn paints_opaque_cover(&self) -> bool {
+            true
+        }
+
+        fn cover_opacity(&self) -> f32 {
+            self.opacity
+        }
+    }
+
+    #[test]
+    fn a_cover_mid_fade_still_needs_the_desktop_beneath_it() {
+        let mut shell = Shell::headless().unwrap();
+        shell.add(Box::new(CoverChrome { opacity: 0.5 }));
+        assert!(
+            !shell.opaque_cover_active(),
+            "a half-drained cover leaves the desktop visible; eliding it would \
+             freeze the launch fade over a stale frame"
+        );
+    }
+
+    #[test]
+    fn a_fully_opaque_cover_elides_the_desktop_pass() {
+        let mut shell = Shell::headless().unwrap();
+        shell.add(Box::new(CoverChrome { opacity: 1.0 }));
+        assert!(shell.opaque_cover_active());
     }
 
     use lens::Rect;
@@ -2338,13 +2255,6 @@ mod tests {
         assert!(shell.take_scene_changed());
         assert!(!shell.take_scene_changed());
     }
-
-    /// The status strip's chips float below the output edge and are
-    /// [`component::HUD_HEIGHT`] tall, so the band they occupy is taller than
-    /// `HUD_HEIGHT`. Reporting `[0, HUD_HEIGHT)` left their bottom pixels stale on
-    /// every clock tick, so the relationship is a compile-time invariant rather
-    /// than something a runtime test has to re-derive.
-    const _: () = assert!(HUD_BAND_HEIGHT >= 8.0 + 32.0, "HUD band too short");
 
     /// The overlay-pass elision must answer from chrome's real footprint, not
     /// from a per-edge threshold. A dock on the left or right edge occupies no

@@ -44,6 +44,22 @@ impl AudioSourceKind {
             Self::Microphone => "@DEFAULT_AUDIO_SOURCE@",
         }
     }
+
+    /// Properties that make the node this kind names actually *capture* what it
+    /// claims to capture.
+    ///
+    /// A sink is an output-direction node, so pointing `pw-record --target` at
+    /// it is not enough: PipeWire links the capture stream to a source, and
+    /// without `stream.capture.sink=true` the link lands on the default
+    /// *microphone* instead. The stream then records the room, not the desktop,
+    /// which is the opposite of what `system` promises — and a privacy
+    /// surprise, not a cosmetic defect.
+    fn capture_properties(self) -> &'static [&'static str] {
+        match self {
+            Self::System => &["stream.capture.sink=true"],
+            Self::Microphone => &[],
+        }
+    }
 }
 
 /// One encoded ADTS frame and its 90 kHz presentation timestamp.
@@ -90,8 +106,15 @@ impl AacCapture {
                 "s16",
                 "--latency",
                 "100ms",
-                "-",
             ])
+            // `-P` is repeatable; one flag per property keeps the spawn
+            // argument list a plain `&str` slice without a formatted join.
+            .args(
+                kind.capture_properties()
+                    .iter()
+                    .flat_map(|property| ["-P", property]),
+            )
+            .arg("-")
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
@@ -349,5 +372,22 @@ mod tests {
         bad[2] = 0x40 | (0x0f << 2);
         let mut buffer = bad;
         assert!(take_adts_frame(&mut buffer).is_none());
+    }
+
+    #[test]
+    fn the_system_source_asks_for_the_sink_monitor() {
+        // `pw-record --target <sink>` alone records the default *source*: a
+        // sink is output-direction, so PipeWire links the capture stream to a
+        // microphone unless the stream declares that it wants the sink's
+        // monitor. Getting this wrong records the room instead of the desktop,
+        // which is both the wrong feature and a privacy surprise.
+        assert_eq!(
+            AudioSourceKind::System.capture_properties(),
+            ["stream.capture.sink=true"],
+            "system audio must capture the sink monitor, not the microphone"
+        );
+        // The microphone is already a source, so it needs no property and must
+        // not be given one that would send it looking for a sink.
+        assert!(AudioSourceKind::Microphone.capture_properties().is_empty());
     }
 }

@@ -12,10 +12,10 @@ use tessera_desktop::dock::DockPosition;
 use tessera_desktop::window::{SpaceUse, Window};
 
 use super::motion::{
-    AUTOHIDE_DWELL_THRESHOLD, AUTOHIDE_HANDLE_APPROACH_BAND, AUTOHIDE_HANDLE_HEIGHT,
-    AUTOHIDE_HANDLE_WIDTH, AUTOHIDE_IDLE_TIMEOUT, DOCK_EDGE_MARGIN, DOCK_PAD, DOCK_PANEL_HEIGHT,
-    DOCK_SECTION_GAP, DOCK_TILE, DOCK_TILE_GAP, DRAG_THRESHOLD, EDGE_DRAG_PROXIMITY,
-    collapse_surface_progress, edge_margin_for_surface_progress,
+    AUTOHIDE_DWELL_THRESHOLD, AUTOHIDE_HANDLE_HEIGHT, AUTOHIDE_HANDLE_WIDTH, AUTOHIDE_IDLE_TIMEOUT,
+    DOCK_EDGE_MARGIN, DOCK_PAD, DOCK_PANEL_HEIGHT, DOCK_SECTION_GAP, DOCK_TILE, DOCK_TILE_GAP,
+    DRAG_THRESHOLD, EDGE_DRAG_PROXIMITY, collapse_surface_progress,
+    edge_margin_for_surface_progress,
 };
 
 /// One application pinned to the dock: the launchable entry plus the lowercased
@@ -39,6 +39,8 @@ pub enum PressTarget {
     OtherTile(String),
     /// Empty panel space (padding, gaps, or the collapsed autohide handle).
     Panel,
+    /// An interactive tick on the workspace rail.
+    WorkspaceTick(usize),
 }
 
 /// The strip section under a dragged tile: the kept (pinned) strip, or the
@@ -370,7 +372,7 @@ impl DockState {
             // capsule's long axis, which would inflate a bottom corridor to the
             // handle's full 140 px width.
             DockPosition::Bottom => {
-                let band = AUTOHIDE_HANDLE_APPROACH_BAND.max(visual.h);
+                let band = crate::components::dock::motion::collapsed_reveal_depth();
                 Rect {
                     y: display.1 - band,
                     w: visual.w,
@@ -379,7 +381,7 @@ impl DockState {
                 }
             }
             DockPosition::Left => {
-                let band = AUTOHIDE_HANDLE_APPROACH_BAND.max(visual.w);
+                let band = crate::components::dock::motion::collapsed_reveal_depth();
                 Rect {
                     x: 0.0,
                     w: band,
@@ -388,7 +390,7 @@ impl DockState {
                 }
             }
             DockPosition::Right => {
-                let band = AUTOHIDE_HANDLE_APPROACH_BAND.max(visual.w);
+                let band = crate::components::dock::motion::collapsed_reveal_depth();
                 Rect {
                     x: display.0 - band,
                     w: band,
@@ -497,9 +499,40 @@ impl DockState {
         position: DockPosition,
         display: (f32, f32),
     ) -> Rect {
-        let gaps = tile_count.saturating_sub(1) as f32 * DOCK_TILE_GAP
+        Self::rest_bounds_with_cells(tile_count, pinned_count, &[], position, display)
+    }
+
+    /// The resting bar for `tile_count` icon tiles *preceded* by `bento` cells.
+    ///
+    /// Bento cells are status, not targets, so they lead the strip and take the
+    /// section gap at the boundary into the icons. Their widths are their own
+    /// (a pager is as wide as its ticks), which is why the bar's length cannot be
+    /// derived from the tile count alone.
+    #[must_use]
+    pub fn rest_bounds_with_cells(
+        tile_count: usize,
+        pinned_count: usize,
+        bento: &[crate::components::dock::BentoCell],
+        position: DockPosition,
+        display: (f32, f32),
+    ) -> Rect {
+        let cells: f32 = bento.iter().map(|cell| cell.rest_width()).sum();
+        let cell_gaps = bento.len().saturating_sub(1) as f32 * DOCK_TILE_GAP;
+        let icons = tile_count as f32 * DOCK_TILE;
+        let icon_gaps = tile_count.saturating_sub(1) as f32 * DOCK_TILE_GAP
             + Self::section_extra(pinned_count, tile_count);
-        let bar_len = tile_count as f32 * DOCK_TILE + gaps + 2.0 * DOCK_PAD;
+        // The reading section is separated from the launch targets by the
+        // section gap; a dock with no icons keeps its reading flush.
+        let boundary = if bento.is_empty() || tile_count == 0 || cells <= 0.0 {
+            0.0
+        } else {
+            crate::components::dock::bento::READING_BOUNDARY_GAP
+        };
+        let bar_len = if tile_count == 0 && cells <= 0.0 {
+            0.0
+        } else {
+            cells + cell_gaps + icons + icon_gaps + boundary + 2.0 * DOCK_PAD
+        };
         Self::panel_rect_for(position, bar_len, display)
     }
 
@@ -604,17 +637,54 @@ impl DockState {
     /// Estimated rest centre of tile `i` in row of `n`.
     #[must_use]
     pub fn rest_centre_estimate(i: usize, n: usize, pinned_count: usize, axis_len: f32) -> f32 {
+        Self::rest_centre_estimate_with_cells(i, n, pinned_count, &[], axis_len)
+    }
+
+    /// The resting centre of icon `i` for a bar that leads with `bento` cells.
+    ///
+    /// A resting centre is the position the magnification springs settle on, so
+    /// it has to measure the same bar the paint does. It reads its leading
+    /// offset from the same strip-length source instead of re-deriving the bar's
+    /// width: three independent sums of the same bar is how the reading section
+    /// silently fell out of the layout.
+    pub fn rest_centre_estimate_with_cells(
+        i: usize,
+        n: usize,
+        pinned_count: usize,
+        bento: &[crate::components::dock::BentoCell],
+        axis_len: f32,
+    ) -> f32 {
         let section_extra = Self::section_extra(pinned_count, n);
-        let bar_w = n as f32 * DOCK_TILE
-            + (n as f32 - 1.0) * DOCK_TILE_GAP
-            + section_extra
-            + 2.0 * DOCK_PAD;
+        let bar_w = crate::components::dock::bento::strip_length(
+            std::iter::repeat_n(DOCK_TILE, n),
+            bento,
+            DOCK_TILE_GAP,
+            DOCK_PAD,
+        );
         let bar_x = (axis_len - bar_w) * 0.5;
+        let reading = Self::reading_extent(bento);
         let extra = if i >= pinned_count {
             section_extra
         } else {
             0.0
         };
-        bar_x + DOCK_PAD + i as f32 * (DOCK_TILE + DOCK_TILE_GAP) + extra + DOCK_TILE * 0.5
+        bar_x
+            + DOCK_PAD
+            + reading
+            + i as f32 * (DOCK_TILE + DOCK_TILE_GAP)
+            + extra
+            + DOCK_TILE * 0.5
+    }
+
+    /// Width of the leading reading section including the gap that follows it.
+    #[must_use]
+    pub fn reading_extent(bento: &[crate::components::dock::BentoCell]) -> f32 {
+        let total: f32 = bento.iter().map(|cell| cell.rest_width()).sum();
+        if total <= 0.0 {
+            return 0.0;
+        }
+        let active_count = bento.iter().filter(|cell| cell.rest_width() > 0.0).count();
+        let gaps = active_count.saturating_sub(1) as f32 * DOCK_TILE_GAP;
+        total + gaps + crate::components::dock::bento::READING_BOUNDARY_GAP
     }
 }

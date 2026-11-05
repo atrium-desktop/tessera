@@ -28,11 +28,11 @@
 //! answering the IPC request.
 
 use lens::{Align, Color, Frame, Input, LayoutOpts, Rect as LensRect, Style};
-use tessera_design::{Design, GlassRole, materials};
+use tessera_design::{Design, materials};
 
 use crate::component::{
-    BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
-    LiquidGlassRegion, Localizer, Message, PickerMode, ellipsize,
+    Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, Localizer, Message, PickerMode,
+    ellipsize,
 };
 use tessera_desktop::app::BuiltInApplication;
 use tessera_desktop::window::Window;
@@ -49,7 +49,6 @@ const MIN_DRAG: f32 = 8.0;
 /// Optical character of the pixel-picking loupe — the only picker glass
 /// body left. It uses the same full-strength blur as the window switcher
 /// without introducing another component-local material.
-const BACKDROP_BLUR_SIGMA: f32 = 16.0;
 const PIXEL_LENS_SIZE: f32 = 48.0;
 /// Selection border weight: thin enough to read as a marquee, thick enough
 /// to stay visible against any desktop content.
@@ -278,12 +277,12 @@ impl ScreenshotSelector {
         self.hovered_output = None;
     }
 
-    /// Analytic Liquid Glass body. Only the pixel-picking loupe supplies one —
+    /// The pixel-picking loupe's painted body. Only the loupe supplies one —
     /// it is an optical instrument. Region, window, and output targets are
     /// markers over pixels the user is about to capture; blurring or
     /// refracting them would obscure exactly what is being framed, so those
     /// modes render plain Lens borders instead.
-    fn glass_rect(&self, display: (f32, f32)) -> Option<LensRect> {
+    fn lens_body_rect(&self, display: (f32, f32)) -> Option<LensRect> {
         match self.mode {
             PickerMode::Region => None,
             PickerMode::Pixel => {
@@ -318,7 +317,7 @@ impl ScreenshotSelector {
             PickerMode::Region => self
                 .shown_rect()
                 .and_then(|rect| (rect.size.w > 0 && rect.size.h > 0).then_some(to_lens(rect))),
-            PickerMode::Pixel => self.glass_rect(display),
+            PickerMode::Pixel => self.lens_body_rect(display),
             PickerMode::Window => self
                 .hovered
                 .and_then(|id| windows.iter().find(|window| window.id == id))
@@ -400,11 +399,11 @@ impl ScreenshotSelector {
             metrics.height + STATUS_PAD * 2.0,
         );
         let rect = status_rect(anchor, size, display);
-        let mut material = materials::glass_focus(design, selected);
+        let mut material = materials::selection(design, selected);
         material.radius = rect.h * 0.5;
 
         let original_theme = frame.theme();
-        frame.set_theme(original_theme.with_fg(design.hud_foreground.primary));
+        frame.set_theme(original_theme.with_fg(design.floating_foreground.primary));
         frame.place(id, &materials::chrome_place(rect, material), |frame| {
             // A row's cross axis is vertical. With an explicitly measured body
             // and equal padding on both sides, the compact glyph box is centred
@@ -420,8 +419,8 @@ impl ScreenshotSelector {
                 |frame| {
                     frame.push_style(
                         Style::new()
-                            .with_outline_color(design.hud_foreground.contour)
-                            .with_outline_width(design.hud_foreground.text_contour_width),
+                            .with_outline_color(design.floating_foreground.contour)
+                            .with_outline_width(design.floating_foreground.text_contour_width),
                     );
                     frame.label_compact_sized(&text, design.typography.label);
                     frame.pop_style();
@@ -489,13 +488,13 @@ impl ScreenshotSelector {
     }
 
     /// Draw a compact optical loupe instead of classic full-screen crosshair
-    /// rules. The analytic body is supplied through `liquid_glass_regions`.
+    /// rules. The analytic body is supplied through `bodies`.
     fn render_pixel_lens(&self, frame: &mut Frame, display: (f32, f32)) {
-        let Some(rect) = self.glass_rect(display) else {
+        let Some(rect) = self.lens_body_rect(display) else {
             return;
         };
         let design = &self.design;
-        let mut material = materials::glass_panel(design);
+        let mut material = materials::panel(design);
         material.radius = self.glass_radius(rect);
         frame.place(
             "tessera-picker-pixel-lens",
@@ -512,7 +511,7 @@ impl ScreenshotSelector {
                     h: 4.0,
                 },
                 LayoutOpts {
-                    bg: design.hud_foreground.primary,
+                    bg: design.floating_foreground.primary,
                     radius: 2.0,
                     ..materials::surface_layout()
                 },
@@ -902,46 +901,6 @@ impl Chrome for ScreenshotSelector {
         }
     }
 
-    fn backdrop_blur_sigma(&self) -> f32 {
-        // Only the pixel loupe still supplies an analytic glass body, so it
-        // is the only mode that asks the backdrop compositor for blur work.
-        if self.active && matches!(self.mode, PickerMode::Pixel) {
-            BACKDROP_BLUR_SIGMA
-        } else {
-            0.0
-        }
-    }
-
-    fn backdrop_regions(
-        &self,
-        _display: (f32, f32),
-        _windows: &[Window],
-        _workspaces: &WorkspaceSnapshot,
-    ) -> Vec<BackdropRegion> {
-        // Loupe and floating toolbar are analytic liquid-glass bodies,
-        // declared via `liquid_glass_regions` below.
-        Vec::new()
-    }
-
-    fn liquid_glass_regions(
-        &self,
-        display: (f32, f32),
-        _windows: &[Window],
-        _workspaces: &WorkspaceSnapshot,
-    ) -> Vec<LiquidGlassRegion> {
-        self.glass_rect(display)
-            .map(|rect| {
-                vec![LiquidGlassRegion::from_role(
-                    &self.design,
-                    GlassRole::FloatingPanel,
-                    BackdropRegion::from(rect),
-                    self.glass_radius(rect),
-                    1.0,
-                )]
-            })
-            .unwrap_or_default()
-    }
-
     fn visible_during_modal(&self) -> bool {
         true
     }
@@ -1141,27 +1100,15 @@ mod tests {
     }
 
     #[test]
-    fn active_region_submits_no_glass_and_no_blur() {
+    fn region_selection_is_a_painted_marker_not_a_surface() {
         let mut s = ScreenshotSelector::new();
         s.start();
         s.update_pointer(Point { x: 20.0, y: 30.0 }, true, false);
         s.update_pointer(Point { x: 220.0, y: 150.0 }, false, true);
-        let workspaces = WorkspaceSnapshot {
-            outputs: Vec::new(),
-        };
 
-        // The selection is a capture marker, not a surface: no backdrop
-        // blur, no analytic glass body, and a scrim hole that matches the
-        // staged rect exactly, square corners included.
-        assert_eq!(s.backdrop_blur_sigma(), 0.0);
-        assert!(
-            s.backdrop_regions((800.0, 600.0), &[], &workspaces)
-                .is_empty()
-        );
-        assert!(
-            s.liquid_glass_regions((800.0, 600.0), &[], &workspaces)
-                .is_empty()
-        );
+        // A region selection frames pixels the user is about to capture. It is
+        // a border plus a scrim hole, and the hole matches the staged rect
+        // exactly, square corners included — nothing overlays the framed area.
         let hole = s
             .scrim_hole((800.0, 600.0), &[])
             .expect("staged rect is the hole");
@@ -1170,27 +1117,29 @@ mod tests {
         assert_eq!(hole.y, staged.origin.y as f32);
         assert_eq!(hole.w, staged.size.w as f32);
         assert_eq!(hole.h, staged.size.h as f32);
+        assert_eq!(s.lens_body_rect((800.0, 600.0)), None);
     }
 
     #[test]
-    fn pixel_loupe_keeps_its_analytic_glass_body() {
+    fn the_pixel_loupe_is_a_painted_body_over_the_pixels_it_frames() {
         let mut s = ScreenshotSelector::new();
         s.start_pick(PickerMode::Pixel);
         s.update_pointer(Point { x: 400.0, y: 300.0 }, false, false);
-        let workspaces = WorkspaceSnapshot {
-            outputs: Vec::new(),
-        };
 
-        // The loupe is an optical instrument, so it keeps the full glass
-        // treatment the pick targets no longer get.
-        assert_eq!(s.backdrop_blur_sigma(), BACKDROP_BLUR_SIGMA);
-        let backdrop = s.backdrop_regions((800.0, 600.0), &[], &workspaces);
-        let glass = s.liquid_glass_regions((800.0, 600.0), &[], &workspaces);
-        assert!(backdrop.is_empty());
-        assert_eq!(glass.len(), 1);
-        assert_eq!(glass[0].bounds.w, PIXEL_LENS_SIZE);
-        assert_eq!(glass[0].corner_radius, Design::dark().radii.glass_panel);
-        assert!(glass[0].focus.is_none());
+        // The loupe is a painted body at the panel radius. It samples nothing:
+        // the magnified pixels arrive as a texture the selector draws itself,
+        // so the loupe's own body is a flat fill that cannot obscure the
+        // reading inside it.
+        let rect = s
+            .lens_body_rect((800.0, 600.0))
+            .expect("the loupe has a body");
+        assert_eq!(rect.w, PIXEL_LENS_SIZE);
+        let design = Design::dark();
+        let style = design
+            .surfaces
+            .for_role(tessera_design::SurfaceRole::FloatingPanel);
+        assert_eq!(style.radius, design.radii.glass_panel);
+        assert!(style.body.components().3 >= 236, "the loupe body is opaque");
     }
 
     #[test]

@@ -65,7 +65,7 @@ design token, or an implementation note.
    - A tag is declared once, in the `### Invariants & Behavioral Boundaries`
      section of the ADR that establishes it. Developer agent directives and
      prompt configurations (`AGENTS.md`) cannot establish invariants; only
-     ratified ADRs and architecture standards define system invariants ([ADR-0201](../../adr/0201-decouple-documentation-governance-from-agent-configuration-and-canonize-sandbox-isolation.md)).
+     ratified ADRs and architecture standards define system invariants ([ADR-0201](../adr/0201-decouple-documentation-governance-from-agent-configuration-and-canonize-sandbox-isolation.md)).
    - Later ADRs may reference, amend, or supersede the tag, but must not
      redeclare it with different meaning. Number collisions within one domain
      prefix are a documentation defect.
@@ -79,4 +79,4 @@ design token, or an implementation note.
 4. **Verification Sweep**:
    - Invariants whose enforcement mechanism is a test use the `test_inv_*`
      naming convention so the suite can be audited as a set. See the test layer
-     model in [Surface Testing](../surface-testing.md).
+     model in [Surface Testing](testing/surface-testing.md).

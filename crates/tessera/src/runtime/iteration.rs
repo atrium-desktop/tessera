@@ -629,6 +629,13 @@ impl CompositorRuntime<'_> {
             detected.bluetooth_state = bluetooth_snap.state;
             detected.bluetooth_devices = bluetooth_snap.devices;
             if detected != self.system_status {
+                // An output switch is acknowledged only here, where the server's
+                // own default marker has actually moved. The write that asked
+                // for it returned without waiting (and `pw-metadata` reports
+                // success even when it cannot resolve the name), so a reading
+                // raised at dispatch would announce a move that may never have
+                // happened (ADR-0215).
+                let moved_to = audio_output_default_change(&self.system_status, &detected);
                 self.system_status = detected;
                 publish_system_status_parts(
                     &self.system_status,
@@ -637,6 +644,15 @@ impl CompositorRuntime<'_> {
                     &self.ipc,
                 );
                 self.damage.chrome_dirty = true;
+                if let Some(description) = moved_to {
+                    self.shell.show_osd(tessera_shell::component::OsdParams {
+                        kind: tessera_shell::component::OsdKind::Output,
+                        title: self.shell.localizer().audio_output(&description),
+                        detail: None,
+                        level: None,
+                        critical: false,
+                    });
+                }
             }
             // Evaluate every drained sample, not only changed ones: a warning
             // skipped behind a lock or another modal retries on the next tick.
@@ -1586,6 +1602,7 @@ impl CompositorRuntime<'_> {
                 &action,
                 tessera_protocol::SystemAction::SetOutputPower { .. }
             );
+            let applied_action = action.clone();
             let result = if self.server.session_locked() && !allowed_while_locked {
                 Err("session is locked".into())
             } else {
@@ -1610,6 +1627,17 @@ impl CompositorRuntime<'_> {
                     &self.live,
                     &self.ipc,
                 );
+                // A reading acknowledges a completed action, so it is raised
+                // here — after the action applied, against the value the
+                // machine actually reached. Actions with their own visible
+                // outcome report nothing.
+                if let Some(params) = super::system::osd_for_action(
+                    &applied_action,
+                    &self.system_status,
+                    self.shell.localizer(),
+                ) {
+                    self.shell.show_osd(params);
+                }
                 self.damage.chrome_dirty = true;
                 let _ = self.status_refresh_tx.send(());
             }

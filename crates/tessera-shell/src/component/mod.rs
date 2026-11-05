@@ -7,9 +7,8 @@
 //! 2. The host-owned types that flow across the seam: snapshot updates
 //!    ([`ChromeUpdate`]), lifecycle commands ([`ChromeCommand`]), the
 //!    interaction event sink ([`ChromeEvents`]), and the app catalog.
-//! 3. Shared chrome declaration geometry: backdrop regions and the
-//!    analytic liquid-glass graph, popup placement, preview-card geometry,
-//!    and the shared application context menu.
+//! 3. Shared chrome declaration geometry: popup placement, preview-card
+//!    geometry, and the shared application context menu.
 //!
 //! # Boundary
 //!
@@ -43,21 +42,14 @@ pub use tessera_desktop::system::SystemStatus;
 use std::collections::HashMap;
 use std::os::raw::c_void;
 
-/// Logical height of the HUD chips (the `tessera-hud` component).
-/// Defined here, at the shell seam, so shell-resident chrome that must align
-/// with the chips (the notification toast stack) can share the value without
-/// depending on the component crate.
-pub const HUD_HEIGHT: f32 = 32.0;
-
-/// Logical height of the top status band measured from the output's top edge.
+/// Safe-area inset from the output's top and right edges for transient chrome
+/// that hugs a corner — the notification toast stack.
 ///
-/// The chips float `CHIP_TOP` (8) below the edge and are [`HUD_HEIGHT`] (32)
-/// tall, so they occupy `[0, 40)`. Every damage path that repaints the strip must
-/// cover that whole range: the chip's own `damage_regions`, the clock-rollover
-/// tick in the runtime, and the overlay-pass intersection test each used to
-/// invent their own number (32, 32, 36) and all three came up short, leaving the
-/// bottom 8 px of the chips stale on every tick.
-pub const HUD_BAND_HEIGHT: f32 = 40.0;
+/// The top of the screen belongs to windows now: the status band that used to
+/// reserve it was removed with the HUD (ADR-0226), so floating corner chrome
+/// anchors to a symmetric inset rather than to the tallest thing that used to
+/// be there.
+pub const SCREEN_CORNER_INSET: f32 = 12.0;
 
 use tessera_authority::interaction_domain::InteractionDomainId;
 use tessera_authority::interaction_domain::InteractionDomainSnapshot;
@@ -123,370 +115,6 @@ pub struct Reserved {
     pub bottom: i32,
     pub left: i32,
     pub right: i32,
-}
-
-/// A wash composited INTO the frosted backdrop, beneath every glass body.
-///
-/// This is the architectural home for a surface's scheme-adaptive veil: the
-/// command panel's ink/pearl scrim, a modal's dim. A wash painted by chrome
-/// sits ABOVE the analytic glass — it hides the glass's refraction and severs
-/// the layer stack into "effects below, paint above". A wash declared here is
-/// blended into the frost by the layered backdrop material, so glass bodies
-/// refract the washed frost and the whole surface reads as one material.
-/// `strength` is the blend factor into the frosted colour (`0.0` keeps the
-/// plain frost).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct BackdropWash {
-    /// Wash colour, sRGB bytes.
-    pub tint: [u8; 3],
-    /// Blend strength into the frosted backdrop, `[0, 1]`.
-    pub strength: f32,
-}
-
-impl Default for BackdropWash {
-    fn default() -> Self {
-        Self {
-            tint: [0xFF, 0xFF, 0xFF],
-            strength: 0.0,
-        }
-    }
-}
-
-/// Convert a lens paint colour into a [`BackdropWash`].
-///
-/// A chrome-painted veil composites with straight alpha over whatever is
-/// below it; the frost wash blends by strength instead. The mapping that
-/// preserves the veil's visual weight is `strength = alpha`: a 50%-alpha
-/// ink wash over the frost reads, to the glass lens above, exactly as the
-/// painted veil read over the blur — but beneath the glass instead of over
-/// it. `components()` returns premultiplied bytes, so RGB is unpremultiplied
-/// against the source alpha here.
-#[must_use]
-pub fn backdrop_wash(color: lens::Color) -> BackdropWash {
-    let (pr, pg, pb, a) = color.components();
-    if a == 0 {
-        return BackdropWash::default();
-    }
-    let un = |p: u8| {
-        let v = (u32::from(p) * 255 + u32::from(a) / 2) / u32::from(a);
-        u8::try_from(v.min(255)).unwrap_or(255)
-    };
-    BackdropWash {
-        tint: [un(pr), un(pg), un(pb)],
-        strength: f32::from(a) / 255.0,
-    }
-}
-
-/// A modal's full-display dim as a backdrop wash region.
-///
-/// Modals dim the whole output and float one glass panel over it. The dim
-/// belongs beneath the panel's glass — blended into the frost — not painted
-/// above it by chrome, where it would hide the panel's refraction and split
-/// the layer stack. Return this region (plus the panel's own region) from
-/// `Chrome::backdrop_regions` instead of calling a painted scrim placement
-/// from `render`.
-#[must_use]
-pub fn modal_scrim_backdrop(
-    display: (f32, f32),
-    design: &tessera_design::Design,
-) -> BackdropRegion {
-    BackdropRegion {
-        x: 0.0,
-        y: 0.0,
-        w: display.0,
-        h: display.1,
-        wash: Some(backdrop_wash(design.colors.modal_scrim)),
-        opacity: 1.0,
-    }
-}
-
-/// Logical output-space rectangle whose already-composited desktop should be
-/// sampled and blurred before chrome is drawn over it. Components declare
-/// only the area occupied by their glass material; the executable shares one
-/// desktop capture across every request. An optional [`BackdropWash`] blends
-/// a veil into this region's frost — see its documentation for why a wash
-/// belongs here and not in the chrome paint pass.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct BackdropRegion {
-    pub x: f32,
-    pub y: f32,
-    pub w: f32,
-    pub h: f32,
-    /// Optional wash baked into this region's frost, beneath the glass.
-    pub wash: Option<BackdropWash>,
-    /// Frost opacity, `[0, 1]`: the blend between the frosted body and the
-    /// sharp desktop inside the rect's SDF coverage (`1.0` keeps the plain
-    /// frost). This is the exit-fade channel for chrome that covers its own
-    /// backdrop (the launcher): the painted content drains
-    /// through the lens opacity switch while the frosted sheet eases out here,
-    /// so the cover no longer holds the desktop hostage at full strength and
-    /// then vanishes in one frame. Blur sigma stays constant for the whole
-    /// fade (a per-frame radius forces capture teardowns mid-fade); only this
-    /// material value animates.
-    pub opacity: f32,
-}
-
-/// Stable identity of one offscreen backdrop layer.
-///
-/// `ROOT` is reserved for the compatibility layer synthesized from the
-/// existing `Chrome::backdrop_*` methods. Components declaring additional
-/// layers should derive their ids with [`backdrop_layer_id`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct BackdropLayerId(pub u64);
-
-impl BackdropLayerId {
-    pub const ROOT: Self = Self(0);
-}
-
-/// Image sampled by one backdrop layer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BackdropLayerSource {
-    /// The already-composited desktop before shell chrome.
-    Scene,
-    /// The resolved image produced by another declared layer.
-    Layer(BackdropLayerId),
-}
-
-/// One declarative level in the offscreen backdrop graph.
-///
-/// A layer blurs its explicit source, applies its frost and glass material,
-/// and produces a resolved image that later layers can sample. Dependencies
-/// form a DAG; the compositor rejects duplicate ids, missing sources, and
-/// cycles. Independent layers retain declaration order as their paint order.
-/// A zero blur sigma remains an active explicit node and resolves the material
-/// without adding a sampling radius.
-#[derive(Debug, Clone, PartialEq)]
-pub struct BackdropLayer {
-    pub id: BackdropLayerId,
-    pub source: BackdropLayerSource,
-    pub blur_sigma: f32,
-    pub frost: Vec<BackdropRegion>,
-    pub glass: Vec<LiquidGlassRegion>,
-}
-
-impl BackdropLayer {
-    #[must_use]
-    pub fn new(id: BackdropLayerId, source: BackdropLayerSource, blur_sigma: f32) -> Self {
-        Self {
-            id,
-            source,
-            blur_sigma: blur_sigma.max(0.0),
-            frost: Vec::new(),
-            glass: Vec::new(),
-        }
-    }
-
-    #[must_use]
-    pub fn with_frost(mut self, frost: Vec<BackdropRegion>) -> Self {
-        self.frost = frost;
-        self
-    }
-
-    #[must_use]
-    pub fn with_glass(mut self, glass: Vec<LiquidGlassRegion>) -> Self {
-        self.glass = glass;
-        self
-    }
-}
-
-impl From<tessera_primitives::Rect> for BackdropRegion {
-    fn from(rect: tessera_primitives::Rect) -> Self {
-        Self {
-            x: rect.origin.x as f32,
-            y: rect.origin.y as f32,
-            w: rect.size.w as f32,
-            h: rect.size.h as f32,
-            wash: None,
-            opacity: 1.0,
-        }
-    }
-}
-
-impl From<lens::Rect> for BackdropRegion {
-    fn from(rect: lens::Rect) -> Self {
-        Self {
-            x: rect.x,
-            y: rect.y,
-            w: rect.w,
-            h: rect.h,
-            wash: None,
-            opacity: 1.0,
-        }
-    }
-}
-
-/// One analytic liquid-glass body backed by a [`BackdropRegion`] capture.
-/// Radius and opacity participate in the same SDF composite as refraction,
-/// blur and edge lighting, so rounded corners and visibility cannot diverge.
-/// The drop shadow is cast by the body's own SDF; the component configures
-/// it in logical pixels and `shadow_alpha` 0 disables it.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct LiquidGlassRegion {
-    pub bounds: BackdropRegion,
-    pub corner_radius: f32,
-    pub opacity: f32,
-    pub shadow_alpha: f32,
-    pub shadow_blur: f32,
-    pub shadow_offset_y: f32,
-    /// Material-strength multipliers from the role's
-    /// [`tessera_design::GlassStyle`] (1.0 = the shared reference recipe).
-    pub frost_strength: f32,
-    pub tint_strength: f32,
-    pub saturation: f32,
-    /// Role-pinned plate polarity: 0 pins the whole body to the smoke plate,
-    /// 1 to pearl; negative keeps the shader's per-pixel adaptive polarity.
-    pub plate_polarity: f32,
-    /// Continuous curvature (squircle) blend factor: 0 = Euclidean L2 rounded rect,
-    /// 1 = G2 superellipse (p = 4 norm).
-    pub curvature: f32,
-    /// Sub-pixel contact ambient occlusion [0, 1].
-    pub contact_ao: f32,
-    /// 360-degree isotropic environmental Fresnel sheen [0, 1].
-    pub ambient_fresnel: f32,
-    /// Stable cross-frame identity. A component that opts into backdrop
-    /// adaptation declares a unique non-zero id (see
-    /// [`liquid_glass_region_id`]); the compositor keys temporal smoothing
-    /// on it and writes back `adaptation`. 0 = anonymous (the shader's
-    /// legacy per-pixel adaptive tint).
-    pub id: u64,
-    /// Compositor-fed smoothed backdrop statistics for this body. Components
-    /// always declare `None`; the adaptation pass fills it for identified
-    /// regions before the regions are mapped to prism groups.
-    pub adaptation: Option<LiquidGlassAdaptation>,
-    /// Optional optical emphasis inside this body. This is one field in the
-    /// parent's material, not a nested glass body.
-    pub focus: Option<LiquidGlassFocus>,
-    /// Optional capture footprint declared when the body's `bounds` animate.
-    /// The compositor keys its backdrop capture on exact region geometry, so
-    /// a body whose shape morphs every frame (a revealing panel, a
-    /// spring-driven strip) would otherwise invalidate the capture and
-    /// re-render the whole scene per frame. When set, the footprint — a
-    /// stable envelope containing every animated shape — covers capture and
-    /// blur instead of `bounds`, and the component must not also declare a
-    /// matching `BackdropRegion`. The footprint carries no visible material:
-    /// the glass body drawn is still `bounds`.
-    pub capture_bounds: Option<BackdropRegion>,
-}
-
-/// Smoothed per-region backdrop statistics: `plate_luminance` is the
-/// region-mean backdrop luminance (the compositor uses it to scale the
-/// role's tint strength — calm dark backdrops recover translucency);
-/// `backdrop_energy` is the high-frequency energy the shader's tint boost
-/// consumes. Both are 0..1 and temporally smoothed by the compositor.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct LiquidGlassAdaptation {
-    pub plate_luminance: f32,
-    pub backdrop_energy: f32,
-}
-
-/// Derive a stable liquid-glass region identity from a component's layer id
-/// (FNV-1a). Layer ids are already unique static strings across the product,
-/// so the hash is collision-safe for this use.
-#[must_use]
-pub fn liquid_glass_region_id(layer_id: &str) -> u64 {
-    let mut hash = 0xcbf2_9ce4_8422_2325u64;
-    for byte in layer_id.bytes() {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    hash
-}
-
-/// Derive a stable, non-root offscreen-layer identity from a component's
-/// globally unique layer id.
-#[must_use]
-pub fn backdrop_layer_id(layer_id: &str) -> BackdropLayerId {
-    let id = liquid_glass_region_id(layer_id);
-    BackdropLayerId(if id == 0 { 1 } else { id })
-}
-
-impl Default for LiquidGlassRegion {
-    /// The reference-recipe body: unit material strengths, legacy per-pixel
-    /// polarity, anonymous. `from_role` is the product constructor; this
-    /// exists for tests and incremental struct updates.
-    fn default() -> Self {
-        Self {
-            bounds: BackdropRegion::default(),
-            corner_radius: 0.0,
-            opacity: 0.0,
-            shadow_alpha: 0.0,
-            shadow_blur: 0.0,
-            shadow_offset_y: 0.0,
-            frost_strength: 1.0,
-            tint_strength: 1.0,
-            saturation: 1.0,
-            plate_polarity: -1.0,
-            curvature: 0.0,
-            contact_ao: 0.35,
-            ambient_fresnel: 0.50,
-            id: 0,
-            adaptation: None,
-            focus: None,
-            capture_bounds: None,
-        }
-    }
-}
-
-impl LiquidGlassRegion {
-    /// Construct a body from one semantic product role.
-    #[must_use]
-    pub fn from_role(
-        design: &tessera_design::Design,
-        role: tessera_design::GlassRole,
-        bounds: BackdropRegion,
-        corner_radius: f32,
-        opacity: f32,
-    ) -> Self {
-        let style = design.glass.for_role(role);
-        Self {
-            bounds,
-            corner_radius,
-            opacity: opacity.clamp(0.0, 1.0),
-            shadow_alpha: style.shadow_alpha,
-            shadow_blur: style.shadow_blur,
-            shadow_offset_y: style.shadow_offset_y,
-            frost_strength: style.frost_strength,
-            tint_strength: style.tint_strength,
-            saturation: style.saturation,
-            plate_polarity: style.plate_polarity,
-            curvature: style.curvature,
-            contact_ao: style.contact_ao,
-            ambient_fresnel: style.ambient_fresnel,
-            id: 0,
-            adaptation: None,
-            focus: None,
-            capture_bounds: None,
-        }
-    }
-
-    /// Declare a stable capture footprint containing every shape this body's
-    /// animated `bounds` can take. See the field's documentation.
-    #[must_use]
-    pub fn with_capture_bounds(mut self, bounds: BackdropRegion) -> Self {
-        self.capture_bounds = Some(bounds);
-        self
-    }
-
-    /// Opt this body into backdrop adaptation under a stable identity.
-    #[must_use]
-    pub fn with_id(mut self, id: u64) -> Self {
-        self.id = id;
-        self
-    }
-
-    /// Attach the parent's single optical interaction focus.
-    #[must_use]
-    pub fn with_focus(mut self, focus: Option<LiquidGlassFocus>) -> Self {
-        self.focus = focus;
-        self
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct LiquidGlassFocus {
-    pub bounds: BackdropRegion,
-    pub corner_radius: f32,
-    pub strength: f32,
 }
 
 /// Decoded icon texture handles shared with chrome components.
@@ -717,9 +345,65 @@ pub struct CapabilityPickResult {
     pub approved: Option<Vec<String>>,
 }
 
-/// Parameters of one low-battery alert, produced by the compositor runtime
-/// when a configured threshold fires.
-#[derive(Debug, Clone, Copy)]
+/// What a transient system OSD is reporting.
+///
+/// The kind decides the reading and the glyph, never the placement: every OSD
+/// appears in the same place with the same lifetime, so a user learning one has
+/// learned them all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OsdKind {
+    /// The battery crossed a level worth mentioning. `critical` upgrades the
+    /// wording and the tone; it is not a request for confirmation.
+    Battery,
+    /// A wireless link came up, went down, or changed network.
+    Wireless,
+    /// A Bluetooth peripheral connected or disconnected.
+    Bluetooth,
+    /// Playback moved to another audio output (ADR-0215).
+    Output,
+    /// Output volume moved or was muted.
+    Volume,
+    /// Output brightness moved.
+    Brightness,
+}
+
+impl OsdKind {
+    /// Whether this kind's reading is a percentage (drives the gauge).
+    #[must_use]
+    pub fn is_level(self) -> bool {
+        matches!(
+            self,
+            OsdKind::Battery | OsdKind::Volume | OsdKind::Brightness
+        )
+    }
+}
+
+/// One transient system OSD.
+///
+/// `level` is a percentage for a level kind and `None` otherwise. `critical`
+/// is the tone escalation for a battery reading close to the end of the
+/// session; it never becomes a barrier, because the barrier is
+/// [`BatteryAlertParams`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OsdParams {
+    pub kind: OsdKind,
+    /// Short headline, already localized by the caller.
+    pub title: String,
+    /// Optional second line (a network name, a device name).
+    pub detail: Option<String>,
+    /// Percentage for a level kind.
+    pub level: Option<u8>,
+    /// Escalated tone for a battery reading close to the end of the session.
+    pub critical: bool,
+}
+
+/// A low-battery barrier: the one battery surface that stops the session.
+///
+/// Raised only for the lowest configured `[battery] warn_at` threshold, where
+/// the machine is about to suspend. Softer thresholds go to the transient OSD
+/// instead, so a working user is not interrupted to be told something a glance
+/// could have told them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BatteryAlertParams {
     /// Charge level shown in the panel, in percent.
     pub percent: u8,
@@ -962,6 +646,10 @@ pub enum ChromeCommand<'a> {
     CancelCapabilityPick,
     StartBatteryAlert(&'a BatteryAlertParams),
     CancelBatteryAlert,
+    /// Raise a transient system OSD. Repeated commands replace the current one
+    /// rather than stacking: two volume readings in a row are one reading, not
+    /// two panels.
+    ShowOsd(&'a OsdParams),
     /// Force every active high-priority modal overlay to its safe-negative
     /// exit (the compositor panic chord, `Ctrl+Alt+Escape`). Consent prompts
     /// answer denied/cancelled through their normal [`ChromeEvents`] answer
@@ -1250,6 +938,12 @@ pub trait Chrome {
         false
     }
 
+    /// Whether a transient system OSD is currently visible. Default `false`;
+    /// the OSD component overrides this.
+    fn osd_active(&self) -> bool {
+        false
+    }
+
     /// Whether the low-battery alert is currently open. Default `false`; the
     /// battery-alert component overrides this.
     fn battery_alert_active(&self) -> bool {
@@ -1257,8 +951,7 @@ pub trait Chrome {
     }
 
     /// Advance animation clocks and query watchers whose results must be
-    /// known before [`Chrome::backdrop_blur_sigma`],
-    /// [`Chrome::backdrop_regions`], and [`Chrome::damage_regions`] are
+    /// known before [`Chrome::damage_regions`] and the cover declarations are
     /// resolved for this frame (ADR-0171, ADR-0178).
     fn prepare_frame(
         &mut self,
@@ -1272,7 +965,7 @@ pub trait Chrome {
     /// underlying desktop wallpaper and client windows at full opacity this
     /// frame (e.g. an open Control Center once its opaque canvas reaches
     /// `alpha == 255`). Allows the compositor to skip the redundant base
-    /// desktop pass when no backdrop effect samples the scene.
+    /// desktop pass.
     fn occludes_desktop(&self) -> bool {
         false
     }
@@ -1321,6 +1014,17 @@ pub trait Chrome {
         None
     }
 
+    /// Whether this component's paint samples the client scene through a
+    /// compositor-owned effect — currently only the blurred soft window
+    /// shadow, which is recorded from the scene before chrome is drawn.
+    ///
+    /// Chrome bodies themselves are flat fills: no blur, capture, frost, or
+    /// refraction. This flag exists so the desktop-scene pass is not elided
+    /// while something still reads from it.
+    fn samples_scene_effect(&self) -> bool {
+        false
+    }
+
     /// Whether this component would draw visible pixels in the next frame.
     /// The default is conservative: third-party chrome blocks direct scanout
     /// until it explicitly proves that its inactive state is visually empty.
@@ -1339,54 +1043,32 @@ pub trait Chrome {
         None
     }
 
-    /// Blur width requested for the desktop behind compositor
-    /// chrome, in logical pixels. The host takes the maximum across
-    /// components and applies one shared backdrop capture before rendering
-    /// chrome. A zero value disables the capture path.
-    fn backdrop_blur_sigma(&self) -> f32 {
-        0.0
-    }
-
-    /// Regions covered by this component's glass material, in logical output
-    /// coordinates. An empty list means the component contributes no
-    /// rectangular frost; components that want a full-screen backdrop (the
-    /// launcher) must declare the full-screen rect
-    /// explicitly. Analytic glass bodies need no entry here — they carry
-    /// their own capture footprint via `LiquidGlassRegion::capture_bounds`.
-    fn backdrop_regions(
-        &self,
-        _display: (f32, f32),
-        _windows: &[Window],
-        _workspaces: &WorkspaceSnapshot,
-    ) -> Vec<BackdropRegion> {
-        Vec::new()
-    }
-
-    /// Subset of [`Chrome::backdrop_regions`] that should use the analytic
-    /// thick-glass compositor instead of a rectangular frosted-blur clip.
-    fn liquid_glass_regions(
-        &self,
-        _display: (f32, f32),
-        _windows: &[Window],
-        _workspaces: &WorkspaceSnapshot,
-    ) -> Vec<LiquidGlassRegion> {
-        Vec::new()
-    }
-
-    /// Additional offscreen layers declared by this component.
+    /// Whether this component's paint is a **full-output opaque cover** whose
+    /// own body establishes the frame's background this frame — the launcher
+    /// sheet, the control center's canvas, a modal scrim.
     ///
-    /// The host already synthesizes [`BackdropLayerId::ROOT`] from the
-    /// compatibility blur/frost/glass methods above. An additional layer may
-    /// sample the scene, that root, or another additional layer by id. Keep
-    /// the default empty unless the material intentionally needs cumulative
-    /// composition such as glass sampling an earlier glass result.
-    fn backdrop_layers(
-        &self,
-        _display: (f32, f32),
-        _windows: &[Window],
-        _workspaces: &WorkspaceSnapshot,
-    ) -> Vec<BackdropLayer> {
-        Vec::new()
+    /// A cover has two consequences the compositor consumes instead of
+    /// guessing:
+    /// * the base desktop pass is elidable, because no pixel of it survives;
+    /// * an exit fade has nothing beneath it to reveal, so the cover owns its
+    ///   own fade-out through [`Chrome::cover_opacity`].
+    ///
+    /// Default `false`. A component that declares `true` must actually paint
+    /// every output pixel at full reveal; declaring it while leaving gaps
+    /// exposes stale framebuffer content underneath.
+    fn paints_opaque_cover(&self) -> bool {
+        false
+    }
+
+    /// Opacity of [`Chrome::paints_opaque_cover`] this frame, `[0, 1]`.
+    ///
+    /// Chrome that covers the whole output has to drain its cover while it
+    /// leaves, or it holds the desktop hostage at full strength and then
+    /// vanishes in a single frame. The compositor reads this to decide whether
+    /// the desktop beneath the cover still has to be drawn. Meaningless when
+    /// [`Chrome::paints_opaque_cover`] is `false`.
+    fn cover_opacity(&self) -> f32 {
+        0.0
     }
 }
 
@@ -1401,31 +1083,43 @@ pub trait Chrome {
 pub struct CompositionRequirements {
     /// At least one eligible chrome component would draw visible pixels.
     pub visible_pixels: bool,
-    /// Visible chrome samples the client scene through a backdrop effect.
-    pub live_backdrop_effect: bool,
+    /// Visible chrome samples the client scene through a compositor-owned
+    /// blur or shadow effect (the soft window shadow layer).
+    pub live_scene_effect: bool,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
-    /// `modal_scrim_backdrop` is the surviving full-screen scrim used by the
-    /// security dialogs and the app picker (ADR-0176). It declares a constant
-    /// strength wash — those surfaces have no exit animation to drive a fade.
+    /// A modal's veil is one painted fill covering the whole output. It has no
+    /// material beneath it to blend into, so this pins the geometry the
+    /// compositor elides the desktop pass on.
     #[test]
-    fn modal_scrim_backdrop_declares_a_full_strength_opaque_cover() {
+    fn modal_scrim_paints_the_whole_output_at_the_veil_tone() {
         for design in [
             tessera_design::Design::dark(),
             tessera_design::Design::light(),
         ] {
-            let region = modal_scrim_backdrop((1920.0, 1080.0), &design);
-            assert_eq!(
-                (region.x, region.y, region.w, region.h),
-                (0.0, 0.0, 1920.0, 1080.0)
+            let material = tessera_design::materials::modal_scrim(&design, 1.0);
+            assert_eq!(material.bg, design.colors.modal_scrim);
+            assert_eq!(material.radius, 0.0, "a full-output veil has no corners");
+            assert_eq!(material.border_width, 0.0);
+            assert_eq!(material.pad, 0.0);
+            let veil = material.bg.components().3;
+            assert!(veil > 0, "the veil carries a visible wash");
+            assert!(
+                material_alpha_at(&design, 0.5) < veil,
+                "the veil follows the cover's fade"
             );
-            assert_eq!(region.opacity, 1.0, "an instant modal covers at full body");
-            let wash = region.wash.expect("the cover declares its scrim wash");
-            assert!(wash.strength > 0.0, "the scrim carries a visible veil");
         }
+    }
+
+    /// Alpha of the veil at a given cover opacity, through the material's own
+    /// premultiplied colour.
+    fn material_alpha_at(design: &tessera_design::Design, opacity: f32) -> u8 {
+        tessera_design::materials::modal_scrim(design, opacity)
+            .bg
+            .components()
+            .3
     }
 }

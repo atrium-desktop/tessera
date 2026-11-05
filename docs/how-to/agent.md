@@ -79,7 +79,7 @@ completion after cleanup, so the visible result remains available after
 the Agent indicator disappears.
 
 Do Not Disturb may suppress the transient toast. The notification remains
-visible from the HUD notification count, and the command still verifies its
+visible in the command panel's notification list, and the command still verifies its
 presence in compositor state. A successful command prints a JSON report
 with `"mode": "live"` and `"status": "passed"`.
 

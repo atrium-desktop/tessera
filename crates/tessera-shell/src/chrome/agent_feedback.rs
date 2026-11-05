@@ -36,7 +36,7 @@ use tessera_desktop::window::WindowId;
 use tessera_desktop::workspace::WorkspaceSnapshot;
 use tessera_primitives::Point;
 
-use crate::HUD_HEIGHT;
+use crate::component::SCREEN_CORNER_INSET;
 use crate::component::{
     AgentActivity, AgentInputKind, Chrome, ChromeEvents, ChromeUpdate, Localizer, Message,
     ellipsize,
@@ -185,13 +185,16 @@ struct AgentCursorSet {
 }
 
 impl AgentCursorSet {
+    #[cfg(feature = "agent-sprites")]
     fn upload(device: &flux::Device, theme: &Dir<'static>) -> Option<Self> {
         let load_cursor = |shape: u32| -> Option<LoadedCursor> {
             for candidate in shape_candidates(shape) {
                 if let Some(file) = theme.get_file(format!("cursors/{candidate}.png")) {
                     let bytes = file.contents();
                     let image = upload_sprite(device, bytes, 96, 96)?;
-                    let (hx, hy) = if let Some(svg_file) = theme.get_file(format!("cursors/{candidate}.svg")) {
+                    let (hx, hy) = if let Some(svg_file) =
+                        theme.get_file(format!("cursors/{candidate}.svg"))
+                    {
                         let meta = svg_meta(svg_file.contents());
                         (
                             (meta.hotspot.0 / meta.native.0).clamp(0.0, 1.0),
@@ -266,11 +269,18 @@ impl AgentFeedback {
     /// the composition root's flux device.
     #[must_use]
     pub fn new(device: &flux::Device) -> Self {
-        Self::with_cursor_sets(
-            AgentCursorSet::upload(device, &AI_THEME_LIGHT)
-                .zip(AgentCursorSet::upload(device, &AI_THEME_DARK))
-                .map(|(light, dark)| [light, dark]),
-        )
+        #[cfg(feature = "agent-sprites")]
+        let sets = AgentCursorSet::upload(device, &AI_THEME_LIGHT)
+            .zip(AgentCursorSet::upload(device, &AI_THEME_DARK))
+            .map(|(light, dark)| [light, dark]);
+        #[cfg(not(feature = "agent-sprites"))]
+        let sets = {
+            // Sprites are an asset, not a requirement: the layer draws its
+            // activity and keycast marks without them.
+            let _ = device;
+            None
+        };
+        Self::with_cursor_sets(sets)
     }
 
     fn with_cursor_sets(cursor_sets: Option<[AgentCursorSet; 2]>) -> Self {
@@ -778,7 +788,7 @@ fn render_pointer_feedback(
         Some(pos) => pointer_label_rect(pos, width, display),
         None => Rect {
             x: ((rect.x + rect.w * 0.5) - width * 0.5).max(rect.x + 8.0),
-            y: (rect.y + 12.0).max(HUD_HEIGHT + 4.0),
+            y: (rect.y + 12.0).max(SCREEN_CORNER_INSET),
             w: width,
             h: LABEL_HEIGHT,
         },
@@ -985,7 +995,7 @@ fn render_background_activity(
         .min((display.0 - 16.0).max(1.0));
     let rect = Rect {
         x: ((display.0 - width) * 0.5).max(8.0),
-        y: HUD_HEIGHT + 10.0 + index as f32 * (BACKGROUND_HEIGHT + 7.0),
+        y: SCREEN_CORNER_INSET + index as f32 * (BACKGROUND_HEIGHT + 7.0),
         w: width,
         h: BACKGROUND_HEIGHT,
     };
@@ -1119,7 +1129,19 @@ fn scaled_alpha(alpha: u8, numerator: u16, denominator: u16) -> u8 {
     u8::try_from(scaled.min(255)).unwrap_or(255)
 }
 
-fn upload_sprite(device: &flux::Device, png: &[u8], width: u32, height: u32) -> Option<flux::Image> {
+/// Decode one cursor sprite and upload it.
+///
+/// Absent the `agent-sprites` feature the sprites are simply unavailable, which
+/// this module already models: `cursor_sets` is an `Option` and every consumer
+/// degrades to no on-screen pointer. Compiling an asset decoder into a build that
+/// does not want it is the thing to avoid, not the absence of the sprites.
+#[cfg(feature = "agent-sprites")]
+fn upload_sprite(
+    device: &flux::Device,
+    png: &[u8],
+    width: u32,
+    height: u32,
+) -> Option<flux::Image> {
     let dyn_img = image::load_from_memory(png).ok()?;
     let resized = if dyn_img.width() == width && dyn_img.height() == height {
         dyn_img.to_rgba8()
@@ -1169,9 +1191,9 @@ fn pointer_label_rect(position: Point, width: f32, display: (f32, f32)) -> Rect 
     };
     let below = position.y as f32 + 18.0;
     let y = if below + LABEL_HEIGHT <= display.1 - 8.0 {
-        below.max(HUD_HEIGHT + 4.0)
+        below.max(SCREEN_CORNER_INSET)
     } else {
-        (position.y as f32 - LABEL_HEIGHT - 18.0).max(HUD_HEIGHT + 4.0)
+        (position.y as f32 - LABEL_HEIGHT - 18.0).max(SCREEN_CORNER_INSET)
     };
     Rect {
         x,
@@ -1237,6 +1259,10 @@ fn render_shape(
 mod tests {
     use super::*;
 
+    /// The sprite pipeline's coverage invariant. It needs the decoder, so it is
+    /// gated with the feature that provides it rather than forcing every build
+    /// without sprites to compile an asset decoder for a test.
+    #[cfg(feature = "agent-sprites")]
     #[test]
     fn ai_polarities_rasterize_with_identical_coverage() {
         let shapes = ["default", "pointer", "text", "crosshair", "wait"];
@@ -1250,7 +1276,9 @@ mod tests {
 
             let render = |png: &[u8]| {
                 let dyn_img = image::load_from_memory(png).unwrap();
-                let resized = dyn_img.resize_exact(24, 24, image::imageops::FilterType::Triangle).to_rgba8();
+                let resized = dyn_img
+                    .resize_exact(24, 24, image::imageops::FilterType::Triangle)
+                    .to_rgba8();
                 resized.into_raw()
             };
             let a = render(light_file.contents());

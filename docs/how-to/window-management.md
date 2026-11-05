@@ -92,9 +92,9 @@ the [configuration reference](../reference/config.md#dock) for the key.
 
 This works for any focused window, including one that never asks for
 fullscreen itself — a game that only ships a windowed mode, for example.
-The window is configured to cover the whole output, the Dock, HUD, and
-wallpaper animation stand down, and the floating geometry from before the
-fullscreen entry is restored on exit. A window the application itself put
+The window is configured to cover the whole output, the Dock and the wallpaper
+animation stand down, and the floating geometry from before the fullscreen entry
+is restored on exit. A window the application itself put
 fullscreen (its own in-app `F11` or menu item) leaves through the same
 `Super+F11` binding.
 

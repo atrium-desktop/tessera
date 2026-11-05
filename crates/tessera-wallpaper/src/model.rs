@@ -393,6 +393,11 @@ mod tests {
         session.end().unwrap();
         model.draw(&device, &mut frame, Some(&target)).unwrap();
         let blurred = blur.apply(&frame, &target, 3.0).unwrap();
+        // Optics ADR-0147: `apply` registers a deferred pass, so the output is
+        // a handle without pixels until a consumer requires it, and a canvas
+        // pass that samples a pending output is rejected. Materialize at the
+        // boundary where the blur was applied — before the pass that draws it.
+        tessera_composite::effects::materialize_effect_output(&frame, &blurred).unwrap();
         let session = canvas
             .begin_session(
                 &mut frame,

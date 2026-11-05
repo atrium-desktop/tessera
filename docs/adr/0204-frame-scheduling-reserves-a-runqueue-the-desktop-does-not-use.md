@@ -160,7 +160,7 @@ it was never a process-level cgroup.
 
 Each invariant names its enforcement mechanism. The `test_inv_*` naming is the
 repository's audit convention for the invariant set
-(`docs/dev/standards/invariants.md`).
+(`docs/dev/invariants.md`).
 
 - `[INV-ARCH-95] The frame CPU is never the IRQ CPU.` While more than one CPU is
   available, the dedicated frame CPU must not be CPU 0. Enforced by

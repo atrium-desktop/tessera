@@ -140,8 +140,10 @@ the sink's negotiated port. `--source pattern` needs no portal or GPU;
 
 Audio is opt-in. `--audio` captures the default sink monitor (or the default
 source with `--audio-source microphone`), encodes AAC-LC 48 kHz stereo with
-ffmpeg, and interleaves it into the same TS/RTP flow. The source echoes the
-sink's AAC codec in M5; the default sink must not be muted. See
+ffmpeg, and interleaves it into the same TS/RTP flow. The sink's monitor is
+requested with `stream.capture.sink=true`, so "system" means the desktop's own
+playback rather than a microphone. The source echoes the sink's AAC codec in M5;
+the default sink must not be muted. See
 [Miracast Source §7.5](../../docs/explanation/miracast-source.md#75-audio).
 
 ## `sink`
@@ -173,7 +175,7 @@ capture and the compositor UI click remain the product checks.
 
 HDCP and UIBC remain non-goals. Audio is opt-in and implemented; see the
 [architecture](../../docs/explanation/miracast-source.md#75-audio) and the
-[bring-up lessons](../../docs/dev/miracast-lessons.md).
+[operational runbook](../../docs/dev/runbooks/miracast.md).
 
 ## `tessera-castd`
 

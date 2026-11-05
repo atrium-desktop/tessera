@@ -87,10 +87,11 @@ impl CompositorRuntime<'_> {
             scale,
             physical_size,
         } = assessment;
-        let (notif_revision, do_not_disturb) = {
-            let queue = self.notif_queue.lock().unwrap_or_else(|e| e.into_inner());
-            (queue.revision(), queue.do_not_disturb())
-        };
+        let notif_revision = self
+            .notif_queue
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .revision();
         // Modal chrome states whose transitions are not otherwise signed:
         // overview, keyboard-grabbing chrome (launcher), and the screenshot
         // selector.
@@ -160,22 +161,12 @@ impl CompositorRuntime<'_> {
             ));
         }
 
-        // 2. When the wall-clock minute rolls over or DND status changes:
-        if self.damage.last_present_minute != Some(wall_clock_minute())
-            || self.system_status.do_not_disturb != do_not_disturb
-        {
-            // The status strip's real extent, measured from the output edge. A
-            // hardcoded `max(32)` here left the HUD chips' bottom 8 px stale on
-            // every clock tick, because the chips float below the edge rather
-            // than starting at it.
-            let panel_h = tessera_shell::HUD_BAND_HEIGHT as i32;
-            chrome_extra_rects.push(tessera_primitives::Rect::new(
-                0,
-                0,
-                display.0 as i32,
-                panel_h,
-            ));
-        }
+        // 2. When DND status changes: the indicator is drawn inside the
+        // command panel, which repaints as a whole while it is open, so nothing
+        // outside it depends on the flag. The minute rollover used to repaint
+        // the status strip; that strip is gone (ADR-0226) and the clock now
+        // lives on the desktop layer, whose own damage report covers it, so
+        // neither change schedules a chrome repaint here.
 
         // 3. When notification toast arrives/dismisses:
         if self.damage.last_notif_revision != Some(notif_revision) {

@@ -19,11 +19,13 @@ pub struct Design {
     pub colors: ProductColors,
     pub radii: Radii,
     pub strokes: Strokes,
-    pub glass: GlassStyles,
-    pub glass_focus: GlassFocus,
+    pub surfaces: SurfaceStyles,
+    pub selection: SelectionStyles,
     pub preview: Preview,
     pub avatars: AvatarStyles,
-    pub hud_foreground: HudForeground,
+    /// Contour policy for glyphs and labels drawn straight onto the desktop
+    /// or onto chrome whose body cannot guarantee local contrast.
+    pub floating_foreground: FloatingForeground,
     pub typography: TypeScale,
     pub scene: SceneColors,
     pub dock: DockColors,
@@ -34,49 +36,29 @@ impl Design {
     #[must_use]
     pub fn dark() -> Self {
         let colors = crate::colors::dark_appearance();
+        let radii = Radii {
+            menu_item: 7.0,
+            popover: 12.0,
+            glass_panel: 18.0,
+            control: 12.0,
+            card: 16.0,
+            scrollbar: 2.5,
+            chip: 16.0,
+            cell: 22.0,
+            application: 24.0,
+        };
         Self {
             scheme: ColorScheme::Dark,
             colors: colors.product,
-            radii: Radii {
-                menu_item: 7.0,
-                popover: 12.0,
-                glass_panel: 18.0,
-                control: 12.0,
-                card: 16.0,
-                scrollbar: 2.5,
-                chip: 16.0,
-                cell: 22.0,
-                application: 24.0,
-            },
+            radii,
             strokes: Strokes {
                 hairline: 1.0,
                 scrollbar: 5.0,
             },
-            glass: GlassStyles {
-                chip: GlassStyle::new(0.16, 4.0, 2.0)
-                    .with_material(1.0, 0.7, 1.05, 0.0)
-                    .with_curvature(0.65),
-                tooltip: GlassStyle::new(0.14, 10.0, 5.0)
-                    .with_material(3.0, 3.0, 0.85, 0.0)
-                    .with_curvature(0.55),
-                menu: GlassStyle::new(0.18, 16.0, 8.0)
-                    .with_material(5.0, 3.6, 0.7, 0.0)
-                    .with_curvature(0.50),
-                floating_panel: GlassStyle::new(0.18, 16.0, 8.0)
-                    .with_material(3.5, 3.0, 0.85, 0.0)
-                    .with_curvature(0.60),
-                prominent_panel: GlassStyle::new(0.20, 18.0, 9.0)
-                    .with_material(4.0, 3.2, 0.8, 0.0)
-                    .with_curvature(0.60)
-                    .with_optics(0.35, 0.65),
-                dock: GlassStyle::new(0.20, 12.0, 6.0)
-                    .with_material(1.2, 0.8, 1.05, 0.0)
-                    .with_curvature(0.65),
-            },
-            glass_focus: GlassFocus {
-                hover_tint: colors.glass_focus.surface_hover,
-                selected_tint: colors.glass_focus.surface_selected,
-                field_strength: 1.0,
+            surfaces: SurfaceStyles::new(&colors.product, &colors.dock, radii, 1.0),
+            selection: SelectionStyles {
+                hover_tint: colors.selection_colors.surface_hover,
+                selected_tint: colors.selection_colors.surface_selected,
             },
             preview: Preview {
                 inactive_content_brightness: 0.74,
@@ -105,9 +87,9 @@ impl Design {
                     initials_scale: 0.36,
                 },
             },
-            hud_foreground: HudForeground {
-                primary: colors.hud_foreground.primary,
-                contour: colors.hud_foreground.contour,
+            floating_foreground: FloatingForeground {
+                primary: colors.floating_foreground.primary,
+                contour: colors.floating_foreground.contour,
                 text_contour_width: 0.75,
                 glyph_contour_width: 1.0,
             },
@@ -139,36 +121,10 @@ impl Design {
         Self {
             scheme: ColorScheme::Light,
             colors: colors.product,
-            glass: GlassStyles {
-                chip: GlassStyle::new(0.18, 4.0, 2.0)
-                    .with_material(1.0, 0.8, 1.05, 1.0)
-                    .with_curvature(0.65)
-                    .with_optics(0.45, 0.50),
-                tooltip: GlassStyle::new(0.16, 10.0, 5.0)
-                    .with_material(3.0, 3.5, 0.9, 1.0)
-                    .with_curvature(0.55)
-                    .with_optics(0.45, 0.50),
-                menu: GlassStyle::new(0.20, 16.0, 8.0)
-                    .with_material(5.0, 4.5, 0.8, 1.0)
-                    .with_curvature(0.50)
-                    .with_optics(0.45, 0.50),
-                floating_panel: GlassStyle::new(0.20, 16.0, 8.0)
-                    .with_material(3.5, 3.5, 0.9, 1.0)
-                    .with_curvature(0.60)
-                    .with_optics(0.45, 0.50),
-                prominent_panel: GlassStyle::new(0.22, 18.0, 9.0)
-                    .with_material(4.0, 4.0, 0.85, 1.0)
-                    .with_curvature(0.60)
-                    .with_optics(0.45, 0.50),
-                dock: GlassStyle::new(0.22, 12.0, 6.0)
-                    .with_material(1.2, 0.85, 1.05, 1.0)
-                    .with_curvature(0.65)
-                    .with_optics(0.45, 0.50),
-            },
-            glass_focus: GlassFocus {
-                hover_tint: colors.glass_focus.surface_hover,
-                selected_tint: colors.glass_focus.surface_selected,
-                field_strength: 1.0,
+            surfaces: SurfaceStyles::new(&colors.product, &colors.dock, Design::dark().radii, 1.0),
+            selection: SelectionStyles {
+                hover_tint: colors.selection_colors.surface_hover,
+                selected_tint: colors.selection_colors.surface_selected,
             },
             avatars: AvatarStyles {
                 persona_header: AvatarStyle {
@@ -189,9 +145,9 @@ impl Design {
             // The HUD core turns dark on light; the contour inverts with it
             // so legibility survives arbitrary bright wallpaper the same way
             // the dark appearance survives dark regions.
-            hud_foreground: HudForeground {
-                primary: colors.hud_foreground.primary,
-                contour: colors.hud_foreground.contour,
+            floating_foreground: FloatingForeground {
+                primary: colors.floating_foreground.primary,
+                contour: colors.floating_foreground.contour,
                 text_contour_width: 0.75,
                 glyph_contour_width: 1.0,
             },
@@ -278,136 +234,208 @@ pub struct TypeScale {
 
 /// Semantic role of one analytic Liquid Glass body.
 ///
-/// Roles describe the body's elevation and use, not a numbered material
-/// intensity. Refraction, rim lighting, and the material's curve shapes
-/// remain one product-wide optical identity; role-specific variation is
-/// limited to the body shadow and the material-strength multipliers that
-/// keep text-bearing bodies legible over arbitrary backdrops.
+/// Roles name a chrome surface's elevation and use, never a material
+/// intensity. Every role resolves to a flat painted body: an opaque fill and a
+/// hairline boundary. There is no backdrop capture, blur, refraction, rim
+/// light, or adaptive tint anywhere in the product, so a role cannot vary
+/// optics that no longer exist — it varies only the fill, the boundary, and
+/// the shadow that separates the surface from arbitrary content beneath it.
+///
+/// The reason is the one ADR-0226 records: an analytic glass body costs a
+/// full-resolution scene capture plus a per-pixel lens shader on every frame
+/// its contents move, which on a laptop panel is the single largest
+/// steady-state GPU cost the compositor has, and it buys a decorative effect
+/// that competes with the content it floats over.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GlassRole {
+pub enum SurfaceRole {
+    /// Compact floating status pills (the desktop widget shelf).
     Chip,
+    /// A one-line name bubble anchored to an owner.
     Tooltip,
-    /// Text-bearing transient surfaces (context menus). Frost and tint run
-    /// stronger so rows stay readable over busy content; the liquid identity
-    /// lives in the rim, not the interior.
+    /// Text-bearing transient surfaces (context menus).
     Menu,
+    /// Floating panels that carry content: the switcher, live previews.
     FloatingPanel,
+    /// The panel that owns attention: prompts, pickers, the pivot.
     ProminentPanel,
+    /// The dock bar and its collapsed capsule.
     Dock,
+    /// A square chrome cell that holds an icon or a reading: Bento tiles.
+    Tile,
 }
 
-/// Per-body Liquid Glass policy. The shadow is configured in logical pixels;
-/// `shadow_alpha` 0 disables it. The material strengths are multipliers on
-/// the shared optical recipe (1.0 = the reference look): `frost_strength`
-/// raises interior scattering, `tint_strength` the adaptive body tint, and
-/// `saturation` the backdrop's surviving chroma — the three legibility
-/// levers for text-bearing bodies. `plate_polarity` pins the tint direction
-/// for the whole body (0 = always the smoke plate, 1 = always pearl);
-/// -1 keeps the shader's per-pixel adaptive polarity. Text-bearing roles
-/// pin polarity so the plate always opposes their text tone — a per-pixel
-/// polarity would zebra over mixed content and can lift the plate toward
-/// the text's own tone.
+impl SurfaceRole {
+    /// Whether this role floats above arbitrary desktop content rather than
+    /// sitting on the panel canvas, and therefore needs a separating shadow.
+    #[must_use]
+    pub fn floats(self) -> bool {
+        !matches!(self, SurfaceRole::Tile)
+    }
+}
+
+/// Per-role flat surface policy.
+///
+/// `body` is the opaque fill, `border` the hairline stroke, and the shadow is
+/// configured in logical pixels (`shadow_alpha` 0 disables it). Everything
+/// here is a painted value: a role's cost is one rounded-rect fill, which is
+/// the reason the product can hold a steady frame time with chrome on screen.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
-pub struct GlassStyle {
+pub struct SurfaceStyle {
+    pub body: Color,
+    pub border: Color,
+    pub border_width: f32,
+    pub radius: f32,
     pub shadow_alpha: f32,
     pub shadow_blur: f32,
     pub shadow_offset_y: f32,
-    pub frost_strength: f32,
-    pub tint_strength: f32,
-    pub saturation: f32,
-    pub plate_polarity: f32,
-    pub curvature: f32,
-    pub contact_ao: f32,
-    pub ambient_fresnel: f32,
 }
 
-impl GlassStyle {
-    const fn new(shadow_alpha: f32, shadow_blur: f32, shadow_offset_y: f32) -> Self {
+impl SurfaceStyle {
+    const fn new(
+        body: Color,
+        border: Color,
+        border_width: f32,
+        radius: f32,
+        shadow_alpha: f32,
+        shadow_blur: f32,
+        shadow_offset_y: f32,
+    ) -> Self {
         Self {
+            body,
+            border,
+            border_width,
+            radius,
             shadow_alpha,
             shadow_blur,
             shadow_offset_y,
-            frost_strength: 1.0,
-            tint_strength: 1.0,
-            saturation: 1.0,
-            plate_polarity: -1.0,
-            curvature: 0.0,
-            contact_ao: 0.35,
-            ambient_fresnel: 0.60,
         }
     }
 
-    /// Override the material policy: frost/tint strength multipliers,
-    /// surviving backdrop saturation, and the pinned plate polarity.
-    const fn with_material(
-        mut self,
-        frost: f32,
-        tint: f32,
-        saturation: f32,
-        polarity: f32,
-    ) -> Self {
-        self.frost_strength = frost;
-        self.tint_strength = tint;
-        self.saturation = saturation;
-        self.plate_polarity = polarity;
-        self
-    }
-
-    /// Continuous curvature (squircle) blend factor: 0.0 = Euclidean L2 rounded rect,
-    /// 1.0 = G2 superellipse (p = 4 norm).
-    pub const fn with_curvature(mut self, curvature: f32) -> Self {
-        self.curvature = curvature;
-        self
-    }
-
-    /// Optical dielectric parameters: sub-pixel contact ambient occlusion [0, 1]
-    /// and 360-degree isotropic environmental Fresnel sheen [0, 1].
-    pub const fn with_optics(mut self, contact_ao: f32, ambient_fresnel: f32) -> Self {
-        self.contact_ao = contact_ao;
-        self.ambient_fresnel = ambient_fresnel;
-        self
-    }
-}
-
-/// Role-indexed Liquid Glass policies for one appearance.
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[non_exhaustive]
-pub struct GlassStyles {
-    pub chip: GlassStyle,
-    pub tooltip: GlassStyle,
-    pub menu: GlassStyle,
-    pub floating_panel: GlassStyle,
-    pub prominent_panel: GlassStyle,
-    pub dock: GlassStyle,
-}
-
-impl GlassStyles {
+    /// The same surface with a different corner radius — a role that morphs
+    /// (the dock capsule) keeps one fill and changes only its corners.
     #[must_use]
-    pub fn for_role(self, role: GlassRole) -> GlassStyle {
+    pub const fn with_radius(mut self, radius: f32) -> Self {
+        self.radius = radius;
+        self
+    }
+
+    /// The same surface with a different body, for a role that swaps its tone
+    /// between rest and activity without changing its geometry.
+    #[must_use]
+    pub const fn with_body(mut self, body: Color) -> Self {
+        self.body = body;
+        self
+    }
+}
+
+/// Role-indexed flat surface policies for one appearance.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+pub struct SurfaceStyles {
+    pub chip: SurfaceStyle,
+    pub tooltip: SurfaceStyle,
+    pub menu: SurfaceStyle,
+    pub floating_panel: SurfaceStyle,
+    pub prominent_panel: SurfaceStyle,
+    pub dock: SurfaceStyle,
+    pub tile: SurfaceStyle,
+}
+
+impl SurfaceStyles {
+    /// Resolve the flat surface for every role from one palette.
+    fn new(colors: &ProductColors, dock: &DockColors, radii: Radii, hairline: f32) -> Self {
+        Self {
+            chip: SurfaceStyle::new(
+                colors.panel_surface,
+                colors.panel_border,
+                hairline,
+                radii.chip,
+                0.16,
+                4.0,
+                2.0,
+            ),
+            tooltip: SurfaceStyle::new(
+                colors.panel_surface,
+                colors.panel_border,
+                hairline,
+                radii.chip,
+                0.14,
+                10.0,
+                5.0,
+            ),
+            menu: SurfaceStyle::new(
+                colors.popover_surface,
+                colors.popover_border,
+                hairline,
+                radii.popover,
+                0.18,
+                16.0,
+                8.0,
+            ),
+            floating_panel: SurfaceStyle::new(
+                colors.panel_surface,
+                colors.panel_border,
+                hairline,
+                radii.glass_panel,
+                0.18,
+                16.0,
+                8.0,
+            ),
+            prominent_panel: SurfaceStyle::new(
+                colors.panel_surface,
+                colors.panel_border,
+                hairline,
+                radii.glass_panel,
+                0.20,
+                18.0,
+                9.0,
+            ),
+            dock: SurfaceStyle::new(
+                dock.bar_surface_expanded,
+                colors.panel_border,
+                hairline,
+                radii.glass_panel,
+                0.20,
+                12.0,
+                6.0,
+            ),
+            tile: SurfaceStyle::new(
+                colors.card_surface,
+                Color::TRANSPARENT,
+                0.0,
+                radii.control,
+                0.0,
+                0.0,
+                0.0,
+            ),
+        }
+    }
+
+    #[must_use]
+    pub fn for_role(self, role: SurfaceRole) -> SurfaceStyle {
         match role {
-            GlassRole::Chip => self.chip,
-            GlassRole::Tooltip => self.tooltip,
-            GlassRole::Menu => self.menu,
-            GlassRole::FloatingPanel => self.floating_panel,
-            GlassRole::ProminentPanel => self.prominent_panel,
-            GlassRole::Dock => self.dock,
+            SurfaceRole::Chip => self.chip,
+            SurfaceRole::Tooltip => self.tooltip,
+            SurfaceRole::Menu => self.menu,
+            SurfaceRole::FloatingPanel => self.floating_panel,
+            SurfaceRole::ProminentPanel => self.prominent_panel,
+            SurfaceRole::Dock => self.dock,
+            SurfaceRole::Tile => self.tile,
         }
     }
 }
 
-/// Focus hierarchy for interactive content hosted inside one glass body.
+/// Paint hierarchy for interactive content hosted inside one surface.
 ///
-/// Hover is a quiet painted wash. Selection additionally drives the parent
-/// body's optical focus field; it never creates a second glass body or a
-/// painted outline. Sibling content dims just enough to make the focused
-/// target read without tinting the material with an application accent.
+/// Hover and selection are quiet painted washes on top of the parent body.
+/// Neither creates a second surface, an outline, or an accent tint: the
+/// selection reads through luminance against the role's own fill.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
-pub struct GlassFocus {
+pub struct SelectionStyles {
     pub hover_tint: Color,
     pub selected_tint: Color,
-    pub field_strength: f32,
 }
 
 /// Shared presentation policy for live window previews.
@@ -489,19 +517,21 @@ impl AvatarStyles {
     }
 }
 
-/// Foreground-separation policy for the display-only HUD.
+/// Foreground-separation policy for text and glyphs that float on arbitrary
+/// desktop content.
 ///
-/// The HUD floats above arbitrary wallpaper and application content, so a
-/// single foreground color cannot guarantee local contrast. A restrained
-/// dark contour keeps the light core legible on bright or visually busy
-/// regions while disappearing naturally over dark regions. Text and glyphs
-/// share one contour color; only their geometry-specific widths differ.
+/// A single foreground color cannot guarantee local contrast over an
+/// arbitrary wallpaper or application surface. A restrained contour keeps the
+/// core legible on bright or visually busy regions while disappearing
+/// naturally over dark regions. Text and glyphs share one contour color; only
+/// their geometry-specific widths differ. The dock's collapsed capsule and
+/// its workspace ticks are the surfaces that still need this.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
-pub struct HudForeground {
-    /// Light core shared by HUD labels, symbols, and active indicators.
+pub struct FloatingForeground {
+    /// Core tone shared by floating labels, symbols, and active indicators.
     pub primary: Color,
-    /// Dark contour/underlay shared by every floating HUD foreground form.
+    /// Contour/underlay shared by every floating foreground form.
     pub contour: Color,
     /// Fine contour for compact text, in logical pixels.
     pub text_contour_width: f32,
@@ -586,26 +616,29 @@ mod tests {
     }
 
     #[test]
-    fn launcher_field_glass_follows_the_scheme() {
-        // Dark appearance: translucent dark glass following the scheme.
+    fn launcher_field_body_follows_the_scheme() {
+        // Dark appearance: a dark body following the scheme.
         // (Colors store premultiplied bytes, so the assertions divide back out the alpha.)
         let dark = Design::dark().colors;
         let (r, g, b, a) = dark.launcher_field_surface.components();
         let unmul = |c: u8| u32::from(c) * 255 / u32::from(a.max(1));
         assert!(
             unmul(r) < 60 && unmul(g) < 60 && unmul(b) < 80,
-            "dark field is dark glass: {}",
+            "dark field is a dark body: {}",
             dark.launcher_field_surface.components().0
         );
-        assert!(a > 80 && a < 190, "and translucent: {a}");
+        // The search field sits over the full-screen launcher sheet, which is
+        // itself a flat painted cover, so the field must be opaque enough to
+        // separate from it without a backdrop effect.
+        assert!(a >= 230, "and opaque enough to stand alone: {a}");
 
-        // Light appearance: white glass, matching its page tone.
+        // Light appearance: a light body, matching its page tone.
         let light = Design::light().colors;
         let (r, g, b, a) = light.launcher_field_surface.components();
         let unmul = |c: u8| u32::from(c) * 255 / u32::from(a.max(1));
         assert!(
             unmul(r) > 240 && unmul(g) > 240 && unmul(b) > 240,
-            "light field is white glass"
+            "light field is a light body"
         );
 
         // The grid selection wash follows the scheme the same way: dark ink
@@ -627,13 +660,13 @@ mod tests {
 
     #[test]
     fn popover_surface_and_menu_contrast_follow_scheme() {
-        // Dark appearance: translucent dark glass with bright, high-contrast text.
+        // Dark appearance: a near-opaque dark body with bright, high-contrast text.
         let dark = Design::dark();
         let (dr, dg, db, da) = dark.colors.popover_surface.components();
         let dunmul = |c: u8| u32::from(c) * 255 / u32::from(da.max(1));
         assert!(
             dunmul(dr) < 50 && dunmul(dg) < 50 && dunmul(db) < 60,
-            "dark popover is dark glass: ({}, {}, {})",
+            "dark popover is a dark body: ({}, {}, {})",
             dunmul(dr),
             dunmul(dg),
             dunmul(db)
@@ -646,15 +679,14 @@ mod tests {
         assert!(mr > 220 && mg > 220 && mb > 220 && ma == 255);
         let (hr, hg, hb, ha) = dark.colors.menu_text_heading.components();
         assert!(hr > 150 && hg > 150 && hb > 180 && ha == 255);
-        assert_eq!(dark.glass.for_role(GlassRole::Menu).plate_polarity, 0.0);
 
-        // Light appearance: translucent white glass with dark, high-contrast ink.
+        // Light appearance: a near-opaque light body with dark, high-contrast ink.
         let light = Design::light();
         let (lr, lg, lb, la) = light.colors.popover_surface.components();
         let lunmul = |c: u8| u32::from(c) * 255 / u32::from(la.max(1));
         assert!(
             lunmul(lr) > 240 && lunmul(lg) > 240 && lunmul(lb) > 240,
-            "light popover is white glass: ({}, {}, {})",
+            "light popover is a light body: ({}, {}, {})",
             lunmul(lr),
             lunmul(lg),
             lunmul(lb)
@@ -667,90 +699,105 @@ mod tests {
         assert!(mr < 50 && mg < 50 && mb < 60 && ma == 255);
         let (hr, hg, hb, ha) = light.colors.menu_text_heading.components();
         assert!(hr < 120 && hg < 120 && hb < 140 && ha == 255);
-        assert_eq!(light.glass.for_role(GlassRole::Menu).plate_polarity, 1.0);
     }
 
     #[test]
-    fn hud_foreground_uses_one_restrained_contour_family() {
-        let hud = Design::dark().hud_foreground;
-        let colors = crate::colors::dark_appearance().hud_foreground;
-        assert_eq!(hud.primary, colors.primary);
-        assert_eq!(hud.contour, colors.contour);
-        assert!(hud.text_contour_width > 0.0);
-        assert!(hud.text_contour_width < hud.glyph_contour_width);
-        assert!(hud.glyph_contour_width <= 1.0);
+    fn floating_foreground_uses_one_restrained_contour_family() {
+        let floating = Design::dark().floating_foreground;
+        let colors = crate::colors::dark_appearance().floating_foreground;
+        assert_eq!(floating.primary, colors.primary);
+        assert_eq!(floating.contour, colors.contour);
+        assert!(floating.text_contour_width > 0.0);
+        assert!(floating.text_contour_width < floating.glyph_contour_width);
+        assert!(floating.glyph_contour_width <= 1.0);
     }
 
     #[test]
-    fn glass_focus_is_neutral_borderless_policy() {
+    fn selection_is_neutral_borderless_policy() {
         let design = Design::dark();
-        let focus = design.glass_focus;
-        let colors = crate::colors::dark_appearance().glass_focus;
-        assert_eq!(focus.hover_tint, colors.surface_hover);
-        assert_eq!(focus.selected_tint, colors.surface_selected);
-        assert_eq!(focus.field_strength, 1.0);
+        let selection = design.selection;
+        let colors = crate::colors::dark_appearance().selection_colors;
+        assert_eq!(selection.hover_tint, colors.surface_hover);
+        assert_eq!(selection.selected_tint, colors.surface_selected);
         assert_eq!(design.preview.inactive_content_brightness, 0.74);
     }
 
     #[test]
-    fn glass_roles_name_elevation_without_changing_material_identity() {
-        let glass = Design::dark().glass;
-        assert_eq!(
-            glass.for_role(GlassRole::FloatingPanel),
-            GlassStyle::new(0.18, 16.0, 8.0)
-                .with_material(3.5, 3.0, 0.85, 0.0)
-                .with_curvature(0.60)
-        );
-        assert!(glass.chip.shadow_blur < glass.floating_panel.shadow_blur);
-        assert!(glass.floating_panel.shadow_blur < glass.prominent_panel.shadow_blur);
+    fn surface_roles_name_elevation_through_shadow_and_fill_only() {
+        let surfaces = Design::dark().surfaces;
+        assert!(surfaces.chip.shadow_blur < surfaces.floating_panel.shadow_blur);
+        assert!(surfaces.floating_panel.shadow_blur < surfaces.prominent_panel.shadow_blur);
+        // Every floating role has a separating shadow; the tile role sits on
+        // a panel canvas and must not cast one.
+        for role in [
+            SurfaceRole::Chip,
+            SurfaceRole::Tooltip,
+            SurfaceRole::Menu,
+            SurfaceRole::FloatingPanel,
+            SurfaceRole::ProminentPanel,
+            SurfaceRole::Dock,
+        ] {
+            assert!(role.floats(), "{role:?} floats above arbitrary content");
+            assert!(surfaces.for_role(role).shadow_alpha > 0.0);
+            assert!(surfaces.for_role(role).shadow_blur > 0.0);
+        }
+        assert!(!SurfaceRole::Tile.floats());
+        assert_eq!(surfaces.for_role(SurfaceRole::Tile).shadow_alpha, 0.0);
     }
 
     #[test]
-    fn menu_and_tooltip_roles_carry_legibility_material_strengths() {
-        let glass = Design::dark().glass;
-        // Text-bearing bodies boost interior frost and adaptive tint, damp
-        // backdrop chroma, and pin the plate polarity against their text
-        // tone; decorative bodies keep the reference recipe.
-        let menu = glass.for_role(GlassRole::Menu);
-        assert_eq!(
-            menu,
-            GlassStyle::new(0.18, 16.0, 8.0)
-                .with_material(5.0, 3.6, 0.7, 0.0)
-                .with_curvature(0.50)
-        );
-        assert!(menu.frost_strength > glass.floating_panel.frost_strength);
-        assert!(menu.tint_strength > glass.floating_panel.tint_strength);
-        assert!(menu.saturation < 1.0);
-        // Dark appearance pins plates to smoke (0); the shader's
-        // per-pixel pearl-over-dark would wash the plate toward the light
-        // text and undo the legibility the strengths buy.
-        assert_eq!(menu.plate_polarity, 0.0);
-        let tooltip = glass.for_role(GlassRole::Tooltip);
-        assert!(tooltip.frost_strength > 1.0 && tooltip.tint_strength > 1.0);
-        assert!(tooltip.frost_strength < menu.frost_strength);
-        assert_eq!(tooltip.plate_polarity, 0.0);
-        for role in [
-            GlassRole::Tooltip,
-            GlassRole::Menu,
-            GlassRole::FloatingPanel,
-            GlassRole::ProminentPanel,
-            GlassRole::Chip,
-            GlassRole::Dock,
-        ] {
-            let style = glass.for_role(role);
-            assert_eq!(style.plate_polarity, 0.0);
+    fn every_surface_role_resolves_to_an_opaque_painted_body() {
+        // The product has no material pass: a chrome body that leaned on a
+        // backdrop effect would be a translucent smear over application
+        // content. Every role must therefore be readable on its own fill.
+        for design in [Design::dark(), Design::light()] {
+            for role in [
+                SurfaceRole::Chip,
+                SurfaceRole::Tooltip,
+                SurfaceRole::Menu,
+                SurfaceRole::FloatingPanel,
+                SurfaceRole::ProminentPanel,
+                SurfaceRole::Dock,
+            ] {
+                let style = design.surfaces.for_role(role);
+                let alpha = style.body.components().3;
+                assert!(
+                    alpha >= 236,
+                    "{role:?} in {:?} is opaque enough to stand alone: {alpha}",
+                    design.scheme
+                );
+                assert!(
+                    style.border_width > 0.0,
+                    "{role:?} keeps a hairline boundary so its edge is defined \
+                     without an optical rim"
+                );
+                assert!(style.radius > 0.0, "{role:?} has a rounded body");
+            }
         }
-        assert_eq!(glass.chip.plate_polarity, 0.0);
-        assert_eq!(glass.dock.plate_polarity, 0.0);
-        // Light appearance pins the opposite polarity (pearl plate under dark
-        // text) with strengths of its own.
-        let light = Design::light().glass;
-        assert_eq!(light.menu.plate_polarity, 1.0);
-        assert_eq!(light.for_role(GlassRole::Tooltip).plate_polarity, 1.0);
-        assert_eq!(light.for_role(GlassRole::FloatingPanel).plate_polarity, 1.0);
-        assert_eq!(light.for_role(GlassRole::Chip).plate_polarity, 1.0);
-        assert_eq!(light.for_role(GlassRole::Dock).plate_polarity, 1.0);
-        assert!(light.menu.tint_strength > menu.tint_strength);
+    }
+
+    #[test]
+    fn text_bearing_surfaces_resolve_to_the_legible_popover_body() {
+        // Menus and tooltips float over arbitrary content and carry text, so
+        // they take the palettes' highest-contrast body rather than the shared
+        // neutral panel tone.
+        let dark = Design::dark();
+        assert_eq!(dark.surfaces.menu.body, dark.colors.popover_surface);
+        assert_eq!(
+            dark.surfaces.menu.body.components().3,
+            248,
+            "dark menus are near-opaque"
+        );
+        let light = Design::light();
+        assert_eq!(light.surfaces.menu.body, light.colors.popover_surface);
+        assert_eq!(
+            light.surfaces.menu.body.components().3,
+            250,
+            "light menus are near-opaque"
+        );
+        // The tooltip shares the panel body but keeps a tighter shadow: it is
+        // one line and must not read as a panel.
+        assert!(dark.surfaces.tooltip.shadow_blur < dark.surfaces.menu.shadow_blur);
     }
 
     #[test]
@@ -834,7 +881,6 @@ mod tests {
     fn dark_scene_colors_match_the_compositor_palette() {
         let scene = Design::dark().scene;
         assert_eq!(scene, crate::colors::dark_appearance().scene);
-        assert_eq!(scene.glass_tint, [255, 255, 255]);
         // `System` resolves through the dark arm, as in `runtime::scheme`.
         assert_eq!(Design::for_scheme(ColorScheme::System).scene, scene);
     }
@@ -843,7 +889,6 @@ mod tests {
     fn light_scene_colors_match_the_compositor_palette() {
         let scene = Design::light().scene;
         assert_eq!(scene, crate::colors::light_appearance().scene);
-        assert_eq!(scene.glass_tint, [243, 245, 249]);
     }
 
     #[test]

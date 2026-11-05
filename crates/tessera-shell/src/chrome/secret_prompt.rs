@@ -14,19 +14,18 @@
 use lens::{Align, Frame, Input, LayoutOpts, Rect};
 
 use crate::component::{
-    BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
-    LiquidGlassRegion, Localizer, Reserved, SecretPromptParams, ellipsize, modal_scrim_backdrop,
+    Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, Localizer, Reserved,
+    SecretPromptParams, ellipsize,
 };
 use crate::widgets::dialog::ActionButtonStyle;
-use crate::widgets::dialog::DEFAULT_BACKDROP_BLUR_SIGMA;
 use crate::widgets::dialog::DEFAULT_BUTTON_HEIGHT;
 use crate::widgets::dialog::DEFAULT_MODAL_PAD;
 use crate::widgets::dialog::DEFAULT_TITLE_HEIGHT;
-use crate::widgets::dialog::place_modal_panel;
 use crate::widgets::dialog::render_action_button;
+use crate::widgets::dialog::{place_modal_panel, place_modal_veil};
 use crate::widgets::geom::contains;
 use crate::widgets::geom::stretch;
-use tessera_design::{Design, GlassRole, materials, themes};
+use tessera_design::{Design, materials, themes};
 use tessera_desktop::window::Window;
 use tessera_primitives::input::KeyAction;
 use tessera_primitives::input::KeyChar;
@@ -40,7 +39,6 @@ const REASON_H: f32 = 18.0;
 const FIELD_H: f32 = 34.0;
 const BUTTON_H: f32 = DEFAULT_BUTTON_HEIGHT;
 const BUTTON_W: f32 = 88.0;
-const BACKDROP_BLUR_SIGMA: f32 = DEFAULT_BACKDROP_BLUR_SIGMA;
 /// The mask glyph drawn per typed character.
 const MASK: &str = "•";
 
@@ -201,8 +199,10 @@ impl Chrome for SecretPrompt {
         let original_theme = frame.theme();
         frame.set_theme(themes::application(&design));
 
-        // Minimal foreground tint only. The compositor-owned analytic pass
-        // supplies the body, refraction, rim light, and shadow.
+        // The veil first, then the panel: the veil dims the desktop so the panel
+        // reads as the only live surface, and the panel's own fill, hairline and
+        // painted halo are the whole body. No compositor-side material exists.
+        place_modal_veil(frame, display, &design, 1.0);
         place_modal_panel(frame, "tessera-secret-prompt-panel", layout.panel, &design);
 
         let title = ellipsize(
@@ -417,49 +417,6 @@ impl Chrome for SecretPrompt {
     fn secret_prompt_active(&self) -> bool {
         self.active
     }
-
-    fn backdrop_blur_sigma(&self) -> f32 {
-        if self.active {
-            BACKDROP_BLUR_SIGMA
-        } else {
-            0.0
-        }
-    }
-
-    fn backdrop_regions(
-        &self,
-        display: (f32, f32),
-        _windows: &[Window],
-        _workspaces: &crate::WorkspaceSnapshot,
-    ) -> Vec<BackdropRegion> {
-        if !self.active {
-            return Vec::new();
-        }
-        let _ = PromptLayout::for_display(display, self.modal_reserved, self.reason.is_some());
-        // The modal's full-display dim is a wash INTO the frost (beneath the
-        // panel's glass body) — it used to be painted above the glass, which
-        // hid the lens's refraction and split the layer stack.
-        vec![modal_scrim_backdrop(display, &self.design)]
-    }
-
-    fn liquid_glass_regions(
-        &self,
-        display: (f32, f32),
-        _windows: &[Window],
-        _workspaces: &crate::WorkspaceSnapshot,
-    ) -> Vec<LiquidGlassRegion> {
-        if !self.active {
-            return Vec::new();
-        }
-        let layout = PromptLayout::for_display(display, self.modal_reserved, self.reason.is_some());
-        vec![LiquidGlassRegion::from_role(
-            &self.design,
-            GlassRole::ProminentPanel,
-            BackdropRegion::from(layout.panel),
-            self.design.radii.glass_panel,
-            1.0,
-        )]
-    }
 }
 
 #[cfg(test)]
@@ -554,31 +511,30 @@ mod tests {
     }
 
     #[test]
-    fn the_active_panel_is_one_analytic_glass_body() {
+    fn the_active_panel_is_painted_not_material() {
         let mut prompt = SecretPrompt::new();
         let display = (1280.0, 800.0);
-        let workspaces = crate::WorkspaceSnapshot {
-            outputs: Vec::new(),
-        };
-        assert!(
-            prompt
-                .liquid_glass_regions(display, &[], &workspaces)
-                .is_empty()
-        );
         assert!(!prompt.exclusive_presentation_active());
 
         prompt.start_secret_prompt(params());
-        let backdrop = prompt.backdrop_regions(display, &[], &workspaces);
-        let glass = prompt.liquid_glass_regions(display, &[], &workspaces);
-        assert_eq!(backdrop.len(), 1);
         assert!(
-            backdrop[0].wash.is_some(),
-            "the dim is a wash into the frost"
+            prompt.exclusive_presentation_active(),
+            "a password prompt owns the chrome band while it is open"
         );
-        assert_eq!(glass.len(), 1);
-        assert_eq!(glass[0].bounds.w, 440.0);
-        assert_eq!(glass[0].corner_radius, Design::dark().radii.glass_panel);
-        assert_eq!(glass[0].opacity, 1.0);
-        assert!(prompt.exclusive_presentation_active());
+        // The panel body is a flat painted fill the prompt draws itself; the
+        // compositor contributes no material, capture, or blur beneath it.
+        let design = Design::dark();
+        let body = design
+            .surfaces
+            .for_role(tessera_design::SurfaceRole::ProminentPanel);
+        assert_eq!(body.body.components().3, 242, "the panel body is opaque");
+        assert_eq!(body.radius, design.radii.glass_panel);
+        // The veil dims the whole output so the panel is the only live surface.
+        let veil = materials::modal_scrim(&design, 1.0);
+        assert_eq!(veil.radius, 0.0);
+        assert!(veil.bg.components().3 > 0);
+        let layout =
+            PromptLayout::for_display(display, prompt.modal_reserved, prompt.reason.is_some());
+        assert_eq!(layout.panel.w, 440.0);
     }
 }

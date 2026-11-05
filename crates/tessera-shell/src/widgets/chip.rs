@@ -18,28 +18,28 @@ pub fn chip_opts(design: &Design) -> LayoutOpts {
 }
 
 /// Text contour outline parameters: `(color, width)`.
-pub fn hud_text_outline_params(design: &Design) -> (Color, f32) {
-    let hud = design.hud_foreground;
-    (hud.contour, hud.text_contour_width)
+pub fn floating_text_outline_params(design: &Design) -> (Color, f32) {
+    let floating = design.floating_foreground;
+    (floating.contour, floating.text_contour_width)
 }
 
 /// Style with text contour outline for HUD typography readability over dynamic backdrops.
-pub fn hud_text_outline(design: &Design) -> Style {
-    let (color, width) = hud_text_outline_params(design);
+pub fn floating_text_outline(design: &Design) -> Style {
+    let (color, width) = floating_text_outline_params(design);
     Style::new()
         .with_outline_color(color)
         .with_outline_width(width)
 }
 
 /// Glyph/icon contour outline parameters: `(color, width)`.
-pub fn hud_glyph_outline_params(design: &Design) -> (Color, f32) {
-    let hud = design.hud_foreground;
-    (hud.contour, hud.glyph_contour_width)
+pub fn floating_glyph_outline_params(design: &Design) -> (Color, f32) {
+    let floating = design.floating_foreground;
+    (floating.contour, floating.glyph_contour_width)
 }
 
 /// Style with glyph contour outline for HUD icons.
-pub fn hud_glyph_outline(design: &Design) -> Style {
-    let (color, width) = hud_glyph_outline_params(design);
+pub fn floating_glyph_outline(design: &Design) -> Style {
+    let (color, width) = floating_glyph_outline_params(design);
     Style::new()
         .with_outline_color(color)
         .with_outline_width(width)
@@ -47,7 +47,7 @@ pub fn hud_glyph_outline(design: &Design) -> Style {
 
 /// Calculate dynamic color for a workspace dot based on pagination intensity `[0.0, 1.0]`.
 pub fn workspace_dot_color(design: &Design, intensity: f32) -> Color {
-    let primary = design.hud_foreground.primary;
+    let primary = design.floating_foreground.primary;
     let intensity = intensity.clamp(0.0, 1.0);
     let alpha = (78.0 + (248.0 - 78.0) * intensity).round() as u8;
     primary.with_alpha(alpha)

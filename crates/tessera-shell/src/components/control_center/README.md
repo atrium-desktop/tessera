@@ -19,10 +19,11 @@ monitoring is deliberately out of scope: an always-on utilization probe is
 a standing performance cost that contradicts the panel's event-driven
 open/close lifecycle, so the probe thread was retired with its surface.
 
-The HUD is display-only: it reserves no space and accepts no
-pointer input. The interactions it used to host live here instead — a
-full-screen modal overlay in a personal-info HUD language over an opaque,
-scheme-adaptive canvas. Solid elevated surfaces use grouped grays, quiet
+The status HUD was removed (ADR-0213): the top of the screen belongs to windows,
+and the readings it carried now live on the Dock's reading cells and in the
+transient system OSD (ADR-0214). Every interaction the old status bar hosted lives
+here instead — a full-screen modal overlay in a personal-info language over an
+opaque, scheme-adaptive canvas. Solid elevated surfaces use grouped grays, quiet
 separators, and system-blue interaction states, with bold sans-serif display
 typography. The panel paints that canvas itself — a full-screen solid fill in
 the lens `Backdrop` band, faded by the reveal — and requests no backdrop
@@ -83,7 +84,7 @@ Surfaces:
 
 ## Layout
 
-A boundless, floating HUD layout over the solid grouped background, each
+A boundless, floating layout over the solid grouped background, each
 surface with its own reveal animation:
 
 - **Main Control Panel (Center)** — the primary focal point: a solid capsule

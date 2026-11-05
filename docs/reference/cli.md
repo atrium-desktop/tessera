@@ -119,10 +119,14 @@ persistent compositor settings.
 | Command | Result |
 |---------|--------|
 | `tessera system` | Show the normalized live-system snapshot. |
-| `tessera system status` | Show volume, mute, connectivity, radios, battery, brightness, Do Not Disturb, and layout state. |
+| `tessera system status` | Show volume, mute, microphone level/mute/capture state, connectivity, radios, battery, brightness, Do Not Disturb, both audio inventories, and layout state. |
 | `tessera system mute` | Toggle mute on the default audio sink. |
 | `tessera system step-volume <-100..100>` | Adjust the default audio sink by a signed percentage step. |
 | `tessera system volume <0..100>` | Set the default audio-sink volume percentage. |
+| `tessera system audio-output <name>` | Route playback to the named audio output (ADR-0215). The name is the `node.name` value `tessera system status` lists — never a node number, which the sound server reassigns when it restarts. |
+| `tessera system mic-mute` | Toggle mute on the default audio source (ADR-0216). Distinct from `mute`, which addresses the sink. |
+| `tessera system mic-volume <0..100>` | Set the default audio-source capture volume percentage (ADR-0216). |
+| `tessera system audio-input <name>` | Route new capture streams to the named audio input (ADR-0216). The name is the `node.name` value `tessera system status` lists under inputs. |
 | `tessera system brightness <1..100>` | Set the backlight percentage. |
 | `tessera system wifi <on\|off>` | Enable or disable Wi-Fi. |
 | `tessera system bluetooth <on\|off>` | Enable or disable the Bluetooth adapter (ADR-0175). |

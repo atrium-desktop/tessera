@@ -239,7 +239,7 @@ only removes the chrome that used to veto it.
   case stands chrome down while `Maximized` does not, and
   `releasing_output_ownership_restores_a_dock_that_was_obscured_before_it`
   pins the Dock's release path.
-- Hardware: per [VT and DRM Testing](../dev/vt-drm-testing.md), a full-output
+- Hardware: per [VT and DRM Testing](../dev/testing/vt-drm-testing.md), a full-output
   GLFW client (a game resized to the monitor, no `set_fullscreen`) must log
   `direct scanout active` and show the wallpaper/shadow/blur elided while it
   keeps running, and releasing it must restore the HUD and Dock on the same

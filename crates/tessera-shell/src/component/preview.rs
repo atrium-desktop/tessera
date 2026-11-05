@@ -9,8 +9,6 @@ use lens::LayoutOpts;
 use tessera_design::{Design, PreviewSelectionStyle, materials};
 use tessera_desktop::window::WindowId;
 
-use crate::component::{BackdropRegion, LiquidGlassFocus};
-
 /// One live client-preview card shared by compositor and chrome rendering.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PreviewCard {
@@ -73,7 +71,7 @@ pub enum PreviewCardState {
 /// so the material stays at full alpha.
 #[must_use]
 pub fn panel_material(design: &Design) -> LayoutOpts {
-    let mut material = materials::glass_panel(design);
+    let mut material = materials::panel(design);
     material.radius = design.radii.glass_panel;
     material
 }
@@ -83,8 +81,8 @@ pub fn panel_material(design: &Design) -> LayoutOpts {
 pub fn card_material(design: &Design, state: PreviewCardState, corner_radius: f32) -> LayoutOpts {
     let mut material = match state {
         PreviewCardState::Rest => materials::surface_layout(),
-        PreviewCardState::Hovered => materials::glass_focus(design, false),
-        PreviewCardState::Selected => materials::glass_focus(design, true),
+        PreviewCardState::Hovered => materials::selection(design, false),
+        PreviewCardState::Selected => materials::selection(design, true),
     };
     material.radius = corner_radius;
     material.pad = 0.0;
@@ -108,36 +106,6 @@ pub fn hit_test(
         })
         .or_else(|| cards.iter().rev().find(|card| card.contains(x, y)))
         .map(|card| card.window)
-}
-
-/// Derive the parent's single optical focus field from a preview card.
-#[must_use]
-pub fn focus_field(
-    cards: &[PreviewCard],
-    focused: Option<WindowId>,
-    design: &Design,
-) -> Option<LiquidGlassFocus> {
-    let card = cards.iter().find(|card| Some(card.window) == focused)?;
-    Some(focus_for_rect(
-        card.geometry.outer,
-        card.corner_radius,
-        design,
-    ))
-}
-
-/// Build an optical focus field for independently animated selection
-/// geometry, such as the window switcher's moving indicator.
-#[must_use]
-pub fn focus_for_rect(
-    bounds: tessera_primitives::Rect,
-    corner_radius: f32,
-    design: &Design,
-) -> LiquidGlassFocus {
-    LiquidGlassFocus {
-        bounds: BackdropRegion::from(bounds),
-        corner_radius,
-        strength: design.glass_focus.field_strength,
-    }
 }
 
 /// Keep preview pixels opaque and express hierarchy through brightness.
@@ -206,13 +174,15 @@ mod tests {
     }
 
     #[test]
-    fn focus_uses_the_complete_card_target() {
+    fn selection_targets_the_complete_card() {
+        // Selection is a wash over the whole card, label included — a partial
+        // highlight would read as a stripe rather than a chosen target.
         let design = Design::dark();
         let cards = [card(7, 20)];
-        let focus = focus_field(&cards, Some(WindowId(7)), &design).unwrap();
-        assert_eq!(focus.bounds, BackdropRegion::from(cards[0].geometry.outer));
-        assert_eq!(focus.corner_radius, design.radii.control);
-        assert_eq!(focus.strength, design.glass_focus.field_strength);
+        let selected = card_material(&design, PreviewCardState::Selected, cards[0].corner_radius);
+        assert_eq!(selected.radius, design.radii.control);
+        assert_eq!(selected.bg, design.selection.selected_tint);
+        assert_eq!(cards[0].geometry.label.size.h, 20);
     }
 
     #[test]
@@ -236,8 +206,8 @@ mod tests {
         let hovered = card_material(&design, PreviewCardState::Hovered, 9.0);
         let selected = card_material(&design, PreviewCardState::Selected, 9.0);
         assert_eq!(rest.bg, Color::TRANSPARENT);
-        assert_eq!(hovered.bg, design.glass_focus.hover_tint);
-        assert_eq!(selected.bg, design.glass_focus.selected_tint);
+        assert_eq!(hovered.bg, design.selection.hover_tint);
+        assert_eq!(selected.bg, design.selection.selected_tint);
         assert_eq!(hovered.border_width, 0.0);
         assert_eq!(selected.border_width, 0.0);
         assert_eq!(selected.radius, 9.0);

@@ -125,6 +125,11 @@ pub enum Message {
     NowPlaying,
     NotPlaying,
     Sound,
+    Back,
+    Output,
+    Microphone,
+    MicrophoneInUse,
+    Inputs,
     Brightness,
     Display,
     Displays,
@@ -387,6 +392,11 @@ impl Localizer {
             Message::NowPlaying => &catalog.now_playing,
             Message::NotPlaying => &catalog.not_playing,
             Message::Sound => &catalog.sound,
+            Message::Back => &catalog.back,
+            Message::Output => &catalog.output,
+            Message::Microphone => &catalog.microphone,
+            Message::MicrophoneInUse => &catalog.microphone_in_use,
+            Message::Inputs => &catalog.inputs,
             Message::Brightness => &catalog.brightness,
             Message::Display => &catalog.display,
             Message::Displays => &catalog.displays,
@@ -596,6 +606,59 @@ impl Localizer {
         )
     }
 
+    /// The transient OSD headline for a volume level.
+    pub fn volume_level(self, level: u8) -> String {
+        interpolate(&catalog(self.language).osd_volume_level, "level", level)
+    }
+
+    /// The transient OSD headline for a brightness level.
+    pub fn brightness_level(self, level: u8) -> String {
+        interpolate(&catalog(self.language).osd_brightness_level, "level", level)
+    }
+
+    /// The transient OSD headline for a wireless link change.
+    pub fn wireless_enabled(self) -> String {
+        catalog(self.language).osd_wireless_enabled.clone()
+    }
+
+    /// The transient OSD headline for a wireless link going down.
+    pub fn wireless_disabled(self) -> String {
+        catalog(self.language).osd_wireless_disabled.clone()
+    }
+
+    /// The transient OSD headline for a Bluetooth radio turning on.
+    pub fn bluetooth_enabled(self) -> String {
+        catalog(self.language).osd_bluetooth_enabled.clone()
+    }
+
+    /// The transient OSD headline for a Bluetooth radio turning off.
+    pub fn bluetooth_disabled(self) -> String {
+        catalog(self.language).osd_bluetooth_disabled.clone()
+    }
+
+    /// The transient OSD headline for playback moving to another output
+    /// (ADR-0215). The output's own name is the detail, because two outputs
+    /// of the same kind (two HDMI ports) differ only by name.
+    pub fn audio_output(self, name: &str) -> String {
+        interpolate(&catalog(self.language).osd_audio_output, "name", name)
+    }
+
+    /// The transient OSD headline for a battery level worth mentioning. The
+    /// wording escalates only for the threshold that ends the session; the
+    /// caller decides which tier it is reporting.
+    pub fn osd_battery_low(self, percent: u8, critical: bool) -> String {
+        let catalog = catalog(self.language);
+        interpolate(
+            if critical {
+                &catalog.osd_battery_critical
+            } else {
+                &catalog.osd_battery_low
+            },
+            "percent",
+            percent,
+        )
+    }
+
     /// The recording indicator's label: a localized "screen recording"
     /// marker carrying the live capture-stream count (ADR-0128).
     pub fn recording_stream_count(self, count: u32) -> String {
@@ -672,6 +735,11 @@ struct Catalog {
     now_playing: String,
     not_playing: String,
     sound: String,
+    back: String,
+    output: String,
+    microphone: String,
+    microphone_in_use: String,
+    inputs: String,
     brightness: String,
     display: String,
     displays: String,
@@ -704,6 +772,15 @@ struct Catalog {
     off: String,
     network: String,
     charging_with_level: String,
+    osd_battery_low: String,
+    osd_battery_critical: String,
+    osd_volume_level: String,
+    osd_brightness_level: String,
+    osd_wireless_enabled: String,
+    osd_wireless_disabled: String,
+    osd_bluetooth_enabled: String,
+    osd_bluetooth_disabled: String,
+    osd_audio_output: String,
     no_battery_detected: String,
     battery: String,
     notifications: String,
@@ -895,6 +972,11 @@ mod tests {
         let zh = Localizer::new("zh-CN");
         assert_eq!(en.text(Message::SearchApplications), "Search applications");
         assert_eq!(zh.text(Message::SearchApplications), "搜索应用");
+        // The control center's detail pages were shipping a hardcoded English
+        // "Back" in five places while every other string on the same row was
+        // translated. Pinned here so the key cannot be dropped again.
+        assert_eq!(en.text(Message::Back), "Back");
+        assert_eq!(zh.text(Message::Back), "返回");
         assert_eq!(en.text(Message::CategoryDevelopment), "Dev");
         assert_eq!(zh.text(Message::CategoryDevelopment), "开发");
         assert_eq!(en.application_count(2), "2 applications");

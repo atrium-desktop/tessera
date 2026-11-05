@@ -90,7 +90,7 @@ We introduce `TESSERA_COLOR_SCHEME` (with alias `TESSERA_THEME`) into `Preferenc
 
 ### Force Developers to Use Host XDG Paths (`~/.local/share/tessera/avatars/`)
 - **Why considered**: Avoids storing local fixtures inside the git repository worktree altogether.
-- **Why rejected**: Violates test and workspace sandbox isolation rules (`[INV-ARCH-87]`: *“Never touch user home or global state paths”*, codified in `docs/dev/standards/architecture.md`). Polluting the developer's host user directory with mock avatars breaks repeatable local development, conflicts with everyday desktop usage, and prevents sandboxed execution.
+- **Why rejected**: Violates test and workspace sandbox isolation rules (`[INV-ARCH-87]`: *“Never touch user home or global state paths”*, codified in `docs/dev/architecture.md`). Polluting the developer's host user directory with mock avatars breaks repeatable local development, conflicts with everyday desktop usage, and prevents sandboxed execution.
 
 ### Keep Fixtures in `crates/tessera-avatar/persona-debug-assets/`
 - **Why considered**: Fixes the path desync between `tessera-avatar` and `tessera-shell` by placing the directory adjacent to the avatar loader.

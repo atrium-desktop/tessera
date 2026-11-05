@@ -132,7 +132,7 @@ its enforcement mechanism:
 - `[INV-<DOMAIN>-NN] Name`: Mandatory constraint backed by `test_inv_*`, a
   `check-boundaries` edge, or a compiler typestate.
 
-Follow the admissibility rules in [Invariants](invariants.md). A tag without a
+Follow the admissibility rules in [Invariants](../invariants.md). A tag without a
 mechanism is not an invariant.
 
 ## Consequences

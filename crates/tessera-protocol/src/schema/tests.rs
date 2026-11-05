@@ -563,6 +563,191 @@ fn system_status_carries_bluetooth_devices_additively() {
 }
 
 #[test]
+fn system_status_carries_audio_outputs_additively() {
+    // Additive field (ADR-0215, ADR-0140 precedent): a peer that predates the
+    // audio-output inventory deserializes the same status without the key, so
+    // no protocol bump is required. An empty list is also what a host with no
+    // sound server reports, which presentation reads as "nothing to choose".
+    let status = SystemStatus {
+        audio_outputs: vec![
+            tessera_desktop::system::AudioOutput {
+                name: "alsa_output.pci-speaker".into(),
+                description: "Built-in Speaker".into(),
+                kind: tessera_desktop::system::AudioOutputKind::Speaker,
+                is_default: true,
+            },
+            tessera_desktop::system::AudioOutput {
+                name: "bluez_output.AA.1".into(),
+                description: "EDIFIER W830NB".into(),
+                kind: tessera_desktop::system::AudioOutputKind::Bluetooth,
+                is_default: false,
+            },
+        ],
+        ..SystemStatus::default()
+    };
+    let json = serde_json::to_string(&status).unwrap();
+    assert!(json.contains(r#""audio_outputs":[{"#), "{json}");
+    assert!(json.contains(r#""name":"bluez_output.AA.1""#), "{json}");
+    assert!(json.contains(r#""kind":"Bluetooth""#), "{json}");
+    assert!(json.contains(r#""is_default":true"#), "{json}");
+
+    let legacy_json = json.replace(
+        &format!(
+            r#","audio_outputs":{}"#,
+            serde_json::to_string(&status.audio_outputs).unwrap()
+        ),
+        "",
+    );
+    assert!(!legacy_json.contains("audio_outputs"), "{legacy_json}");
+    let parsed: SystemStatus = serde_json::from_str(&legacy_json).unwrap();
+    assert!(parsed.audio_outputs.is_empty());
+
+    let round = serde_json::from_str::<SystemStatus>(&json).unwrap();
+    assert_eq!(round.audio_outputs, status.audio_outputs);
+}
+
+#[test]
+fn system_status_carries_audio_inputs_additively() {
+    // The capture half of the audio inventory is additive in exactly the same
+    // way the playback half is (ADR-0216, ADR-0140 precedent): a peer that
+    // predates it deserializes the same status without the keys, so no protocol
+    // bump is required. An empty list is also what a host with no sound server
+    // reports, and `microphone_active` defaults to `false` — "nothing is
+    // recording" is the honest reading when the field is absent, because a
+    // missing field cannot be evidence of capture.
+    let status = SystemStatus {
+        audio_inputs: vec![tessera_desktop::system::AudioInput {
+            name: "alsa_input.pci-mic".into(),
+            description: "Digital Microphone".into(),
+            kind: tessera_desktop::system::AudioInputKind::BuiltIn,
+            is_default: true,
+        }],
+        microphone_volume: Some(72),
+        microphone_muted: true,
+        microphone_active: true,
+        ..SystemStatus::default()
+    };
+    let json = serde_json::to_string(&status).unwrap();
+    assert!(json.contains(r#""audio_inputs":[{"#), "{json}");
+    assert!(json.contains(r#""name":"alsa_input.pci-mic""#), "{json}");
+    assert!(json.contains(r#""kind":"BuiltIn""#), "{json}");
+    assert!(json.contains(r#""microphone_volume":72"#), "{json}");
+    assert!(json.contains(r#""microphone_muted":true"#), "{json}");
+    assert!(json.contains(r#""microphone_active":true"#), "{json}");
+
+    let legacy_json = json
+        .replace(
+            &format!(
+                r#","audio_inputs":{}"#,
+                serde_json::to_string(&status.audio_inputs).unwrap()
+            ),
+            "",
+        )
+        .replace(r#","microphone_volume":72"#, "")
+        .replace(r#","microphone_muted":true"#, "")
+        .replace(r#","microphone_active":true"#, "");
+    let parsed: SystemStatus = serde_json::from_str(&legacy_json).unwrap();
+    assert!(parsed.audio_inputs.is_empty());
+    assert_eq!(parsed.microphone_volume, None);
+    assert!(!parsed.microphone_muted);
+    assert!(
+        !parsed.microphone_active,
+        "absent is not evidence of capture"
+    );
+
+    let round = serde_json::from_str::<SystemStatus>(&json).unwrap();
+    assert_eq!(round.audio_inputs, status.audio_inputs);
+    assert_eq!(round.microphone_volume, Some(72));
+    assert!(round.microphone_muted && round.microphone_active);
+}
+
+#[test]
+fn microphone_commands_round_trip_and_validate_bounds() {
+    // The microphone intents are name- and range-addressed exactly like the
+    // playback ones, and are held to the same bounds at the transport
+    // (ADR-0216).
+    let set_input = Command::System {
+        action: SystemAction::SetAudioInput {
+            name: "alsa_input.pci-mic".into(),
+        },
+    };
+    let json = serde_json::to_string(&set_input).unwrap();
+    assert!(
+        json.contains(
+            r#"{"type":"System","action":{"type":"SetAudioInput","name":"alsa_input.pci-mic"}}"#
+        ),
+        "{json}"
+    );
+    assert_eq!(serde_json::from_str::<Command>(&json).unwrap(), set_input);
+    assert_eq!(set_input.op_class(), ActorCapability::SystemControl);
+    assert!(set_input.validate().is_ok());
+
+    let mute = Command::System {
+        action: SystemAction::ToggleMicrophoneMute,
+    };
+    let json = serde_json::to_string(&mute).unwrap();
+    assert!(json.contains(r#""type":"ToggleMicrophoneMute""#), "{json}");
+    assert_eq!(serde_json::from_str::<Command>(&json).unwrap(), mute);
+    assert!(mute.validate().is_ok());
+
+    let empty = Command::System {
+        action: SystemAction::SetAudioInput { name: "  ".into() },
+    };
+    assert!(empty.validate().is_err());
+    let too_long = Command::System {
+        action: SystemAction::SetAudioInput {
+            name: "x".repeat(tessera_desktop::system::MAX_AUDIO_INPUT_NAME + 1),
+        },
+    };
+    assert!(too_long.validate().is_err());
+    let out_of_range = Command::System {
+        action: SystemAction::SetMicrophoneVolume { level: 101 },
+    };
+    assert!(out_of_range.validate().is_err());
+    assert!(
+        Command::System {
+            action: SystemAction::SetMicrophoneVolume { level: 100 },
+        }
+        .validate()
+        .is_ok()
+    );
+}
+
+#[test]
+fn set_audio_output_command_round_trips() {
+    // The intent names the server's node name, not a node number: numbers are
+    // reassigned when the sound server restarts, so a wire value carrying one
+    // would silently route to a different device after a restart (ADR-0215).
+    let cmd = Command::System {
+        action: SystemAction::SetAudioOutput {
+            name: "alsa_output.pci-speaker".into(),
+        },
+    };
+    let json = serde_json::to_string(&cmd).unwrap();
+    assert!(
+        json.contains(r#"{"type":"System","action":{"type":"SetAudioOutput","name":"alsa_output.pci-speaker"}}"#),
+        "{json}"
+    );
+    assert_eq!(serde_json::from_str::<Command>(&json).unwrap(), cmd);
+    assert_eq!(cmd.op_class(), ActorCapability::SystemControl);
+    assert!(cmd.required_cap().control);
+    assert!(cmd.validate().is_ok());
+
+    // An empty name is refused at the transport, like every other
+    // string-addressed system intent.
+    let empty = Command::System {
+        action: SystemAction::SetAudioOutput { name: "  ".into() },
+    };
+    assert!(empty.validate().is_err());
+    let too_long = Command::System {
+        action: SystemAction::SetAudioOutput {
+            name: "x".repeat(tessera_desktop::system::MAX_AUDIO_OUTPUT_NAME + 1),
+        },
+    };
+    assert!(too_long.validate().is_err());
+}
+
+#[test]
 fn move_to_workspace_command_round_trips() {
     let cmd = Command::MoveToWorkspace {
         window: WindowId(42),
@@ -1916,4 +2101,42 @@ fn virtual_output_and_renegotiate_requests_round_trip_and_project_kind() {
     assert_eq!(cmd.validate(), Ok(()));
     assert_eq!(cmd.op_class(), ActorCapability::InjectInput);
     assert!(cmd.required_cap().input);
+}
+
+#[test]
+fn the_audio_capture_verbs_carry_a_protocol_bump() {
+    // The dark corner of "additive with `serde(default)`". That promise covers
+    // *status fields*, and only in the direction of a newer server answering an
+    // older client: an old peer deserializes the snapshot without the keys and
+    // reads "not capturing", which is correct.
+    //
+    // A new **variant of a tagged `SystemAction` enum** is the other direction,
+    // and no decoder default can save it — a server built before the variant
+    // cannot deserialize the request at all, and the failure surfaces as a
+    // transport deserialization error rather than a refusal. Bumping
+    // `PROTOCOL_VERSION` is what converts that into an honest handshake
+    // rejection for a client that believed it could use the new verbs.
+    //
+    // ADR-0215 (`SetAudioOutput`) landed inside version 32 without a bump, and
+    // an installed client of that build has the same latent problem. This pins
+    // that the capture half does not repeat it.
+    // A compile-time check, not a runtime assertion: this is a statement about
+    // the constant, so a lowered version fails the build rather than a test.
+    const { assert!(PROTOCOL_VERSION >= 33) };
+    // The three verbs are exactly the ones that need the bump: a snapshot-only
+    // addition would not.
+    for action in [
+        SystemAction::SetAudioInput {
+            name: "alsa_input.mic".into(),
+        },
+        SystemAction::SetMicrophoneVolume { level: 40 },
+        SystemAction::ToggleMicrophoneMute,
+    ] {
+        let json = serde_json::to_string(&action).unwrap();
+        assert_eq!(
+            serde_json::from_str::<SystemAction>(&json).unwrap(),
+            action,
+            "the current schema round-trips {json}"
+        );
+    }
 }

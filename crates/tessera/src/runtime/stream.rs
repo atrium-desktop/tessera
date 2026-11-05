@@ -128,7 +128,14 @@ impl StreamPainter for RuntimePainter<'_> {
     ) {
         match target {
             OffscreenTarget::Window(window) => {
-                draw_window_tree(device, self.renderer, self.server, canvas, *window, geometry);
+                draw_window_tree(
+                    device,
+                    self.renderer,
+                    self.server,
+                    canvas,
+                    *window,
+                    geometry,
+                );
                 if let Some((shape, position)) = cursor {
                     let scale = geometry.scale_milli as f32 / 1000.0;
                     draw_software_cursor(canvas, device, self.cursor_cache, position, shape, scale);
@@ -165,9 +172,7 @@ impl StreamPainter for RuntimePainter<'_> {
                     )
                 };
                 let shm = self.server.output_capture_frames(connector);
-                let dmabuf = self
-                    .server
-                    .output_capture_dmabuf_frames(connector);
+                let dmabuf = self.server.output_capture_dmabuf_frames(connector);
                 let surface_order = self.server.output_capture_frame_order(connector);
                 self.renderer.draw_surfaces_ordered_mapped(
                     device,
@@ -552,44 +557,25 @@ impl CompositorRuntime<'_> {
         if allow_dmabuf {
             match self.create_dmabuf_capture(size.0, size.1) {
                 Ok(created) => capture = Some(created),
-                Err(reason) => log::warn!(
-                    "stream: dmabuf capture unavailable ({reason}); falling back to shm"
-                ),
+                Err(reason) => {
+                    log::warn!("stream: dmabuf capture unavailable ({reason}); falling back to shm")
+                }
             }
         }
         match capture {
             Some(capture) => {
-                let info = self.streams.start_dmabuf(
-                    conn_id,
-                    max_fps,
-                    size,
-                    target,
-                    cursor,
-                    capture,
-                );
-                self.streams.attach_offscreen(
-                    info.stream_id,
-                    offscreen_state(None),
-                );
+                let info = self
+                    .streams
+                    .start_dmabuf(conn_id, max_fps, size, target, cursor, capture);
+                self.streams
+                    .attach_offscreen(info.stream_id, offscreen_state(None));
                 Ok(info)
             }
-            None => match OffscreenShmTarget::new(
-                self.device,
-                size.0,
-                size.1,
-            ) {
+            None => match OffscreenShmTarget::new(self.device, size.0, size.1) {
                 Ok(target_shm) => {
-                    let info = self.streams.start(
-                        conn_id,
-                        max_fps,
-                        size,
-                        target,
-                        cursor,
-                    );
-                    self.streams.attach_offscreen(
-                        info.stream_id,
-                        offscreen_state(Some(target_shm)),
-                    );
+                    let info = self.streams.start(conn_id, max_fps, size, target, cursor);
+                    self.streams
+                        .attach_offscreen(info.stream_id, offscreen_state(Some(target_shm)));
                     Ok(info)
                 }
                 Err(reason) => Err(reason),
@@ -884,9 +870,7 @@ impl CompositorRuntime<'_> {
         };
         let mut resolve_geometry = |target: &OffscreenTarget| match target {
             OffscreenTarget::Window(window) => window_tree_geometry(server, *window),
-            OffscreenTarget::VirtualOutput(connector) => {
-                virtual_output_geometry(server, connector)
-            }
+            OffscreenTarget::VirtualOutput(connector) => virtual_output_geometry(server, connector),
         };
         let mut tree_generations = |target: &OffscreenTarget| match target {
             OffscreenTarget::Window(window) => window_tree_generations(server, *window),
@@ -968,7 +952,10 @@ impl CompositorRuntime<'_> {
             .iter()
             .filter(|(_, stream)| {
                 stream.offscreen.as_ref().is_some_and(|offscreen| {
-                    matches!(offscreen.stage, OffscreenStreamStage::AwaitingReadback { .. })
+                    matches!(
+                        offscreen.stage,
+                        OffscreenStreamStage::AwaitingReadback { .. }
+                    )
                 })
             })
             .map(|(stream_id, _)| *stream_id)
@@ -1200,7 +1187,14 @@ mod dmabuf_tests {
                 _cursor: Option<(u32, (f32, f32))>,
             ) {
                 if let OffscreenTarget::Window(window) = target {
-                    draw_window_tree(device, self.renderer, self.server, canvas, *window, geometry);
+                    draw_window_tree(
+                        device,
+                        self.renderer,
+                        self.server,
+                        canvas,
+                        *window,
+                        geometry,
+                    );
                 }
             }
         }

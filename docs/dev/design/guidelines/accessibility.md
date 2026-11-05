@@ -22,9 +22,11 @@ and shared focus treatment are not yet complete.
 | Focus | Visible in every appearance and distinguishable from selection, hover, and validation |
 | Color | Never the only means of conveying state or required action |
 
-Adaptive and translucent materials are tested over hostile backdrop classes,
-not only against a nominal token pair. Text-bearing Liquid Glass roles carry
-a legibility budget; a component must not weaken it locally.
+Painted surfaces are tested over hostile backdrop classes, not only against a
+nominal token pair: a flat body has to separate from *every* content it may float
+over, and it cannot rely on an effect blending it into a friendly backdrop.
+Text-bearing roles carry a contrast budget; a component must not weaken it
+locally.
 
 ## Keyboard and focus
 

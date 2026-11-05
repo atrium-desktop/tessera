@@ -301,7 +301,7 @@ signature check ahead of it.
   surface already holds exactly that in `SurfaceRec.pixels`).
 - **Why deferred, not rejected**: It is a genuine follow-up but crosses the
   hardware boundary — per-CRTC placement, plane format/size capability, and
-  hotspot semantics must be verified against real KMS per `docs/dev/vt-drm-testing.md`,
+  hotspot semantics must be verified against real KMS per `docs/dev/testing/vt-drm-testing.md`,
   which this change cannot do. The dominant starvation/fidelity defects are
   fixed without it, and a client that *hides* the cursor (GLFW
   `GLFW_CURSOR_DISABLED` sends a null surface) never trips `ClientOverlay` at
@@ -324,7 +324,7 @@ signature check ahead of it.
 
 - Client `wl_pointer.set_cursor` surface offload to the KMS cursor plane
   (Rejected Alternative 9), with real-hardware verification per
-  `docs/dev/vt-drm-testing.md`.
+  `docs/dev/testing/vt-drm-testing.md`.
 - Cursor-only commit completion tracking (Rejected Alternative 10) if profiling
   shows the paced `EBUSY` retry dominating under a high-report-rate pointer.
 

@@ -185,7 +185,7 @@ switching (`Super+Left`/`Super+Right`) drops keyboard focus from a now-hidden
 window, and removal reaps the emptied workspace. The IPC exposes
 `GetWorkspaces`, `SwitchWorkspace`/`SwitchWorkspaceTo`, and a
 `WorkspaceChanged` event (ADR-0027). A top-center workspace indicator
-(HUD chrome component, hosted by the `tessera-hud` crate)
+(status readings, hosted by the Dock's Bento section and the transient OSD)
 shows one numbered tile per workspace,
 highlights the current, and switches on click. The tiling policy is
 implemented end to end: a pure `tessera-desktop::layout` module (`LayoutRole`,
@@ -271,7 +271,7 @@ idle, a screenshot and screencast path through `xdg-desktop-portal`, and
 screen-reader and basic accessibility hooks.
 
 **Status.** In progress. Landed: notifications served by the `Chrome` trait
-(queue, IPC, toast and HUD chrome), screen lock
+(queue, IPC, toast and status chrome), screen lock
 (`ext-session-lock-v1`, fail-closed with secure-frame confirmation) and idle
 (`ext-idle-notify-v1` + `zwp-idle-inhibit-v1`), the reduced-motion half
 of the animation policy ([ADR-0029](../adr/0029-animation-and-effect-policy.md)) —

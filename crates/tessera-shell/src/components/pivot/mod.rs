@@ -21,12 +21,11 @@ pub use state::{AppCategory, PivotAction, PivotState};
 pub use tessera_launch_services::{SystemCmd, eval_math};
 
 use crate::component::{
-    AppCatalog, BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
-    IconSet, LiquidGlassRegion, Localizer,
+    AppCatalog, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, IconSet, Localizer,
 };
 use crate::widgets::geom::contains;
 use lens::{Frame, Input};
-use tessera_design::{Design, GlassRole};
+use tessera_design::Design;
 use tessera_desktop::window::Window;
 use tessera_desktop::workspace::WorkspaceSnapshot;
 use tessera_primitives::input::{
@@ -81,7 +80,7 @@ impl Pivot {
     /// The compositor runs [`Chrome::prepare_frame`] before damage assessment,
     /// backdrop capture, and `render`, so `motion.visibility` must already
     /// reflect this frame's `dt` when [`Chrome::backdrop_regions`] and
-    /// [`Chrome::liquid_glass_regions`] are queried — otherwise the glass body
+    /// [`Chrome::bodies`] are queried — otherwise the glass body
     /// and its wash sample frame T-1 geometry while the foreground panel draws
     /// frame T (ADR-0171, ADR-0178).
     fn prepare_frame_state(&mut self, input: &Input) {
@@ -216,50 +215,6 @@ impl Chrome for Pivot {
             ChromeUpdate::Appearance(design) => self.design = *design,
             _ => {}
         }
-    }
-
-    fn backdrop_regions(
-        &self,
-        display: (f32, f32),
-        _windows: &[Window],
-        _workspaces: &WorkspaceSnapshot,
-    ) -> Vec<BackdropRegion> {
-        if !self.state.is_open() && self.motion.visibility <= 0.01 {
-            return Vec::new();
-        }
-        let fade = self.motion.visibility.clamp(0.0, 1.0);
-        vec![BackdropRegion {
-            x: 0.0,
-            y: 0.0,
-            w: display.0,
-            h: display.1,
-            wash: Some(crate::component::backdrop_wash(lens::Color::rgba(
-                4,
-                6,
-                14,
-                (54.0 * fade).round() as u8,
-            ))),
-            opacity: fade,
-        }]
-    }
-
-    fn liquid_glass_regions(
-        &self,
-        display: (f32, f32),
-        _windows: &[Window],
-        _workspaces: &WorkspaceSnapshot,
-    ) -> Vec<LiquidGlassRegion> {
-        if !self.state.is_open() && self.motion.visibility <= 0.01 {
-            return Vec::new();
-        }
-        let panel = rendering::panel_rect(&self.state, display, 1, self.motion.visibility);
-        vec![LiquidGlassRegion::from_role(
-            &self.design,
-            GlassRole::ProminentPanel,
-            BackdropRegion::from(panel),
-            self.design.radii.glass_panel,
-            self.motion.visibility,
-        )]
     }
 
     #[allow(non_upper_case_globals)]

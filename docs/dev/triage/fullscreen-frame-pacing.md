@@ -146,7 +146,7 @@ and `plan_primary_plane`.
 
 - **Owner**: `crates/tessera/src/runtime/presentation.rs`.
 - **Failure Mode**: Pushing scene snapshots after the plane decision (the
-  pre-ADR-0182 order) takes one composited frame before HUD and Dock can stand
+  pre-ADR-0182 order) takes one composited frame before the Dock can stand
   down — exactly the frame where direct scanout should have been taken, i.e. a
   one-frame flicker on every fullscreen toggle.
 - **Do not move** the minimize-flight targets or the do-not-disturb publish into
@@ -234,7 +234,7 @@ opaque surface covering an output.
   (`Server::space_use`, the single per-frame producer),
   `crates/tessera-shell/src/lib.rs` (`Shell::set_space_use`).
 - **Failure Mode**: If ownership regresses to the state bit, a borderless game
-  keeps the HUD's glass and blur, the wallpaper, and the backdrop capture every
+  keeps the Dock's chrome, the wallpaper, and the window-shadow filter every
   frame, and reports `direct scanout blocked (live-backdrop-effect)` with a
   perfectly eligible buffer.
 - **Diagnostic**: `tessera window` shows the window's `fullscreen` flag; if it
@@ -311,6 +311,6 @@ commits every CRTC in one atomic batch.
 A physical DRM/KMS session is required to confirm any of the above; a nested run
 cannot exercise direct scanout, page flips, or plane allocation. Follow
 [How to Run tessera on Bare Metal](../../how-to/bare-metal-drm.md) and
-[VT and DRM Testing](../vt-drm-testing.md), and confirm the plan transitions
+[VT and DRM Testing](../testing/vt-drm-testing.md), and confirm the plan transitions
 through the [Rendering Reference](../../reference/rendering.md#diagnostic-messages)
 diagnostic messages.

@@ -1,3 +1,7 @@
+[Testing Index](index.md) > [Manual Testing Playbook](manual-testing.md) > VT/DRM Manual Testing
+
+---
+
 # VT/DRM Manual Testing
 
 Use this guide after a change works in the nested backend and you want to try
@@ -42,7 +46,7 @@ TESSERA_BACKEND=drm RUST_BACKTRACE=1 RUST_LOG=info \
 Replace `/dev/dri/card1` with the card that owns the display connectors being
 tested.
 
-Stage the development prefix from [Setup](setup.md#build-and-run) before
+Stage the development prefix from [Setup](../setup.md#build-and-run) before
 switching VTs when this test must include discovery of the Settings
 executable and its XDG metadata.
 
@@ -70,7 +74,7 @@ Check the areas affected by the change. A useful general pass is:
 2. Move and click the pointer, type into a client, change focus, and move a
    window with `Super+drag`.
 3. Open a terminal with `Super+A`, launch and close applications, and try the
-   dock, launcher, Prism, overview, HUD, and command panel.
+   dock, launcher, pivot, overview, and command panel.
 4. Switch to another VT, wait a few seconds, and switch back. Rendering and
    input should resume without restarting tessera.
 5. If the change affects outputs, test display settings, multiple monitors,
@@ -123,7 +127,7 @@ For presentation-plan or KMS plane changes, complete this additional pass:
    framebuffer ownership from the retired backend epoch.
 
 Use the
-[Rendering and KMS Plane Reference](../reference/rendering.md) for the full
+[Rendering and KMS Plane Reference](../../reference/rendering.md) for the full
 eligibility matrix, rejection-label meanings, and state transitions.
 
 From a terminal running inside tessera, inspect the live state and take a
@@ -211,7 +215,7 @@ Request a normal shutdown from a terminal inside tessera:
 You can also press `Super+Ctrl+Q` (or the alternate
 `Super+Shift+Return` binding). Tessera disables its outputs and releases the
 seat and DRM device before returning to the TTY. See
-[System Shortcuts](../reference/keyboard-shortcuts.md) for the complete
+[System Shortcuts](../../reference/keyboard-shortcuts.md) for the complete
 shortcut reference.
 
 ## Notes

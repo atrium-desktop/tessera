@@ -187,12 +187,17 @@ pub fn render_pivot(
     let panel = panel_rect(state, display, search_items.len(), progress);
 
     let type_scale = design.typography;
-    let mut panel_mat = materials::glass_panel(design);
-    panel_mat.bg = design.colors.glass_surface;
+    let mut panel_mat = materials::panel(design);
+    panel_mat.bg = design.colors.panel_surface;
 
-    frame.place(
+    materials::place_floating(
+        frame,
         "tessera-pivot-panel",
-        &chrome_place(panel, panel_mat),
+        tessera_design::SurfaceRole::ProminentPanel,
+        design,
+        panel,
+        progress,
+        panel_mat,
         |_| {},
     );
 

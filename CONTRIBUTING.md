@@ -6,9 +6,9 @@ Thank you for your interest in contributing to **tessera** (*autonomous surface 
 
 - **Developer Setup**: Read [Development Setup](docs/dev/setup.md) for build prerequisites, system dependencies, and compiling sibling projects.
 - **Distribution Packaging**: Read [Distribution Packaging](docs/dev/packaging.md) for reproducible source preparation, artifact ownership, and system integration.
-- **Architecture**: Review [Architecture Explanation](docs/explanation/architecture.md) and [Architecture Decision Records (ADRs)](docs/adr/index.md) before proposing structural changes.
-- **Engineering Standards**: Read [Engineering Standards](docs/dev/standards/README.md) before structural changes; it routes to the architecture, invariant, ADR, taxonomy, style, workflow, and postmortem standards.
-- **Documentation Rules**: Read [Documentation Taxonomy](docs/dev/standards/taxonomy.md) and [Style](docs/dev/standards/style.md) before writing or modifying documentation.
+- **Architecture**: Review [Architecture Explanation](docs/explanation/architecture.md), [Architecture Topology](docs/dev/architecture.md), and [Architecture Decision Records (ADRs)](docs/adr/index.md) before proposing structural changes.
+- **Engineering Standards**: Read [Engineering Documentation & Collaboration Standards](docs/dev/standards/README.md) for taxonomy, ADR authoring, RFCs, runbooks, testing, and postmortems.
+- **Workflow & Invariants**: Consult [PR Workflow](docs/dev/workflow.md), [System Invariants](docs/dev/invariants.md), and [Error Handling](docs/dev/error-handling.md) for PR review gates and implementation discipline.
 
 ## Workflow & Guidelines
 
@@ -24,9 +24,10 @@ Thank you for your interest in contributing to **tessera** (*autonomous surface 
 
 ## Documentation & Governance Policy Note
 
-Engineering and documentation standards live in `docs/dev/standards/` as a
-flat, code-aligned suite — architecture, invariants, ADRs, RFCs, taxonomy,
-style, workflow, and postmortems. AI assistants and contributors may read
+Documentation and governance meta-standards live in `docs/dev/standards/` as a
+flat, portable suite — taxonomy, ADRs, RFCs, runbooks, testing, style, and
+postmortems. System-specific architecture, invariants, error handling, and PR
+workflows live directly under `docs/dev/`. AI assistants and contributors may read
 them, but updates to the standards themselves are reserved for project
 maintainers.
 

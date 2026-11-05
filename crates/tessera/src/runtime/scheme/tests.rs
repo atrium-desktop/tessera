@@ -9,7 +9,6 @@ fn dark_scheme_keeps_the_historical_scene_colors() {
         interaction_domain_clear(ColorScheme::Dark),
         flux::rgba(17, 20, 27, 255)
     );
-    assert_eq!(glass_tint(ColorScheme::Dark), [255, 255, 255]);
 }
 
 #[test]
@@ -31,5 +30,4 @@ fn light_scheme_inverts_the_scene_tone() {
         flux::rgba(243, 245, 249, 255)
     );
     assert_eq!(window_switcher_scrim(ColorScheme::Light), (243, 245, 249));
-    assert_eq!(glass_tint(ColorScheme::Light), [243, 245, 249]);
 }

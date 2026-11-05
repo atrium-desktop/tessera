@@ -52,7 +52,7 @@ differently, and must not rely on reviewers to enforce it.
 ## Decision Outcome
 
 Panic discipline is stated in
-[`docs/dev/standards/error-handling.md`](../dev/standards/error-handling.md)
+[`docs/dev/error-handling.md`](../dev/error-handling.md)
 and enforced by `cargo run -p xtask -- check-panics` over production code.
 
 **Rule 1 — no poisonable lock may panic (hard zero).** Every production

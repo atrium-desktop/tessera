@@ -94,6 +94,37 @@ impl Handler for CtlHandler {
         tessera_protocol::SystemStatus {
             volume: Some(42),
             muted: true,
+            audio_outputs: vec![
+                tessera_desktop::system::AudioOutput {
+                    name: "alsa_output.pci-speaker".into(),
+                    description: "Built-in Speaker".into(),
+                    kind: tessera_desktop::system::AudioOutputKind::Speaker,
+                    is_default: true,
+                },
+                tessera_desktop::system::AudioOutput {
+                    name: "bluez_output.AA.1".into(),
+                    description: "EDIFIER W830NB".into(),
+                    kind: tessera_desktop::system::AudioOutputKind::Bluetooth,
+                    is_default: false,
+                },
+            ],
+            audio_inputs: vec![
+                tessera_desktop::system::AudioInput {
+                    name: "alsa_input.pci-mic".into(),
+                    description: "Digital Microphone".into(),
+                    kind: tessera_desktop::system::AudioInputKind::BuiltIn,
+                    is_default: true,
+                },
+                tessera_desktop::system::AudioInput {
+                    name: "bluez_input.AA.1".into(),
+                    description: "WH-1000XM5".into(),
+                    kind: tessera_desktop::system::AudioInputKind::Bluetooth,
+                    is_default: false,
+                },
+            ],
+            microphone_volume: Some(72),
+            microphone_muted: true,
+            microphone_active: false,
             network: tessera_desktop::system::NetworkState::Wifi,
             battery: Some(tessera_desktop::system::BatteryStatus {
                 percent: 81,
@@ -482,12 +513,33 @@ fn system_status_command_formats_human_and_json_snapshots() {
     assert!(out.contains("wifi: on; bluetooth: off"), "{out}");
     assert!(out.contains("battery: 81% charging"), "{out}");
     assert!(out.contains("do not disturb: on"), "{out}");
+    // The output inventory lists every routeable device, naming the stable
+    // node name that `audio-output` accepts and marking the live default.
+    assert!(
+        out.contains("* alsa_output.pci-speaker — Built-in Speaker"),
+        "{out}"
+    );
+    assert!(out.contains("bluez_output.AA.1 — EDIFIER W830NB"), "{out}");
+    // The microphone line reports three independent facts a script can act on:
+    // the capture level, the server's mute, and whether anything is capturing
+    // (ADR-0216). "idle" is an observation, so it is stated rather than implied.
+    assert!(out.contains("microphone: 72% (muted; idle)"), "{out}");
+    // The input inventory names the stable node name that `audio-input` accepts.
+    assert!(
+        out.contains("* alsa_input.pci-mic — Digital Microphone"),
+        "{out}"
+    );
+    assert!(out.contains("bluez_input.AA.1 — WH-1000XM5"), "{out}");
 
     let json = tessera_cli::run(&path, &["--json".into(), "system".into()]).unwrap();
     let value: serde_json::Value = serde_json::from_str(&json).expect("system status JSON");
     assert_eq!(value["volume"], 42);
     assert_eq!(value["brightness"], 73);
     assert_eq!(value["network"], "Wifi");
+    assert_eq!(value["microphone_volume"], 72);
+    assert_eq!(value["microphone_muted"], true);
+    assert_eq!(value["microphone_active"], false);
+    assert_eq!(value["audio_inputs"][0]["name"], "alsa_input.pci-mic");
 }
 
 #[test]
@@ -514,6 +566,18 @@ fn system_control_commands_send_typed_actions() {
         &["system".into(), "power-mode".into(), "awake".into()],
     )
     .unwrap();
+    // Outputs are addressed by name, never by the number `tessera system
+    // status` also prints: a node number is reassigned across sound-server
+    // restarts, so a script holding one would route to the wrong device.
+    tessera_cli::run(
+        &path,
+        &[
+            "system".into(),
+            "audio-output".into(),
+            "alsa_output.pci-speaker".into(),
+        ],
+    )
+    .unwrap();
     assert_eq!(
         handler.commands.lock().unwrap().as_slice(),
         &[
@@ -531,6 +595,11 @@ fn system_control_commands_send_typed_actions() {
                     mode: tessera_desktop::power::PowerMode::Awake,
                 },
             },
+            Command::System {
+                action: tessera_protocol::SystemAction::SetAudioOutput {
+                    name: "alsa_output.pci-speaker".into(),
+                },
+            },
         ]
     );
 }
@@ -544,6 +613,67 @@ fn system_control_cli_rejects_out_of_range_levels() {
     .unwrap_err();
     assert_eq!(error.exit_code(), 2);
     assert!(error.to_string().contains("1..=100"), "{error}");
+}
+
+#[test]
+fn system_audio_output_requires_a_name() {
+    // The name is the whole identity of the request; an empty or missing
+    // argument must be a usage error at the CLI, never a `SetAudioOutput` that
+    // reaches the compositor and is refused there (ADR-0215).
+    let error = tessera_cli::run(
+        std::path::Path::new(""),
+        &["system".into(), "audio-output".into()],
+    )
+    .unwrap_err();
+    assert_eq!(error.exit_code(), 2);
+}
+
+#[test]
+fn system_microphone_commands_send_typed_actions() {
+    let path = scratch();
+    let handler = Arc::new(CtlHandler::new());
+    let _s = Server::start(&path, Arc::clone(&handler)).unwrap();
+    for args in [
+        vec!["system", "mic-mute"],
+        vec!["system", "mic-volume", "30"],
+        vec!["system", "audio-input", "alsa_input.pci-mic"],
+    ] {
+        tessera_cli::run(
+            &path,
+            &args.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
+        )
+        .unwrap();
+    }
+    assert_eq!(
+        handler.commands.lock().unwrap().as_slice(),
+        &[
+            Command::System {
+                action: tessera_protocol::SystemAction::ToggleMicrophoneMute,
+            },
+            Command::System {
+                action: tessera_protocol::SystemAction::SetMicrophoneVolume { level: 30 },
+            },
+            Command::System {
+                action: tessera_protocol::SystemAction::SetAudioInput {
+                    name: "alsa_input.pci-mic".into(),
+                },
+            },
+        ]
+    );
+}
+
+#[test]
+fn system_audio_input_requires_a_name() {
+    // Same rule as `audio-output`: the name is the whole identity of the
+    // request, so a missing argument is a usage error at the CLI, never a
+    // `SetAudioInput` that reaches the compositor and is refused there
+    // (ADR-0216).
+    let error = tessera_cli::run(
+        std::path::Path::new(""),
+        &["system".into(), "audio-input".into()],
+    )
+    .unwrap_err();
+    assert_eq!(error.exit_code(), 2);
 }
 
 #[test]

@@ -1,3 +1,7 @@
+[Testing Index](index.md) > [Manual Testing Playbook](manual-testing.md) > Surface Testing
+
+---
+
 # Surface Testing
 
 How the interactive shell surfaces are tested: the test model, the
@@ -41,7 +45,7 @@ A production binary may expose debug-gated environment variables that change
 seeded. `TESSERA_COMMAND_PANEL_OPEN` is the example: it opens the panel at
 startup in debug builds and seeds demo notifications. Environment variables
 must never alter authentication, authorization, or capture behavior. See
-[Development Environment Variables](environment-variables.md) for the complete
+[Development Environment Variables](../environment-variables.md) for the complete
 reference.
 
 ### Inspection Harnesses: Separate Development-Only Binaries
@@ -145,7 +149,7 @@ action = "command_panel"
 
 Nested limits: the instance cannot modeset physical outputs or configure
 libinput devices, so validate display and touchpad settings under DRM/KMS.
-Follow [Nested Backend Development](nested-backend.md) for socket discovery,
+Follow [Nested Backend Development](../nested-backend.md) for socket discovery,
 process replacement, and backend limits.
 
 ### Capture Panel Pixels for an Agent
@@ -253,7 +257,7 @@ shared typography, identity, credential, or status rendering:
 
 Production `tessera-lock` uses the independent `[lock_screen.background]`
 configuration described in the
-[Configuration Reference](../reference/config.md#lock-screen).
+[Configuration Reference](../../reference/config.md#lock-screen).
 
 ### Capture Lock Preview Pixels for an Agent
 
@@ -313,7 +317,7 @@ Enter the account password to test the complete PAM transition. For a visual
 or protocol-only test, stop the entire nested compositor to recover. Do not
 kill only `tessera-lock` after secure confirmation: the inner compositor must
 retain its fail-closed frame. Follow
-[Nested Backend Development](nested-backend.md) for socket discovery, process
+[Nested Backend Development](../nested-backend.md) for socket discovery, process
 isolation, and nested-backend limits.
 
 ## Test a Physical Session

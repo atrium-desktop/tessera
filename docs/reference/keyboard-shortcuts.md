@@ -56,7 +56,7 @@ frame if the client exits unexpectedly. See
 `xdg_toplevel.set_fullscreen` request. It applies to any focused window —
 including one that never asks for fullscreen itself, such as a game that only
 ships a windowed mode — and produces the same state that request produces:
-the window is configured to cover the whole output, the dock, HUD, and
+the window is configured to cover the whole output, the dock, and
 wallpaper animations stand down, and the pre-fullscreen floating geometry is
 restored on exit. A window the client itself put fullscreen leaves through the
 same binding. Bare `F11` stays unbound so an application's in-app fullscreen

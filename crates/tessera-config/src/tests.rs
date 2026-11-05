@@ -192,12 +192,6 @@ fn dev_escape_hatches_default_off_and_parse() {
 }
 
 #[test]
-fn hud_defaults_to_enabled() {
-    let cfg = Config::parse("schema_version = 2\n").unwrap();
-    assert!(cfg.hud.enabled);
-}
-
-#[test]
 fn night_light_defaults_off_and_parses_schedule() {
     let defaults = Config::parse("schema_version = 2\n").unwrap();
     assert!(!defaults.night_light.enable);
@@ -577,9 +571,18 @@ fn config_store_writes_the_dock_minimize_animation_without_touching_pins() {
 }
 
 #[test]
-fn hud_can_be_disabled() {
-    let cfg = Config::parse("schema_version = 2\n[hud]\nenabled = false\n").unwrap();
-    assert!(!cfg.hud.enabled);
+fn the_removed_status_hud_table_is_rejected_as_an_unknown_field() {
+    // The display-only status HUD was removed with its `[hud]` table
+    // (ADR-0226). A stale `[hud]` key must fail loudly: silently ignoring it
+    // would leave a user believing they had configured a surface that no
+    // longer exists.
+    let diagnostics = Config::parse("schema_version = 2\n[hud]\nenabled = false\n").unwrap_err();
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| format!("{diagnostic:?}").contains("hud")),
+        "the diagnostic names the stale table: {diagnostics:?}"
+    );
 }
 
 fn temp_config_path(tag: &str) -> PathBuf {

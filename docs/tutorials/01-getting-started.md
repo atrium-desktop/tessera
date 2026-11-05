@@ -46,7 +46,7 @@ cargo run --locked -p tessera
 ```
 
 Because `WAYLAND_DISPLAY` is set, the default `TESSERA_BACKEND=auto` opens a
-nested Tessera window. The background, HUD chips, and Dock confirm that the
+nested Tessera window. The background and the Dock confirm that the
 session is ready.
 
 ## Open the Settings Tabs

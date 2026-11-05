@@ -97,7 +97,7 @@ stable across the whole animation.
 ### Invariants & Behavioral Boundaries
 
 This decision establishes **domain contracts** inside `tessera-shell`, not
-system invariants: per [Invariants](../../dev/standards/invariants.md) §2, the
+system invariants: per [Invariants](../dev/invariants.md) §2, the
 Dock autohide reveal is a within-crate state machine, and the edge gap is a
 design constant. Neither carries an `INV-` tag; both are enforced by unit
 tests.

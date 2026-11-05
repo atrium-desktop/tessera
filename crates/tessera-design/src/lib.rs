@@ -13,4 +13,7 @@ pub mod themes;
 pub mod tokens;
 
 pub use colors::{CommandPanelColors, ControlCenterColors, DockColors, ProductColors, SceneColors};
-pub use tokens::{AvatarRole, Design, GlassRole, PreviewSelectionStyle};
+pub use tokens::{
+    AvatarRole, Design, PreviewSelectionStyle, SelectionStyles, SurfaceRole, SurfaceStyle,
+    SurfaceStyles,
+};

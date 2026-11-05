@@ -33,6 +33,10 @@ and belongs to the notification model.
   need later.
 - Do not emit both a toast and notification for the same event unless each
   carries a distinct role.
+- An **output switch** is acknowledged in place: the picker's default marker
+  moves to the row the sound server reports as default, and the transient OSD
+  names where playback went. The marker is the authority; the OSD only says it
+  happened, so keep the two consistent and never move the marker optimistically.
 - Coalesce repeated events and preserve the newest authoritative state.
 - Critical security prompts are modal decisions, not notifications styled as
   alerts.

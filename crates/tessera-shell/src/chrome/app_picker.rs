@@ -15,23 +15,21 @@ use std::time::{Duration, Instant};
 use lens::{Color, Frame, Input, LayoutOpts, Rect};
 
 use crate::component::{
-    AppCatalog, AppPickParams, BackdropRegion, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate,
-    CursorShape, LiquidGlassFocus, LiquidGlassRegion, Localizer, Reserved, ellipsize,
-    modal_scrim_backdrop,
+    AppCatalog, AppPickParams, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
+    Localizer, Reserved, ellipsize,
 };
 use crate::widgets::dialog::ActionButtonStyle;
-use crate::widgets::dialog::DEFAULT_BACKDROP_BLUR_SIGMA;
 use crate::widgets::dialog::DEFAULT_BUTTON_HEIGHT;
 use crate::widgets::dialog::DEFAULT_MODAL_PAD;
 use crate::widgets::dialog::DEFAULT_TITLE_HEIGHT;
-use crate::widgets::dialog::place_modal_panel;
 use crate::widgets::dialog::render_action_button;
+use crate::widgets::dialog::{place_modal_panel, place_modal_veil};
 use crate::widgets::geom::contains;
 use crate::widgets::geom::stretch;
 use crate::widgets::picker::DEFAULT_DOUBLE_CLICK_TIMEOUT;
 use crate::widgets::picker::DEFAULT_PICKER_ROW_HEIGHT;
 use crate::widgets::picker::DEFAULT_WHEEL_SCROLL_ROWS;
-use tessera_design::{Design, GlassRole, materials, themes};
+use tessera_design::{Design, materials, themes};
 use tessera_desktop::window::Window;
 use tessera_primitives::input::KeyAction;
 use tessera_primitives::input::KeyChar;
@@ -46,7 +44,6 @@ const ICON: f32 = 20.0;
 const VISIBLE_ROWS: usize = 8;
 const BUTTON_H: f32 = DEFAULT_BUTTON_HEIGHT;
 const BUTTON_W: f32 = 88.0;
-const BACKDROP_BLUR_SIGMA: f32 = DEFAULT_BACKDROP_BLUR_SIGMA;
 /// Two presses on the same row within this window count as a double-click.
 const DOUBLE_CLICK: Duration = DEFAULT_DOUBLE_CLICK_TIMEOUT;
 /// Rows scrolled per wheel detent over the list.
@@ -299,8 +296,10 @@ impl Chrome for AppPicker {
         let original_theme = frame.theme();
         frame.set_theme(themes::application(&design));
 
-        // Minimal foreground tint only. The compositor-owned analytic pass
-        // supplies the body, refraction, rim light, and shadow.
+        // The veil first, then the panel: the veil dims the desktop so the panel
+        // reads as the only live surface, and the panel's own fill, hairline and
+        // painted halo are the whole body. No compositor-side material exists.
+        place_modal_veil(frame, display, &design, 1.0);
         place_modal_panel(frame, "tessera-app-picker-panel", layout.panel, &design);
 
         frame.place(
@@ -360,12 +359,12 @@ impl Chrome for AppPicker {
                 (rect.w - 48.0).max(0.0),
             );
             // Selection is the panel's single optical focus (declared in
-            // `liquid_glass_regions`); the painted placement is only the
+            // `bodies`); the painted placement is only the
             // shared neutral fallback wash, never a structural accent fill.
             let mut material = if selected {
-                materials::glass_focus(&design, true)
+                materials::selection(&design, true)
             } else if hovered {
-                materials::glass_focus(&design, false)
+                materials::selection(&design, false)
             } else {
                 LayoutOpts {
                     bg: Color::TRANSPARENT,
@@ -566,73 +565,6 @@ impl Chrome for AppPicker {
     fn app_pick_active(&self) -> bool {
         self.active
     }
-
-    fn backdrop_blur_sigma(&self) -> f32 {
-        if self.active {
-            BACKDROP_BLUR_SIGMA
-        } else {
-            0.0
-        }
-    }
-
-    fn backdrop_regions(
-        &self,
-        display: (f32, f32),
-        _windows: &[Window],
-        _workspaces: &crate::WorkspaceSnapshot,
-    ) -> Vec<BackdropRegion> {
-        if !self.active {
-            return Vec::new();
-        }
-        let _ = PickerLayout::for_display(display, self.modal_reserved, self.subject.is_some());
-        // The modal's full-display dim is a wash INTO the frost (beneath the
-        // panel's glass body) — it used to be painted above the glass, which
-        // hid the lens's refraction and split the layer stack.
-        vec![modal_scrim_backdrop(display, &self.design)]
-    }
-
-    fn liquid_glass_regions(
-        &self,
-        display: (f32, f32),
-        _windows: &[Window],
-        _workspaces: &crate::WorkspaceSnapshot,
-    ) -> Vec<LiquidGlassRegion> {
-        if !self.active {
-            return Vec::new();
-        }
-        let design = self.design;
-        let layout =
-            PickerLayout::for_display(display, self.modal_reserved, self.subject.is_some());
-        // The highlighted row carries the panel's single optical focus. A
-        // selection scrolled out of the list window carries no field: the
-        // bounds must stay inside the parent body (ADR-0105).
-        let scroll_row = self
-            .scroll_row
-            .min(self.rows.len().saturating_sub(layout.visible_rows));
-        let focus = (self.selected < self.rows.len()
-            && self.selected >= scroll_row
-            && self.selected < scroll_row + layout.visible_rows)
-            .then(|| LiquidGlassFocus {
-                bounds: BackdropRegion::from(Rect {
-                    x: layout.list.x,
-                    y: layout.list.y + (self.selected - scroll_row) as f32 * ROW_H,
-                    w: layout.list.w,
-                    h: ROW_H,
-                }),
-                corner_radius: design.radii.menu_item,
-                strength: design.glass_focus.field_strength,
-            });
-        vec![
-            LiquidGlassRegion::from_role(
-                &design,
-                GlassRole::ProminentPanel,
-                BackdropRegion::from(layout.panel),
-                design.radii.glass_panel,
-                1.0,
-            )
-            .with_focus(focus),
-        ]
-    }
 }
 
 #[cfg(test)]
@@ -743,60 +675,28 @@ mod tests {
     }
 
     #[test]
-    fn the_active_panel_is_one_analytic_glass_body() {
+    fn the_active_picker_paints_its_own_veil_and_panel() {
         let mut picker = picker_with_catalog();
         let display = (1280.0, 800.0);
-        let workspaces = crate::WorkspaceSnapshot {
-            outputs: Vec::new(),
-        };
-        assert!(
-            picker
-                .liquid_glass_regions(display, &[], &workspaces)
-                .is_empty()
-        );
         assert!(!picker.exclusive_presentation_active());
 
         picker.start_app_pick(params(&["firefox.desktop"], None));
-        let backdrop = picker.backdrop_regions(display, &[], &workspaces);
-        let glass = picker.liquid_glass_regions(display, &[], &workspaces);
-        assert_eq!(backdrop.len(), 1);
         assert!(
-            backdrop[0].wash.is_some(),
-            "the dim is a wash into the frost"
+            picker.exclusive_presentation_active(),
+            "a consent picker owns the chrome band while it is open"
         );
-        assert_eq!(glass.len(), 1);
-        assert_eq!(glass[0].bounds.w, 440.0);
-        assert_eq!(glass[0].corner_radius, Design::dark().radii.glass_panel);
-        assert_eq!(glass[0].opacity, 1.0);
-        assert!(picker.exclusive_presentation_active());
-    }
-
-    #[test]
-    fn the_highlighted_row_carries_the_panels_optical_focus() {
-        let mut picker = picker_with_catalog();
-        picker.start_app_pick(params(
-            &["firefox.desktop", "org.example.Editor.desktop"],
-            None,
-        ));
-        let display = (1280.0, 800.0);
-        let workspaces = crate::WorkspaceSnapshot {
-            outputs: Vec::new(),
-        };
+        // The panel body is painted by the picker itself at the shared
+        // prominent-panel radius; there is no compositor material beneath it.
         let layout = PickerLayout::for_display(display, Reserved::default(), false);
-        let glass = picker.liquid_glass_regions(display, &[], &workspaces);
-        let focus = glass[0].focus.expect("the highlighted row is focused");
-        assert_eq!(
-            focus.bounds,
-            BackdropRegion {
-                x: layout.list.x,
-                y: layout.list.y,
-                w: layout.list.w,
-                h: ROW_H,
-                wash: None,
-                opacity: 1.0,
-            }
-        );
-        assert_eq!(focus.corner_radius, Design::dark().radii.menu_item);
-        assert_eq!(focus.strength, Design::dark().glass_focus.field_strength);
+        let design = Design::dark();
+        let body = design
+            .surfaces
+            .for_role(tessera_design::SurfaceRole::ProminentPanel);
+        assert_eq!(body.body.components().3, 242, "the panel body is opaque");
+        assert!(layout.panel.w > 0.0 && layout.panel.h > 0.0);
+        // The veil dims the whole output so the panel is the only live surface.
+        let veil = materials::modal_scrim(&design, 1.0);
+        assert_eq!(veil.radius, 0.0);
+        assert!(veil.bg.components().3 > 0);
     }
 }

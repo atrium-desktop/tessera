@@ -9,6 +9,7 @@ pub(crate) use super::*;
 pub(crate) use lens::{Band, Icon};
 pub(crate) use tessera_design::materials::{chrome_place, sized, transparent};
 
+mod audio;
 mod bluetooth;
 mod canvas;
 mod cast;
@@ -57,6 +58,56 @@ impl ControlCenter {
         } else {
             i18n.text(Message::NotCasting).to_owned()
         }
+    }
+
+    /// Whether the sound fader offers the output picker (ADR-0215).
+    ///
+    /// The disclosure appears only when there is a choice to make. With no
+    /// outputs there is nothing to list (no sound server answered), and with
+    /// one the page would show the device already playing — a control that
+    /// cannot change anything reads as broken rather than as unnecessary.
+    ///
+    /// A second reason to open the page is a microphone that can be muted or an
+    /// input that can be chosen (ADR-0216): the disclosure is the only way into
+    /// the capture controls, so it must appear when they are actionable even
+    /// with a single output.
+    pub(super) fn audio_output_disclosure_visible(status: &SystemStatus) -> bool {
+        status.audio_outputs.len() > 1
+            || status.has_audio_input_choice()
+            || status.microphone_volume.is_some()
+    }
+
+    /// The intent a click on one output row produces, or `None` when the click
+    /// cannot change anything (ADR-0215).
+    ///
+    /// Selecting the row that is already default is not a no-op the server
+    /// should be asked to perform: it would rewrite the same key and raise a
+    /// reading for a state that did not change.
+    pub(super) fn audio_output_intent(
+        output: &tessera_desktop::system::AudioOutput,
+    ) -> Option<SystemAction> {
+        if output.is_default {
+            return None;
+        }
+        Some(SystemAction::SetAudioOutput {
+            name: output.name.clone(),
+        })
+    }
+
+    /// The intent a click on one input row produces (ADR-0216).
+    ///
+    /// The same rule as [`Self::audio_output_intent`], for the same reason: the
+    /// server owns the default, so re-selecting the current one would be a write
+    /// with no state change behind it.
+    pub(super) fn audio_input_intent(
+        input: &tessera_desktop::system::AudioInput,
+    ) -> Option<SystemAction> {
+        if input.is_default {
+            return None;
+        }
+        Some(SystemAction::SetAudioInput {
+            name: input.name.clone(),
+        })
     }
 
     pub(super) fn bluetooth_tile_subtitle(status: &SystemStatus, i18n: &Localizer) -> String {

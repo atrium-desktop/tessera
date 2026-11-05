@@ -27,8 +27,11 @@ pub struct ProductColors {
     pub menu_surface_active: Color,
     pub popover_surface: Color,
     pub popover_border: Color,
-    pub glass_surface: Color,
-    pub glass_border: Color,
+    /// Opaque body of a floating chrome panel (dialogs, the switcher, the
+    /// pivot, live previews). Flat fill: no blur, no capture, no refraction.
+    pub panel_surface: Color,
+    /// Hairline boundary of a floating chrome panel.
+    pub panel_border: Color,
     pub application_surface: Color,
     pub application_text: Color,
     pub application_accent: Color,
@@ -53,6 +56,12 @@ pub struct ProductColors {
     pub launcher_field_surface: Color,
     pub launcher_field_border: Color,
     pub launcher_selection_surface: Color,
+    /// Ink of the painted elevation halo beneath a floating surface.
+    ///
+    /// A flat product casts its shadow as a few low-alpha fills rather than a
+    /// blur pass, so the halo needs its own neutral: near-black in both
+    /// appearances, because a shadow darkens whatever is beneath it.
+    pub shadow_ink: Color,
     /// Critical emphasis for destructive actions, errors, and alerts.
     pub critical: Color,
     /// Validation emphasis for successful checks and completed operations.
@@ -68,10 +77,10 @@ impl ProductColors {
             menu_border: Color::rgba(255, 255, 255, 36),
             menu_surface_hover: Color::rgba(255, 255, 255, 22),
             menu_surface_active: Color::rgba(255, 255, 255, 36),
-            popover_surface: Color::rgba(24, 28, 40, 220),
+            popover_surface: Color::rgba(26, 30, 42, 248),
             popover_border: Color::rgba(255, 255, 255, 42),
-            glass_surface: Color::rgba(18, 22, 34, 110),
-            glass_border: Color::rgba(255, 255, 255, 36),
+            panel_surface: Color::rgba(20, 23, 32, 242),
+            panel_border: Color::rgba(255, 255, 255, 34),
             application_surface: Color::rgba(25, 28, 40, 255),
             application_text: Color::rgba(244, 246, 252, 255),
             application_accent: Color::rgba(102, 156, 255, 255),
@@ -87,9 +96,10 @@ impl ProductColors {
             modal_scrim_text: Color::rgba(248, 250, 253, 255),
             parent_modal_scrim: Color::rgba(10, 12, 22, 140),
             attention_pulse_border: Color::rgba(120, 175, 255, 245),
-            launcher_field_surface: Color::rgba(16, 19, 30, 122),
+            launcher_field_surface: Color::rgba(16, 19, 30, 236),
             launcher_field_border: Color::rgba(255, 255, 255, 44),
             launcher_selection_surface: Color::rgba(12, 15, 26, 96),
+            shadow_ink: Color::rgba(0, 0, 0, 255),
             critical: Color::rgba(255, 72, 84, 255),
             validation: Color::rgba(190, 226, 255, 255),
         }
@@ -103,10 +113,10 @@ impl ProductColors {
             menu_border: Color::rgba(28, 32, 44, 36),
             menu_surface_hover: Color::rgba(28, 32, 44, 12),
             menu_surface_active: Color::rgba(28, 32, 44, 22),
-            popover_surface: Color::rgba(250, 251, 253, 216),
+            popover_surface: Color::rgba(250, 251, 253, 250),
             popover_border: Color::rgba(28, 32, 44, 30),
-            glass_surface: Color::rgba(255, 255, 255, 72),
-            glass_border: Color::rgba(28, 32, 44, 28),
+            panel_surface: Color::rgba(249, 250, 253, 243),
+            panel_border: Color::rgba(28, 32, 44, 30),
             application_surface: Color::rgba(243, 245, 249, 255),
             application_text: Color::rgba(29, 33, 44, 255),
             application_accent: Color::rgba(43, 101, 232, 255),
@@ -122,9 +132,10 @@ impl ProductColors {
             modal_scrim_text: Color::rgba(248, 250, 253, 255),
             parent_modal_scrim: Color::rgba(30, 36, 52, 110),
             attention_pulse_border: Color::rgba(45, 125, 245, 245),
-            launcher_field_surface: Color::rgba(250, 251, 253, 208),
+            launcher_field_surface: Color::rgba(250, 251, 253, 244),
             launcher_field_border: Color::rgba(28, 32, 44, 30),
             launcher_selection_surface: Color::rgba(255, 255, 255, 72),
+            shadow_ink: Color::rgba(12, 16, 26, 255),
             critical: Color::rgba(210, 40, 55, 255),
             validation: Color::rgba(30, 90, 200, 255),
         }
@@ -222,10 +233,9 @@ pub struct SceneColors {
     pub overview_scrim: Color,
     pub window_switcher_scrim: Color,
     pub interaction_domain_clear: Color,
-    pub glass_tint: [u8; 3],
 }
 
-/// Painted foreground colors of the Dock's analytic glass body.
+/// Painted colors of the Dock's flat body and its tile decorations.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub struct DockColors {
@@ -235,12 +245,16 @@ pub struct DockColors {
     pub running_dot_active: Color,
     pub running_dot_inactive: Color,
     pub section_divider: Color,
+    /// Flat body of the dock's expanded bar.
     pub bar_surface_expanded: Color,
+    /// Flat body of the dock's collapsed capsule. Slightly lifted from the
+    /// expanded bar so a resting edge indicator still reads as a control
+    /// rather than as a hairline artifact.
     pub bar_surface_collapsed: Color,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct GlassFocusColors {
+pub(crate) struct SelectionColors {
     pub surface_hover: Color,
     pub surface_selected: Color,
 }
@@ -259,7 +273,7 @@ pub(crate) struct AvatarColors {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct HudForegroundColors {
+pub(crate) struct FloatingForegroundColors {
     pub primary: Color,
     pub contour: Color,
 }
@@ -267,9 +281,9 @@ pub(crate) struct HudForegroundColors {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct AppearanceColors {
     pub product: ProductColors,
-    pub glass_focus: GlassFocusColors,
+    pub selection_colors: SelectionColors,
     pub avatars: AvatarColors,
-    pub hud_foreground: HudForegroundColors,
+    pub floating_foreground: FloatingForegroundColors,
     pub scene: SceneColors,
     pub dock: DockColors,
 }
@@ -277,7 +291,7 @@ pub(crate) struct AppearanceColors {
 pub(crate) fn dark_appearance() -> AppearanceColors {
     AppearanceColors {
         product: ProductColors::dark(),
-        glass_focus: GlassFocusColors {
+        selection_colors: SelectionColors {
             surface_hover: Color::rgba(255, 255, 255, 6),
             surface_selected: Color::rgba(255, 255, 255, 3),
         },
@@ -293,7 +307,7 @@ pub(crate) fn dark_appearance() -> AppearanceColors {
                 fallback_foreground: Color::rgba(250, 251, 254, 255),
             },
         },
-        hud_foreground: HudForegroundColors {
+        floating_foreground: FloatingForegroundColors {
             primary: Color::rgba(248, 249, 252, 255),
             contour: Color::rgba(5, 7, 12, 48),
         },
@@ -302,7 +316,6 @@ pub(crate) fn dark_appearance() -> AppearanceColors {
             overview_scrim: Color::rgba(8, 10, 20, 255),
             window_switcher_scrim: Color::rgba(5, 7, 12, 255),
             interaction_domain_clear: Color::rgba(17, 20, 27, 255),
-            glass_tint: [255, 255, 255],
         },
         dock: dark_dock_colors(),
     }
@@ -311,7 +324,7 @@ pub(crate) fn dark_appearance() -> AppearanceColors {
 pub(crate) fn light_appearance() -> AppearanceColors {
     AppearanceColors {
         product: ProductColors::light(),
-        glass_focus: GlassFocusColors {
+        selection_colors: SelectionColors {
             surface_hover: Color::rgba(28, 32, 44, 7),
             surface_selected: Color::rgba(28, 32, 44, 4),
         },
@@ -327,7 +340,7 @@ pub(crate) fn light_appearance() -> AppearanceColors {
                 fallback_foreground: Color::rgba(26, 31, 43, 255),
             },
         },
-        hud_foreground: HudForegroundColors {
+        floating_foreground: FloatingForegroundColors {
             primary: Color::rgba(30, 34, 46, 255),
             contour: Color::rgba(255, 255, 255, 72),
         },
@@ -336,7 +349,6 @@ pub(crate) fn light_appearance() -> AppearanceColors {
             overview_scrim: Color::rgba(243, 245, 249, 255),
             window_switcher_scrim: Color::rgba(243, 245, 249, 255),
             interaction_domain_clear: Color::rgba(243, 245, 249, 255),
-            glass_tint: [243, 245, 249],
         },
         dock: light_dock_colors(),
     }
@@ -350,8 +362,8 @@ fn dark_dock_colors() -> DockColors {
         running_dot_active: Color::rgba(236, 238, 245, 255),
         running_dot_inactive: Color::rgba(200, 204, 220, 170),
         section_divider: Color::rgba(255, 255, 255, 80),
-        bar_surface_expanded: Color::rgba(255, 255, 255, 12),
-        bar_surface_collapsed: Color::rgba(240, 243, 252, 64),
+        bar_surface_expanded: Color::rgba(24, 27, 37, 244),
+        bar_surface_collapsed: Color::rgba(38, 43, 58, 238),
     }
 }
 
@@ -363,8 +375,8 @@ fn light_dock_colors() -> DockColors {
         running_dot_active: Color::rgba(24, 28, 42, 235),
         running_dot_inactive: Color::rgba(110, 118, 140, 160),
         section_divider: Color::rgba(0, 0, 0, 48),
-        bar_surface_expanded: Color::rgba(255, 255, 255, 110),
-        bar_surface_collapsed: Color::rgba(255, 255, 255, 160),
+        bar_surface_expanded: Color::rgba(247, 248, 252, 244),
+        bar_surface_collapsed: Color::rgba(232, 235, 243, 240),
     }
 }
 
@@ -388,7 +400,6 @@ mod tests {
         assert_eq!(light.product.critical, Color::rgba(210, 40, 55, 255));
         assert_eq!(light.product.validation, Color::rgba(30, 90, 200, 255));
         assert_eq!(dark.scene.clear_color, Color::rgba(30, 30, 46, 255));
-        assert_eq!(light.scene.glass_tint, [243, 245, 249]);
         assert_eq!(dark.dock, dark_dock_colors());
         assert_eq!(light.dock, light_dock_colors());
         assert_ne!(dark.dock.running_dot_active, light.dock.running_dot_active);

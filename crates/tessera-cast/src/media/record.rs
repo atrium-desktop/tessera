@@ -8,8 +8,8 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use super::portal::{PortalError, ScreenCastSession};
@@ -156,9 +156,10 @@ pub fn record_screen(
             RecordError::Pipeline(format!("could not spawn gst-launch-1.0 pipewiresrc: {err}"))
         })?;
 
-    let capture_stdout = capture_child.stdout.take().ok_or_else(|| {
-        RecordError::Pipeline("could not capture pipewiresrc stdout".into())
-    })?;
+    let capture_stdout = capture_child
+        .stdout
+        .take()
+        .ok_or_else(|| RecordError::Pipeline("could not capture pipewiresrc stdout".into()))?;
 
     // 3. Spawn FFmpeg encoding directly to the output file (VA-API hardware encoder with libx264 fallback)
     let start_time = Instant::now();
@@ -262,7 +263,10 @@ fn spawn_ffmpeg_encoder(
 ) -> Result<Child, RecordError> {
     let has_vaapi = Path::new("/dev/dri/renderD128").exists();
     let mut cmd = Command::new("ffmpeg");
-    cmd.arg("-y").arg("-hide_banner").arg("-loglevel").arg("warning");
+    cmd.arg("-y")
+        .arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("warning");
 
     if has_vaapi {
         cmd.arg("-vaapi_device")
@@ -312,9 +316,8 @@ fn spawn_ffmpeg_encoder(
     cmd.stdout(Stdio::null());
     cmd.stderr(Stdio::inherit());
 
-    cmd.spawn().map_err(|e| {
-        RecordError::Pipeline(format!("could not spawn ffmpeg encoder: {e}"))
-    })
+    cmd.spawn()
+        .map_err(|e| RecordError::Pipeline(format!("could not spawn ffmpeg encoder: {e}")))
 }
 
 #[cfg(test)]

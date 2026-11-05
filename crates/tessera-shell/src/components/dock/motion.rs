@@ -16,35 +16,54 @@ use crate::widgets::motion::{Spring, SpringParams, approach, smoothstep};
 /// Visual height of the dock bar. Tiles rest inside it; magnified tiles pop
 /// above its top edge. On a side edge this is the panel's thickness (width).
 pub const DOCK_PANEL_HEIGHT: f32 = 74.0;
-/// Gap between the expanded dock bar and the screen edge it is anchored to.
-/// A floating bar reads as detached chrome, so it keeps visible wallpaper
-/// under it.
+/// Gap between the dock surface and the screen edge it is anchored to.
+///
+/// One value for both states. The expanded bar and the collapsed capsule are the
+/// same surface at two sizes, so they hold the same offset: the dock grows and
+/// shrinks in place instead of sliding toward the edge as it parks. A floating
+/// surface reads as detached chrome, and a capsule that stays put reads as the
+/// same object rather than as a second affordance.
+///
+/// The pointer target is deliberately *not* this value — see
+/// [`AUTOHIDE_HANDLE_APPROACH_BAND`], which reaches the physical edge so a
+/// pointer thrown at the screen still summons a surface that floats clear of it.
 pub const DOCK_EDGE_MARGIN: f32 = 12.0;
+
 /// Gap between the collapsed capsule and the screen edge.
 ///
-/// The capsule is not a floating panel: it is the *revealed edge itself*, the
-/// affordance that says "the Dock is parked here". Keeping the bar's 12 px
-/// float under a 4 px stadium leaves it hovering mid-air with a band of
-/// wallpaper between it and the screen edge, which reads as a stray artifact
-/// rather than an edge handle. The capsule therefore hugs the edge, and the
-/// gap interpolates back to [`DOCK_EDGE_MARGIN`] as the surface morphs, so the
-/// expanding Dock lifts off the edge into its resting float instead of
-/// snapping between two offsets.
-pub const AUTOHIDE_HANDLE_EDGE_MARGIN: f32 = 2.0;
-/// Depth of the collapsed capsule's reveal corridor, measured inward from the
-/// anchored screen edge.
+/// Defined as [`DOCK_EDGE_MARGIN`] so the collapsed and expanded geometry cannot
+/// drift apart through two independent constants.
+pub const AUTOHIDE_HANDLE_EDGE_MARGIN: f32 = DOCK_EDGE_MARGIN;
+/// Extra depth a pointer may travel *above* the collapsed capsule and still
+/// summon the dock, measured inward from the capsule's own top edge.
 ///
-/// This is deliberately independent of [`AUTOHIDE_HANDLE_EDGE_MARGIN`] and
-/// [`AUTOHIDE_HANDLE_HEIGHT`]: tucking the visual capsule against the edge must
-/// not quietly shrink the strip the user has to hit.
+/// This is deliberately independent of [`DOCK_EDGE_MARGIN`] and
+/// [`AUTOHIDE_HANDLE_HEIGHT`]: where the pixels sit must not quietly decide how
+/// large a target the user has to hit.
 ///
 /// 16 px is chosen on its own merits, in both directions. Deep enough that the
 /// capsule can be summoned by reaching the bottom band rather than by aiming at
-/// a 4 px stadium; shallow enough that it does not swallow clicks on client
-/// content sitting just above the parked Dock — the trapping failure ADR-0146
-/// exists to prevent. Roughly one tile gap, i.e. a band a pointer crosses
-/// deliberately rather than by accident.
+/// a 4 px pill; shallow enough that it does not swallow clicks on client content
+/// sitting just above the parked dock — the trapping failure ADR-0146 exists to
+/// prevent. Roughly one tile gap, i.e. a band a pointer crosses deliberately
+/// rather than by accident.
 pub const AUTOHIDE_HANDLE_APPROACH_BAND: f32 = 16.0;
+
+/// Depth of the collapsed capsule's reveal corridor from the physical screen
+/// edge.
+///
+/// The corridor is the union of three things that must all be true at once: it
+/// reaches the screen edge (a pointer thrown at the bottom band summons the dock
+/// without being aimed), it covers the capsule's own body, and it extends
+/// [`AUTOHIDE_HANDLE_APPROACH_BAND`] past that body. Composing it from those
+/// three instead of picking one number is what keeps it correct when the capsule
+/// floats clear of the edge: a flat 16 px band would have been *shallower* than
+/// the capsule it is supposed to own.
+#[inline]
+#[must_use]
+pub const fn collapsed_reveal_depth() -> f32 {
+    DOCK_EDGE_MARGIN + AUTOHIDE_HANDLE_HEIGHT + AUTOHIDE_HANDLE_APPROACH_BAND
+}
 /// Distance from the bar's bottom edge up to the icon baseline (the bottom of every tile).
 pub const DOCK_BASELINE_INSET: f32 = 13.0;
 /// Side length of a square dock tile at rest (the icon area).
@@ -242,10 +261,7 @@ impl DockMotion {
     /// forever. The drain still drives damage; it must not drive the clock.
     #[must_use]
     pub fn anim_pending(&self, target_reveal: f32, dwell_active: bool, drag_active: bool) -> bool {
-        self.reveal_animating(target_reveal)
-            || self.anim_active
-            || dwell_active
-            || drag_active
+        self.reveal_animating(target_reveal) || self.anim_active || dwell_active || drag_active
     }
 }
 
@@ -263,20 +279,16 @@ pub fn collapse_surface_progress(reveal: f32) -> f32 {
     smoothstep(reveal)
 }
 
-/// Distance the single Dock surface keeps from its anchored screen edge at
-/// `surface_progress` (0.0 = stadium handle, 1.0 = full glass panel).
+/// Distance the single Dock surface keeps from its anchored screen edge.
 ///
-/// The handle hugs the edge ([`AUTOHIDE_HANDLE_EDGE_MARGIN`]) and the expanded
-/// bar floats ([`DOCK_EDGE_MARGIN`]); interpolating on the same eased progress
-/// the body morphs on means the Dock *lifts* off the edge as it grows instead
-/// of holding one offset and then jumping to the other. Both endpoints are
-/// reproduced exactly, so `surface_progress == 1.0` still lands on
-/// `DockState::panel_rect_for` geometry.
+/// Constant across the morph, because both states hold [`DOCK_EDGE_MARGIN`]. The
+/// `surface_progress` parameter is retained so callers keep one call site for
+/// the question "how far from the edge is the body now", and so the answer
+/// cannot silently diverge between the two states again.
 #[inline]
 #[must_use]
-pub fn edge_margin_for_surface_progress(surface_progress: f32) -> f32 {
-    let progress = surface_progress.clamp(0.0, 1.0);
-    AUTOHIDE_HANDLE_EDGE_MARGIN + (DOCK_EDGE_MARGIN - AUTOHIDE_HANDLE_EDGE_MARGIN) * progress
+pub fn edge_margin_for_surface_progress(_surface_progress: f32) -> f32 {
+    DOCK_EDGE_MARGIN
 }
 
 /// Content drains earlier than containing surface: icons fade and shrink into the sink by 0.28.

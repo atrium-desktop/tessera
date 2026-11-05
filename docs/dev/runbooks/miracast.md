@@ -1,16 +1,16 @@
-# Miracast Bring-up: Lessons, Pitfalls, and Diagnostic Playbook
+# Miracast Bring-up & Operational Runbook
 
-**Read this before changing the caster.** Most of the time lost in this bring-up
-came from treating a plausible protocol exchange as proof, or from changing two
-variables at once. This document records the failures, the evidence that
-identified them, the fixes that survived hardware, and the diagnostic recipes
-that shorten the next investigation.
+**Audience:** Engineers maintaining, troubleshooting, or extending `tessera-cast`
+(see [Runbook Standards](../standards/runbooks.md)).
 
-The architecture and protocol map is in
-[`docs/explanation/miracast-source.md`](../explanation/miracast-source.md). The
-operational handoff is [`miracast-handoff.md`](miracast-handoff.md). Decisions
-are in [ADR-0192](../adr/0192-first-party-miracast-caster.md) and
-[ADR-0191](../adr/0191-casting-p2p-belongs-to-the-system-wifi-authority.md).
+This runbook records real-world hardware verification environments, protocol
+invariants, hardware quirks, diagnostic recipes, and regression checklists for
+Wi-Fi Display (Miracast) casting.
+
+The architectural explanation is in
+[`docs/explanation/miracast-source.md`](../../explanation/miracast-source.md). Decisions
+are recorded in [ADR-0192](../../adr/0192-first-party-miracast-caster.md) and
+[ADR-0191](../../adr/0191-casting-p2p-belongs-to-the-system-wifi-authority.md).
 
 ## The one rule
 
@@ -510,10 +510,9 @@ concurrency diagnosis. A second Wi-Fi adapter or Ethernet is the robust fix.
 
 ## References
 
-- [Miracast source architecture](../explanation/miracast-source.md)
-- [Miracast handoff](miracast-handoff.md)
-- [ADR-0192](../adr/0192-first-party-miracast-caster.md)
-- [ADR-0191](../adr/0191-casting-p2p-belongs-to-the-system-wifi-authority.md)
+- [Miracast source architecture](../../explanation/miracast-source.md)
+- [ADR-0192](../../adr/0192-first-party-miracast-caster.md)
+- [ADR-0191](../../adr/0191-casting-p2p-belongs-to-the-system-wifi-authority.md)
 - [Wi-Fi Alliance Miracast Specification v2.3](https://www.wi-fi.org/system/files/Miracast_Specification_v2.3.pdf)
 - [Wi-Fi Display Technical Specification v2.1 (mirror)](https://raw.githubusercontent.com/wiki/albfan/miraclecast/files/Wi-Fi_Display_Technical_Specification_v2.1_0.pdf)
 - [RTSP RFC 2326](https://www.rfc-editor.org/rfc/rfc2326)

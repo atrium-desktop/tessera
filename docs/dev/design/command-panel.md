@@ -33,8 +33,10 @@ The whole output uses one opaque grouped background:
 - Light mode uses a pale grouped-gray canvas with opaque white panels.
 - System blue marks active tabs, slider fills, and semantic focus. Quiet
   separators define inactive surfaces without decorative edge lighting.
-- The reveal animates the painted canvas's opacity. The command panel does
-  not declare backdrop capture, blur, frost, or analytic Liquid Glass.
+- The reveal animates the painted canvas's opacity. The command panel declares
+  an opaque full-output cover (`paints_opaque_cover`/`cover_opacity`), so the
+  compositor elides the desktop pass beneath it at full reveal and keeps drawing
+  it while the canvas drains.
 
 ## 9-Grid Anchor Spatial Geometry
 
@@ -50,7 +52,7 @@ The whole output uses one opaque grouped background:
 - **Center (Main Split Control Panel)**: Centered interaction hub (720×460 px at
   full size, narrowed to clear the network column) horizontally split into
   a Left Navigation Rail and a Right Content View.
-- Clicking anywhere outside the active interactive controls dismisses the HUD.
+- Clicking anywhere outside the active interactive controls dismisses the panel.
 
 ## Identity Block (Top-Left)
 
@@ -114,10 +116,11 @@ split into two functional columns:
 ## Tabs
 
 - **Quick Controls (first tab)** — the daily toggles users reach for without
-  thinking: **volume** (+ mute), **brightness**, **always-on** (session idle
-  inhibitor), and **do-not-disturb**, emitted as `SystemAction`s. The
-  remaining quick settings (Wi-Fi/Bluetooth radios, tiling, Agent
-  Workspaces status, Lock Now) are held out of the panel for now per the
+  thinking: **volume** (+ mute and an output picker, ADR-0215), **microphone**
+  (+ its own mute and the input picker, ADR-0216), **brightness**,
+  **always-on** (session idle inhibitor), and **do-not-disturb**, emitted as
+  `SystemAction`s. The remaining quick settings (Wi-Fi/Bluetooth radios, tiling,
+  Agent Workspaces status, Lock Now) are held out of the panel for now per the
   scope review; they return through the settings module tabs.
 - **Settings module tabs** — one tab per available `tessera-settings` module
   (display, input, appearance, power), rendered from the registry inside
@@ -144,7 +147,7 @@ panel never captures, blurs, or composites the desktop behind it.
 
 ## Motion
 
-The cluster reveals with clean HUD motion:
+The cluster reveals with clean chrome motion:
 - The top-left identity block slides in from the left.
 - The top-right notifications panel slides in from the right.
 - The network monitor slides in from the right, staggered behind the main panel.

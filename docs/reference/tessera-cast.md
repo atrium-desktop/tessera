@@ -241,7 +241,9 @@ MPEG2-TS/RTP flow. The source echoes the sink's AAC value in M5; if the sink has
 no AAC it stays video-only and emits `AudioUnavailable`.
 
 - `--audio-source system` (default): the default sink's monitor, i.e. desktop
-  output.
+  output. The capture stream declares `stream.capture.sink=true`; without it
+  PipeWire links the stream to the default *microphone*, because a sink is an
+  output-direction node.
 - `--audio-source microphone`: the default source.
 - `--audio-bitrate 128`: AAC kbit/s, 32..=512.
 

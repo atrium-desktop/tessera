@@ -11,7 +11,7 @@ The current architecture is recorded by [ADR-0158](../adr/0158-clean-break-works
 ```text
                     ┌──────────────────────────────┐
                     │      tessera-shell           │  [Chrome & View Presentation]
-                    │ (Dock/HUD/Control/Pivot UI)  │
+                    │ (Dock/Control/Pivot UI)      │
                     └──────────────┬───────────────┘
                                    │ (Render snapshots & actions)
                     ┌──────────────▼───────────────┐

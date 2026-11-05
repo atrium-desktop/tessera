@@ -78,5 +78,5 @@ switcher share this complete contract.
 ## References
 
 - [ADR-0105 — Single-body Liquid Glass interaction focus](0105-single-body-liquid-glass-interaction-focus.md)
-- [Liquid Glass design specification](../dev/design/liquid-glass.md)
+- [Liquid Glass design specification](../dev/design/foundations/elevation-and-materials.md)
 - [Surface design specification](../dev/design/surfaces.md)

@@ -87,11 +87,6 @@ pub struct Config {
     #[serde(default)]
     pub dock: DockConfig,
 
-    /// HUD configuration, written as a `[hud]` table. Controls
-    /// whether the display-only HUD status chips are registered.
-    #[serde(default)]
-    pub hud: HudConfig,
-
     /// Desktop-wide UI and window-presentation policy, written as a `[ui]`
     /// table.
     #[serde(default)]
@@ -949,28 +944,6 @@ fn default_dock_autohide_timeout() -> f32 {
 
 fn default_dock_autohide_dwell() -> f32 {
     0.18
-}
-
-/// The `[hud]` section. `enabled` controls whether the display-only HUD
-/// status chips are registered at startup; it defaults to `true` so an
-/// unconfigured session keeps the HUD.
-#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct HudConfig {
-    #[serde(default = "default_hud_enabled")]
-    pub enabled: bool,
-}
-
-fn default_hud_enabled() -> bool {
-    true
-}
-
-impl Default for HudConfig {
-    fn default() -> HudConfig {
-        HudConfig {
-            enabled: default_hud_enabled(),
-        }
-    }
 }
 
 /// The `[ui]` section: desktop-wide UI and window-presentation policy

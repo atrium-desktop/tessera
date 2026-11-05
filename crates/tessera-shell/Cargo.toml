@@ -10,12 +10,15 @@ build = "build.rs"
 
 [features]
 default = ["full-chrome"]
-full-chrome = ["chrome-dock", "chrome-hud", "chrome-pivot", "chrome-control-center", "chrome-accessibility"]
+full-chrome = ["chrome-dock", "chrome-pivot", "chrome-control-center", "chrome-accessibility"]
 chrome-dock = []
 chrome-accessibility = ["dep:zbus"]
 chrome-pivot = ["dep:tessera-launch-services"]
-chrome-tray = ["dep:image", "dep:tessera-launch-services", "dep:zbus"]
-chrome-hud = ["chrome-tray"]
+# PNG decoding for the Agent feedback pointer sprites. Its own feature because
+# the sprites are not a tray concern: the tray feature merely happens to be
+# the one that always wanted them.
+agent-sprites = ["dep:image"]
+chrome-tray = ["agent-sprites", "dep:tessera-launch-services", "dep:zbus"]
 chrome-control-center = ["chrome-tray", "persona"]
 # Full personalized portrait runtime preview example.
 persona = [
@@ -59,3 +62,9 @@ ignored = ["flux-sys", "lens-sys", "vista-sys", "transit-sys"]
 
 [lints]
 workspace = true
+
+# A real-session-bus smoke test: it binds zbus and the tray service, so it can
+# only build where that service is compiled in.
+[[test]]
+name = "tray_smoke"
+required-features = ["chrome-tray"]

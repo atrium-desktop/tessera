@@ -53,7 +53,7 @@ impl ControlCenter {
                             |f| {
                                 let (back_resp, _) = f.pressable_row(
                                     "tessera-cast-back-btn",
-                                    "Back",
+                                    i18n.text(Message::Back),
                                     &LayoutOpts {
                                         width: 80.0,
                                         height: 36.0,
@@ -69,7 +69,7 @@ impl ControlCenter {
                                             lens::sys::lens_icon_id::LENS_ICON_CHEVRON_LEFT,
                                             16.0,
                                         );
-                                        display_label(f, "Back", type_scale.body);
+                                        display_label(f, i18n.text(Message::Back), type_scale.body);
                                     },
                                 );
                                 if back_resp.clicked {

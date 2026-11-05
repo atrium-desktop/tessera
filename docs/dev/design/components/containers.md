@@ -19,11 +19,11 @@ state.
 
 ## Material and nesting
 
-Select the container material from
-[Elevation and Materials](../foundations/elevation-and-materials.md). Cards
-are content inside a panel. Menus and popovers are transient surfaces. A
-modal uses one scrim and one prominent panel. Nested Liquid Glass bodies are
-not a generic container hierarchy.
+Select the container's surface role from
+[Elevation and Materials](../foundations/elevation-and-materials.md). Cards are
+content inside a panel. Menus and popovers are transient surfaces. A modal uses
+one painted veil and one prominent panel. Nested floating bodies are not a
+generic container hierarchy.
 
 ## Behavior rules
 

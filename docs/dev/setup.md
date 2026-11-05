@@ -133,10 +133,14 @@ pkg-config --modversion flux flux-scene-graph lens iris   # sanity check
 
 ```bash
 cargo run --locked -p tessera          # build & run (see Build and run below)
-cargo test --locked --workspace
+cargo nextest run --locked --workspace # fast parallel test suite (or cargo test)
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
 ```
+
+See the [Manual Testing Playbook](testing/manual-testing.md) for scenario-based
+recipes (including zero-C-dependency flux-free test execution) and
+[Surface Testing](testing/surface-testing.md) for preview harnesses.
 
 This is the exact boundary the full CI job exercises: it installs the tagged
 Optics C libraries, verifies their `pkg-config` metadata, and builds the
@@ -279,6 +283,6 @@ its process group.
 - [Tessera and Optics Cross-Repository Development](cross-repository-development.md)
 - [Project Layout](project-layout.md)
 - [First-Party Application Development](first-party-applications.md)
-- [VT/DRM Manual Testing](vt-drm-testing.md)
+- [VT/DRM Manual Testing](testing/vt-drm-testing.md)
 - [Architecture](../explanation/architecture.md)
 - [README quick start](../../README.md)

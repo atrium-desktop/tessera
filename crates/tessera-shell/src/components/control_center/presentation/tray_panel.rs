@@ -379,7 +379,7 @@ impl ControlCenter {
         f.set_theme(base);
         f.place(
             "tessera-hud-tray-overflow-popover",
-            &chrome_place(bounds, materials::hud_panel(&hud)),
+            &chrome_place(bounds, materials::canvas_panel(&hud)),
             |f| {
                 f.grid(cols)
                     .col_gap(GAP)
@@ -505,7 +505,7 @@ impl ControlCenter {
         f.set_theme(menu_theme);
         f.place(
             "tessera-hud-sni-menu",
-            &chrome_place(popover_bounds, materials::hud_panel(&hud)),
+            &chrome_place(popover_bounds, materials::canvas_panel(&hud)),
             |f| {
                 f.column_ex(
                     &LayoutOpts {

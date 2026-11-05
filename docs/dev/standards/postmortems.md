@@ -40,7 +40,7 @@ record must follow this structure:
    - $T_{\text{resolve}}$: Permanent fix verified.
 3. **Detection Gaps**: Why did unit tests, surface previews, nested integration,
    or CI fail to detect this before release? Name the layer that should have
-   caught it (see [Surface Testing](../surface-testing.md)).
+   caught it (see [Surface Testing](../testing/surface-testing.md)).
 4. **Trigger & Underlying Root Cause**: Detailed technical analysis of the
    state-machine failure, pre-pass frame skew, damage-region omission, or
    boundary leak.

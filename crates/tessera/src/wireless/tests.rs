@@ -206,14 +206,23 @@ impl WirelessBackend for CountingBackend {
         false
     }
     fn state(&self) -> WifiLinkState {
-        self.reads.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.reads
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.inner.lock().unwrap_or_else(|e| e.into_inner()).state
     }
     fn networks(&self) -> Vec<WifiNetwork> {
-        self.inner.lock().unwrap_or_else(|e| e.into_inner()).networks.clone()
+        self.inner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .networks
+            .clone()
     }
     fn active_ssid(&self) -> Option<String> {
-        self.inner.lock().unwrap_or_else(|e| e.into_inner()).active_ssid.clone()
+        self.inner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .active_ssid
+            .clone()
     }
     fn available(&self) -> bool {
         true
@@ -229,10 +238,7 @@ fn worker_skips_snapshot_publish_while_quiet() {
 
     // The spawn publishes the initial snapshot once.
     std::thread::sleep(Duration::from_millis(400));
-    let after_idle = handle
-        .snapshot()
-        .networks
-        .len();
+    let after_idle = handle.snapshot().networks.len();
     assert_eq!(after_idle, 3);
 
     // In a quiet window the worker must not keep re-reading the backend:

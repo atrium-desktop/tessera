@@ -98,7 +98,9 @@ unsafe extern "C" fn feedback_resource_destroy(resource: *mut ffi::wl_resource) 
             return;
         }
         (*rec).presentation_feedback.retain(|&f| f != resource);
-        (*rec).pending_presentation_feedback.retain(|&f| f != resource);
+        (*rec)
+            .pending_presentation_feedback
+            .retain(|&f| f != resource);
     }
 }
 

@@ -105,11 +105,16 @@ const PROFILE_W: f32 = 300.0;
 const PROFILE_H: f32 = 84.0;
 const MAIN_W: f32 = 820.0;
 /// Main panel height. Sized to the Quick Controls Bento grid's natural height:
-/// 3 tile rows (58px) + 3 fader/tier rows (72px) + 5 row gaps (10px) = 440px of
-/// body, plus the view header (42px), its 8px gap, and 10px vertical padding
-/// top and bottom = 520px of panel content. 540 leaves a small breathing margin
-/// so the last fader row never crowds the panel's bottom rim.
-const MAIN_H: f32 = 540.0;
+/// 3 tile rows (58px) + four fader/tier rows (72px: brightness, sound,
+/// microphone, keyboard backlight) + 6 row gaps (10px) = 522px of body, plus
+/// the view header (42px), its 8px gap, and 10px vertical padding top and
+/// bottom = 616px of panel content. 620 leaves a small breathing margin so the
+/// last fader row never crowds the panel's bottom rim.
+///
+/// The microphone row (ADR-0216) is conditional on a sound server answering, so
+/// this is the *maximum* the grid reaches; `quick_controls_grid_fits_the_main_panel_body`
+/// pins that maximum against this constant.
+const MAIN_H: f32 = 620.0;
 const NOTIF_W: f32 = 260.0;
 const NOTIF_H: f32 = 200.0;
 /// The clock surface's footprint at top-center; the real glyph box is much
@@ -368,6 +373,10 @@ pub struct ControlCenter {
     /// Bluetooth detail view open (ADR-0175). Mutually exclusive with the
     /// Wi-Fi detail view: the quick-controls body hosts one at a time.
     pub(super) bluetooth_expanded: bool,
+    /// Audio output detail view open (ADR-0215). Mutually exclusive with the
+    /// Wi-Fi, Bluetooth, and Cast detail views: the quick-controls body hosts
+    /// one page at a time.
+    pub(super) audio_expanded: bool,
     /// Wireless display / Cast detail view open (ADR-0188, ADR-0192). Mutually
     /// exclusive with the Wi-Fi and Bluetooth detail views.
     pub(super) cast_expanded: bool,
@@ -568,6 +577,7 @@ impl ControlCenter {
             wifi_input_ssid: None,
             wifi_input_passphrase: String::new(),
             bluetooth_expanded: false,
+            audio_expanded: false,
             cast_expanded: false,
             cast_scanning: false,
         }
@@ -636,6 +646,7 @@ impl ControlCenter {
             wifi_input_ssid: None,
             wifi_input_passphrase: String::new(),
             bluetooth_expanded: false,
+            audio_expanded: false,
             cast_expanded: false,
             cast_scanning: false,
         }
@@ -883,6 +894,7 @@ impl ControlCenter {
         self.wifi_expanded = false;
         self.wifi_input_ssid = None;
         self.bluetooth_expanded = false;
+        self.audio_expanded = false;
         self.cast_expanded = false;
         self.cast_scanning = false;
         self.tray_overflow_open = false;
@@ -899,6 +911,7 @@ impl ControlCenter {
             self.wifi_expanded = false;
             self.wifi_input_ssid = None;
             self.bluetooth_expanded = false;
+            self.audio_expanded = false;
             self.cast_expanded = false;
             self.cast_scanning = false;
             // A tab switch drops an open tray popover even though the tray
@@ -1383,7 +1396,7 @@ impl Chrome for ControlCenter {
         }
         // Escape peels the innermost surface first: an open tray menu, then
         // the tray's overflow disclosure popover, then an expanded Wi-Fi,
-        // Bluetooth, or Cast view, then the panel itself.
+        // Bluetooth, audio-output, or Cast view, then the panel itself.
         if let Some(key) = self.menu_open_for.clone() {
             self.close_menu(key);
         } else if self.tray_overflow_open {
@@ -1393,6 +1406,8 @@ impl Chrome for ControlCenter {
             self.wifi_input_ssid = None;
         } else if self.bluetooth_expanded {
             self.bluetooth_expanded = false;
+        } else if self.audio_expanded {
+            self.audio_expanded = false;
         } else if self.cast_expanded {
             self.cast_expanded = false;
             self.cast_scanning = false;
@@ -1573,6 +1588,22 @@ impl Chrome for ControlCenter {
 
     fn requires_composition(&self) -> bool {
         self.active()
+    }
+
+    /// The panel's own canvas is the frame background while it is open: it
+    /// paints every output pixel at full reveal, so the desktop beneath it is
+    /// elidable. Mid-fade the canvas is still draining and the desktop shows
+    /// through, which is exactly what `cover_opacity` reports.
+    fn paints_opaque_cover(&self) -> bool {
+        self.active()
+    }
+
+    fn cover_opacity(&self) -> f32 {
+        if self.active() {
+            f32::from(presentation::canvas_alpha(self.reveal())) / 255.0
+        } else {
+            0.0
+        }
     }
 
     fn occludes_desktop(&self) -> bool {

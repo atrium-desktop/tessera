@@ -310,6 +310,23 @@ pub enum SystemCmd {
         #[arg(value_parser = clap::value_parser!(u8).range(0..=100))]
         level: u8,
     },
+    /// Route playback to a named audio output (ADR-0215). Names are the
+    /// `node.name` values listed by `tessera system status`, not node numbers:
+    /// numbers are reassigned when the sound server restarts.
+    AudioOutput { name: String },
+    /// Toggle mute on the default audio source (ADR-0216).
+    ///
+    /// Separate from `mute`: silencing the microphone is a privacy action and
+    /// must not be reachable through the verb that silences playback.
+    MicMute,
+    /// Set the default audio-source capture volume percentage (ADR-0216).
+    MicVolume {
+        #[arg(value_parser = clap::value_parser!(u8).range(0..=100))]
+        level: u8,
+    },
+    /// Route new capture streams to a named audio input (ADR-0216). Names are
+    /// the `node.name` values `tessera system status` lists under inputs.
+    AudioInput { name: String },
     /// Set the backlight percentage.
     Brightness {
         #[arg(value_parser = clap::value_parser!(u8).range(1..=100))]
