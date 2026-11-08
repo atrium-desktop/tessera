@@ -14,7 +14,7 @@ superseded_by: null
 ## Context
 
 Configuration today is a single environment variable, `$ASS_KEYBINDS`,
-parsed by [`aegis-core::keybind`](../../crates/aegis-core/src/keybind.rs) into a
+parsed by [`tessera-desktop::keybind`](../../crates/tessera-desktop/src/keybind.rs) into a
 `Keymap`. It is enough for key bindings and nothing else. The
 [comparative survey](../explanation/comparative-survey.md#configuration)
 records how the field configures a compositor: sway uses a plain-text file

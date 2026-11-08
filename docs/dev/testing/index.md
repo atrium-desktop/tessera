@@ -3,8 +3,8 @@
 This directory provides testing documentation, operational execution playbooks,
 and verification procedures for Tessera.
 
-For the governing engineering standard on how testing documentation must be
-structured and maintained, see [Testing Standards](../standards/testing.md).
+For the build, run, and automated verification workflow, see the
+[Build & Run Guide](../build-and-run.md#5-automated-verification--testing).
 
 ---
 
@@ -65,7 +65,8 @@ to validate 13 workspace crates in sub-second time.
 
 ## 4. Directory Organization Rule
 
-In accordance with [Testing Standards](../standards/testing.md):
+In accordance with the verification ladder documented in the
+[Build & Run Guide](../build-and-run.md#5-automated-verification--testing):
 
 - Daily-use manual testing recipes and execution commands belong in
   [`manual-testing.md`](manual-testing.md).

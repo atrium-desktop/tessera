@@ -22,45 +22,6 @@ pub(super) fn same_action_kind(left: &SettingsAction, right: &SettingsAction) ->
     std::mem::discriminant(left) == std::mem::discriminant(right)
 }
 
-/// The HUD flourish: short L-shaped strokes (12px arms, 1.5px thick) just
-/// inside the four corners of a panel rect, like a VR visor's frame
-/// markers. The color arrives unfaded — the frame's context opacity fades
-/// the brackets like everything else built under it.
-#[allow(dead_code)]
-pub(super) fn render_corner_brackets(frame: &mut Frame, id: &str, rect: Rect, color: Color) {
-    const ARM: f32 = 12.0;
-    const THICK: f32 = 1.5;
-    const INSET: f32 = 6.0;
-    let mut bar = |suffix: &str, x: f32, y: f32, w: f32, h: f32| {
-        frame.place(
-            &format!("{id}-{suffix}"),
-            &materials::chrome_place(
-                Rect { x, y, w, h },
-                LayoutOpts {
-                    bg: color,
-                    border: Color::TRANSPARENT,
-                    radius: 0.0,
-                    pad: 0.0,
-                    ..materials::surface_layout()
-                },
-            ),
-            |_| {},
-        );
-    };
-    let left = rect.x + INSET;
-    let right = rect.x + rect.w - INSET;
-    let top = rect.y + INSET;
-    let bottom = rect.y + rect.h - INSET;
-    bar("tl-h", left, top, ARM, THICK);
-    bar("tl-v", left, top, THICK, ARM);
-    bar("tr-h", right - ARM, top, ARM, THICK);
-    bar("tr-v", right - THICK, top, THICK, ARM);
-    bar("bl-h", left, bottom - THICK, ARM, THICK);
-    bar("bl-v", left, bottom - THICK, THICK, ARM);
-    bar("br-h", right - ARM, bottom - THICK, ARM, THICK);
-    bar("br-v", right - THICK, bottom - THICK, THICK, ARM);
-}
-
 pub(super) fn volume_icon_raw(status: &SystemStatus) -> lens::sys::lens_icon_id {
     if status.muted || status.volume.unwrap_or(0) == 0 {
         lens::sys::lens_icon_id::LENS_ICON_VOLUME_X

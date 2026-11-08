@@ -812,6 +812,8 @@ pub struct DrmBackend {
     pointer: (f32, f32),
     explicit_sync: bool,
     sync_capable: bool,
+    /// Whether the DRM driver supports atomic asynchronous page flips (`DRM_CAP_ATOMIC_ASYNC_PAGE_FLIP`).
+    atomic_async_page_flip: bool,
     render_ready: bool,
     /// KMS scanout power requested by the session idle policy. Input and
     /// Wayland dispatch remain active while this is false.

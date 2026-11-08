@@ -30,7 +30,7 @@ meson setup ../optics/build ../optics \
 meson compile -C ../optics/build
 sudo meson install -C ../optics/build
 sudo ldconfig
-pkg-config --modversion flux vista lens iris
+pkg-config --modversion flux vista lens iris svg
 ```
 
 Each version printed by the final command must be compatible with

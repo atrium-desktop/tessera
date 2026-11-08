@@ -32,6 +32,7 @@ fn main() {
     let mut emitted_dtags = false;
     for var in [
         "DEP_LENS_RPATHS",
+        "DEP_SVG_RPATHS",
         "DEP_FLUX_RPATHS",
         "DEP_VISTA_RPATHS",
         "DEP_TRANSIT_RPATHS",

@@ -587,6 +587,27 @@ pub struct SurfaceDmabuf {
     /// The buffer's color-space tag (`wp_color_management_v1`); `None` is
     /// the protocol default sRGB. Read when the texture is (re)created.
     pub color: Option<crate::color::ContentColor>,
+    /// Presentation hint requested by the client (`wp_tearing_control_v1`).
+    /// `Async` permits asynchronous page flips (tearing) if and only if
+    /// the frame qualifies for direct scanout and hardware supports it.
+    pub presentation_hint: PresentationHint,
+}
+
+/// Presentation hint requested by a client surface (`wp_tearing_control_v1`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PresentationHint {
+    /// Synchronized to the vertical blanking period (tear-free).
+    #[default]
+    Vsync,
+    /// Asynchronous presentation with minimal latency where tearing is acceptable.
+    Async,
+}
+
+impl PresentationHint {
+    #[inline]
+    pub const fn is_async(self) -> bool {
+        matches!(self, Self::Async)
+    }
 }
 
 #[cfg(test)]

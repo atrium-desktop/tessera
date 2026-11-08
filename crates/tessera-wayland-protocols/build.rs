@@ -62,6 +62,7 @@ fn main() {
         ("staging/cursor-shape", "cursor-shape-v1"),
         ("staging/xdg-activation", "xdg-activation-v1"),
         ("staging/color-management", "color-management-v1"),
+        ("staging/tearing-control", "tearing-control-v1"),
     ];
 
     let mut build = cc::Build::new();

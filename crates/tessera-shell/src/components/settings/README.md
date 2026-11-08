@@ -53,7 +53,7 @@ let registry = tessera_shell::components::settings::builtin_settings_modules();
 
 ## Related Documentation
 
-- [Settings Reference](../../docs/reference/settings.md)
-- [Panel-hosted settings and the HUD command panel](../../docs/adr/0114-panel-hosted-settings-and-hud-command-panel.md)
-- [Status bar system controls](../../docs/adr/0060-statusbar-system-controls-and-live-system-ipc.md)
-- [System Settings identity and boundary](../../docs/adr/0056-system-settings-identity-and-boundary.md)
+- [Settings Reference](../../../../../docs/reference/settings.md)
+- [Panel-hosted settings and the HUD command panel](../../../../../docs/adr/0114-panel-hosted-settings-and-hud-command-panel.md)
+- [Status bar system controls](../../../../../docs/adr/0060-statusbar-system-controls-and-live-system-ipc.md)
+- [System Settings identity and boundary](../../../../../docs/adr/0056-system-settings-identity-and-boundary.md)

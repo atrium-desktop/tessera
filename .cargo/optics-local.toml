@@ -14,7 +14,7 @@ vista = { path = "../optics/bindings/vista-rs/crates/vista" }
 vista-sys = { path = "../optics/bindings/vista-rs/crates/vista-sys" }
 lens = { path = "../optics/bindings/lens-rs/crates/lens" }
 lens-sys = { path = "../optics/bindings/lens-rs/crates/lens-sys" }
-prism = { path = "../optics/bindings/prism-rs/crates/prism" }
-prism-sys = { path = "../optics/bindings/prism-rs/crates/prism-sys" }
 transit = { path = "../optics/bindings/transit-rs/crates/transit" }
 transit-sys = { path = "../optics/bindings/transit-rs/crates/transit-sys" }
+svg = { path = "../optics/bindings/svg-rs/crates/svg" }
+svg-sys = { path = "../optics/bindings/svg-rs/crates/svg-sys" }

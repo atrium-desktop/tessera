@@ -24,6 +24,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant};
 
+#[cfg(feature = "agent-sprites")]
 use include_dir::{Dir, include_dir};
 use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 use tessera_authority::interaction_domain::InteractionDomainId;
@@ -55,117 +56,13 @@ const LABEL_HEIGHT: f32 = 28.0;
 const BACKGROUND_HEIGHT: f32 = 34.0;
 const CURSOR_SIZE: f32 = 24.0;
 
+#[cfg(feature = "agent-sprites")]
 static AI_THEME_LIGHT: Dir<'static> =
     include_dir!("$CARGO_MANIFEST_DIR/../../assets/cursors/tessera-ai-light");
 
+#[cfg(feature = "agent-sprites")]
 static AI_THEME_DARK: Dir<'static> =
     include_dir!("$CARGO_MANIFEST_DIR/../../assets/cursors/tessera-ai-dark");
-
-/// `wp_cursor_shape_device_v1.shape` value with its XDG candidate names,
-/// protocol/CSS name first and legacy cursor aliases afterwards.
-fn shape_candidates(shape: u32) -> &'static [&'static str] {
-    match shape {
-        1 => &["default", "left_ptr", "arrow"],
-        2 => &["context-menu", "left_ptr"],
-        3 => &["help", "question_arrow", "left_ptr_help", "left_ptr"],
-        4 => &["pointer", "hand2", "pointing_hand", "left_ptr"],
-        5 => &["progress", "left_ptr_watch", "watch"],
-        6 => &["wait", "watch", "left_ptr"],
-        7 => &["cell", "crosshair"],
-        8 => &["crosshair", "cross"],
-        9 => &["text", "xterm", "ibeam"],
-        10 => &["vertical-text", "xterm"],
-        11 => &["alias", "dnd-link", "left_ptr"],
-        12 => &["copy", "dnd-copy", "left_ptr"],
-        13 => &["move", "dnd-move", "fleur", "all-scroll"],
-        14 => &["no-drop", "not-allowed"],
-        15 => &["not-allowed", "forbidden", "crossed_circle"],
-        16 => &["grab", "hand1", "openhand", "left_ptr"],
-        17 => &["grabbing", "closedhand", "hand1"],
-        18 => &["e-resize", "right_side", "sb_h_double_arrow"],
-        19 => &["n-resize", "top_side", "sb_v_double_arrow"],
-        20 => &["ne-resize", "top_right_corner", "sb_h_double_arrow"],
-        21 => &["nw-resize", "top_left_corner", "sb_h_double_arrow"],
-        22 => &["s-resize", "bottom_side", "sb_v_double_arrow"],
-        23 => &["se-resize", "bottom_right_corner", "sb_h_double_arrow"],
-        24 => &["sw-resize", "bottom_left_corner", "sb_h_double_arrow"],
-        25 => &["w-resize", "left_side", "sb_h_double_arrow"],
-        26 => &["ew-resize", "sb_h_double_arrow", "h_double_arrow"],
-        27 => &["ns-resize", "sb_v_double_arrow", "v_double_arrow"],
-        28 => &["nesw-resize", "bd_double_arrow", "size_bdiag"],
-        29 => &["nwse-resize", "fd_double_arrow", "size_fdiag"],
-        30 => &["col-resize", "sb_h_double_arrow", "h_double_arrow"],
-        31 => &["row-resize", "sb_v_double_arrow", "v_double_arrow"],
-        32 => &["all-scroll", "fleur", "move"],
-        33 => &["zoom-in", "zoom_in"],
-        34 => &["zoom-out", "zoom_out"],
-        35 => &["dnd-ask", "question_arrow", "help"],
-        36 => &["all-resize", "all-scroll", "fleur", "move"],
-        _ => &["default", "left_ptr", "arrow"],
-    }
-}
-
-struct SvgMeta {
-    hotspot: (f32, f32),
-    native: (f32, f32),
-}
-
-fn svg_meta(svg: &[u8]) -> SvgMeta {
-    let text = std::str::from_utf8(svg).unwrap_or("");
-    let tag = svg_open_tag(text).unwrap_or("");
-    let hotspot = (
-        attr(tag, "data-hotspot-x").and_then(num).unwrap_or(64.0),
-        attr(tag, "data-hotspot-y").and_then(num).unwrap_or(28.0),
-    );
-    let native = viewbox(tag).unwrap_or((256.0, 256.0));
-    SvgMeta { hotspot, native }
-}
-
-fn svg_open_tag(text: &str) -> Option<&str> {
-    let start = text.find("<svg")?;
-    let end = text[start..].find('>').map(|p| start + p + 1)?;
-    Some(&text[start..end])
-}
-
-fn attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
-    let nb = name.as_bytes();
-    let mut from = 0;
-    while let Some(rel) = tag[from..].find(name) {
-        let start = from + rel;
-        let rest = &tag[start + nb.len()..];
-        let rest_trimmed = rest.trim_start();
-        if let Some(rest_after_eq) = rest_trimmed.strip_prefix('=') {
-            let after_eq = rest_after_eq.trim_start();
-            if let Some(quote) = after_eq.chars().next()
-                && (quote == '"' || quote == '\'')
-            {
-                let content = &after_eq[1..];
-                if let Some(end) = content.find(quote) {
-                    return Some(&content[..end]);
-                }
-            }
-        }
-        from = start + nb.len();
-    }
-    None
-}
-
-fn num(v: &str) -> Option<f32> {
-    v.trim().parse().ok()
-}
-
-fn viewbox(tag: &str) -> Option<(f32, f32)> {
-    let raw = attr(tag, "viewBox")?;
-    let mut nums = raw
-        .split(|c: char| c.is_ascii_whitespace() || c == ',')
-        .filter(|s| !s.is_empty())
-        .filter_map(num);
-    let _min_x = nums.next()?;
-    let _min_y = nums.next()?;
-    let width = nums.next()?;
-    let height = nums.next()?;
-    Some((width, height))
-}
 
 /// Where an applied Agent operation is projected for the human observer.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -173,6 +70,9 @@ enum OperationRegion {
     Window { rect: Rect, radius: f32 },
 }
 
+/// One uploaded Agent cursor: a texture plus its hotspot as a *fraction* of the
+/// sprite, because the mirror draws it at `CURSOR_SIZE` logical pixels and the
+/// theme's own scale varies.
 #[derive(Clone)]
 struct LoadedCursor {
     image: std::rc::Rc<flux::Image>,
@@ -188,33 +88,43 @@ impl AgentCursorSet {
     #[cfg(feature = "agent-sprites")]
     fn upload(device: &flux::Device, theme: &Dir<'static>) -> Option<Self> {
         let load_cursor = |shape: u32| -> Option<LoadedCursor> {
-            for candidate in shape_candidates(shape) {
-                if let Some(file) = theme.get_file(format!("cursors/{candidate}.png")) {
-                    let bytes = file.contents();
-                    let image = upload_sprite(device, bytes, 96, 96)?;
-                    let (hx, hy) = if let Some(svg_file) =
-                        theme.get_file(format!("cursors/{candidate}.svg"))
-                    {
-                        let meta = svg_meta(svg_file.contents());
-                        (
-                            (meta.hotspot.0 / meta.native.0).clamp(0.0, 1.0),
-                            (meta.hotspot.1 / meta.native.1).clamp(0.0, 1.0),
-                        )
-                    } else {
-                        (0.0, 0.0)
-                    };
-                    return Some(LoadedCursor {
-                        image: std::rc::Rc::new(image),
-                        hotspot: (hx, hy),
-                    });
-                }
+            for candidate in tessera_primitives::cursor_shape::xdg_names(shape) {
+                // The theme's own SVG is the source of truth: it carries both the
+                // art and the `data-hotspot-*` metadata, so there is no separate
+                // PNG bake to keep in sync. A theme that ships a PNG still wins,
+                // because that is the artist's own pre-rendered sprite.
+                let document =
+                    theme
+                        .get_file(format!("cursors/{candidate}.svg"))
+                        .and_then(|file| {
+                            svg::Document::parse_bytes(file.contents(), svg::Limits::default()).ok()
+                        });
+                let sprite = theme.get_file(format!("cursors/{candidate}.png"));
+                let (image, hotspot) = match (sprite, document.as_ref()) {
+                    (Some(sprite), document) => {
+                        let image = upload_sprite(device, sprite.contents(), 96, 96)?;
+                        (image, normalized_hotspot(document))
+                    }
+                    (None, Some(document)) => {
+                        let image = upload_document_sprite(device, document, 96)?;
+                        (image, normalized_hotspot(Some(document)))
+                    }
+                    (None, None) => continue,
+                };
+                return Some(LoadedCursor {
+                    image: std::rc::Rc::new(image),
+                    hotspot,
+                });
             }
             None
         };
 
-        let default_cursor = load_cursor(1)?;
+        let default_cursor = load_cursor(tessera_primitives::cursor_shape::DEFAULT_SHAPE)?;
         let mut cursors = HashMap::new();
-        cursors.insert(1, default_cursor.clone());
+        cursors.insert(
+            tessera_primitives::cursor_shape::DEFAULT_SHAPE,
+            default_cursor.clone(),
+        );
 
         for shape in 2..=36 {
             if let Some(loaded) = load_cursor(shape) {
@@ -231,6 +141,61 @@ impl AgentCursorSet {
     fn get(&self, shape: u32) -> &LoadedCursor {
         self.cursors.get(&shape).unwrap_or(&self.default_cursor)
     }
+}
+
+/// The theme's hotspot as a fraction of the sprite, read from the document's
+/// `data-hotspot-*` metadata. A theme that stamps none gets the top-left corner,
+/// which is the XDG convention for "no hotspot data".
+#[cfg(feature = "agent-sprites")]
+fn normalized_hotspot(document: Option<&svg::Document>) -> (f32, f32) {
+    let Some(document) = document else {
+        return (0.0, 0.0);
+    };
+    let viewport = document.viewport();
+    let read = |name: &str| -> Option<f32> { document.attribute(name)?.trim().parse().ok() };
+    let axis = |value: Option<f32>, extent: f32| -> f32 {
+        if extent > 0.0 {
+            (value.unwrap_or(0.0) / extent).clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    };
+    (
+        axis(read("data-hotspot-x"), viewport[2]),
+        axis(read("data-hotspot-y"), viewport[3]),
+    )
+}
+
+/// Compile a theme document into an uploaded sprite of `size`x`size` pixels.
+///
+/// `SVG_PAINT_THEME` keeps the AI theme's own two-tone silhouette, which is what
+/// distinguishes the Agent's pointer from the user's; `currentColor` resolves to
+/// white so a theme that leaves a shape unpainted is still visible over the
+/// mirror's scrim.
+#[cfg(feature = "agent-sprites")]
+fn upload_document_sprite(
+    device: &flux::Device,
+    document: &svg::Document,
+    size: u32,
+) -> Option<flux::Image> {
+    let raster = document
+        .rasterize(svg::RasterizeOptions {
+            width: size,
+            height: size,
+            supersample: 0,
+            format: svg::PixelFormat::Bgra8Premul,
+            paint: svg::PaintMode::theme(0xFFFF_FFFF),
+            stroke_width: 0.0,
+        })
+        .ok()?;
+    flux::Image::from_bytes(
+        device,
+        raster.width(),
+        raster.height(),
+        flux::Format::Bgra8Unorm,
+        raster.as_bytes(),
+    )
+    .ok()
 }
 
 /// Non-interactive, compositor-owned projection of Agent input activity.

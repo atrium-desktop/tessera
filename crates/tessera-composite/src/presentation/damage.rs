@@ -105,17 +105,22 @@ fn normalize_damage_rects(mut rects: Vec<Rect>) -> Vec<Rect> {
     }
 }
 
-/// Damage assessment split by consumer.
+/// What one frame's damage assessment concluded.
 ///
-/// `output` includes chrome-only changes (hover, clock, notifications, cursor
-/// fallback) and controls the final swapchain repaint. `backdrop_source`
-/// contains only changes to the desktop scene sampled by backdrop effects.
-/// Keeping these separate prevents a Dock hover or status-clock tick from
-/// needlessly recapturing and reblurring otherwise unchanged client pixels.
+/// There is deliberately one repaint verdict rather than one per consumer.
+/// The split that used to live here (`output` vs `backdrop_source`) existed so
+/// a Dock hover or a clock tick could not force a re-capture and re-blur of
+/// unchanged client pixels. Chrome draws no material at all any more
+/// ([ADR-0213](../../../docs/adr/0213-flat-chrome-and-removal-of-the-status-hud.md)),
+/// so there is no capture to invalidate: `backdrop_source` was written every
+/// frame and read by nobody. Keeping a second damage axis that nothing consumes
+/// is a standing invitation for the next reader to believe a backdrop cache
+/// still exists.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssessedFrameDamage {
+    /// The pixels this frame repaints. Controls the swapchain repaint and the
+    /// KMS damage hint alike.
     pub output: FrameDamage,
-    pub backdrop_source: FrameDamage,
     /// Resource ids of the client surfaces this assessment sampled. The
     /// presented frame consumes exactly these surfaces' damage baselines, so
     /// they — and only they — may be marked presented after a successful
@@ -568,35 +573,60 @@ pub fn offscreen_damage_to_target(
     }
 }
 
-/// Convert output damage to the single physical-pixel rectangle accepted by
-/// Vulkan dynamic rendering. `None` deliberately means a full-destination
-/// pass: both [`FrameDamage::Full`] and the conservative empty-area fallback
-/// must leave scissoring disabled.
-/// Convert output damage to the single physical-pixel rectangle accepted by
-/// Vulkan dynamic rendering, clamped to the framebuffer it will be drawn into.
+/// The damage scope of one output pass, clamped to the framebuffer it will be
+/// drawn into.
+///
+/// This is the whole-set counterpart of the old single-rectangle helper, and it
+/// preserves the list for the same reason the producer emits one: the bounding
+/// box of a top HUD band and a bottom dock is the entire output, so collapsing a
+/// set to a box before the pass sees it destroys the localisation the damage
+/// pipeline exists to carry [ADR-0203], [ADR-0149].
 ///
 /// Vulkan's dynamic `renderArea` must be fully inside the attachment: both flux
-/// backends reject a rect that is out of bounds, has a negative origin, or has
-/// exactly one zero dimension (`canvas_pass_render_area`). A damage rect
+/// backends reject a scope naming no pixel of the target, and canvas.c degrades a
+/// set above `flux::FLUX_DAMAGE_CAPACITY` to a full-extent pass. A damage rect
 /// reaching the output pass is usually clamped already, but three sources can
 /// still hand out a rect that is not:
 ///
 /// * a fully off-screen surface maps to a rect outside the framebuffer,
 /// * an `i32`-domain damage rect widened by [`SurfacePlacement`] saturation can
-///   exceed `u32`,
+///   exceed the framebuffer extent,
 /// * a window straddling the right/bottom edge while its ring-slot history
 ///   still holds the pre-clamp rect.
 ///
-/// Returning a rejected descriptor is not a harmless no-op: the pass fails to
-/// begin and the frame loses its chrome (the `shell chrome render failed:
-/// Render(FLUX_ERROR_INVALID_ARGUMENT)` symptom). Clamping here, and answering
-/// `None` — a full-destination pass — when nothing usable survives, keeps the
-/// failure in the damage domain where it belongs.
-pub fn frame_damage_render_area(
+/// Handing the backend a rejected scope is not a harmless no-op: the pass fails
+/// to begin and the frame loses its chrome (the `shell chrome render failed:
+/// Render(FLUX_ERROR_INVALID_ARGUMENT)` symptom). Clamping each rectangle here,
+/// and answering *empty* — which flux reads as a full-destination pass — when
+/// nothing usable survives, keeps the failure in the damage domain where it
+/// belongs.
+pub fn frame_damage_scope(
     repaint: &FrameDamage,
     physical_size: (u32, u32),
-) -> Option<flux::CanvasRenderArea> {
-    clamp_render_area(repaint.area_union()?, physical_size.0, physical_size.1)
+) -> Vec<flux::CanvasRenderArea> {
+    let Some(rects) = repaint.area_rects() else {
+        /* `Full` (and `None`) both mean "the whole destination": an empty scope
+         * is exactly that, and flux already interprets it that way. */
+        return Vec::new();
+    };
+    let mut scope: Vec<flux::CanvasRenderArea> = Vec::with_capacity(rects.len());
+    for rect in rects {
+        if let Some(area) = clamp_render_area(*rect, physical_size.0, physical_size.1) {
+            scope.push(area);
+        }
+    }
+    /* Every named region fell outside the framebuffer. The pass still has to
+     * cover something, so fall back to the full destination rather than an empty
+     * scope that would be indistinguishable from `Full` arriving by accident. */
+    if scope.is_empty() && !rects.is_empty() {
+        scope.push(flux::CanvasRenderArea {
+            x: 0.0,
+            y: 0.0,
+            width: physical_size.0 as f32,
+            height: physical_size.1 as f32,
+        });
+    }
+    scope
 }
 
 /// Intersect one physical rect with the framebuffer and express it as a
@@ -615,10 +645,10 @@ fn clamp_render_area(rect: Rect, max_w: u32, max_h: u32) -> Option<flux::CanvasR
         return None;
     }
     Some(flux::CanvasRenderArea {
-        x: x0 as i32,
-        y: y0 as i32,
-        width: (x1 - x0) as u32,
-        height: (y1 - y0) as u32,
+        x: x0 as f32,
+        y: y0 as f32,
+        width: (x1 - x0) as f32,
+        height: (y1 - y0) as f32,
     })
 }
 

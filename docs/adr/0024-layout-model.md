@@ -43,7 +43,7 @@ on top in priority order:
 
 1. **Window snapping.** Edge and corner drag, half and quarter regions, and
    maximize, applied as state transitions on the existing `Window` and
-   `WindowState` model ([`aegis-core::window`](../../crates/aegis-core/src/window.rs)).
+   `WindowState` model ([`tessera-wayland::server::window_manager`](../../crates/tessera-wayland/src/server/window_manager.rs)).
    Snapping does not change the data model; it changes the size and position
    a floating window resolves to.
 2. **An optional tiling policy.** A toplevel or a workspace may declare a

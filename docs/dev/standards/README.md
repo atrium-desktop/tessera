@@ -18,7 +18,6 @@ architectural consensus is ratified, and how operational runbooks are maintained
 | **[`rfc.md`](rfc.md)** | **Request for Comments (RFC)**: Consensus and deliberation protocol for high-reversal-cost subsystem redesigns prior to ADR ratification. |
 | **[`runbooks.md`](runbooks.md)** | **Subsystem Runbooks & Playbooks**: Operational standards for complex protocol bring-up, hardware quirks registries, and hands-on diagnostic playbooks. |
 | **[`postmortems.md`](postmortems.md)** | **Incident Postmortems**: Blameless timeline reconstruction, detection gap analysis, and defense-in-depth principles for major production/runtime failures. |
-| **[`testing.md`](testing.md)** | **Testing Strategy & Standards**: Scenario-driven test organization, verification ladder, purpose/means clarity, and directory split rules. |
 | **[`style.md`](style.md)** | **Markdown & Hyperlink Style**: Canonical relative links, anchor consistency, formatting rules, and prose guidelines. |
 
 ---

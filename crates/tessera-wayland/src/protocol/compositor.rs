@@ -1070,6 +1070,8 @@ pub(crate) unsafe extern "C" fn surface_commit(
         if let Some(description) = (*rec).pending_image_description.take() {
             (*rec).image_description = description;
         }
+        // wp_tearing_control_v1: presentation hint applies at commit (double-buffered).
+        (*rec).presentation_hint = (*rec).pending_presentation_hint;
         (*rec).buffer_transform = (*rec).pending_transform;
         (*rec).buffer_scale = (*rec).pending_scale;
         // wl_surface.frame: double-buffered surface state, applied on commit.
@@ -1598,6 +1600,7 @@ unsafe extern "C" fn surface_resource_destroy(resource: *mut ffi::wl_resource) {
             (*rec).viewport_resource = std::ptr::null_mut();
         }
         extensions::fractional_scale_surface_destroyed(rec);
+        extensions::tearing_control_surface_destroyed(rec);
         extensions::color_management_surface_destroyed(rec);
         extensions::session_lock_surface_destroyed(rec);
         extensions::idle_inhibit_surface_destroyed(rec);

@@ -441,7 +441,7 @@ pub fn physical_ppi(mode: OutputMode, physical_size_mm: (u32, u32)) -> Option<f3
 ///
 /// The ladder picks the largest integral step whose logical density stays at
 /// or above the display class's floor, never shrinking below 100% and never
-/// exceeding [`MAX_AUTO_SCALE`]. Fractional scales remain representable and
+/// exceeding `MAX_AUTO_SCALE`. Fractional scales remain representable and
 /// configurable per output (see [`OutputPolicy::scale`]); they are simply
 /// never *recommended*.
 pub fn automatic_scale(

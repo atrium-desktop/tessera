@@ -56,21 +56,24 @@ Surfaces:
 - **Clock (top-center)** — locale wall-clock time at hero scale plus the
   weekday and date, frameless.
 - **Tray shelf (bottom-left)** — the shared `tessera-shell::tray`
-  StatusNotifierItem snapshot as a vertical icon capsule anchored at the
-  bottom-left corner (ADR-0197). Its height is **derived, never capped**: it
-  fills the span between the profile chip and the dock's reserved band, so
-  capacity scales with the display instead of sitting at a constant. Icons
-  stack upward from the bottom edge, so a newly-registered item never displaces
-  the icons already nearest the pointer. Hover and menu-open are the cell
+  StatusNotifierItem snapshot as a **one-row horizontal lane** anchored at the
+  bottom-left corner (ADR-0221). Its length is **derived, never capped**: it
+  runs from the left margin to the bottom band, so capacity scales with the
+  display instead of sitting at a constant. When the items exceed the lane the
+  shelf **paginates** with a chevron at each end; each end reports its own
+  reachability, so the first page's back chevron and the last page's forward
+  chevron are drawn dimmed and inert instead of pretending to be live. Hover and
+  menu-open are the cell
   pressable's **own** background — never a sibling `place()` overlay, because an
   ABS node in the `Chrome` band occludes the flow widgets inside its subtree for
   hit-testing (Optics ADR-0060 — occlusion *is* the reversed hit-test order), so
   a plate drawn after the shelf silently swallows every cell's hover, left
   click, and right-click menu. Left-click `Activate`, right-click opens the
   host-rendered dbusmenu popover (or `SecondaryActivate` when the item exposes
-  no `Menu` object). There is **no scroll viewport and no paging**: when the
-  icons exceed the shelf's slots the last slot becomes a `+N` disclosure cell
-  that expands into a grid popover holding every hidden item.
+  no `Menu` object). There is **no scroll viewport** ([INV-CHROME-03]): a page is
+  a whole-number slice of the lane, never a fractional scroll offset, and the
+  page index is clamped by the resolver so an item leaving can never strand the
+  shelf on a page that no longer exists ([INV-CHROME-07]).
 - **Work Mode segmented control (right-bottom)** — beside the power knob,
   filling the corner band: a frameless segmented control over the session
   power modes (`Balanced`, `Stay Awake`, `Dashboard Lock`) with a
@@ -103,12 +106,13 @@ surface with its own reveal animation:
 - **Clock (top-center)** — the locale wall-clock time at hero scale with
   the weekday and date beneath, drawn frameless between the identity block
   and the notification stream.
-- **Tray shelf (bottom-left)** — StatusNotifierItem icons as a bottom-anchored
-  capsule whose height is derived from the display and the dock's reserved band
-  (ADR-0197): no fixed cap, no scroll viewport, no paging. Hover and menu-open
-  are the cell's own background plate, left-click activates, right-click opens
-  the dbusmenu popover to the icon's right, and overflow is disclosed by a
-  trailing `+N` cell that expands into a grid of every hidden item.
+- **Tray shelf (bottom-left)** — StatusNotifierItem icons as a one-row
+  horizontal lane whose length is derived from the display and the bottom band
+  (ADR-0221): no fixed cap, no scroll viewport, and bounded reversible paging
+  when the icons exceed the row. Hover and menu-open are the cell's own
+  background plate, left-click activates, right-click opens the dbusmenu popover
+  to the icon's right, and a page turn dismisses a popover whose cell left the
+  page rather than floating it over the wrong icon.
 - **Work Mode segmented control & power cluster (right-bottom)** — one
   horizontal band pinned into the corner: a frameless segmented control
   over the three session power modes, its active segment marked by a

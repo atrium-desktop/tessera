@@ -6,7 +6,7 @@
 //!
 //! The canvas is the panel's *own* painted background (ADR-0176): a full-screen
 //! solid fill in the lens `Backdrop` band, faded by the reveal spring. The
-//! panel declares no backdrop capture, blur, frost, or analytic liquid glass, so
+//! panel declares no capture, blur, or frost, and paints its own canvas, so
 //! its enter/exit never captures or composites the desktop behind it — the
 //! reveal is a paint-only fade. This is the panel's documented rendering budget
 //! made real: the full-screen 16σ Gaussian blur + scrim cover it used to declare
@@ -49,7 +49,7 @@
 //! Interaction Domain lifecycle management is not.
 //!
 //! Like the HUD and the dock, the panel is compositor-owned lens chrome on
-//! the [`tessera_shell`] `Chrome` seam: snapshots arrive through the
+//! the `tessera_shell` `Chrome` seam: snapshots arrive through the
 //! trait each frame, and user intents leave through `ChromeEvents` plus the
 //! shared SNI tray command channel.
 
@@ -121,13 +121,13 @@ const NOTIF_H: f32 = 200.0;
 /// smaller and centered inside.
 const CLOCK_W: f32 = 320.0;
 const CLOCK_H: f32 = 96.0;
-/// The tray shelf's footprint width at the bottom-left anchor.
-const TRAY_COL_W: f32 = 56.0;
-/// One tray cell: the hover plate / hit area around the icon.
+/// One tray cell: the hover plate / hit area around the icon. A pager chevron
+/// is the same size, so turning a page never demands more precision than
+/// pressing the icon beside it (ADR-0221).
 const TRAY_CELL: f32 = 40.0;
 /// The SNI glyph itself, centered in the cell.
 const TRAY_ICON: f32 = 22.0;
-/// Vertical rhythm between tray shelf slots (ADR-0197).
+/// Horizontal rhythm between tray shelf slots (ADR-0221).
 const TRAY_GAP: f32 = 10.0;
 /// Inset between the tray shelf's capsule boundary and its contained icons.
 const TRAY_PAD: f32 = 8.0;
@@ -137,8 +137,6 @@ const WORK_MODE_W: f32 = 252.0;
 const WORK_MODE_H: f32 = 44.0;
 const POWER_PANEL_W: f32 = 94.0;
 /// The main panel's flat tab bar.
-#[allow(dead_code)]
-const TAB_BAR_H: f32 = 40.0;
 const PANEL_GAP: f32 = 12.0;
 /// Main panel's reveal lags the header's by this fraction.
 const CONTENT_STAGGER: f32 = 0.18;
@@ -232,7 +230,6 @@ pub(crate) struct SniCell {
 
 /// The per-cell visuals for the tray grid, distilled before the layout
 /// closures so they borrow no `self` state.
-#[allow(dead_code)]
 struct TrayCellVisual {
     key: String,
     title: String,
@@ -321,21 +318,19 @@ pub struct ControlCenter {
     /// One-frame flag suppressing the same right-press that opened the menu
     /// from also immediately closing it.
     menu_just_opened: bool,
-    /// Whether the tray shelf's overflow disclosure popover is open
-    /// (ADR-0197). The disclosure cell toggles it; it closes on activate, on
-    /// context-menu, when the overflow vanishes, and with the panel.
-    tray_overflow_open: bool,
-    /// The disclosure cell's last-frame rect, kept fresh each frame so the
-    /// overflow popover re-anchors on relayout.
-    tray_overflow_anchor: Rect,
+    /// The tray shelf's current page (ADR-0221). The shelf paginates when the
+    /// items exceed the horizontal lane; the chevrons at each end step this and
+    /// the resolver clamps it, so an item leaving cannot strand the shelf on a
+    /// page that no longer exists.
+    tray_page: usize,
     /// Edge space the shell's persistent decorations currently reserve,
     /// published through `ChromeUpdate::ModalReserved`. The tray shelf reads
-    /// the dock's bottom band from here so its derived height follows the real
+    /// the dock's band from here so its derived lane length follows the real
     /// declaration instead of a mirrored constant (ADR-0197).
     reserved: Reserved,
-    /// The tray shelf layout resolved by the last frame (ADR-0197). Cached so
-    /// click-away hit-testing and the disclosure popover read the *same*
-    /// geometry the renderer used instead of re-deriving it.
+    /// The tray shelf layout resolved by the last frame (ADR-0221). Cached so
+    /// click-away hit-testing and the popover anchors read the *same* geometry
+    /// the renderer used instead of re-deriving it.
     tray_shelf: Option<tray_shelf::TrayShelfLayout>,
     menu_cache: Option<MenuSnapshotCache>,
     /// Spring driving the segmented control's sliding indicator between
@@ -407,7 +402,7 @@ impl ControlCenter {
     }
 
     /// Construct the control center. The flux device is borrowed (non-owning, like
-    /// [`crate::component::Shell::new`]) to upload SNI tray pixmaps to the GPU;
+    /// [`crate::Shell::new`]) to upload SNI tray pixmaps to the GPU;
     /// the caller must keep it alive past the panel. The tray handle comes
     /// from the composition root's single `crate::tray::spawn()` shared with
     /// the HUD; `None` leaves the tray section empty.
@@ -562,13 +557,7 @@ impl ControlCenter {
                 h: 0.0,
             },
             menu_just_opened: false,
-            tray_overflow_open: false,
-            tray_overflow_anchor: Rect {
-                x: 0.0,
-                y: 0.0,
-                w: 0.0,
-                h: 0.0,
-            },
+            tray_page: 0,
             reserved: Reserved::default(),
             tray_shelf: None,
             menu_cache: None,
@@ -631,13 +620,7 @@ impl ControlCenter {
                 h: 0.0,
             },
             menu_just_opened: false,
-            tray_overflow_open: false,
-            tray_overflow_anchor: Rect {
-                x: 0.0,
-                y: 0.0,
-                w: 0.0,
-                h: 0.0,
-            },
+            tray_page: 0,
             reserved: Reserved::default(),
             tray_shelf: None,
             menu_cache: None,
@@ -823,6 +806,9 @@ impl ControlCenter {
             dt,
             reduced,
         );
+        if (self.work_mode_tooltip_reveal - tip_target).abs() < 0.01 {
+            self.work_mode_tooltip_reveal = tip_target;
+        }
         self.session_tooltip_reveal = crate::widgets::motion::approach(
             self.session_tooltip_reveal,
             session_tip_target,
@@ -830,6 +816,9 @@ impl ControlCenter {
             dt,
             reduced,
         );
+        if (self.session_tooltip_reveal - session_tip_target).abs() < 0.01 {
+            self.session_tooltip_reveal = session_tip_target;
+        }
     }
 
     /// Whether any of the always-animating micro-interactions (segment
@@ -897,7 +886,9 @@ impl ControlCenter {
         self.audio_expanded = false;
         self.cast_expanded = false;
         self.cast_scanning = false;
-        self.tray_overflow_open = false;
+        // Reopening starts at the first page: the lane's contents are not
+        // remembered state, and a fresh look should not open on page 3.
+        self.tray_page = 0;
         if let Some(key) = self.menu_open_for.take() {
             self.menu_path.clear();
             self.menu_just_opened = false;
@@ -915,9 +906,7 @@ impl ControlCenter {
             self.cast_expanded = false;
             self.cast_scanning = false;
             // A tab switch drops an open tray popover even though the tray
-            // itself stays visible in the side column, matching the old
-            // section-switch semantics.
-            self.tray_overflow_open = false;
+            // shelf itself is not part of any tab.
             if let Some(key) = self.menu_open_for.take() {
                 self.menu_path.clear();
                 self.send_tray_command(TrayCommand::CloseMenu { key });
@@ -929,8 +918,9 @@ impl ControlCenter {
     /// - Top-Left (左上): User Profile Chip
     /// - Top-Center (上中): Clock & Date
     /// - Top-Right (右上): Notifications Stream (frameless items)
-    /// - Bottom-Left (左下): The tray shelf, bottom-anchored and derived in
-    ///   height from the display less the dock's reserved band (ADR-0197)
+    /// - Bottom-Left (左下): The tray shelf: a one-row horizontal lane whose
+    ///   length is derived from the display less the bottom band's span
+    ///   (ADR-0221)
     /// - Right-Bottom (右下): Work-mode segmented control + power/session
     /// - Center (中): Split Main Control Panel (Left Nav Rail + Right Tab View)
     fn cluster_bounds(
@@ -980,25 +970,19 @@ impl ControlCenter {
             h: clock_h.min((display.1 - margin_y * 2.0).max(1.0)),
         };
 
-        // 4. Bottom-Left Anchor (左下): the tray shelf (ADR-0197). Its height
-        // is derived, never capped: it fills the vertical span between the
-        // profile chip's bottom edge and the display's bottom margin less the
-        // dock's reserved band. The dock is a persistent decoration that stays
-        // visible while the panel is open, so a shelf anchored flush to the
-        // bottom edge would overlap it on a small output with a long dock.
-        let shelf_top = (profile.y + profile.h + gap).max(margin_y);
-        // The dock's own `Chrome::reserved()` bottom edge, threaded through
+        // 4. Bottom-Left Anchor (左下): the tray shelf (ADR-0221). It is a
+        // one-row horizontal lane hugging the bottom edge, and its *length* is
+        // derived, never capped: the span from the left margin to the bottom
+        // band's left edge bounds how many icons fit in one row. Anything past
+        // that paginates with a chevron at each end.
+        //
+        // The lane's bottom edge stops above the dock's reserved band, which is
+        // the dock's own `Chrome::reserved()` declaration threaded through
         // `ChromeUpdate::ModalReserved`. Using the real declaration rather than
         // a mirrored constant keeps the shelf correct when the dock is
         // auto-hidden, locked out by fullscreen, or moved to a side edge.
-        let shelf_bottom = (display.1 - margin_y - reserved.bottom as f32).max(shelf_top + 1.0);
-        let shelf_h = (shelf_bottom - shelf_top).max(1.0);
-        let tray = Rect {
-            x: margin_x,
-            y: shelf_top,
-            w: TRAY_COL_W.min((display.0 * 0.1).max(40.0)),
-            h: shelf_h,
-        };
+        let row_h = TRAY_CELL + TRAY_PAD * 2.0;
+        let tray_bottom = (display.1 - margin_y - reserved.bottom as f32).max(row_h);
 
         // 5. Right-Bottom Anchor (右下): one horizontal band pinned into the
         // corner — the work-mode segmented control to the left of the
@@ -1014,9 +998,18 @@ impl ControlCenter {
         let work_w = (WORK_MODE_W * scale).max(150.0);
         // Flush to the right and bottom edges of the margin box.
         let power_x = display.0 - margin_x - power_w;
-        let work_x = power_x - gap - work_w;
-        // Clamp out of the tray column's band on very narrow displays.
-        let work_x = work_x.max(tray.x + tray.w + gap);
+        // The lane terminates where the bottom band begins, so the two share
+        // the corner without overlapping.
+        let band_left = (power_x - gap - work_w).max(margin_x + TRAY_CELL + TRAY_PAD * 2.0);
+        let tray = Rect {
+            x: margin_x,
+            y: tray_bottom - row_h,
+            w: (band_left - gap - margin_x).max(TRAY_CELL + TRAY_PAD * 2.0),
+            h: row_h,
+        };
+
+        // The bottom band clamps to the right of the lane on narrow displays.
+        let work_x = (power_x - gap - work_w).max(tray.x + tray.w + gap);
         let work_w = work_w.min((power_x - gap - work_x).max(1.0));
         let band_h = WORK_MODE_H
             .min((display.1 * 0.12).max(56.0))
@@ -1283,11 +1276,9 @@ impl Chrome for ControlCenter {
         }
 
         // Click-away: a press landing on none of the cluster's surfaces nor
-        // an open tray surface (a dbusmenu popover or the overflow disclosure)
-        // dismisses the panel.
+        // an open tray dbusmenu popover dismisses the panel.
         let on_popover = self
             .open_popover_bounds(display)
-            .or_else(|| self.tray_overflow_bounds(display))
             .map(|rect| contains(rect, cursor.0, cursor.1))
             .unwrap_or(false);
         if pressed
@@ -1315,7 +1306,7 @@ impl Chrome for ControlCenter {
         // panel's own painted background, faded by the same reveal that drives
         // every section (ADR-0176). This replaces the retired full-screen
         // backdrop blur + scrim cover: the panel is a solid grouped surface,
-        // not a glass sheet over the live desktop, so it never captures,
+        // not a translucent sheet over the live desktop, so it never captures,
         // blurs, or composites the desktop behind it.
         Self::render_canvas(&self.panel_colors(), f, display, reveal);
 
@@ -1333,7 +1324,7 @@ impl Chrome for ControlCenter {
         self.render_main_panel(f, main_rect, content_progress, i18n, out);
         f.set_opacity(side_progress.max(content_progress));
         self.render_clock_panel(f, clock_rect, side_progress, i18n);
-        self.render_tray_shelf(f, tray_rect, display, side_progress, cursor, pressed, i18n);
+        self.render_tray_shelf(f, tray_rect, side_progress, cursor, i18n);
         self.render_work_mode_panel(f, work_mode_rect, side_progress, i18n, out);
         self.render_power_session_panel(f, power_rect, side_progress, cursor, i18n, out);
 
@@ -1399,8 +1390,6 @@ impl Chrome for ControlCenter {
         // Bluetooth, audio-output, or Cast view, then the panel itself.
         if let Some(key) = self.menu_open_for.clone() {
             self.close_menu(key);
-        } else if self.tray_overflow_open {
-            self.tray_overflow_open = false;
         } else if self.wifi_expanded {
             self.wifi_expanded = false;
             self.wifi_input_ssid = None;

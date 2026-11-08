@@ -3,6 +3,7 @@
 
 pub mod accessibility;
 pub mod color;
+pub mod cursor_shape;
 pub mod dmabuf;
 pub mod edid;
 pub mod geometry;
@@ -11,7 +12,7 @@ pub mod input;
 pub mod stream;
 
 pub use geometry::{
-    ClosingGhostView, MinimizeWarp, Point, Rect, Size, SurfaceDmabuf, SurfaceGeometry,
-    SurfacePixels, Transform,
+    ClosingGhostView, MinimizeWarp, Point, PresentationHint, Rect, Size, SurfaceDmabuf,
+    SurfaceGeometry, SurfacePixels, Transform,
 };
 pub use identity::*;

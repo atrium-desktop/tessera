@@ -120,7 +120,7 @@ pub fn render_action_button(
 }
 
 /// Render the four standard ADR-0088 runtime grant buttons:
-/// [Deny] [Allow once] [This session] [Always].
+/// `Deny` `Allow once` `This session` `Always`.
 pub fn render_grant_action_buttons(
     frame: &mut Frame,
     base_id: &str,

@@ -99,11 +99,6 @@ impl PowerMode {
     pub fn locks_automatically(self) -> bool {
         self.armed_stages().contains(&IdleStageSelector::Lock)
     }
-
-    /// Whether the display can power off in this mode.
-    pub fn blanks_display(self) -> bool {
-        self.armed_stages().contains(&IdleStageSelector::DisplayOff)
-    }
 }
 
 #[cfg(test)]

@@ -4,29 +4,31 @@ use super::*;
 // in `tessera-presentation` (api tier); the composition root keeps the
 // chrome-typed mappings, the DAG planner (core types), and every GPU-owned
 // executor.
-/// Convert output damage to the single physical-pixel rectangle accepted by
-/// Vulkan dynamic rendering. Re-exported from the api value layer.
-pub(super) use tessera_composite::presentation::frame_damage_render_area;
+/// Convert output damage to the physical-pixel damage scope a Canvas pass
+/// accepts. Re-exported from the api value layer.
+pub(super) use tessera_composite::presentation::frame_damage_scope;
 
 /// Resume the output after the no-stencil client/image pass for arbitrary
 /// compositor UI. Lens may emit path fills whose correct winding semantics
 /// require stencil, so shell drawing must never share Tessera's optimized
-/// no-stencil base pass. `render_area` is copied from that base pass so the
 /// Begin a stencil-capable overlay pass over the currently presented content.
-/// The pass loads the existing framebuffer contents; `render_area` from the
-/// split preserves partial-repaint bounds while `clear: None` preserves every
-/// pixel already composited below the UI.
+///
+/// The pass loads the existing framebuffer contents; `damage` is inherited from
+/// the split's base pass so partial-repaint bounds survive, while `clear: None`
+/// preserves every pixel already composited below the UI. The scope is a *list*
+/// because the chrome it draws can be split across distant bands (a top HUD and
+/// a bottom dock), and their bounding box is the whole output.
 pub(super) fn begin_stencil_frame_overlay<'c, 'surface>(
     canvas: &'c mut flux::Canvas,
     frame: &'c mut flux::Frame<'surface>,
-    render_area: Option<flux::CanvasRenderArea>,
+    damage: Vec<flux::CanvasRenderArea>,
 ) -> Result<flux::CanvasSession<'c, &'c mut flux::Frame<'surface>>, flux::Error> {
     canvas.begin_session(
         frame,
         flux::CanvasPassOptions {
             clear: None,
             antialias: flux::CanvasAntialias::None,
-            render_area,
+            damage,
             skip_stencil: false,
         },
     )
@@ -48,13 +50,13 @@ pub(super) fn begin_opaque_frame_repaint<'c, 'surface>(
     repaint: &FrameDamage,
 ) -> Result<flux::CanvasSession<'c, &'c mut flux::Frame<'surface>>, flux::Error> {
     debug_assert_eq!(clear >> 24, 0xff, "compositor pass clear must be opaque");
-    let render_area = frame_damage_render_area(repaint, size);
+    let damage = frame_damage_scope(repaint, size);
     canvas.begin_session(
         frame,
         flux::CanvasPassOptions {
             clear: Some(clear),
             antialias: flux::CanvasAntialias::None,
-            render_area,
+            damage,
             skip_stencil: true,
         },
     )
@@ -737,21 +739,6 @@ pub(super) fn draw_window_switcher_cards(
     canvas.restore();
 }
 
-#[allow(dead_code)]
-pub(super) fn draw_window_switcher_scene(
-    canvas: &flux::CanvasCommands<'_>,
-    device: &flux::Device,
-    renderer: &mut tessera_composite::Renderer,
-    server: &tessera_wayland::Server,
-    logical_size: (u32, u32),
-    scale: f32,
-    presentation: &tessera_shell::component::WindowSwitcherPresentation,
-    scheme: tessera_desktop::settings::ColorScheme,
-) {
-    draw_window_switcher_scrim(canvas, logical_size, scale, presentation, scheme);
-    draw_window_switcher_cards(canvas, device, renderer, server, scale, presentation);
-}
-
 /// Draw compositor-owned live-preview popovers contributed by ordinary shell
 /// chrome. Each card gets its own clip and mapping pass so a window's
 /// subsurfaces cannot bleed into a neighbouring card and unrelated windows
@@ -1090,7 +1077,7 @@ impl WindowShadowRenderer {
                     flux::CanvasPassOptions {
                         clear: Some(clear),
                         antialias: flux::CanvasAntialias::Auto,
-                        render_area: None,
+                        damage: Vec::new(),
                         skip_stencil: true,
                     },
                 );

@@ -573,7 +573,7 @@ fn config_store_writes_the_dock_minimize_animation_without_touching_pins() {
 #[test]
 fn the_removed_status_hud_table_is_rejected_as_an_unknown_field() {
     // The display-only status HUD was removed with its `[hud]` table
-    // (ADR-0226). A stale `[hud]` key must fail loudly: silently ignoring it
+    // (ADR-0213). A stale `[hud]` key must fail loudly: silently ignoring it
     // would leave a user believing they had configured a surface that no
     // longer exists.
     let diagnostics = Config::parse("schema_version = 2\n[hud]\nenabled = false\n").unwrap_err();

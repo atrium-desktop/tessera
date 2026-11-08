@@ -48,7 +48,6 @@ impl CompositorRuntime<'_> {
             overview_active: self.shell.overview_active(),
             window_switcher_active: self.shell.window_switcher_active(),
             shell_visible_pixels: shell.visible_pixels,
-            shell_live_backdrop_effect: shell.live_scene_effect,
             client_overlay_count: self.server.overlay_frames().len()
                 + self.server.overlay_dmabuf_frames().len(),
             software_cursor_visible: self.host.uses_software_cursor() && !cursor_hidden,

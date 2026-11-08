@@ -651,6 +651,13 @@ pub struct SurfaceRec {
     pending_image_description: Option<Option<tessera_primitives::color::ContentColor>>,
     /// Committed image description; `None` is the protocol-default sRGB.
     image_description: Option<tessera_primitives::color::ContentColor>,
+    // ----- wp_tearing_control_v1 state -----
+    /// The `wp_tearing_control_v1` resource bound for this surface, if any.
+    pub tearing_control: *mut ffi::wl_resource,
+    /// Pending presentation hint from `wp_tearing_control_v1.set_presentation_hint`, applied at commit.
+    pub(crate) pending_presentation_hint: tessera_primitives::PresentationHint,
+    /// Committed presentation hint (vsync by default, or async for tearing).
+    pub(crate) presentation_hint: tessera_primitives::PresentationHint,
     /// Committed xdg-shell window geometry (excluding client shadows). Its
     /// size is the window rect's size; its origin is the frame inset by
     /// which the buffer sits up-left of the window rect (see
@@ -761,6 +768,9 @@ impl SurfaceRec {
             color_feedback: std::ptr::null_mut(),
             pending_image_description: None,
             image_description: None,
+            tearing_control: std::ptr::null_mut(),
+            pending_presentation_hint: tessera_primitives::PresentationHint::Vsync,
+            presentation_hint: tessera_primitives::PresentationHint::Vsync,
             window_geometry: None,
             pending_window_geometry: None,
             input_region: None,
@@ -1399,6 +1409,41 @@ impl WorkspaceSlide {
 /// entry is dropped first (its animation simply ends early).
 pub(crate) const MAX_CLOSING_FRAMES: usize = 8;
 
+/// The rectangles of ghosts that settled since the last damage assessment.
+///
+/// A close transition's last painted frame is `smoothstep`-faded to (almost)
+/// nothing, but the pixels are still there: retiring the ghost without
+/// repainting its rect would leave its final frame on the output until
+/// something unrelated dirtied the same area. Recording the rects at settle and
+/// draining them into the next frame's damage closes the animation on the
+/// desktop beneath it instead of on a snapshot of the vanished window
+/// (ADR-0220).
+///
+/// These rects are also why [`Server::transitions_pending`] stays true for
+/// exactly one more frame after the last in-flight one: without it the loop
+/// could sleep before the hand-off frame was ever composed.
+#[derive(Default)]
+pub(crate) struct RetiredGhostDamage {
+    rects: Vec<tessera_primitives::Rect>,
+}
+
+impl RetiredGhostDamage {
+    /// Record the rects of ghosts that stopped being active this tick.
+    fn record(&mut self, rects: &[tessera_primitives::Rect]) {
+        self.rects.extend_from_slice(rects);
+    }
+
+    /// Whether a hand-off frame is still owed.
+    pub(crate) fn pending(&self) -> bool {
+        !self.rects.is_empty()
+    }
+
+    /// Take the pending rects, leaving the hand-off satisfied.
+    pub(crate) fn take(&mut self) -> Vec<tessera_primitives::Rect> {
+        std::mem::take(&mut self.rects)
+    }
+}
+
 /// One closing window's retained last frame (ADR-0029 close transition).
 ///
 /// The window is gone from the model the moment the client unmaps or destroys
@@ -1577,6 +1622,9 @@ pub(crate) struct State {
     /// Bounded by [`MAX_CLOSING_FRAMES`]; `settle_finished_transitions`
     /// reclaims settled entries.
     pub(crate) closing_frames: Vec<ClosingFrame>,
+    /// Ghost rects awaiting the one hand-off repaint that follows their fade
+    /// (ADR-0220). Drained by `transition_damage_rects`.
+    pub(crate) retired_ghost_damage: RetiredGhostDamage,
     /// Every `wl_output` resource clients have bound. Resent in full when the
     /// output geometry (mode/scale/transform) changes so bound clients update.
     pub(crate) output_resources: Vec<*mut ffi::wl_resource>,

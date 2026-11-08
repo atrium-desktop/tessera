@@ -26,7 +26,7 @@ pub fn begin_opaque_frame<'c, 'surface>(
         flux::CanvasPassOptions {
             clear: Some(clear),
             antialias: flux::CanvasAntialias::None,
-            render_area: None,
+            damage: Vec::new(),
             skip_stencil: true,
         },
     )

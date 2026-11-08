@@ -3,28 +3,15 @@
 use super::*;
 
 impl ControlCenter {
-    /// Bounds of the currently open dbusmenu popover, if any.
+    /// Bounds of the tray's dbusmenu popover, if one is open.
+    ///
+    /// Click-away has to see this surface: a press inside it must not be read
+    /// as "outside every cluster surface" and dismiss the whole panel.
     pub(crate) fn open_popover_bounds(&mut self, display: (f32, f32)) -> Option<Rect> {
         let key = self.menu_open_for.clone()?;
         let menu = self.menu_snapshot().filter(|menu| menu.key == key)?;
         tray::visible_children(&menu.root, &self.menu_path)
             .map(|visible| menu_bounds(self.menu_owner, visible, display))
-    }
-
-    /// Bounds of the tray's overflow disclosure popover, if it is open.
-    ///
-    /// Click-away has to see this surface: a press inside it must not be read
-    /// as "outside every cluster surface" and dismiss the whole panel.
-    pub(crate) fn tray_overflow_bounds(&self, display: (f32, f32)) -> Option<Rect> {
-        if !self.tray_overflow_open {
-            return None;
-        }
-        // The layout resolved by the last frame is the single source of truth
-        // for how many items are disclosed — the same one-frame-latency model
-        // lens hit-testing already uses.
-        let hidden = self.tray_shelf?.overflow;
-        (hidden > 0)
-            .then(|| tray_shelf::overflow_bounds(self.tray_overflow_anchor, hidden, display))
     }
 
     /// The navigation list inside the main card's recessed rail.
@@ -264,7 +251,7 @@ impl ControlCenter {
             &chrome_place(
                 rect,
                 LayoutOpts {
-                    radius: self.design.radii.glass_panel,
+                    radius: self.design.radii.panel_lg,
                     border: hud.border,
                     border_width: 1.0,
                     ..materials::canvas_panel(&hud)
@@ -293,7 +280,7 @@ impl ControlCenter {
             &chrome_place(
                 nav_rect,
                 LayoutOpts {
-                    radius: (self.design.radii.glass_panel - 4.0).max(8.0),
+                    radius: (self.design.radii.panel_lg - 4.0).max(8.0),
                     bg: hud.surface_recessed,
                     ..Default::default()
                 },

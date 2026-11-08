@@ -1,6 +1,6 @@
 //! Presentation rendering for Pivot (ADR-0151, ADR-0174).
 //!
-//! Stateless UI projection using Lens Frame, typography tokens, and glass materials.
+//! Stateless UI projection using Lens Frame, typography tokens, and painted fills.
 
 use std::ffi::c_void;
 

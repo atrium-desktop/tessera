@@ -56,7 +56,7 @@ impl Server {
     /// Register a pending first-map workspace placement for an app launch
     /// (`Command::LaunchApp`; ADR-0118). The first
     /// root toplevel to map with a matching pid or app_id consumes it;
-    /// anything still pending after [`LAUNCH_PLACEMENT_TTL`] is ignored.
+    /// anything still pending after `LAUNCH_PLACEMENT_TTL` is ignored.
     pub fn register_launch_placement(
         &mut self,
         app_ids: Vec<String>,

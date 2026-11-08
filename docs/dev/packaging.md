@@ -10,7 +10,7 @@ Tessera has two separate Optics dependency surfaces:
 
 - `Cargo.lock` pins the Rust bindings to the Optics tag reported by
   `cargo run -p xtask -- optics --tag-only`.
-- The native `flux`, `flux-scene-graph`, `lens`, and `iris` libraries are
+- The native `flux`, `vista`, `lens`, `iris`, and `svg` libraries are
   system build and runtime dependencies discovered through `pkg-config` and
   the dynamic loader.
 
@@ -19,7 +19,7 @@ A package build must not depend on an `../optics` checkout or enable
 verify the native development files before building Tessera:
 
 ```bash
-pkg-config --modversion flux flux-scene-graph lens iris
+pkg-config --modversion flux vista lens iris svg
 ```
 
 Each command must report a version compatible with `<OPTICS_VERSION>`. Distribution
@@ -207,7 +207,7 @@ Test the completed packages in a clean environment rather than running out of
 
 ```bash
 systemd-analyze --user verify tessera.service tessera-shutdown.target
-pkg-config --modversion flux flux-scene-graph lens iris
+pkg-config --modversion flux vista lens iris svg
 test -x /usr/bin/tessera-idle
 test -x /usr/bin/tessera-lock
 test -r /etc/pam.d/tessera-lock
@@ -243,7 +243,7 @@ with the compatible release versions being packaged.
 
 | Package | Provides | Built by |
 |---------|----------|----------|
-| `optics` | `libflux.so`, `libflux-scene-graph.so`, `liblens.so`, `libiris.so`, headers, `flux.pc` … `iris.pc` | Meson/Ninja from the `ming2k/optics` `v<OPTICS_VERSION>` tag |
+| `optics` | `libflux.so`, `libvista.so`, `liblens.so`, `libiris.so`, `libsvg.so`, headers, `flux.pc` … `svg.pc` | Meson/Ninja from the `ming2k/optics` `v<OPTICS_VERSION>` tag |
 | `tessera` | Compositor, CLI and agent integration binaries, systemd user unit, and cursor license disclosure | Cargo from the `atrium-desktop/tessera` `v<TESSERA_VERSION>` tag |
 | `xdg-desktop-portal-atrium` | Private portal backend plus its D-Bus activation, `.portal`, backend-selection files, and PAM helper | Cargo from the `tessera-shell/xdg-desktop-portal-atrium` `v<PORTAL_VERSION>` tag |
 
@@ -257,7 +257,7 @@ Each repository's CI validates its own dependency surface; the
 pkgname=optics
 pkgver='<OPTICS_VERSION>'
 pkgrel=1
-pkgdesc='Vulkan-first rendering stack: flux, flux-scene-graph, lens, iris'
+pkgdesc='Vulkan-first rendering stack: flux, vista, lens, iris, svg'
 arch=(x86_64)
 url='https://github.com/ming2k/optics'
 license=(MIT)
@@ -280,7 +280,7 @@ package() {
 ```
 
 `meson install` lays the libraries, headers, and `.pc` files under `/usr`, so
-`pkg-config --modversion flux flux-scene-graph lens iris` resolves after the
+`pkg-config --modversion flux vista lens iris svg` resolves after the
 package is installed.
 
 #### `tessera` PKGBUILD
@@ -301,7 +301,7 @@ sha256sums=('SKIP')   # replace with the real release-tarball checksum
 build() {
   cd "$pkgbase-$pkgver"
   # Hard contract from the dependency section: Optics native libs must be present.
-  pkg-config --modversion flux flux-scene-graph lens iris
+  pkg-config --modversion flux vista lens iris svg
   cargo build --locked --release --workspace
 }
 

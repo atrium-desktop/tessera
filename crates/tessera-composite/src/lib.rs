@@ -4,10 +4,6 @@
 //! texture (shm via CPU upload, dmabuf via zero-copy import), composited in
 //! z-order into the output's frame.
 
-/// Generic offscreen DAG planning, maintained in `tessera-composite` so compositor
-/// code does not depend on the package topology.
-pub mod composition_graph;
-
 /// Deferred effect outputs: one materialization boundary for every consumer
 /// (Optics ADR-0147).
 pub mod effects;

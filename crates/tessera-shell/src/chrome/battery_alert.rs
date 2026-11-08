@@ -1,7 +1,7 @@
 //! The low-battery alert: a modal, centered panel raised by the compositor
 //! itself when the battery crosses a configured `[battery] warn_at`
 //! threshold. Like the user-consent prompts it owns the chrome band until
-//! dismissed — full-screen scrim, analytic-glass panel, exclusive
+//! dismissed — full-screen scrim, own painted panel, exclusive
 //! presentation, keyboard and pointer captured — but it is compositor-owned:
 //! dismissal simply closes it, no answer travels back through
 //! [`ChromeEvents`], and it never enters the notification queue (a battery
@@ -521,7 +521,7 @@ mod tests {
             .surfaces
             .for_role(tessera_design::SurfaceRole::ProminentPanel);
         assert_eq!(body.body.components().3, 242, "the panel body is opaque");
-        assert_eq!(body.radius, design.radii.glass_panel);
+        assert_eq!(body.radius, design.radii.panel_lg);
         // The veil dims the whole output so the panel is the only live surface.
         let veil = materials::modal_scrim(&design, 1.0);
         assert_eq!(veil.radius, 0.0);

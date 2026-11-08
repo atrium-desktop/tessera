@@ -29,6 +29,37 @@ pub mod accessibility;
 /// single Lens frame. Matches `LENS_DAMAGE_RECTS_CAPACITY`; fixing it at compile
 /// time keeps the damage path allocation-free.
 pub const LENS_DAMAGE_CAPACITY: usize = 64;
+
+/// How long a failed chrome-scene build waits before the next attempt
+/// (ADR-0223).
+///
+/// A build failure is normally one degenerate draw command, and flux's encoder
+/// makes it sticky for the remainder of that frame — so the retry cannot
+/// succeed sooner than the next build with different inputs. 250 ms is the
+/// window's own idle-tick order of magnitude: fast enough that a transient
+/// failure (a spring overshoot producing a non-finite rect) recovers before the
+/// user notices, slow enough that a persistent one costs four rebuild attempts
+/// per second instead of one per frame.
+pub const BUILD_RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// How often a live caret blink clock must be allowed to advance.
+///
+/// A blink is a *phase* lens integrates from the frame delta, so a host that
+/// stopped producing frames could never reach its next flip and the caret
+/// would freeze mid-blink (Optics ADR-0151). This is the low idle tick that
+/// keeps the clock moving — not a paint cadence: the tick itself draws
+/// nothing, and the frame a flip lands on is owed a paint through that
+/// frame's own damage.
+///
+/// 250 ms matches Optics' own `iris` pacer, whose idle tick target is that same
+/// value: four samples per second against a 530 ms half-cycle, so a flip is
+/// observed and presented within one tick of becoming due. Slower would let the
+/// caret sit in the wrong phase for a visible interval; faster is pure wakeup
+/// cost, which is the defect that record removed — and the reason it cannot be
+/// tied to the refresh interval either, which is exactly the level/edge
+/// confusion that record is about.
+pub const CARET_TICK_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+
 use tessera_authority::interaction_domain::InteractionDomainSnapshot;
 use tessera_desktop::app::BuiltInApplication;
 use tessera_desktop::app::Entry;
@@ -57,11 +88,17 @@ fn participates_in_shell_pass(
 }
 
 /// Errors from the shell.
+///
+/// Each variant carries the lens error, which carries flux's own diagnostic
+/// (Optics ADR-0153). Formatting that with `{:?}` — as this type used to —
+/// prints the binding's `Error` enum structurally and hides the one field a
+/// reader needs: the flux entry point, its source line, and the message that
+/// says *which* argument or state was wrong. `Display` forwards to it.
 #[derive(Debug, thiserror::Error)]
 pub enum ShellError {
-    #[error("shell create: {0:?}")]
+    #[error("shell create: {0}")]
     Create(#[source] lens::Error),
-    #[error("shell render: {0:?}")]
+    #[error("shell render: {0}")]
     Render(#[source] lens::Error),
 }
 
@@ -121,11 +158,71 @@ pub struct Shell {
     /// built scene here lets `prepare_frame` (before damage assessment) do the
     /// building and `submit` (inside the pass) do only the drawing.
     pending_scene: Option<lens::Snapshot>,
+    /// The last scene that was successfully built, retained so a failed build
+    /// degrades to the previous chrome instead of to no chrome at all.
+    ///
+    /// A build failure is almost always one degenerate draw command (a
+    /// non-finite rect, radius or opacity from a layout that divided by a
+    /// collapsed extent). Flux's encoder makes that sticky for the rest of the
+    /// frame, so the whole tree is lost, not the one offending widget. Holding
+    /// the last good snapshot keeps the desktop usable while the defect exists,
+    /// and — together with the retry backoff below — stops the failure from
+    /// becoming a per-frame rebuild loop.
+    last_good_scene: Option<lens::Snapshot>,
+    /// Backoff gate for rebuilding after a failed build.
+    ///
+    /// Without it, `pending_scene == None` makes `needs_build` permanently
+    /// true, so a persistent build failure rebuilds the entire chrome tree and
+    /// logs a warning on *every* frame, at output rate, forever. Retrying on a
+    /// deadline keeps the recovery (a transient failure heals on the next
+    /// attempt) without paying the cost on every frame.
+    build_retry_at: Option<std::time::Instant>,
+    /// The caret blink's damage state as lens reported it for the frame just
+    /// built (Optics ADR-0151). Both answers are only meaningful between
+    /// `lens_end` and the next `lens_begin`, and damage assessment runs after
+    /// the build but before draw time — so they are latched here rather than
+    /// re-queried at an interval where they would describe nothing.
+    caret: CaretBlink,
+    /// When the next caret tick is due, or `None` when no blink clock is live.
+    ///
+    /// A blink clock only advances inside a build (lens integrates the frame
+    /// delta in `lens_begin`), so a host that stopped building could never
+    /// reach the next flip and the caret would freeze mid-blink. The tick is
+    /// the low idle wakeup that keeps the clock moving; it is not a paint
+    /// cadence, and the loop hints it through
+    /// [`Shell::next_animation_deadline`].
+    caret_tick_at: Option<std::time::Instant>,
     /// Whether any component, layout, or model state changed requiring
     /// a new UI scene build (ADR-0210, INV-ARCH-103).
     dirty: bool,
     /// Last sampled input cursor coordinates to detect pointer motion.
     last_input_cursor: (f32, f32),
+}
+
+/// What the last chrome build said about the caret (Optics ADR-0151).
+///
+/// Lens owns the blink clock — it integrates the phase from the frame delta and
+/// compares it against the phase a *presented* snapshot put on screen — so the
+/// shell must neither model a blink nor derive one. The two facts it reports
+/// are separate because they call for different host behaviour:
+///
+/// * [`Self::flip_pending`] — the phase changed and has not reached the display
+///   yet, so one frame is owed a *paint*;
+/// * [`Self::clock_live`] — a blink clock is running, so the loop must keep a
+///   low idle *tick* alive or the phase could never advance again.
+///
+/// Collapsing them, or reporting "a caret exists" as damage, is exactly the
+/// defect that record removed: it made every focused text field a permanent
+/// animation, and the compositor amplified that into a full composite per
+/// display interval for a window displaying a static document.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct CaretBlink {
+    /// `lens_caret_flip_pending`: the current phase differs from the presented
+    /// one.
+    flip_pending: bool,
+    /// `lens_caret_clock_live`: a text widget holds focus and the blink is
+    /// enabled.
+    clock_live: bool,
 }
 
 impl Shell {
@@ -162,6 +259,10 @@ impl Shell {
                 design: tessera_design::Design::dark(),
                 screenshot_freeze: false,
                 pending_scene: None,
+                last_good_scene: None,
+                build_retry_at: None,
+                caret: CaretBlink::default(),
+                caret_tick_at: None,
                 dirty: true,
                 last_input_cursor: (-1.0, -1.0),
             })
@@ -193,6 +294,10 @@ impl Shell {
             design: tessera_design::Design::dark(),
             screenshot_freeze: false,
             pending_scene: None,
+            last_good_scene: None,
+            build_retry_at: None,
+            caret: CaretBlink::default(),
+            caret_tick_at: None,
             dirty: true,
             last_input_cursor: (-1.0, -1.0),
         })
@@ -265,15 +370,39 @@ impl Shell {
 
     /// Set the shell-wide reduced-motion policy (ADR-0029): every component
     /// transition and every lens eased value resolves in one frame when on.
+    ///
+    /// The caret blink is part of that policy and belongs to lens (Optics
+    /// ADR-0151): the host owns the *preference*, lens owns the clock. Reducing
+    /// motion disables the blink outright rather than slowing it, so the caret
+    /// stays solid and reports no damage at all — a blink is motion, and
+    /// "resolve it in one frame" has no meaning for a state that repeats
+    /// forever.
     pub fn set_reduced_motion(&mut self, reduced: bool) {
         if self.reduced_motion != reduced {
             self.reduced_motion = reduced;
             self.dirty = true;
             self.ui.set_reduced_motion(reduced);
+            self.apply_caret_blink();
             for component in &mut self.components {
                 component.update(ChromeUpdate::ReducedMotion(reduced));
             }
         }
+    }
+
+    /// Push the reduced-motion preference into lens's caret blink clock.
+    ///
+    /// `period <= 0` is lens's spelling of "no blink" and there is no
+    /// "restore the library default" call, so re-enabling names the binding's
+    /// [`lens::DEFAULT_CARET_BLINK_PERIOD_S`] — the library's own value, not a
+    /// number copied here, which is what keeps a preference toggle from
+    /// silently changing the blink rate when Optics tunes it.
+    fn apply_caret_blink(&mut self) {
+        let period = if self.reduced_motion {
+            0.0
+        } else {
+            lens::DEFAULT_CARET_BLINK_PERIOD_S
+        };
+        self.ui.set_caret_blink(period);
     }
 
     /// Whether the reduced-motion policy is currently enabled.
@@ -315,7 +444,7 @@ impl Shell {
             // design: bare icons and any unstyled widget draw with the
             // context theme's foreground, which otherwise stays on the
             // creation-time dark token set even in the light appearance
-            // (near-white glyphs on white glass).
+            // (near-white glyphs on a near-white body).
             self.ui
                 .set_theme(tessera_design::themes::application_base(&design));
             for component in self.components.iter_mut() {
@@ -359,6 +488,11 @@ impl Shell {
     /// Lock now row). The main loop feeds it to `IdleProcess::lock_now`.
     pub fn take_lock(&mut self) -> bool {
         std::mem::take(&mut self.events.lock)
+    }
+
+    /// Drain a dock reading row's request to open the control center (ADR-0218).
+    pub fn take_open_control_center(&mut self) -> bool {
+        std::mem::take(&mut self.events.open_control_center)
     }
 
     /// Replace the host's snapshot of live toplevels. Called once per frame
@@ -574,8 +708,8 @@ impl Shell {
     }
 
     /// Toggle overview mode on the component that owns it (M9). Mirrors
-    /// [`Shell::toggle`]: fanned out to every component; static components
-    /// ignore it.
+    /// [`Self::toggle_overview`]: fanned out to every component; static
+    /// components ignore it.
     pub fn toggle_overview(&mut self) {
         let opening = !self.overview_active();
         if opening {
@@ -599,6 +733,23 @@ impl Shell {
             .iter()
             .map(|c| c.overview_progress())
             .fold(0.0_f32, f32::max)
+    }
+
+    /// Open the control center on the component that owns it, if it is not
+    /// already open (ADR-0218).
+    ///
+    /// The dock's reading column answers a press with this rather than with
+    /// [`Shell::toggle_control_center`]: a reading is a shortcut into the surface
+    /// that owns the reading, so pressing one while the panel is already open
+    /// must not close it. Nothing is broadcast when the panel is already open, so
+    /// the press is a no-op rather than a toggle.
+    pub fn open_control_center(&mut self) {
+        if self.control_center_active() {
+            return;
+        }
+        self.broadcast_command(ChromeCommand::ClosePivot);
+        self.broadcast_command(ChromeCommand::CloseOverview);
+        self.broadcast_command(ChromeCommand::ToggleControlCenter);
     }
 
     /// Toggle the control center on the component that owns it
@@ -625,6 +776,22 @@ impl Shell {
 
     /// Advance the switcher once and return the exact layout shared by the
     /// compositor's live-preview pass and shell chrome.
+    /// Test-only: the window switcher's own animation state.
+    #[cfg(test)]
+    pub fn presentation_command_probe(
+        &self,
+    ) -> Option<(
+        bool,
+        bool,
+        Option<tessera_desktop::window::WindowId>,
+        f32,
+        bool,
+    )> {
+        self.components
+            .iter()
+            .find_map(|component| component.window_switcher_probe())
+    }
+
     pub fn prepare_window_switcher(
         &mut self,
         input: &Input,
@@ -894,7 +1061,7 @@ impl Shell {
         self.components.iter().any(|c| c.screenshot_active())
     }
 
-    /// Hold or release the screenshot freeze. While held, [`Shell::render`]
+    /// Hold or release the screenshot freeze. While held, `Chrome::render`
     /// draws only the screenshot selector; every other component is part of
     /// the frozen snapshot the compositor presents underneath.
     pub fn set_screenshot_freeze(&mut self, frozen: bool) {
@@ -948,6 +1115,72 @@ impl Shell {
                 )
             })
             .any(|c| c.captures_pointer(x, y, display, &self.windows, &self.workspaces))
+    }
+
+    /// The output-logical rectangles a pointer move to `(x, y)` can repaint, or
+    /// `None` when that cannot be bounded.
+    ///
+    /// A pointer move is the one input with no pixel footprint of its own: it
+    /// only matters because chrome under the cursor reacts to it. The damage
+    /// assessment therefore needs to know *where* that reaction can land. It
+    /// used to answer with [`None`] whenever any component captured the
+    /// pointer, on the premise that "chrome reacts somewhere in its own band".
+    /// That premise holds for a bar and fails for a component that owns most of
+    /// the output — an open command panel, Pivot — where a single mouse
+    /// movement repainted the whole screen at the panel's refresh rate.
+    ///
+    /// Components that capture the pointer answer through
+    /// [`Chrome::pointer_damage_regions`]. A component that cannot bound its
+    /// own hover reaction keeps returning [`None`], which stays the
+    /// conservative full-output verdict — the point is not to guess a band, it
+    /// is to let chrome that already knows its footprint say so.
+    #[must_use]
+    pub fn pointer_damage_regions(
+        &self,
+        x: f32,
+        y: f32,
+        display: (f32, f32),
+    ) -> Option<Vec<tessera_primitives::Rect>> {
+        let modal_active = self
+            .components
+            .iter()
+            .any(|component| component.modal_active());
+        let window_switcher_active = self.window_switcher_active();
+        let exclusive_presentation_active = self.exclusive_presentation_active();
+        let mut regions: Vec<tessera_primitives::Rect> = Vec::new();
+        for component in self.components.iter().filter(|component| {
+            participates_in_shell_pass(
+                component.as_ref(),
+                self.screenshot_freeze,
+                modal_active,
+                window_switcher_active,
+                exclusive_presentation_active,
+            )
+        }) {
+            if !component.captures_pointer(x, y, display, &self.windows, &self.workspaces) {
+                continue;
+            }
+            // `?` is deliberate: one component that cannot localize its hover
+            // reaction is a genuine full-output instruction.
+            for rect in
+                component.pointer_damage_regions(x, y, display, &self.windows, &self.workspaces)?
+            {
+                let x0 = rect.x.floor();
+                let y0 = rect.y.floor();
+                let x1 = (rect.x + rect.w).ceil();
+                let y1 = (rect.y + rect.h).ceil();
+                let rect = tessera_primitives::Rect::new(
+                    x0 as i32,
+                    y0 as i32,
+                    (x1 - x0).max(0.0) as i32,
+                    (y1 - y0).max(0.0) as i32,
+                );
+                if !rect.is_empty() {
+                    regions.push(rect);
+                }
+            }
+        }
+        Some(regions)
     }
 
     /// Cursor requested by the topmost chrome component at `(x, y)`, or
@@ -1055,6 +1288,14 @@ impl Shell {
     /// (advance the animation) or block on the host event queue for the next
     /// wakeup. Also folds in lens's own eased-value state so hover/active
     /// fades on lens widgets (buttons, etc.) settle correctly.
+    ///
+    /// A caret blink is deliberately **absent** (Optics ADR-0151). This query
+    /// means "the display is being driven at its own rate", and a 2 Hz blink
+    /// does not justify that: wiring it in here would make every focused text
+    /// field render at the panel refresh rate. The caret contributes a *paint*
+    /// through [`Self::caret_flip_pending`] and an idle *tick* through
+    /// [`Self::next_animation_deadline`], which are the two facts it actually
+    /// owns.
     pub fn anim_pending(&self) -> bool {
         let modal_active = self
             .components
@@ -1152,7 +1393,11 @@ impl Shell {
                 }
             }
         }
-        if scene_changed || self.ui.anim_pending() {
+        // Lens's own damage list is the answer for both a settling eased value
+        // and the caret's blink *edge* (Optics ADR-0151). `anim_pending` covers
+        // only the eased values, so the query is also asked on a flip — that is
+        // the one frame on which the caret's rect is the whole answer.
+        if scene_changed || self.ui.anim_pending() || self.caret.flip_pending {
             // Lens answers with the frame's regional damage list, already
             // localized per drawn leaf and per placed body. Taking it as-is is
             // the whole point of the list contract: a direction that must be
@@ -1175,6 +1420,35 @@ impl Shell {
             }
         }
         Some(regions)
+    }
+
+    /// Whether a caret blink flip still has to reach the display (Optics
+    /// ADR-0151).
+    ///
+    /// This is the caret's *only* paint signal. It is true for exactly the
+    /// frames on which the phase lens painted differs from the phase a
+    /// presented snapshot put on screen, so a settled desktop with a focused
+    /// text field alternates between "one frame owed" and "nothing owed" — not
+    /// permanently true, which is what made every focused field an animation
+    /// and cost a full composite per display interval.
+    ///
+    /// Read from the last [`Shell::prepare_frame`] build; the answer is only
+    /// meaningful between that build and the next one.
+    #[must_use]
+    pub fn caret_flip_pending(&self) -> bool {
+        self.caret.flip_pending
+    }
+
+    /// Whether lens has a caret blink clock running (Optics ADR-0151).
+    ///
+    /// A level, and deliberately not a paint request: it says the loop must
+    /// keep its low idle tick alive, because lens advances the blink phase by
+    /// the frame delta inside a build. Exposed for the loop's diagnostics and
+    /// for tests; the pacing hint itself is folded into
+    /// [`Self::next_animation_deadline`].
+    #[must_use]
+    pub fn caret_clock_live(&self) -> bool {
+        self.caret.clock_live
     }
 
     /// Whether any component that would participate in the next chrome pass
@@ -1252,14 +1526,14 @@ impl Shell {
             // be inside the render area.
             return false;
         };
-        // `footprint` is `(x0, y0, x1, y1)`; the render area intersects it when it
-        // starts before the footprint's far edge and ends after its near edge on
-        // both axes.
+        // `footprint` is `(x0, y0, x1, y1)` in physical pixels; the render area
+        // is in physical pixels too but carried as floats. Compare in one
+        // domain: widening the footprint to `f32` is exact for any coordinate a
+        // framebuffer can hold, whereas truncating the area would make a
+        // half-pixel overlap read as a miss and clip the chrome pixel away.
         let (x0, y0, x1, y1) = footprint;
-        area.x < x1
-            && area.x + area.width as i32 > x0
-            && area.y < y1
-            && area.y + area.height as i32 > y0
+        let (x0, y0, x1, y1) = (x0 as f32, y0 as f32, x1 as f32, y1 as f32);
+        area.x < x1 && area.x + area.width > x0 && area.y < y1 && area.y + area.height > y0
     }
 
     /// Union of every visible persistent decoration's footprint, in physical
@@ -1337,16 +1611,22 @@ impl Shell {
         }) {
             let visible = component.requires_composition();
             requirements.visible_pixels |= visible;
-            // A scene-sampling effect belonging to visually empty chrome is
-            // not live: there are no output pixels that could consume it.
-            requirements.live_scene_effect |= visible && component.samples_scene_effect();
         }
         requirements
     }
 
     /// The nearest compositor-owned wakeup that is *not* an animation: a timed
-    /// visual change (a toast leaving its window) that produces no queue event
-    /// and must not pump frames meanwhile. `None` when no component needs one.
+    /// visual change (a toast leaving its window), or the caret blink's idle
+    /// tick, that produce no queue event and must not pump frames meanwhile.
+    /// `None` when nothing needs one.
+    ///
+    /// The caret contributes here and **not** to [`Self::anim_pending`] (Optics
+    /// ADR-0151). A blink is a phase lens integrates from the frame delta, so a
+    /// loop that stopped building could never reach the next flip and the caret
+    /// would freeze mid-blink; but that is a reason to *tick*, not a reason to
+    /// paint at the panel rate. The tick draws nothing — the frame a flip lands
+    /// on is owed a paint through [`Self::caret_flip_pending`] and the damage
+    /// list.
     pub fn next_animation_deadline(&self) -> Option<std::time::Duration> {
         let modal_active = self
             .components
@@ -1354,7 +1634,8 @@ impl Shell {
             .any(|component| component.modal_active());
         let window_switcher_active = self.window_switcher_active();
         let exclusive_presentation_active = self.exclusive_presentation_active();
-        self.components
+        let component_deadline = self
+            .components
             .iter()
             .filter(|component| {
                 participates_in_shell_pass(
@@ -1366,7 +1647,14 @@ impl Shell {
                 )
             })
             .filter_map(|component| component.animation_deadline_in())
-            .min()
+            .min();
+        let caret_deadline = self
+            .caret_tick_at
+            .map(|at| at.saturating_duration_since(std::time::Instant::now()));
+        match (component_deadline, caret_deadline) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
     }
 
     /// Run the animation clock and geometry prepass, then build this frame's
@@ -1414,17 +1702,98 @@ impl Shell {
             || raw.preedit_utf8[0] != 0;
         self.last_input_cursor = cursor;
 
-        let needs_build =
-            self.dirty || input_active || self.anim_pending() || self.pending_scene.is_none();
+        // The caret blink advances only inside a build (lens integrates the
+        // frame delta in `lens_begin`), so a live clock makes the next *tick* a
+        // reason to build — not a reason to paint. The distinction is the whole
+        // point of Optics ADR-0151: building is layout plus a display-list
+        // capture, painting is a full composite, and a blink only needs the
+        // latter when its phase actually flipped.
+        let now = std::time::Instant::now();
+        let caret_tick_due = self.caret_tick_at.is_some_and(|at| at <= now);
+
+        // A caret *flip* is deliberately not a rebuild trigger: it changes what
+        // the next paint shows, not which widgets exist. It is read below, from
+        // the frame that was just built, and reaches damage assessment as that
+        // frame's own damage.
+        let needs_build = self.dirty
+            || input_active
+            || self.anim_pending()
+            || caret_tick_due
+            || self.pending_scene.is_none();
+
+        // A failed build must not become a per-frame rebuild loop (ADR-0223).
+        // `pending_scene == None` makes `needs_build` permanently true, so
+        // without a gate one degenerate chrome draw command would rebuild the
+        // whole tree and log a warning on every frame, forever. Retry on a
+        // deadline instead: the recovery still happens (a transient failure
+        // heals on the next attempt) but the cost is bounded, and `submit`
+        // keeps drawing the last good scene in the meantime.
+        if needs_build
+            && self
+                .build_retry_at
+                .is_some_and(|at| std::time::Instant::now() < at)
+        {
+            // The caret's tick deadline has to move forward even though nothing
+            // was built: leaving it in the past would turn the loop's pacing
+            // hint into a zero-length sleep, i.e. a busy spin for as long as the
+            // backoff lasts. The caret holds its phase instead — a frozen caret
+            // is part of "chrome is degraded", which the caller already logs.
+            if caret_tick_due {
+                self.caret_tick_at = Some(now + CARET_TICK_INTERVAL);
+            }
+            return;
+        }
 
         // SAFETY: the device behind `ui` outlives the Shell (construction
         // contract), and this mutates no host state.
         if needs_build && let Err(error) = unsafe { self.build_scene(input) } {
-            // A failed build leaves `pending_scene` empty; `submit` then draws
-            // nothing and the frame degrades to a chrome-less desktop rather
-            // than dropping the presentation.
-            log::warn!("shell: chrome scene build failed: {error}");
+            // The build publishes into `pending_scene`; on failure it is left
+            // untouched, so `submit` falls back to the last scene that did
+            // build. A chrome-less desktop is a much worse failure mode than
+            // slightly stale chrome: the dock is how the user recovers.
+            self.build_retry_at = Some(std::time::Instant::now() + BUILD_RETRY_BACKOFF);
+            // The error carries flux's own diagnostic — which entry point
+            // rejected the call, at which source line, and why. Without it this
+            // log line said only `FLUX_ERROR_INVALID_ARGUMENT`, which cannot
+            // distinguish a non-finite rect from an out-of-bounds render area
+            // from a double-begun pass, so no reader could act on it.
+            log::warn!(
+                "shell: chrome scene build failed: {error}; drawing the last good scene and \
+                 retrying in {:?}",
+                BUILD_RETRY_BACKOFF
+            );
         }
+
+        if !needs_build {
+            // Nothing was built, so lens qualified nothing new; the answers
+            // latched by the last build still describe the frame on screen, and
+            // the caret deadline it armed is still correct.
+            return;
+        }
+
+        // Read the caret's damage state from the frame that was just built.
+        // This has to happen here, on the same frame: both answers are
+        // *transition* queries, valid only between `lens_end` and the next
+        // `lens_begin`, and damage assessment runs after the build but before
+        // draw time.
+        //
+        // `as_raw` is the binding's documented escape hatch: `lens-rs` exposes
+        // no accessor for these queries yet, and modelling a blink host-side is
+        // precisely what Optics ADR-0151 forbids — two clocks in one system
+        // drift, and the host cannot know which phase actually reached the
+        // display.
+        self.caret = CaretBlink {
+            flip_pending: self.ui.caret_flip_pending(),
+            clock_live: self.ui.caret_clock_live(),
+        };
+        // A live clock owes the next tick (ADR-0151), and only a live clock
+        // does: `None` releases the deadline the moment no caret is focused,
+        // which is how a settled desktop reaches quiescence instead of waking
+        // four times a second forever.
+        self.caret_tick_at = self
+            .caret
+            .clock_live
+            .then(|| std::time::Instant::now() + CARET_TICK_INTERVAL);
     }
 
     /// Whether a scene is built and awaiting [`Shell::submit`]. Test and
@@ -1523,22 +1892,28 @@ impl Shell {
     /// whose pass is currently open for drawing and whose target outlives the
     /// call. It must outlive every `Snapshot` this `Shell` has produced.
     pub unsafe fn submit(&mut self, canvas: *mut c_void) -> Result<(), ShellError> {
-        // Take a copy of the handle rather than moving the field: the scene
-        // stays available if drawing fails, so a retry, a diagnostic read of
-        // `anim_pending`, or the next `submit` in the same frame still has the
-        // tree. `Snapshot` is a refcounted handle, so this is a retain, not a
-        // rebuild. Clearing `pending_scene` is the *success* path's job.
-        let Some(snapshot) = self.pending_scene.as_ref() else {
-            // Nothing was built this frame (no participating chrome). Draw
+        // The scene to draw: this frame's build when there is one, else the
+        // last scene that built successfully (ADR-0223). A failed build leaves
+        // `pending_scene` empty, and drawing nothing would take the dock — the
+        // user's means of recovery — off the screen. Slightly stale chrome is
+        // strictly better than no chrome.
+        let Some(scene) = self
+            .pending_scene
+            .as_ref()
+            .or(self.last_good_scene.as_ref())
+        else {
+            // Nothing has ever been built (no participating chrome). Draw
             // nothing: the pass keeps the desktop it already holds.
             return Ok(());
         };
         // SAFETY: `canvas` is the caller's live `flux_canvas`, open for
         // drawing; the snapshot borrows only its own display list.
-        unsafe { snapshot.submit(canvas as *mut lens::sys::flux_canvas) }
+        unsafe { scene.submit(canvas as *mut lens::sys::flux_canvas) }
             .map_err(ShellError::Render)?;
-        self.ui.activate(snapshot).map_err(ShellError::Render)?;
-        // Present exactly once: the scene has been drawn and activated.
+        self.ui.activate(scene).map_err(ShellError::Render)?;
+        // Present exactly once: the scene has been drawn and activated. Only a
+        // *built* scene is consumed; a fallback to `last_good_scene` keeps the
+        // reference so it can be drawn again on the next frame.
         self.pending_scene = None;
         Ok(())
     }
@@ -1610,6 +1985,11 @@ impl Shell {
                 }
             });
             let snapshot = self.ui.snapshot().map_err(ShellError::Render)?;
+            // Retain the scene that is about to be presented so a later failed
+            // build can fall back to it (ADR-0223). `Snapshot` is refcounted,
+            // so this is a retain, not a copy of the display list.
+            self.last_good_scene = Some(snapshot.retain());
+            self.build_retry_at = None;
             self.pending_scene = Some(snapshot);
             self.dirty = false;
             Ok(())
@@ -1631,6 +2011,175 @@ impl Shell {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A chrome component that draws one text field, so the shell's caret
+    /// contract (Optics ADR-0151) can be exercised without a GPU.
+    struct CaretField {
+        buf: lens::TextBuf,
+    }
+
+    impl CaretField {
+        fn new() -> Self {
+            Self {
+                buf: lens::TextBuf::new(64, ""),
+            }
+        }
+    }
+
+    impl Chrome for CaretField {
+        fn render(
+            &mut self,
+            frame: &mut Frame,
+            _input: &Input,
+            _windows: &[Window],
+            _workspaces: &WorkspaceSnapshot,
+            _i18n: &Localizer,
+            _out: &mut ChromeEvents,
+        ) {
+            frame.textfield("shell-caret-field", &mut self.buf);
+        }
+    }
+
+    /// A caret that merely exists is not damage; only its blink *phase flip* is
+    /// (Optics ADR-0151).
+    ///
+    /// The type error this pins is exact: the old contract reported
+    /// `caret_rect.w > 0` as damage, which is true for as long as any text
+    /// widget holds focus. That made `frame_needs_repaint` permanently true, so
+    /// a host with a focused field could never reach quiescence and every frame
+    /// it painted re-painted an identical caret.
+    ///
+    /// The two facts must stay distinguishable: a live clock keeps the idle
+    /// tick alive so the phase can advance at all, while the flip owes the
+    /// paint. A test that only checked "no damage" would pass for a caret that
+    /// never blinks.
+    #[test]
+    fn a_focused_caret_ticks_without_owing_a_paint_every_frame() {
+        let mut shell = Shell::headless().unwrap();
+        shell.add(Box::new(CaretField::new()));
+
+        // Build once so the field is laid out, then focus it. Focus is set
+        // through the binding's escape hatch because the shell has no focus
+        // model of its own: lens owns which widget holds the caret.
+        shell.prepare_frame(&Input::default());
+        assert!(
+            !shell.caret_clock_live(),
+            "an unfocused field runs no blink clock"
+        );
+        focus(&mut shell, "shell-caret-field");
+        shell.prepare_frame(&Input::default());
+
+        assert!(
+            shell.caret_clock_live(),
+            "a focused text field must run a blink clock"
+        );
+
+        // The tick that keeps the phase advancing is scheduled by the shell and
+        // is a low-frequency one: a wakeup, not a paint cadence.
+        let tick_deadline = shell
+            .next_animation_deadline()
+            .expect("a live blink clock must schedule its next tick");
+        assert!(
+            tick_deadline <= CARET_TICK_INTERVAL,
+            "the caret tick must be due within one interval, got {tick_deadline:?}"
+        );
+
+        // Advance the blink over simulated time. Each iteration forces a build
+        // the way the loop's own tick would; lens integrates the frame delta
+        // inside a build, which is the only place the phase can move. A frame
+        // that owes a paint is presented, which is what consumes the flip.
+        //
+        // 400 frames at 10 ms is 4 s of simulated time, i.e. roughly four blink
+        // periods — so a correct contract owes about eight paints across them,
+        // not 400 and not zero.
+        let frame = Input::new((1920.0, 1080.0), 0.01);
+        let mut painted = 0;
+        for _ in 0..400 {
+            shell.mark_dirty();
+            shell.prepare_frame(&frame);
+            assert!(shell.caret_clock_live(), "the blink clock must stay live");
+            if shell.caret_flip_pending() {
+                painted += 1;
+                present(&mut shell);
+                // Presenting is what consumes a flip: lens records the phase the
+                // snapshot carried when it is activated, so the next build
+                // compares against what the user actually saw. A build with no
+                // time on it must therefore report nothing owed — this is the
+                // assertion that separates "a transition" from "a level".
+                shell.mark_dirty();
+                shell.prepare_frame(&Input::new((1920.0, 1080.0), 0.0));
+                assert!(
+                    !shell.caret_flip_pending(),
+                    "presenting a flip must consume it, or the caret repaints forever"
+                );
+            }
+        }
+        assert!(
+            (4..=12).contains(&painted),
+            "a 1.06 s blink owes ~8 paints over 4 s, got {painted}"
+        );
+    }
+
+    /// Present the scene `prepare_frame` built, without drawing it.
+    ///
+    /// This is the second half of [`Shell::submit`] — the activation that tells
+    /// lens which snapshot reached the display — performed here because a
+    /// headless shell has no canvas to submit through. It matters for the caret
+    /// contract: lens compares the current blink phase against the *presented*
+    /// one, so a flip is only consumed by an activation, never by a build.
+    fn present(shell: &mut Shell) {
+        let Some(scene) = shell.pending_scene.as_ref() else {
+            return;
+        };
+        shell
+            .ui
+            .activate(scene)
+            .expect("activating a snapshot this UI just built must succeed");
+    }
+
+    /// Reduced motion disables the blink outright rather than slowing it: a
+    /// blink is motion, and "resolve in one frame" has no meaning for a state
+    /// that repeats forever (Optics ADR-0151, Tessera ADR-0029).
+    #[test]
+    fn reduced_motion_makes_the_caret_solid() {
+        let mut shell = Shell::headless().unwrap();
+        shell.set_reduced_motion(true);
+        shell.add(Box::new(CaretField::new()));
+        shell.prepare_frame(&Input::default());
+        focus(&mut shell, "shell-caret-field");
+        shell.prepare_frame(&Input::default());
+
+        assert!(
+            !shell.caret_clock_live(),
+            "a disabled blink runs no clock, so nothing keeps the loop awake"
+        );
+        assert!(!shell.caret_flip_pending(), "a solid caret never flips");
+        assert!(
+            shell.next_animation_deadline().is_none(),
+            "a solid caret must not schedule any wakeup"
+        );
+
+        // Turning the preference back on restores the blink. lens has no
+        // "restore the default" call — `period <= 0` *is* "off" — so the shell
+        // has to name a period, and this asserts it does.
+        shell.set_reduced_motion(false);
+        shell.prepare_frame(&Input::default());
+        assert!(
+            shell.caret_clock_live(),
+            "leaving reduced motion must bring the blink clock back"
+        );
+    }
+
+    /// Give `label` keyboard focus, so a lens text widget claims the caret.
+    ///
+    /// The shell has no focus model of its own: lens owns which widget holds
+    /// the caret. Marking the scene dirty stands in for the click that would do
+    /// this in a live session — a focus change always arrives as input there,
+    /// and input is what makes `prepare_frame` build.
+    fn focus(shell: &mut Shell, label: &str) {
+        assert!(shell.ui.focus(label), "the field must be focusable");
+        shell.mark_dirty();
+    }
 
     struct OrdinaryChrome;
 
@@ -1879,82 +2428,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn pattern_scaffolding_smoke() {
-        use crate::widgets::datagrid::{DataGrid, DataGridCol};
-        use crate::widgets::menu::{MenuItem, MenubarItem};
-        use crate::widgets::tree::{TreeItem, TreeView};
-
-        let _col = DataGridCol::new("Col").width(100.0);
-        let _grid = DataGrid::new("grid");
-
-        let _item = TreeItem::new("Node").depth(0).leaf(true);
-        let _tree = TreeView::new("tree");
-
-        let _menu_item = MenuItem::new("Action");
-        let _menubar_item = MenubarItem::new("File", "file_menu");
-    }
-
-    /// A component that samples the desktop scene through a compositor-owned
-    /// effect. The only such consumer is the soft window shadow layer, so the
-    /// flag exists to keep the desktop pass from being elided under it.
-    struct SceneEffectChrome {
-        visible: bool,
-        samples_scene: bool,
-    }
-
-    impl Chrome for SceneEffectChrome {
-        fn render(
-            &mut self,
-            _frame: &mut Frame,
-            _input: &Input,
-            _windows: &[Window],
-            _workspaces: &WorkspaceSnapshot,
-            _i18n: &Localizer,
-            _out: &mut ChromeEvents,
-        ) {
-        }
-
-        fn requires_composition(&self) -> bool {
-            self.visible
-        }
-
-        fn samples_scene_effect(&self) -> bool {
-            self.samples_scene
-        }
-    }
-
-    #[test]
-    fn a_hidden_scene_effect_consumer_does_not_block_direct_scanout() {
-        let mut shell = Shell::headless().unwrap();
-        shell.add(Box::new(SceneEffectChrome {
-            visible: false,
-            samples_scene: true,
-        }));
-        let requirements = shell.composition_requirements((1920.0, 1080.0));
-        assert!(
-            !requirements.live_scene_effect,
-            "an effect declared by chrome with no visible output must not block \
-             direct scanout"
-        );
-        assert!(!requirements.visible_pixels);
-    }
-
-    #[test]
-    fn a_visible_scene_effect_consumer_is_reported() {
-        let mut shell = Shell::headless().unwrap();
-        shell.add(Box::new(SceneEffectChrome {
-            visible: true,
-            samples_scene: true,
-        }));
-        let requirements = shell.composition_requirements((1920.0, 1080.0));
-        assert!(requirements.visible_pixels);
-        assert!(
-            requirements.live_scene_effect,
-            "visible chrome that consumes scene pixels must be reported"
-        );
-    }
-
     /// A full-output cover reports its own opacity, so the compositor can tell
     /// "the desktop is gone" from "the cover is still draining".
     struct CoverChrome {
@@ -2034,6 +2507,111 @@ mod tests {
         }
     }
 
+    /// A component that captures the pointer over a band and can say so.
+    struct HoveringChrome {
+        band: Option<tessera_primitives::Rect>,
+    }
+
+    impl Chrome for HoveringChrome {
+        fn render(
+            &mut self,
+            _f: &mut Frame,
+            _input: &Input,
+            _windows: &[Window],
+            _workspaces: &WorkspaceSnapshot,
+            _i18n: &Localizer,
+            _out: &mut ChromeEvents,
+        ) {
+        }
+        fn captures_pointer(
+            &self,
+            _x: f32,
+            _y: f32,
+            _display: (f32, f32),
+            _windows: &[Window],
+            _workspaces: &WorkspaceSnapshot,
+        ) -> bool {
+            true
+        }
+        fn pointer_damage_regions(
+            &self,
+            _x: f32,
+            _y: f32,
+            _display: (f32, f32),
+            _windows: &[Window],
+            _workspaces: &WorkspaceSnapshot,
+        ) -> Option<Vec<Rect>> {
+            self.band.map(|rect| {
+                vec![Rect {
+                    x: rect.origin.x as f32,
+                    y: rect.origin.y as f32,
+                    w: rect.size.w as f32,
+                    h: rect.size.h as f32,
+                }]
+            })
+        }
+    }
+
+    /// A pointer over chrome that states its own hover band repaints that band,
+    /// not the output.
+    ///
+    /// A pointer move carries no pixel footprint of its own, so the assessment
+    /// has to learn one from the chrome under the cursor. Answering "chrome
+    /// captured the pointer" with a full-output composite made every mouse
+    /// movement over an open panel repaint the whole screen at the panel's
+    /// refresh rate.
+    #[test]
+    fn a_pointer_over_localizing_chrome_repaints_only_its_band() {
+        let mut shell = Shell::headless().unwrap();
+        shell.add(Box::new(HoveringChrome {
+            band: Some(tessera_primitives::Rect::new(0, 1000, 1920, 80)),
+        }));
+        let regions = shell
+            .pointer_damage_regions(500.0, 1040.0, (1920.0, 1080.0))
+            .expect("chrome that states its band localizes the pointer");
+        assert_eq!(
+            regions,
+            vec![tessera_primitives::Rect::new(0, 1000, 1920, 80)]
+        );
+    }
+
+    /// Chrome that cannot bound its own hover reaction keeps the conservative
+    /// full-output answer. The seam exists to remove a *guess*, not to force
+    /// every component to invent a band.
+    #[test]
+    fn a_pointer_over_unbounded_chrome_stays_a_full_repaint() {
+        let mut shell = Shell::headless().unwrap();
+        shell.add(Box::new(HoveringChrome { band: None }));
+        assert_eq!(
+            shell.pointer_damage_regions(500.0, 1040.0, (1920.0, 1080.0)),
+            None
+        );
+    }
+
+    /// A pointer over an area no component claims carries no chrome damage.
+    #[test]
+    fn a_pointer_outside_chrome_claims_nothing() {
+        struct Silent;
+        impl Chrome for Silent {
+            fn render(
+                &mut self,
+                _f: &mut Frame,
+                _input: &Input,
+                _windows: &[Window],
+                _workspaces: &WorkspaceSnapshot,
+                _i18n: &Localizer,
+                _out: &mut ChromeEvents,
+            ) {
+            }
+        }
+        let mut shell = Shell::headless().unwrap();
+        shell.add(Box::new(Silent));
+        assert_eq!(
+            shell.pointer_damage_regions(500.0, 500.0, (1920.0, 1080.0)),
+            Some(Vec::new())
+        );
+    }
+
     /// `[INV-ARCH-92]`-adjacent: the scene must be **built** by the time damage
     /// is assessed, because lens's damage query only describes a frame that
     /// exists. Confirm `prepare_frame` is what builds it, so a host that
@@ -2052,6 +2630,55 @@ mod tests {
         // than accumulating or leaving a stale scene.
         shell.prepare_frame(&Input::default());
         assert!(shell.has_pending_scene());
+    }
+
+    /// A failed build must degrade to the last good scene and must not become a
+    /// per-frame rebuild loop (ADR-0223).
+    ///
+    /// The contract is observed at the draw point: `submit` must keep drawing
+    /// the last scene that built, so a degenerate chrome command costs stale
+    /// chrome rather than a chrome-less desktop. The backoff gate is observed
+    /// separately, as "no rebuild happened".
+    #[test]
+    fn a_failed_build_keeps_the_last_good_scene_and_backs_off() {
+        let mut shell = Shell::headless().unwrap();
+        shell.prepare_frame(&Input::default());
+        assert!(shell.has_pending_scene(), "a good build publishes a scene");
+        assert!(
+            shell.last_good_scene.is_some(),
+            "the good scene is retained"
+        );
+        assert!(shell.build_retry_at.is_none(), "no backoff after success");
+
+        // The state a failed build leaves behind: nothing pending, the good
+        // scene retained, and a retry deadline in the future.
+        shell.pending_scene = None;
+        shell.build_retry_at = Some(std::time::Instant::now() + BUILD_RETRY_BACKOFF);
+
+        // `submit` must still find a scene to draw: the last good one.
+        assert!(
+            shell
+                .pending_scene
+                .as_ref()
+                .or(shell.last_good_scene.as_ref())
+                .is_some(),
+            "a failed build must fall back to the last good scene, not to no chrome"
+        );
+
+        // The retry gate: a prepare inside the backoff window must not rebuild.
+        // `dirty` surviving is the proof — a successful build clears it.
+        shell.mark_dirty();
+        shell.prepare_frame(&Input::default());
+        assert!(
+            shell.dirty,
+            "the backoff must suppress a rebuild inside its window"
+        );
+
+        // Past the deadline the rebuild is allowed again, so a transient
+        // failure still heals.
+        shell.build_retry_at = Some(std::time::Instant::now() - BUILD_RETRY_BACKOFF);
+        shell.prepare_frame(&Input::default());
+        assert!(!shell.dirty, "the retry past its deadline rebuilds");
     }
 
     #[test]
@@ -2270,10 +2897,10 @@ mod tests {
         }));
 
         let left_edge = flux::CanvasRenderArea {
-            x: 0,
-            y: 400,
-            width: 40,
-            height: 200,
+            x: 0.0,
+            y: 400.0,
+            width: 40.0,
+            height: 200.0,
         };
         assert!(
             shell.chrome_intersects_render_area(left_edge, 1.0, (1920, 1080)),
@@ -2281,10 +2908,10 @@ mod tests {
         );
 
         let middle = flux::CanvasRenderArea {
-            x: 800,
-            y: 400,
-            width: 40,
-            height: 200,
+            x: 800.0,
+            y: 400.0,
+            width: 40.0,
+            height: 200.0,
         };
         assert!(
             !shell.chrome_intersects_render_area(middle, 1.0, (1920, 1080)),
@@ -2302,10 +2929,10 @@ mod tests {
             visible: false,
         }));
         let anywhere = flux::CanvasRenderArea {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1080,
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
         };
         assert!(
             !shell.chrome_intersects_render_area(anywhere, 1.0, (1920, 1080)),
@@ -2323,10 +2950,10 @@ mod tests {
             footprint: Some(tessera_primitives::Rect::new(800, 400, 236, 180)),
         }));
         let middle = flux::CanvasRenderArea {
-            x: 800,
-            y: 400,
-            width: 40,
-            height: 40,
+            x: 800.0,
+            y: 400.0,
+            width: 40.0,
+            height: 40.0,
         };
         assert!(
             shell.chrome_intersects_render_area(middle, 1.0, (1920, 1080)),

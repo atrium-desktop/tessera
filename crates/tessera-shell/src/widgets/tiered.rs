@@ -13,7 +13,7 @@
 //! tracking the pointer in both cases through one under-damped spring, so the
 //! travel reads as physical rather than as a hard jump. The *feel* is physical;
 //! the *look* stays flat — this panel's design language is explicit that it does
-//! not use skeuomorphic materials or liquid glass.
+//! not use skeuomorphic materials.
 //!
 //! It is deliberately built **here**, in `tessera-shell::widgets`, and not in
 //! Optics:

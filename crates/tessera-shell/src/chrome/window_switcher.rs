@@ -36,8 +36,8 @@ pub struct WindowSwitcher {
     order: Vec<WindowId>,
     layout_key: Option<(usize, i32, i32, i32, i32)>,
     mode: crate::layout::window_switcher::Mode,
-    animated_cards: HashMap<WindowId, crate::layout::window_switcher::Card>,
-    animated_selection: Option<crate::layout::window_switcher::Card>,
+    animated_cards: HashMap<WindowId, AnimCard>,
+    animated_selection: Option<AnimCard>,
     presentation: Option<WindowSwitcherPresentation>,
     hovered: Option<WindowId>,
     /// The design snapshot the switcher paints from, from
@@ -185,26 +185,28 @@ impl WindowSwitcher {
         let mut cards = Vec::with_capacity(self.order.len());
         let mut cards_moving = false;
         for (id, target_card) in self.order.iter().copied().zip(target_cards.iter().copied()) {
-            let current = self.animated_cards.entry(id).or_insert(target_card);
+            let target_anim = AnimCard::from_card(target_card);
+            let current = self.animated_cards.entry(id).or_insert(target_anim);
             // A circular list has one off-screen item whose logical slot wraps
             // from one tail to the other. Teleport only that distant item behind
             // the panel clip; every visible item, including the incoming
             // selection, moves exactly one adjacent step.
             if self.mode == crate::layout::window_switcher::Mode::Carousel {
-                let current_centre = current.outer.origin.x + current.outer.size.w / 2;
-                let target_centre = target_card.outer.origin.x + target_card.outer.size.w / 2;
-                if (current_centre - target_centre).abs() > target.panel.size.w / 2 {
-                    *current = target_card;
+                let current_centre = current.outer.x + current.outer.w * 0.5;
+                let target_centre = target_anim.outer.x + target_anim.outer.w * 0.5;
+                if (current_centre - target_centre).abs() > target.panel.size.w as f32 * 0.5 {
+                    *current = target_anim;
                 }
             }
             // `blend` carries reduced motion (`1.0` resolves in one frame), so
             // there is no separate reduced-motion branch here.
-            *current = lerp_card(*current, target_card, blend);
-            cards_moving |= *current != target_card;
-            if intersects(target.panel, current.outer) {
+            *current = current.lerp(target_anim, blend);
+            cards_moving |= current.is_moving(target_anim);
+            let settled = current.to_card();
+            if intersects(target.panel, settled.outer) {
                 cards.push(PreviewCard {
                     window: id,
-                    geometry: *current,
+                    geometry: settled,
                     corner_radius: design.radii.control,
                 });
             }
@@ -213,19 +215,20 @@ impl WindowSwitcher {
 
         let target_selection = target_cards.get(selected_index).copied();
         let selection_moving = if let Some(target_selection) = target_selection {
-            let current = self.animated_selection.get_or_insert(target_selection);
+            let target_anim = AnimCard::from_card(target_selection);
+            let current = self.animated_selection.get_or_insert(target_anim);
             if self.mode == crate::layout::window_switcher::Mode::Carousel {
-                *current = target_selection;
+                *current = target_anim;
             } else {
-                *current = lerp_card(*current, target_selection, blend);
+                *current = current.lerp(target_anim, blend);
             }
-            *current != target_selection
+            current.is_moving(target_anim)
         } else {
             self.animated_selection = None;
             false
         };
-        self.anim_active |= cards_moving || selection_moving;
-        if !cards_moving && !selection_moving {
+        self.anim_active = cards_moving || selection_moving;
+        if !self.anim_active {
             self.anim_active = (self.visibility - if self.open { 1.0 } else { 0.0 }).abs() > 0.002;
         }
 
@@ -233,7 +236,7 @@ impl WindowSwitcher {
             mode: self.mode,
             panel: target.panel,
             cards,
-            selection_indicator: self.animated_selection,
+            selection_indicator: self.animated_selection.map(AnimCard::to_card),
             selected,
             inactive_content_brightness: design.preview.inactive_content_brightness,
             visibility: self.visibility,
@@ -498,6 +501,25 @@ impl Chrome for WindowSwitcher {
         self.anim_active
     }
 
+    #[cfg(test)]
+    fn window_switcher_probe(
+        &self,
+    ) -> Option<(
+        bool,
+        bool,
+        Option<tessera_desktop::window::WindowId>,
+        f32,
+        bool,
+    )> {
+        Some((
+            self.anim_active,
+            self.open,
+            self.hovered,
+            self.visibility,
+            self.presentation.is_some(),
+        ))
+    }
+
     fn requires_composition(&self) -> bool {
         self.open || self.visibility > 0.01
     }
@@ -540,37 +562,108 @@ fn intersects(a: tessera_primitives::Rect, b: tessera_primitives::Rect) -> bool 
         && b.origin.y < a.origin.y + a.size.h
 }
 
-fn lerp_i32(from: i32, to: i32, blend: f32) -> i32 {
-    let value = from as f32 + (to - from) as f32 * blend;
-    if (value - to as f32).abs() < 0.75 {
-        to
-    } else {
-        value.round() as i32
+/// A card's geometry while it is still moving.
+///
+/// The animated state is **floating point**, and it has to be. The layout is
+/// integral (`Rect` holds `i32`), so an eased card snapped back to integers
+/// every frame had a fixed point one pixel away from its target and never
+/// reached it: the blend resolved anything inside 0.75 px to the target, the
+/// next step landed on `target ± 1`, and "still moving" stayed true forever. The
+/// switcher consequently reported an animation in flight on every frame it was
+/// open — a full-output repaint, plus a re-composite of every card's live client
+/// surface, at the panel refresh rate, for a strip that was not moving.
+///
+/// Keeping the eased geometry as `f32` and quantizing only the presented copy
+/// makes the eased value converge on the target exactly, so "still moving" is a
+/// property of the animation rather than of the rounding grid.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct AnimCard {
+    outer: AnimRect,
+    preview: AnimRect,
+    label: AnimRect,
+}
+
+impl AnimCard {
+    fn from_card(card: crate::layout::window_switcher::Card) -> Self {
+        Self {
+            outer: AnimRect::from_rect(card.outer),
+            preview: AnimRect::from_rect(card.preview),
+            label: AnimRect::from_rect(card.label),
+        }
+    }
+
+    /// The settled layout card this presents as.
+    fn to_card(self) -> crate::layout::window_switcher::Card {
+        crate::layout::window_switcher::Card {
+            outer: self.outer.to_rect(),
+            preview: self.preview.to_rect(),
+            label: self.label.to_rect(),
+        }
+    }
+
+    fn lerp(self, to: Self, blend: f32) -> Self {
+        Self {
+            outer: self.outer.lerp(to.outer, blend),
+            preview: self.preview.lerp(to.preview, blend),
+            label: self.label.lerp(to.label, blend),
+        }
+    }
+
+    /// Whether this card is still off its target by more than a rounding step.
+    fn is_moving(self, target: Self) -> bool {
+        self.outer.is_moving(target.outer)
+            || self.preview.is_moving(target.preview)
+            || self.label.is_moving(target.label)
     }
 }
 
-fn lerp_rect(
-    from: tessera_primitives::Rect,
-    to: tessera_primitives::Rect,
-    blend: f32,
-) -> tessera_primitives::Rect {
-    tessera_primitives::Rect::new(
-        lerp_i32(from.origin.x, to.origin.x, blend),
-        lerp_i32(from.origin.y, to.origin.y, blend),
-        lerp_i32(from.size.w, to.size.w, blend),
-        lerp_i32(from.size.h, to.size.h, blend),
-    )
+/// A rectangle mid-flight, in output-logical coordinates.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct AnimRect {
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
 }
 
-fn lerp_card(
-    from: crate::layout::window_switcher::Card,
-    to: crate::layout::window_switcher::Card,
-    blend: f32,
-) -> crate::layout::window_switcher::Card {
-    crate::layout::window_switcher::Card {
-        outer: lerp_rect(from.outer, to.outer, blend),
-        preview: lerp_rect(from.preview, to.preview, blend),
-        label: lerp_rect(from.label, to.label, blend),
+impl AnimRect {
+    fn from_rect(rect: tessera_primitives::Rect) -> Self {
+        Self {
+            x: rect.origin.x as f32,
+            y: rect.origin.y as f32,
+            w: rect.size.w as f32,
+            h: rect.size.h as f32,
+        }
+    }
+
+    fn to_rect(self) -> tessera_primitives::Rect {
+        tessera_primitives::Rect::new(
+            self.x.round() as i32,
+            self.y.round() as i32,
+            (self.w.round() as i32).max(1),
+            (self.h.round() as i32).max(1),
+        )
+    }
+
+    fn lerp(self, to: Self, blend: f32) -> Self {
+        let blend = blend.clamp(0.0, 1.0);
+        let mix = |from: f32, to: f32| from + (to - from) * blend;
+        Self {
+            x: mix(self.x, to.x),
+            y: mix(self.y, to.y),
+            w: mix(self.w, to.w),
+            h: mix(self.h, to.h),
+        }
+    }
+
+    /// Half a pixel: the finest difference that survives the quantisation the
+    /// paint applies. A smaller one is the grid, not movement.
+    fn is_moving(self, target: Self) -> bool {
+        const EPSILON: f32 = 0.5;
+        (self.x - target.x).abs() > EPSILON
+            || (self.y - target.y).abs() > EPSILON
+            || (self.w - target.w).abs() > EPSILON
+            || (self.h - target.h).abs() > EPSILON
     }
 }
 
@@ -709,9 +802,51 @@ mod tests {
             preview: tessera_primitives::Rect::new(200, 10, 100, 50),
             label: tessera_primitives::Rect::new(200, 60, 100, 30),
         };
-        let card = lerp_card(from, to, 0.25);
-        assert_eq!(card.outer.origin.x, 50);
-        assert!(card.outer.origin.x < to.outer.origin.x);
+        let card = AnimCard::from_card(from).lerp(AnimCard::from_card(to), 0.25);
+        assert_eq!(card.outer.x, 50.0);
+        assert!(card.outer.x < to.outer.origin.x as f32);
+    }
+
+    /// The eased geometry is floating point, so it converges on its target
+    /// exactly instead of stalling one pixel short of it.
+    ///
+    /// Quantising the animation state every frame gave the switcher a stable
+    /// fixed point one pixel away from the layout target: `lerp` resolved
+    /// anything inside 0.75 px to the target, the next blend landed on
+    /// `target ± 1`, and the pair was a cycle. Every open frame then reported an
+    /// animation in flight — a full-output repaint plus a re-composite of each
+    /// card's live client surface, at the panel refresh rate, for a strip that
+    /// was standing still.
+    #[test]
+    fn animated_card_geometry_reaches_its_target_exactly() {
+        let target = crate::layout::window_switcher::Card {
+            outer: tessera_primitives::Rect::new(457, 445, 238, 190),
+            preview: tessera_primitives::Rect::new(457, 445, 238, 152),
+            label: tessera_primitives::Rect::new(457, 597, 238, 38),
+        };
+        let from = AnimCard::from_card(crate::layout::window_switcher::Card {
+            outer: tessera_primitives::Rect::new(453, 441, 242, 194),
+            preview: tessera_primitives::Rect::new(453, 441, 242, 156),
+            label: tessera_primitives::Rect::new(453, 595, 242, 38),
+        });
+        let target_anim = AnimCard::from_card(target);
+        let mut current = from;
+        let mut frames = 0;
+        let blend = crate::widgets::motion::blend(SLIDE_RATE, 1.0 / 120.0, false);
+        while current.is_moving(target_anim) && frames < 600 {
+            current = current.lerp(target_anim, blend);
+            frames += 1;
+        }
+        assert!(
+            frames < 600,
+            "the eased card must converge, or the switcher animates forever"
+        );
+        assert!(!current.is_moving(target_anim));
+        assert_eq!(
+            current.to_card(),
+            target,
+            "the presented card is the target"
+        );
     }
 
     #[test]
@@ -845,7 +980,7 @@ mod tests {
         let style = design
             .surfaces
             .for_role(tessera_design::SurfaceRole::FloatingPanel);
-        assert_eq!(style.radius, design.radii.glass_panel);
+        assert_eq!(style.radius, design.radii.panel_lg);
         assert!(
             style.shadow_alpha > 0.0,
             "the panel casts a separating shadow"

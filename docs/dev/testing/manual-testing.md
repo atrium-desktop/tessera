@@ -7,8 +7,9 @@
 This playbook provides actionable, scenario-based manual testing recipes for
 Tessera. It is designed to be concise, task-focused, and copy-paste ready.
 
-For governing engineering standards and architectural rules, see
-[Testing Standards](../standards/testing.md). For deep dive specifications, see
+For the build, run, and automated verification workflow, see the
+[Build & Run Guide](../build-and-run.md#5-automated-verification--testing).
+For deep dive specifications, see
 [Surface Testing](surface-testing.md) and [VT/DRM Manual Testing](vt-drm-testing.md).
 
 ---

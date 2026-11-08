@@ -385,7 +385,7 @@ fn pointer_bounds_stay_at_rest_while_tiles_are_magnified() {
     // the icon strip — not the icons alone. The expected value comes from the
     // strip's single length source: a hand-rolled sum here is how a newly added
     // reading silently falls out of the assertion.
-    let cells = dock.bento_cells();
+    let cells = dock.strip_cells();
     let expected_width = crate::components::dock::bento::strip_length(
         [DOCK_TILE; 2],
         &cells,
@@ -475,7 +475,8 @@ fn window_invading_rest_bounds_starts_an_animated_collapse() {
     assert!(dock.dock_obscured);
     assert!(dock.effective_autohide());
     assert_eq!(
-        dock.autohide_reveal, 1.0,
+        dock.autohide_reveal(),
+        1.0,
         "collision starts an animation instead of teleporting the Dock"
     );
     assert!(dock.collapse_pending);
@@ -508,7 +509,7 @@ fn maximized_state_forces_an_animated_collapse_without_geometric_invasion() {
     assert_eq!(dock.space_use, SpaceUse::Maximized);
     assert!(!dock.dock_obscured);
     assert!(dock.effective_autohide());
-    assert_eq!(dock.autohide_reveal, 1.0);
+    assert_eq!(dock.autohide_reveal(), 1.0);
     assert!(dock.collapse_pending);
     assert!(!dock.hidden_trigger_armed);
     assert!(dock.anim_pending());
@@ -534,13 +535,13 @@ fn disabling_user_autohide_does_not_override_maximized_collapse() {
     maximized.state.maximized = true;
     dock.update_windows(&[maximized]);
     dock.apply_space_use(SpaceUse::Maximized);
-    dock.autohide_reveal = 0.0;
+    dock.motion.reveal = SpringState::new(0.0);
 
     dock.set_autohide(true);
     dock.set_autohide(false);
 
     assert!(dock.effective_autohide());
-    assert_eq!(dock.autohide_reveal, 0.0);
+    assert_eq!(dock.autohide_reveal(), 0.0);
     assert_eq!(dock.reserved(), Reserved::default());
 }
 
@@ -682,7 +683,7 @@ fn dock_content_finishes_draining_before_surface_becomes_handle() {
     assert_eq!(Dock::collapse_content_progress(0.0), 0.0);
     assert!(
         Dock::collapse_surface_progress(AUTOHIDE_CONTENT_DRAIN_END) > 0.0,
-        "the glass surface must still be visibly morphing after its icons drain"
+        "the surface must still be visibly morphing after its icons drain"
     );
 }
 
@@ -706,7 +707,8 @@ fn collapsed_handle_has_no_tile_hover_target() {
             rest_bounds,
             1.0,
             &[old_icon_rect],
-            false
+            false,
+            None,
         ),
         Some(0),
         "the same point owns the visible tile while the Dock is expanded"
@@ -719,13 +721,14 @@ fn collapsed_handle_has_no_tile_hover_target() {
             Dock::collapse_content_progress(0.0),
             &[old_icon_rect],
             false,
+            None,
         )
         .is_none()
     );
 
     let mut dock = Dock::new();
     dock.set_autohide(true);
-    dock.autohide_reveal = 0.0;
+    dock.motion.reveal = SpringState::new(0.0);
     assert!(!dock.captures_pointer(cursor.0, cursor.1, display, &[], &workspace_snapshot(),));
     let indicator = Dock::collapsed_indicator_bounds(DockPosition::Bottom, display);
     assert!(dock.captures_pointer(
@@ -758,7 +761,7 @@ fn capsule_is_the_only_collapsed_reveal_target() {
     let display = (1920.0, 1080.0);
     let mut dock = Dock::new();
     dock.set_autohide(true);
-    dock.autohide_reveal = 0.0;
+    dock.motion.reveal = SpringState::new(0.0);
     let indicator = Dock::collapsed_indicator_bounds(DockPosition::Bottom, display);
     let corridor = Dock::collapsed_reveal_corridor(DockPosition::Bottom, display);
     let workspaces = workspace_snapshot();
@@ -912,7 +915,7 @@ fn expanded_autohide_dock_keeps_pointer_across_bottom_gap() {
         app("org.example.Terminal.desktop"),
     ]);
     dock.set_autohide(true);
-    dock.autohide_reveal = 1.0;
+    dock.motion.reveal = SpringState::new(1.0);
     let rest = dock.pointer_bounds(display);
     let gap_y = rest.y + rest.h + DOCK_EDGE_MARGIN * 0.5;
     let indicator = Dock::collapsed_indicator_bounds(DockPosition::Bottom, display);
@@ -953,7 +956,7 @@ fn fullscreen_window_locks_dock_hidden_without_hot_edge() {
     dock.apply_space_use(SpaceUse::Fullscreen);
 
     assert_eq!(dock.space_use, SpaceUse::Fullscreen);
-    assert_eq!(dock.autohide_reveal, 0.0);
+    assert_eq!(dock.autohide_reveal(), 0.0);
     assert_eq!(dock.reserved(), Reserved::default());
     assert!(!dock.requires_composition());
     assert!(!dock.captures_pointer(960.0, 1079.0, (1920.0, 1080.0), &[], &workspace_snapshot(),));
@@ -974,7 +977,7 @@ fn the_dock_body_is_one_painted_strip_inside_a_stable_footprint() {
     assert!(footprint.x <= bounds.x && footprint.y <= bounds.y);
     assert!(footprint.x + footprint.w >= bounds.x + bounds.w);
     assert!(footprint.y + footprint.h >= bounds.y + bounds.h);
-    assert_eq!(material.radius, Design::dark().radii.glass_panel);
+    assert_eq!(material.radius, Design::dark().radii.panel_lg);
     let style = Design::dark().surfaces.for_role(SurfaceRole::Dock);
     assert!(material.bg.components().3 >= 236, "the bar body is opaque");
     assert!(style.shadow_alpha > 0.0, "the bar casts a shadow");
@@ -984,7 +987,7 @@ fn the_dock_body_is_one_painted_strip_inside_a_stable_footprint() {
 fn the_collapsed_capsule_is_a_painted_pill_at_rest() {
     let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
     dock.set_autohide(true);
-    dock.autohide_reveal = 0.0;
+    dock.motion.reveal = SpringState::new(0.0);
     let display = (1920.0, 1080.0);
 
     assert!(dock.requires_composition());
@@ -1012,7 +1015,7 @@ fn settled_maximized_collapse_keeps_the_capsule_painted() {
     maximized.state.maximized = true;
     dock.update_windows(std::slice::from_ref(&maximized));
     dock.apply_space_use(SpaceUse::Maximized);
-    dock.autohide_reveal = 0.0;
+    dock.motion.reveal = SpringState::new(0.0);
     dock.collapse_pending = false;
 
     assert_eq!(dock.space_use, SpaceUse::Maximized);
@@ -1022,7 +1025,7 @@ fn settled_maximized_collapse_keeps_the_capsule_painted() {
     assert_eq!(rest.w, AUTOHIDE_HANDLE_WIDTH);
     assert_eq!(rest.h, AUTOHIDE_HANDLE_HEIGHT);
 
-    dock.autohide_reveal = 0.25;
+    dock.motion.reveal = SpringState::new(0.25);
     assert!(dock.requires_composition());
     // Mid-reveal the body morphs inside one stable footprint, so no frame of
     // the morph paints outside what the damage path already covers.
@@ -1045,6 +1048,60 @@ fn settled_maximized_collapse_keeps_the_capsule_painted() {
     );
 }
 
+/// Moving the pointer over the dock repaints the dock's own band, not the
+/// output.
+///
+/// A pointer move has no pixel footprint of its own; it matters only because
+/// chrome under the cursor reacts to it. The dock localizes everything it can
+/// react with — magnified tiles, the name bubble, live previews, the context
+/// menu — so a mouse crossing the bar must not become a full-output composite.
+#[test]
+fn pointer_over_the_dock_localizes_to_its_own_band() {
+    let display = (1920.0, 1080.0);
+    let dock = dock_with(vec![app("org.example.Editor.desktop")]);
+    let workspaces = workspace_snapshot();
+    let bar = dock.pointer_bounds(display);
+    let regions = dock
+        .pointer_damage_regions(
+            bar.x + bar.w * 0.5,
+            bar.y + bar.h * 0.5,
+            display,
+            &[],
+            &workspaces,
+        )
+        .expect("the dock states its hover footprint");
+    assert!(!regions.is_empty(), "a visible dock owns pixels");
+    for region in &regions {
+        assert!(
+            region.y >= display.1 - DOCK_PANEL_HEIGHT - DOCK_EDGE_MARGIN - 64.0,
+            "every hover region sits on the dock's edge, not mid-screen: {region:?}"
+        );
+    }
+}
+
+/// A held drag is not bounded by the strip: it previews across the bar and an
+/// edge drag travels to another screen edge. That keeps the conservative
+/// full-output answer rather than a claim the dock cannot honour.
+#[test]
+fn a_dragging_dock_refuses_to_bound_its_own_damage() {
+    let display = (1920.0, 1080.0);
+    let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
+    let workspaces = workspace_snapshot();
+    dock.press = Some(PressState {
+        origin: (960.0, 1040.0),
+        target: PressTarget::Panel,
+        dragging: true,
+        section: DropSection::Pinned,
+        insert: None,
+        start_position: DockPosition::Bottom,
+    });
+    assert!(
+        dock.pointer_damage_regions(960.0, 1040.0, display, &[], &workspaces)
+            .is_none(),
+        "an in-flight drag keeps the full-output verdict"
+    );
+}
+
 #[test]
 fn backdrop_prepass_reveals_only_from_the_capsule_body() {
     let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
@@ -1052,7 +1109,7 @@ fn backdrop_prepass_reveals_only_from_the_capsule_body() {
     maximized.state.maximized = true;
     dock.update_windows(std::slice::from_ref(&maximized));
     dock.apply_space_use(SpaceUse::Maximized);
-    dock.autohide_reveal = 0.0;
+    dock.motion.reveal = SpringState::new(0.0);
     dock.collapse_pending = false;
     dock.hidden_trigger_armed = true;
     let display = (1920.0, 1080.0);
@@ -1162,7 +1219,7 @@ fn live_preview_adds_one_panel_body_and_keeps_its_pointer_bridge() {
         DockPosition::Bottom,
     );
     let panel = presentation.panel;
-    dock.tooltip_alpha = 1.0;
+    dock.motion.tooltip_alpha = 1.0;
     dock.hover_owner_bounds = Some(owner);
     dock.hover_surface_bounds = Some(lens::Rect {
         x: panel.origin.x as f32,
@@ -1177,7 +1234,7 @@ fn live_preview_adds_one_panel_body_and_keeps_its_pointer_bridge() {
     let (_, hover) = dock
         .hover_body_material()
         .expect("the preview panel is painted");
-    assert_eq!(hover.radius, Design::dark().radii.glass_panel);
+    assert_eq!(hover.radius, Design::dark().radii.panel_lg);
     let bridge_y = (panel.origin.y + panel.size.h) as f32 + PREVIEW_PANEL_GAP * 0.5;
     assert!(dock.captures_pointer(
         owner.x + owner.w * 0.5,
@@ -1214,7 +1271,7 @@ fn hovered_live_preview_uses_one_parent_body_with_an_optical_focus_field() {
         DockPosition::Bottom,
     );
     let panel = presentation.panel;
-    dock.tooltip_alpha = 1.0;
+    dock.motion.tooltip_alpha = 1.0;
     dock.hover_surface_bounds = Some(lens::Rect {
         x: panel.origin.x as f32,
         y: panel.origin.y as f32,
@@ -1312,7 +1369,7 @@ fn live_strip_centres_settle_onto_the_rest_estimates() {
     // Both sides of this assertion read the strip's single length source: the
     // bar leads with the dock's Bento reading section, and comparing against a
     // hand-rolled icon-only sum would compare two different bars.
-    let bento = dock.bento_cells();
+    let bento = dock.strip_cells();
     let bar_len = crate::components::dock::bento::strip_length(
         eased.iter().copied(),
         &bento,
@@ -1687,7 +1744,7 @@ fn transit_skim_does_not_reveal_collapsed_dock() {
     let display = (1920.0, 1080.0);
     let mut dock = Dock::new();
     dock.set_autohide(true);
-    dock.autohide_reveal = 0.0;
+    dock.motion.reveal = SpringState::new(0.0);
     dock.collapse_pending = false;
     dock.hidden_trigger_armed = true;
 
@@ -1748,7 +1805,7 @@ fn sustained_dwell_triggers_dock_reveal() {
     let display = (1920.0, 1080.0);
     let mut dock = Dock::new();
     dock.set_autohide(true);
-    dock.autohide_reveal = 0.0;
+    dock.motion.reveal = SpringState::new(0.0);
     dock.collapse_pending = false;
     dock.hidden_trigger_armed = true;
 
@@ -1792,7 +1849,7 @@ fn live_morphing_panel_prevents_hitbox_inflation_trap() {
     let mut dock = Dock::new();
     dock.set_autohide(true);
     // Partially revealed transition state (25% progress)
-    dock.autohide_reveal = 0.25;
+    dock.motion.reveal = SpringState::new(0.25);
 
     let rest = dock.pointer_bounds(display);
     let rest_len = rest.w;
@@ -1912,7 +1969,7 @@ fn multi_frame_continuous_dwell_expands_dock_from_hidden_state() {
     let display = (1920.0, 1080.0);
     let mut dock = Dock::new();
     dock.set_autohide(true);
-    dock.autohide_reveal = 0.0;
+    dock.motion.reveal = SpringState::new(0.0);
     dock.autohide_idle = dock.autohide_timeout;
     let workspaces = workspace_snapshot();
 
@@ -1949,7 +2006,7 @@ fn physical_screen_edge_hover_dwell_expands_dock() {
     let display = (1920.0, 1080.0);
     let mut dock = Dock::new();
     dock.set_autohide(true);
-    dock.autohide_reveal = 0.0;
+    dock.motion.reveal = SpringState::new(0.0);
     dock.autohide_idle = dock.autohide_timeout;
     let workspaces = workspace_snapshot();
 
@@ -2090,7 +2147,7 @@ fn dock_morph_keeps_capture_and_shadow_damage_stable() {
         let damage = dock.damage_regions(&[], display).unwrap();
         for progress in [0.0, 0.001, 0.25, 0.75, 1.0] {
             for active in [false, true] {
-                dock.autohide_reveal = progress;
+                dock.motion.reveal = SpringState::new(progress);
                 dock.anim_active = active;
                 assert_eq!(dock.capture_footprint(display), footprint);
                 assert_eq!(dock.damage_regions(&[], display), Some(damage.clone()));
@@ -2133,7 +2190,7 @@ fn dock_morph_keeps_capture_and_shadow_damage_stable() {
 fn autohide_collapse_settle_drains_swapchain_ring_frames() {
     let mut dock = Dock::new();
     dock.set_autohide(true);
-    dock.autohide_reveal = 1.0;
+    dock.motion.reveal = SpringState::new(1.0);
     dock.autohide_idle = dock.autohide_timeout;
     let display = (1920.0, 1080.0);
     let workspaces = workspace_snapshot();
@@ -2151,16 +2208,16 @@ fn autohide_collapse_settle_drains_swapchain_ring_frames() {
         ui.frame(&input, |f| {
             dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
         });
-        if (dock.autohide_reveal - 0.0).abs() <= 0.002 {
+        if (dock.autohide_reveal() - 0.0).abs() <= 0.002 {
             break;
         }
     }
-    assert_eq!(dock.autohide_reveal, 0.0);
+    assert_eq!(dock.autohide_reveal(), 0.0);
     // When the animation settles, it primes 3 drain frames. The drain is
     // swapchain-ring *damage* bookkeeping, not an animation: it must not keep
     // requesting frames, or a settled dock is repainted at the output refresh
     // rate forever (the self-sustaining repaint loop this test now guards).
-    assert_eq!(dock.settled_drain_frames, 3);
+    assert_eq!(dock.motion.settled_drain_frames, 3);
     assert!(
         !dock.anim_pending(),
         "a settled dock must not pump the frame loop just to drain the ring"
@@ -2171,21 +2228,21 @@ fn autohide_collapse_settle_drains_swapchain_ring_frames() {
     ui.frame(&input, |f| {
         dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
     });
-    assert_eq!(dock.settled_drain_frames, 2);
+    assert_eq!(dock.motion.settled_drain_frames, 2);
     assert!(!dock.anim_pending());
 
     // Frame 2 of drain
     ui.frame(&input, |f| {
         dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
     });
-    assert_eq!(dock.settled_drain_frames, 1);
+    assert_eq!(dock.motion.settled_drain_frames, 1);
     assert!(!dock.anim_pending());
 
     // Frame 3 of drain
     ui.frame(&input, |f| {
         dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
     });
-    assert_eq!(dock.settled_drain_frames, 0);
+    assert_eq!(dock.motion.settled_drain_frames, 0);
     assert!(
         !dock.anim_pending(),
         "all 3 ring slots drained, dock at complete rest"
@@ -2196,7 +2253,7 @@ fn autohide_collapse_settle_drains_swapchain_ring_frames() {
 fn dismiss_latch_prevents_rebound_oscillation_during_collapse() {
     let mut dock = Dock::new();
     dock.set_autohide(true);
-    dock.autohide_reveal = 1.0;
+    dock.motion.reveal = SpringState::new(1.0);
     dock.autohide_idle = 0.0;
     let display = (1920.0, 1080.0);
     let workspaces = workspace_snapshot();
@@ -2225,7 +2282,7 @@ fn dismiss_latch_prevents_rebound_oscillation_during_collapse() {
             dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
         });
     }
-    assert!(dock.autohide_reveal < 0.9 && dock.autohide_reveal > 0.05);
+    assert!(dock.autohide_reveal() < 0.9 && dock.autohide_reveal() > 0.05);
 
     // Cursor moves inside the active panel area (which previously caused rebound loop)
     let indicator = Dock::collapsed_indicator_bounds(DockPosition::Bottom, display);
@@ -2236,13 +2293,14 @@ fn dismiss_latch_prevents_rebound_oscillation_during_collapse() {
         ui.frame(&input, |f| {
             dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
         });
-        if (dock.autohide_reveal - 0.0).abs() <= 0.002 {
+        if (dock.autohide_reveal() - 0.0).abs() <= 0.002 {
             break;
         }
     }
 
     assert_eq!(
-        dock.autohide_reveal, 0.0,
+        dock.autohide_reveal(),
+        0.0,
         "dock must collapse completely without rebounding"
     );
 
@@ -2295,11 +2353,11 @@ fn obscured_dock_clears_collapse_pending_once_rested_so_dwell_can_reopen() {
                 &mut out,
             );
         });
-        if (dock.autohide_reveal - 0.0).abs() <= 0.002 {
+        if (dock.autohide_reveal() - 0.0).abs() <= 0.002 {
             break;
         }
     }
-    assert_eq!(dock.autohide_reveal, 0.0);
+    assert_eq!(dock.autohide_reveal(), 0.0);
     assert!(
         dock.dock_obscured,
         "dock_obscured remains true while window overlaps resting dock bounds"
@@ -2329,7 +2387,7 @@ fn obscured_dock_clears_collapse_pending_once_rested_so_dwell_can_reopen() {
         });
     }
     assert!(
-        dock.autohide_reveal > 0.05,
+        dock.autohide_reveal() > 0.05,
         "obscured dock must re-expand when pointer dwells on collapsed indicator"
     );
 
@@ -2347,7 +2405,7 @@ fn obscured_dock_clears_collapse_pending_once_rested_so_dwell_can_reopen() {
 fn dock_interaction_sets_interacted_flag_and_standard_timeout() {
     let mut dock = dock_with(vec![app("term.desktop")]);
     dock.set_autohide(true);
-    dock.autohide_reveal = 1.0;
+    dock.motion.reveal = SpringState::new(1.0);
     dock.autohide_idle = 0.0;
     let display = (1920.0, 1080.0);
     let workspaces = workspace_snapshot();
@@ -2363,7 +2421,7 @@ fn dock_interaction_sets_interacted_flag_and_standard_timeout() {
     // that would land on a reading instead of an icon.
     let mut input = Input::new(display, 0.016);
     let rest_bounds = dock.pointer_bounds(display);
-    let reading = crate::components::dock::DockState::reading_extent(&dock.bento_cells());
+    let reading = crate::components::dock::DockState::reading_extent(&dock.strip_cells());
     input.set_cursor(
         rest_bounds.x + reading + DOCK_TILE * 0.5,
         rest_bounds.y + rest_bounds.h * 0.5,
@@ -2394,7 +2452,7 @@ fn prepass_and_render_agree_on_the_hovered_tile() {
         app("two.desktop"),
         app("three.desktop"),
     ]);
-    dock.autohide_reveal = 1.0;
+    dock.motion.reveal = SpringState::new(1.0);
     let workspaces = workspace_snapshot();
     let windows = Vec::new();
     let i18n = Localizer::default();
@@ -2442,7 +2500,7 @@ fn prepass_and_render_agree_on_the_hovered_tile() {
     // Model a tooltip already open over tile 1.
     dock.hovered_tile = Some(keys[1].clone());
     dock.tooltip_tile = Some(keys[1].clone());
-    dock.tooltip_alpha = 1.0;
+    dock.motion.tooltip_alpha = 1.0;
     dock.hover_owner_bounds = Some(target);
     dock.hover_surface_bounds = Some(lens::Rect {
         x: target.x,
@@ -2509,7 +2567,7 @@ fn resolved_strip_geometry_lands_icons_on_the_resting_model() {
         // the leading Bento section would silently fall out of the layout.
         let bar_len = crate::components::dock::bento::strip_length(
             eased.iter().copied(),
-            &dock.bento_cells(),
+            &dock.strip_cells(),
             DOCK_TILE_GAP,
             DOCK_PAD,
         );
@@ -2643,18 +2701,18 @@ fn the_capsule_body_interpolates_without_double_premultiplying() {
     // stored premultiplied, so this also pins that the interpolation works on
     // straight channels and repremultiplies once — mixing premultiplied bytes
     // and repremultiplying landed the capsule darker than either endpoint.
-    dock.autohide_reveal = 0.0;
+    dock.motion.reveal = SpringState::new(0.0);
     dock.autohide_dwell = 0.0;
     let (_, rest) = dock.body_material(display).expect("resting capsule");
     assert_eq!(rest.bg, Design::dark().dock.bar_surface_collapsed);
 
     // At full reveal it is exactly the palette's expanded tone.
-    dock.autohide_reveal = 1.0;
+    dock.motion.reveal = SpringState::new(1.0);
     let (_, open) = dock.body_material(display).expect("expanded bar");
     assert_eq!(open.bg, Design::dark().dock.bar_surface_expanded);
 
     // Mid-morph it sits between the two, in straight-channel terms.
-    dock.autohide_reveal = 0.5;
+    dock.motion.reveal = SpringState::new(0.5);
     let (_, mid) = dock.body_material(display).expect("morphing body");
     let straight = |c: Color| c.with_alpha(c.components().3).components();
     let (cr, _, _, _) = straight(Design::dark().dock.bar_surface_collapsed);
@@ -2672,7 +2730,7 @@ fn the_capsule_body_interpolates_without_double_premultiplying() {
 fn dwelling_on_the_capsule_lifts_its_body_without_changing_its_alpha() {
     let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
     dock.set_autohide(true);
-    dock.autohide_reveal = 0.0;
+    dock.motion.reveal = SpringState::new(0.0);
 
     dock.autohide_dwell = 0.0;
     let (_, calm) = dock.body_material((1920.0, 1080.0)).expect("calm capsule");
@@ -2764,7 +2822,7 @@ fn a_locked_dock_does_not_collapse_no_matter_how_long_it_idles() {
     let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
     dock.set_autohide(true);
     dock.autohide_timeout = 0.01;
-    dock.autohide_reveal = 1.0;
+    dock.motion.reveal = SpringState::new(1.0);
 
     let owner = lens_rect(900.0, 970.0, 84.0, 84.0);
     dock.app_menu.open(
@@ -2781,9 +2839,9 @@ fn a_locked_dock_does_not_collapse_no_matter_how_long_it_idles() {
         dock.autohide_idle = 10.0;
     }
     assert!(
-        dock.autohide_reveal > 0.9,
+        dock.autohide_reveal() > 0.9,
         "the dock stayed revealed under an open popup: {}",
-        dock.autohide_reveal
+        dock.autohide_reveal()
     );
 }
 
@@ -2858,7 +2916,7 @@ fn workspace_rail_auto_hides_on_single_workspace() {
     let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
     dock.observe_workspaces(&ws_snapshot(1, 0));
     assert!(
-        dock.bento_cells().is_empty(),
+        dock.strip_cells().is_empty(),
         "a single workspace leaves the dock pure and centered with no rail"
     );
 }
@@ -2867,14 +2925,12 @@ fn workspace_rail_auto_hides_on_single_workspace() {
 fn workspace_rail_shows_on_multiple_workspaces() {
     let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
     dock.observe_workspaces(&ws_snapshot(4, 0));
-    let cells = dock.bento_cells();
-    assert_eq!(cells.len(), 1, "carries the workspace rail");
-    assert_eq!(cells[0].kind, BentoCell::workspace_pager(4).kind);
-    assert_eq!(
-        cells[0].rest_width(),
-        65.0,
-        "compact width for 4 workspaces"
-    );
+    let cells = dock.strip_cells();
+    let pager = cells
+        .iter()
+        .find(|cell| matches!(cell, StripCell::WorkspacePager(_)))
+        .expect("carries the workspace rail");
+    assert_eq!(pager.rest_width(), 65.0, "compact width for 4 workspaces");
 }
 
 #[test]
@@ -2996,4 +3052,407 @@ fn workspace_rail_renders_on_vertical_dock_positions() {
             dock.render(f, &input, &[], &workspaces, &i18n, &mut out);
         });
     }
+}
+
+/// A machine that reports radios and a battery grows a reading column, and the
+/// column costs one constant span whatever it holds.
+#[test]
+fn the_reading_column_costs_one_span_whatever_the_machine_reports() {
+    use tessera_desktop::system::{BatteryStatus, BluetoothLinkState, WifiLinkState};
+
+    let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
+    let display = (1920.0, 1080.0);
+    let bare = dock.pointer_bounds(display).w;
+
+    let wifi_only = SystemStatus {
+        wifi_enabled: Some(true),
+        wifi_state: WifiLinkState::Connected,
+        ..Default::default()
+    };
+    dock.update(ChromeUpdate::SystemStatus(&wifi_only));
+    let one_reading = dock.pointer_bounds(display).w;
+
+    let full = SystemStatus {
+        wifi_enabled: Some(true),
+        wifi_state: WifiLinkState::Connected,
+        bluetooth_enabled: Some(true),
+        bluetooth_state: BluetoothLinkState::Connected,
+        battery: Some(BatteryStatus {
+            percent: 64,
+            charging: false,
+        }),
+        ..Default::default()
+    };
+    dock.update(ChromeUpdate::SystemStatus(&full));
+    let three_readings = dock.pointer_bounds(display).w;
+
+    assert!(
+        one_reading > bare,
+        "a reported radio must widen the bar by the column"
+    );
+    assert_eq!(
+        one_reading, three_readings,
+        "a third reading changes what is inside the plate, never the bar's length"
+    );
+    assert_eq!(
+        three_readings - bare,
+        crate::components::dock::bento::COLUMN_WIDTH
+            + crate::components::dock::bento::READING_BOUNDARY_GAP,
+        "the column costs its constant span plus the boundary gap into the icons"
+    );
+}
+
+/// A machine that reports nothing keeps a pure, centered dock: no empty plate,
+/// no reserved span, no boundary gap.
+#[test]
+fn a_machine_with_no_readings_keeps_a_bare_dock() {
+    let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
+    let display = (1920.0, 1080.0);
+    let before = dock.pointer_bounds(display);
+    dock.update(ChromeUpdate::SystemStatus(&SystemStatus::default()));
+    assert_eq!(dock.pointer_bounds(display), before);
+    assert!(dock.readings().is_empty());
+    assert!(
+        !dock
+            .strip_cells()
+            .iter()
+            .any(|cell| matches!(cell, StripCell::Readings(_))),
+        "no readings means no reading cell at all, not an empty one"
+    );
+}
+
+/// Pressing a reading opens the surface that owns the reading, and does not
+/// toggle it: a press while the panel is open must not close the panel the user
+/// is looking at.
+#[test]
+fn pressing_a_reading_opens_the_control_center() {
+    use tessera_desktop::system::WifiLinkState;
+
+    let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
+    dock.update(ChromeUpdate::SystemStatus(&SystemStatus {
+        wifi_enabled: Some(true),
+        wifi_state: WifiLinkState::Connected,
+        ..Default::default()
+    }));
+
+    let display = (1920.0, 1080.0);
+    let workspaces = workspace_snapshot();
+    let mut input = Input::new(display, 0.05);
+    let mut ui = lens::Ui::headless().unwrap();
+    let i18n = Localizer::default();
+
+    // The rest plate comes from the same placement rule the frame uses, so the
+    // press below targets the pixels the paint produces rather than a
+    // hand-rolled box that happens to be close.
+    let column = dock.readings();
+    let plate = dock
+        .rest_leading_cells(display)
+        .into_iter()
+        .find_map(|(cell, rect)| match cell {
+            StripCell::Readings(readings) if readings == column => Some(rect),
+            _ => None,
+        })
+        .expect("the reading column is a leading cell");
+    let rows = column.row_rects(plate, false);
+    let target = rows[0];
+    let cursor = (target.x + target.w * 0.5, target.y + target.h * 0.5);
+
+    let mut out = ChromeEvents::default();
+    input.set_cursor(cursor.0, cursor.1);
+    // Settle the magnification springs onto their rest geometry: a first-seen
+    // tile grows in from a seed size, so the bar is narrower than its rest
+    // width until the wave settles.
+    for _ in 0..40 {
+        ui.frame(&input, |f| {
+            dock.render(f, &input, &[], &workspaces, &i18n, &mut out);
+        });
+    }
+    // Make the precondition explicit. The cursor above was derived from rest
+    // geometry, so probing a bar that is still moving would test the wrong
+    // pixels and pass or fail on where the wave happened to be.
+    assert!(
+        !dock.anim_pending(),
+        "the bar must be at rest before it is probed at a resting coordinate"
+    );
+    assert_eq!(
+        dock.hovered_reading_row,
+        Some(0),
+        "the row hit test uses the same algebra as the tiling"
+    );
+
+    input.set_mouse_down(lens::MouseButton::Left, true);
+    ui.frame(&input, |f| {
+        dock.render(f, &input, &[], &workspaces, &i18n, &mut out);
+    });
+    input.set_mouse_down(lens::MouseButton::Left, false);
+    ui.frame(&input, |f| {
+        dock.render(f, &input, &[], &workspaces, &i18n, &mut out);
+    });
+
+    assert!(
+        out.open_control_center,
+        "a reading press asks for the surface that owns the reading"
+    );
+    assert!(
+        !out.toggle_pivot && out.clicked.is_none(),
+        "a reading press activates nothing else"
+    );
+}
+
+/// A pointer that comes to rest on a tile must produce the name bubble.
+///
+/// The dwell timer and the fade were advanced inside `render`, and the clock
+/// term that would request the next frame was an `|` into `anim_active` in the
+/// same `render`. `Shell::prepare_frame` recomputes `anim_active` on every frame
+/// before the damage assessment reads it, so a `|` written during the previous
+/// `render` is always overwritten: the timer gated the bubble but nothing
+/// advanced it, and a pointer that arrived after the magnification wave settled
+/// sat at `hover_elapsed ≈ 0` forever. The bubble simply never appeared.
+///
+/// This drives only the pre-pass, because that is where the invariant lives: if
+/// the bubble depends on `render` to advance, this test cannot reach it.
+#[test]
+fn a_resting_pointer_raises_the_name_bubble_through_the_pre_pass() {
+    let display = (1920.0, 1080.0);
+    let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
+    let windows = [window(1, "org.example.Editor", true)];
+    dock.update_windows(&windows);
+    let workspaces = workspace_snapshot();
+    let panel = dock.visual_panel_bounds(display);
+
+    // The hit-test answer `render` would reach for the pointer below: the single
+    // pinned tile, which sits centred in the bar once the wave has settled.
+    dock.hovered_tile = Some("app:org.example.Editor.desktop".to_string());
+    dock.hover_elapsed = 0.0;
+    dock.reset_tooltip_fade();
+
+    let mut input = Input::new(display, 1.0 / 120.0);
+    input.set_cursor(display.0 * 0.5, panel.y + panel.h * 0.5);
+
+    let mut frames_to_bubble = None;
+    for frame in 0..600 {
+        dock.prepare_frame(&input, &windows, &workspaces);
+        if dock.tooltip_tile.is_some() && frames_to_bubble.is_none() {
+            frames_to_bubble = Some(frame);
+        }
+        if dock.tooltip_alpha() > 0.99 {
+            break;
+        }
+        assert!(
+            dock.anim_pending() || dock.tooltip_alpha() > 0.99,
+            "the clock must stay awake until the bubble has faded in: \
+             alpha={} after {frame} frames",
+            dock.tooltip_alpha()
+        );
+    }
+
+    let frames = frames_to_bubble.expect(
+        "a pointer resting past TOOLTIP_DWELL must raise the bubble; the pre-pass \
+         never reached the dwell threshold",
+    );
+    assert!(
+        frames <= (motion::TOOLTIP_DWELL * 120.0) as usize + 4,
+        "the bubble must appear one dwell after the pointer rests, not {frames} frames later"
+    );
+    assert!(
+        dock.tooltip_alpha() > 0.99,
+        "the bubble must finish fading in, alpha={}",
+        dock.tooltip_alpha()
+    );
+
+    // And leaving must fade it back out through the same pre-pass.
+    dock.hovered_tile = None;
+    let mut out_frames = 0;
+    for frame in 0..600 {
+        dock.prepare_frame(&input, &windows, &workspaces);
+        out_frames = frame;
+        if dock.tooltip_alpha() <= 0.0001 {
+            break;
+        }
+        assert!(
+            dock.anim_pending(),
+            "the clock must stay awake until the bubble has faded out: \
+             alpha={} after {frame} frames",
+            dock.tooltip_alpha()
+        );
+    }
+    assert_eq!(
+        dock.tooltip_alpha(),
+        0.0,
+        "the bubble must reach zero, {out_frames} frames after the pointer left"
+    );
+    assert!(dock.tooltip_tile.is_none(), "a faded bubble is released");
+}
+
+/// The reveal value has exactly one owner.
+///
+/// `Dock` used to carry its own `autohide_reveal: f32`, resynchronised from the
+/// spring at the top of every `prepare_frame`. Two copies of a continuously
+/// moving value need a reconciliation step, and that step only ran once per
+/// frame: anything reading the copy after the spring had advanced saw last
+/// frame's progress while the geometry was derived from this frame's. The
+/// accessor makes the disagreement unrepresentable.
+#[test]
+fn the_reveal_value_is_read_from_its_single_owner() {
+    let display = (1920.0, 1080.0);
+    let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
+    let workspaces = workspace_snapshot();
+
+    // Writing the spring is writing the value; there is no second copy to sync.
+    dock.motion.reveal = SpringState::new(0.37);
+    assert_eq!(dock.autohide_reveal(), 0.37);
+
+    // And the pre-pass advances that same value — not a mirror of it.
+    let mut input = Input::new(display, 1.0 / 120.0);
+    input.set_cursor(display.0 * 0.5, display.1 - 3.0);
+    let before = dock.autohide_reveal();
+    dock.prepare_frame(&input, &[], &workspaces);
+    assert!(
+        (dock.autohide_reveal() - before).abs() > f32::EPSILON,
+        "the spring must advance the value the accessor reads: {before} -> {}",
+        dock.autohide_reveal()
+    );
+}
+
+/// A pointer resting between two equal tiles has a stable hover.
+///
+/// Magnification makes neighbouring tiles the same size around the pointer, so
+/// their centres are equidistant to within float noise. Without hysteresis the
+/// winner is decided by which side the noise fell on that frame and the answer
+/// alternates. Every hover *change* is a discrete event downstream — it
+/// restarts the name bubble's dwell, releases the previous tile's popover, and
+/// requests a repaint — so an alternating answer restarts the dwell every other
+/// frame and the bubble never completes. Measured before the fix: 121 frames to
+/// fade in a bubble whose dwell is 36.
+#[test]
+fn a_pointer_between_two_equal_tiles_keeps_one_hover() {
+    let display = (1920.0, 1080.0);
+    let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
+    let windows = [window(1, "org.example.Editor", true)];
+    dock.update_windows(&windows);
+    let workspaces = workspace_snapshot();
+    let mut ui = lens::Ui::headless().unwrap();
+    let i18n = Localizer::default();
+
+    // The exact midpoint of the two-tile strip: the geometry that made the
+    // floating-point tie reachable.
+    let bounds = Dock::rest_bounds(1, 0, DockPosition::Bottom, display);
+    let mut input = Input::new(display, 1.0 / 120.0);
+    input.set_cursor(
+        bounds.x + bounds.w * 0.5,
+        bounds.y + bounds.h - DOCK_TILE * 0.5,
+    );
+    let mut out = ChromeEvents::default();
+
+    let mut flips = 0;
+    let mut previous = dock.hovered_tile.clone();
+    let mut frames_to_bubble = None;
+    for frame in 0..200 {
+        dock.prepare_frame(&input, &windows, &workspaces);
+        ui.frame(&input, |f| {
+            dock.render(f, &input, &windows, &workspaces, &i18n, &mut out)
+        });
+        if dock.hovered_tile != previous {
+            flips += 1;
+            previous = dock.hovered_tile.clone();
+        }
+        if dock.tooltip_alpha() > 0.99 && frames_to_bubble.is_none() {
+            frames_to_bubble = Some(frame);
+            break;
+        }
+    }
+
+    assert_eq!(
+        flips, 1,
+        "a resting pointer acquires the hover once, not {flips} times"
+    );
+    let frames = frames_to_bubble
+        .expect("the name bubble must appear while the pointer rests, not be restarted forever");
+    // One dwell plus the fade, at the frame rate above, with slack for the
+    // spring ramp before the tile is large enough to be hit at all.
+    assert!(
+        frames < 120,
+        "the bubble must appear about one dwell (36 frames) after the pointer \
+         rests, not {frames} frames later"
+    );
+}
+
+/// A raised popover stays raised while the pointer travels into it.
+///
+/// The popover sits in the air gap above the bar, so a pointer that moves from
+/// the tile into the popover is not inside any tile. Dropping the hover on the
+/// way makes a live preview unreachable — the popover vanishes exactly as the
+/// user reaches for it. `update_hover_surfaces` therefore falls back to the
+/// popover's owner while the pointer is inside the surface the popover owns.
+///
+/// This is the behaviour that a "make the hover a pure function of the hit
+/// test" simplification destroys, so it is pinned separately from the hysteresis
+/// test that motivated that simplification.
+#[test]
+fn a_raised_popover_stays_while_the_pointer_enters_it() {
+    let display = (1920.0, 1080.0);
+    let workspaces = workspace_snapshot();
+    let i18n = Localizer::default();
+    let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
+    let windows = [window(1, "org.example.Editor", true)];
+    dock.update_windows(&windows);
+    let mut ui = lens::Ui::headless().unwrap();
+    let mut out = ChromeEvents::default();
+
+    let bounds = Dock::rest_bounds(1, 0, DockPosition::Bottom, display);
+    let icon_pt = (
+        bounds.x + bounds.w * 0.5,
+        bounds.y + bounds.h - DOCK_TILE * 0.5,
+    );
+    let mut input = Input::new(display, 1.0 / 120.0);
+    input.set_cursor(icon_pt.0, icon_pt.1);
+    for _ in 0..200 {
+        dock.prepare_frame(&input, &windows, &workspaces);
+        ui.frame(&input, |f| {
+            dock.render(f, &input, &windows, &workspaces, &i18n, &mut out)
+        });
+        if dock.tooltip_alpha() > 0.99 {
+            break;
+        }
+    }
+    assert!(
+        dock.tooltip_alpha() > 0.99,
+        "the popover must be raised before the bridge can be tested"
+    );
+    let popover = dock
+        .hover_surface_bounds
+        .expect("a raised popover owns a surface rect");
+
+    // Travel into the popover in small steps, as a pointer does.
+    let target = (popover.x + popover.w * 0.5, popover.y + popover.h * 0.5);
+    let mut x = icon_pt.0;
+    let mut y = icon_pt.1;
+    let mut step = Input::new(display, 1.0 / 120.0);
+    while (y - target.1).abs() > 2.0 {
+        y += if target.1 < y { -2.0 } else { 2.0 };
+        x += (target.0 - x) * 0.25;
+        step.set_cursor(x, y);
+        dock.prepare_frame(&step, &windows, &workspaces);
+        ui.frame(&step, |f| {
+            dock.render(f, &step, &windows, &workspaces, &i18n, &mut out)
+        });
+    }
+    step.set_cursor(target.0, target.1);
+    for _ in 0..30 {
+        dock.prepare_frame(&step, &windows, &workspaces);
+        ui.frame(&step, |f| {
+            dock.render(f, &step, &windows, &workspaces, &i18n, &mut out)
+        });
+    }
+
+    assert_eq!(
+        dock.tooltip_tile.as_deref(),
+        Some("launchpad"),
+        "the popover keeps its owner while the pointer is inside it"
+    );
+    assert!(
+        dock.tooltip_alpha() > 0.99,
+        "and it stays fully raised, not faded out: alpha={}",
+        dock.tooltip_alpha()
+    );
 }

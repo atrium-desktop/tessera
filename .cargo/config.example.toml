@@ -37,7 +37,7 @@ rustflags = ["-C", "symbol-mangling-version=v0", "-C", "link-arg=-fuse-ld=mold"]
 # transit-sys = { path = "../optics/bindings/transit-rs/crates/transit-sys" }
 # lens = { path = "../optics/bindings/lens-rs/crates/lens" }
 # lens-sys = { path = "../optics/bindings/lens-rs/crates/lens-sys" }
-# prism = { path = "../optics/bindings/prism-rs/crates/prism" }
-# prism-sys = { path = "../optics/bindings/prism-rs/crates/prism-sys" }
+# svg = { path = "../optics/bindings/svg-rs/crates/svg" }
+# svg-sys = { path = "../optics/bindings/svg-rs/crates/svg-sys" }
 # iris = { path = "../optics/bindings/iris-rs/crates/iris" }
 # iris-sys = { path = "../optics/bindings/iris-rs/crates/iris-sys" }

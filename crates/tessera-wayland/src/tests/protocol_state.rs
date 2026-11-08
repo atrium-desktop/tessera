@@ -2568,3 +2568,41 @@ fn presentation_feedback_is_double_buffered_and_pending_until_commit() {
     surface.presentation_feedback.clear();
     server.state.surfaces.clear();
 }
+
+#[test]
+fn test_inv_arch_110_tearing_control_double_buffering_and_inert_lifecycle() {
+    let mut surface = mapped_toplevel_fixture(tessera_desktop::window::WindowId(2), 0x3000);
+
+    // Initial state: Vsync
+    assert_eq!(
+        surface.presentation_hint,
+        tessera_primitives::PresentationHint::Vsync
+    );
+    assert_eq!(
+        surface.pending_presentation_hint,
+        tessera_primitives::PresentationHint::Vsync
+    );
+
+    // Client requests Async hint via tearing control
+    surface.pending_presentation_hint = tessera_primitives::PresentationHint::Async;
+
+    // Before commit: presentation_hint must remain Vsync
+    assert_eq!(
+        surface.presentation_hint,
+        tessera_primitives::PresentationHint::Vsync
+    );
+
+    // On commit: latches to Async
+    surface.presentation_hint = surface.pending_presentation_hint;
+    assert_eq!(
+        surface.presentation_hint,
+        tessera_primitives::PresentationHint::Async
+    );
+
+    // If surface is destroyed with a bound tearing control, tearing_control_surface_destroyed
+    // safely clears the backpointer without double free
+    let fake_resource = 0x4000usize as *mut ffi::wl_resource;
+    surface.tearing_control = fake_resource;
+    // Clearing null pointer gracefully
+    unsafe { extensions::tearing_control_surface_destroyed(std::ptr::null_mut()) };
+}

@@ -8,7 +8,7 @@
 //! Follows the Model-Motion-View (MMV) architecture (ADR-0174):
 //! - [`state`]: Headless state machine (apps, selections, drag-reorder, autohide latching).
 //! - [`motion`]: Motion dynamics powered by Optics `transit` (reveal & magnification springs).
-//! - [`rendering`]: Pure presentation projection onto Lens Frame, glass materials, and backdrops.
+//! - [`rendering`]: Pure presentation projection onto Lens Frame, painted fills, and elevation.
 
 pub mod bento;
 pub mod motion;
@@ -34,11 +34,15 @@ pub(crate) use crate::component::{
 };
 pub(crate) use tessera_desktop::app::Entry;
 pub(crate) use tessera_desktop::dock::DockPosition;
+pub(crate) use tessera_desktop::system::SystemStatus;
 pub(crate) use tessera_desktop::window::{SpaceUse, Window};
 pub(crate) use tessera_desktop::workspace::WorkspaceSnapshot;
 pub(crate) use tessera_primitives::input::{KeyAction, KeyChar, key_action};
 
-pub use bento::{BentoCell, TileKind};
+pub use bento::{
+    BentoColumn, BentoPager, COLUMN_UNITS, ColumnPiece, Gauge, MAX_ROWS, MIN_ROW_UNITS, Reading,
+    ReadingTone, StripCell,
+};
 pub use motion::{
     AUTOHIDE_CONTENT_DRAIN_END, AUTOHIDE_CONTENT_INTERACTION_MIN, AUTOHIDE_DWELL_THRESHOLD,
     AUTOHIDE_HANDLE_APPROACH_BAND, AUTOHIDE_HANDLE_EDGE_MARGIN, AUTOHIDE_HANDLE_HEIGHT,
@@ -46,9 +50,9 @@ pub use motion::{
     DOCK_BASELINE_INSET, DOCK_DOT, DOCK_DOT_STADIUM, DOCK_EDGE_MARGIN, DOCK_PAD, DOCK_PANEL_HEIGHT,
     DOCK_REVEAL_SPRING, DOCK_SECTION_GAP, DOCK_SPRING, DOCK_TILE, DOCK_TILE_BIRTH, DOCK_TILE_GAP,
     DOCK_TILE_MAX, DRAG_LIFT_SCALE, DRAG_THRESHOLD, DockMotion, EDGE_DRAG_PROXIMITY,
-    MAGNIFY_RADIUS_TILES, PREVIEW_ASPECT, PREVIEW_CARD_GAP, PREVIEW_CARD_MAX_WIDTH,
-    PREVIEW_CARD_MIN_WIDTH, PREVIEW_LABEL_HEIGHT, PREVIEW_PANEL_GAP, PREVIEW_PANEL_PAD,
-    PREVIEW_SCREEN_MARGIN, REVEAL_SETTLE_VALUE_EPS, REVEAL_SETTLE_VELOCITY_EPS,
+    HIT_HYSTERESIS_PX, MAGNIFY_RADIUS_TILES, PREVIEW_ASPECT, PREVIEW_CARD_GAP,
+    PREVIEW_CARD_MAX_WIDTH, PREVIEW_CARD_MIN_WIDTH, PREVIEW_LABEL_HEIGHT, PREVIEW_PANEL_GAP,
+    PREVIEW_PANEL_PAD, PREVIEW_SCREEN_MARGIN, REVEAL_SETTLE_VALUE_EPS, REVEAL_SETTLE_VELOCITY_EPS,
     SETTLED_DRAIN_FRAMES, SPRING_DAMPING, SPRING_OVERSHOOT_MARGIN, SPRING_STIFFNESS, TOOLTIP_BAND,
     TOOLTIP_DWELL, TOOLTIP_FADE_SPEED, TOOLTIP_GAP, TOOLTIP_HEIGHT, collapsed_reveal_depth,
     detect_cursor_retreat, edge_margin_for_surface_progress,
@@ -154,6 +158,16 @@ pub struct Dock {
     pub workspace_ids: Vec<tessera_desktop::workspace::WorkspaceId>,
     /// Currently hovered workspace tick index, if pointer is over the workspace rail.
     pub hovered_workspace_tick: Option<usize>,
+    /// The latest host system snapshot the reading column resolves from.
+    ///
+    /// The column is a *reading*, not a control: it draws whatever the host last
+    /// reported and never infers a state from chrome's own behaviour. Retained
+    /// whole rather than distilled into a resolved column so a re-resolve (the
+    /// strip length, the paint, and the hit test each need it) cannot disagree
+    /// with a snapshot that arrived between two of them.
+    pub system_status: SystemStatus,
+    /// Row index under the pointer inside the reading column, if any.
+    pub hovered_reading_row: Option<usize>,
     /// Whether collapsed indicator entry is armed.
     pub hidden_trigger_armed: bool,
     /// Previous frame's cursor position.
@@ -161,13 +175,13 @@ pub struct Dock {
     /// Most recently rendered logical display size.
     pub last_display: Option<(f32, f32)>,
     /// Motion dynamics state (Optics `transit` reveal spring and drain ring).
+    ///
+    /// The single owner of every value that advances with `dt`: the reveal
+    /// spring, the swapchain drain counter, and the bubble's fade. `Dock` reads
+    /// them through accessors rather than mirroring them.
     pub motion: DockMotion,
     /// Per-tile size springs keyed by tile key.
     pub sizes: HashMap<String, SpringState>,
-    /// Current reveal progress in `[0.0, 1.0]`.
-    pub autohide_reveal: f32,
-    /// Number of swapchain drain frames remaining.
-    pub settled_drain_frames: u8,
     /// Whether autohide was advanced during `prepare_frame` for the current frame.
     pub autohide_stepped_in_prepass: bool,
     /// Whether tile magnification springs were advanced during `prepare_frame` for the current frame.
@@ -186,7 +200,6 @@ pub struct Dock {
     pub hovered_tile: Option<String>,
     pub hover_elapsed: f32,
     pub tooltip_tile: Option<String>,
-    pub tooltip_alpha: f32,
     pub live_preview: Option<LivePreviewPresentation>,
     pub hover_surface_bounds: Option<Rect>,
     pub hover_owner_bounds: Option<Rect>,
@@ -214,11 +227,22 @@ impl Default for Dock {
 }
 
 impl Dock {
+    /// Current reveal progress in `[0.0, 1.0]`, owned by [`DockMotion`].
+    ///
+    /// This used to be a second `f32` field on `Dock`, resynchronised from the
+    /// spring once per `prepare_frame`. Two copies of one fact need a
+    /// reconciliation step, and a reconciliation step is a place for the two to
+    /// disagree — the geometry would then be derived from a value the spring had
+    /// already moved past. The spring is the only owner; this reads it.
+    #[must_use]
+    pub fn autohide_reveal(&self) -> f32 {
+        self.motion.reveal_value()
+    }
+
     /// Create a new Dock with default configuration.
     #[must_use]
     pub fn new() -> Self {
         let motion = DockMotion::new(false);
-        let reveal_val = motion.reveal_value();
         Self {
             apps: Vec::new(),
             all_apps: Vec::new(),
@@ -240,13 +264,13 @@ impl Dock {
             workspace_current: 0,
             workspace_ids: Vec::new(),
             hovered_workspace_tick: None,
+            system_status: SystemStatus::default(),
+            hovered_reading_row: None,
             hidden_trigger_armed: true,
             last_cursor: None,
             last_display: None,
             motion,
             sizes: HashMap::new(),
-            autohide_reveal: reveal_val,
-            settled_drain_frames: 0,
             autohide_stepped_in_prepass: false,
             sizes_stepped_in_prepass: false,
             was_autohide_animating: false,
@@ -258,7 +282,6 @@ impl Dock {
             hovered_tile: None,
             hover_elapsed: 0.0,
             tooltip_tile: None,
-            tooltip_alpha: 0.0,
             live_preview: None,
             hover_surface_bounds: None,
             hover_owner_bounds: None,
@@ -284,10 +307,8 @@ impl Dock {
     pub fn set_autohide(&mut self, autohide: bool) {
         self.autohide = autohide;
         if autohide {
-            self.autohide_reveal = 0.0;
             self.motion.reveal = SpringState::new(0.0);
             self.motion.settled_drain_frames = 0;
-            self.settled_drain_frames = 0;
             self.autohide_idle = self.autohide_timeout;
             self.hidden_trigger_armed = true;
             self.dismiss_latched = false;
@@ -295,10 +316,8 @@ impl Dock {
             && !self.dock_obscured
             && !self.fullscreen_locked()
         {
-            self.autohide_reveal = 1.0;
             self.motion.reveal = SpringState::new(1.0);
             self.motion.settled_drain_frames = 0;
-            self.settled_drain_frames = 0;
             self.autohide_idle = 0.0;
             self.autohide_dwell = 0.0;
             self.dock_interacted = false;
@@ -441,19 +460,36 @@ impl Dock {
         motion::collapse_content_progress(reveal)
     }
 
-    #[inline]
-    /// The dock's Bento (non-icon) cells, in strip order.
+    /// The dock's leading (non-icon) cells, in strip order.
     ///
-    /// Status leads: the interactive workspace rail sits at the leading edge.
-    /// When only 1 workspace exists, it auto-hides (reserving zero space so the
-    /// dock stays pure and compact). When 2 or more exist, it presents as a
-    /// compact, interactive segmented pill.
+    /// The machine's own readings lead, then the workspace pager, then the
+    /// icons (ADR-0218). The order is semantic rather than decorative: the
+    /// reading column is a plate the user presses to reach the machine, the
+    /// pager is navigation, and the icons are targets.
+    ///
+    /// Both cells auto-hide with zero footprint when they have nothing to say —
+    /// a machine that reports no radios and no battery resolves an empty column,
+    /// and a single workspace resolves an empty pager — so a bare dock stays
+    /// pure and centered instead of carrying a placeholder.
     #[must_use]
-    pub fn bento_cells(&self) -> Vec<BentoCell> {
-        if self.workspace_tick_count <= 1 {
-            return Vec::new();
+    pub fn strip_cells(&self) -> Vec<StripCell> {
+        let mut cells = Vec::with_capacity(2);
+        let readings = BentoColumn::resolve(&self.system_status);
+        if !readings.is_empty() {
+            cells.push(StripCell::Readings(readings));
         }
-        vec![BentoCell::workspace_pager(self.workspace_tick_count)]
+        if self.workspace_tick_count > 1 {
+            cells.push(StripCell::WorkspacePager(BentoPager::new(
+                self.workspace_tick_count,
+            )));
+        }
+        cells
+    }
+
+    /// The reading column, resolved from the latest status snapshot.
+    #[must_use]
+    pub fn readings(&self) -> BentoColumn {
+        BentoColumn::resolve(&self.system_status)
     }
 
     /// Fold this frame's workspace snapshot into the pager's readings.
@@ -480,7 +516,7 @@ impl Dock {
     ///
     /// Kept for callers that reason about the icon strip alone (geometry tests,
     /// the damage envelope). The live layout goes through
-    /// [`Dock::rest_bounds_with_cells`] so the pager's width is included.
+    /// `Dock::rest_bounds_with_cells` so the pager's width is included.
     pub fn rest_bounds(
         tile_count: usize,
         pinned_count: usize,
@@ -501,7 +537,7 @@ impl Dock {
         DockState::rest_bounds_with_cells(
             tile_count,
             pinned_count,
-            &self.bento_cells(),
+            &self.strip_cells(),
             self.position,
             display,
         )
@@ -625,7 +661,7 @@ impl Dock {
             i,
             n,
             pinned_count,
-            &self.bento_cells(),
+            &self.strip_cells(),
             axis_len,
         )
     }
@@ -753,13 +789,13 @@ impl Dock {
         // section, one section gap, then the icon strip at its current widths.
         // Deriving the visual extent from its own arithmetic is how the reading
         // section would silently go missing from the hit-test.
-        let bento = self.bento_cells();
+        let cells = self.strip_cells();
         let bar_len =
-            crate::components::dock::bento::strip_length(widths, &bento, DOCK_TILE_GAP, DOCK_PAD);
+            crate::components::dock::bento::strip_length(widths, &cells, DOCK_TILE_GAP, DOCK_PAD);
         Self::panel_rect_for(self.position, bar_len, display)
     }
 
-    /// Animation-stable capture footprint of the panel's glass body.
+    /// Animation-stable damage envelope of the panel's painted body.
     ///
     /// One envelope must contain every body the morph can produce: the widest
     /// magnified strip *and* both edge offsets. The strip envelope stays
@@ -790,7 +826,7 @@ impl Dock {
         let max_widths = std::iter::repeat_n(DOCK_TILE_MAX * SPRING_OVERSHOOT_MARGIN, tiles.len());
         let max_len = crate::components::dock::bento::strip_length(
             max_widths,
-            &self.bento_cells(),
+            &self.strip_cells(),
             DOCK_TILE_GAP,
             DOCK_PAD,
         );
@@ -851,10 +887,8 @@ impl Dock {
         self.set_space_use(space_use);
         if space_use == SpaceUse::Fullscreen {
             self.dismiss_transient_ui();
-            self.autohide_reveal = 0.0;
             self.motion.reveal = SpringState::new(0.0);
             self.motion.settled_drain_frames = 0;
-            self.settled_drain_frames = 0;
             self.autohide_idle = self.autohide_timeout;
             self.hidden_trigger_armed = false;
             self.collapse_pending = false;
@@ -878,6 +912,23 @@ impl Dock {
         }
     }
 
+    /// The application-name bubble's fade, advanced by [`DockMotion`].
+    ///
+    /// Read-only here on purpose: `DockMotion` is the single owner of the value
+    /// that the fade integrates. A second copy on `Dock` is how the fade came to
+    /// have two implementations that disagreed about whether a settled fade also
+    /// clears `tooltip_tile`.
+    #[must_use]
+    pub fn tooltip_alpha(&self) -> f32 {
+        self.motion.tooltip_alpha
+    }
+
+    /// Clear the bubble's fade. The only mutation callers need; every advance
+    /// goes through [`DockMotion::advance_tooltip`].
+    pub fn reset_tooltip_fade(&mut self) {
+        self.motion.tooltip_alpha = 0.0;
+    }
+
     /// Dismiss popups, preview panels, and tooltips.
     pub fn dismiss_transient_ui(&mut self) {
         self.app_menu.dismiss();
@@ -886,7 +937,7 @@ impl Dock {
         self.hovered_tile = None;
         self.hover_elapsed = 0.0;
         self.tooltip_tile = None;
-        self.tooltip_alpha = 0.0;
+        self.reset_tooltip_fade();
         self.dismiss_hover_surface();
     }
 

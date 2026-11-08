@@ -49,6 +49,7 @@ pub use tessera_wayland_protocols::{
     wp_image_description_creator_params_v1_interface, wp_image_description_info_v1_interface,
     wp_image_description_reference_v1_interface, wp_image_description_v1_interface,
     wp_presentation_feedback_interface, wp_presentation_interface,
+    wp_tearing_control_manager_v1_interface, wp_tearing_control_v1_interface,
     xdg_activation_token_v1_interface, xdg_activation_v1_interface,
     xdg_toplevel_drag_manager_v1_interface, xdg_toplevel_drag_v1_interface,
     zwp_confined_pointer_v1_interface, zwp_idle_inhibit_manager_v1_interface,
@@ -240,6 +241,13 @@ pub const WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1: u32 = 1;
 
 // wp_fractional_scale_v1
 pub const WP_FRACTIONAL_SCALE_V1_PREFERRED_SCALE: u32 = 0;
+
+// wp_tearing_control_manager_v1 error
+pub const WP_TEARING_CONTROL_MANAGER_V1_ERROR_TEARING_CONTROL_EXISTS: u32 = 0;
+
+// wp_tearing_control_v1 presentation_hint enum
+pub const WP_TEARING_CONTROL_V1_PRESENTATION_HINT_VSYNC: u32 = 0;
+pub const WP_TEARING_CONTROL_V1_PRESENTATION_HINT_ASYNC: u32 = 1;
 
 // zwp_relative_pointer_v1
 pub const ZWP_RELATIVE_POINTER_V1_RELATIVE_MOTION: u32 = 0;
@@ -887,6 +895,21 @@ pub struct wp_fractional_scale_v1_interface_impl {
     pub destroy: unsafe extern "C" fn(*mut wl_client, *mut wl_resource),
 }
 
+/// `wp_tearing_control_manager_v1`: destroy, get_tearing_control.
+#[repr(C)]
+pub struct wp_tearing_control_manager_v1_interface_impl {
+    pub destroy: unsafe extern "C" fn(*mut wl_client, *mut wl_resource),
+    pub get_tearing_control:
+        unsafe extern "C" fn(*mut wl_client, *mut wl_resource, u32, *mut wl_resource),
+}
+
+/// `wp_tearing_control_v1`: set_presentation_hint, destroy.
+#[repr(C)]
+pub struct wp_tearing_control_v1_interface_impl {
+    pub set_presentation_hint: unsafe extern "C" fn(*mut wl_client, *mut wl_resource, u32),
+    pub destroy: unsafe extern "C" fn(*mut wl_client, *mut wl_resource),
+}
+
 /// `zwp_idle_inhibit_manager_v1`: destroy, create_inhibitor.
 #[repr(C)]
 pub struct zwp_idle_inhibit_manager_v1_interface_impl {
@@ -1445,6 +1468,8 @@ declare_vtables! {
     wp_presentation_interface => wp_presentation_interface_impl,
     wp_fractional_scale_manager_v1_interface => wp_fractional_scale_manager_v1_interface_impl,
     wp_fractional_scale_v1_interface => wp_fractional_scale_v1_interface_impl,
+    wp_tearing_control_manager_v1_interface => wp_tearing_control_manager_v1_interface_impl,
+    wp_tearing_control_v1_interface => wp_tearing_control_v1_interface_impl,
     zwp_idle_inhibit_manager_v1_interface => zwp_idle_inhibit_manager_v1_interface_impl,
     zwp_idle_inhibitor_v1_interface => zwp_idle_inhibitor_v1_interface_impl,
     ext_idle_notifier_v1_interface => ext_idle_notifier_v1_interface_impl,

@@ -7,9 +7,8 @@ the other `docs/` sections; see the [documentation index](../index.md).
 
 | Page | Purpose |
 |------|---------|
-| [Setup](setup.md) | Toolchain, dependencies, and build/run |
-| [Manual Testing Playbook](testing/manual-testing.md) | Scenario-based manual testing recipes, nested desktop execution, client injection, and smoke checklists |
-| [Testing Directory](testing/index.md) | Complete directory map of testing playbooks, scenario runbooks, and test architecture standards |
+| [Setup](setup.md) | Toolchain, dependencies, and environment preparation |
+| [Build & Run Guide](build-and-run.md) | Compiling, running nested sessions, VT/DRM, surface previews, and test verification |
 | [Tessera and Optics Cross-Repository Development](cross-repository-development.md) | Worktree-isolated local patches, commit protection, and release promotion |
 | [Miracast Operational Runbook](runbooks/miracast.md) | Operational guide, real-world hardware verification, WFD protocol quirks, and diagnostic playbook |
 | [Nested Backend Development](nested-backend.md) | Successful-build process replacement, scene restoration, and backend validation inside a Wayland session |
@@ -26,4 +25,4 @@ the other `docs/` sections; see the [documentation index](../index.md).
 | [Observability](observability.md) | The tracing-based logging seam, log levels, and `RUST_LOG` workflow |
 | [Development Environment Variables](environment-variables.md) | Contributor environment overrides for backend selection, nested UI debugging, asset dumps, and XDG isolation |
 | [Issue Triage](triage/index.md) | Case-based bug-attribution know-how: invariants, diagnostic recipes, and fix ownership |
-| [Engineering Standards](standards/README.md) | Universal meta-standards for taxonomy, ADRs, RFCs, runbooks, testing, and postmortems |
+| [Engineering Standards](standards/README.md) | Universal meta-standards for taxonomy, ADRs, RFCs, runbooks, and postmortems |

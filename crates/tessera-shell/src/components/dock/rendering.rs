@@ -26,7 +26,7 @@ impl Chrome for Dock {
         // other non-fullscreen windows use the geometric intersection policy.
         if self.fullscreen_locked() {
             self.dismiss_transient_ui();
-            self.autohide_reveal = 0.0;
+            self.motion.reveal = SpringState::new(0.0);
             self.autohide_idle = self.autohide_timeout;
             self.anim_active = false;
             self.prev_down = down;
@@ -119,7 +119,7 @@ impl Chrome for Dock {
             rest_bounds.w
         };
         let current_panel = if effective_autohide {
-            Self::collapsed_panel_rect(position, (disp.x, disp.y), rest_len, self.autohide_reveal)
+            Self::collapsed_panel_rect(position, (disp.x, disp.y), rest_len, self.autohide_reveal())
         } else {
             rest_bounds
         };
@@ -127,7 +127,7 @@ impl Chrome for Dock {
         let over_hover_surface = self.hover_surface_contains(cursor.x, cursor.y);
 
         // Click outside an expanded autohiding dock dismisses it immediately (Escape hatch).
-        if effective_autohide && self.autohide_reveal > 0.05 && pressed_edge {
+        if effective_autohide && self.autohide_reveal() > 0.05 && pressed_edge {
             let inside_panel = cursor.x >= current_panel.x
                 && cursor.y >= current_panel.y
                 && cursor.x < current_panel.x + current_panel.w
@@ -153,7 +153,7 @@ impl Chrome for Dock {
         let in_band = !self.collapse_pending
             && !drag_active
             && (over_rest_bounds || over_hover_surface)
-            && (!effective_autohide || self.autohide_reveal >= 0.2);
+            && (!effective_autohide || self.autohide_reveal() >= 0.2);
 
         let autohide_moving = self.was_autohide_animating;
 
@@ -199,6 +199,7 @@ impl Chrome for Dock {
         let icon_baseline = geometry.icon_baseline;
         // Resolved before `geometry` is partially moved below.
         let reading_rect = self.bento_rect(&geometry, vertical);
+        let leading_cells = self.leading_cell_rects(&geometry, vertical);
         let mut icon_rects: Vec<Rect> = geometry.icon_rects;
 
         // During a reorder drag the dragged tile leaves its slot and floats
@@ -260,6 +261,10 @@ impl Chrome for Dock {
         // current panel and transformed icon geometry prevent the collapsed
         // handle (or an icon's former position) from impersonating a tile.
         // An active drag owns the pointer: no hover, click, or menu target.
+        let previous_hit = self
+            .hovered_tile
+            .as_ref()
+            .and_then(|key| tiles.iter().position(|tile| &tile.key == key));
         let hit = if drag_active {
             None
         } else {
@@ -270,24 +275,41 @@ impl Chrome for Dock {
                 content_progress,
                 &icon_rects,
                 vertical,
+                previous_hit,
             )
         };
 
         let prev_ws_tick = self.hovered_workspace_tick;
-        self.hovered_workspace_tick = if drag_active {
-            None
-        } else if let Some(rail_rect) = reading_rect {
-            crate::components::dock::bento::hit_test_workspace_rail(
-                rail_rect,
-                (cursor.x, cursor.y),
-                self.workspace_tick_count,
-                self.workspace_current,
-                vertical,
-            )
-        } else {
-            None
-        };
-        if self.hovered_workspace_tick != prev_ws_tick {
+        let prev_reading_row = self.hovered_reading_row;
+        self.hovered_workspace_tick = None;
+        self.hovered_reading_row = None;
+        if !drag_active {
+            for (cell, rect) in &leading_cells {
+                match cell {
+                    StripCell::Readings(column) => {
+                        if self.hovered_reading_row.is_none() {
+                            self.hovered_reading_row =
+                                column.row_at(*rect, (cursor.x, cursor.y), vertical);
+                        }
+                    }
+                    StripCell::WorkspacePager(_) => {
+                        if self.hovered_workspace_tick.is_none() {
+                            self.hovered_workspace_tick =
+                                crate::components::dock::bento::hit_test_workspace_rail(
+                                    *rect,
+                                    (cursor.x, cursor.y),
+                                    self.workspace_tick_count,
+                                    self.workspace_current,
+                                    vertical,
+                                );
+                        }
+                    }
+                }
+            }
+        }
+        if self.hovered_workspace_tick != prev_ws_tick
+            || self.hovered_reading_row != prev_reading_row
+        {
             self.anim_active = true;
             out.scene_changed = true;
         }
@@ -375,7 +397,6 @@ impl Chrome for Dock {
             over_hover_surface,
             (cursor.x, cursor.y),
             (disp.x, disp.y),
-            dt,
             position,
         );
 
@@ -491,7 +512,7 @@ impl Chrome for Dock {
     fn key_char(&mut self, key: &KeyChar, _out: &mut ChromeEvents) {
         if matches!(key_action(key.keysym, key.ch), KeyAction::Escape) {
             self.dismiss_transient_ui();
-            if self.effective_autohide() && self.autohide_reveal > 0.0 {
+            if self.effective_autohide() && self.autohide_reveal() > 0.0 {
                 self.request_dismiss();
                 self.anim_active = true;
             }
@@ -521,7 +542,7 @@ impl Chrome for Dock {
             self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold;
         let idle_counting = effective_autohide
             && !locked
-            && self.autohide_reveal > 0.001
+            && self.autohide_reveal() > 0.001
             && self.autohide_idle > 0.0
             && self.autohide_idle < idle_timeout;
         let drag_active = self.press.as_ref().is_some_and(|p| p.dragging);
@@ -535,6 +556,35 @@ impl Chrome for Dock {
         self.anim_active
             || idle_counting
             || self.motion.anim_pending(target, dwell_active, drag_active)
+    }
+
+    /// The dock answers for its own hover reaction with the footprint it already
+    /// publishes for its animations.
+    ///
+    /// Moving the pointer over the bar is the most common thing that happens to
+    /// a desktop, and everything it can change — a magnified tile, the name
+    /// bubble, a live preview, the context menu — is a region this component
+    /// already reports per frame through [`Chrome::damage_regions`]. Without
+    /// this answer the host has to treat "the pointer is over the dock" as "the
+    /// whole output may have changed", so a mouse crossing the bar repainted the
+    /// entire screen at the panel refresh rate.
+    ///
+    /// A held drag is the exception: it previews across the strip and can travel
+    /// to another screen edge, which the strip footprint does not contain. It
+    /// keeps the conservative full-output answer rather than claiming a bound it
+    /// cannot honour.
+    fn pointer_damage_regions(
+        &self,
+        _x: f32,
+        _y: f32,
+        display: (f32, f32),
+        windows: &[Window],
+        _workspaces: &WorkspaceSnapshot,
+    ) -> Option<Vec<Rect>> {
+        if self.press.as_ref().is_some_and(|press| press.dragging) {
+            return None;
+        }
+        self.damage_regions(windows, display)
     }
 
     fn damage_regions(&self, _windows: &[Window], display: (f32, f32)) -> Option<Vec<Rect>> {
@@ -615,7 +665,7 @@ impl Chrome for Dock {
         // Tooltips float above the hovered tile while their dwell fade runs;
         // a hover band reaching from the strip toward the screen centre is
         // wider than any tooltip, so it bounds the fade's footprint.
-        if self.tooltip_alpha > 0.001 && self.tooltip_tile.is_some() {
+        if self.tooltip_alpha() > 0.001 && self.tooltip_tile.is_some() {
             let band = match self.position {
                 DockPosition::Bottom => {
                     let y1 = display.1 - DOCK_EDGE_MARGIN;
@@ -664,7 +714,7 @@ impl Chrome for Dock {
                 self.app_menu.update(update);
             }
             ChromeUpdate::AppCatalog(catalog) => self.update_app_catalog(catalog),
-            ChromeUpdate::SystemStatus(_) => {}
+            ChromeUpdate::SystemStatus(status) => self.system_status = status.clone(),
             _ => {}
         }
     }
@@ -694,7 +744,7 @@ impl Chrome for Dock {
         }
         let rest = self.pointer_bounds(display);
         let effective_autohide = self.effective_autohide();
-        if effective_autohide && self.autohide_reveal <= 0.001 {
+        if effective_autohide && self.autohide_reveal() <= 0.001 {
             return Self::collapsed_indicator_contains(self.position, (x, y), display);
         }
         let rest_len = if self.position.is_vertical() {
@@ -703,7 +753,7 @@ impl Chrome for Dock {
             rest.w
         };
         let current_panel = if effective_autohide {
-            Self::collapsed_panel_rect(self.position, display, rest_len, self.autohide_reveal)
+            Self::collapsed_panel_rect(self.position, display, rest_len, self.autohide_reveal())
         } else {
             rest
         };
@@ -778,7 +828,7 @@ impl Dock {
         } else {
             0.0
         };
-        let bento = self.bento_cells();
+        let bento = self.strip_cells();
         let bar_len = crate::components::dock::bento::strip_length(
             eased.iter().copied(),
             &bento,
@@ -796,17 +846,17 @@ impl Dock {
             section_gap,
         );
         let surface_progress = if effective_autohide {
-            Self::collapse_surface_progress(self.autohide_reveal)
+            Self::collapse_surface_progress(self.autohide_reveal())
         } else {
             1.0
         };
         let content_progress = if effective_autohide {
-            Self::collapse_content_progress(self.autohide_reveal)
+            Self::collapse_content_progress(self.autohide_reveal())
         } else {
             1.0
         };
         let panel_rect = if effective_autohide {
-            Self::collapsed_panel_rect(position, display, bar_len, self.autohide_reveal)
+            Self::collapsed_panel_rect(position, display, bar_len, self.autohide_reveal())
         } else {
             Self::panel_rect_for(position, bar_len, display)
         };
@@ -871,8 +921,8 @@ impl Dock {
         if self.fullscreen_locked() {
             return;
         }
-        if (self.autohide_reveal - self.motion.reveal_value()).abs() > 0.002 {
-            self.motion.reveal = SpringState::new(self.autohide_reveal);
+        if (self.autohide_reveal() - self.motion.reveal_value()).abs() > 0.002 {
+            self.motion.reveal = SpringState::new(self.autohide_reveal());
         }
         let position = self.position;
         let effective_autohide = self.effective_autohide();
@@ -911,7 +961,7 @@ impl Dock {
             rest_bounds.w
         };
         let current_panel = if effective_autohide {
-            Self::collapsed_panel_rect(position, display, rest_len, self.autohide_reveal)
+            Self::collapsed_panel_rect(position, display, rest_len, self.autohide_reveal())
         } else {
             rest_bounds
         };
@@ -925,9 +975,9 @@ impl Dock {
         let capsule_entry = if self.collapse_pending
             || self.dismiss_latched
             || !effective_autohide
-            || self.autohide_reveal >= 0.2
+            || self.autohide_reveal() >= 0.2
         {
-            if self.autohide_reveal >= 0.2 {
+            if self.autohide_reveal() >= 0.2 {
                 self.autohide_dwell = 0.0;
             }
             false
@@ -954,7 +1004,7 @@ impl Dock {
         };
 
         let expanding = effective_autohide
-            && self.autohide_reveal > 0.001
+            && self.autohide_reveal() > 0.001
             && self.autohide_idle < idle_timeout
             && !self.collapse_pending
             && !self.dismiss_latched;
@@ -963,7 +1013,7 @@ impl Dock {
             && !self.dismiss_latched
             && (Self::pointer_keeps_revealed(
                 effective_autohide,
-                self.autohide_reveal,
+                self.autohide_reveal(),
                 capsule_entry,
                 cursor,
                 current_panel,
@@ -974,8 +1024,8 @@ impl Dock {
                 && Self::expanded_trigger_contains(position, cursor, rest_bounds, display)));
 
         let retreating = effective_autohide
-            && self.autohide_reveal > 0.001
-            && self.autohide_reveal < 0.999
+            && self.autohide_reveal() > 0.001
+            && self.autohide_reveal() < 0.999
             && detect_cursor_retreat(position, cursor, self.last_cursor, rest_bounds);
         self.last_cursor = Some(cursor);
 
@@ -992,7 +1042,7 @@ impl Dock {
             } else if retreating {
                 self.autohide_idle = self.autohide_timeout;
                 self.dismiss_latched = true;
-            } else if self.autohide_reveal > 0.001 {
+            } else if self.autohide_reveal() > 0.001 {
                 self.autohide_idle += dt;
             }
         }
@@ -1005,18 +1055,16 @@ impl Dock {
 
         self.motion
             .advance_reveal(target_reveal, dt, self.reduced_motion);
-        self.autohide_reveal = self.motion.reveal_value();
-        self.settled_drain_frames = self.motion.settled_drain_frames;
 
         if self.collapse_pending
             || self.dismiss_latched
-            || (effective_autohide && self.autohide_reveal < 0.2)
+            || (effective_autohide && self.autohide_reveal() < 0.2)
         {
             if self.hover_surface_bounds.is_some() || self.live_preview.is_some() {
                 self.dismiss_hover_surface();
             }
             self.tooltip_tile = None;
-            self.tooltip_alpha = 0.0;
+            self.reset_tooltip_fade();
         }
 
         let is_settled = !self.motion.reveal_animating(target_reveal);
@@ -1048,7 +1096,7 @@ impl Dock {
             let in_band = !self.collapse_pending
                 && !drag_active
                 && (over_rest_bounds || over_hover_surface)
-                && (!effective_autohide || self.autohide_reveal >= 0.2);
+                && (!effective_autohide || self.autohide_reveal() >= 0.2);
             let magnify_axis = Self::magnification_axis(
                 over_hover_surface,
                 over_rest_bounds,
@@ -1088,50 +1136,64 @@ impl Dock {
                 let drifting = (state.value - target).abs() > 0.15 || state.velocity.abs() > 0.5;
                 unsettled |= drifting;
             }
-            if !drag_active && self.tooltip_tile.is_some() {
-                let order: Vec<usize> = (0..n).collect();
-                let geometry =
-                    self.resolve_strip_geometry(&eased, &order, pinned_count, axis_disp, display);
-                let hit = hit_test_tiles(
-                    cursor,
-                    rest_bounds,
-                    geometry.panel_rect,
-                    geometry.content_progress,
-                    &geometry.icon_rects,
-                    vertical,
-                );
-                let hovered_tile = hit.map(|i| tile_keys[i].as_str()).or_else(|| {
-                    over_hover_surface
-                        .then_some(self.tooltip_tile.as_deref())
-                        .flatten()
-                });
-                if menu_open || hovered_tile != self.tooltip_tile.as_deref() {
-                    if let Some(bounds) = self.hover_surface_bounds.take() {
-                        Self::record_hover_surface_damage(
-                            &mut self.hover_damage_rect,
-                            &mut self.hover_drain_frames,
-                            bounds,
-                        );
-                    }
-                    self.tooltip_tile = None;
-                    self.tooltip_alpha = 0.0;
-                    self.live_preview = None;
-                    self.hover_owner_bounds = None;
-                    self.hovered_preview = None;
-                }
-            }
+            // The bubble's owner is released by `render`, which is the pass that
+            // knows where the tiles were painted (see the note on the dwell
+            // timer below). Nothing here may re-run the hit test: a second
+            // resolution from a second copy of the geometry disagreed with the
+            // painted frame and released the bubble the moment it appeared.
             if self.was_magnific_animating && !unsettled {
                 self.motion.settled_drain_frames = SETTLED_DRAIN_FRAMES;
-                self.settled_drain_frames = SETTLED_DRAIN_FRAMES;
             }
             self.was_magnific_animating = unsettled;
             self.sizes_stepped_in_prepass = true;
         }
 
+        // Advance the dwell and the bubble's fade in the pre-pass, not in
+        // `render`: they are *time*, and `anim_active` is recomputed here before
+        // the damage assessment reads it, so an `|=` written during the previous
+        // `render` never reaches the frame clock.
+        //
+        // Which tile is hovered is deliberately **not** resolved here. The hit
+        // test needs the frame's painted geometry, and the dock resolves that
+        // geometry twice: once in this pre-pass (for the springs and the damage
+        // envelope) and once in `render` (for the paint). Those two resolutions
+        // must agree, and until they share one source they do not, so the hover
+        // is resolved by the pass that actually paints. The timer below is the
+        // part that has to be here, because the clock reads it here.
+        if !self.app_menu.is_open() {
+            if self.hovered_tile.is_some() {
+                self.hover_elapsed += dt;
+            }
+            let wants_tooltip = self.hovered_tile.is_some() && self.hover_elapsed >= TOOLTIP_DWELL;
+            if wants_tooltip {
+                self.dock_interacted = true;
+                self.tooltip_tile.clone_from(&self.hovered_tile);
+            }
+            let target = if wants_tooltip { 1.0 } else { 0.0 };
+            self.motion.advance_tooltip(target, dt, self.reduced_motion);
+            if target == 0.0 && self.tooltip_alpha() < 0.01 {
+                self.motion.tooltip_alpha = 0.0;
+                self.tooltip_tile = None;
+            }
+        }
+
         let dwell_active =
             self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold;
-        self.anim_active = !is_settled || unsettled || dwell_active || drag_active;
-        self.motion.anim_active = self.anim_active;
+        let tooltip_waiting = self.hovered_tile.is_some() && self.hover_elapsed < TOOLTIP_DWELL;
+        let tooltip_fading = {
+            let target = if self.tooltip_tile.is_some() {
+                1.0
+            } else {
+                0.0
+            };
+            (target - self.tooltip_alpha()).abs() > 0.01
+        };
+        self.anim_active = !is_settled
+            || unsettled
+            || dwell_active
+            || drag_active
+            || tooltip_waiting
+            || tooltip_fading;
     }
 
     /// Whether a sub-interaction the user started is holding the dock open.
@@ -1155,14 +1217,89 @@ impl Dock {
         dragging || self.app_menu.is_open() || self.press.is_some()
     }
 
-    /// The Bento reading section's rect: the leading cells of the bar's content
-    /// row, on the bar's own baseline.
+    /// The bar's inner baseline: the edge icons grow away from.
     ///
-    /// The reading occupies the section the strip geometry reserved for it, so
-    /// the paint and the layout cannot disagree about where it ends and the
-    /// first icon begins.
+    /// Icons are anchored to the baseline strip on the panel's inner side and
+    /// grow toward the screen centre; as content drains into the collapsed
+    /// handle they converge on the same edge-centre sink as the panel and their
+    /// size reaches zero before the stadium settles.
+    fn icon_baseline_for(position: DockPosition, panel_rect: Rect, content_progress: f32) -> f32 {
+        match position {
+            DockPosition::Bottom => {
+                panel_rect.y + panel_rect.h - DOCK_BASELINE_INSET * content_progress
+            }
+            DockPosition::Left => panel_rect.x + DOCK_BASELINE_INSET * content_progress,
+            DockPosition::Right => {
+                panel_rect.x + panel_rect.w - DOCK_BASELINE_INSET * content_progress
+            }
+        }
+    }
+
+    /// The leading cells' rects, in strip order, on the bar's own baseline.
+    ///
+    /// Each cell occupies the span the strip geometry reserved for it, so the
+    /// paint and the layout cannot disagree about where the leading section ends
+    /// and the first icon begins. The reading column and the pager have the same
+    /// outer shape — one span of length, a resting tile of thickness — and differ
+    /// only in what they draw inside, which is why one resolver serves both.
+    pub(super) fn leading_cell_rects(
+        &self,
+        geometry: &StripGeometry,
+        vertical: bool,
+    ) -> Vec<(StripCell, Rect)> {
+        let cells = self.strip_cells();
+        if cells.is_empty() || geometry.content_progress <= 0.001 {
+            return Vec::new();
+        }
+        let start = if vertical {
+            geometry.panel_rect.y + DOCK_PAD
+        } else {
+            geometry.panel_rect.x + DOCK_PAD
+        };
+        place_leading_cells(
+            cells,
+            self.position,
+            geometry.icon_baseline,
+            DOCK_TILE,
+            start,
+            geometry.content_progress,
+        )
+    }
+
+    /// The leading cells' rects at rest, for callers and tests that need to know
+    /// where a cell is without running a frame.
+    ///
+    /// The geometry comes from the same placement rule the frame uses, so a test
+    /// asserting a reading's position cannot pass on arithmetic the paint does
+    /// not perform.
+    #[must_use]
+    pub fn rest_leading_cells(&self, display: (f32, f32)) -> Vec<(StripCell, Rect)> {
+        let panel = self.visual_panel_bounds(display);
+        let vertical = self.position.is_vertical();
+        let baseline = Self::icon_baseline_for(self.position, panel, 1.0);
+        let start = if vertical {
+            panel.y + DOCK_PAD
+        } else {
+            panel.x + DOCK_PAD
+        };
+        place_leading_cells(
+            self.strip_cells(),
+            self.position,
+            baseline,
+            DOCK_TILE,
+            start,
+            1.0,
+        )
+    }
+
+    /// The Bento reading section's rect: one box spanning every leading cell.
+    ///
+    /// Kept for callers that need the section as a single object (the damage
+    /// envelope); the paint places each cell separately through
+    /// [`Dock::leading_cell_rects`], because a row hit test inside the reading
+    /// column needs the cell's own rect, not the union.
     pub(super) fn bento_rect(&self, geometry: &StripGeometry, vertical: bool) -> Option<Rect> {
-        let cells = self.bento_cells();
+        let cells = self.strip_cells();
         if cells.is_empty() || geometry.content_progress <= 0.001 {
             return None;
         }
@@ -1219,7 +1356,7 @@ impl Dock {
             expanded.w
         };
         Some(if self.effective_autohide() {
-            Self::collapsed_panel_rect(self.position, display, expanded_len, self.autohide_reveal)
+            Self::collapsed_panel_rect(self.position, display, expanded_len, self.autohide_reveal())
         } else {
             expanded
         })
@@ -1235,7 +1372,7 @@ impl Dock {
     pub(super) fn body_material(&self, display: (f32, f32)) -> Option<(Rect, LayoutOpts)> {
         let bounds = self.body_rect(display)?;
         let surface_progress = if self.effective_autohide() {
-            Self::collapse_surface_progress(self.autohide_reveal)
+            Self::collapse_surface_progress(self.autohide_reveal())
         } else {
             1.0
         };
@@ -1255,7 +1392,7 @@ impl Dock {
     #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn hover_body_material(&self) -> Option<(Rect, LayoutOpts)> {
         let bounds = self.hover_surface_bounds?;
-        if self.tooltip_alpha <= 0.01 || bounds.w <= 0.0 || bounds.h <= 0.0 {
+        if self.tooltip_alpha() <= 0.01 || bounds.w <= 0.0 || bounds.h <= 0.0 {
             return None;
         }
         let design = self.design;
@@ -1345,6 +1482,79 @@ pub(super) fn snapped_hairline(center: f32, scale: f32) -> (f32, f32) {
 /// Nearest-tile hit test along the strip axis (`vertical` picks y for a
 /// side dock, x for a bottom dock). Gated by the resting bounds, the live
 /// panel, and the content drain, so collapsed geometry owns no tiles.
+/// Lay the leading cells out along the strip, one span each.
+///
+/// Pure and shared by the paint, the row hit test, and the resting-geometry
+/// helper, so those three cannot compute different positions for the same cell.
+pub(super) fn place_leading_cells(
+    cells: Vec<StripCell>,
+    position: DockPosition,
+    icon_baseline: f32,
+    tile_thickness: f32,
+    axis_start: f32,
+    content_progress: f32,
+) -> Vec<(StripCell, Rect)> {
+    let thickness = tile_thickness * content_progress;
+    if thickness <= 0.0 {
+        return Vec::new();
+    }
+    let mut cursor = axis_start;
+    let mut rects = Vec::with_capacity(cells.len());
+    let mut placed = false;
+    for cell in cells {
+        let span = cell.rest_width() * content_progress;
+        if span <= 0.0 {
+            continue;
+        }
+        if placed {
+            cursor += DOCK_TILE_GAP * content_progress;
+        }
+        let rect = match position {
+            DockPosition::Left => Rect {
+                x: icon_baseline,
+                y: cursor,
+                w: thickness,
+                h: span,
+            },
+            DockPosition::Right => Rect {
+                x: icon_baseline - thickness,
+                y: cursor,
+                w: thickness,
+                h: span,
+            },
+            DockPosition::Bottom => Rect {
+                x: cursor,
+                y: icon_baseline - thickness,
+                w: span,
+                h: thickness,
+            },
+        };
+        cursor += span;
+        placed = true;
+        rects.push((cell, rect));
+    }
+    rects
+}
+
+/// Which tile the pointer is over, with hysteresis so a resting pointer has a
+/// stable answer.
+///
+/// `previous` is the tile the last frame reported. It is not an optimization:
+/// it is what makes the function a *function*. Two neighbouring tiles are
+/// magnified to the same size around a pointer that sits at their midpoint, so
+/// their centres are equidistant to within float noise. Without hysteresis the
+/// winner is decided by which side the noise fell on that frame, and the answer
+/// alternates. Everything downstream treats a hover *change* as a discrete
+/// event — it restarts the name bubble's 0.3 s dwell, releases the previous
+/// tile's popover, and requests a repaint — so an alternating answer means the
+/// dwell is restarted every other frame and the bubble never appears at all
+/// (ADR-0177, ADR-0217). The measured symptom was a bubble that took 121 frames
+/// to fade in where its own dwell is 36.
+///
+/// The incumbent therefore wins every tie within [`HIT_HYSTERESIS_PX`]. A real
+/// move — the pointer travelling further than that toward another tile — still
+/// changes the answer, because the challenger has to be *meaningfully* closer,
+/// not merely closer.
 pub(super) fn hit_test_tiles(
     cursor: (f32, f32),
     rest_bounds: Rect,
@@ -1352,6 +1562,7 @@ pub(super) fn hit_test_tiles(
     content_progress: f32,
     icon_rects: &[Rect],
     vertical: bool,
+    previous: Option<usize>,
 ) -> Option<usize> {
     let contains = |rect: Rect| {
         cursor.0 >= rect.x
@@ -1376,10 +1587,36 @@ pub(super) fn hit_test_tiles(
         } else {
             rect.x + rect.w * 0.5
         };
-        let half = rect.w * 0.5 + DOCK_TILE_GAP * content_progress * 0.5;
+        // A tile's hit reach is half the widest the tile can become, plus half
+        // the gap. It is a constant of the layout, not a function of any frame.
+        //
+        // Two requirements pull in opposite directions and the fixed point
+        // between them is "no feedback":
+        //
+        // - The reach must cover the *painted* tile. Two magnified tiles sit
+        //   ~10 px apart, and a pointer in that band is over the pair; sizing
+        //   from the resting `DOCK_TILE` leaves the band dead.
+        // - The reach must not depend on the size this frame paints. That size
+        //   is an output of the hover, so a reach derived from it chases the
+        //   pointer into the seam (ADR-0177).
+        //
+        // `DOCK_TILE_MAX` is the ceiling the magnification spring is clamped to,
+        // so half of it covers every size the tile can ever paint, and it is a
+        // constant — so the hit cannot feed back into it.
+        let half = DOCK_TILE_MAX * 0.5 + DOCK_TILE_GAP * 0.5;
         let distance = (cursor_axis - centre).abs();
-        if distance <= half && distance < best {
-            best = distance;
+        if distance > half {
+            continue;
+        }
+        // Hysteresis: the incumbent's distance is discounted, so a challenger
+        // has to be clearly nearer to take the hover away.
+        let scored = if Some(i) == previous {
+            distance - HIT_HYSTERESIS_PX
+        } else {
+            distance
+        };
+        if scored < best {
+            best = scored;
             hit = Some(i);
         }
     }
@@ -1438,9 +1675,10 @@ fn mix_channel(collapsed: u8, expanded: u8, progress: f32) -> u8 {
 }
 
 fn collapsing_radius(design: &Design, surface_progress: f32, height: f32) -> f32 {
+    let surface_progress = surface_progress.clamp(0.0, 1.0);
     let radius = AUTOHIDE_HANDLE_HEIGHT * 0.5
-        + (design.radii.glass_panel - AUTOHIDE_HANDLE_HEIGHT * 0.5) * surface_progress;
-    radius.min(height * 0.5)
+        + (design.radii.panel_lg - AUTOHIDE_HANDLE_HEIGHT * 0.5) * surface_progress;
+    radius.min((height * 0.5).max(0.0)).max(0.0)
 }
 
 /// Straight (unpremultiplied) channels of a palette colour.
@@ -1927,7 +2165,7 @@ impl Dock {
         self.hovered_tile = None;
         self.hover_elapsed = 0.0;
         self.tooltip_tile = None;
-        self.tooltip_alpha = 0.0;
+        self.reset_tooltip_fade();
         if let Some(bounds) = self.hover_surface_bounds.take() {
             Self::record_hover_surface_damage(
                 &mut self.hover_damage_rect,
@@ -1991,6 +2229,9 @@ impl Dock {
                             &tile.key == key && !tile.pinned && tile.pin_entry.is_some()
                         }),
                         PressTarget::WorkspaceTick(_) => false,
+                        // A reading is a shortcut, not a control: it never
+                        // becomes a drag, so the press cannot reorder anything.
+                        PressTarget::ReadingRow(_) => false,
                     };
                 }
                 if press.dragging {
@@ -2091,6 +2332,9 @@ impl Dock {
                                 _ => keep_press = false,
                             }
                         }
+                        // A reading never drags; the press stays a pending click
+                        // so its release can open the owning surface.
+                        PressTarget::ReadingRow(_) => {}
                     }
                 }
             }
@@ -2174,7 +2418,7 @@ impl Dock {
                                 self.pending_order = Some(ids);
                             }
                         }
-                        PressTarget::WorkspaceTick(_) => {}
+                        PressTarget::WorkspaceTick(_) | PressTarget::ReadingRow(_) => {}
                     }
                 }
             } else if keep_press {
@@ -2282,7 +2526,6 @@ impl Dock {
         if !prestepped {
             if self.was_magnific_animating && !unsettled {
                 self.motion.settled_drain_frames = SETTLED_DRAIN_FRAMES;
-                self.settled_drain_frames = SETTLED_DRAIN_FRAMES;
             }
             self.was_magnific_animating = unsettled;
         }
@@ -2382,13 +2625,15 @@ impl Dock {
                     // into the rounded corner region (and outside the bar)
                     // on the first or last tile. On a side dock the strip —
                     // and the stadium's long axis — is vertical.
-                    let dot_long = if t.windows.len() > 1 {
+                    let dot_long = (if t.windows.len() > 1 {
                         DOCK_DOT_STADIUM
                     } else {
                         DOCK_DOT
-                    } * content_progress;
-                    let dot_thick = DOCK_DOT * content_progress;
-                    let strip_span = DOCK_BASELINE_INSET.max(DOCK_DOT) * content_progress;
+                    } * content_progress)
+                        .max(0.0);
+                    let dot_thick = (DOCK_DOT * content_progress).max(0.0);
+                    let strip_span =
+                        (DOCK_BASELINE_INSET.max(DOCK_DOT) * content_progress).max(0.0);
                     let dot_rect = match position {
                         DockPosition::Bottom => Rect {
                             x: cx - dot_long * 0.5,
@@ -2443,7 +2688,7 @@ impl Dock {
             let divider_axis =
                 axis_disp * 0.5 + (divider_axis - axis_disp * 0.5) * content_progress;
             let (divider_center, divider_thick) = snapped_hairline(divider_axis, self.scale);
-            let divider_len = DOCK_TILE * 0.55 * content_progress;
+            let divider_len = (DOCK_TILE * 0.55 * content_progress).max(0.0);
             let divider_rect = match position {
                 DockPosition::Bottom => Rect {
                     x: divider_center - divider_thick * 0.5,
@@ -2525,7 +2770,7 @@ impl Dock {
             self.hovered_tile = None;
             self.hover_elapsed = 0.0;
             self.tooltip_tile = None;
-            self.tooltip_alpha = 0.0;
+            self.reset_tooltip_fade();
             if let Some(bounds) = self.hover_surface_bounds.take() {
                 Self::record_hover_surface_damage(
                     &mut self.hover_damage_rect,
@@ -2542,7 +2787,14 @@ impl Dock {
         // reorder drag; a press on empty panel space may become an edge
         // drag. Anything else stays a pending click.
         if pressed_edge && !menu_was_open && !clicked_preview && self.press.is_none() {
-            if let Some(ws_idx) = self.hovered_workspace_tick {
+            if let Some(row) = self.hovered_reading_row {
+                // A reading is a shortcut, not a control. The press is released
+                // immediately as "open the surface that owns the reading": it
+                // must not toggle, and it must not drag.
+                out.open_control_center = true;
+                let _ = row;
+                self.dock_interacted = true;
+            } else if let Some(ws_idx) = self.hovered_workspace_tick {
                 self.press = Some(PressState {
                     origin: (cursor.x, cursor.y),
                     target: PressTarget::WorkspaceTick(ws_idx),
@@ -2607,7 +2859,9 @@ impl Dock {
                     PressTarget::PinnedTile(key) | PressTarget::OtherTile(key) => {
                         key == &tiles[i].key
                     }
-                    PressTarget::Panel | PressTarget::WorkspaceTick(_) => false,
+                    PressTarget::Panel
+                    | PressTarget::WorkspaceTick(_)
+                    | PressTarget::ReadingRow(_) => false,
                 };
                 if pressed_this_tile {
                     self.dock_interacted = true;
@@ -2670,7 +2924,6 @@ impl Dock {
         over_hover_surface: bool,
         cursor: (f32, f32),
         disp: (f32, f32),
-        dt: f32,
         position: DockPosition,
     ) {
         let cursor = Point2D {
@@ -2681,6 +2934,33 @@ impl Dock {
             x: disp.0,
             y: disp.1,
         };
+        // `hovered_tile` and `hover_elapsed` are owned by `prepare_frame`, which
+        // resolves the hit test against the geometry this frame paints and
+        // advances the dwell on the schedule the frame clock reads (ADR-0171
+        // Rule 1). This function paints the consequence: when the pre-pass says
+        // the hover moved, the bubble and the preview belonging to the old tile
+        // are released here.
+        //
+        // Writing `hovered_tile` here as well was the defect. `render` runs one
+        // phase after the dwell advanced, so the two resolutions disagreed for a
+        // frame at a time, each disagreement restarted the 0.3 s dwell, and a
+        // resting pointer needed over a second to raise a bubble that is due at
+        // 0.3 s.
+        // `render` is the writer: it is the pass that knows where the tiles were
+        // painted this frame. The dwell and the fade are advanced in
+        // `prepare_frame`, where the clock reads them (ADR-0217).
+        //
+        // The fallback to the popover's owner is the **bridge**: once a tile has
+        // raised a popover, the pointer has to be able to travel from the tile
+        // into the popover without the hover being lost on the way, or the
+        // popover (a live preview especially) is unreachable. `hover_surface_
+        // contains` reports the popover and the air gap above the bar, and while
+        // the pointer is in that region the owner stays the hover.
+        //
+        // This fallback is not what made the hover oscillate: that was the
+        // `hit_test_tiles` tie between two equally-magnified neighbours, which
+        // `HIT_HYSTERESIS_PX` settles. Keeping the fallback and adding the
+        // hysteresis are independent, and both are required.
         let hovered_tile = hit.map(|i| tiles[i].key.clone()).or_else(|| {
             over_hover_surface
                 .then(|| self.tooltip_tile.clone())
@@ -2690,7 +2970,7 @@ impl Dock {
             self.hovered_tile = hovered_tile;
             self.hover_elapsed = 0.0;
             self.tooltip_tile = None;
-            self.tooltip_alpha = 0.0;
+            self.reset_tooltip_fade();
             if let Some(bounds) = self.hover_surface_bounds.take() {
                 Self::record_hover_surface_damage(
                     &mut self.hover_damage_rect,
@@ -2701,13 +2981,11 @@ impl Dock {
             self.live_preview = None;
             self.hover_owner_bounds = None;
             self.hovered_preview = None;
-        } else if self.hovered_tile.is_some() && !self.app_menu.is_open() {
-            self.hover_elapsed += dt;
         }
 
         if self.app_menu.is_open() {
             self.tooltip_tile = None;
-            self.tooltip_alpha = 0.0;
+            self.reset_tooltip_fade();
             if let Some(bounds) = self.hover_surface_bounds.take() {
                 Self::record_hover_surface_damage(
                     &mut self.hover_damage_rect,
@@ -2718,28 +2996,13 @@ impl Dock {
             self.live_preview = None;
             self.hover_owner_bounds = None;
             self.hovered_preview = None;
-        } else {
-            let wants_tooltip = self.hovered_tile.is_some() && self.hover_elapsed >= TOOLTIP_DWELL;
-            if wants_tooltip {
-                self.dock_interacted = true;
-                self.tooltip_tile.clone_from(&self.hovered_tile);
-            }
-            let target = if wants_tooltip { 1.0 } else { 0.0 };
-            self.tooltip_alpha = crate::widgets::motion::approach(
-                self.tooltip_alpha,
-                target,
-                TOOLTIP_FADE_SPEED,
-                dt,
-                self.reduced_motion,
-            );
-            if target == 0.0 && self.tooltip_alpha < 0.01 {
-                self.tooltip_alpha = 0.0;
-                self.tooltip_tile = None;
-            }
-            let waiting = self.hovered_tile.is_some() && self.hover_elapsed < TOOLTIP_DWELL;
-            let fading = (target - self.tooltip_alpha).abs() > 0.01;
-            self.anim_active |= waiting || fading;
         }
+        // The bubble's dwell and fade are advanced in `prepare_frame`, before
+        // the damage assessment runs (ADR-0217). Advancing them here could not
+        // work: `prepare_frame` recomputes `anim_active` on the next frame
+        // before anything reads it, so an `|=` written in `render` is
+        // unreachable, and the timer gating the bubble never advanced when
+        // nothing else was moving.
 
         if let Some((index, tile)) = self
             .tooltip_tile
@@ -2761,7 +3024,7 @@ impl Dock {
                     &tile.label,
                     owner,
                     (disp.x, disp.y),
-                    self.tooltip_alpha,
+                    self.tooltip_alpha(),
                     side,
                 );
                 self.hover_surface_bounds = Some(rect);
@@ -2772,14 +3035,14 @@ impl Dock {
                 );
                 self.live_preview = None;
                 self.hovered_preview = None;
-                render_tooltip(f, &self.design, &tile.label, rect, self.tooltip_alpha);
+                render_tooltip(f, &self.design, &tile.label, rect, self.tooltip_alpha());
             } else {
                 let mut presentation = live_preview_layout(
                     &self.design,
                     (disp.x, disp.y),
                     owner,
                     &tile.windows,
-                    self.tooltip_alpha,
+                    self.tooltip_alpha(),
                     position,
                 );
                 let panel_rect = to_lens_rect(presentation.panel);

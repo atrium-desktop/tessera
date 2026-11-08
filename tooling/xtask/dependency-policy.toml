@@ -2,12 +2,12 @@
 # Review changes here alongside the owning package manifest.
 
 [tessera]
-normal = ["flux", "flux-sys", "image", "include_dir", "lens", "lens-sys", "libc", "log", "prism", "prism-sys", "serde", "serde_json", "sha2", "tessera-audit", "tessera-authority", "tessera-cast", "tessera-cli", "tessera-composite", "tessera-config", "tessera-design", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-launch-services", "tessera-platform", "tessera-primitives", "tessera-protocol", "tessera-sched", "tessera-shell", "tessera-wallpaper", "tessera-wayland", "tracing", "transit", "transit-sys", "vista-sys", "zbus", "zeroize"]
+normal = ["flux", "flux-sys", "image", "include_dir", "lens", "lens-sys", "libc", "log", "serde", "serde_json", "sha2", "svg", "svg-sys", "tessera-audit", "tessera-authority", "tessera-cast", "tessera-cli", "tessera-composite", "tessera-config", "tessera-design", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-launch-services", "tessera-platform", "tessera-primitives", "tessera-protocol", "tessera-sched", "tessera-shell", "tessera-wallpaper", "tessera-wayland", "tracing", "transit-sys", "vista-sys", "zbus", "zeroize"]
 build = []
-dev = ["tempfile", "tessera-desktop", "tessera-ipc", "tessera-protocol", "tessera-shell"]
+dev = ["flate2", "tempfile", "tessera-desktop", "tessera-ipc", "tessera-protocol", "tessera-shell"]
 
 [tessera-launch-services]
-normal = ["libc", "log", "tessera-desktop", "tessera-i18n", "tessera-sched", "thiserror"]
+normal = ["flate2", "libc", "log", "tessera-desktop", "tessera-i18n", "tessera-sched", "thiserror"]
 build = []
 dev = ["tempfile"]
 
@@ -107,9 +107,9 @@ build = []
 dev = []
 
 [tessera-shell]
-normal = ["flux", "flux-sys", "image", "include_dir", "lens", "lens-sys", "libc", "log", "tessera-authority", "tessera-avatar", "tessera-design", "tessera-desktop", "tessera-i18n", "tessera-launch-services", "tessera-primitives", "thiserror", "transit", "transit-sys", "vista-sys", "zbus", "zeroize"]
+normal = ["flux", "flux-sys", "image", "include_dir", "lens", "lens-sys", "libc", "log", "svg", "svg-sys", "tessera-authority", "tessera-avatar", "tessera-design", "tessera-desktop", "tessera-i18n", "tessera-launch-services", "tessera-primitives", "thiserror", "transit", "transit-sys", "vista-sys", "zbus", "zeroize"]
 build = []
-dev = []
+dev = ["flate2"]
 
 [tessera-wallpaper]
 normal = ["flux", "flux-sys", "image", "log", "tessera-sched", "thiserror", "transit", "vista", "vista-sys"]

@@ -25,7 +25,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # Match rust-toolchain.toml exactly; @stable would silently test a
+      # different compiler than the one contributors and releases use.
+      - uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: rustfmt, clippy
       - name: Set up sccache
@@ -74,7 +76,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.97.1
       - name: Set up sccache
         uses: mozilla-actions/sccache-action@v0.0.9
       - name: Install system dependencies
@@ -110,7 +112,7 @@ jobs:
           repository: ming2k/optics
           path: optics
           ref: ${{ steps.optics-release.outputs.ref }}
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.97.1
       - name: Set up sccache
         uses: mozilla-actions/sccache-action@v0.0.9
       - name: Install system dependencies
@@ -135,7 +137,7 @@ jobs:
           meson compile -C optics/build
           sudo meson install -C optics/build
           sudo ldconfig
-          pkg-config --modversion flux vista lens iris
+          pkg-config --modversion flux vista lens iris svg
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest

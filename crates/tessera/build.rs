@@ -12,6 +12,7 @@ fn main() {
     // them the intended link-search precedence.
     for var in [
         "DEP_LENS_RPATHS",
+        "DEP_SVG_RPATHS",
         "DEP_FLUX_RPATHS",
         "DEP_VISTA_RPATHS",
         "DEP_PRISM_RPATHS",
@@ -29,6 +30,7 @@ fn main() {
         "DEP_FLUX_RPATHS",
         "DEP_VISTA_RPATHS",
         "DEP_LENS_RPATHS",
+        "DEP_SVG_RPATHS",
         "DEP_PRISM_RPATHS",
         "DEP_TRANSIT_RPATHS",
     ] {

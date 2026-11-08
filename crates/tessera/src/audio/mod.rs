@@ -10,7 +10,7 @@
 //! ADR-0159 (package boundaries follow capabilities) retains a package only for
 //! a concrete dependency, build, or delivery boundary. Audio has none: it links
 //! no client library, delivers no binary, and its only platform interaction is
-//! short-lived CLI probes through [`crate::host_command`]. The dependency
+//! short-lived CLI probes through `crate::host_command`. The dependency
 //! firewall would gain a manifest and lose nothing. The shape here therefore
 //! mirrors `wireless` and `bluetooth` — a `Backend` trait, one parse seam that
 //! is testable against a captured document, a mock for deterministic tests and

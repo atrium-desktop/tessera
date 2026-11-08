@@ -61,7 +61,7 @@ from physical size) and are then editable.
 model ([ADR-0025](0025-workspace-model.md)); the output model provides the
 stable output id and the presence/absence events that drive it.
 
-The backend trait ([`aegis-backend`](../../crates/aegis-backend)) gains a
+The backend trait ([`tessera-platform`](../../crates/tessera-platform)) gains a
 multi-output surface: the nested backend exposes one output (the host
 window) and the DRM/KMS backend exposes one per connected connector. Both
 satisfy the same `Output` contract, so the server, renderer, and shell are

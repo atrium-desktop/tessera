@@ -188,7 +188,8 @@ pub fn mod_from_name(s: &str) -> Option<Mods> {
 
 pub fn action_from_name(s: &str) -> Option<Action> {
     Some(match s.to_ascii_lowercase().as_str() {
-        "pivot" | "togglepivot" => Action::TogglePivot,
+        "pivot" | "togglepivot" | "prism" | "toggleprism" | "spotlight" | "launcher"
+        | "togglelauncher" | "apps" => Action::TogglePivot,
         "overview" | "toggleoverview" => Action::ToggleOverview,
         "control_center" | "controlcenter" => Action::ToggleControlCenter,
         "close" | "closefocused" => Action::CloseFocused,
@@ -394,6 +395,28 @@ mod tests {
     fn pivot_action_accepts_documented_names() {
         assert_eq!(action_from_name("pivot"), Some(Action::TogglePivot));
         assert_eq!(action_from_name("togglepivot"), Some(Action::TogglePivot));
+    }
+
+    /// Every alias the reference documents resolves, so a user who writes the
+    /// name they read in the manual gets the action they expect.
+    #[test]
+    fn documented_pivot_aliases_resolve() {
+        for name in [
+            "pivot",
+            "togglepivot",
+            "prism",
+            "toggleprism",
+            "spotlight",
+            "launcher",
+            "togglelauncher",
+            "apps",
+        ] {
+            assert_eq!(
+                action_from_name(name),
+                Some(Action::TogglePivot),
+                "documented alias `{name}` must resolve"
+            );
+        }
     }
 
     #[test]

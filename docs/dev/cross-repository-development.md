@@ -117,7 +117,6 @@ without dirtying version control:
 flux = { path = "../optics/bindings/flux-rs/crates/flux" }
 flux-sys = { path = "../optics/bindings/flux-rs/crates/flux-sys" }
 lens = { path = "../optics/bindings/lens-rs/crates/lens" }
-prism = { path = "../optics/bindings/prism-rs/crates/prism" }
 iris = { path = "../optics/bindings/iris-rs/crates/iris" }
 ```
 

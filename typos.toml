@@ -35,6 +35,10 @@ wayland-protocols = "wayland-protocols"
 damagetracking = "damagetracking"
 wireformat = "wireformat"
 xdg = "xdg"
+# `iif` is the nftables input-interface matcher and `EIT` is the MPEG transport
+# stream Event Information Table: both are protocol keywords, not misspellings.
+iif = "iif"
+EIT = "EIT"
 
 [files]
 extend-exclude = [

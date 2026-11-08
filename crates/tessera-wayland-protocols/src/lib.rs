@@ -177,4 +177,8 @@ unsafe extern "C" {
     // xdg-toplevel-drag-v1
     pub static xdg_toplevel_drag_manager_v1_interface: wl_interface;
     pub static xdg_toplevel_drag_v1_interface: wl_interface;
+
+    // tearing-control-v1
+    pub static wp_tearing_control_manager_v1_interface: wl_interface;
+    pub static wp_tearing_control_v1_interface: wl_interface;
 }

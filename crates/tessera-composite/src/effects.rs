@@ -15,7 +15,7 @@
 //!   image.
 //!
 //! The boundary rule is therefore stated once, here: a consumer that composites
-//! an effect output through a canvas pass calls [`materialize_effect_output`]
+//! an effect output through a canvas pass calls `materialize_effect_output`
 //! at the pass boundary where it applied the filter, which requires the
 //! producer and executes it immediately. Passes are executed at a boundary and
 //! only at a boundary, so this call is legal exactly where `apply` was.

@@ -80,6 +80,10 @@ pub fn panel(design: &Design) -> LayoutOpts {
 /// area rather than to a sampling radius. The steps are ordered outermost
 /// first, so a caller places them beneath the body in iteration order.
 ///
+/// Reach is capped by the body's own thickness: see the comment inside. A body
+/// that is not thicker than twice the nominal blur would otherwise be
+/// surrounded by a painted ring instead of lifted above a shadow.
+///
 /// Returns an empty list for a role that does not float (a tile sits on a
 /// panel canvas and must not cast).
 #[must_use]
@@ -89,6 +93,29 @@ pub fn elevation_halo(
     bounds: Rect,
     opacity: f32,
 ) -> Vec<(Rect, LayoutOpts)> {
+    elevation_halo_for_body(
+        design,
+        role,
+        bounds,
+        design.surfaces.for_role(role).radius,
+        opacity,
+    )
+}
+
+/// [`elevation_halo`] for a body whose corner radius is its own.
+///
+/// A role's styled radius is the radius at rest. A body that morphs — the dock
+/// capsule is a 2 px stadium at rest and an 18 px panel expanded — has to cast
+/// the silhouette it is actually painting, or the halo reads as a second,
+/// differently-shaped object behind it.
+#[must_use]
+pub fn elevation_halo_for_body(
+    design: &Design,
+    role: SurfaceRole,
+    bounds: Rect,
+    body_radius: f32,
+    opacity: f32,
+) -> Vec<(Rect, LayoutOpts)> {
     if !role.floats() {
         return Vec::new();
     }
@@ -96,20 +123,37 @@ pub fn elevation_halo(
     if style.shadow_alpha <= 0.0 || style.shadow_blur <= 0.0 || opacity <= 0.0 {
         return Vec::new();
     }
-    let opacity = opacity.clamp(0.0, 1.0);
+    // A halo is the silhouette of the body that casts it, pushed outward, so it
+    // can never be larger than that body. A body thinner than twice the nominal
+    // blur cannot own the full reach: the dock's collapsed capsule is 4 px tall,
+    // and a 12 px halo around it reached six times the capsule's own thickness
+    // on every side. That does not read as elevation underneath the pill, it
+    // reads as a dark painted ring around it — and it is why a parked dock had a
+    // grey outline that the hairline alone cannot explain.
+    //
+    // Reach and offset shrink together, in proportion, so the halo stays a
+    // contact shadow *of the same shape* rather than a taller body with a
+    // misplaced shadow: at 4 px the capsule gets a 2 px skirt one pixel below
+    // itself, and the expanded 74 px bar is past the cap and keeps its full
+    // reach.
+    let thickness = bounds.w.min(bounds.h);
+    if thickness <= 0.0 {
+        return Vec::new();
+    }
+    let reach_scale = (thickness * 0.5 / style.shadow_blur).min(1.0);
     // Two steps, each reaching a fraction of the nominal blur: the wider step
     // is fainter so the pair reads as a gradient rather than as two rings.
     let steps = [(1.0, 0.38_f32), (0.55, 0.42_f32)];
     steps
         .iter()
         .map(|(reach, share)| {
-            let spread = style.shadow_blur * reach;
+            let spread = style.shadow_blur * reach * reach_scale;
             let alpha = (style.shadow_alpha * share * opacity * 255.0)
                 .round()
                 .clamp(0.0, 255.0);
             let halo = Rect {
                 x: bounds.x - spread,
-                y: bounds.y - spread + style.shadow_offset_y,
+                y: bounds.y - spread + style.shadow_offset_y * reach_scale,
                 w: bounds.w + spread * 2.0,
                 h: bounds.h + spread * 2.0,
             };
@@ -117,7 +161,7 @@ pub fn elevation_halo(
                 bg: design.colors.shadow_ink.with_alpha(alpha as u8),
                 border: Color::TRANSPARENT,
                 border_width: 0.0,
-                radius: style.radius + spread,
+                radius: body_radius + spread,
                 pad: 0.0,
                 ..surface_layout()
             };
@@ -132,6 +176,11 @@ pub fn elevation_halo(
 /// body always paints over its own shadow. `id` names the body; the halo steps
 /// derive stable child ids from it, which keeps lens's damage and hit-testing
 /// identity stable across frames.
+///
+/// The halo takes the **body's** corner radius, not the role's styled one: a
+/// body that morphs (the dock capsule) or overrides its corners still has to
+/// cast its own silhouette, and a halo rounded differently from the body it
+/// sits under is visible as a second shape.
 pub fn place_floating(
     frame: &mut lens::Frame,
     id: &str,
@@ -142,9 +191,10 @@ pub fn place_floating(
     body: LayoutOpts,
     place: impl FnOnce(&mut lens::Frame),
 ) {
-    for (index, (rect, material)) in elevation_halo(design, role, bounds, opacity)
-        .into_iter()
-        .enumerate()
+    for (index, (rect, material)) in
+        elevation_halo_for_body(design, role, bounds, body.radius, opacity)
+            .into_iter()
+            .enumerate()
     {
         frame.place(
             &format!("{id}-elevation-{index}"),
@@ -335,6 +385,53 @@ mod tests {
             elevation_halo(&design, SurfaceRole::Dock, bounds, 0.0).is_empty(),
             "a body faded to nothing casts nothing"
         );
+    }
+
+    /// A body thinner than twice the nominal blur cannot own the full reach.
+    ///
+    /// The dock's resting capsule is 4 px tall; a 12 px halo around it reached
+    /// six times the capsule's own thickness on every side, which does not read
+    /// as elevation underneath it — it reads as a dark painted ring around it.
+    #[test]
+    fn a_thin_body_casts_a_contact_shadow_instead_of_a_ring() {
+        let design = Design::dark();
+        let style = design.surfaces.for_role(SurfaceRole::Dock);
+        let capsule = Rect {
+            x: 880.0,
+            y: 1054.0,
+            w: 140.0,
+            h: 4.0,
+        };
+        let halo =
+            elevation_halo_for_body(&design, SurfaceRole::Dock, capsule, capsule.h * 0.5, 1.0);
+        assert_eq!(halo.len(), 2);
+        for (rect, material) in &halo {
+            // A halo that is wider than the body's own thickness on each side
+            // is a ring, not a shadow.
+            let spread = (rect.h - capsule.h) * 0.5;
+            assert!(
+                spread <= capsule.h * 0.5 + f32::EPSILON,
+                "a 4 px capsule cannot carry a {spread} px skirt"
+            );
+            assert!(spread < style.shadow_blur, "the reach is capped");
+            // The corner follows the body it belongs to, so a 2 px stadium does
+            // not cast a 18 px-radius rounded rect behind itself.
+            let body_radius = capsule.h * 0.5;
+            assert!(
+                (material.radius - (body_radius + spread)).abs() < 0.001,
+                "the halo takes the body's corners: {}",
+                material.radius
+            );
+        }
+        // A body past the cap keeps the role's full reach.
+        let bar = Rect {
+            x: 400.0,
+            y: 980.0,
+            w: 1120.0,
+            h: 74.0,
+        };
+        let full = elevation_halo(&design, SurfaceRole::Dock, bar, 1.0);
+        assert!((full[0].0.h - bar.h - style.shadow_blur * 2.0).abs() < 0.001);
     }
 
     #[test]

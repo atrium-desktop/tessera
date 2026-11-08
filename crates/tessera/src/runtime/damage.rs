@@ -112,7 +112,12 @@ impl CompositorRuntime<'_> {
             || session_locked != self.damage.last_session_locked
             || (software_cursor
                 && self.damage.last_presented_cursor != Some((cursor_shape, cursor_hidden)))
-            || self.server.transitions_pending()
+            // Only *animating* transitions force a full assessment: a settled
+            // ghost's hand-off frame changes exactly its own rect, which arrives
+            // as local damage through `transition_damage_rects` below. Reporting
+            // the hand-off as full here made the recorded rect dead on arrival
+            // (ADR-0220).
+            || self.server.live_transitions_pending()
             // A live 3D model changes on its own animation clock. Media
             // wallpaper contributes damage only when its absolute source
             // deadline elapsed or a decoded video frame is already waiting;
@@ -164,7 +169,7 @@ impl CompositorRuntime<'_> {
         // 2. When DND status changes: the indicator is drawn inside the
         // command panel, which repaints as a whole while it is open, so nothing
         // outside it depends on the flag. The minute rollover used to repaint
-        // the status strip; that strip is gone (ADR-0226) and the clock now
+        // the status strip; that strip is gone (ADR-0213) and the clock now
         // lives on the desktop layer, whose own damage report covers it, so
         // neither change schedules a chrome repaint here.
 
@@ -206,33 +211,6 @@ impl CompositorRuntime<'_> {
             }
         }
 
-        // Only conditions that change pixels in the desktop scene sampled by
-        // a backdrop belong here. Pure shell/input/clock/notification damage
-        // still repaints the output, but must not invalidate the expensive
-        // capture + blur cache.
-        let backdrop_full = self.frame_count == 0
-            || self.damage.force_full_redraw
-            || session_locked != self.damage.last_session_locked
-            || self.server.workspace_slide_pending()
-            || (!session_locked
-                && !self.space_use.client_owns_output()
-                && self.wallpaper.as_ref().is_some_and(|w| {
-                    w.has_model()
-                        || w.next_frame_in()
-                            .is_some_and(|remaining| remaining.is_zero())
-                }))
-            || self.last_ws_sig != Some(ws_sig)
-            || self.last_outputs_revision != Some(outputs_revision)
-            || self.last_interaction_domain_revision != Some(interaction_domain_revision)
-            // The switcher/live-preview scene is captured below chrome and is
-            // therefore backdrop source content, unlike ordinary shell UI.
-            || self.shell.window_switcher_active()
-                != self
-                    .damage
-                    .last_chrome_mode
-                    .map(|(_, switcher, _, _)| switcher)
-                    .unwrap_or(false);
-
         // Chrome damage: in-flight animations, plus the one-shot structural
         // changes a component reported while building the scene (a dock tile's
         // context menu opening or closing). Both repaint only what the shell can
@@ -241,15 +219,25 @@ impl CompositorRuntime<'_> {
         // right — a ticking dock spring advances every frame with no input and no
         // client commit — so they join the output rects below, not just the
         // pointer-path union.
+        //
+        // A caret blink *flip* is a third trigger and is not an animation
+        // (Optics ADR-0151): it is a two-state phase, so exactly the frames on
+        // which it landed owe a paint, and every other frame of a focused text
+        // field owes nothing. `Shell::lens_needs_repaint` is lens's own
+        // transition query and is what carries it — folding a caret into
+        // `anim_pending` instead would make every focused field render at the
+        // panel rate, the defect that held a compositor at ~50% GPU on an idle
+        // window.
         let scene_changed = self.shell.take_scene_changed();
-        let chrome_anim_region = if scene_changed || self.shell.anim_pending() {
+        let chrome_repaint =
+            scene_changed || self.shell.anim_pending() || self.shell.caret_flip_pending();
+        let chrome_anim_region = if chrome_repaint {
             self.shell
                 .chrome_damage_regions(self.input_acc.display_size, scene_changed)
         } else {
             None
         };
-        let base_full = base_full
-            || ((scene_changed || self.shell.anim_pending()) && chrome_anim_region.is_none());
+        let base_full = base_full || (chrome_repaint && chrome_anim_region.is_none());
 
         // Pointer-only input repaints the cursor sprite's swept area plus
         // the chrome region that reacts to the pointer (hover highlights,
@@ -321,16 +309,23 @@ impl CompositorRuntime<'_> {
                     }
                     (Some(regions), None) => Some(regions.clone()),
                     (None, cursor_rect) => {
-                        if self.shell.captures_pointer_at(
+                        // Chrome under the pointer reacts somewhere; ask it
+                        // where. A component that cannot bound that reaction
+                        // still answers `None`, which keeps the conservative
+                        // full-output verdict.
+                        match self.shell.pointer_damage_regions(
                             cursor_position.0,
                             cursor_position.1,
                             display,
                         ) {
-                            // The pointer is over chrome that could not
-                            // localize its animation: conservative full.
-                            None
-                        } else {
-                            Some(cursor_rect.into_iter().collect())
+                            Some(regions) => {
+                                let mut regions = regions;
+                                if let Some(rect) = cursor_rect {
+                                    regions.push(rect);
+                                }
+                                Some(regions)
+                            }
+                            None => None,
                         }
                     }
                 }
@@ -369,20 +364,6 @@ impl CompositorRuntime<'_> {
         // Always collect client damage so surface baseline generations advance
         // in lockstep with client commits across all frames.
         let (client, sampled_surface_ids) = self.client_damage();
-        let backdrop_source = if backdrop_full {
-            FrameDamage::Full
-        } else {
-            let base = client.clone().into_frame_damage(scale, physical_size);
-            if transition_rects.is_empty() {
-                base
-            } else {
-                let trans = logical_rects_to_frame(transition_rects.clone(), scale, physical_size);
-                match base {
-                    FrameDamage::Full => FrameDamage::Full,
-                    other => union_frame_damage(trans, other),
-                }
-            }
-        };
         let output = if output_full {
             FrameDamage::Full
         } else {
@@ -413,7 +394,6 @@ impl CompositorRuntime<'_> {
         };
         AssessedFrameDamage {
             output,
-            backdrop_source,
             sampled_surface_ids,
         }
     }

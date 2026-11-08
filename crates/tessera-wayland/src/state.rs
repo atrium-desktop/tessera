@@ -93,22 +93,43 @@ impl State {
                 color: (*rec).image_description.clone(),
                 transition,
             };
-            if self.closing_frames.len() >= MAX_CLOSING_FRAMES {
-                let dropped = self.closing_frames.remove(0);
-                log::debug!(
-                    "[server] close-transition table full; dropping ghost frame {} early",
-                    dropped.id
-                );
-            }
             if frame.dmabuf.is_some() {
                 (*rec).current_buffer_presented = true;
             }
-            self.closing_frames.push(frame);
+            self.push_closing_frame(frame);
         }
+    }
+
+    /// Push a ghost into the bounded table, evicting the oldest first.
+    ///
+    /// Split out of [`Self::note_close_transition`] so the eviction bookkeeping
+    /// is reachable without a live `SurfaceRec`: an evicted ghost was still
+    /// painting pixels, so its rect joins the same hand-off repaint a settled
+    /// ghost owes (ADR-0220).
+    pub(crate) fn push_closing_frame(&mut self, frame: ClosingFrame) {
+        if self.closing_frames.len() >= MAX_CLOSING_FRAMES {
+            self.evict_oldest_closing_frame();
+        }
+        self.closing_frames.push(frame);
+    }
+
+    fn evict_oldest_closing_frame(&mut self) {
+        let dropped = self.closing_frames.remove(0);
+        log::debug!(
+            "[server] close-transition table full; dropping ghost frame {} early",
+            dropped.id
+        );
+        self.retired_ghost_damage.record(&[dropped.rect]);
     }
 
     pub(crate) fn now_ms(&self) -> u64 {
         self.epoch.elapsed().as_millis() as u64
+    }
+
+    /// Record the rects of ghosts that settled this tick so the next frame
+    /// repaints the desktop they were fading over (ADR-0220).
+    pub(crate) fn note_retired_ghost_damage(&mut self, rects: &[tessera_primitives::Rect]) {
+        self.retired_ghost_damage.record(rects);
     }
 
     pub(crate) fn persist_app_geometry(
@@ -248,6 +269,7 @@ impl State {
             workspace_slide: None,
             attention_pulses: std::collections::HashMap::new(),
             closing_frames: Vec::new(),
+            retired_ghost_damage: RetiredGhostDamage::default(),
             output_resources: Vec::new(),
             output_globals: Vec::new(),
             xdg_output_resources: Vec::new(),

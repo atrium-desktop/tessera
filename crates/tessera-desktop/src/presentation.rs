@@ -20,10 +20,10 @@
 //! `xdg_toplevel.set_fullscreen` is a *client request*. Toolkits that emulate
 //! fullscreen by resizing the window to the monitor — GLFW's Wayland backend
 //! among them, which is what most Java games ship — never send it. Keying
-//! chrome stand-down on the bit therefore leaves the HUD's glass and blur
-//! composited over a game that fills the output, disables the wallpaper
-//! elision, and permanently disqualifies the frame from direct scanout: a
-//! continuous GPU tax on exactly the workload the zero-cost path exists for.
+//! chrome stand-down on the bit therefore leaves chrome composited over a game
+//! that fills the output, disables the wallpaper elision, and permanently
+//! disqualifies the frame from direct scanout: a continuous GPU tax on exactly
+//! the workload the zero-cost path exists for.
 //!
 //! The state bit is still honoured as a *declaration*: a client that asked for
 //! fullscreen owns the output even during the configure round-trip before its
@@ -167,6 +167,7 @@ mod tests {
             },
             opaque_region: None,
             color: None,
+            presentation_hint: tessera_primitives::PresentationHint::Vsync,
         }
     }
 

@@ -590,6 +590,7 @@ impl Server {
                     },
                     opaque_region: s.opaque_region.clone(),
                     color: s.image_description.clone(),
+                    presentation_hint: s.presentation_hint,
                 })
             })
             .collect()
@@ -1072,6 +1073,7 @@ impl Server {
                     },
                     opaque_region: surface.opaque_region.clone(),
                     color: surface.image_description.clone(),
+                    presentation_hint: surface.presentation_hint,
                 })
             })
             .collect()
@@ -1275,6 +1277,7 @@ impl Server {
                         root,
                         interaction_domain,
                     )?,
+                    presentation_hint: surface.presentation_hint,
                 })
             })
             .collect()
@@ -1435,6 +1438,7 @@ impl Server {
                         viewport_dst: surface.viewport_dst,
                         ..Default::default()
                     },
+                    presentation_hint: tessera_primitives::PresentationHint::Vsync,
                 })
             })
             .collect::<Vec<_>>();
@@ -1478,6 +1482,7 @@ impl Server {
                             viewport_dst: surface.viewport_dst,
                             ..Default::default()
                         },
+                        presentation_hint: tessera_primitives::PresentationHint::Vsync,
                     });
                 }
             }
@@ -1646,6 +1651,7 @@ impl Server {
                         viewport_dst: surface.viewport_dst,
                         ..Default::default()
                     },
+                    presentation_hint: surface.presentation_hint,
                 })
             })
             .collect()
@@ -1944,6 +1950,7 @@ impl Server {
                 stride: dmabuf.stride,
                 acquire_fence: dmabuf.acquire_fence,
                 geometry,
+                presentation_hint: surface.presentation_hint,
             });
         }
         for &child_ptr in &surface.children {
@@ -2181,6 +2188,7 @@ impl Server {
                     viewport_dst: s.viewport_dst,
                     ..Default::default()
                 },
+                presentation_hint: s.presentation_hint,
             });
         }
         for &child_ptr in &s.children {

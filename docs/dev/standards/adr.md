@@ -77,7 +77,7 @@ status for readers:
 - Status: Accepted
 - Date: 2026-10-15
 - Deciders: Tessera Maintainers
-- Amends: [ADR-0021](0021-chrome-component-trait.md)
+- Amends: [ADR-0021](../../adr/0021-chrome-component-trait.md)
 ```
 
 `Amends`, `Amended by`, and `Extends` lines are how intra-repository lineage is

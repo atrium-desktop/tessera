@@ -24,9 +24,10 @@ pub(super) const DEFAULT_APP_ICON_PNG: &[u8] =
     include_bytes!("../../../../assets/icons/unknown.png");
 pub(super) const DEFAULT_ICON_KEY: &str = "__tessera_default_app_icon__";
 
-/// Raster extensions the `image` crate decodes directly. SVG/SVGZ uses the
-/// standard librsvg command-line rasterizer when installed and otherwise
-/// falls back to the dock glyph without failing startup.
+/// Raster extensions the `image` crate decodes directly. SVG/SVGZ is compiled
+/// by the Optics SVG compiler ([`svg`]); a document it rejects falls back to the
+/// dock glyph without failing startup, and no subprocess or host rasterizer is
+/// involved either way.
 pub(super) const RASTER_ICON_EXTS: &[&str] =
     &["png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff", "ico"];
 pub(super) const SVG_ICON_EXTS: &[&str] = &["svg", "svgz"];
@@ -229,7 +230,7 @@ pub(super) fn materialize_pins_for_manual_edit(
 }
 
 /// One icon decoded to GPU-ready BGRA8 pixels. Produced off the frame loop
-/// (icon decoding forks `rsvg-convert` per SVG — far too slow for the main
+/// (icon decoding reads files and compiles SVGs — far too slow for the main
 /// thread); the main loop only uploads the pixels as flux textures.
 pub(super) struct DecodedIcon {
     /// Every map key the texture is inserted under. For applications these
@@ -264,8 +265,8 @@ pub(super) fn decode_png_bgra(png: &[u8], target_size: u32) -> Option<Vec<u8>> {
 }
 
 /// Decode every application and HUD icon into raw BGRA8 pixels. Runs on the
-/// app-scan worker thread: it performs no GPU work, only file I/O and
-/// (for SVG) `rsvg-convert` subprocesses.
+/// app-scan worker thread: it performs no GPU work, only file I/O and in-process
+/// SVG compilation.
 pub(super) fn decode_icons(
     apps: &[tessera_desktop::app::Entry],
     icon_theme: &str,
@@ -431,9 +432,16 @@ pub(super) fn build_icon_cache(device: &flux::Device, decoded: &[DecodedIcon]) -
     }
 }
 
-/// Decode a desktop icon. Raster formats stay in-process; SVG is converted to
-/// a bounded PNG on stdout so malformed or enormous vector sources cannot
-/// dictate an unbounded GPU texture. Every failure is a normal glyph fallback.
+/// Decode a desktop icon into RGBA8 pixels.
+///
+/// Raster formats are decoded in process. SVG is compiled by the Optics SVG
+/// compiler ([`svg`]) at exactly the size the theme asked for — no subprocess, no
+/// third-party rasterizer on the host, and no unbounded texture: the output is
+/// pinned to `DEFAULT_ICON_SIZE * icon_scale`, capped, which is also the size the
+/// caller uploads.
+///
+/// Every failure is a normal fallback to the caller's glyph: a broken icon in one
+/// application must not disturb the rest of the launcher.
 pub(super) fn decode_icon(
     path: &std::path::Path,
     ext: &str,
@@ -445,32 +453,37 @@ pub(super) fn decode_icon(
     if !SVG_ICON_EXTS.contains(&ext) {
         return None;
     }
-    let target_u32 = tessera_launch_services::DEFAULT_ICON_SIZE
+    let target = tessera_launch_services::DEFAULT_ICON_SIZE
         .saturating_mul(icon_scale.max(1))
-        .min(512);
-    let target = target_u32.to_string();
-    if let Ok(output) = std::process::Command::new("rsvg-convert")
-        .args([
-            "--width",
-            &target,
-            "--height",
-            &target,
-            "--keep-aspect-ratio",
-        ])
-        .arg(path)
-        .output()
-        && output.status.success()
-        && let Ok(img) = image::load_from_memory(&output.stdout)
-    {
-        return Some(img);
+        .clamp(1, 512);
+    // `.svgz` is SVG under gzip, and the decompression rule lives in one place
+    // so this and the tray path cannot disagree about what they can read.
+    let source = tessera_launch_services::read_vector_source(path).ok()?;
+    let document = svg::Document::parse_bytes(&source, svg::Limits::default()).ok()?;
+
+    // An icon keeps its own aspect ratio: a wide logo must not be squashed into a
+    // square. The rasterized box is the requested square, and the document is
+    // fitted into it, so the pixels stay centred and proportional.
+    let raster = document
+        .rasterize(svg::RasterizeOptions {
+            width: target,
+            height: target,
+            supersample: 0,
+            format: svg::PixelFormat::Rgba8Premul,
+            paint: svg::PaintMode::theme(0xFFFF_FFFF),
+            stroke_width: 0.0,
+        })
+        .ok()?;
+    let mut pixels = raster.as_bytes().to_vec();
+    // flux samples premultiplied BGRA8; the compiler produced premultiplied RGBA8,
+    // so this is the documented channel swap and nothing else.
+    for chunk in pixels.chunks_exact_mut(4) {
+        chunk.swap(0, 2);
     }
-    // Fall back to image crate decoding if file is standard raster format (ADR-0207).
-    if let Ok(data) = std::fs::read(path)
-        && let Ok(img) = image::load_from_memory(&data)
-    {
-        return Some(img);
-    }
-    None
+    // Hand back the same DynamicImage shape the raster path produces, so both
+    // branches converge on one upload path.
+    image::RgbaImage::from_raw(raster.width(), raster.height(), pixels)
+        .map(image::DynamicImage::ImageRgba8)
 }
 
 #[cfg(test)]

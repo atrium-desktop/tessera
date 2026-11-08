@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-06-23
+- Amended by: [ADR-0220](0220-a-close-ghost-dissolves-separate-alpha-and-geometry-clocks-and-an-owned-handoff-frame.md) — one effect may now carry two clocks (geometry and alpha), and an animation's terminal frame is owned damage.
 
 ## Context
 

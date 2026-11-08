@@ -39,7 +39,7 @@ impl Design {
         let radii = Radii {
             menu_item: 7.0,
             popover: 12.0,
-            glass_panel: 18.0,
+            panel_lg: 18.0,
             control: 12.0,
             card: 16.0,
             scrollbar: 2.5,
@@ -108,10 +108,10 @@ impl Design {
     }
 
     /// The canonical light appearance: the same geometry and optical identity
-    /// as [`Design::dark`], re-toned as dark ink on white frosted glass.
+    /// as [`Design::dark`], re-toned as dark ink on a light stone body.
     ///
     /// The lens light theme is generalized to whole-product surfaces: white
-    /// bodies keep the glass whisper, tints become dark washes, and shadows
+    /// bodies keep their stone tone, tints become dark washes, and shadows
     /// deepen slightly so pale panels still separate from bright content.
     /// Radii, strokes, and preview policy are scheme-invariant and shared
     /// with the dark appearance.
@@ -190,11 +190,17 @@ impl Default for Design {
 pub struct Radii {
     pub menu_item: f32,
     pub popover: f32,
-    pub glass_panel: f32,
+    /// The corner radius of a large content panel: the dock bar, the switcher
+    /// strip, a live-preview popover, a modal body, the pixel loupe.
+    ///
+    /// Named for what it is. It carried the name `glass_panel` while chrome was
+    /// an analytic lens body; the radius is the same number, and the name now
+    /// describes the shape rather than a material that no longer exists.
+    pub panel_lg: f32,
     pub control: f32,
     pub card: f32,
     pub scrollbar: f32,
-    /// HUD chips and pills.
+    /// Compact status pills.
     pub chip: f32,
     /// Launcher grid cells.
     pub cell: f32,
@@ -241,7 +247,7 @@ pub struct TypeScale {
 /// optics that no longer exist — it varies only the fill, the boundary, and
 /// the shadow that separates the surface from arbitrary content beneath it.
 ///
-/// The reason is the one ADR-0226 records: an analytic glass body costs a
+/// The reason is the one ADR-0213 records: an analytic glass body costs a
 /// full-resolution scene capture plus a per-pixel lens shader on every frame
 /// its contents move, which on a laptop panel is the single largest
 /// steady-state GPU cost the compositor has, and it buys a decorative effect
@@ -377,7 +383,7 @@ impl SurfaceStyles {
                 colors.panel_surface,
                 colors.panel_border,
                 hairline,
-                radii.glass_panel,
+                radii.panel_lg,
                 0.18,
                 16.0,
                 8.0,
@@ -386,7 +392,7 @@ impl SurfaceStyles {
                 colors.panel_surface,
                 colors.panel_border,
                 hairline,
-                radii.glass_panel,
+                radii.panel_lg,
                 0.20,
                 18.0,
                 9.0,
@@ -395,7 +401,7 @@ impl SurfaceStyles {
                 dock.bar_surface_expanded,
                 colors.panel_border,
                 hairline,
-                radii.glass_panel,
+                radii.panel_lg,
                 0.20,
                 12.0,
                 6.0,

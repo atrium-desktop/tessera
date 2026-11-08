@@ -232,8 +232,8 @@ fn a_fullscreen_window_closes_the_panel() {
 }
 
 #[test]
-fn the_dock_reservation_shortens_the_tray_shelf() {
-    // ADR-0197: the shelf's bottom edge follows the dock's *own*
+fn the_dock_reservation_lifts_the_tray_lane() {
+    // ADR-0221: the shelf's bottom edge follows the dock's *own*
     // `Chrome::reserved()` declaration, published through
     // `ChromeUpdate::ModalReserved`. This is what a mirrored constant could not
     // do: an auto-hidden or fullscreen-locked dock reserves nothing, and a
@@ -245,25 +245,21 @@ fn the_dock_reservation_shortens_the_tray_shelf() {
         CommandPanel::cluster_bounds(display, bottom_dock_reserved());
 
     assert!(
-        (bottom_dock.y - no_dock.y).abs() < 0.5,
-        "the shelf is bottom-anchored, so its top (below the profile chip) does \
-         not move: {bottom_dock:?} vs {no_dock:?}"
-    );
-    assert!(
-        bottom_dock.h < no_dock.h,
-        "a bottom-docked dock must shorten the shelf: {} vs {}",
-        bottom_dock.h,
-        no_dock.h
+        bottom_dock.y < no_dock.y,
+        "a bottom-docked dock must lift the lane off the display edge: \
+         {bottom_dock:?} vs {no_dock:?}"
     );
     let dock_band = bottom_dock_reserved().bottom as f32;
-    let reclaimed = no_dock.h - bottom_dock.h;
+    let lifted = no_dock.y - bottom_dock.y;
     assert!(
-        (reclaimed - dock_band).abs() < 0.5,
-        "the shelf must give up exactly the dock's band ({dock_band}), gave up {reclaimed}"
+        (lifted - dock_band).abs() < 0.5,
+        "the lane must give up exactly the dock's band ({dock_band}), gave up {lifted}"
     );
+    // It is still a one-row lane: the dock changes where it sits, not its size.
+    assert_eq!(bottom_dock.h, no_dock.h, "the lane is one row tall");
 
-    // A side-docked dock reserves a side edge, not the bottom: the shelf keeps
-    // its full height.
+    // A side-docked dock reserves a side edge, not the bottom: the lane stays
+    // flush with the display's bottom margin.
     let side_dock = crate::component::Reserved {
         top: 0,
         bottom: 0,
@@ -271,17 +267,16 @@ fn the_dock_reservation_shortens_the_tray_shelf() {
         right: 0,
     };
     let (_, _, _, _, shelf, _, _) = CommandPanel::cluster_bounds(display, side_dock);
-    assert!(
-        (shelf.h - no_dock.h).abs() < 0.5,
-        "a side-docked dock must not shorten the shelf"
+    assert_eq!(
+        shelf.y, no_dock.y,
+        "a side-docked dock must not lift the lane"
     );
 }
 
 #[test]
-fn the_tray_shelf_capacity_grows_with_the_display() {
-    // [INV-CHROME-02]: the shelf's height is derived from the display and the
-    // reserved bands, never capped by a constant. Before ADR-0197 the column
-    // admitted exactly 7 icons at every one of these resolutions.
+fn the_tray_lane_capacity_grows_with_the_display() {
+    // [INV-CHROME-02]: the lane's length is derived from the display and the
+    // reserved bands, never capped by a constant.
     use crate::components::control_center::tray_shelf::shelf_slots;
     let mut previous = 0;
     for display in [
@@ -292,7 +287,7 @@ fn the_tray_shelf_capacity_grows_with_the_display() {
     ] {
         let (_profile, _main, _notif, _clock, tray, _work, _power) =
             CommandPanel::cluster_bounds(display, bottom_dock_reserved());
-        let slots = shelf_slots(tray.h);
+        let slots = shelf_slots(tray.w);
         assert!(
             slots >= previous,
             "capacity shrank going to {display:?}: {slots} after {previous}"
@@ -306,10 +301,10 @@ fn the_tray_shelf_capacity_grows_with_the_display() {
 }
 
 #[test]
-fn the_tray_shelf_never_overlaps_the_dock_band() {
-    // ADR-0197: the dock is a persistent decoration that stays visible while
+fn the_tray_lane_never_overlaps_the_dock_band() {
+    // ADR-0221: the dock is a persistent decoration that stays visible while
     // the panel is open, and its length changes with the tile count, so the
-    // shelf is placed by a rule that holds clear of its reserved band — not by
+    // lane is placed by a rule that holds clear of its reserved band — not by
     // an offset that happens to be clear on one monitor.
     for display in [
         (1280.0, 720.0),
@@ -317,6 +312,7 @@ fn the_tray_shelf_never_overlaps_the_dock_band() {
         (1920.0, 1080.0),
         (2560.0, 1440.0),
         (320.0, 480.0),
+        (800.0, 600.0),
     ] {
         let (_profile, _main, _notif, _clock, tray, _work, _power) =
             CommandPanel::cluster_bounds(display, bottom_dock_reserved());
@@ -324,30 +320,41 @@ fn the_tray_shelf_never_overlaps_the_dock_band() {
         let dock_top = display.1 - margin_y - bottom_dock_reserved().bottom as f32;
         assert!(
             tray.y + tray.h <= dock_top + 0.01,
-            "the shelf ({tray:?}) must stop above the dock band at {dock_top} on {display:?}"
+            "the lane ({tray:?}) must stop above the dock band at {dock_top} on {display:?}"
         );
     }
 }
 
 #[test]
-fn the_tray_shelf_starts_below_the_profile_chip() {
-    // The shelf grows upward from the bottom edge, so its *top* is the edge at
-    // risk of colliding with the profile chip above it.
+fn the_tray_lane_clears_the_profile_chip_and_the_bottom_band() {
+    // The lane is bottom-left and one row tall. Two collisions are possible and
+    // both must be prevented by the placement rule, not by luck: the profile
+    // chip above it, and the work-mode/power band to its right.
     for display in [
         (1280.0, 720.0),
         (1366.0, 768.0),
         (1920.0, 1080.0),
         (2560.0, 1440.0),
+        (800.0, 600.0),
+        (320.0, 480.0),
     ] {
-        let (profile, _main, _notif, _clock, tray, _work, _power) =
+        let (profile, _main, _notif, _clock, tray, work_mode, _power) =
             CommandPanel::cluster_bounds(display, bottom_dock_reserved());
         assert!(
             tray.y >= profile.y + profile.h,
-            "the shelf ({tray:?}) must start below the profile chip ({profile:?})"
+            "the lane ({tray:?}) must start below the profile chip ({profile:?})"
+        );
+        assert!(
+            tray.x + tray.w <= work_mode.x,
+            "the lane ({tray:?}) must end before the bottom band ({work_mode:?}) on {display:?}"
         );
         assert!(
             tray.h > 0.0,
-            "the shelf keeps a usable height on {display:?}"
+            "the lane keeps a usable height on {display:?}"
+        );
+        assert!(
+            tray.w >= TRAY_CELL + TRAY_PAD * 2.0,
+            "the lane always has room for at least one cell: {tray:?}"
         );
     }
 }
@@ -369,6 +376,7 @@ fn cluster_bounds_stay_inside_small_displays() {
 
 #[test]
 fn full_size_displays_get_the_design_geometry() {
+    use crate::components::control_center::tray_shelf::shelf_slots;
     let (profile, main, notifications, clock, tray, work_mode, power) =
         CommandPanel::cluster_bounds((1920.0, 1080.0), bottom_dock_reserved());
     // Profile is compact in top-left
@@ -388,27 +396,25 @@ fn full_size_displays_get_the_design_geometry() {
     assert!(clock.x + clock.w < notifications.x);
     assert_eq!(clock.y, profile.y);
 
-    // The tray shelf hugs the bottom-left anchor (ADR-0197): it starts below
-    // the profile chip, spans down to the display's bottom margin, and holds
-    // clear of the dock's reserved band rather than the side-middle band the
-    // scrolling column used.
+    // The tray shelf is a one-row horizontal lane hugging the bottom-left
+    // (ADR-0221): its bottom edge stops above the dock's reserved band, it is
+    // one cell row tall, and its length runs from the left margin to the bottom
+    // band — a derived span, not a constant.
     assert_eq!(tray.x, 48.0);
-    assert_eq!(
-        tray.y,
-        profile.y + profile.h + PANEL_GAP,
-        "shelf starts below profile"
-    );
     assert_eq!(
         tray.y + tray.h,
         1080.0 - 37.8 - bottom_dock_reserved().bottom as f32,
-        "shelf stops above the dock's reserved band"
+        "the lane stops above the dock's reserved band"
     );
-    // [INV-CHROME-02]: the height is derived, so it far exceeds the retired
-    // 400px cap that made capacity independent of the display.
+    assert_eq!(
+        tray.h,
+        TRAY_CELL + TRAY_PAD * 2.0,
+        "the lane is exactly one cell row tall"
+    );
     assert!(
-        tray.h > (TRAY_CELL + TRAY_GAP) * 8.0,
-        "the shelf must not be capped at the legacy eight-slot height: {}",
-        tray.h
+        shelf_slots(tray.w) > 7,
+        "the lane must admit well over the legacy 7 icons: {}",
+        shelf_slots(tray.w)
     );
 
     // The right-bottom band is horizontal and pinned into the corner:
@@ -555,68 +561,6 @@ fn control_center_palette_tracks_the_live_appearance() {
     assert_ne!(light.text, dark.text);
     assert_eq!(light.background.components().3, 255);
     assert_eq!(light.surface.components().3, 255);
-}
-
-#[test]
-fn power_mode_projection_covers_the_four_toggle_combinations() {
-    use tessera_desktop::power::PowerMode;
-    // Display axis × security axis, the four user scenarios:
-    // (keep awake, auto lock) → mode.
-    assert_eq!(
-        crate::components::control_center::presentation::power::power_mode_for(false, true),
-        PowerMode::Balanced
-    );
-    assert_eq!(
-        crate::components::control_center::presentation::power::power_mode_for(true, true),
-        PowerMode::Secure
-    );
-    assert_eq!(
-        crate::components::control_center::presentation::power::power_mode_for(true, false),
-        PowerMode::Awake
-    );
-    // The forbidden combination (blank while never locking) projects onto
-    // Awake: the security boundary wins and the display axis reads back
-    // honestly as "awake".
-    assert_eq!(
-        crate::components::control_center::presentation::power::power_mode_for(false, false),
-        PowerMode::Awake
-    );
-}
-
-#[test]
-fn projected_modes_never_blank_an_unlocked_session() {
-    for keep_awake in [false, true] {
-        for auto_lock in [false, true] {
-            let mode = crate::components::control_center::presentation::power::power_mode_for(
-                keep_awake, auto_lock,
-            );
-            if !mode.locks_automatically() {
-                assert!(
-                    !mode.blanks_display(),
-                    "{mode:?} would blank a never-locking session"
-                );
-            }
-        }
-    }
-}
-
-#[test]
-fn work_mode_and_power_session_panels_render_within_cluster() {
-    let display = (1920.0, 1080.0);
-    let (_profile, _main, notifications, _clock, _tray, work_mode, power) =
-        CommandPanel::cluster_bounds(display, bottom_dock_reserved());
-
-    assert!(work_mode.w > 0.0);
-    assert!(work_mode.h > 0.0);
-    assert!(power.w > 0.0);
-    assert!(power.h > 0.0);
-
-    // The right-bottom band is one horizontal row sharing a height, clear
-    // below the notification stream.
-    assert!(work_mode.y > notifications.y + notifications.h);
-    assert_eq!(work_mode.y, power.y);
-    assert_eq!(work_mode.h, power.h);
-    assert!(power.x > work_mode.x + work_mode.w);
 }
 
 #[test]
@@ -828,191 +772,18 @@ fn animated_frames_localize_damage_to_the_moving_bands() {
 
 static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-#[test]
-fn the_tray_shelf_discloses_overflow_instead_of_hiding_it() {
-    let _env_guard = TEST_ENV_LOCK.lock().unwrap();
-    // [INV-CHROME-04]: overflow is disclosed by a trailing `+N` cell, never
-    // hidden behind a scroll or a page turn. This exercises the whole render
-    // path: the disclosure cell must exist, be clickable, and open a popover
-    // that lists every hidden item.
-    unsafe { std::env::set_var("TESSERA_COMMAND_PANEL", "1") };
-
-    let display = (1280.0, 720.0);
-    let mut panel = ControlCenter::without_sources();
-    panel.open = true;
-    panel.reveal.snap_to(1.0);
-    panel.set_reduced_motion(true);
-
-    // Seed more SNI items than a 720p shelf can hold. The demo seed supplies
-    // three; push the count past the shelf's capacity directly in the
-    // projection-free path by asserting against the real capacity instead.
-    let (_profile, _main, _notif, _clock, anchor, _work, _power) =
-        ControlCenter::cluster_bounds(display, bottom_dock_reserved());
-    let capacity = crate::components::control_center::tray_shelf::shelf_slots(anchor.h);
-    assert!(
-        capacity >= 2,
-        "a 720p shelf must hold at least two slots, got {capacity}"
-    );
-    let item_count = capacity + 3;
-    let layout = crate::components::control_center::tray_shelf::shelf_layout(anchor, item_count);
-    assert!(layout.has_disclosure(), "an oversized tray must disclose");
-    assert_eq!(layout.slots, capacity);
-    assert_eq!(layout.overflow, item_count - (capacity - 1));
-
-    // The disclosure popover's bounds are a pure function of the anchor, the
-    // hidden count, and the display.
-    let bounds = crate::components::control_center::tray_shelf::overflow_bounds(
-        Rect {
-            x: anchor.x,
-            y: anchor.y,
-            w: layout.cell_width(),
-            h: TRAY_CELL,
-        },
-        layout.overflow,
-        display,
-    );
-    assert!(bounds.w > 0.0 && bounds.h > 0.0);
-    assert!(bounds.x >= 0.0 && bounds.y >= 0.0);
-    assert!(bounds.x + bounds.w <= display.0 + 0.01);
-    assert!(bounds.y + bounds.h <= display.1 + 0.01);
-
-    // The popover must be reachable, not least by being *outside* the click-away
-    // dismissal path: a press inside it must not close the panel.
-    panel.tray_overflow_open = true;
-    panel.tray_overflow_anchor = Rect {
-        x: anchor.x,
-        y: anchor.y + anchor.h - TRAY_CELL,
-        w: layout.cell_width(),
-        h: TRAY_CELL,
-    };
-    panel.tray_shelf = Some(layout);
-    let resolved = panel
-        .tray_overflow_bounds(display)
-        .expect("an open disclosure states its footprint");
-    assert!(
-        resolved.w > 0.0 && resolved.h > 0.0,
-        "click-away must be able to hit-test the disclosure popover"
-    );
-
-    unsafe { std::env::remove_var("TESSERA_COMMAND_PANEL") };
-}
-
-#[test]
-fn a_disclosed_tray_never_lingers_with_nothing_to_show() {
-    // When the shelf grows enough to hold every item, the popover has no
-    // content and must close rather than paint an empty surface.
-    let display = (1920.0, 1080.0);
-    let (_profile, _main, _notif, _clock, tray, _work, _power) =
-        ControlCenter::cluster_bounds(display, bottom_dock_reserved());
-    let mut panel = ControlCenter::without_sources();
-    panel.tray_overflow_open = true;
-    // A layout with no overflow: everything fits.
-    let fits = crate::components::control_center::tray_shelf::shelf_layout(tray, 2);
-    assert!(!fits.has_disclosure());
-    panel.tray_shelf = Some(fits);
-    assert!(
-        panel.tray_overflow_bounds(display).is_none(),
-        "a shelf with nothing hidden must not report a popover"
-    );
-}
-
-#[test]
-fn a_press_outside_the_overflow_popover_dismisses_it() {
-    // Symmetric with the dbusmenu popover's light-dismiss: a surface that
-    // cannot be dismissed by clicking away lingers on screen.
-    let display = (1280.0, 720.0);
-    let mut panel = ControlCenter::without_sources();
-    panel.open = true;
-    panel.reveal.snap_to(1.0);
-    panel.set_reduced_motion(true);
-    let mut out = ChromeEvents::default();
-    let mut ui = lens::Ui::headless().unwrap();
-    let mut input = Input::new(display, 0.05);
-
+/// Build a deterministic, oversized tray: `count` cells in an anchor wide
+/// enough for exactly two slots, so the pager is exercisable without depending
+/// on the preview demo seed or on the SNI projection.
+fn paged_shelf_fixture(count: usize) -> (Rect, Vec<SniCell>) {
+    use crate::components::control_center::tray_shelf::shelf_width;
     let anchor = Rect {
         x: 48.0,
         y: 300.0,
-        w: TRAY_COL_W,
-        h: crate::components::control_center::tray_shelf::shelf_height(2),
+        w: shelf_width(2),
+        h: TRAY_CELL + TRAY_PAD * 2.0,
     };
-    let cells: Vec<SniCell> = (0..6)
-        .map(|index| SniCell {
-            key: format!("test.tray.{index}"),
-            title: format!("Item {index}"),
-            textured: false,
-            has_menu: true,
-        })
-        .collect();
-
-    let frame =
-        |ui: &mut lens::Ui, panel: &mut ControlCenter, input: &Input, out: &mut ChromeEvents| {
-            ui.frame(input, |f| {
-                panel.render_tray_shelf_cells(
-                    f,
-                    anchor,
-                    display,
-                    &cells,
-                    1.0,
-                    (input.as_raw().cursor.x, input.as_raw().cursor.y),
-                    input.as_raw().mouse_pressed
-                        [lens::sys::lens_mouse_button::LENS_MOUSE_LEFT as usize],
-                );
-            });
-            let snap = ui.snapshot().unwrap();
-            ui.activate(&snap).unwrap();
-            let _ = out;
-        };
-
-    // Open the popover directly, then press far away from it.
-    panel.tray_overflow_open = true;
-    panel.tray_overflow_anchor = Rect {
-        x: anchor.x,
-        y: anchor.y + anchor.h - TRAY_CELL,
-        w: TRAY_CELL,
-        h: TRAY_CELL,
-    };
-    input.set_cursor(1200.0, 100.0);
-    frame(&mut ui, &mut panel, &input, &mut out);
-
-    input.set_mouse_down(lens::MouseButton::Left, true);
-    input.set_mouse_pressed(lens::MouseButton::Left, true);
-    frame(&mut ui, &mut panel, &input, &mut out);
-    input.set_mouse_down(lens::MouseButton::Left, false);
-    input.set_mouse_pressed(lens::MouseButton::Left, false);
-    input.set_mouse_released(lens::MouseButton::Left, true);
-    frame(&mut ui, &mut panel, &input, &mut out);
-    input.set_mouse_released(lens::MouseButton::Left, false);
-
-    assert!(
-        !panel.tray_overflow_open,
-        "a press outside the disclosure popover must dismiss it"
-    );
-}
-
-#[test]
-fn clicking_the_disclosure_cell_opens_the_overflow_popover() {
-    // [INV-CHROME-04] end to end: the `+N` cell is a real pressable that
-    // toggles the overflow popover. A pure-function test cannot prove this —
-    // it needs a real frame and a real pointer sequence.
-    let display = (1280.0, 720.0);
-    let mut panel = ControlCenter::without_sources();
-    panel.open = true;
-    panel.reveal.snap_to(1.0);
-    panel.set_reduced_motion(true);
-    let mut out = ChromeEvents::default();
-    let mut ui = lens::Ui::headless().unwrap();
-    let mut input = Input::new(display, 0.05);
-
-    // A deterministically oversized tray: a two-slot anchor fed six items.
-    // Driving `render_tray_shelf_cells` with an explicit list keeps the test
-    // independent of the preview demo seed and of the SNI projection.
-    let anchor = Rect {
-        x: 48.0,
-        y: 300.0,
-        w: TRAY_COL_W,
-        h: crate::components::control_center::tray_shelf::shelf_height(2),
-    };
-    let cells: Vec<SniCell> = (0..6)
+    let cells = (0..count)
         .map(|index| SniCell {
             key: format!("test.tray.{index}"),
             title: format!("Item {index}"),
@@ -1020,22 +791,52 @@ fn clicking_the_disclosure_cell_opens_the_overflow_popover() {
             textured: false,
         })
         .collect();
+    (anchor, cells)
+}
 
-    let layout = crate::components::control_center::tray_shelf::shelf_layout(anchor, cells.len());
-    assert_eq!(layout.slots, 2);
-    assert!(
-        layout.has_disclosure(),
-        "six items in two slots must disclose"
-    );
-    assert_eq!(layout.overflow, 5, "one own cell plus five behind +5");
+#[test]
+fn an_oversized_tray_paginates_instead_of_hiding_items() {
+    // [INV-CHROME-03]: no scroll viewport. [INV-CHROME-07]: paging is bounded
+    // and reversible. Six items in a two-slot lane are reached through whole
+    // pages, and every item appears on exactly one page.
+    use crate::components::control_center::tray_shelf::shelf_layout;
+    let (anchor, cells) = paged_shelf_fixture(6);
+    let layout = shelf_layout(anchor, cells.len(), 0);
+    assert_eq!(layout.slots, 2, "the fixture is a two-slot lane");
+    assert!(layout.paged, "six items in two slots must paginate");
+    assert_eq!(layout.pages, 6, "one item per page beside the chevrons");
 
-    let cell_w = layout.cell_width();
-    let cell_x = layout.surface.x + (layout.surface.w - cell_w) * 0.5 + cell_w * 0.5;
-    // The disclosure is the last slot.
-    let cell_y = layout.surface.y
-        + TRAY_PAD
-        + (layout.visible - 1) as f32 * (TRAY_CELL + TRAY_GAP)
-        + TRAY_CELL * 0.5;
+    let mut seen = Vec::new();
+    for page in 0..layout.pages {
+        let page_layout = shelf_layout(anchor, cells.len(), page);
+        assert_eq!(page_layout.has_previous(), page > 0);
+        assert_eq!(page_layout.has_next(), page + 1 < layout.pages);
+        for slot in page_layout.page_slots() {
+            if let crate::components::control_center::tray_shelf::ShelfSlot::Item(index) = slot {
+                seen.push(cells[index].key.clone());
+            }
+        }
+    }
+    assert_eq!(seen.len(), cells.len(), "every item is reachable once");
+    assert!(seen.iter().all(|key| cells.iter().any(|c| &c.key == key)));
+}
+
+#[test]
+fn pressing_the_next_chevron_turns_the_page_and_the_last_page_goes_no_further() {
+    // [INV-CHROME-07] end to end: the chevrons are real pressables whose
+    // reachability comes from the layout. A pure-function test cannot prove the
+    // wiring — it needs a real frame and a real pointer sequence.
+    use crate::components::control_center::tray_shelf::shelf_layout;
+    let display = (1280.0, 720.0);
+    let (anchor, cells) = paged_shelf_fixture(6);
+    let mut panel = ControlCenter::without_sources();
+    panel.open = true;
+    panel.reveal.snap_to(1.0);
+    panel.set_reduced_motion(true);
+    let mut out = ChromeEvents::default();
+    let mut ui = lens::Ui::headless().unwrap();
+    let mut input = Input::new(display, 0.05);
+    let i18n = Localizer::default();
 
     let frame =
         |ui: &mut lens::Ui, panel: &mut ControlCenter, input: &Input, out: &mut ChromeEvents| {
@@ -1043,42 +844,330 @@ fn clicking_the_disclosure_cell_opens_the_overflow_popover() {
                 panel.render_tray_shelf_cells(
                     f,
                     anchor,
-                    display,
                     &cells,
                     1.0,
                     (input.as_raw().cursor.x, input.as_raw().cursor.y),
-                    input.as_raw().mouse_pressed
-                        [lens::sys::lens_mouse_button::LENS_MOUSE_LEFT as usize],
+                    &i18n,
                 );
             });
             let snap = ui.snapshot().unwrap();
             ui.activate(&snap).unwrap();
             let _ = out;
         };
+    let press = |ui: &mut lens::Ui,
+                 panel: &mut ControlCenter,
+                 input: &mut Input,
+                 out: &mut ChromeEvents| {
+        input.set_mouse_down(lens::MouseButton::Left, true);
+        input.set_mouse_pressed(lens::MouseButton::Left, true);
+        frame(ui, panel, input, out);
+        input.set_mouse_down(lens::MouseButton::Left, false);
+        input.set_mouse_pressed(lens::MouseButton::Left, false);
+        input.set_mouse_released(lens::MouseButton::Left, true);
+        frame(ui, panel, input, out);
+        input.set_mouse_released(lens::MouseButton::Left, false);
+    };
+
+    let first = shelf_layout(anchor, cells.len(), 0);
+    let next = first.slot_rect(first.visible_slots() - 1);
+    let (next_x, next_y) = (next.x + next.w * 0.5, next.y + next.h * 0.5);
 
     // Two frames so the pressable has last-frame geometry to hit-test.
-    input.set_cursor(cell_x, cell_y);
+    input.set_cursor(next_x, next_y);
     frame(&mut ui, &mut panel, &input, &mut out);
     frame(&mut ui, &mut panel, &input, &mut out);
-    assert!(!panel.tray_overflow_open, "closed before the press");
+    assert_eq!(panel.tray_page, 0, "nothing turns before the press");
     assert_eq!(
-        panel.tray_shelf.map(|shelf| shelf.overflow),
-        Some(5),
-        "the renderer must cache the resolved shelf layout"
+        panel.tray_shelf.map(|shelf| shelf.page),
+        Some(0),
+        "the renderer must cache the resolved layout"
     );
 
-    input.set_mouse_down(lens::MouseButton::Left, true);
-    input.set_mouse_pressed(lens::MouseButton::Left, true);
-    frame(&mut ui, &mut panel, &input, &mut out);
-    input.set_mouse_down(lens::MouseButton::Left, false);
-    input.set_mouse_pressed(lens::MouseButton::Left, false);
-    input.set_mouse_released(lens::MouseButton::Left, true);
-    frame(&mut ui, &mut panel, &input, &mut out);
-    input.set_mouse_released(lens::MouseButton::Left, false);
+    press(&mut ui, &mut panel, &mut input, &mut out);
+    assert_eq!(panel.tray_page, 1, "the next chevron turns the page");
 
+    // The last page's next chevron is disabled: pressing it is inert. Walk to
+    // the end first.
+    let pages = first.pages;
+    for expected in 2..pages {
+        let layout = shelf_layout(anchor, cells.len(), panel.tray_page);
+        let next = layout.slot_rect(layout.visible_slots() - 1);
+        input.set_cursor(next.x + next.w * 0.5, next.y + next.h * 0.5);
+        frame(&mut ui, &mut panel, &input, &mut out);
+        frame(&mut ui, &mut panel, &input, &mut out);
+        press(&mut ui, &mut panel, &mut input, &mut out);
+        assert_eq!(panel.tray_page, expected);
+    }
+    assert_eq!(panel.tray_page, pages - 1, "the walk ends on the last page");
+
+    // One more press on the (now disabled) trailing chevron does nothing.
+    let last = shelf_layout(anchor, cells.len(), panel.tray_page);
+    assert!(!last.has_next(), "the last page has no next");
+    let next = last.slot_rect(last.visible_slots() - 1);
+    input.set_cursor(next.x + next.w * 0.5, next.y + next.h * 0.5);
+    frame(&mut ui, &mut panel, &input, &mut out);
+    frame(&mut ui, &mut panel, &input, &mut out);
+    press(&mut ui, &mut panel, &mut input, &mut out);
+    assert_eq!(
+        panel.tray_page,
+        pages - 1,
+        "a disabled chevron must not overshoot the last page"
+    );
+}
+
+#[test]
+fn pressing_the_previous_chevron_turns_back_and_the_first_page_goes_no_further() {
+    // [INV-CHROME-07]: paging is *reversible*. The leading chevron must return
+    // to the page the trailing one left, and stop at the first page.
+    use crate::components::control_center::tray_shelf::shelf_layout;
+    let display = (1280.0, 720.0);
+    let (anchor, cells) = paged_shelf_fixture(6);
+    let mut panel = ControlCenter::without_sources();
+    panel.open = true;
+    panel.reveal.snap_to(1.0);
+    panel.set_reduced_motion(true);
+    panel.tray_page = 3;
+    let mut out = ChromeEvents::default();
+    let mut ui = lens::Ui::headless().unwrap();
+    let mut input = Input::new(display, 0.05);
+    let i18n = Localizer::default();
+
+    let frame =
+        |ui: &mut lens::Ui, panel: &mut ControlCenter, input: &Input, out: &mut ChromeEvents| {
+            ui.frame(input, |f| {
+                panel.render_tray_shelf_cells(
+                    f,
+                    anchor,
+                    &cells,
+                    1.0,
+                    (input.as_raw().cursor.x, input.as_raw().cursor.y),
+                    &i18n,
+                );
+            });
+            let snap = ui.snapshot().unwrap();
+            ui.activate(&snap).unwrap();
+            let _ = out;
+        };
+    let press_at = |ui: &mut lens::Ui,
+                    panel: &mut ControlCenter,
+                    input: &mut Input,
+                    out: &mut ChromeEvents,
+                    at: Rect| {
+        input.set_cursor(at.x + at.w * 0.5, at.y + at.h * 0.5);
+        frame(ui, panel, input, out);
+        frame(ui, panel, input, out);
+        input.set_mouse_down(lens::MouseButton::Left, true);
+        input.set_mouse_pressed(lens::MouseButton::Left, true);
+        frame(ui, panel, input, out);
+        input.set_mouse_down(lens::MouseButton::Left, false);
+        input.set_mouse_pressed(lens::MouseButton::Left, false);
+        input.set_mouse_released(lens::MouseButton::Left, true);
+        frame(ui, panel, input, out);
+        input.set_mouse_released(lens::MouseButton::Left, false);
+    };
+
+    // Back from page 3 to page 0, one chevron press each.
+    for expected in (0..3).rev() {
+        let layout = shelf_layout(anchor, cells.len(), panel.tray_page);
+        assert!(layout.has_previous());
+        press_at(
+            &mut ui,
+            &mut panel,
+            &mut input,
+            &mut out,
+            layout.slot_rect(0),
+        );
+        assert_eq!(panel.tray_page, expected, "the previous chevron steps back");
+    }
+
+    // The first page's leading chevron is disabled.
+    let first = shelf_layout(anchor, cells.len(), 0);
+    assert!(!first.has_previous());
+    press_at(
+        &mut ui,
+        &mut panel,
+        &mut input,
+        &mut out,
+        first.slot_rect(0),
+    );
+    assert_eq!(
+        panel.tray_page, 0,
+        "a disabled chevron must not go below the first page"
+    );
+}
+
+#[test]
+fn an_item_on_a_later_page_still_activates_and_opens_its_menu() {
+    // The chevron tests prove the pager turns; they say nothing about whether
+    // the items it turned *to* are still real pressables. A page whose items
+    // were drawn but not hit-testable would be the pager's worst failure: the
+    // lane shows the icon and refuses the click.
+    use crate::components::control_center::tray_shelf::shelf_layout;
+    let display = (1280.0, 720.0);
+    let (anchor, cells) = paged_shelf_fixture(6);
+    let mut panel = ControlCenter::without_sources();
+    panel.open = true;
+    panel.reveal.snap_to(1.0);
+    panel.set_reduced_motion(true);
+    panel.tray_page = 2;
+    let mut out = ChromeEvents::default();
+    let mut ui = lens::Ui::headless().unwrap();
+    let mut input = Input::new(display, 0.05);
+    let i18n = Localizer::default();
+
+    let frame =
+        |ui: &mut lens::Ui, panel: &mut ControlCenter, input: &Input, out: &mut ChromeEvents| {
+            ui.frame(input, |f| {
+                panel.render_tray_shelf_cells(
+                    f,
+                    anchor,
+                    &cells,
+                    1.0,
+                    (input.as_raw().cursor.x, input.as_raw().cursor.y),
+                    &i18n,
+                );
+            });
+            let snap = ui.snapshot().unwrap();
+            ui.activate(&snap).unwrap();
+            let _ = out;
+        };
+
+    // Page 2: one item, bracketed by both chevrons.
+    let layout = shelf_layout(anchor, cells.len(), 2);
+    assert_eq!(layout.first_item, 2);
+    let item_slot = layout.slot_rect(layout.first_item_slot());
+    assert_eq!(
+        layout.slot_at(layout.first_item_slot()),
+        Some(crate::components::control_center::tray_shelf::ShelfSlot::Item(2)),
+        "slot 1 of a paged page is the first item, not a chevron"
+    );
+    let (x, y) = (
+        item_slot.x + item_slot.w * 0.5,
+        item_slot.y + item_slot.h * 0.5,
+    );
+
+    // Two frames so the pressable has last-frame geometry to hit-test.
+    input.set_cursor(x, y);
+    frame(&mut ui, &mut panel, &input, &mut out);
+    frame(&mut ui, &mut panel, &input, &mut out);
+    assert_eq!(panel.tray_page, 2, "the fixture starts on page 2");
+    assert_eq!(panel.menu_open_for, None, "nothing opens before the press");
+
+    // Right-click must reach the item on this page and open its popover.
+    input.set_mouse_down(lens::MouseButton::Right, true);
+    input.set_mouse_pressed(lens::MouseButton::Right, true);
+    frame(&mut ui, &mut panel, &input, &mut out);
+    input.set_mouse_down(lens::MouseButton::Right, false);
+    input.set_mouse_pressed(lens::MouseButton::Right, false);
+    input.set_mouse_released(lens::MouseButton::Right, true);
+    frame(&mut ui, &mut panel, &input, &mut out);
+    input.set_mouse_released(lens::MouseButton::Right, false);
+
+    assert_eq!(
+        panel.menu_open_for.as_deref(),
+        Some(cells[2].key.as_str()),
+        "an item on a later page is still a live pressable"
+    );
+    // ...and the popover it opened is anchored to that item's own cell, not to
+    // the lane's corner or to the leading chevron.
     assert!(
-        panel.tray_overflow_open,
-        "pressing the disclosure cell must open the overflow popover"
+        panel.menu_owner.x >= item_slot.x - 1.0 && panel.menu_owner.x <= item_slot.x + item_slot.w,
+        "the popover anchors to the pressed cell: {:?} vs {item_slot:?}",
+        panel.menu_owner
+    );
+}
+
+#[test]
+fn a_page_that_stops_existing_falls_back_to_a_real_one() {
+    // Items leave all the time (a tray client exits). The shelf must never be
+    // stranded on a page the pile no longer has — that would be an empty lane
+    // with live chevrons.
+    use crate::components::control_center::tray_shelf::shelf_layout;
+    let (anchor, cells) = paged_shelf_fixture(6);
+    let layout = shelf_layout(anchor, cells.len(), 9);
+    assert_eq!(layout.page, layout.pages - 1, "the page index clamps");
+
+    let mut panel = ControlCenter::without_sources();
+    panel.open = true;
+    panel.reveal.snap_to(1.0);
+    panel.set_reduced_motion(true);
+    panel.tray_page = 5;
+    let out = ChromeEvents::default();
+    let mut ui = lens::Ui::headless().unwrap();
+    let input = Input::new((1280.0, 720.0), 0.05);
+    let i18n = Localizer::default();
+
+    // Only two items remain: one page, no pager.
+    ui.frame(&input, |f| {
+        panel.render_tray_shelf_cells(
+            f,
+            anchor,
+            &cells[..2],
+            1.0,
+            (input.as_raw().cursor.x, input.as_raw().cursor.y),
+            &i18n,
+        );
+    });
+    let snap = ui.snapshot().unwrap();
+    ui.activate(&snap).unwrap();
+    let _ = out;
+
+    assert_eq!(
+        panel.tray_page, 0,
+        "a vanished page resolves to the only one"
+    );
+    let resolved = panel.tray_shelf.expect("the renderer caches the layout");
+    assert!(!resolved.paged);
+    assert_eq!(resolved.page_slots().len(), 2);
+}
+
+#[test]
+fn a_tray_menu_that_scrolled_to_another_page_is_dismissed() {
+    // A popover anchored to a cell that is no longer drawn would float over the
+    // wrong icon. Turning the page must dismiss it, not re-anchor it to
+    // whatever now occupies that slot.
+    let (anchor, cells) = paged_shelf_fixture(6);
+    let mut panel = ControlCenter::without_sources();
+    panel.open = true;
+    panel.reveal.snap_to(1.0);
+    panel.set_reduced_motion(true);
+    panel.menu_open_for = Some(cells[0].key.clone());
+    let mut ui = lens::Ui::headless().unwrap();
+    let input = Input::new((1280.0, 720.0), 0.05);
+    let i18n = Localizer::default();
+
+    // Page 0 draws item 0; the menu keeps its anchor.
+    ui.frame(&input, |f| {
+        panel.render_tray_shelf_cells(
+            f,
+            anchor,
+            &cells,
+            1.0,
+            (input.as_raw().cursor.x, input.as_raw().cursor.y),
+            &i18n,
+        );
+    });
+    let snap = ui.snapshot().unwrap();
+    ui.activate(&snap).unwrap();
+    assert_eq!(panel.menu_open_for.as_deref(), Some(cells[0].key.as_str()));
+
+    // Page 2 does not draw item 0 any more.
+    panel.tray_page = 2;
+    ui.frame(&input, |f| {
+        panel.render_tray_shelf_cells(
+            f,
+            anchor,
+            &cells,
+            1.0,
+            (input.as_raw().cursor.x, input.as_raw().cursor.y),
+            &i18n,
+        );
+    });
+    let snap = ui.snapshot().unwrap();
+    ui.activate(&snap).unwrap();
+    assert!(
+        panel.menu_open_for.is_none(),
+        "a popover whose cell left the page must close"
     );
 }
 
@@ -1109,24 +1198,27 @@ fn tray_cells_are_clickable_and_open_their_menu() {
     let mut ui = lens::Ui::headless().unwrap();
     let mut input = Input::new(display, 0.05);
 
-    // The demo cells are seeded by `sni_cells` under the preview env var. The
-    // column is vertically centred in its anchor and horizontally centred at
-    // `TRAY_PAD` inset, so the first cell's centre is derived from the same
+    // The demo cells are seeded by `sni_cells` under the preview env var.
     // Derive the cell centre from the *same* pure layout the renderer uses
-    // (ADR-0197 [INV-CHROME-05]) instead of re-deriving the shelf's geometry
-    // here: a hand-rolled copy is exactly how the column geometry drifted from
-    // its renderer in the first place. The panel's own `reserved` state is the
+    // ([INV-CHROME-05]) instead of re-deriving the shelf's geometry here: a
+    // hand-rolled copy is exactly how the column geometry drifted from its
+    // renderer in the first place. The panel's own `reserved` state is the
     // authority, because that is what its render pass reads.
     let (_profile, _main, _notif, _clock, tray, _work, _power) =
         ControlCenter::cluster_bounds(display, panel.reserved);
     let cells = panel.sni_cells();
-    let layout = crate::components::control_center::tray_shelf::shelf_layout(tray, cells.len());
-    let cell_w = layout.cell_width();
-    let cell_x = layout.surface.x + (layout.surface.w - cell_w) * 0.5 + cell_w * 0.5;
-    // The shelf is bottom-anchored and grows upward: the first item's slot is
-    // the topmost of the occupied slots.
-    let cell_y = layout.surface.y + TRAY_PAD + TRAY_CELL * 0.5;
-    let first_key = cells[0].key.clone();
+    let layout = crate::components::control_center::tray_shelf::shelf_layout(tray, cells.len(), 0);
+    // The lane runs left to right, so the first item's slot is the leading one
+    // (the chevron, when paged, occupies slot 0 and the first item is slot 1).
+    let first_slot = layout.page_slots().iter().position(|slot| {
+        matches!(
+            slot,
+            crate::components::control_center::tray_shelf::ShelfSlot::Item(_)
+        )
+    });
+    let cell = layout.slot_rect(first_slot.expect("the shelf draws an item"));
+    let (cell_x, cell_y) = (cell.x + cell.w * 0.5, cell.y + cell.h * 0.5);
+    let first_key = cells[layout.first_item].key.clone();
 
     let frame =
         |ui: &mut lens::Ui, panel: &mut ControlCenter, input: &Input, out: &mut ChromeEvents| {

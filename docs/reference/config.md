@@ -41,6 +41,8 @@ untouched.
 | `[battery]` | table | warn at 20% and 5% | Low-battery warning thresholds. See [Battery](#battery). |
 | `[cast]` | table | validated 720p30 formats, desktop source, source opening, audio off, 30 fps, ports 7236/19000 | Out-of-process Miracast service: formats, source, pacing, ports, audio, and timeouts. See [Cast](#cast). |
 | `[[output]]` | array of tables | none | Per-connector display policy: mode, scale, position, transform, primary. See [Outputs](#outputs). |
+| `[[gesture]]` | array of tables | built-in three/four-finger defaults | Touchpad gesture bindings. See [Touchpad Gestures](#touchpad-gestures). |
+| `[accessibility]` | table | no zoom, no inversion, no high contrast, no sticky/slow/bounce keys, accessibility bus off | Visual, keyboard, and screen-reader assistance. See [Accessibility](#accessibility). |
 | `[screenshot]` | table | XDG Pictures directory, cursor included | Screenshot output policy. See [Screenshots](#screenshots). |
 | `[compositor]` | table | realtime on, frame pinned, rt 10, nice −10, watchdog 100 ms | Frame-loop scheduling protection: realtime priority, CPU pinning, mlock, stall watchdog. See [Compositor Scheduling](#compositor-scheduling). |
 | `[appearance]` | table | system color scheme, normal contrast, standard fonts and scale | Desktop-wide color, contrast, and typography preferences. See [Appearance](#appearance). |
@@ -212,7 +214,7 @@ Applied live on reload.
 |-------|------|---------|-------------|
 | `reduced_motion` | boolean | `false` | Accessibility reduced-motion switch. When `true`, every chrome and lens transition (dock magnification, launcher reveal, fades, slides) resolves to its end state in at most one frame. |
 | `icon_theme` | string | `"hicolor"` | Freedesktop application icon theme used by the launcher, Dock, and themed shell symbols. `$TESSERA_ICON_THEME` wins when set. Changes apply live. |
-| `cursor_theme` | string | `"default"` | SVG cursor theme for the software cursor on direct display, resolved through the freedesktop cursor spec. The theme must ship `cursors/<name>.svg` files; a conventional Xcursor binary theme resolves but contributes nothing, logs a warning, and every shape falls back to the bundled art. `$XCURSOR_THEME` wins when set. Built-in `tessera-user-light` and `tessera-user-dark` need no installation; legacy `Tessera` selects the light variant. Unresolved shapes fall back to `tessera-user-light`. AI feedback uses separate sprites whose polarity follows the shell foreground. |
+| `cursor_theme` | string | `"default"` | SVG cursor theme for the software cursor on direct display, resolved through the freedesktop cursor spec. `cursors/<name>.svg` is compiled in process at the output's own scale, honouring the art's `data-hotspot-x`/`data-hotspot-y`; a pre-baked `cursors/<name>.png` in the same theme wins as the artist's own override. A conventional Xcursor binary theme resolves but contributes nothing, logs how many of its directories contributed, and falls back to the bundled art. `$XCURSOR_THEME` wins when set. Built-in `tessera-user-light` and `tessera-user-dark` need no installation; legacy `Tessera` selects the light variant. Unresolved shapes fall back to `tessera-user-light`. AI feedback uses separate sprites whose polarity follows the shell foreground. |
 | `cursor_size` | integer | `24` | Cursor size in logical pixels, 8–128. `$XCURSOR_SIZE` wins when set. |
 | `window_decorations` | string | `"borderless"` | Decoration ownership for Wayland toplevels. `"borderless"` makes Tessera own window controls without drawing per-window title bars; `"client-side"` asks applications to draw their own frames. |
 | `window_shadow` | string | `"resize"` | Compositor drop-shadow style for floating windows (ADR-0139). `"resize"` draws the historic 4-px stroke shadow; `"soft"` renders a blurred shadow through the Optics shadow operator (rounded-rect mask, Gaussian blur, downward offset; focus raises its opacity); `"none"` disables shadows. Tiled, maximized, fullscreen, and minimized windows never cast one. |
@@ -674,9 +676,10 @@ applies the requested change, and returns to explicit user-owned pins.
 The application catalog is rescanned every five seconds. Installed, removed,
 or edited desktop entries, including Flatpak exports, appear without
 restarting tessera. The same refresh detects icon-theme, output-scale, and icon
-file changes. Raster icons decode in process; SVG icons use `rsvg-convert`
-when it is installed and otherwise fall back to the generic application
-glyph.
+file changes. Raster icons are decoded in process and SVG icons are compiled in
+process by the same library that compiles cursors, so no external rasterizer
+needs to be installed; an icon whose document cannot be parsed falls back to the
+generic application glyph.
 
 ## Status readings
 
@@ -710,7 +713,6 @@ A policy of `warn_at = [20, 5]` therefore produces one reading at 20% and one
 barrier at 5%. The latch reports each threshold once per discharge cycle and
 rearms when the machine is plugged in.
 
-## Window Rules
 ## Window Rules
 
 Each `[[window_rule]]` table matches a toplevel when it first maps and
@@ -986,6 +988,35 @@ configured:
 
 See [System Shortcuts](keyboard-shortcuts.md) for the complete default
 keyboard and pointer shortcut reference.
+
+## Accessibility
+
+`[accessibility]` carries the visual, keyboard, and screen-reader assistance
+policy (ADR-0166). Every field is opt-in: the defaults describe an unassisted
+session.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `visual.zoom_factor` | number | `1.0` | Screen magnification. `1.0` is unmagnified; values below it are clamped up. |
+| `visual.invert_colors` | boolean | `false` | Invert display luminance and colour channels. |
+| `visual.high_contrast` | boolean | `false` | Strengthen contrast across window borders and text surfaces. |
+| `visual.daltonism` | string | `none` | Daltonization correction mode. |
+| `keyboard.sticky_keys` | boolean | `false` | Latch modifiers sequentially instead of requiring a concurrent chord. |
+| `keyboard.slow_keys_ms` | integer | `0` | Reject presses shorter than this as involuntary tremors. `0` disables slow keys. |
+| `keyboard.bounce_keys_ms` | integer | `0` | Reject a repeat of the same key inside this window. `0` disables bounce keys. |
+| `screen_reader.enabled` | boolean | `false` | Export the shell's native UI hierarchy to `org.a11y.Bus`. |
+
+```toml
+[accessibility]
+[accessibility.visual]
+zoom_factor = 1.5
+high_contrast = true
+[accessibility.keyboard]
+sticky_keys = true
+slow_keys_ms = 200
+[accessibility.screen_reader]
+enabled = true
+```
 
 ## Touchpad Gestures
 

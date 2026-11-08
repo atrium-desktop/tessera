@@ -1,63 +1,69 @@
-//! The SNI tray shelf and its dbusmenu popover (ADR-0197).
+//! The SNI tray shelf: a horizontal pager of item cells, plus its dbusmenu
+//! popover (ADR-0221).
 //!
-//! The tray is a **shelf**, not a scrolling column. Its height is derived from
-//! the display and the shell's reserved bands ([INV-CHROME-02]), it has no
-//! scroll viewport ([INV-CHROME-03]), and overflow is *disclosed* by a trailing
-//! `+N` cell that expands into a grid popover rather than hidden behind a
-//! scroll or a page turn ([INV-CHROME-04]).
+//! The shelf is a **horizontal, bottom-anchored lane**. Its capacity is derived
+//! from the display and the shell's reserved bands ([INV-CHROME-02]), it has no
+//! scroll viewport ([INV-CHROME-03]), and when the items exceed the lane the
+//! shelf paginates with a chevron at each end whose disabled state is real — the
+//! first page cannot go back, the last cannot go forward, and each end renders
+//! that fact ([INV-CHROME-07]).
 //!
 //! Geometry lives in [`super::tray_shelf`] as pure functions; this module only
 //! paints and dispatches.
 
 use super::*;
 
-/// Which cell of the shelf a draw is producing.
-enum ShelfCell<'a> {
-    /// A resident SNI item.
-    Item(&'a TrayCellVisual),
-    /// The trailing disclosure cell showing how many items are hidden.
-    Disclosure { hidden: usize },
+/// A pressable's drawn box when lens resolved it, else the pure layout's
+/// declared slot.
+///
+/// The first frame a cell exists, lens has no snapshot to resolve the flow box
+/// from and reports an empty rect. Every consumer of a cell's rect (the menu
+/// anchor, the pointer bands) must still get a real box, and the pure layout is
+/// the one authority that can supply it — deriving these two from different
+/// sources is exactly how a drawn shelf and an interactive shelf drift apart.
+fn drawn_or_declared(drawn: Rect, declared: Rect) -> Rect {
+    if drawn.w > 0.0 && drawn.h > 0.0 {
+        drawn
+    } else {
+        declared
+    }
 }
 
 impl ControlCenter {
     /// Render the tray shelf at the bottom-left anchor.
     ///
-    /// StatusNotifierItem icons stack **upward** from the anchor's bottom edge,
-    /// so a newly-registered item grows the shelf without displacing the icons
-    /// already nearest the pointer's approach path. Left-click activates an
-    /// item; right-click opens the host-rendered dbusmenu popover (or falls
-    /// back to `SecondaryActivate` when the item exposes no `Menu` object).
-    /// Hover and menu-open are the cell pressable's own background, never a
-    /// sibling `place()` overlay ([INV-CHROME-06]).
+    /// StatusNotifierItem icons run **left to right** along one row anchored to
+    /// the bottom edge. Left-click activates an item; right-click opens the
+    /// host-rendered dbusmenu popover (or falls back to `SecondaryActivate` when
+    /// the item exposes no `Menu` object). Hover and menu-open are the cell
+    /// pressable's own background, never a sibling `place()` overlay
+    /// ([INV-CHROME-06]).
     pub(crate) fn render_tray_shelf(
         &mut self,
         f: &mut Frame,
         anchor: Rect,
-        display: (f32, f32),
         progress: f32,
         cursor: (f32, f32),
-        pressed: bool,
-        _i18n: &Localizer,
+        i18n: &Localizer,
     ) {
         let cells = self.sni_cells();
-        self.render_tray_shelf_cells(f, anchor, display, &cells, progress, cursor, pressed);
+        self.render_tray_shelf_cells(f, anchor, &cells, progress, cursor, i18n);
     }
 
     /// Paint an explicit cell list into the shelf.
     ///
     /// Split from [`Self::render_tray_shelf`] so the shelf's behaviour is
-    /// drivable with a known item set: overflow disclosure is a function of
-    /// `(anchor, item count)`, and a caller that already holds the cells should
-    /// not have to re-derive them through the projection to exercise it.
+    /// drivable with a known item set: paging is a function of
+    /// `(anchor, item count, page)`, and a caller that already holds the cells
+    /// should not have to re-derive them through the projection to exercise it.
     pub(crate) fn render_tray_shelf_cells(
         &mut self,
         f: &mut Frame,
         anchor: Rect,
-        display: (f32, f32),
         cells: &[SniCell],
         progress: f32,
         cursor: (f32, f32),
-        pressed: bool,
+        i18n: &Localizer,
     ) {
         if anchor.w < 32.0 || anchor.h < TRAY_CELL {
             return;
@@ -70,21 +76,24 @@ impl ControlCenter {
         };
 
         if cells.is_empty() {
-            // Nothing to show, so nothing is disclosed either.
+            // Nothing to show, so nothing is paged either.
             self.tray_shelf = None;
-            self.tray_overflow_open = false;
+            self.tray_page = 0;
             return;
         }
 
-        // Resolve the shelf geometry before any painting, so the overflow
-        // decision is a pure function of the anchor and the item count
-        // ([INV-CHROME-05]).
-        let layout = tray_shelf::shelf_layout(anchor, cells.len());
-        // Cache the resolved layout: click-away hit-testing and the disclosure
-        // popover read this instead of re-deriving the geometry, so the drawn
+        // Resolve the shelf geometry before any painting, so capacity, page
+        // count and each chevron's reachability are a pure function of the
+        // anchor and the item count ([INV-CHROME-05], [INV-CHROME-07]).
+        let layout = tray_shelf::shelf_layout(anchor, cells.len(), self.tray_page);
+        // The resolver owns the clamp: if the current page stopped existing
+        // (items left), the resolved page is the truth from here on.
+        self.tray_page = layout.page;
+        // Cache the resolved layout: click-away hit-testing and the popover
+        // anchors read this instead of re-deriving the geometry, so the drawn
         // shelf and the interactive shelf cannot disagree.
         self.tray_shelf = Some(layout);
-        if layout.visible == 0 {
+        if layout.visible_slots() == 0 {
             return;
         }
 
@@ -109,46 +118,27 @@ impl ControlCenter {
             })
             .collect();
 
-        // The disclosure cell owns the last slot; items fill the rest. When
-        // nothing overflows every drawn cell is an item.
-        let own_items = layout.visible - usize::from(layout.has_disclosure());
-        let shelf_cells: Vec<ShelfCell<'_>> = visuals
-            .iter()
-            .take(own_items)
-            .map(ShelfCell::Item)
-            .chain(layout.has_disclosure().then_some(ShelfCell::Disclosure {
-                hidden: layout.overflow,
-            }))
-            .collect();
-
         let cell_w = layout.cell_width();
         let surface = layout.surface;
-        let column_x = surface.x + (surface.w - cell_w) * 0.5;
         let plate_radius = cell_w * 0.32;
 
         let original = f.theme();
 
         // Interactions are captured inside the layout closures and dispatched
-        // after them: opening a popover mutates `self`.
+        // after them: opening a popover or turning a page mutates `self`.
         let mut activations: Vec<String> = Vec::new();
         let mut secondary: Vec<(String, bool)> = Vec::new();
         let mut resolved: Vec<(String, Rect)> = Vec::new();
-        let mut disclosure_clicked = false;
-        let mut disclosure_rect = Rect {
-            x: column_x,
-            y: surface.y + TRAY_PAD,
-            w: cell_w,
-            h: TRAY_CELL,
-        };
+        let mut page_step: i32 = 0;
 
         // The capsule: one recessed surface sized to the *occupied* slots, so a
-        // two-icon tray is a small pill rather than a tall empty column.
+        // two-icon tray is a small pill rather than a wide empty bar.
         f.place(
             "tessera-hud-tray-surface",
             &chrome_place(
                 surface,
                 LayoutOpts {
-                    radius: surface.w * 0.5,
+                    radius: surface.h * 0.5,
                     bg: hud.surface_recessed,
                     border: hud.border,
                     border_width: 1.0,
@@ -164,7 +154,7 @@ impl ControlCenter {
             "tessera-hud-tray-shelf",
             &chrome_place(surface, transparent()),
             |f| {
-                f.column_ex(
+                f.row_ex(
                     &LayoutOpts {
                         width: surface.w,
                         height: surface.h,
@@ -174,9 +164,19 @@ impl ControlCenter {
                         ..Default::default()
                     },
                     |f| {
-                        for cell in shelf_cells.iter() {
-                            match cell {
-                                ShelfCell::Item(cell) => {
+                        // Walk the slots by index rather than over a `Vec`:
+                        // this runs once per slot per frame, so a heap
+                        // allocation here would be per-frame churn on the
+                        // chrome path.
+                        for index in 0..layout.visible_slots() {
+                            let Some(slot) = layout.slot_at(index) else {
+                                break;
+                            };
+                            match slot {
+                                tray_shelf::ShelfSlot::Item(offset) => {
+                                    let Some(cell) = visuals.get(offset) else {
+                                        continue;
+                                    };
                                     let is_open = self.menu_open_for.as_deref() == Some(&cell.key);
                                     // The plate is the pressable's own
                                     // background ([INV-CHROME-06]). Hover needs
@@ -221,42 +221,52 @@ impl ControlCenter {
                                             });
                                         },
                                     );
-                                    resolved.push((key.clone(), response.rect));
+                                    // Trust the drawn box when lens resolved
+                                    // it; fall back to the pure layout's slot
+                                    // on the first frame, so a menu opened by a
+                                    // press can never anchor to a zero rect.
+                                    resolved.push((
+                                        key.clone(),
+                                        drawn_or_declared(response.rect, layout.slot_rect(index)),
+                                    ));
                                     if response.clicked {
                                         activations.push(key);
                                     } else if response.right_clicked {
                                         secondary.push((key, has_menu));
                                     }
                                 }
-                                ShelfCell::Disclosure { hidden } => {
-                                    // The disclosure is a cell like any other:
-                                    // same slot geometry, same hover treatment,
-                                    // same pressable semantics. It is never a
-                                    // navigation control ([INV-CHROME-04]).
-                                    let label = format!("+{hidden}");
-                                    let (response, _) = f.pressable_row(
-                                        "tessera-hud-tray-overflow",
-                                        &label,
-                                        &LayoutOpts {
-                                            width: cell_w,
-                                            height: TRAY_CELL,
-                                            cross: Align::Center,
-                                            radius: plate_radius,
-                                            bg: Color::TRANSPARENT,
-                                            ..Default::default()
-                                        },
-                                        |f, _| {
-                                            f.centered(cell_w, TRAY_CELL, |f| {
-                                                display_label(
-                                                    f,
-                                                    &label,
-                                                    self.design.typography.footnote,
-                                                );
-                                            });
-                                        },
+                                tray_shelf::ShelfSlot::Previous => {
+                                    // The layout owns each end's reachability:
+                                    // the renderer never decides on its own
+                                    // whether an end is live ([INV-CHROME-07]).
+                                    let enabled = layout.has_previous();
+                                    let clicked = Self::pager_cell(
+                                        f,
+                                        "tessera-hud-tray-page-previous",
+                                        Icon::ChevronLeft,
+                                        i18n.text(Message::TrayPreviousPage),
+                                        enabled,
+                                        cell_w,
+                                        hud,
                                     );
-                                    disclosure_rect = response.rect;
-                                    disclosure_clicked = response.clicked;
+                                    if clicked {
+                                        page_step = -1;
+                                    }
+                                }
+                                tray_shelf::ShelfSlot::Next => {
+                                    let enabled = layout.has_next();
+                                    let clicked = Self::pager_cell(
+                                        f,
+                                        "tessera-hud-tray-page-next",
+                                        Icon::ChevronRight,
+                                        i18n.text(Message::TrayNextPage),
+                                        enabled,
+                                        cell_w,
+                                        hud,
+                                    );
+                                    if clicked {
+                                        page_step = 1;
+                                    }
                                 }
                             }
                         }
@@ -278,18 +288,10 @@ impl ControlCenter {
                     .iter()
                     .find(|(k, _)| k == &key)
                     .map(|(_, rect)| *rect)
-                    .unwrap_or(Rect {
-                        x: column_x,
-                        y: surface.y + TRAY_PAD,
-                        w: cell_w,
-                        h: TRAY_CELL,
-                    });
-                self.menu_owner = Rect {
-                    x: surface.x,
-                    y: cell_rect.y,
-                    w: surface.w,
-                    h: cell_rect.h,
-                };
+                    // The first item slot, not slot 0: with the pager present
+                    // slot 0 is the leading chevron.
+                    .unwrap_or_else(|| layout.slot_rect(layout.first_item_slot()));
+                self.menu_owner = cell_rect;
                 self.menu_open_for = Some(key.clone());
                 self.menu_path.clear();
                 self.menu_just_opened = true;
@@ -299,31 +301,35 @@ impl ControlCenter {
             }
         }
 
-        // A disclosed tray is an open popover on the same footing as a menu:
-        // both float above the shelf and both re-anchor every frame.
-        if disclosure_clicked {
-            self.tray_overflow_open = !self.tray_overflow_open;
-        }
-        self.tray_overflow_anchor = disclosure_rect;
-        if !layout.has_disclosure() {
-            // The last disclosed item fit: the popover has nothing left to
-            // show and must not linger as an empty surface.
-            self.tray_overflow_open = false;
-        }
-        if self.tray_overflow_open {
-            self.render_tray_overflow(f, &visuals[own_items..], display, cursor, pressed);
+        // A page turn is applied after the frame: the shelf repaints on the next
+        // one with the new slice, so the icons the pointer is over cannot move
+        // under it mid-press.
+        if page_step != 0 {
+            let target = if page_step < 0 {
+                layout
+                    .page
+                    .saturating_sub(page_step.unsigned_abs() as usize)
+            } else {
+                // `has_next` already gated the click, and `pages` is exact, so
+                // the target can never exceed the last page.
+                (layout.page + page_step as usize).min(layout.pages - 1)
+            };
+            self.tray_page = target;
+            // The cell the popover was anchored to is not on the new page at
+            // all, so it must go with the turn rather than one frame later.
+            if let Some(key) = self.menu_open_for.take() {
+                self.menu_path.clear();
+                self.send_tray_command(TrayCommand::CloseMenu { key });
+            }
         }
 
         // Keep the owner rect fresh against relayout or item movement.
         if let Some(key) = self.menu_open_for.clone() {
             if let Some((_, rect)) = resolved.iter().find(|(k, _)| k == &key) {
-                self.menu_owner = Rect {
-                    x: surface.x,
-                    y: rect.y,
-                    w: surface.w,
-                    h: rect.h,
-                };
+                self.menu_owner = *rect;
             } else {
+                // The owning cell scrolled to another page: the popover has no
+                // anchor and must close rather than float over the wrong icon.
                 self.menu_open_for = None;
                 self.menu_path.clear();
                 self.send_tray_command(TrayCommand::CloseMenu { key });
@@ -331,134 +337,72 @@ impl ControlCenter {
         }
     }
 
-    /// The overflow popover: every item the shelf had to disclose, as a grid.
+    /// One pager chevron.
     ///
-    /// This is disclosure, not navigation: it holds the *complete* hidden set,
-    /// so reaching an item is one click from the shelf rather than a paged
-    /// walk ([INV-CHROME-04]). Cells carry the same activate / context-menu
-    /// affordances as shelf cells so the overflow set is not second-class.
-    fn render_tray_overflow(
-        &mut self,
+    /// The reachable state is the layout's, not the renderer's: `enabled` comes
+    /// from [`tray_shelf::TrayShelfLayout::has_previous`]/`has_next`, so the
+    /// first page's back chevron and the last page's forward chevron are drawn
+    /// dimmed and refuse the press ([INV-CHROME-07]). That is the whole point:
+    /// a chevron that looks live but does nothing is worse than no chevron.
+    fn pager_cell(
         f: &mut Frame,
-        items: &[TrayCellVisual],
-        display: (f32, f32),
-        cursor: (f32, f32),
-        pressed: bool,
-    ) {
-        if items.is_empty() {
-            return;
-        }
-        const COLUMNS: u32 = 4;
-        const PAD: f32 = 8.0;
-        const GAP: f32 = 6.0;
-        let hud = self.panel_colors();
-
-        let cols = COLUMNS.min(items.len() as u32).max(1);
-        // One shared pure function owns the popover's extent, so this render
-        // pass and click-away hit-testing cannot drift apart.
-        let bounds = tray_shelf::overflow_bounds(self.tray_overflow_anchor, items.len(), display);
-
-        // Light-dismiss, symmetric with the dbusmenu popover: a press outside
-        // both the popover and the disclosure cell that opened it closes the
-        // popover rather than leaving a stale surface on screen. The panel's
-        // own click-away runs first and already treats the popover as inside,
-        // so this cannot double-handle the same press.
-        let in_anchor = contains(self.tray_overflow_anchor, cursor.0, cursor.1);
-        let in_popover = contains(bounds, cursor.0, cursor.1);
-        if pressed && !in_anchor && !in_popover {
-            self.tray_overflow_open = false;
-            return;
-        }
-
+        id: &str,
+        icon: Icon,
+        label: &str,
+        enabled: bool,
+        cell_w: f32,
+        hud: ControlCenterColors,
+    ) -> bool {
         let original = f.theme();
-        let base = themes::hud(&hud);
-        let mut activations: Vec<String> = Vec::new();
-        let mut secondary: Vec<(String, bool)> = Vec::new();
-        let mut cell_rects: Vec<(String, Rect)> = Vec::new();
-
-        f.set_theme(base);
-        f.place(
-            "tessera-hud-tray-overflow-popover",
-            &chrome_place(bounds, materials::canvas_panel(&hud)),
-            |f| {
-                f.grid(cols)
-                    .col_gap(GAP)
-                    .row_gap(GAP)
-                    .pad(PAD)
-                    .row_height(TRAY_CELL)
-                    .show(|f| {
-                        for item in items.iter() {
-                            let texture = item.texture;
-                            let fallback = item.fallback;
-                            let title = item.title.clone();
-                            let key = item.key.clone();
-                            let has_menu = item.has_menu;
-                            let (response, _) = f.pressable_row(
-                                &format!("tessera-hud-tray-overflow-{key}"),
-                                &title,
-                                &LayoutOpts {
-                                    width: TRAY_CELL,
-                                    height: TRAY_CELL,
-                                    cross: Align::Center,
-                                    radius: TRAY_CELL * 0.32,
-                                    bg: Color::TRANSPARENT,
-                                    ..Default::default()
-                                },
-                                |f, _| {
-                                    f.centered(TRAY_CELL, TRAY_CELL, |f| match texture {
-                                        Some(texture) => unsafe {
-                                            f.image(texture, TRAY_ICON, TRAY_ICON)
-                                        },
-                                        None => match fallback {
-                                            Some(icon) => unsafe {
-                                                f.image(icon, TRAY_ICON, TRAY_ICON)
-                                            },
-                                            None => f.icon(Icon::FileText, TRAY_ICON),
-                                        },
-                                    });
-                                },
-                            );
-                            cell_rects.push((key.clone(), response.rect));
-                            if response.clicked {
-                                activations.push(key);
-                            } else if response.right_clicked {
-                                secondary.push((key, has_menu));
-                            }
-                        }
-                    });
-            },
-        );
+        let fg = if enabled {
+            hud.text
+        } else {
+            // A disabled end is a reading, not an invitation: muted, and with
+            // no hover plate to suggest it can be pressed.
+            hud.text_muted.with_alpha(90)
+        };
+        f.set_theme(themes::hud(&hud).with_fg(fg));
+        // A disabled pressable would still capture the pointer and swallow the
+        // click, so the disabled end is an inert box with the same geometry —
+        // the lane keeps its length and the cell keeps its hit target.
+        let clicked = if enabled {
+            f.pressable_row(
+                id,
+                label,
+                &LayoutOpts {
+                    width: cell_w,
+                    height: TRAY_CELL,
+                    cross: Align::Center,
+                    radius: cell_w * 0.32,
+                    bg: Color::TRANSPARENT,
+                    ..Default::default()
+                },
+                |f, _| {
+                    f.centered(cell_w, TRAY_CELL, |f| f.icon(icon, TRAY_ICON * 0.7));
+                },
+            )
+            .0
+            .clicked
+        } else {
+            f.push_id(id);
+            f.row_ex(
+                &LayoutOpts {
+                    width: cell_w,
+                    height: TRAY_CELL,
+                    cross: Align::Center,
+                    ..Default::default()
+                },
+                |f| {
+                    f.centered(cell_w, TRAY_CELL, |f| f.icon(icon, TRAY_ICON * 0.7));
+                },
+            );
+            f.pop_id();
+            // No pressable, so nothing to press: the disabled end is drawn and
+            // then refuses the pointer entirely.
+            false
+        };
         f.set_theme(original);
-
-        let (x, y) = (cursor.0 as i32, cursor.1 as i32);
-        for key in activations {
-            self.send_tray_command(TrayCommand::Activate { key, x, y });
-            // An activated item has done its job; leaving the popover open
-            // would occlude the shelf it belongs to.
-            self.tray_overflow_open = false;
-        }
-        for (key, has_menu) in secondary {
-            if has_menu {
-                let cell_rect = cell_rects
-                    .iter()
-                    .find(|(k, _)| k == &key)
-                    .map(|(_, rect)| *rect)
-                    .unwrap_or(self.tray_overflow_anchor);
-                self.menu_owner = Rect {
-                    x: bounds.x,
-                    y: cell_rect.y,
-                    w: bounds.w,
-                    h: cell_rect.h,
-                };
-                self.menu_open_for = Some(key.clone());
-                self.menu_path.clear();
-                self.menu_just_opened = true;
-                self.tray_overflow_open = false;
-                self.send_tray_command(TrayCommand::FetchMenu { key });
-            } else {
-                self.send_tray_command(TrayCommand::SecondaryActivate { key, x, y });
-            }
-        }
+        clicked
     }
 
     /// Render the dbusmenu popover. The visible rows come from walking

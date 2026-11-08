@@ -285,12 +285,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         launcher_apps.len(),
         icon_theme
     );
-    // Decode each app entry's raster icon into a flux texture once, keyed by
-    // every app_id the entry might run as (StartupWMClass, desktop-id stem,
-    // icon name) so the dock can look a running toplevel up by its `app_id`.
-    // SVG icons are rasterized through the host's standard rsvg-convert when
-    // available. The cache owns the GPU textures and must outlive the shell,
-    // so it is declared before it.
+    // Decode each app entry's icon into a flux texture once, keyed by every
+    // app_id the entry might run as (StartupWMClass, desktop-id stem, icon name)
+    // so the dock can look a running toplevel up by its `app_id`. SVG icons are
+    // compiled in process by the Optics SVG compiler. The cache owns the GPU
+    // textures and must outlive the shell, so it is declared before it.
     let decoded_icons = decode_icons(&launcher_apps, &icon_theme, icon_scale);
     let icon_cache = build_icon_cache(device, &decoded_icons);
     let icon_snapshot = snapshot_icons(&launcher_apps);

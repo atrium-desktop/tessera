@@ -519,11 +519,21 @@ impl Server {
             self.state.workspace_slide = None;
             settled += 1;
         }
-        let before = self.state.closing_frames.len();
-        self.state
-            .closing_frames
-            .retain(|frame| frame.transition.is_active_at(now));
-        settled += before - self.state.closing_frames.len();
+        // A retired ghost's last painted pixels are still on the output. The
+        // desktop beneath them must be recomposited exactly once, on a frame
+        // that reports the ghost's rect as damage and keeps the loop ticking —
+        // otherwise the fade's final frame is never overwritten and the window
+        // appears to switch off instead of finishing its fade (ADR-0220).
+        let mut retired_ghosts: Vec<tessera_primitives::Rect> = Vec::new();
+        self.state.closing_frames.retain(|frame| {
+            let active = frame.transition.is_active_at(now);
+            if !active {
+                retired_ghosts.push(frame.rect);
+            }
+            active
+        });
+        settled += retired_ghosts.len();
+        self.state.note_retired_ghost_damage(&retired_ghosts);
         for pointer in self.state.live_surfaces() {
             // SAFETY: `live_surfaces` yields non-null records owned by this
             // single-threaded server for the duration of the iteration.
@@ -615,9 +625,24 @@ impl Server {
             .and_then(|t| t.rect_at(target, self.now_ms()))
     }
 
-    /// Whether a workspace slide or toplevel geometry transition is in flight
-    /// — the main loop keeps ticking frames instead of blocking on the host.
+    /// Whether any animation record is still in flight *or* a settled ghost
+    /// still owes its hand-off repaint — the main loop keeps ticking frames
+    /// instead of blocking on the host.
     pub fn transitions_pending(&self) -> bool {
+        self.live_transitions_pending() || self.state.retired_ghost_damage.pending()
+    }
+
+    /// Whether a workspace slide, a closing ghost, or a toplevel geometry
+    /// transition is *currently animating*.
+    ///
+    /// Distinct from [`Self::transitions_pending`] because the two answer
+    /// different damage questions. An animating transition can move a window,
+    /// its software shadow, and the pixels it uncovers, so a frame it drives has
+    /// to be assessed in full. A settled ghost's hand-off frame changes exactly
+    /// one thing — the rect the ghost painted — and reporting it as a full-output
+    /// repaint would make the recorded hand-off damage dead on arrival
+    /// (ADR-0220).
+    pub fn live_transitions_pending(&self) -> bool {
         self.workspace_slide_pending()
             || self
                 .state
@@ -631,15 +656,22 @@ impl Server {
 
     /// Bounding damage rectangles of all window geometry transitions currently
     /// in flight (closing ghosts, minimize/restore, and open transitions).
-    pub fn transition_damage_rects(&self) -> Vec<tessera_primitives::Rect> {
-        let mut rects = Vec::new();
+    ///
+    /// Also drains the hand-off rects of ghosts that settled since the last
+    /// assessment: the frame that retires a ghost must repaint the area it
+    /// covered, or its last (near-transparent but not empty) frame stays on the
+    /// output until something unrelated happens to dirty it (ADR-0220).
+    pub fn transition_damage_rects(&mut self) -> Vec<tessera_primitives::Rect> {
+        let mut rects = self.state.retired_ghost_damage.take();
         let now = self.now_ms();
         for frame in &self.state.closing_frames {
             if frame.transition.is_active_at(now) {
-                if let Some(r) = frame.transition.rect_at(frame.rect, now) {
-                    rects.push(r.union(frame.rect));
-                } else {
-                    rects.push(frame.rect);
+                // The ghost shrinks toward its inset target while it fades, so
+                // the repaint must cover both the sampling from-rect and the
+                // rect it currently occupies.
+                match frame.rect_at(now) {
+                    Some(r) => rects.push(r.union(frame.rect)),
+                    None => rects.push(frame.rect),
                 }
             }
         }

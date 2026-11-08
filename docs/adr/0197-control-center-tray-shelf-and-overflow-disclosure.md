@@ -12,6 +12,7 @@ negative_knowledge: true
 
 - Status: Accepted
 - Date: 2026-10-29
+- Amended by: [ADR-0221](0221-the-control-center-tray-is-a-horizontal-paging-lane.md) — the shelf becomes a horizontal lane and its overflow becomes bounded, reversible paging; `[INV-CHROME-04]` is retired and replaced by `[INV-CHROME-07]`.
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0080](0080-hud-status-chips-and-sao-command-panel.md), [ADR-0176](0176-control-center-painted-canvas-beyond-backdrop-cover.md)
 
@@ -183,6 +184,10 @@ with them.
 ### 3. Overflow is disclosed, never scrolled or paged
 
 `[INV-CHROME-04] Tray overflow is disclosed, never hidden behind navigation.`
+*(Superseded by [ADR-0221](0221-the-control-center-tray-is-a-horizontal-paging-lane.md):
+the shelf is now a horizontal paging lane and this tag is retired. The paragraph
+below is preserved as the negative knowledge for why disclosure was chosen
+first, and what it cost.)*
 When the cell count exceeds the shelf's slot count, the shelf renders the first
 `n - 1` cells followed by a final **disclosure cell** showing `+N` for the
 remaining `N`. Activating the disclosure cell opens a grid popover listing every

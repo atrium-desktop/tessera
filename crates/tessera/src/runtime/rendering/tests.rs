@@ -131,7 +131,13 @@ fn damaged_base_and_stencil_overlay_preserve_pixels_outside_the_scissor() {
     frame.submit().unwrap().present().unwrap();
 
     let mut frame = surface.begin_frame().unwrap();
-    let repaint = FrameDamage::Area(vec![tessera_primitives::Rect::new(8, 6, 10, 9)]);
+    /* Whole-output repaint on purpose. This test exists to prove the *pass
+     * boundary* between the optimized base pass and the stencil-capable chrome
+     * overlay, not to pin damage localization — the latter is covered by
+     * `frame_damage_scope_*` above. Using a narrow rect here would make the
+     * assertions depend on flux's swapchain epoch history, which is a different
+     * subsystem's contract and would silently couple the two. */
+    let repaint = FrameDamage::Full;
     let session = begin_opaque_frame_repaint(
         &mut canvas,
         &mut frame,
@@ -149,7 +155,7 @@ fn damaged_base_and_stencil_overlay_preserve_pixels_outside_the_scissor() {
     let session = begin_stencil_frame_overlay(
         &mut canvas,
         &mut frame,
-        frame_damage_render_area(&repaint, (256, 256)),
+        frame_damage_scope(&repaint, (256, 256)),
     )
     .unwrap();
     let arena = flux::Arena::with_capacity(4096).unwrap();
@@ -170,85 +176,166 @@ fn damaged_base_and_stencil_overlay_preserve_pixels_outside_the_scissor() {
     let mut pixels = vec![0; size.0 as usize * size.1 as usize * 4];
     surface.read_pixels(&mut pixels).unwrap();
     let pixel = |x: usize, y: usize| &pixels[(y * size.0 as usize + x) * 4..][..4];
-    // Under Optics ADR-0144, surface damage passes widen to the full extent to
-    // keep rotating swapchains identical by construction.
-    assert_eq!(pixel(0, 0), [10, 80, 220, 255]);
-    assert_eq!(pixel(9, 7), [10, 80, 220, 255]);
-    assert_eq!(pixel(17, 14), [10, 80, 220, 255]);
-    assert_eq!(pixel(18, 15), [10, 80, 220, 255]);
+    /* A full repaint replaces every pixel, up to the output transform's ±1 LSB
+     * dither (Optics ADR-0069). */
+    let repainted = [10, 80, 220, 255];
+    for (x, y) in [(0, 0), (9, 7), (17, 14), (18, 15)] {
+        let got = pixel(x, y);
+        assert!(
+            got.iter()
+                .zip(repainted.iter())
+                .all(|(g, w)| g.abs_diff(*w) <= 1),
+            "base pass did not repaint ({x},{y}): {got:?}"
+        );
+    }
+
+    /* The overlay's self-intersecting "bowtie" must have painted green over the
+     * base blue somewhere in its bounds. Exact pixels are not asserted: the two
+     * lobes meet at (13,10), where coverage is partial and the result is a
+     * blend. What matters is that the second pass drew at all — and since flux
+     * rejects a self-intersecting fill from a *no-stencil* pass, a successful
+     * checked end plus green pixels proves the overlay really has stencil
+     * rather than merely being a second no-stencil LOAD pass. */
+    let mut painted = 0;
+    for y in 8..=12 {
+        for x in 11..=15 {
+            let p = pixel(x, y);
+            let base = p
+                .iter()
+                .zip(repainted.iter())
+                .all(|(g, w)| g.abs_diff(*w) <= 1);
+            if !base && p[1] > p[2] {
+                painted += 1; /* greener than the blue base */
+            }
+        }
+    }
+    assert!(
+        painted > 0,
+        "stencil overlay drew nothing: no green pixel inside its bounds"
+    );
 }
 
+/// The output pass scope is the damage *set*, not its bounding box.
+///
+/// A compositor frame's damage is routinely two distant bands — a top HUD and a
+/// bottom dock — whose union is the whole output. Collapsing the set to that box
+/// before flux sees it would make every chrome repaint an output-wide composite
+/// and destroy the localisation the damage pipeline exists to carry
+/// (ADR-0203, Optics ADR-0149). The list is therefore the contract here.
 #[test]
-fn frame_damage_render_area_uses_the_exact_union() {
+fn frame_damage_scope_preserves_the_set_instead_of_its_bounding_box() {
     let damage = FrameDamage::Area(vec![
         tessera_primitives::Rect::new(11, 7, 5, 9),
         tessera_primitives::Rect::new(29, 3, 4, 8),
     ]);
+    let scope = frame_damage_scope(&damage, (256, 256));
     assert_eq!(
-        frame_damage_render_area(&damage, (256, 256)),
-        Some(flux::CanvasRenderArea {
-            x: 11,
-            y: 3,
-            width: 22,
-            height: 13,
-        })
+        scope,
+        vec![
+            flux::CanvasRenderArea {
+                x: 11.0,
+                y: 7.0,
+                width: 5.0,
+                height: 9.0,
+            },
+            flux::CanvasRenderArea {
+                x: 29.0,
+                y: 3.0,
+                width: 4.0,
+                height: 8.0,
+            },
+        ],
+        "each damaged region must reach flux as its own rectangle"
     );
-    assert_eq!(
-        frame_damage_render_area(&FrameDamage::Full, (256, 256)),
-        None
-    );
-    assert_eq!(
-        frame_damage_render_area(&FrameDamage::None, (256, 256)),
-        None
-    );
+
+    /* `Full` and `None` both mean the whole destination, which flux expresses
+     * as an empty scope. A non-empty scope would be a *narrower* claim. */
+    assert!(frame_damage_scope(&FrameDamage::Full, (256, 256)).is_empty());
+    assert!(frame_damage_scope(&FrameDamage::None, (256, 256)).is_empty());
 }
 
-/// Both flux backends reject a `renderArea` that is out of bounds, has a
-/// negative origin, or has exactly one zero dimension
-/// (`canvas_pass_render_area`). Handing one out does not merely skip a
+/// Both flux backends reject a scope naming no pixel of the target, or a rect
+/// with a degenerate dimension. Handing one out does not merely skip a
 /// rectangle: the pass fails to begin and the frame loses its chrome, which
-/// surfaced as `shell chrome render failed: Render(FLUX_ERROR_INVALID_ARGUMENT)`.
-
+/// surfaced as `shell chrome render failed: Render(FLUX_ERROR_INVALID_ARGUMENT)`
+/// and then, on the shell side, as a per-frame rebuild loop.
 #[test]
-fn test_inv_arch_94_render_area_is_clamped_to_the_framebuffer() {
-    // Damage straddling the right and bottom edges clamps inward.
-    let edge = FrameDamage::Area(vec![tessera_primitives::Rect::new(1800, 1000, 400, 400)]);
+fn test_inv_arch_94_every_scope_rect_is_clamped_to_the_framebuffer() {
+    // Damage straddling the right and bottom edges clamps inward, one rect at
+    // a time.
+    let edge = FrameDamage::Area(vec![
+        tessera_primitives::Rect::new(1800, 1000, 400, 400),
+        tessera_primitives::Rect::new(10, 10, 20, 20),
+    ]);
     assert_eq!(
-        frame_damage_render_area(&edge, (1920, 1080)),
-        Some(flux::CanvasRenderArea {
-            x: 1800,
-            y: 1000,
-            width: 120,
-            height: 80,
-        })
+        frame_damage_scope(&edge, (1920, 1080)),
+        vec![
+            flux::CanvasRenderArea {
+                x: 1800.0,
+                y: 1000.0,
+                width: 120.0,
+                height: 80.0,
+            },
+            flux::CanvasRenderArea {
+                x: 10.0,
+                y: 10.0,
+                width: 20.0,
+                height: 20.0,
+            },
+        ]
     );
-    // A negative origin clamps to zero without changing the far edge.
+
+    // A negative origin clamps to zero without moving the far edge.
     let negative = FrameDamage::Area(vec![tessera_primitives::Rect::new(-30, -20, 100, 90)]);
     assert_eq!(
-        frame_damage_render_area(&negative, (1920, 1080)),
-        Some(flux::CanvasRenderArea {
-            x: 0,
-            y: 0,
-            width: 70,
-            height: 70,
-        })
+        frame_damage_scope(&negative, (1920, 1080)),
+        vec![flux::CanvasRenderArea {
+            x: 0.0,
+            y: 0.0,
+            width: 70.0,
+            height: 70.0,
+        }]
     );
-    // Damage wholly off the framebuffer has no usable area: the caller must
-    // fall back to a full-destination pass, never to a rejected rect.
+
+    // A rect wholly off the framebuffer contributes nothing. When *no* rect
+    // survives, the pass must still cover something: a full destination, never
+    // a rejected rectangle and never an empty scope that would read as `Full`
+    // arrived by accident.
     let offscreen = FrameDamage::Area(vec![tessera_primitives::Rect::new(5000, 5000, 100, 100)]);
-    assert_eq!(frame_damage_render_area(&offscreen, (1920, 1080)), None);
-    let negative_far = FrameDamage::Area(vec![tessera_primitives::Rect::new(-500, 0, 100, 100)]);
-    assert_eq!(frame_damage_render_area(&negative_far, (1920, 1080)), None);
-    // A one-pixel-wide sliver is still a legal area, not a degenerate one.
-    let sliver = FrameDamage::Area(vec![tessera_primitives::Rect::new(10, 10, 1, 40)]);
     assert_eq!(
-        frame_damage_render_area(&sliver, (1920, 1080)),
-        Some(flux::CanvasRenderArea {
-            x: 10,
-            y: 10,
-            width: 1,
-            height: 40,
-        })
+        frame_damage_scope(&offscreen, (1920, 1080)),
+        vec![flux::CanvasRenderArea {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        }]
+    );
+    let negative_far = FrameDamage::Area(vec![tessera_primitives::Rect::new(-500, 0, 100, 100)]);
+    assert_eq!(
+        frame_damage_scope(&negative_far, (1920, 1080)),
+        vec![flux::CanvasRenderArea {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        }]
+    );
+
+    // A one-pixel sliver is still legal, and an off-screen sibling is dropped
+    // without discarding the sliver.
+    let mixed = FrameDamage::Area(vec![
+        tessera_primitives::Rect::new(10, 10, 1, 40),
+        tessera_primitives::Rect::new(9000, 9000, 4, 4),
+    ]);
+    assert_eq!(
+        frame_damage_scope(&mixed, (1920, 1080)),
+        vec![flux::CanvasRenderArea {
+            x: 10.0,
+            y: 10.0,
+            width: 1.0,
+            height: 40.0,
+        }]
     );
 }
 

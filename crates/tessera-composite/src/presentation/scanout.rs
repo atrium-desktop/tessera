@@ -98,7 +98,6 @@ pub enum ScanoutRejectReason {
     SurfaceTransition,
     Overview,
     WindowSwitcher,
-    LiveBackdropEffect,
     VisibleShellPixels,
     ClientOverlay,
     SoftwareCursor,
@@ -129,7 +128,6 @@ impl ScanoutRejectReason {
             Self::SurfaceTransition => "surface-transition",
             Self::Overview => "overview",
             Self::WindowSwitcher => "window-switcher",
-            Self::LiveBackdropEffect => "live-backdrop-effect",
             Self::VisibleShellPixels => "visible-shell-pixels",
             Self::ClientOverlay => "client-overlay",
             Self::SoftwareCursor => "software-cursor",
@@ -169,7 +167,6 @@ pub struct ScanoutSceneFacts {
     pub overview_active: bool,
     pub window_switcher_active: bool,
     pub shell_visible_pixels: bool,
-    pub shell_live_backdrop_effect: bool,
     pub client_overlay_count: usize,
     pub software_cursor_visible: bool,
     pub shm_surface_count: usize,
@@ -205,11 +202,6 @@ pub fn evaluate_scene(facts: ScanoutSceneFacts) -> Result<(), ScanoutRejectReaso
     }
     if facts.window_switcher_active {
         return Err(ScanoutRejectReason::WindowSwitcher);
-    }
-    // Report the effect before its foreground pixels: this tells operators
-    // exactly why a visible Dock/HUD cannot ride the primary plane.
-    if facts.shell_live_backdrop_effect {
-        return Err(ScanoutRejectReason::LiveBackdropEffect);
     }
     if facts.shell_visible_pixels {
         return Err(ScanoutRejectReason::VisibleShellPixels);
@@ -422,6 +414,7 @@ mod tests {
             },
             opaque_region: None,
             color: None,
+            presentation_hint: tessera_primitives::PresentationHint::Vsync,
         }
     }
 
@@ -571,17 +564,6 @@ mod tests {
 
         facts.shell_visible_pixels = false;
         assert_eq!(evaluate_scene(facts), Ok(()));
-    }
-
-    #[test]
-    fn visible_live_dock_blur_has_a_precise_rejection_reason() {
-        let mut facts = eligible_scene();
-        facts.shell_visible_pixels = true;
-        facts.shell_live_backdrop_effect = true;
-        assert_eq!(
-            evaluate_scene(facts),
-            Err(ScanoutRejectReason::LiveBackdropEffect)
-        );
     }
 
     #[test]

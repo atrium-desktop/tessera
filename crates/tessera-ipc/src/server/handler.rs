@@ -497,7 +497,7 @@ pub trait Handler: Send + Sync {
     /// [`tessera_protocol::schema::StreamTarget::Output`] (version 29). `allow_dmabuf`
     /// (version 25) is the client's explicit
     /// zero-copy opt-in: only then may the reply announce
-    /// [`StreamPixelFormat::Dmabuf`] and carry a slot table; any reason the
+    /// `StreamPixelFormat::Dmabuf` and carry a slot table; any reason the
     /// transport is unavailable falls back to SHM pixels instead of failing.
     /// `cursor` (version 29) is the negotiated cursor mode, already
     /// defaulted to `Hidden` by the dispatcher.

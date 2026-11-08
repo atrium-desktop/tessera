@@ -72,7 +72,7 @@ pub enum PreviewCardState {
 #[must_use]
 pub fn panel_material(design: &Design) -> LayoutOpts {
     let mut material = materials::panel(design);
-    material.radius = design.radii.glass_panel;
+    material.radius = design.radii.panel_lg;
     material
 }
 

@@ -65,9 +65,9 @@ control center opens as a boundless floating layout over an opaque canvas.
 The background and elevated surfaces follow the desktop's light or dark
 appearance, while system blue marks active controls. The main control panel
 sits in the center, with a compact profile chip at the top-left,
-notifications at the top-right, and the machine telemetry and tray column at
-the right. The Dock hides while the control center owns the screen and returns
-after it has fully closed.
+notifications at the top-right, the tray lane along the bottom-left, and the
+Work Mode selector with the power cluster at the bottom-right. The Dock hides
+while the control center owns the screen and returns after it has fully closed.
 
 Close it with `Super+S` again, `Escape`, a click on the scrim, the close
 button at the right end of the tab bar, or a four-finger swipe up.
@@ -103,9 +103,10 @@ and VRMA animation playback when configured), display name, and account groups.
 The **main control panel (center)** holds System quick controls (Sound, Brightness,
 Connectivity, Desktop) and modular settings tabs.
 
-The **machine monitor (right-center)** shows a live hardware summary: chassis
-pictogram, CPU load with a recent-history sparkline, GPU, memory, network
-rates, disk, and battery, pinned above the StatusNotifierItem tray.
+The **tray lane (bottom-left)** holds StatusNotifierItem icons in one row,
+left to right. It takes as much of the display's width as the bottom band
+leaves it, and paginates with a chevron at each end when the icons outgrow the
+row; an end that cannot be reached is drawn dimmed and does nothing.
 
 The **notifications panel (top-right)** presents retained notification history
 with click-to-dismiss.
@@ -205,12 +206,19 @@ policies, and backend availability.
 
 ## Activate a Tray Item
 
-The tray grid is always visible at the bottom of the side column. Items
-lay out in a grid whose column count adapts to the panel width.
-Left-click an item to activate it; right-click to open its context menu.
-Items that expose a dbusmenu `Menu` object path render the menu in place
-with submenu navigation; all others fall back to the specification's
-`SecondaryActivate`.
+The tray lane is always visible along the bottom-left. Items lay out in one
+left-to-right row sized to the display, so a wide output shows many more
+icons than a narrow one. Left-click an item to activate it; right-click to
+open its context menu. Items that expose a dbusmenu `Menu` object path render
+the menu in place with submenu navigation; all others fall back to the
+specification's `SecondaryActivate`.
+
+When the icons exceed the row, the lane paginates: the chevron at each end
+turns one whole page, and the chevron at an end you cannot reach (the leading
+one on the first page, the trailing one on the last) is drawn dimmed and
+refuses the press — it says "there is nothing further this way" rather than
+pretending to be a live control. Turning the page closes an open context menu,
+since the cell it belonged to is no longer on screen.
 
 ## Dismiss Notifications
 

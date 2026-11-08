@@ -27,6 +27,19 @@ pub const OPEN_DURATION_MS: u64 = 200;
 /// Duration of the window close (unmap) transition.
 pub const CLOSE_DURATION_MS: u64 = 180;
 
+/// Fraction of the close flight over which the geometry shrink happens.
+///
+/// The close animation is not one motion but two: a *scale* that should read as
+/// the window leaving, and an *alpha* that must reach zero smoothly on the last
+/// painted frame or the ghost pops off the screen (ADR-0220). `EaseInCubic` is
+/// right for the scale — it starts imperceptibly and accelerates into the exit —
+/// but applied to alpha it is catastrophic: `1 - t³` is still **0.875 at the
+/// halfway point** and holds 0.58 at three quarters, so it dumps the last
+/// `37 %` of its range into the final quarter and drops ~`0.24` in one 60 Hz
+/// frame. The shrink therefore finishes at [`CLOSE_GEOMETRY_FRACTION`] of the
+/// timeline while the opacity runs the full duration on its own curve.
+pub const CLOSE_GEOMETRY_FRACTION: f32 = 0.8;
+
 /// The interpolation curve of a [`WindowTransition`].
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
@@ -101,15 +114,22 @@ pub struct WindowTransition {
 
 impl WindowTransition {
     /// The opacity multiplier this transition implies at `now_ms`: `None`
-    /// means fully opaque (no fade), `Some(t)` fades with the eased
-    /// progress. Open fades in (`t`), close fades out (`1 - t`); geometry
-    /// flights (minimize, plain rect changes) stay opaque unless a future
-    /// effect says otherwise.
+    /// means fully opaque (no fade), `Some(a)` is the alpha to paint with.
+    ///
+    /// Each effect owns its own curve, because a fade and a geometry flight
+    /// answer different questions (ADR-0220). A close ghost's alpha must reach
+    /// zero *smoothly and at the last frame*; driving it off the shrink's
+    /// `EaseInCubic` clock made the final 16 ms drop a third of the remaining
+    /// opacity, which is the "the animation just vanishes" the ghost used to
+    /// read as. The close therefore runs `smoothstep` over the whole timeline
+    /// while its rectangle finishes at [`CLOSE_GEOMETRY_FRACTION`].
     pub fn opacity_at(&self, now_ms: u64) -> Option<f32> {
-        let t = self.progress_at(now_ms)?;
+        let linear = self.linear_progress_at(now_ms)?;
         match self.effect? {
-            TransitionEffect::Open => Some(t),
-            TransitionEffect::Close => Some(1.0 - t),
+            // A fade-in reads better easing *out* of the transparent start, so
+            // the window is legible early instead of snapping into view.
+            TransitionEffect::Open => Some(self.easing.apply(linear)),
+            TransitionEffect::Close => Some(1.0 - smoothstep(linear)),
             TransitionEffect::Minimize { .. } => None,
         }
     }
@@ -193,12 +213,35 @@ impl WindowTransition {
     /// The eased progress in `0.0..=1.0` at `now_ms`, or `None` when the
     /// transition has settled. Effects that deform rather than interpolate
     /// (the genie warp) drive themselves from this value.
+    ///
+    /// For a [`TransitionEffect::Close`] this is the *geometry* clock: the
+    /// shrink is compressed into the first [`CLOSE_GEOMETRY_FRACTION`] of the
+    /// timeline so the alpha — which has its own, gentler curve in
+    /// [`Self::opacity_at`] — is what the user sees at the end (ADR-0220).
     pub fn progress_at(&self, now_ms: u64) -> Option<f32> {
+        self.linear_progress_at(now_ms)
+            .map(|linear| self.easing.apply(self.geometry_clock(linear)))
+    }
+
+    /// The un-eased fraction of the timeline elapsed at `now_ms`, in
+    /// `0.0..=1.0`, or `None` when the transition has settled.
+    pub fn linear_progress_at(&self, now_ms: u64) -> Option<f32> {
         if !self.is_active_at(now_ms) {
             return None;
         }
         let elapsed = now_ms.saturating_sub(self.started_ms);
-        Some(self.easing.apply(elapsed as f32 / self.duration_ms as f32))
+        Some((elapsed as f32 / self.duration_ms as f32).clamp(0.0, 1.0))
+    }
+
+    /// Remap linear time onto the geometry curve's own 0..1 span.
+    ///
+    /// Only the close flight splits its clocks; every other effect keeps the
+    /// whole timeline for its rectangle, so nothing else changes shape.
+    fn geometry_clock(&self, linear: f32) -> f32 {
+        match self.effect {
+            Some(TransitionEffect::Close) => (linear / CLOSE_GEOMETRY_FRACTION).clamp(0.0, 1.0),
+            _ => linear,
+        }
     }
 
     /// The interpolated rect at `now_ms`, or `None` when the transition has
@@ -233,6 +276,18 @@ pub fn ease_out_cubic(t: f32) -> f32 {
 /// `t³`: slow start, accelerating finish.
 pub fn ease_in_cubic(t: f32) -> f32 {
     t.clamp(0.0, 1.0).powi(3)
+}
+
+/// `t²(3 - 2t)`: zero slope at both ends, which is what a *cross-fade* needs.
+///
+/// A cubic ease lands on its endpoint with a non-zero slope, so the final
+/// sampled frame of a fade carries a visible opacity step. Smoothstep's
+/// matching zero-velocity tangents mean the last in-flight frame is already
+/// within a couple of levels of transparent: the ghost dissolves instead of
+/// switching off (ADR-0220).
+pub fn smoothstep(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 /// Interpolate two rects component-wise, rounding to the nearest pixel.
@@ -390,7 +445,6 @@ mod tests {
         let opacity = open.opacity_at(1000 + OPEN_DURATION_MS / 4);
         assert!(opacity.is_some_and(|o| o > 0.0 && o < 1.0));
         assert_eq!(opacity, quarter);
-
         let close = WindowTransition::close(rect, 1000);
         assert_eq!(close.opacity_at(1000), Some(1.0));
         assert_eq!(close.opacity_at(1000 + CLOSE_DURATION_MS), None);
@@ -406,5 +460,110 @@ mod tests {
         let icon = Rect::new(500, 1020, 48, 48);
         let genie = WindowTransition::minimize(rect, 1000, MinimizeAnimationStyle::Genie, icon);
         assert_eq!(genie.opacity_at(1050), None);
+    }
+
+    /// ADR-0220: the close ghost must dissolve, not switch off. Sampling the
+    /// fade per rendered frame at 60 Hz, no single frame may take a large bite
+    /// out of the remaining opacity, and the last in-flight frame must already
+    /// be (nearly) invisible — that is what a `smoothstep` alpha over the whole
+    /// timeline buys, and what the old `EaseInCubic`-driven `1 - t` did not.
+    #[test]
+    fn a_close_fade_never_drops_a_visible_step_on_its_last_frames() {
+        let rect = Rect::new(0, 0, 800, 600);
+        let close = WindowTransition::close(rect, 0);
+        // 60 Hz over the flight, ending just before the settle instant.
+        let frame_ms = 1000 / 60;
+        let mut samples = Vec::new();
+        let mut elapsed = 0;
+        while elapsed < CLOSE_DURATION_MS {
+            let alpha = close
+                .opacity_at(elapsed)
+                .expect("in flight until the deadline");
+            samples.push((elapsed, alpha));
+            elapsed += frame_ms;
+        }
+        let start = samples.first().copied().expect("at least one frame");
+        assert_eq!((start.0, start.1), (0, 1.0), "the ghost starts opaque");
+
+        // No frame-to-frame step may exceed a sixth of the range. The old
+        // curve dropped ~0.37 in the final 16 ms; a smoothstep fade at 60 Hz
+        // never exceeds ~0.11 anywhere.
+        let mut worst = 0.0_f32;
+        for window in samples.windows(2) {
+            let step = window[0].1 - window[1].1;
+            assert!(step >= 0.0, "the fade is monotonic: {samples:?}");
+            worst = worst.max(step);
+        }
+        assert!(
+            worst < 0.16,
+            "a close fade step of {worst} reads as a cut, not a fade: {samples:?}"
+        );
+
+        // The last frame that still renders is already close to invisible, so
+        // retiring the ghost at the deadline cannot be seen.
+        let (_, last) = samples.last().copied().expect("frames rendered");
+        assert!(
+            last < 0.06,
+            "the final in-flight frame must already be (almost) gone, got {last}: {samples:?}"
+        );
+    }
+
+    /// ADR-0220: the shrink and the fade are separate clocks. The rectangle
+    /// reaches its inset target at `CLOSE_GEOMETRY_FRACTION` of the timeline
+    /// while the alpha keeps falling for the rest of it; the two used to be one
+    /// `EaseInCubic` value, which is what made the fade front-load nothing and
+    /// back-load everything.
+    #[test]
+    fn a_close_shrink_finishes_before_its_fade_does() {
+        let rect = Rect::new(0, 0, 800, 600);
+        let close = WindowTransition::close(rect, 0);
+        let target = Rect::new(50, 50, 700, 500);
+        let settled_by = (CLOSE_DURATION_MS as f32 * CLOSE_GEOMETRY_FRACTION) as u64;
+
+        let before = close.rect_at(target, settled_by - 1).expect("in flight");
+        assert!(before.size.w > target.size.w, "still shrinking");
+        // At and after the geometry deadline the rect has arrived, even though
+        // the transition as a whole is still running.
+        assert_eq!(close.rect_at(target, settled_by), Some(target));
+        assert_eq!(close.rect_at(target, settled_by + 10), Some(target));
+
+        // The alpha, by contrast, is still visibly falling over that tail.
+        let at_geometry_end = close.opacity_at(settled_by).expect("in flight");
+        let at_deadline = close.opacity_at(CLOSE_DURATION_MS - 1).expect("in flight");
+        assert!(
+            at_geometry_end > at_deadline,
+            "the fade must keep moving after the shrink lands: {at_geometry_end} vs {at_deadline}"
+        );
+
+        // Every other effect keeps its whole timeline for the rectangle: an
+        // open flight at the same fraction of its duration has not landed yet,
+        // whereas the close above had.
+        let open_from = Rect::new(50, 50, 700, 500);
+        let open = WindowTransition::open(open_from, 0);
+        let at_same_fraction = (OPEN_DURATION_MS as f32 * CLOSE_GEOMETRY_FRACTION) as u64;
+        assert_ne!(
+            open.rect_at(rect, at_same_fraction),
+            Some(rect),
+            "only the close compresses its shrink; the open still owns its whole timeline"
+        );
+    }
+
+    #[test]
+    fn smoothstep_has_zero_velocity_at_both_ends() {
+        assert_eq!(smoothstep(0.0), 0.0);
+        assert_eq!(smoothstep(1.0), 1.0);
+        // Monotonic, and symmetric about the midpoint.
+        assert!(smoothstep(0.25) < smoothstep(0.5));
+        assert!(smoothstep(0.5) < smoothstep(0.75));
+        assert_eq!(smoothstep(0.5), 0.5);
+        assert!((smoothstep(0.25) + smoothstep(0.75) - 1.0).abs() < 1e-6);
+        // Flat tangents: the first and last slices of the curve move far less
+        // than the middle one, which is the whole reason a cross-fade uses it.
+        let head = smoothstep(0.05) - smoothstep(0.0);
+        let middle = smoothstep(0.55) - smoothstep(0.5);
+        assert!(head < middle * 0.5, "{head} vs {middle}");
+        // Clamped outside the unit interval, never extrapolated.
+        assert_eq!(smoothstep(-1.0), 0.0);
+        assert_eq!(smoothstep(2.0), 1.0);
     }
 }

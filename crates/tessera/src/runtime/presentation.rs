@@ -554,7 +554,7 @@ impl CompositorRuntime<'_> {
                 // no-stencil pass is ended and a stencil-capable LOAD pass is
                 // reopened with this same area.
                 #[allow(unused_assignments)]
-                let mut output_render_area: Option<flux::CanvasRenderArea> = None;
+                let mut output_damage_scope: Vec<flux::CanvasRenderArea> = Vec::new();
                 self.renderer.begin_frame();
                 let render_geometry = RenderGeometry {
                     logical_size,
@@ -683,7 +683,7 @@ impl CompositorRuntime<'_> {
                         entries: soft_shadow_entries.as_slice(),
                     },
                 );
-                output_render_area = frame_damage_render_area(&repaint, physical_size);
+                output_damage_scope = frame_damage_scope(&repaint, physical_size);
 
                 // [INV-ARCH-70]: the frame sampled client dma-bufs beyond the
                 // visible desktop set whenever it drew overview thumbnails,
@@ -741,7 +741,7 @@ impl CompositorRuntime<'_> {
                                 flux::CanvasPassOptions {
                                     clear: Some(self.clear),
                                     antialias: flux::CanvasAntialias::None,
-                                    render_area: None,
+                                    damage: Vec::new(),
                                     skip_stencil: true,
                                 },
                             )?;
@@ -766,7 +766,7 @@ impl CompositorRuntime<'_> {
                                 flux::CanvasPassOptions {
                                     clear: None,
                                     antialias: flux::CanvasAntialias::None,
-                                    render_area: None,
+                                    damage: Vec::new(),
                                     skip_stencil: true,
                                 },
                             )?;
@@ -831,7 +831,7 @@ impl CompositorRuntime<'_> {
                                     flux::CanvasPassOptions {
                                         clear: None,
                                         antialias: flux::CanvasAntialias::None,
-                                        render_area: None,
+                                        damage: Vec::new(),
                                         skip_stencil: false,
                                     },
                                 )?;
@@ -873,7 +873,7 @@ impl CompositorRuntime<'_> {
                                     flux::CanvasPassOptions {
                                         clear: None,
                                         antialias: flux::CanvasAntialias::None,
-                                        render_area: None,
+                                        damage: Vec::new(),
                                         skip_stencil: true,
                                     },
                                 )?;
@@ -941,7 +941,11 @@ impl CompositorRuntime<'_> {
                         flux::CanvasPassOptions {
                             clear: Some(self.clear),
                             antialias: flux::CanvasAntialias::None,
-                            render_area: output_render_area,
+                            /* Moved, not cloned: this branch is the mutually
+                             * exclusive alternative to the overlay pass below,
+                             * so the scope has exactly one consumer on each
+                             * path. */
+                            damage: output_damage_scope,
                             skip_stencil: false,
                         },
                     )?;
@@ -964,7 +968,12 @@ impl CompositorRuntime<'_> {
                         logical_size,
                         scale,
                         self.clear,
-                        output_render_area,
+                        /* Cloned, not moved: this branch consumes the scope
+                         * twice — once for the desktop base pass here and once
+                         * for the chrome overlay pass below. Two rects' worth of
+                         * copying is cheaper than threading a borrow through
+                         * `CanvasPassOptions`, which owns its scope. */
+                        output_damage_scope.clone(),
                         model_active && !self.screenshot_freeze.active(),
                         wallpaper_occluded,
                     )?;
@@ -1020,22 +1029,27 @@ impl CompositorRuntime<'_> {
                         }
                     }
 
-                    let chrome_in_render_area = if let Some(area) = output_render_area {
-                        self.shell
-                            .chrome_intersects_render_area(area, scale, logical_size)
-                    } else {
+                    // The overlay pass is worth beginning when any damaged
+                    // rectangle can contain chrome. An empty scope means "the
+                    // whole destination", so chrome is always reachable then.
+                    let chrome_in_damage_scope = if output_damage_scope.is_empty() {
                         true
+                    } else {
+                        output_damage_scope.iter().any(|area| {
+                            self.shell
+                                .chrome_intersects_render_area(*area, scale, logical_size)
+                        })
                     };
 
                     if shell_requires_composition
-                        && chrome_in_render_area
+                        && chrome_in_damage_scope
                         && (!self.screenshot_freeze.active() || self.screenshot_freeze.opened)
                     {
                         base_session.end()?;
                         let s = begin_stencil_frame_overlay(
                             self.canvas,
                             &mut frame,
-                            output_render_area,
+                            output_damage_scope,
                         )?;
                         let _uploads = self.device.uploads_begin();
                         // See the occluded branch above: a shell chrome draw
@@ -1758,6 +1772,16 @@ impl CompositorRuntime<'_> {
                 if self.shell.take_lock() {
                     self.idle_process.lock_now();
                 }
+                // A dock reading row asked for the surface that owns it
+                // (ADR-0218). Open-only: a reading press must not close a panel
+                // the user is already looking at.
+                if self.shell.take_open_control_center() {
+                    self.shell.open_control_center();
+                    // The panel's fidelity is bounded by the probe cadence, and
+                    // this is the one moment the user is looking at the reading's
+                    // detail — the same reason the Super+S binding refreshes.
+                    let _ = self.status_refresh_tx.send(());
+                }
                 // The dock's Pivot tile was clicked: toggle Pivot.
                 if self.shell.take_toggle_pivot() {
                     self.shell.toggle_pivot();
@@ -2351,7 +2375,7 @@ fn begin_desktop_output<'c, 'surface>(
     logical_size: (u32, u32),
     scale: f32,
     clear: u32,
-    render_area: Option<flux::CanvasRenderArea>,
+    damage: Vec<flux::CanvasRenderArea>,
     model_active: bool,
     wallpaper_occluded: bool,
 ) -> Result<flux::CanvasSession<'c, &'c mut flux::Frame<'surface>>, flux::Error> {
@@ -2361,7 +2385,7 @@ fn begin_desktop_output<'c, 'surface>(
             flux::CanvasPassOptions {
                 clear: Some(clear),
                 antialias: flux::CanvasAntialias::None,
-                render_area,
+                damage: damage.clone(),
                 skip_stencil: true,
             },
         )?;
@@ -2377,7 +2401,7 @@ fn begin_desktop_output<'c, 'surface>(
             flux::CanvasPassOptions {
                 clear: None,
                 antialias: flux::CanvasAntialias::None,
-                render_area,
+                damage,
                 skip_stencil: true,
             },
         )
@@ -2387,7 +2411,7 @@ fn begin_desktop_output<'c, 'surface>(
             flux::CanvasPassOptions {
                 clear: Some(clear),
                 antialias: flux::CanvasAntialias::None,
-                render_area,
+                damage,
                 skip_stencil: true,
             },
         )?;

@@ -7,7 +7,7 @@
 //! Follows the Model-Motion-View (MMV) architecture:
 //! - [`state`]: Headless, deterministic search, catalog, and action execution state machine.
 //! - [`motion`]: Progressive disclosure visibility dynamics driven via Optics `transit`.
-//! - [`rendering`]: Stateless UI projection using Lens Frame, typography tokens, and glass materials.
+//! - [`rendering`]: Stateless UI projection using Lens Frame, typography tokens, and painted fills.
 
 pub mod motion;
 pub mod rendering;
@@ -24,7 +24,7 @@ use crate::component::{
     AppCatalog, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, IconSet, Localizer,
 };
 use crate::widgets::geom::contains;
-use lens::{Frame, Input};
+use lens::{Frame, Input, Rect};
 use tessera_design::Design;
 use tessera_desktop::window::Window;
 use tessera_desktop::workspace::WorkspaceSnapshot;
@@ -79,10 +79,10 @@ impl Pivot {
     ///
     /// The compositor runs [`Chrome::prepare_frame`] before damage assessment,
     /// backdrop capture, and `render`, so `motion.visibility` must already
-    /// reflect this frame's `dt` when [`Chrome::backdrop_regions`] and
-    /// [`Chrome::bodies`] are queried — otherwise the glass body
-    /// and its wash sample frame T-1 geometry while the foreground panel draws
-    /// frame T (ADR-0171, ADR-0178).
+    /// reflect this frame's `dt` before [`Chrome::damage_regions`] and
+    /// [`Chrome::pointer_damage_regions`] are queried — otherwise the repaint
+    /// band describes frame T-1 geometry while the foreground panel draws
+    /// frame T (ADR-0171, ADR-0217).
     fn prepare_frame_state(&mut self, input: &Input) {
         let target = if self.state.is_open() { 1.0 } else { 0.0 };
         self.motion.advance(
@@ -167,6 +167,39 @@ impl Chrome for Pivot {
         _workspaces: &WorkspaceSnapshot,
     ) -> bool {
         self.is_active()
+    }
+
+    /// The pointer's reaction to Pivot is confined to its panel.
+    ///
+    /// Pivot takes the pointer across the whole output (a press outside the
+    /// panel closes it), but the only pixels a *move* can change are the row
+    /// and tile hover washes inside the panel body and the halo under it. The
+    /// panel is resolved at its maximum content height so the band is a
+    /// superset of every state the movement can occur in — a bound that is
+    /// wrong in the small direction would strand stale pixels.
+    fn pointer_damage_regions(
+        &self,
+        _x: f32,
+        _y: f32,
+        display: (f32, f32),
+        _windows: &[Window],
+        _workspaces: &WorkspaceSnapshot,
+    ) -> Option<Vec<Rect>> {
+        if !self.is_active() {
+            return Some(Vec::new());
+        }
+        let panel = rendering::panel_rect(&self.state, display, usize::MAX, 1.0);
+        let style = self
+            .design
+            .surfaces
+            .for_role(tessera_design::SurfaceRole::ProminentPanel);
+        let fringe = 2.0 * style.shadow_blur + 1.0;
+        Some(vec![Rect {
+            x: panel.x - fringe,
+            y: panel.y - fringe + style.shadow_offset_y,
+            w: panel.w + fringe * 2.0,
+            h: panel.h + fringe * 2.0,
+        }])
     }
 
     fn cursor_shape_at(

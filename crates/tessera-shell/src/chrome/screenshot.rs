@@ -46,7 +46,7 @@ use tessera_primitives::input::key_action;
 /// real selection rather than an accidental tap.
 const MIN_DRAG: f32 = 8.0;
 
-/// Optical character of the pixel-picking loupe — the only picker glass
+/// Optical character of the pixel-picking loupe — the only picker body
 /// body left. It uses the same full-strength blur as the window switcher
 /// without introducing another component-local material.
 const PIXEL_LENS_SIZE: f32 = 48.0;
@@ -300,18 +300,17 @@ impl ScreenshotSelector {
         .filter(|rect| rect.w > 0.0 && rect.h > 0.0)
     }
 
-    fn glass_radius(&self, rect: LensRect) -> f32 {
+    fn loupe_radius(&self, rect: LensRect) -> f32 {
         self.design
             .radii
-            .glass_panel
+            .panel_lg
             .min(rect.w * 0.5)
             .min(rect.h * 0.5)
     }
 
     /// The rect the scrim must leave undimmed. This is the pick target
     /// itself — the region being framed, the hovered window or output, or
-    /// the pixel loupe. It no longer equals the analytic glass body: only
-    /// the loupe has one.
+    /// the pixel loupe.
     fn scrim_hole(&self, display: (f32, f32), windows: &[Window]) -> Option<LensRect> {
         match self.mode {
             PickerMode::Region => self
@@ -378,7 +377,7 @@ impl ScreenshotSelector {
             );
         }
         if let Some(hole) = hole.filter(|_| self.mode == PickerMode::Pixel) {
-            render_rounded_scrim_corners(frame, hole, self.glass_radius(hole), scrim.bg);
+            render_rounded_scrim_corners(frame, hole, self.loupe_radius(hole), scrim.bg);
         }
     }
 
@@ -462,7 +461,7 @@ impl ScreenshotSelector {
             |_| {},
         );
 
-        // One measured status pill is content inside the glass body, not a
+        // One measured status pill is content inside the loupe body, not a
         // second outlined material. It expands to include the confirmation
         // hint after the drag is staged.
         if rect.size.w > 0 && rect.size.h > 0 {
@@ -495,7 +494,7 @@ impl ScreenshotSelector {
         };
         let design = &self.design;
         let mut material = materials::panel(design);
-        material.radius = self.glass_radius(rect);
+        material.radius = self.loupe_radius(rect);
         frame.place(
             "tessera-picker-pixel-lens",
             &materials::chrome_place(rect, material),
@@ -529,7 +528,7 @@ impl ScreenshotSelector {
         else {
             // Empty desktop remains the whole-output target, represented by
             // the unobstructed frozen canvas instead of a fake full-screen
-            // glass body.
+            // body.
             return;
         };
         let rect = LensRect {
@@ -585,7 +584,7 @@ impl ScreenshotSelector {
 
     /// Square-cornered border around a pick target. Like the region
     /// selection, a pick highlight marks pixels the user is about to commit
-    /// to — it is a marker, not a surface, so it gets no glass body and no
+    /// to — it is a marker, not a surface, so it gets no body and no
     /// rounded corners that would misrepresent the captured geometry.
     fn render_pick_highlight(&self, frame: &mut Frame, id: &str, rect: LensRect) {
         let highlight = LayoutOpts {
@@ -686,9 +685,9 @@ fn scrim_regions(full: LensRect, hole: Option<LensRect>) -> [LensRect; 4] {
 /// but inside its rectangular bounds. Sampling at each band's centre matches
 /// the raster coverage point and avoids a bright seam or dark overlap.
 ///
-/// Only the pixel loupe still needs this: it keeps a rounded analytic glass
-/// body. Region, window, and output targets are square-cornered now, so
-/// `scrim_regions` alone leaves their hole exact.
+/// Only the pixel loupe still needs this: its body is rounded. Region, window,
+/// and output targets are square-cornered now, so `scrim_regions` alone leaves
+/// their hole exact.
 fn rounded_corner_bands(radius: f32) -> Vec<CornerBand> {
     let radius = radius.max(0.0);
     let mut bands = Vec::new();
@@ -797,7 +796,7 @@ impl Chrome for ScreenshotSelector {
         let pressed = raw.mouse_pressed.first().copied().unwrap_or(false);
         match self.mode {
             // Region state is prepared before the compositor queries the
-            // matching glass geometry, so foreground and optics share one rect.
+            // matching body geometry, so foreground and optics share one rect.
             PickerMode::Region => {}
             PickerMode::Pixel => {
                 self.current = cursor;
@@ -1138,7 +1137,7 @@ mod tests {
         let style = design
             .surfaces
             .for_role(tessera_design::SurfaceRole::FloatingPanel);
-        assert_eq!(style.radius, design.radii.glass_panel);
+        assert_eq!(style.radius, design.radii.panel_lg);
         assert!(style.body.components().3 >= 236, "the loupe body is opaque");
     }
 
@@ -1203,8 +1202,8 @@ mod tests {
     }
 
     #[test]
-    fn rounded_scrim_corner_bands_fill_only_the_glass_corner_cutouts() {
-        let radius = Design::dark().radii.glass_panel;
+    fn rounded_scrim_corner_bands_fill_only_the_body_corner_cutouts() {
+        let radius = Design::dark().radii.panel_lg;
         let bands = rounded_corner_bands(radius);
         assert!(!bands.is_empty());
         assert!(bands.windows(2).all(|pair| pair[0].inset > pair[1].inset));

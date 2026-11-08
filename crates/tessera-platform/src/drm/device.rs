@@ -313,6 +313,11 @@ impl DrmBackend {
                 .unwrap_or(64)
                 .clamp(1, u64::from(u32::MAX)) as u32,
         );
+        let atomic_async_page_flip = card
+            .get_driver_capability(DriverCapability::AtomicASyncPageFlip)
+            .map(|v| v != 0)
+            .unwrap_or(false);
+        log::info!("drm: atomic async page flip (tearing) supported: {atomic_async_page_flip}");
 
         let input_devices = Rc::new(RefCell::new(HashMap::new()));
         let interface = SeatInputInterface {
@@ -437,6 +442,7 @@ impl DrmBackend {
             pointer: (size.0 as f32 * 0.5, size.1 as f32 * 0.5),
             explicit_sync: false,
             sync_capable: false,
+            atomic_async_page_flip,
             render_ready: true,
             outputs_powered: true,
             presented_composite: None,
@@ -984,7 +990,7 @@ impl DrmBackend {
             .map(OwnedFd::try_clone)
             .transpose()?;
         let scanout = self.import_scanout(dmabuf)?;
-        self.commit_scanout(scanout, damage, PrimaryPlaneFrame::Composited)?;
+        self.commit_scanout(scanout, damage, PrimaryPlaneFrame::Composited, false)?;
         // Advance the offscreen ring slot only after KMS accepts the atomic flip;
         // if commit_scanout returns EBUSY or fails, SubmittedFrame::drop abandons
         // the frame without advancing current_frame so the next retry reuses this
@@ -1059,8 +1065,13 @@ impl DrmBackend {
             },
             dup_fence,
         )?;
-        let completion_fence =
-            self.commit_scanout(scanout, damage, PrimaryPlaneFrame::DirectClient)?;
+        let allow_async = client.presentation_hint.is_async();
+        let completion_fence = self.commit_scanout(
+            scanout,
+            damage,
+            PrimaryPlaneFrame::DirectClient,
+            allow_async,
+        )?;
         // A client buffer now owns the primary plane; the retained composited
         // descriptor no longer describes what is on screen.
         self.presented_composite = None;
@@ -1320,6 +1331,7 @@ impl DrmBackend {
         mut scanout: Scanout,
         damage: Option<&[tessera_primitives::Rect]>,
         frame: PrimaryPlaneFrame,
+        allow_async: bool,
     ) -> Result<Option<OwnedFd>, DrmError> {
         if !scanout.ownership.matches_frame(frame) {
             // Source and lifetime are one contract. Reject a mismatched future
@@ -1564,7 +1576,22 @@ impl DrmBackend {
                 );
             }
         }
-        if let Err(error) = self.card().atomic_commit(flags, request) {
+        let can_async = allow_async && self.atomic_async_page_flip && self.modeset_done;
+        let commit_result = if can_async {
+            let async_flags = flags | AtomicCommitFlags::PAGE_FLIP_ASYNC;
+            match self.card().atomic_commit(async_flags, request.clone()) {
+                Ok(()) => Ok(()),
+                Err(error) => {
+                    log::warn!(
+                        "drm: atomic async page flip rejected ({error}); falling back to synchronized flip"
+                    );
+                    self.card().atomic_commit(flags, request)
+                }
+            }
+        } else {
+            self.card().atomic_commit(flags, request)
+        };
+        if let Err(error) = commit_result {
             close_raw_fences(&mut out_fence_fds);
             for blob in damage_blobs {
                 let _ = self.card().destroy_property_blob(blob);

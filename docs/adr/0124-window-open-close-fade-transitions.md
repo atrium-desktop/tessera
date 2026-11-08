@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-08-16
+- Amended by: [ADR-0220](0220-a-close-ghost-dissolves-separate-alpha-and-geometry-clocks-and-an-owned-handoff-frame.md) — the close ghost's alpha no longer rides the shrink's `EaseInCubic` clock, and the frame that retires a ghost now owns repainting the rect it painted.
 
 ## Context
 

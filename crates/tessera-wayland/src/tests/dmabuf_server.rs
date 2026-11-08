@@ -602,6 +602,10 @@ fn registry_exposes_clipboard_and_host_ime_protocols() {
         "presentation-time global missing:\n{stdout}"
     );
     assert!(
+        stdout.contains("interface: 'wp_tearing_control_manager_v1'"),
+        "wp_tearing_control_manager_v1 global missing:\n{stdout}"
+    );
+    assert!(
         !stdout.contains("zwp_primary_selection_device_manager_v1"),
         "Primary Selection must not be advertised:\n{stdout}"
     );

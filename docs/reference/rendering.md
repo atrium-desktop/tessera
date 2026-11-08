@@ -65,7 +65,7 @@ Every condition in this table must hold for the direct plan.
 | Coverage | Buffer dimensions exactly match the physical presentation domain and its origin is `(0, 0)` |
 | Geometry | Buffer transform is normal. An active `wp_viewport` is allowed only as an identity mapping: its source covers the complete physical buffer at `(0, 0)` and its destination equals the complete logical output |
 | Opacity | The format has no alpha channel, or the declared opaque region covers the complete logical surface. The logical surface is the viewport destination where one is set, otherwise the viewport source size, otherwise the buffer dimensions divided by the buffer scale |
-| Shell | No visible shell pixels, overview, window switcher, transition, or live backdrop effect requires composition. Chrome stands down when a client owns the output (ADR-0183), so a window that fills the output does not block itself. |
+| Shell | No visible shell pixels, overview, window switcher, or transition requires composition. Chrome stands down when a client owns the output (ADR-0183), so a window that fills the output does not block itself. |
 | Capture | No frame capture, screenshot freeze, or Interaction Domain capture is pending |
 | Session | The session is unlocked and the presentation target is active |
 | Cursor | The cursor is hidden or every active output has a compatible hardware cursor plane |
@@ -107,7 +107,6 @@ Direct-scanout rejection telemetry uses the following stable labels.
 | `surface-transition` | A client-surface transition is active |
 | `overview` | Overview mode is visible |
 | `window-switcher` | The live window switcher is opening, visible, or closing |
-| `live-backdrop-effect` | Visible chrome samples or filters the composited backdrop |
 | `visible-shell-pixels` | Shell chrome contributes pixels to the output |
 | `client-overlay` | A protocol overlay or client cursor surface is visible |
 | `software-cursor` | A visible cursor must be drawn into the compositor frame |

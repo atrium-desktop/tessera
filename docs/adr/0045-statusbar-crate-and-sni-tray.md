@@ -114,11 +114,11 @@ Rendered icons come from two sources, both uploaded through
   converted to BGRA8 (the format flux samples) and uploaded at the
   entry closest to 48px (24px @2x).
 - `IconName` — resolved through the freedesktop icon theme via
-  `ass_apps::resolve_icon_scaled`, decoded in-process for raster
-  formats and through `rsvg-convert` for SVG/SVGZ, with the same
-  light-foreground recolor the compositor applies to its own HUD
-  symbolics. Missing or undecodable names fall back to the generic
-  glyph.
+  `tessera_launch_services::resolve_icon_scaled`, decoded in-process for raster
+  formats and compiled in-process for SVG/SVGZ by the same SVG library that
+  compiles cursors and application icons (ADR-0222), with the same
+  light-foreground recolor the compositor applies to its own HUD symbolics.
+  Missing or undecodable names fall back to the generic glyph.
 
 A texture cache keyed by item key plus `icon_generation` avoids
 re-uploading on status-only updates; the watcher bumps the generation

@@ -41,6 +41,9 @@ pub enum PressTarget {
     Panel,
     /// An interactive tick on the workspace rail.
     WorkspaceTick(usize),
+    /// A row of the dock's reading column. The row index is carried so a
+    /// release is only a press when it lands on the row the press began on.
+    ReadingRow(usize),
 }
 
 /// The strip section under a dragged tile: the kept (pinned) strip, or the
@@ -267,7 +270,7 @@ impl DockState {
 
     /// Resolve whether the pointer position keeps the Dock revealed.
     ///
-    /// If [`dismiss_latched`] is active, this unconditionally returns `false`
+    /// If `dismiss_latched` is active, this unconditionally returns `false`
     /// to guarantee smooth, uninterrupted collapse without limit-cycle rebounding.
     #[allow(clippy::too_many_arguments)]
     #[must_use]
@@ -346,7 +349,7 @@ impl DockState {
     /// Bounding box of the collapsed stadium indicator at rest.
     ///
     /// The *visual* capsule, hugging its anchored edge
-    /// ([`AUTOHIDE_HANDLE_EDGE_MARGIN`]). Hit-testing uses the deeper
+    /// (`AUTOHIDE_HANDLE_EDGE_MARGIN`). Hit-testing uses the deeper
     /// [`Self::collapsed_reveal_corridor`] instead, so the capsule can be
     /// tucked against the edge without shrinking the strip a pointer must
     /// reach.
@@ -359,7 +362,7 @@ impl DockState {
     /// Pointer-reachable reveal corridor owned by the collapsed capsule.
     ///
     /// Same span along the edge as the visible stadium, but
-    /// [`AUTOHIDE_HANDLE_APPROACH_BAND`] deep instead of merely as deep as the
+    /// `AUTOHIDE_HANDLE_APPROACH_BAND` deep instead of merely as deep as the
     /// tucked capsule. This is the rectangle ADR-0146's dwell verification
     /// tests against: keeping it independent of the capsule's visual offset is
     /// what lets the capsule hug the screen edge without becoming a harder
@@ -502,37 +505,31 @@ impl DockState {
         Self::rest_bounds_with_cells(tile_count, pinned_count, &[], position, display)
     }
 
-    /// The resting bar for `tile_count` icon tiles *preceded* by `bento` cells.
+    /// The resting bar for `tile_count` icon tiles *preceded* by leading cells.
     ///
-    /// Bento cells are status, not targets, so they lead the strip and take the
-    /// section gap at the boundary into the icons. Their widths are their own
-    /// (a pager is as wide as its ticks), which is why the bar's length cannot be
-    /// derived from the tile count alone.
+    /// Delegates the length to [`crate::components::dock::bento::strip_length`]
+    /// rather than re-deriving it. A second sum of the same bar is how the
+    /// leading section silently fell out of the layout once already, and it
+    /// provably diverges: the local sum counted a zero-width cell's gap while
+    /// `strip_length` (correctly) skips it. `[INV-DOCK-BENTO-5]` says one source,
+    /// so this is one source.
     #[must_use]
     pub fn rest_bounds_with_cells(
         tile_count: usize,
         pinned_count: usize,
-        bento: &[crate::components::dock::BentoCell],
+        cells: &[crate::components::dock::StripCell],
         position: DockPosition,
         display: (f32, f32),
     ) -> Rect {
-        let cells: f32 = bento.iter().map(|cell| cell.rest_width()).sum();
-        let cell_gaps = bento.len().saturating_sub(1) as f32 * DOCK_TILE_GAP;
-        let icons = tile_count as f32 * DOCK_TILE;
-        let icon_gaps = tile_count.saturating_sub(1) as f32 * DOCK_TILE_GAP
-            + Self::section_extra(pinned_count, tile_count);
-        // The reading section is separated from the launch targets by the
-        // section gap; a dock with no icons keeps its reading flush.
-        let boundary = if bento.is_empty() || tile_count == 0 || cells <= 0.0 {
-            0.0
-        } else {
-            crate::components::dock::bento::READING_BOUNDARY_GAP
-        };
-        let bar_len = if tile_count == 0 && cells <= 0.0 {
-            0.0
-        } else {
-            cells + cell_gaps + icons + icon_gaps + boundary + 2.0 * DOCK_PAD
-        };
+        // The transient section divider widens one icon gap into the section gap;
+        // `strip_length` knows nothing of pinned/transient sections, so the extra
+        // is added here, at the one place that knows the split.
+        let bar_len = crate::components::dock::bento::strip_length(
+            std::iter::repeat_n(DOCK_TILE, tile_count),
+            cells,
+            DOCK_TILE_GAP,
+            DOCK_PAD,
+        ) + Self::section_extra(pinned_count, tile_count);
         Self::panel_rect_for(position, bar_len, display)
     }
 
@@ -642,6 +639,8 @@ impl DockState {
 
     /// The resting centre of icon `i` for a bar that leads with `bento` cells.
     ///
+    /// The resting centre of icon `i` for a bar that leads with `cells`.
+    ///
     /// A resting centre is the position the magnification springs settle on, so
     /// it has to measure the same bar the paint does. It reads its leading
     /// offset from the same strip-length source instead of re-deriving the bar's
@@ -651,18 +650,18 @@ impl DockState {
         i: usize,
         n: usize,
         pinned_count: usize,
-        bento: &[crate::components::dock::BentoCell],
+        cells: &[crate::components::dock::StripCell],
         axis_len: f32,
     ) -> f32 {
         let section_extra = Self::section_extra(pinned_count, n);
         let bar_w = crate::components::dock::bento::strip_length(
             std::iter::repeat_n(DOCK_TILE, n),
-            bento,
+            cells,
             DOCK_TILE_GAP,
             DOCK_PAD,
         );
         let bar_x = (axis_len - bar_w) * 0.5;
-        let reading = Self::reading_extent(bento);
+        let reading = Self::reading_extent(cells);
         let extra = if i >= pinned_count {
             section_extra
         } else {
@@ -676,14 +675,14 @@ impl DockState {
             + DOCK_TILE * 0.5
     }
 
-    /// Width of the leading reading section including the gap that follows it.
+    /// Width of the leading section including the gap that follows it.
     #[must_use]
-    pub fn reading_extent(bento: &[crate::components::dock::BentoCell]) -> f32 {
-        let total: f32 = bento.iter().map(|cell| cell.rest_width()).sum();
+    pub fn reading_extent(cells: &[crate::components::dock::StripCell]) -> f32 {
+        let total: f32 = cells.iter().map(|cell| cell.rest_width()).sum();
         if total <= 0.0 {
             return 0.0;
         }
-        let active_count = bento.iter().filter(|cell| cell.rest_width() > 0.0).count();
+        let active_count = cells.iter().filter(|cell| cell.rest_width() > 0.0).count();
         let gaps = active_count.saturating_sub(1) as f32 * DOCK_TILE_GAP;
         total + gaps + crate::components::dock::bento::READING_BOUNDARY_GAP
     }

@@ -26,50 +26,186 @@ pub struct OpticsArgs {
     pub tag: Option<String>,
 }
 
-/// Optics APIs Tessera depends on that did NOT exist in every released tag.
+/// One Optics symbol this workspace compiles against, and which release state
+/// it is expected to be in.
+struct ApiDependency {
+    /// What the workspace uses it for, as a log line.
+    api: &'static str,
+    /// Path inside the Optics checkout.
+    path: &'static str,
+    /// A marker that must appear in that file.
+    marker: &'static str,
+    /// `Present`: the pinned tag must provide it, and its absence means the pin
+    /// is too old for this workspace.
+    ///
+    /// `PendingRelease`: the workspace consumes it from a linked worktree and the
+    /// pinned tag must **not** provide it. Two things make this state worth
+    /// asserting rather than tolerating:
+    ///
+    /// * an entry whose tag has caught up is a stale record — the gate would go
+    ///   on believing a released symbol is unreleased, and the next promotion
+    ///   would not know it may drop the entry;
+    /// * the reverse direction is what an under-reporting list looked like: this
+    ///   check was previously green while the working tree already consumed a
+    ///   half-dozen symbols `v0.0.74` never shipped, because every entry was
+    ///   only ever compared in the direction that could not fail until release.
+    ///
+    /// A pending entry is therefore a *debt marker*: it must move to `Present`
+    /// (and the pin must move with it) by the time a release is cut, and
+    /// `cargo xtask optics --verify-api` fails if the tag ships one that is still
+    /// marked pending.
+    state: ApiState,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ApiState {
+    /// Released: the pinned tag provides it.
+    Present,
+    /// Consumed from a linked worktree; the pinned tag must not provide it yet.
+    PendingRelease,
+}
+
+const fn released(api: &'static str, path: &'static str, marker: &'static str) -> ApiDependency {
+    ApiDependency {
+        api,
+        path,
+        marker,
+        state: ApiState::Present,
+    }
+}
+
+#[allow(dead_code)] // Used by tests and by the next linked-worktree feature cycle.
+const fn pending(api: &'static str, path: &'static str, marker: &'static str) -> ApiDependency {
+    ApiDependency {
+        api,
+        path,
+        marker,
+        state: ApiState::PendingRelease,
+    }
+}
+
+/// Every Optics symbol this workspace compiles against.
 ///
 /// The pin in `Cargo.toml` is a tag, not a commit, so a local development
 /// checkout can satisfy a symbol the pinned tag lacks. Canonical CI resolves
 /// the tag and breaks; this list makes the coupling checkable instead of
-/// discovered at release time.
-///
-/// Each entry is `(rust path, marker).` `marker` must appear in the Optics
-/// source at the pinned tag.
-const OPTICS_API_DEPENDENCIES: &[(&str, &str, &str)] = &[
-    (
+/// discovered at release time. Entries stay here for as long as the workspace
+/// uses the symbol — this is a dependency manifest, not a changelog.
+static OPTICS_API_DEPENDENCIES: &[ApiDependency] = &[
+    released(
         "lens::Ui::damage_rects",
         "bindings/lens-rs/crates/lens/src/lib.rs",
         "fn damage_rects",
     ),
-    (
+    released(
         "lens_damage_rects (C)",
         "libs/lens/include/lens/lens.h",
         "lens_damage_rects",
     ),
-    (
+    released(
         "flux effect byte budget (ADR-0205)",
         "libs/flux/src/effect/effect.c",
         "EFFECT_POOL_BUDGET_BYTES",
     ),
-    (
+    released(
         "lens_snapshot_submit",
         "libs/lens/include/lens/lens.h",
         "lens_snapshot_submit",
     ),
-    (
-        "prism_material_output (ADR-0139)",
-        "libs/prism/include/prism/types.h",
-        "prism_material_output",
-    ),
-    (
+    released(
         "flux_frame_materialize_image (ADR-0147)",
         "libs/flux/include/flux/core.h",
         "flux_frame_materialize_image",
     ),
-    (
+    released(
         "flux_frame_plan_stats (ADR-0147)",
         "libs/flux/include/flux/core.h",
         "flux_frame_plan_stats",
+    ),
+    // ---- released with Optics v0.0.75 --------------------------------------
+    //
+    // These entries were consumed from the linked worktree before v0.0.75.
+    // They stay grouped so the next promotion can compare the released surface
+    // against the workspace in one place.
+    released(
+        "flux canvas pass damage set (ADR-0149)",
+        "libs/flux/include/flux/canvas.h",
+        "flux_damage damage;",
+    ),
+    released(
+        "flux::CanvasPassOptions::damage (ADR-0149)",
+        "bindings/flux-rs/crates/flux/src/lib.rs",
+        "pub damage: Vec<CanvasRenderArea>",
+    ),
+    released(
+        "flux_set_diagnostic (ADR-0153)",
+        "libs/flux/include/flux/core.h",
+        "flux_set_diagnostic",
+    ),
+    released(
+        "flux::ErrorInfo::last_if_code (ADR-0153)",
+        "bindings/flux-rs/crates/flux/src/lib.rs",
+        "fn last_if_code",
+    ),
+    released(
+        "lens_caret_flip_pending (ADR-0151)",
+        "libs/lens/include/lens/lens.h",
+        "lens_caret_flip_pending",
+    ),
+    released(
+        "lens_caret_clock_live (ADR-0151)",
+        "libs/lens/include/lens/lens.h",
+        "lens_caret_clock_live",
+    ),
+    released(
+        "lens_set_caret_blink (ADR-0151)",
+        "libs/lens/include/lens/lens.h",
+        "lens_set_caret_blink",
+    ),
+    released(
+        "lens::Ui::caret_flip_pending (ADR-0151)",
+        "bindings/lens-rs/crates/lens/src/lib.rs",
+        "fn caret_flip_pending",
+    ),
+    released(
+        "lens::Ui::set_caret_blink (ADR-0151)",
+        "bindings/lens-rs/crates/lens/src/lib.rs",
+        "fn set_caret_blink",
+    ),
+    released(
+        "lens::DEFAULT_CARET_BLINK_PERIOD_S (ADR-0151)",
+        "bindings/lens-rs/crates/lens/src/lib.rs",
+        "DEFAULT_CARET_BLINK_PERIOD_S",
+    ),
+    released(
+        "lens::Ui::focus (host-side focus transfer)",
+        "bindings/lens-rs/crates/lens/src/lib.rs",
+        "pub fn focus",
+    ),
+    released(
+        "lens::Snapshot::retain (ADR-0153)",
+        "bindings/lens-rs/crates/lens/src/lib.rs",
+        "pub fn retain",
+    ),
+    released(
+        "svg::Document (ADR-0222)",
+        "bindings/svg-rs/crates/svg/src/lib.rs",
+        "pub struct Document",
+    ),
+    released(
+        "svg::Document::parse_bytes (ADR-0222)",
+        "bindings/svg-rs/crates/svg/src/lib.rs",
+        "pub fn parse_bytes",
+    ),
+    released(
+        "svg::Document::rasterize (ADR-0222)",
+        "bindings/svg-rs/crates/svg/src/lib.rs",
+        "pub fn rasterize",
+    ),
+    released(
+        "svg::Limits (ADR-0222)",
+        "bindings/svg-rs/crates/svg/src/lib.rs",
+        "pub struct Limits",
     ),
 ];
 
@@ -91,6 +227,11 @@ fn git(args: &[&str], repo: &Path) -> Result<String> {
 
 /// Confirm every entry of [`OPTICS_API_DEPENDENCIES`] exists at `tag`.
 fn verify_optics_api(tag: &str, optics_dir: &Path) -> Result<()> {
+    verify_api_dependencies(OPTICS_API_DEPENDENCIES, tag, optics_dir)
+}
+
+/// Confirm every entry of `deps` exists at `tag`.
+fn verify_api_dependencies(deps: &[ApiDependency], tag: &str, optics_dir: &Path) -> Result<()> {
     if !optics_dir.join(".git").exists() {
         bail!(
             "no Optics checkout at {}; run this from a linked worktree (see .cargo/optics-local.toml)",
@@ -111,32 +252,72 @@ fn verify_optics_api(tag: &str, optics_dir: &Path) -> Result<()> {
         );
     }
 
-    let mut missing = Vec::new();
-    for (api, path, marker) in OPTICS_API_DEPENDENCIES {
+    let mut unpinned = Vec::new();
+    let mut stale_pending = Vec::new();
+    for dep in deps {
         // `git show <tag>:<path>` reads the file as it exists at that tag, so
         // the check describes what a fresh canonical build would compile
         // against — not what the working tree happens to contain.
-        let spec = format!("{tag}:{path}");
+        let spec = format!("{tag}:{}", dep.path);
         let found = git(&["show", &spec], optics_dir)
-            .map(|content| content.contains(marker))
+            .map(|content| content.contains(dep.marker))
             .unwrap_or(false);
-        if !found {
-            missing.push(format!("{api}  ({path} has no `{marker}`)"));
+        match (dep.state, found) {
+            // The pin is the source of truth for a released symbol.
+            (ApiState::Present, false) => unpinned.push(format!(
+                "{}  ({} has no `{}`)",
+                dep.api, dep.path, dep.marker
+            )),
+            // A pending entry the tag already ships is a record that has come
+            // true: keeping it would make the gate assert the *opposite* of
+            // reality for every symbol promoted behind it.
+            (ApiState::PendingRelease, true) => stale_pending.push(format!(
+                "{}  ({} already provides `{}`)",
+                dep.api, dep.path, dep.marker
+            )),
+            _ => {}
         }
     }
 
-    if missing.is_empty() {
+    let pending_count = deps
+        .iter()
+        .filter(|dep| dep.state == ApiState::PendingRelease)
+        .count();
+
+    if unpinned.is_empty() && stale_pending.is_empty() {
         println!(
-            "Optics API: OK ({} dependency/dependencies present at tag `{tag}`)",
-            OPTICS_API_DEPENDENCIES.len()
+            "Optics API: OK ({} released + {pending_count} pending-release, tag `{tag}`)",
+            deps.len() - pending_count
         );
+        if pending_count > 0 {
+            println!(
+                "  {pending_count} symbol(s) are consumed from the linked worktree and absent \
+                 from `{tag}`; the next Optics release must ship them and this list must move \
+                 them to `released(..)` in the same commit that bumps the pin."
+            );
+        }
         return Ok(());
     }
+
+    let mut report = String::new();
+    if !unpinned.is_empty() {
+        report.push_str(&format!(
+            "the pinned tag `{tag}` does not provide:\n  {}\n",
+            unpinned.join("\n  ")
+        ));
+    }
+    if !stale_pending.is_empty() {
+        report.push_str(&format!(
+            "`{tag}` already provides these, so the entries are stale:\n  {}\n",
+            stale_pending.join("\n  ")
+        ));
+    }
     bail!(
-        "Optics API drift: the pinned tag `{tag}` does not provide:\n  {}\n\n\
-         Bump the pin (`cargo xtask optics --set <newer-tag>`) or land the change \
-         upstream before release.",
-        missing.join("\n  ")
+        "Optics API drift:\n  {report}\n\
+         For a missing symbol, bump the pin (`cargo xtask optics --set <newer-tag>`) or \
+         land the change upstream. For a stale pending entry, move it to `released(..)` in \
+         the same commit as the bump — `v{tag}` cannot both ship it and be recorded as \
+         not shipping it."
     );
 }
 
@@ -404,6 +585,85 @@ other = "1.0"
             .unwrap_err()
             .to_string();
         assert!(error.contains("no Optics checkout"), "got: {error}");
+    }
+
+    /// A real Optics checkout at a tag, as a throwaway git repo, so the two
+    /// directions of the drift check can be exercised without the sibling
+    /// repository's history.
+    fn fake_optics(tag: &str, files: &[(&str, &str)]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let git = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(dir.path())
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?} failed");
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "test@example.invalid"]);
+        git(&["config", "user.name", "test"]);
+        // The test creates a lightweight tag. A global `tag.gpgSign` or
+        // `commit.gpgSign` setting turns that into a signed object and needs
+        // identity material the test must not depend on.
+        git(&["config", "commit.gpgSign", "false"]);
+        git(&["config", "tag.gpgSign", "false"]);
+        git(&["config", "tag.forceSignAnnotated", "false"]);
+        for (path, body) in files {
+            let full = dir.path().join(path);
+            std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+            std::fs::write(&full, body).unwrap();
+        }
+        git(&["add", "-A"]);
+        git(&["commit", "-qm", "seed"]);
+        git(&["tag", tag]);
+        dir
+    }
+
+    /// The direction the old `missing` list could not express: an entry marked
+    /// `PendingRelease` that the tag already ships means the *record* is stale,
+    /// not that the pin is behind. Both failures are `bail!`; a check that only
+    /// ever looked one way silently accepted a workspace consuming a dozen
+    /// unreleased symbols and reported "OK" for months.
+    #[test]
+    fn api_verification_reports_a_pending_entry_the_tag_already_ships() {
+        let dir = fake_optics(
+            "v0.0.1",
+            &[("libs/lens/include/lens/lens.h", "lens_caret_flip_pending")],
+        );
+        let deps = [pending(
+            "lens_caret_flip_pending (ADR-0151)",
+            "libs/lens/include/lens/lens.h",
+            "lens_caret_flip_pending",
+        )];
+        let error = verify_api_dependencies(&deps, "v0.0.1", dir.path())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("already provides"), "got: {error}");
+        assert!(
+            error.contains("move it to `released(..)`"),
+            "the error must name the fix, got: {error}"
+        );
+    }
+
+    /// And the direction it *did* express: a `Present` entry the tag lacks
+    /// means the pin is too old for this workspace.
+    #[test]
+    fn api_verification_reports_a_released_entry_the_tag_lacks() {
+        let dir = fake_optics("v0.0.1", &[("libs/flux/include/flux/core.h", "unrelated")]);
+        let deps = [released(
+            "lens::Ui::damage_rects",
+            "libs/flux/include/flux/core.h",
+            "fn damage_rects",
+        )];
+        let error = verify_api_dependencies(&deps, "v0.0.1", dir.path())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("does not provide"), "got: {error}");
+        assert!(
+            error.contains("lens::Ui::damage_rects"),
+            "the report must name which symbol is missing, got: {error}"
+        );
     }
 
     #[test]

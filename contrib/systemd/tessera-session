@@ -32,7 +32,7 @@ fi
 if hash systemctl >/dev/null 2>&1; then
     # Make sure there's no already running session.
     if systemctl --user -q is-active tessera.service; then
-        echo 'An tessera session is already running.'
+        echo 'A tessera session is already running.'
         exit 1
     fi
 

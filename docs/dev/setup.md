@@ -67,7 +67,7 @@ on its long-lived local `dev` branch and fast-forward `main` to completed
 `dev` commits.
 
 The Rust bindings build against the unified optics Meson build tree, so build
-`libflux`, `libflux-scene-graph`, `liblens`, and `libiris` first:
+`libflux`, `libvista`, `liblens`, `libiris`, and `libsvg` first:
 
 ```bash
 meson compile -C ../optics/build
@@ -85,10 +85,11 @@ tree can be switched in place with `meson configure ../optics/build
 -Dbuildtype=debugoptimized && meson compile -C ../optics/build`.
 
 The `-sys` build scripts locate the tree through
-`meson-uninstalled/flux-uninstalled.pc` and
-`meson-uninstalled/flux-scene-graph-uninstalled.pc`, plus
-`meson-uninstalled/lens-uninstalled.pc` and
-`meson-uninstalled/iris-uninstalled.pc`.
+`meson-uninstalled/flux-uninstalled.pc`,
+`meson-uninstalled/vista-uninstalled.pc`,
+`meson-uninstalled/lens-uninstalled.pc`,
+`meson-uninstalled/iris-uninstalled.pc`, and
+`meson-uninstalled/svg-uninstalled.pc`.
 
 Resolve the patched graph once without `--locked`, then use locked commands
 until an Optics manifest changes:
@@ -121,11 +122,11 @@ meson setup ../optics/build-release ../optics \
 meson compile -C ../optics/build-release
 sudo meson install -C ../optics/build-release
 sudo ldconfig
-pkg-config --modversion flux flux-scene-graph lens iris   # sanity check
+pkg-config --modversion flux vista lens iris svg   # sanity check
 ```
 
 > If your distribution already ships an Optics `<OPTICS_VERSION>` package, install that
-> instead and skip the manual build. What matters is that the four
+> instead and skip the manual build. What matters is that the five
 > `pkg-config --modversion` checks above each report an `<OPTICS_VERSION>`-compatible
 > version.
 
@@ -273,9 +274,9 @@ its process group.
 | `cannot connect to host Wayland display` | `$WAYLAND_DISPLAY` is unset or points at no compositor |
 | `$XDG_RUNTIME_DIR is unset` | Log in through PAM/logind; do not create a shared runtime directory under `/tmp` |
 | DRM runner rejects root | Log in as the normal seat user; do not bypass logind or seatd with `sudo` |
-| Missing a `flux`, `flux-scene-graph`, `lens`, or `iris` pkg-config file | In the local workflow, build the sibling tree; in the canonical workflow, install the matching Optics release |
+| Missing a `flux`, `vista`, `lens`, `iris`, or `svg` pkg-config file | In the local workflow, build the sibling tree; in the canonical workflow, install the matching Optics release |
 | `vkCreateSwapchainKHR: function pointer was NULL` | `VK_KHR_swapchain` not enabled; the backend requests it, so check the flux device extensions |
-| `error while loading shared libraries: libflux*.so` / `liblens*.so` / `libiris*.so` | In the local workflow, rebuild after moving the Meson tree; in the canonical workflow, refresh the loader cache or configure the installed prefix |
+| `error while loading shared libraries: libflux*.so` / `libvista*.so` / `liblens*.so` / `libiris*.so` / `libsvg*.so` | In the local workflow, rebuild after moving the Meson tree; in the canonical workflow, refresh the loader cache or configure the installed prefix |
 | `Interaction Domain cgroup isolation is unavailable` | Run Tessera in the packaged systemd user service; a shared terminal scope cannot satisfy controller delegation |
 
 ## See Also

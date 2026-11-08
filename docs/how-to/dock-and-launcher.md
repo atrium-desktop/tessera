@@ -37,6 +37,29 @@ A fullscreen window removes the Dock and capsule completely. Pointer hover
 has no effect until fullscreen ends. Minimized windows do not affect either
 policy.
 
+## Read the Machine's State from the Dock
+
+The Dock's leading plate is the machine's own reading column (ADR-0218). It sits
+across the bar's thickness rather than along its length, so it never widens the
+Dock as radios come and go.
+
+1. Glance at the plate's rows, in fixed order: Wi-Fi, Bluetooth, battery.
+2. Read each row's mark and tone:
+   - **Wi-Fi** — the signal glyph when the radio is on (lit when associated, dim
+     when idle, scanning, or connecting); a struck-through glyph when the radio
+     is off.
+   - **Bluetooth** — the rune when the radio is on, with a small dot when at
+     least one peripheral is connected; struck through when off.
+   - **Battery** — a charge glyph beside a proportional gauge. A bolt replaces the
+     plain battery glyph while charging. The level is a proportion, not a number.
+3. Press any row to open the control center, which owns the toggles, the network
+   list, and the device list. Pressing a row never closes a panel that is already
+   open.
+
+A reading is drawn only for hardware the machine reports, so a desktop with no
+battery and no Bluetooth shows a shorter column — or none at all, leaving a pure
+and centered Dock. The plate costs one fixed span of length whatever it holds.
+
 ## Open the Launcher
 
 Use any interaction:

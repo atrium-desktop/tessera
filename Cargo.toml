@@ -35,21 +35,22 @@ tessera-sched = { path = "crates/tessera-sched" }
 # development worktree can patch these sources through
 # .cargo/optics-local.toml without making a sibling checkout mandatory for CI
 # or downstream packagers.
-flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.74" }
-flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.74" }
-vista = { git = "https://github.com/ming2k/optics", tag = "v0.0.74" }
-vista-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.74" }
+flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.75" }
+flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.75" }
+vista = { git = "https://github.com/ming2k/optics", tag = "v0.0.75" }
+vista-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.75" }
 # Renderer-neutral offscreen DAG planning above Flux image operators.
-lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.74" }
-lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.74" }
-# prism (material library; ADR-0063) carries the liquid-glass compositor.
-# Canonical resolution needs an optics tag containing prism-rs.
-prism = { git = "https://github.com/ming2k/optics", tag = "v0.0.74" }
-prism-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.74" }
+lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.75" }
+lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.75" }
 # transit (motion vocabulary; ADR-0172) provides analytic springs and easing;
 # v0.0.53 adds the explicit `reduced_motion` flag to every advance entry point.
-transit = { git = "https://github.com/ming2k/optics", tag = "v0.0.74" }
-transit-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.74" }
+transit = { git = "https://github.com/ming2k/optics", tag = "v0.0.75" }
+transit-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.75" }
+# svg (vector-document compiler; ADR-0220) is the single SVG implementation in
+# the stack: cursors, application icons and tray icons all compile through it
+# instead of shelling out to rsvg-convert or shipping pre-baked bitmaps.
+svg = { git = "https://github.com/ming2k/optics", tag = "v0.0.75" }
+svg-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.75" }
 
 # Observability: crates emit through the `log` facade; each binary installs a
 # `tracing`-based subscriber through the shared `tessera-env` crate, which
@@ -177,7 +178,6 @@ wayland-protocols = { version = "0.32.13", features = [
     "staging",
     "unstable",
 ] }
-wayland-backend = { version = "0.3.15", features = ["client_system"] }
 smithay-client-toolkit = { version = "0.21.1", features = ["calloop", "xkbcommon"] }
 ash = "0.38"
 xkbcommon = "0.8"

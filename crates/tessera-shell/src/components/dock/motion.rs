@@ -133,6 +133,17 @@ pub const TOOLTIP_BAND: f32 = TOOLTIP_HEIGHT + TOOLTIP_GAP;
 
 /// Pointer travel (logical px) that promotes a held press into a drag.
 pub const DRAG_THRESHOLD: f32 = 6.0;
+
+/// How much closer a neighbouring tile must be before it takes the hover.
+///
+/// A pointer resting on a magnified bar sits, by construction, within float
+/// noise of the midpoint between two equally-sized tiles. Without this margin
+/// the winner alternates with the noise, and every flip restarts the name
+/// bubble's dwell — so the dwell never completes and the bubble never appears
+/// (ADR-0177, ADR-0217). The margin is one logical pixel: far larger than the
+/// noise it must absorb, and far smaller than the travel of a deliberate move,
+/// so pointing at a neighbour still switches the hover on the first frame.
+pub const HIT_HYSTERESIS_PX: f32 = 1.0;
 /// Distance from a screen edge within which an edge drag snaps the dock there.
 pub const EDGE_DRAG_PROXIMITY: f32 = 96.0;
 pub const DRAG_LIFT_SCALE: f32 = 1.12;
@@ -154,8 +165,6 @@ pub struct DockMotion {
     pub reveal: Spring,
     /// Number of settled frames remaining in the swapchain ring drain.
     pub settled_drain_frames: u8,
-    /// Whether reveal motion was actively in-flight on the previous frame.
-    pub was_reveal_animating: bool,
     /// Per-tile size springs keyed by tile key.
     pub sizes: HashMap<String, Spring>,
     /// Application name tooltip alpha in `[0.0, 1.0]`.
@@ -172,7 +181,6 @@ impl DockMotion {
         Self {
             reveal: Spring::new(initial_reveal),
             settled_drain_frames: 0,
-            was_reveal_animating: false,
             sizes: HashMap::new(),
             tooltip_alpha: 0.0,
             anim_active: false,
@@ -211,18 +219,13 @@ impl DockMotion {
 
         if !is_settled {
             self.settled_drain_frames = 0;
-            self.was_reveal_animating = true;
         } else if was_animating {
             // First frame of rest: snap to target and prime the swapchain ring drain.
             self.reveal.snap_to(target);
             self.settled_drain_frames = SETTLED_DRAIN_FRAMES;
-            self.was_reveal_animating = false;
         } else if self.settled_drain_frames > 0 {
             // Successive drain frames across the swapchain ring.
             self.settled_drain_frames -= 1;
-            self.was_reveal_animating = false;
-        } else {
-            self.was_reveal_animating = false;
         }
     }
 

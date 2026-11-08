@@ -9,7 +9,7 @@ mod stream;
 
 pub use damage::{
     AssessedFrameDamage, ClientDamage, ClientDamageTracker, DamageAssessment, FrameDamage,
-    SurfaceDamageFrame, SurfacePlacement, composite_repaint_for_slot, frame_damage_render_area,
+    SurfaceDamageFrame, SurfacePlacement, composite_repaint_for_slot, frame_damage_scope,
     logical_rects_to_frame, logical_to_physical, offscreen_damage_to_target,
     record_composite_present, union_frame_damage,
 };

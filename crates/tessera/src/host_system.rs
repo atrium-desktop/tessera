@@ -284,12 +284,12 @@ impl MockHostSystem {
         }
     }
 
+    /// The mock's mutable session facts, so a test can assert what the host
+    /// recorded (a power action, an output blank) after driving it through the
+    /// real trait surface.
     #[allow(dead_code)]
-    pub fn with_state(state: MockHostState) -> Self {
-        Self {
-            state: Arc::new(Mutex::new(state)),
-            audio: Arc::new(crate::audio::MockAudioBackend::new()),
-        }
+    pub fn state(&self) -> Arc<Mutex<MockHostState>> {
+        self.state.clone()
     }
 
     /// The mock sound server this host delegates audio to, so a test can script
@@ -297,11 +297,6 @@ impl MockHostSystem {
     #[allow(dead_code)]
     pub fn audio(&self) -> &crate::audio::MockAudioBackend {
         &self.audio
-    }
-
-    #[allow(dead_code)]
-    pub fn state(&self) -> Arc<Mutex<MockHostState>> {
-        self.state.clone()
     }
 }
 

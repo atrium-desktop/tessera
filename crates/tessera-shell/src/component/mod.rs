@@ -46,7 +46,7 @@ use std::os::raw::c_void;
 /// that hugs a corner — the notification toast stack.
 ///
 /// The top of the screen belongs to windows now: the status band that used to
-/// reserve it was removed with the HUD (ADR-0226), so floating corner chrome
+/// reserve it was removed with the HUD (ADR-0213), so floating corner chrome
 /// anchors to a symmetric inset rather than to the tallest thing that used to
 /// be there.
 pub const SCREEN_CORNER_INSET: f32 = 12.0;
@@ -107,7 +107,7 @@ pub enum AgentInputKind {
 }
 
 /// Edge space a chrome component reserves; tiled windows avoid it. Summed
-/// across components by [`Shell::reserved`] and subtracted from the tiling
+/// across components by [`crate::Shell::reserved`] and subtracted from the tiling
 /// work-area so tiles do not render under the dock or panels.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Reserved {
@@ -123,7 +123,7 @@ pub struct Reserved {
 /// is a map of borrowed raw `flux_image` pointers keyed by every lowercase id
 /// an application may run as (StartupWMClass, desktop-id stem, icon name).
 /// The owner must keep the textures alive until it has pushed a replacement
-/// catalog via [`Shell::set_app_catalog`]; components only dereference handles
+/// catalog via [`crate::Shell::set_app_catalog`]; components only dereference handles
 /// from the most recently pushed set.
 #[derive(Clone, Default)]
 pub struct IconSet {
@@ -503,6 +503,14 @@ pub struct ChromeEvents {
     /// Lock now row). Drained by the main loop into the same lock path as the
     /// Super+L binding.
     pub lock: bool,
+    /// A dock reading row asked to open the control center (ADR-0218).
+    ///
+    /// Deliberately **open-only**, unlike [`ChromeCommand::ToggleControlCenter`]:
+    /// a reading is a shortcut into the surface that owns the reading, and a
+    /// press that closed the panel the user is already looking at would be a
+    /// toggle wearing a shortcut's clothes. The main loop answers it through
+    /// [`crate::Shell::open_control_center`].
+    pub open_control_center: bool,
     /// Window id a component asked to focus/activate.
     pub clicked: Option<tessera_desktop::window::WindowId>,
     /// Ordered window actions emitted by popup menus. A queue allows an
@@ -689,11 +697,11 @@ pub enum ChromeUpdate<'a> {
     SpaceUse(tessera_desktop::window::SpaceUse),
     /// The shell-wide design snapshot for the resolved desktop color scheme.
     /// Components that paint from design tokens retain a copy instead of
-    /// constructing one inline; seeded by [`Shell::add`] and broadcast by
-    /// [`Shell::set_color_scheme`].
+    /// constructing one inline; seeded by [`crate::Shell::add`] and broadcast by
+    /// [`crate::Shell::set_color_scheme`].
     Appearance(&'a tessera_design::Design),
-    /// The persistent-settings snapshot, seeded by [`Shell::add`] and
-    /// broadcast by [`Shell::set_settings`]. Only chrome hosting settings UI
+    /// The persistent-settings snapshot, seeded by [`crate::Shell::add`] and
+    /// broadcast by [`crate::Shell::set_settings`]. Only chrome hosting settings UI
     /// consumes it.
     Settings(&'a tessera_desktop::settings::SettingsSnapshot),
     ReducedMotion(bool),
@@ -715,7 +723,7 @@ pub use Chrome as Panel;
 /// workspace snapshots and the input, drawing through `frame` and pushing
 /// any user intents into `out`. The core owns the lens context, the
 /// snapshots, and the sink; the component owns only its own appearance and
-/// state. Register implementations with [`Shell::add`].
+/// state. Register implementations with [`crate::Shell::add`].
 pub trait Chrome {
     /// Draw the component for this frame. Called inside the core's
     /// `Ui::frame` envelope, so `frame` is a live builder. `workspaces` is
@@ -756,16 +764,6 @@ pub trait Chrome {
     /// and is currently open or animating.
     fn pivot_active(&self) -> bool {
         false
-    }
-
-    /// Whether this component owns the application launcher state.
-    fn launcher_active(&self) -> bool {
-        self.pivot_active()
-    }
-
-    /// Whether this component owns an open Prism surface.
-    fn prism_active(&self) -> bool {
-        self.pivot_active()
     }
 
     /// Whether this component owns pointer input at the given output-space
@@ -897,8 +895,7 @@ pub trait Chrome {
 
     /// Return a live client-preview popover prepared by this component.
     /// Geometry is read after [`Chrome::prepare_frame`] and shared by the
-    /// compositor preview pass, analytic glass declarations, shell rendering,
-    /// and pointer hit-testing.
+    /// compositor preview pass, shell rendering, and pointer hit-testing.
     fn live_preview_presentation(&self) -> Option<LivePreviewPresentation> {
         None
     }
@@ -906,6 +903,20 @@ pub trait Chrome {
     /// Whether the Super+Tab preview strip is currently active.
     fn window_switcher_active(&self) -> bool {
         false
+    }
+
+    /// Test-only: the switcher's animation state, for end-to-end probes.
+    #[cfg(test)]
+    fn window_switcher_probe(
+        &self,
+    ) -> Option<(
+        bool,
+        bool,
+        Option<tessera_desktop::window::WindowId>,
+        f32,
+        bool,
+    )> {
+        None
     }
 
     /// Whether the screenshot region selector is currently active. Default
@@ -972,7 +983,7 @@ pub trait Chrome {
 
     /// Edge space this component reserves; tiled windows avoid it (ADR-0024).
     /// Default none; overridden by chrome that should not be covered (the
-    /// dock reserves the bottom edge). Summed by [`Shell::reserved`].
+    /// dock reserves the bottom edge). Summed by [`crate::Shell::reserved`].
     fn reserved(&self) -> Reserved {
         Reserved::default()
     }
@@ -1014,15 +1025,31 @@ pub trait Chrome {
         None
     }
 
-    /// Whether this component's paint samples the client scene through a
-    /// compositor-owned effect — currently only the blurred soft window
-    /// shadow, which is recorded from the scene before chrome is drawn.
+    /// The output-logical regions a **pointer move** to `(x, y)` can repaint,
+    /// or `None` when this component cannot bound its own hover reaction.
     ///
-    /// Chrome bodies themselves are flat fills: no blur, capture, frost, or
-    /// refraction. This flag exists so the desktop-scene pass is not elided
-    /// while something still reads from it.
-    fn samples_scene_effect(&self) -> bool {
-        false
+    /// Only consulted for a component that answers
+    /// [`Chrome::captures_pointer`] at that position: the question is "what may
+    /// this component redraw because the pointer is now here", and a component
+    /// that does not take the pointer has no answer to give.
+    ///
+    /// The default is [`None`] — a full-output repaint. That is the correct
+    /// conservative answer for a component whose hover feedback lands on pixels
+    /// it does not already localize, and it must stay the default: inventing a
+    /// band here is exactly the guess this seam exists to remove. A component
+    /// that already answers [`Chrome::damage_regions`] with a real footprint
+    /// usually knows this one too, and the components that do answer keep the
+    /// cost of a mouse movement proportional to the surface it moves over
+    /// instead of to the output.
+    fn pointer_damage_regions(
+        &self,
+        _x: f32,
+        _y: f32,
+        _display: (f32, f32),
+        _windows: &[Window],
+        _workspaces: &WorkspaceSnapshot,
+    ) -> Option<Vec<Rect>> {
+        None
     }
 
     /// Whether this component would draw visible pixels in the next frame.
@@ -1076,16 +1103,21 @@ pub trait Chrome {
 ///
 /// This deliberately describes what would affect the *next rendered frame*,
 /// rather than broad component state such as "the Dock exists" or "an
-/// animation timer is running".  A hidden/fully transparent component must
-/// not prevent direct scanout, while any visible chrome pixel or live
-/// backdrop sample must.
+/// animation timer is running". A hidden/fully transparent component must not
+/// prevent direct scanout, while any visible chrome pixel must.
+///
+/// There is one field, not two. A `live_scene_effect` flag used to sit beside
+/// `visible_pixels` so chrome that sampled a compositor-owned blur could keep
+/// the desktop pass alive. Chrome draws no material any more
+/// ([ADR-0213](../../../docs/adr/0213-flat-chrome-and-removal-of-the-status-hud.md)),
+/// so no component ever declared one: the flag was `false` by construction,
+/// its scanout rejection unreachable, and its "reason" string undocumentable
+/// truth. The blurred window shadow that motivated it is a scene pass Tessera
+/// always records, not a condition chrome reports.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CompositionRequirements {
     /// At least one eligible chrome component would draw visible pixels.
     pub visible_pixels: bool,
-    /// Visible chrome samples the client scene through a compositor-owned
-    /// blur or shadow effect (the soft window shadow layer).
-    pub live_scene_effect: bool,
 }
 
 #[cfg(test)]

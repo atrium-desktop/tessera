@@ -1,4 +1,4 @@
-//! The lock/power session panel and the quick-controls power projection (ADR-0140).
+//! The lock/power session panel (ADR-0140).
 
 use super::*;
 
@@ -162,30 +162,5 @@ impl ControlCenter {
             );
         }
         f.set_theme(original);
-    }
-}
-
-/// Project the two Quick Controls toggles onto the session power mode
-/// (ADR-0140).
-///
-/// `keep_awake` is the display axis ("never blank the screen"); `auto_lock`
-/// is the security axis ("lock on schedule"). The one combination the
-/// power pipeline cannot honor — keep awake but never lock — is unsafe on a
-/// shared machine (anyone can walk up), so it projects onto
-/// [`tessera_desktop::power::PowerMode::Awake`]: with no automatic lock there is nothing to
-/// power off or suspend behind, so dimming is the strongest idle response
-/// the pipeline may keep. The toggles then read the mode back honestly:
-/// "keep awake" shows on (the display indeed never blanks) even though the
-/// user turned it off, telling them the security axis won the conflict.
-#[allow(dead_code)]
-pub(crate) fn power_mode_for(
-    keep_awake: bool,
-    auto_lock: bool,
-) -> tessera_desktop::power::PowerMode {
-    use tessera_desktop::power::PowerMode;
-    match (keep_awake, auto_lock) {
-        (false, true) => PowerMode::Balanced,
-        (true, true) => PowerMode::Secure,
-        (_, false) => PowerMode::Awake,
     }
 }

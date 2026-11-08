@@ -6,6 +6,7 @@ pub mod icons;
 pub mod ini;
 pub mod launcher;
 pub mod search;
+pub mod vector_source;
 
 // Top-level re-exports for unified application lifecycle consumption:
 pub use entries::{
@@ -23,3 +24,4 @@ pub use launcher::{
 pub use search::{
     IntentAction, IntentEngine, IntentItem, IntentKind, QueryMode, SystemCmd, eval_math,
 };
+pub use vector_source::{SourceError, decompress_if_gzip, read_vector_source};

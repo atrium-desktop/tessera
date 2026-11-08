@@ -222,6 +222,14 @@ impl Server {
                 data,
                 extensions::fractional_scale_bind,
             );
+            // wp_tearing_control_v1 (staging) at v1: per-surface tearing presentation hints (ADR-0219).
+            ffi::wl_global_create(
+                display,
+                &ffi::wp_tearing_control_manager_v1_interface,
+                1,
+                data,
+                extensions::tearing_control_bind,
+            );
             // wp_color_management_v1 (staging) at v1: parametric + ICC image
             // descriptions for client content tagging.
             ffi::wl_global_create(
