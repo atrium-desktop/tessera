@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.92] - 2026-11-08
+
 ### Added
 - **One in-process SVG compiler for every vector asset ([ADR-0222](docs/adr/0222-one-in-process-svg-compiler-for-every-vector-asset.md)).**
   Cursors, application icons, HUD symbols and tray icons are now all compiled by the
