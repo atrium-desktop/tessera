@@ -9,6 +9,9 @@ description = "Universal foundational physical, geometric, color, identity, and 
 [dependencies]
 serde = { workspace = true, optional = true }
 
+[dev-dependencies]
+proptest.workspace = true
+
 [lints]
 workspace = true
 

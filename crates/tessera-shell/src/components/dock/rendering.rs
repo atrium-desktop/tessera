@@ -150,7 +150,8 @@ impl Chrome for Dock {
         // enabled for magnification only after the capsule has begun revealing
         // the Dock. An active drag freezes the wave: the drop preview and the
         // magnification spring would fight over the same slots.
-        let in_band = !self.collapse_pending
+        let in_band = !self.launcher_active
+            && !self.collapse_pending
             && !drag_active
             && (over_rest_bounds || over_hover_surface)
             && (!effective_autohide || self.autohide_reveal() >= 0.2);
@@ -265,7 +266,7 @@ impl Chrome for Dock {
             .hovered_tile
             .as_ref()
             .and_then(|key| tiles.iter().position(|tile| &tile.key == key));
-        let hit = if drag_active {
+        let hit = if drag_active || self.launcher_active {
             None
         } else {
             hit_test_tiles(
@@ -283,7 +284,7 @@ impl Chrome for Dock {
         let prev_reading_row = self.hovered_reading_row;
         self.hovered_workspace_tick = None;
         self.hovered_reading_row = None;
-        if !drag_active {
+        if !drag_active && !self.launcher_active {
             for (cell, rect) in &leading_cells {
                 match cell {
                     StripCell::Readings(column) => {
@@ -333,24 +334,25 @@ impl Chrome for Dock {
             &geometry.centres,
         );
 
-        let right_pressed = input
-            .as_raw()
-            .mouse_pressed
-            .get(1)
-            .copied()
-            .unwrap_or(false);
+        let right_pressed = !self.launcher_active
+            && input
+                .as_raw()
+                .mouse_pressed
+                .get(1)
+                .copied()
+                .unwrap_or(false);
         self.handle_pointer_interactions(
             &tiles,
             &icon_rects,
             panel_rect,
             hit,
-            pressed_edge,
-            released_edge,
+            !self.launcher_active && pressed_edge,
+            !self.launcher_active && released_edge,
             right_pressed,
             drag.suppress_release_click,
             drag.released_target,
             (cursor.x, cursor.y),
-            over_rest_bounds,
+            !self.launcher_active && over_rest_bounds,
             content_progress,
             menu_was_open,
             position,
@@ -599,8 +601,8 @@ impl Chrome for Dock {
         // and a popup above it one box spanning the gap between them, which is
         // exactly the over-repaint the list exists to prevent.
         let mut regions: Vec<Rect> = Vec::new();
+        let rect = self.capture_footprint(display);
         let strip = {
-            let rect = self.capture_footprint(display);
             // A painted shadow reaches up to twice its blur radius outside
             // the body. Repaint the full shadow envelope, including the old
             // expanded shadow while the body collapses, and round outward.
@@ -639,15 +641,19 @@ impl Chrome for Dock {
         // A live-preview panel animates open above the strip (or beside it
         // for a side dock); its panel rect is computed for presentation each
         // frame, so the union with the strip covers both the panel and the
-        // strip it emerges from.
+        // strip it emerges from, including the floating-panel shadow halo.
         if let Some(preview) = self.live_preview_presentation() {
-            Dock::push_damage(
-                &mut regions,
-                preview.panel.origin.x as f32,
-                preview.panel.origin.y as f32,
-                preview.panel.size.w as f32,
-                preview.panel.size.h as f32,
-            );
+            let style = self.design.surfaces.for_role(SurfaceRole::FloatingPanel);
+            let fringe = 2.0 * style.shadow_blur.max(0.0) + style.shadow_offset_y.abs() + 4.0;
+            let x0 = (preview.panel.origin.x as f32 - fringe).floor().max(0.0);
+            let y0 = (preview.panel.origin.y as f32 - fringe).floor().max(0.0);
+            let x1 = (preview.panel.origin.x as f32 + preview.panel.size.w as f32 + fringe)
+                .ceil()
+                .min(display.0);
+            let y1 = (preview.panel.origin.y as f32 + preview.panel.size.h as f32 + fringe)
+                .ceil()
+                .min(display.1);
+            Dock::push_damage(&mut regions, x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0));
         }
         // The tile context menu floats above the strip (or beside it on a side
         // dock) and is part of this component's painted output. `menu_damage_rect`
@@ -662,27 +668,61 @@ impl Chrome for Dock {
                 menu.size.h as f32,
             );
         }
-        // Tooltips float above the hovered tile while their dwell fade runs;
-        // a hover band reaching from the strip toward the screen centre is
-        // wider than any tooltip, so it bounds the fade's footprint.
-        if self.tooltip_alpha() > 0.001 && self.tooltip_tile.is_some() {
+        // Tooltips and newly-opened live previews float inward from the
+        // magnified tile envelope (`rect = self.capture_footprint(display)`)
+        // while their dwell fade runs. Measuring outward from `rect` (which
+        // already accounts for `DOCK_TILE_MAX * SPRING_OVERSHOOT_MARGIN`) plus
+        // the surface's shadow halo guarantees the top/side cap of the bubble
+        // or opening preview panel is never clipped on the first frame before
+        // `render()` populates `hover_damage_rect`.
+        if self.tooltip_alpha() > 0.001
+            && let Some(key) = self.tooltip_tile.as_ref()
+        {
+            let opens_live_preview = self.live_preview.is_some()
+                || Self::frame_tiles(
+                    &self.tile_cache,
+                    &self.apps,
+                    &self.all_apps,
+                    &self.icons,
+                    self.catalog_revision,
+                    &self.all_windows,
+                    None,
+                )
+                .iter()
+                .any(|tile| &tile.key == key && !tile.windows.is_empty());
+            let reach = if opens_live_preview {
+                let style = self.design.surfaces.for_role(SurfaceRole::FloatingPanel);
+                let fringe = 2.0 * style.shadow_blur.max(0.0) + style.shadow_offset_y.abs() + 4.0;
+                PREVIEW_PANEL_GAP
+                    + PREVIEW_PANEL_PAD * 2.0
+                    + PREVIEW_CARD_MAX_WIDTH * PREVIEW_ASPECT
+                    + PREVIEW_LABEL_HEIGHT
+                    + fringe
+            } else {
+                let style = self.design.surfaces.for_role(SurfaceRole::Tooltip);
+                let fringe = 2.0 * style.shadow_blur.max(0.0) + style.shadow_offset_y.abs() + 4.0;
+                if self.position.is_vertical() {
+                    TOOLTIP_GAP + 224.0 + fringe
+                } else {
+                    TOOLTIP_BAND + fringe
+                }
+            };
             let band = match self.position {
                 DockPosition::Bottom => {
-                    let y1 = display.1 - DOCK_EDGE_MARGIN;
-                    let y0 = (y1 - DOCK_PANEL_HEIGHT - DOCK_EDGE_MARGIN - TOOLTIP_BAND).max(0.0);
+                    let y1 = (rect.y + rect.h).ceil().min(display.1);
+                    let y0 = (rect.y - reach).floor().max(0.0);
                     tessera_primitives::Rect::new(0, y0 as i32, display.0 as i32, (y1 - y0) as i32)
                 }
                 DockPosition::Left => {
-                    let x1 = DOCK_EDGE_MARGIN + DOCK_PANEL_HEIGHT + TOOLTIP_BAND;
-                    tessera_primitives::Rect::new(0, 0, x1.min(display.0) as i32, display.1 as i32)
+                    let x1 = (rect.x + rect.w + reach).ceil().min(display.0);
+                    tessera_primitives::Rect::new(0, 0, x1 as i32, display.1 as i32)
                 }
                 DockPosition::Right => {
-                    let x0 =
-                        (display.0 - DOCK_EDGE_MARGIN - DOCK_PANEL_HEIGHT - TOOLTIP_BAND).max(0.0);
+                    let x0 = (rect.x - reach).floor().max(0.0);
                     tessera_primitives::Rect::new(
                         x0 as i32,
                         0,
-                        (display.0 - x0) as i32,
+                        (display.0 - x0).ceil() as i32,
                         display.1 as i32,
                     )
                 }
@@ -715,6 +755,13 @@ impl Chrome for Dock {
             }
             ChromeUpdate::AppCatalog(catalog) => self.update_app_catalog(catalog),
             ChromeUpdate::SystemStatus(status) => self.system_status = status.clone(),
+            ChromeUpdate::LauncherActive(active) => {
+                if active && !self.launcher_active {
+                    self.dismiss_transient_ui();
+                    self.anim_active = true;
+                }
+                self.launcher_active = active;
+            }
             _ => {}
         }
     }
@@ -727,7 +774,7 @@ impl Chrome for Dock {
         _windows: &[Window],
         _workspaces: &WorkspaceSnapshot,
     ) -> bool {
-        if self.fullscreen_locked() {
+        if self.fullscreen_locked() || self.launcher_active {
             return false;
         }
         // A held drag gesture owns the pointer across the whole output: a
@@ -1056,7 +1103,8 @@ impl Dock {
         self.motion
             .advance_reveal(target_reveal, dt, self.reduced_motion);
 
-        if self.collapse_pending
+        if self.launcher_active
+            || self.collapse_pending
             || self.dismiss_latched
             || (effective_autohide && self.autohide_reveal() < 0.2)
         {
@@ -1093,7 +1141,8 @@ impl Dock {
                 && cursor.1 >= rest_bounds.y
                 && cursor.0 < rest_bounds.x + rest_bounds.w
                 && cursor.1 < rest_bounds.y + rest_bounds.h;
-            let in_band = !self.collapse_pending
+            let in_band = !self.launcher_active
+                && !self.collapse_pending
                 && !drag_active
                 && (over_rest_bounds || over_hover_surface)
                 && (!effective_autohide || self.autohide_reveal() >= 0.2);
@@ -1171,7 +1220,7 @@ impl Dock {
             }
             let target = if wants_tooltip { 1.0 } else { 0.0 };
             self.motion.advance_tooltip(target, dt, self.reduced_motion);
-            if target == 0.0 && self.tooltip_alpha() < 0.01 {
+            if target == 0.0 && self.tooltip_alpha() < 0.001 {
                 self.motion.tooltip_alpha = 0.0;
                 self.tooltip_tile = None;
             }
@@ -1179,21 +1228,28 @@ impl Dock {
 
         let dwell_active =
             self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold;
-        let tooltip_waiting = self.hovered_tile.is_some() && self.hover_elapsed < TOOLTIP_DWELL;
-        let tooltip_fading = {
-            let target = if self.tooltip_tile.is_some() {
-                1.0
-            } else {
-                0.0
-            };
-            (target - self.tooltip_alpha()).abs() > 0.01
-        };
         self.anim_active = !is_settled
             || unsettled
             || dwell_active
             || drag_active
-            || tooltip_waiting
-            || tooltip_fading;
+            || self.hover_surface_animating();
+        self.motion.anim_active = self.anim_active;
+    }
+
+    /// Whether the hover dwell timer or the tooltip / live-preview fade is
+    /// actively advancing and requires the compositor frame clock to keep ticking.
+    fn hover_surface_animating(&self) -> bool {
+        if self.app_menu.is_open() {
+            return false;
+        }
+        let tooltip_waiting = self.hovered_tile.is_some() && self.hover_elapsed < TOOLTIP_DWELL;
+        let target = if self.tooltip_tile.is_some() {
+            1.0
+        } else {
+            0.0
+        };
+        let tooltip_fading = (target - self.tooltip_alpha()).abs() > 0.001;
+        tooltip_waiting || tooltip_fading
     }
 
     /// Whether a sub-interaction the user started is holding the dock open.
@@ -1759,7 +1815,7 @@ fn tile_opts() -> LayoutOpts {
 /// liquid-glass body use identical geometry on the following frame. The
 /// bubble opens toward `side` of its owner: above a bottom dock's tile, or
 /// into the output beside a side dock's tile.
-fn tooltip_rect(
+pub(super) fn tooltip_rect(
     frame: &mut Frame,
     design: &Design,
     label: &str,
@@ -2530,10 +2586,16 @@ impl Dock {
             self.was_magnific_animating = unsettled;
         }
         // An active drag keeps frames ticking: the preview follows the cursor
-        // even when every spring has rested. Continuous dwell accumulation also ticks frames.
+        // even when every spring has rested. Continuous dwell accumulation and
+        // hover tooltip / live-preview dwell & fade also tick frames so `render`
+        // never clobbers the pre-pass animation state before `update_animation_state`.
         let dwell_active =
             self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold;
-        self.anim_active = unsettled || autohide_moving || drag_active || dwell_active;
+        self.anim_active = unsettled
+            || autohide_moving
+            || drag_active
+            || dwell_active
+            || self.hover_surface_animating();
         self.motion.anim_active = self.anim_active;
 
         // The drop-preview permutation: during a tile drag the dragged tile
@@ -2592,19 +2654,35 @@ impl Dock {
                     };
                     let gap = s * 0.1;
                     let d = (s - 2.0 * (s * 0.2) - 2.0 * gap) / 3.0;
+                    // The grid is a subdivided tile: each cell is `d` logical
+                    // pixels. While the Dock drains into its collapsed capsule
+                    // `s` approaches zero and `d` becomes a sub-pixel sliver.
+                    // Snapping such a cell to the device grid can move its
+                    // leading edge past its trailing edge, which flux rejects
+                    // as a negative rect — and a rejected encoder discards the
+                    // whole chrome scene. A cell below one device pixel paints
+                    // nothing visible, so do not emit it at all.
+                    let cells_visible = d * self.scale >= 1.0;
                     f.place(&icon_id, &chrome_place(rect, bg), |f| {
-                        f.column_ex(&grid(gap), |f| {
-                            for _ in 0..3 {
-                                f.row_ex(&grid(gap), |f| {
-                                    for _ in 0..3 {
-                                        f.column_ex(
-                                            &sized_fill(d, d, dock_colors.launchpad_grid, d * 0.3),
-                                            |_| {},
-                                        );
-                                    }
-                                });
-                            }
-                        });
+                        if cells_visible {
+                            f.column_ex(&grid(gap), |f| {
+                                for _ in 0..3 {
+                                    f.row_ex(&grid(gap), |f| {
+                                        for _ in 0..3 {
+                                            f.column_ex(
+                                                &sized_fill(
+                                                    d,
+                                                    d,
+                                                    dock_colors.launchpad_grid,
+                                                    d * 0.3,
+                                                ),
+                                                |_| {},
+                                            );
+                                        }
+                                    });
+                                }
+                            });
+                        }
                     });
                 } else {
                     f.place(&icon_id, &chrome_place(rect, tile_opts()), |f| {
@@ -3089,5 +3167,11 @@ impl Dock {
                 }
             }
         }
+        // `update_hover_surfaces` is the authoritative pass that resolves
+        // `self.hovered_tile` against the painted tile geometry; fold
+        // `hover_surface_animating()` here so `Runtime::update_animation_state`
+        // (called at the end of `render_and_present`) sees `anim_pending() == true`
+        // on the very frame the pointer lands on a tile or while the bubble fades.
+        self.anim_active |= self.hover_surface_animating();
     }
 }

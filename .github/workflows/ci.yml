@@ -119,7 +119,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            build-essential meson ninja-build pkg-config glslang-tools \
+            build-essential meson ninja-build pkg-config \
             libwayland-dev wayland-protocols libvulkan-dev \
             vulkan-validationlayers mesa-vulkan-drivers \
             libfreetype-dev libharfbuzz-dev libfontconfig1-dev libfribidi-dev \
@@ -130,6 +130,12 @@ jobs:
           # optics builds with c_std=c23; Ubuntu 24.04's GCC 13 has no
           # c23 mode, so compile the C libraries with Clang.
           sudo apt-get install -y clang
+      - name: Install Slang compiler
+        run: |
+          # optics authors every shader in Slang (Optics ADR-0156) and compiles
+          # it with `slangc`; the Vulkan SDK's glslang tools are not used.
+          SLANG_VER="2026.21"
+          curl -sSL "https://github.com/shader-slang/slang/releases/download/v${SLANG_VER}/slang-${SLANG_VER}-linux-x86_64.tar.gz" | sudo tar -xz -C /usr/local
       - name: Build and install optics C libraries
         run: |
           CC=clang CXX=clang++ meson setup optics/build optics \

@@ -60,6 +60,9 @@ impl CompositorRuntime<'_> {
                 // suspend, so its presentation-side sprite baseline is void
                 // and the first cursor commit must not be skipped.
                 self.damage.force_full_redraw = true;
+                // The display content did not survive the VT round-trip. Flux
+                // must not let an image epoch claim otherwise.
+                self.surface.invalidate_damage();
                 self.damage.last_presented_cursor = None;
                 self.damage.last_presented_cursor_position = None;
                 self.damage.last_presented_cursor_hotspot = None;
@@ -84,6 +87,7 @@ impl CompositorRuntime<'_> {
                 );
                 self.host.recover_lost_presentation();
                 self.damage.force_full_redraw = true;
+                self.surface.invalidate_damage();
             }
             if self.presentation.tick(now) {
                 if self.animating {
@@ -311,12 +315,22 @@ impl CompositorRuntime<'_> {
                 .pending_frame
                 .take()
                 .expect("queued redraw has accumulated frame state");
+            let was_animating = self.animating;
+            let refresh_interval = self.presentation_interval();
             let render_at = std::time::Instant::now();
+            // When waking from idle (`!was_animating`), clamp `frame_dt` to one
+            // refresh interval rather than `1/15s` (`66.7ms`) so the first frame
+            // of a newly-triggered spring or dwell timer does not lurch 4 frames
+            // ahead by integrating the preceding idle sleep.
+            let max_dt = if was_animating {
+                1.0 / 15.0
+            } else {
+                refresh_interval.as_secs_f32()
+            };
             let frame_dt = (render_at - self.previous_render_at)
                 .as_secs_f32()
-                .clamp(0.0, 1.0 / 15.0);
+                .clamp(0.0, max_dt);
             let frame_interval = render_at.saturating_duration_since(self.previous_render_at);
-            self.previous_render_at = render_at;
             frame.set_dt(frame_dt);
 
             let outcome = match self.render_and_present(frame) {
@@ -324,15 +338,27 @@ impl CompositorRuntime<'_> {
                 Err(error) => {
                     log::warn!("compositor: presentation error: {error}");
                     self.damage.force_full_redraw = true;
-                    PresentationOutcome::Retry
+                    PresentationOutcome::Retry {
+                        wait: RetryWait::Deadline,
+                    }
                 }
             };
             self.update_animation_state();
+            if matches!(outcome, PresentationOutcome::Submitted)
+                || (matches!(outcome, PresentationOutcome::NoDamage { .. })
+                    && (was_animating || self.animating))
+            {
+                self.previous_render_at = render_at;
+            }
             let now = std::time::Instant::now();
             let execution_time = now.saturating_duration_since(render_at);
 
             // Observe execution time and active animation pacing stalls under
             // compile or IO load without false positives during idle sleep.
+            // Gate the pacing check on `was_animating` (whether the loop was
+            // already animating across `previous_render_at..render_at`) rather
+            // than post-frame `self.animating`, which just turned `true` on the
+            // first frame after an idle wait.
             if let Some(watchdog) = self.sched_watchdog.as_ref() {
                 if let Some(stall) = watchdog.check_execution_stall(execution_time) {
                     log::warn!(
@@ -340,7 +366,7 @@ impl CompositorRuntime<'_> {
                         watchdog.budget().as_millis()
                     );
                 }
-                if let Some(stall) = watchdog.check_pacing_stall(self.animating, frame_interval) {
+                if let Some(stall) = watchdog.check_pacing_stall(was_animating, frame_interval) {
                     log::warn!(
                         "compositor: frame pacing interval was {stall:?} during active animation (exceeding {}ms watchdog budget)",
                         watchdog.budget().as_millis()
@@ -348,7 +374,6 @@ impl CompositorRuntime<'_> {
                 }
             }
 
-            let refresh_interval = self.presentation_interval();
             match outcome {
                 PresentationOutcome::Submitted => {
                     let presentation_pending = self.host.presentation_pending();
@@ -367,15 +392,19 @@ impl CompositorRuntime<'_> {
                     now,
                     refresh_interval,
                 ),
-                PresentationOutcome::Retry => {
-                    // `Busy` means KMS still owns the previous batch. The
-                    // scheduler gates the retry on that batch retiring via
+                PresentationOutcome::Retry { wait } => {
+                    // A backend-owned rejection (`KMS` still owns the
+                    // previous batch) is gated on that batch retiring via
                     // `reconcile_backend`, so exactly one fresh render follows
-                    // each real flip. The 1 ms floor only bounds a rejection
-                    // that owns no flip (`Inactive`, `Reconfigured`); it is not
-                    // a polling cadence.
-                    self.presentation
-                        .retry_at(now + std::time::Duration::from_millis(1))
+                    // each real flip. A deadline-owned retry has no event to
+                    // wake it: pace it to the next presentation boundary
+                    // instead of spinning on the 1 ms floor or sleeping for the
+                    // backend watchdog.
+                    let at = match wait {
+                        RetryWait::BackendEvent => now + std::time::Duration::from_millis(1),
+                        RetryWait::Deadline => now + refresh_interval,
+                    };
+                    self.presentation.retry_at(at, wait)
                 }
             }
         }

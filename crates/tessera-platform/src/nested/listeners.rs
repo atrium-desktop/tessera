@@ -38,7 +38,7 @@ pub(super) unsafe extern "C" fn on_global(
                     &OUTPUT_LISTENER as *const _ as *const c_void,
                     data,
                 );
-                st.outputs.push((output, 1));
+                st.outputs.push((output, 1, 0));
             }
         } else if iface == b"wp_viewporter" {
             st.viewporter = registry_bind(
@@ -235,7 +235,7 @@ fn adopted_refresh_mhz(flags: u32, refresh: i32) -> Option<u32> {
 /// tessera ADR-0196).
 pub(super) unsafe extern "C" fn on_output_mode(
     data: *mut c_void,
-    _output: *mut ffi::wl_proxy,
+    output: *mut ffi::wl_proxy,
     flags: u32,
     _width: i32,
     _height: i32,
@@ -245,7 +245,15 @@ pub(super) unsafe extern "C" fn on_output_mode(
         return;
     };
     let st = unsafe { &mut *(data as *mut State) };
-    st.refresh_mhz = mhz;
+    if let Some(entry) = st.outputs.iter_mut().find(|o| o.0 == output) {
+        entry.2 = mhz;
+    } else {
+        st.outputs.push((output, 1, mhz));
+    }
+    if (output == st.current_output || st.current_output.is_null()) && st.refresh_mhz != mhz {
+        st.refresh_mhz = mhz;
+        st.mode_changed = true;
+    }
 }
 
 pub(super) unsafe extern "C" fn on_output_done(_data: *mut c_void, _output: *mut ffi::wl_proxy) {}
@@ -261,7 +269,7 @@ pub(super) unsafe extern "C" fn on_output_scale(
         if let Some(entry) = st.outputs.iter_mut().find(|o| o.0 == output) {
             entry.1 = f;
         } else {
-            st.outputs.push((output, f));
+            st.outputs.push((output, f, 0));
         }
         // Adopt this scale when it belongs to the output we're on, or before the
         // first `enter` (so the very first frame already targets the right scale).
@@ -290,7 +298,7 @@ pub(super) unsafe extern "C" fn on_preferred_scale(
 }
 
 // Host surface listeners. `enter` tells us which output the window sits on; we
-// adopt that output's scale. `leave` keeps the last known scale.
+// adopt that output's scale and refresh rate. `leave` keeps the last known state.
 pub(super) unsafe extern "C" fn on_surface_enter(
     data: *mut c_void,
     _surface: *mut ffi::wl_proxy,
@@ -299,11 +307,15 @@ pub(super) unsafe extern "C" fn on_surface_enter(
     unsafe {
         let st = &mut *(data as *mut State);
         st.current_output = output;
-        if let Some(entry) = st.outputs.iter().find(|o| o.0 == output)
-            && entry.1 != st.scale
-        {
-            st.scale = entry.1;
-            st.scale_changed = true;
+        if let Some(&(_, scale, refresh_mhz)) = st.outputs.iter().find(|o| o.0 == output) {
+            if scale != st.scale {
+                st.scale = scale;
+                st.scale_changed = true;
+            }
+            if refresh_mhz > 0 && refresh_mhz != st.refresh_mhz {
+                st.refresh_mhz = refresh_mhz;
+                st.mode_changed = true;
+            }
         }
     }
 }
@@ -313,6 +325,23 @@ pub(super) unsafe extern "C" fn on_surface_leave(
     _surface: *mut ffi::wl_proxy,
     _output: *mut ffi::wl_proxy,
 ) {
+}
+
+pub(super) unsafe extern "C" fn on_frame_callback_done(
+    data: *mut c_void,
+    callback: *mut ffi::wl_proxy,
+    _callback_data: u32,
+) {
+    unsafe {
+        let st = &mut *(data as *mut State);
+        if st.frame_callback == callback {
+            st.frame_callback = ptr::null_mut();
+            st.frame_callback_deadline = None;
+        }
+        if !callback.is_null() {
+            ffi::wl_proxy_destroy(callback);
+        }
+    }
 }
 
 // Host pointer listeners. We translate the host's pointer events into the
@@ -891,6 +920,9 @@ pub(super) static OUTPUT_LISTENER: ffi::wl_output_listener = ffi::wl_output_list
 pub(super) static SURFACE_LISTENER: ffi::wl_surface_listener = ffi::wl_surface_listener {
     enter: on_surface_enter,
     leave: on_surface_leave,
+};
+pub(super) static FRAME_CALLBACK_LISTENER: ffi::wl_callback_listener = ffi::wl_callback_listener {
+    done: on_frame_callback_done,
 };
 pub(super) static FRACTIONAL_SCALE_LISTENER: ffi::wp_fractional_scale_v1_listener =
     ffi::wp_fractional_scale_v1_listener {

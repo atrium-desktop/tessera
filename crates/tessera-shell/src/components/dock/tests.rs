@@ -1035,11 +1035,14 @@ fn settled_maximized_collapse_keeps_the_capsule_painted() {
     assert!(footprint.x <= morphing.x && footprint.y <= morphing.y);
     assert!(footprint.x + footprint.w >= morphing.x + morphing.w);
     assert!(footprint.y + footprint.h >= morphing.y + morphing.h);
-    // The envelope spans from the bar's float down to the capsule's tuck, so
-    // no frame of the morph paints outside its own footprint (ADR-0171).
-    assert_eq!(
-        footprint.h,
-        DOCK_PANEL_HEIGHT + (DOCK_EDGE_MARGIN - AUTOHIDE_HANDLE_EDGE_MARGIN)
+    // The envelope spans from the bar's float down to the capsule's tuck, and
+    // reaches inward far enough for a fully magnified tile. No frame of the
+    // morph or of the hover wave paints outside its own footprint
+    // (ADR-0171, ADR-0225).
+    assert!(
+        footprint.h > DOCK_PANEL_HEIGHT + (DOCK_EDGE_MARGIN - AUTOHIDE_HANDLE_EDGE_MARGIN),
+        "the envelope must include the magnified-tile overshoot: {}",
+        footprint.h
     );
     assert_eq!(
         footprint.y + footprint.h,
@@ -3455,4 +3458,242 @@ fn a_raised_popover_stays_while_the_pointer_enters_it() {
         "and it stays fully raised, not faded out: alpha={}",
         dock.tooltip_alpha()
     );
+}
+
+/// Collapsing into the capsule must never emit a sub-pixel launchpad cell.
+///
+/// A maximized client makes the Dock autohide (`effective_autohide`), and the
+/// launchpad's 3x3 grid is subdivided from a tile that drains to zero. At 2x
+/// scale a cell below one device pixel snapped to a negative width in the
+/// encoder (`[-0.04, 0.05]`), which rejected the entire chrome scene. Because
+/// ADR-0223 retries a failed build only every 250 ms, the collapse then played
+/// at roughly 4 fps — the visible stutter. The cells are now omitted while
+/// they are sub-pixel; every build in the drain must stay valid.
+#[test]
+fn collapsing_into_the_capsule_keeps_every_scene_build_valid() {
+    let display = (1487.0, 865.0);
+    let mut dock = dock_with(vec![app("foot.desktop")]);
+    // The reading column widens the bar, as it did in the failing session.
+    dock.system_status.battery = Some(tessera_desktop::system::BatteryStatus {
+        percent: 21,
+        charging: true,
+    });
+    dock.system_status.bluetooth_enabled = Some(true);
+    dock.system_status.wifi_enabled = Some(true);
+    dock.system_status.wifi_state = tessera_desktop::system::WifiLinkState::Connected;
+    let windows = [window(1, "foot", true)];
+    dock.update_windows(&windows);
+    dock.update(ChromeUpdate::Scale(2.0));
+    dock.apply_space_use(tessera_desktop::window::SpaceUse::Maximized);
+    let workspaces = workspace_snapshot();
+    let i18n = Localizer::default();
+    let mut out = ChromeEvents::default();
+    let mut ui = lens::Ui::headless().unwrap();
+    ui.set_scale(2.0);
+    let mut input = Input::new(display, 1.0 / 120.0);
+    input.set_cursor(display.0 * 0.5, display.1 - 20.0);
+
+    let mut collapsed = false;
+    for frame in 0..600 {
+        dock.prepare_frame(&input, &windows, &workspaces);
+        ui.frame(&input, |f| {
+            dock.render(f, &input, &windows, &workspaces, &i18n, &mut out)
+        });
+        if let Err(error) = ui.snapshot() {
+            panic!("frame {frame} failed during the collapse: {error}");
+        }
+        if dock.autohide_reveal() <= 0.002 {
+            collapsed = true;
+            break;
+        }
+    }
+    assert!(collapsed, "the Dock must reach its collapsed capsule");
+}
+
+/// The damage envelope must cover the largest tile a magnification spring can
+/// produce, on every dock edge.
+///
+/// The body is only one panel thick, while a tile anchored to the inner
+/// baseline grows inward by `DOCK_TILE_MAX * SPRING_OVERSHOOT_MARGIN`. The
+/// envelope used to stop at the body (plus the shadow skirt), so the top rows
+/// of a fully magnified icon fell outside the repaint region and retained the
+/// previous frame — a horizontal tear across the hovered tile.
+#[test]
+fn the_damage_envelope_contains_every_tile_at_full_magnification() {
+    let display = (1920.0, 1080.0);
+    for position in [
+        DockPosition::Bottom,
+        DockPosition::Left,
+        DockPosition::Right,
+    ] {
+        let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
+        dock.set_position(position);
+        let n = 2;
+        let eased = vec![DOCK_TILE_MAX * SPRING_OVERSHOOT_MARGIN; n];
+        let geometry = dock.resolve_strip_geometry(
+            &eased,
+            &[0, 1],
+            2,
+            if position.is_vertical() {
+                display.1
+            } else {
+                display.0
+            },
+            display,
+        );
+        let envelope = dock.capture_footprint(display);
+        for (index, tile) in geometry.icon_rects.iter().enumerate() {
+            assert!(
+                envelope.x <= tile.x
+                    && envelope.y <= tile.y
+                    && envelope.x + envelope.w >= tile.x + tile.w
+                    && envelope.y + envelope.h >= tile.y + tile.h,
+                "{position:?}: envelope {envelope:?} does not contain magnified tile {index} {tile:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn launcher_active_dismisses_live_preview_and_inhibits_pointer_capture() {
+    let display = (1920.0, 1080.0);
+    let mut dock = dock_with(vec![app("org.example.Terminal.desktop")]);
+    dock.hovered_tile = Some("app:org.example.Terminal.desktop".to_string());
+    dock.tooltip_tile = Some("app:org.example.Terminal.desktop".to_string());
+    dock.hover_surface_bounds = Some(Rect {
+        x: 700.0,
+        y: 800.0,
+        w: 320.0,
+        h: 180.0,
+    });
+    dock.live_preview = Some(LivePreviewPresentation {
+        panel: tessera_primitives::Rect::new(700, 800, 320, 180),
+        cards: Vec::new(),
+        focused: None,
+        visibility: 1.0,
+        inactive_content_brightness: 0.72,
+    });
+
+    assert!(dock.captures_pointer(960.0, 1050.0, display, &[], &workspace_snapshot()));
+
+    dock.update(ChromeUpdate::LauncherActive(true));
+    assert!(dock.live_preview.is_none());
+    assert!(dock.tooltip_tile.is_none());
+    assert!(dock.hovered_tile.is_none());
+    assert!(
+        dock.hover_damage_rect.is_some(),
+        "dismissing live preview on modal open must record vacated hover damage"
+    );
+    assert!(
+        !dock.captures_pointer(960.0, 1050.0, display, &[], &workspace_snapshot()),
+        "Dock must not capture pointer while an immersive modal owns the output"
+    );
+}
+
+#[test]
+fn dock_render_preserves_hover_dwell_and_fade_animation_after_spring_settles() {
+    let display = (1920.0, 1080.0);
+    let mut dock = dock_with(vec![app("foot.desktop")]);
+    let workspaces = workspace_snapshot();
+    let i18n = Localizer::default();
+    let mut out = ChromeEvents::default();
+    let mut ui = lens::Ui::headless().unwrap();
+
+    // Place the pointer over the pinned Foot tile and advance with 60 Hz steps.
+    // The magnification spring settles around ~180 ms, while `TOOLTIP_DWELL` is
+    // 300 ms and the fade-in takes another 150 ms. `dock.anim_pending()` must
+    // stay `true` after every `dock.render(...)` call until the tooltip is
+    // fully raised (`alpha > 0.99`).
+    let mut input = Input::new(display, 1.0 / 60.0);
+    let rest = dock.pointer_bounds(display);
+    input.set_cursor(rest.x + rest.w - 30.0, rest.y + rest.h * 0.5);
+
+    for step in 0..45 {
+        dock.prepare_frame(&input, &[], &workspaces);
+        ui.frame(&input, |f| {
+            dock.render(f, &input, &[], &workspaces, &i18n, &mut out)
+        });
+        if dock.tooltip_alpha() <= 0.999 {
+            assert!(
+                dock.anim_pending(),
+                "step {step}: dock.anim_pending() must remain true while hover dwell/fade is in progress (hover_elapsed={}, alpha={})",
+                dock.hover_elapsed,
+                dock.tooltip_alpha()
+            );
+        }
+    }
+    assert_eq!(dock.tooltip_tile.as_deref(), Some("app:foot.desktop"));
+    assert!(
+        dock.tooltip_alpha() > 0.999,
+        "tooltip must reach full opacity without pointer movement: alpha={}",
+        dock.tooltip_alpha()
+    );
+}
+
+#[test]
+fn the_damage_regions_contain_tooltip_and_shadow_at_full_magnification() {
+    let display = (1920.0, 1080.0);
+    for position in [
+        DockPosition::Bottom,
+        DockPosition::Left,
+        DockPosition::Right,
+    ] {
+        let mut dock = dock_with(vec![app("foot.desktop")]);
+        dock.set_position(position);
+        dock.hovered_tile = Some("app:foot.desktop".to_string());
+        dock.tooltip_tile = Some("app:foot.desktop".to_string());
+        dock.motion.tooltip_alpha = 0.5;
+        dock.anim_active = true;
+        dock.motion.anim_active = true;
+        // Simulate the first frame the tooltip appears (`hover_damage_rect` not
+        // yet populated by `render`).
+        dock.hover_damage_rect = None;
+
+        let n = 2;
+        let eased = vec![DOCK_TILE_MAX * SPRING_OVERSHOOT_MARGIN; n];
+        let geometry = dock.resolve_strip_geometry(
+            &eased,
+            &[0, 1],
+            2,
+            if position.is_vertical() {
+                display.1
+            } else {
+                display.0
+            },
+            display,
+        );
+        let owner = geometry.icon_rects[1];
+        let mut ui = lens::Ui::headless().unwrap();
+        let input = Input::new(display, 1.0 / 60.0);
+        let mut pill = Rect::default();
+        ui.frame(&input, |f| {
+            pill = rendering::tooltip_rect(
+                f,
+                &dock.design,
+                "Foot",
+                owner,
+                display,
+                0.5,
+                Dock::popup_side_for(position),
+            );
+        });
+        let style = dock
+            .design
+            .surfaces
+            .for_role(tessera_design::SurfaceRole::Tooltip);
+        let fringe = 2.0 * style.shadow_blur.max(0.0) + style.shadow_offset_y.abs() + 1.0;
+        let regions = dock
+            .damage_regions(&[], display)
+            .expect("animating dock must report damage regions");
+        let encloses = regions.iter().any(|r| {
+            r.x <= (pill.x - fringe).max(0.0)
+                && r.y <= (pill.y - fringe).max(0.0)
+                && r.x + r.w >= (pill.x + pill.w + fringe).min(display.0)
+                && r.y + r.h >= (pill.y + pill.h + fringe).min(display.1)
+        });
+        assert!(
+            encloses,
+            "{position:?}: damage_regions {regions:?} did not enclose magnified tooltip pill {pill:?} (fringe={fringe})"
+        );
+    }
 }

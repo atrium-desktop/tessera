@@ -9,6 +9,7 @@ How to build and run tessera for development.
 | Rust toolchain | `rustc` and `cargo`, edition 2024 (1.88+) |
 | Optics `<OPTICS_VERSION>` | Use a sibling checkout for cross-repository development or installed native libraries for the canonical build |
 | meson and a C23 compiler | To build the optics libraries |
+| Slang compiler | `slangc` 2026.17+ (CI pins 2026.21; recent Vulkan SDKs bundle it) compiles Optics shaders |
 | Vulkan 1.3 runtime and loader | flux is Vulkan-first |
 | Wayland client and protocols | `wayland-client`, `wayland-protocols`, and `wayland-scanner` for the nested backend |
 | libxkbcommon | Server compiles the default keymap at startup for `wl_keyboard` |
@@ -127,8 +128,8 @@ pkg-config --modversion flux vista lens iris svg   # sanity check
 
 > If your distribution already ships an Optics `<OPTICS_VERSION>` package, install that
 > instead and skip the manual build. What matters is that the five
-> `pkg-config --modversion` checks above each report an `<OPTICS_VERSION>`-compatible
-> version.
+> `pkg-config --modversion` checks above each report exactly `<OPTICS_VERSION>`:
+> pre-1.0 the bindings and the full-version SONAME reject any other release.
 
 **Daily development** needs no further Optics work — just Cargo:
 
@@ -275,6 +276,7 @@ its process group.
 | `$XDG_RUNTIME_DIR is unset` | Log in through PAM/logind; do not create a shared runtime directory under `/tmp` |
 | DRM runner rejects root | Log in as the normal seat user; do not bypass logind or seatd with `sudo` |
 | Missing a `flux`, `vista`, `lens`, `iris`, or `svg` pkg-config file | In the local workflow, build the sibling tree; in the canonical workflow, install the matching Optics release |
+| Building Optics fails because `slangc` is not found | Install Slang 2026.17+ (a recent Vulkan SDK bundles it) and put `slangc` on `PATH`; the shader stack no longer uses `glslangValidator` |
 | `vkCreateSwapchainKHR: function pointer was NULL` | `VK_KHR_swapchain` not enabled; the backend requests it, so check the flux device extensions |
 | `error while loading shared libraries: libflux*.so` / `libvista*.so` / `liblens*.so` / `libiris*.so` / `libsvg*.so` | In the local workflow, rebuild after moving the Meson tree; in the canonical workflow, refresh the loader cache or configure the installed prefix |
 | `Interaction Domain cgroup isolation is unavailable` | Run Tessera in the packaged systemd user service; a shared terminal scope cannot satisfy controller delegation |

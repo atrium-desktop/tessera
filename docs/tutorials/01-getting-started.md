@@ -10,7 +10,8 @@ session.
 Install:
 
 - Rust 1.88 or later;
-- Meson, Ninja, `pkg-config`, a C23 compiler, and libclang;
+- Meson, Ninja, `pkg-config`, a C23 compiler, libclang, and `slangc` (Slang
+  2026.17+; recent Vulkan SDKs bundle it);
 - Vulkan, Wayland, xkbcommon, libinput, and libseat development files; and
 - the Optics `v<OPTICS_VERSION>` native libraries.
 
@@ -33,8 +34,8 @@ sudo ldconfig
 pkg-config --modversion flux vista lens iris svg
 ```
 
-Each version printed by the final command must be compatible with
-`<OPTICS_VERSION>`.
+Each version printed by the final command must be exactly `<OPTICS_VERSION>`:
+the pre-1.0 bindings and SONAME reject a different native release.
 
 ## Start the Nested Compositor
 
@@ -42,8 +43,13 @@ Build the two supervised session clients, then run:
 
 ```bash
 cargo build --locked -p tessera-idle -p tessera-lock
-cargo run --locked -p tessera
+cargo run --locked --profile release-fast -p tessera
 ```
+
+The compositor is a real-time program. The `release-fast` profile keeps full
+symbols but skips LTO, so it builds quickly enough for development while still
+holding a 120 Hz 5 MP frame budget. Use `TESSERA_DEV_PROFILE=debug` with
+`./scripts/run-nested-dev.sh` only when you need a debugger.
 
 Because `WAYLAND_DISPLAY` is set, the default `TESSERA_BACKEND=auto` opens a
 nested Tessera window. The background and the Dock confirm that the

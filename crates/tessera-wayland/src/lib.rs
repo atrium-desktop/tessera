@@ -684,14 +684,21 @@ pub struct SurfaceRec {
     buffer_scale: i32,
     // ----- damage tracking -----
     /// Damage rectangles accumulated by `wl_surface.damage` since the last
-    /// commit, in surface-local logical coordinates;
-    /// empty means "client did not report damage, renderer should
-    /// re-upload the whole texture on a generation change".
+    /// commit, in surface-local logical coordinates. Empty means no usable
+    /// rectangle survived; [`Self::pending_damage_reported`] distinguishes
+    /// "the client reported nothing" from "everything it reported clipped
+    /// away".
     pending_damage: Vec<tessera_primitives::Rect>,
     /// Raw buffer-coordinate rectangles accumulated by
     /// `wl_surface.damage_buffer`. Kept separate until commit because buffer
     /// scale/transform requests may be interleaved with damage requests.
     pending_buffer_damage: Vec<tessera_primitives::Rect>,
+    /// Whether the client issued any damage request since the last commit.
+    /// This distinguishes "no damage information" — a new buffer means the
+    /// whole surface changed and must be copied in full — from "damage was
+    /// reported but every rectangle clipped away" — a no-op for the visible
+    /// surface, not a licence to copy a whole alternating buffer over it.
+    pending_damage_reported: bool,
     /// Damage accumulated across every commit since the last successfully
     /// presented compositor frame, surfaced via `Server::toplevel_frames`.
     /// Multiple client commits can be dispatched before one render, so
@@ -783,6 +790,7 @@ impl SurfaceRec {
             buffer_scale: 1,
             pending_damage: Vec::new(),
             pending_buffer_damage: Vec::new(),
+            pending_damage_reported: false,
             committed_damage: Vec::new(),
             committed_damage_full: false,
             // Tiling (ADR-0024): the last layout rect we configured this

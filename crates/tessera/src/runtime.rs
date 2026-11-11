@@ -151,21 +151,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = load_config(config_path.as_deref());
     let desktop_preferences = effective_desktop_preferences(config.as_ref());
 
-    // Resolve the compositor scheduling plan and frame watchdog from config
-    // once, before any worker thread is spawned, so every thread can adopt
-    // the same frame/feeder/background split. The plan pins/elevates the
-    // frame thread; the watchdog surfaces stalls.
-    let sched_plan = plan_from_config(config.as_ref());
-    let sched_watchdog = watchdog_from_config(config.as_ref());
-    // Publish the process-wide plan so worker threads tagged `mark_*` in this
-    // and helper crates read one coherent frame/feeder/background split.
-    tessera_sched::arm_global_plan(sched_plan.clone());
-    // Lock the process's memory so background-IO swap latency can never push
-    // the frame path to disk. Best-effort (needs the unit's CAP_IPC_LOCK).
-    if sched_plan.realtime_enabled() {
-        lockdown_frame_memory();
-    }
-
     // Select the presentation target before Vulkan creation: nested Wayland
     // requires WSI extensions, while DRM requires exportable offscreen images.
     // `auto` uses an outer Wayland display when present and atomic DRM on a TTY.
@@ -179,6 +164,25 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         configured_color_policies(config.as_ref()),
         configured_icc_profiles(config.as_ref()),
     )?;
+    let is_nested = host_bootstrap.name() == "nested";
+
+    // Resolve the compositor scheduling plan and frame watchdog from config
+    // once, before any worker thread is spawned, so every thread can adopt
+    // the same frame/feeder/background split. The plan pins/elevates the
+    // frame thread on bare-metal DRM and leaves nested preview sessions
+    // unpinned so they do not collide with the outer host compositor's
+    // dedicated CPU core; the watchdog surfaces stalls in both modes.
+    let sched_plan = plan_from_config(config.as_ref(), is_nested);
+    let sched_watchdog = watchdog_from_config(config.as_ref());
+    // Publish the process-wide plan so worker threads tagged `mark_*` in this
+    // and helper crates read one coherent frame/feeder/background split.
+    tessera_sched::arm_global_plan(sched_plan.clone());
+    // Lock the process's memory so background-IO swap latency can never push
+    // the frame path to disk. Best-effort (needs the unit's CAP_IPC_LOCK).
+    if sched_plan.realtime_enabled() {
+        lockdown_frame_memory();
+    }
+
     let mut engine = crate::engine::Engine::new(host_bootstrap)?;
     let crate::engine::EngineSession {
         canvas,
@@ -197,7 +201,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .map(|c| c.input.keyboard)
         .unwrap_or_default();
     log::info!(
-        "flux: device created for {} backend; dma-buf {}",
+        "flux: native runtime {}; device created for {} backend; dma-buf {}",
+        flux::version(),
         host.name(),
         if flux::dmabuf_supported(device) {
             "supported"
@@ -1017,6 +1022,14 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             None
         }
     };
+    // The compositor's event wait only observes Wayland, backend, and capture
+    // fds. Without this registration an IPC command applied while the desktop
+    // is idle waits for the maintenance tick (~1 s). Share the capture
+    // eventfd: it is level-triggered and drained once per loop pass, so the
+    // two producers coalesce into one wakeup.
+    if let Some(server) = ipc.as_ref() {
+        server.set_wakeup_fd(capture_worker.wake_handle());
+    }
     // Start the policy client only after both the Wayland and IPC sockets are
     // published. It is supervised for the lifetime of this runtime and
     // inherits the exact session environment advertised above.

@@ -28,6 +28,7 @@ responsibility boundary this follows.
 | [Popup Positioning Issue Triage](popup-positioning.md) | Popup, card, and transient window placement: client vs compositor attribution |
 | [Chrome Animation, Frame-Clock, and Dock State-Machine Triage](chrome-animation-and-backdrop-coherence.md) | Frame drops during fades, double-edge ghosting, swapchain ring flickering, a frame clock that never idles, and Dock autohide/dwell deadlocks |
 | [Fullscreen and Uncapped Client Frame-Pacing Triage](fullscreen-frame-pacing.md) | Low frame rate in a fullscreen or V-Sync-off client: buffer-release starvation, scanout rejection, and redundant GPU work under an opaque surface |
+| [SHM Damage and Viewport Coordinate Triage](shm-damage-and-viewport-coordinates.md) | SHM text/caret rollback, partial fractional-scale refreshes, viewport-crop stale bands, and frame-damage overflow |
 
 ## Adding a case
 

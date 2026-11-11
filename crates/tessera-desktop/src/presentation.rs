@@ -29,7 +29,7 @@
 //! fullscreen owns the output even during the configure round-trip before its
 //! buffer reaches the final extent.
 
-use tessera_primitives::{Point, Rect, Size, SurfaceDmabuf, Transform};
+use tessera_primitives::{Point, Rect, Size, SurfaceDmabuf, SurfaceGeometry, Transform};
 
 /// The committed declaration a client surface makes about its own pixels.
 ///
@@ -86,22 +86,17 @@ impl<'a> SurfacePresentation<'a> {
     /// rectangles are already expressed in post-transform logical space, so
     /// they are not swapped again.
     pub fn logical_extent(&self) -> (i32, i32) {
-        if let Some(dst) = self.viewport_dst {
-            return (dst.w.max(1), dst.h.max(1));
-        }
-        if let Some(src) = self.viewport_src {
-            return (src.size.w.max(1), src.size.h.max(1));
-        }
-        let (width, height) = if self.transform.swap_axes() {
-            (self.buffer.h, self.buffer.w)
-        } else {
-            (self.buffer.w, self.buffer.h)
+        // One definition shared with the damage pass and the renderer's
+        // destination arithmetic. A second copy of this precedence is exactly
+        // how viewport and transform handling drift apart.
+        let geometry = SurfaceGeometry {
+            transform: self.transform,
+            buffer_scale: self.buffer_scale,
+            viewport_src: self.viewport_src,
+            viewport_dst: self.viewport_dst,
+            ..Default::default()
         };
-        let scale = self.buffer_scale.max(1) as f32;
-        (
-            (width as f32 / scale).round().max(1.0) as i32,
-            (height as f32 / scale).round().max(1.0) as i32,
-        )
+        geometry.surface_extent(self.buffer.w, self.buffer.h)
     }
 
     /// Logical rectangle the presented surface covers, anchored at its draw
@@ -152,6 +147,7 @@ mod tests {
             height,
             generation: 1,
             damage: Vec::new(),
+            damage_full: false,
             buffer_id: 1,
             fd: -1,
             drm_format: format,

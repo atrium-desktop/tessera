@@ -190,8 +190,8 @@ impl Transform {
     ///
     /// `buffer_dims` is the buffer's own `(width, height)` in pixels. Callers
     /// then divide by `buffer_scale` (with outward rounding) to reach
-    /// surface-local logical pixels — exactly what `buffer_damage_to_surface`
-    /// already does for the identity case.
+    /// surface-local logical pixels; [`SurfaceGeometry::buffer_rect_to_logical`]
+    /// composes that with the viewport for the full conversion.
     ///
     /// This closes the historical "transform ⇒ unmappable ⇒ full damage"
     /// fallback: a rotated/flipped client's `wl_surface.damage_buffer` no longer
@@ -236,6 +236,42 @@ impl Transform {
             clamp(sx1.saturating_sub(sx0)),
             clamp(sy1.saturating_sub(sy0)),
         )
+    }
+
+    /// Point form of [`Self::map_buffer_rect_to_surface`]. Raw buffer pixels
+    /// become post-transform buffer pixels (before `buffer_scale`).
+    fn map_buffer_point_to_surface(self, point: (f64, f64), buffer_dims: (i32, i32)) -> (f64, f64) {
+        let (px, py) = point;
+        let bwi = buffer_dims.0.max(1) as f64;
+        let bhi = buffer_dims.1.max(1) as f64;
+        match self {
+            Transform::Normal => (px, py),
+            Transform::Rotate90 => (bhi - py, px),
+            Transform::Rotate180 => (bwi - px, bhi - py),
+            Transform::Rotate270 => (py, bwi - px),
+            Transform::FlipHorizontal => (bwi - px, py),
+            Transform::FlipRotate90 => (py, px),
+            Transform::FlipRotate180 => (px, bhi - py),
+            Transform::FlipRotate270 => (bhi - py, bwi - px),
+        }
+    }
+
+    /// Inverse of [`Self::map_buffer_point_to_surface`]: post-transform buffer
+    /// pixels back to raw buffer pixels.
+    fn map_surface_point_to_buffer(self, point: (f64, f64), buffer_dims: (i32, i32)) -> (f64, f64) {
+        let (ux, uy) = point;
+        let bwi = buffer_dims.0.max(1) as f64;
+        let bhi = buffer_dims.1.max(1) as f64;
+        match self {
+            Transform::Normal => (ux, uy),
+            Transform::Rotate90 => (uy, bhi - ux),
+            Transform::Rotate180 => (bwi - ux, bhi - uy),
+            Transform::Rotate270 => (bwi - uy, ux),
+            Transform::FlipHorizontal => (bwi - ux, uy),
+            Transform::FlipRotate90 => (uy, ux),
+            Transform::FlipRotate180 => (ux, bhi - uy),
+            Transform::FlipRotate270 => (bwi - uy, bhi - ux),
+        }
     }
 
     /// The canonical lowercase name (hyphenated) used in configuration and
@@ -345,142 +381,206 @@ impl Default for SurfaceGeometry {
     }
 }
 
+/// The stable surface-local logical extent for a post-transform buffer size.
+///
+/// This is the one precedence rule: `wp_viewport.set_destination` wins, then
+/// the source crop size, then the buffer extent divided by `buffer_scale`.
+/// Damage, the renderer's destination arithmetic, and ownership all consume it.
+pub fn logical_surface_extent(
+    post_transform_dims: (i32, i32),
+    buffer_scale: i32,
+    viewport_src: Option<Rect>,
+    viewport_dst: Option<Size>,
+) -> (i32, i32) {
+    if let Some(dst) = viewport_dst {
+        return (dst.w.max(1), dst.h.max(1));
+    }
+    if let Some(src) = viewport_src {
+        return (src.size.w.max(1), src.size.h.max(1));
+    }
+    let scale = buffer_scale.max(1) as f32;
+    (
+        (post_transform_dims.0 as f32 / scale).round().max(1.0) as i32,
+        (post_transform_dims.1 as f32 / scale).round().max(1.0) as i32,
+    )
+}
+
 impl SurfaceGeometry {
-    /// Multiplier from surface-local logical coordinates to buffer pixels for
-    /// the committed buffer of `buffer_width`×`buffer_height`, per axis.
-    ///
-    /// `wl_surface.damage` arrives in surface-local coordinates; both the
-    /// compositor's incremental shm snapshot copy and the renderer's
-    /// incremental texture upload must scale those rects into buffer pixels
-    /// to refresh exactly the changed region. `wl_surface.set_buffer_scale`
-    /// alone is *not* the whole story: fractional-scale clients keep
-    /// `buffer_scale` at 1 and commit a buffer N× denser than the logical
-    /// surface behind a `wp_viewport` destination, so the factor has to be
-    /// derived from the viewport when one is set.
-    ///
-    /// - `viewport_dst` set: the logical surface extent is the destination
-    ///   size, so the factor is `buffer ÷ destination` per axis (2.0 for a
-    ///   2× fractional-scale client, 1.5 for 150%, ...). A `viewport_src`
-    ///   sub-rect narrows the sampled region, so this can over-cover — always
-    ///   safe for damage tracking, which tolerates refreshing extra pixels
-    ///   but never under-refreshing.
-    /// - `viewport_src` only: damage shares the source's surface-local
-    ///   coordinate space, so the factor stays `buffer_scale`.
-    /// - neither: plain `buffer_scale`.
-    pub fn logical_to_buffer_scale(&self, buffer_width: i32, buffer_height: i32) -> (f32, f32) {
-        let scale = self.buffer_scale.max(1) as f32;
-        if let Some(dst) = self.viewport_dst {
-            let (bw, bh) = if self.transform.swap_axes() {
-                (buffer_height, buffer_width)
-            } else {
-                (buffer_width, buffer_height)
-            };
-            return (
-                (bw as f32 / dst.w.max(1) as f32).max(0.01),
-                (bh as f32 / dst.h.max(1) as f32).max(0.01),
-            );
+    /// Post-transform buffer extent before `buffer_scale` is applied. A 90° or
+    /// 270° buffer transform swaps the raw buffer's axes.
+    fn post_transform_extent(&self, buffer_width: i32, buffer_height: i32) -> (i32, i32) {
+        if self.transform.swap_axes() {
+            (buffer_height.max(1), buffer_width.max(1))
+        } else {
+            (buffer_width.max(1), buffer_height.max(1))
         }
-        (scale, scale)
     }
 
-    /// Map a damage rectangle from **buffer pixel coordinates** to
-    /// **surface-local logical coordinates**, honouring the viewport and the
-    /// buffer scale. The exact inverse sampling relationship is affine but
-    /// rect endpoints transform non-linearly under it, so this returns the
-    /// tight bounding box of the four mapped corners with **outward** rounding
-    /// — over-covering damage is always safe (damage tracking tolerates
-    /// refreshing extra pixels, never stale ones).
+    /// Full surface-local logical extent of the committed buffer, before any
+    /// `wp_viewport` crop or destination.
+    pub fn local_extent(&self, buffer_width: i32, buffer_height: i32) -> (i32, i32) {
+        let post_transform = self.post_transform_extent(buffer_width, buffer_height);
+        logical_surface_extent(post_transform, self.buffer_scale, None, None)
+    }
+
+    /// The source rectangle the renderer samples, in surface-local logical
+    /// coordinates (after buffer transform/scale, before viewport crop).
+    pub fn surface_source(&self, buffer_width: i32, buffer_height: i32) -> Rect {
+        self.viewport_src.unwrap_or_else(|| {
+            let (width, height) = self.local_extent(buffer_width, buffer_height);
+            Rect::new(0, 0, width, height)
+        })
+    }
+
+    /// Stable surface-local logical extent: the coordinate space damage
+    /// rectangles are expressed in. `wp_viewport.set_destination` wins;
+    /// otherwise the source size is the surface size.
+    pub fn surface_extent(&self, buffer_width: i32, buffer_height: i32) -> (i32, i32) {
+        let post_transform = self.post_transform_extent(buffer_width, buffer_height);
+        logical_surface_extent(
+            post_transform,
+            self.buffer_scale,
+            self.viewport_src,
+            self.viewport_dst,
+        )
+    }
+
+    /// Map one surface-local logical point to raw buffer pixels. This is the
+    /// inverse of the renderer's sampling pipeline:
     ///
-    /// Pipeline: buffer px → (viewport `src` crop + `dst` stretch, or the
-    /// `buffer_scale` division when no viewport destination is set) →
-    /// surface-local logical px.
+    /// `surface -> source-local (viewport crop/scale) -> post-transform buffer
+    /// px (buffer_scale) -> raw buffer px (buffer transform)`.
+    fn surface_point_to_buffer(
+        &self,
+        point: (f64, f64),
+        buffer_width: i32,
+        buffer_height: i32,
+    ) -> (f64, f64) {
+        let source = self.surface_source(buffer_width, buffer_height);
+        let (surface_w, surface_h) = self.surface_extent(buffer_width, buffer_height);
+        let scale = self.buffer_scale.max(1) as f64;
+        let local_x = source.origin.x as f64 + point.0 * source.size.w as f64 / surface_w as f64;
+        let local_y = source.origin.y as f64 + point.1 * source.size.h as f64 / surface_h as f64;
+        self.transform.map_surface_point_to_buffer(
+            (local_x * scale, local_y * scale),
+            (buffer_width, buffer_height),
+        )
+    }
+
+    /// Map one raw buffer point to surface-local logical coordinates.
+    fn buffer_point_to_surface(
+        &self,
+        point: (f64, f64),
+        buffer_width: i32,
+        buffer_height: i32,
+    ) -> (f64, f64) {
+        let source = self.surface_source(buffer_width, buffer_height);
+        let (surface_w, surface_h) = self.surface_extent(buffer_width, buffer_height);
+        let scale = self.buffer_scale.max(1) as f64;
+        let (tx, ty) = self
+            .transform
+            .map_buffer_point_to_surface(point, (buffer_width, buffer_height));
+        let local_x = tx / scale;
+        let local_y = ty / scale;
+        (
+            (local_x - source.origin.x as f64) * surface_w as f64 / source.size.w.max(1) as f64,
+            (local_y - source.origin.y as f64) * surface_h as f64 / source.size.h.max(1) as f64,
+        )
+    }
+
+    /// Map a damage rectangle from **surface-local logical coordinates** to
+    /// **raw buffer pixel coordinates**.
     ///
-    /// This closes the "viewport ⇒ unmappable ⇒ full damage" fallback that
-    /// made every `wl_surface.damage_buffer` from a fractional-scale client
-    /// (Chrome and every GTK4/Electron app on HiDPI) force a whole-buffer
-    /// CPU copy plus a whole-texture GPU upload on every commit. The mapped
-    /// rect may over-cover when `viewport_src` crops the buffer (the crop's
-    /// area outside the surface cannot be addressed in logical coordinates
-    /// at all), which is the documented safe direction.
+    /// This is the exact inverse of [`Self::buffer_rect_to_logical`]. It is
+    /// deliberately rect-aware rather than a scale factor: `wp_viewport` has an
+    /// origin, and dropping it copies the wrong buffer region — including
+    /// pixels outside the commit's damage, which may still be stale in an
+    /// alternating buffer.
+    pub fn surface_rect_to_buffer(
+        &self,
+        rect: Rect,
+        buffer_width: i32,
+        buffer_height: i32,
+    ) -> Option<Rect> {
+        let (surface_w, surface_h) = self.surface_extent(buffer_width, buffer_height);
+        if surface_w <= 0 || surface_h <= 0 {
+            return None;
+        }
+        let clipped = rect.intersect(Rect::new(0, 0, surface_w, surface_h))?;
+        let x0 = clipped.origin.x as f64;
+        let y0 = clipped.origin.y as f64;
+        let x1 = (clipped.origin.x as i64 + clipped.size.w as i64) as f64;
+        let y1 = (clipped.origin.y as i64 + clipped.size.h as i64) as f64;
+        let mut bx0 = f64::MAX;
+        let mut by0 = f64::MAX;
+        let mut bx1 = f64::MIN;
+        let mut by1 = f64::MIN;
+        for corner in [(x0, y0), (x1, y0), (x0, y1), (x1, y1)] {
+            let (bx, by) = self.surface_point_to_buffer(corner, buffer_width, buffer_height);
+            bx0 = bx0.min(bx);
+            by0 = by0.min(by);
+            bx1 = bx1.max(bx);
+            by1 = by1.max(by);
+        }
+        let clamp = |value: f64, max: i32| value.clamp(0.0, max as f64);
+        let bx0 = clamp(bx0.floor(), buffer_width);
+        let by0 = clamp(by0.floor(), buffer_height);
+        let bx1 = clamp(bx1.ceil(), buffer_width);
+        let by1 = clamp(by1.ceil(), buffer_height);
+        (bx1 > bx0 && by1 > by0).then(|| {
+            Rect::new(
+                bx0 as i32,
+                by0 as i32,
+                (bx1 - bx0) as i32,
+                (by1 - by0) as i32,
+            )
+        })
+    }
+
+    /// Map a damage rectangle from **raw buffer pixel coordinates** to
+    /// **surface-local logical coordinates**, honouring buffer transform,
+    /// buffer scale, and `wp_viewport`.
+    ///
+    /// Pipeline: raw buffer px -> transform -> buffer scale -> viewport source
+    /// crop + destination stretch. The result is clipped to the surface's
+    /// logical extent; an empty rectangle means the damage reaches no visible
+    /// surface pixel.
     pub fn buffer_rect_to_logical(
         &self,
         rect: Rect,
         buffer_width: i32,
         buffer_height: i32,
     ) -> Rect {
-        // Post-transform buffer space the viewport samples from.
-        let full_src = Rect::new(
-            0,
-            0,
-            if self.transform.swap_axes() {
-                buffer_height
-            } else {
-                buffer_width
-            },
-            if self.transform.swap_axes() {
-                buffer_width
-            } else {
-                buffer_height
-            },
-        );
-        let src = self.viewport_src.unwrap_or(full_src);
-        let dst = self.viewport_dst;
-
-        let map_point = |(px, py): (f32, f32)| -> (f32, f32) {
-            // Buffer px → source fraction.
-            let fx = (px - src.origin.x as f32) / src.size.w.max(1) as f32;
-            let fy = (py - src.origin.y as f32) / src.size.h.max(1) as f32;
-            match dst {
-                Some(dst) => (fx * dst.w as f32, fy * dst.h as f32),
-                // No destination: an explicit `viewport_src` already lives
-                // in surface-local logical coordinates (wp_viewport: src is
-                // in surface coordinate space), so the fraction round-trips
-                // through the source extent and only the crop applies. With
-                // no viewport at all the logical surface is the buffer
-                // divided by `buffer_scale`, so the fraction scales through
-                // that logical extent instead.
-                None => {
-                    let divisor = if self.viewport_src.is_some() {
-                        1.0
-                    } else {
-                        self.buffer_scale.max(1) as f32
-                    };
-                    (
-                        fx * src.size.w.max(1) as f32 / divisor,
-                        fy * src.size.h.max(1) as f32 / divisor,
-                    )
-                }
-            }
-        };
-
-        let corners = [
-            (rect.origin.x as f32, rect.origin.y as f32),
-            ((rect.origin.x + rect.size.w) as f32, rect.origin.y as f32),
-            (rect.origin.x as f32, (rect.origin.y + rect.size.h) as f32),
-            (
-                (rect.origin.x + rect.size.w) as f32,
-                (rect.origin.y + rect.size.h) as f32,
-            ),
-        ];
-        let mut lo = (f32::MAX, f32::MAX);
-        let mut hi = (f32::MIN, f32::MIN);
-        for corner in corners {
-            let mapped = map_point(corner);
-            lo.0 = lo.0.min(mapped.0);
-            lo.1 = lo.1.min(mapped.1);
-            hi.0 = hi.0.max(mapped.0);
-            hi.1 = hi.1.max(mapped.1);
+        let (surface_w, surface_h) = self.surface_extent(buffer_width, buffer_height);
+        if surface_w <= 0 || surface_h <= 0 {
+            return Rect::new(0, 0, 0, 0);
         }
-        let clamp_f = |v: f32| v.clamp(i32::MIN as f32, i32::MAX as f32);
-        Rect::new(
-            clamp_f(lo.0).floor() as i32,
-            clamp_f(lo.1).floor() as i32,
-            (clamp_f(hi.0).ceil() - clamp_f(lo.0).floor()) as i32,
-            (clamp_f(hi.1).ceil() - clamp_f(lo.1).floor()) as i32,
-        )
+        let x0 = rect.origin.x as f64;
+        let y0 = rect.origin.y as f64;
+        let x1 = (rect.origin.x as i64 + rect.size.w as i64) as f64;
+        let y1 = (rect.origin.y as i64 + rect.size.h as i64) as f64;
+        let mut sx0 = f64::MAX;
+        let mut sy0 = f64::MAX;
+        let mut sx1 = f64::MIN;
+        let mut sy1 = f64::MIN;
+        for corner in [(x0, y0), (x1, y0), (x0, y1), (x1, y1)] {
+            let (sx, sy) = self.buffer_point_to_surface(corner, buffer_width, buffer_height);
+            sx0 = sx0.min(sx);
+            sy0 = sy0.min(sy);
+            sx1 = sx1.max(sx);
+            sy1 = sy1.max(sy);
+        }
+        let mapped = Rect::new(
+            sx0.floor() as i32,
+            sy0.floor() as i32,
+            (sx1.ceil() - sx0.floor()) as i32,
+            (sy1.ceil() - sy0.floor()) as i32,
+        );
+        mapped
+            .intersect(Rect::new(0, 0, surface_w, surface_h))
+            .unwrap_or(Rect::new(0, 0, 0, 0))
     }
 }
-
 /// A borrowed view of a surface's current contents, handed from the server to
 /// the renderer. Pixels are tightly packed BGRA8 (`stride == width * 4`).
 /// `generation` increments on every new commit so the renderer can cache the
@@ -497,12 +597,15 @@ pub struct SurfacePixels<'a> {
     pub generation: u64,
     pub pixels: &'a [u8],
     pub geometry: SurfaceGeometry,
-    /// Damage rectangles accumulated since the last commit, in surface-
-    /// local logical coordinates. Empty means "no damage info; renderer may
-    /// choose to skip the incremental update and re-upload the whole
-    /// texture on the next generation change." Bounded to the surface's
-    /// width/height by the server before being surfaced.
+    /// Damage rectangles accumulated since the last commit, in surface-local
+    /// logical coordinates — the stable post-viewport extent. `damage_full`
+    /// carries the explicit whole-surface verdict; an empty list with
+    /// `damage_full == false` means no visible damage, not "unknown".
     pub damage: &'a [Rect],
+    /// Whether the surface changed as a whole and cannot be expressed by
+    /// [`Self::damage`]. This is the explicit replacement for the historical
+    /// "empty list means Full" sentinel.
+    pub damage_full: bool,
     /// Opaque region declared via `wl_surface.set_opaque_region`, in surface-
     /// local logical coordinates, or `None` when the client declared no opaque
     /// region (the surface is treated as fully translucent). Lets the renderer
@@ -559,10 +662,15 @@ pub struct SurfaceDmabuf {
     pub width: i32,
     pub height: i32,
     pub generation: u64,
-    /// Damage accumulated since the previous presented frame, in
-    /// surface-local logical coordinates. Empty means the damage is unknown
-    /// and consumers must conservatively treat the whole surface as changed.
+    /// Damage accumulated since the previous presented frame, in surface-local
+    /// logical coordinates — the stable post-viewport extent. `damage_full`
+    /// carries the explicit whole-surface verdict; an empty list with
+    /// `damage_full == false` means no visible damage, not "unknown".
     pub damage: Vec<Rect>,
+    /// Whether the surface changed as a whole and cannot be expressed by
+    /// [`Self::damage`]. This is the explicit replacement for the historical
+    /// "empty list means Full" sentinel.
+    pub damage_full: bool,
     /// Stable monotonic identity of the backing `wl_buffer`, or 0 when
     /// unknown. Unlike `generation` — which is bumped on every commit — this
     /// stays constant across frames that reuse the same buffer and is not
@@ -616,6 +724,152 @@ mod surface_tests {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use proptest::prelude::*;
+
+        fn transform_strategy() -> impl Strategy<Value = Transform> {
+            prop_oneof![
+                Just(Transform::Normal),
+                Just(Transform::Rotate90),
+                Just(Transform::Rotate180),
+                Just(Transform::Rotate270),
+                Just(Transform::FlipHorizontal),
+                Just(Transform::FlipRotate90),
+                Just(Transform::FlipRotate180),
+                Just(Transform::FlipRotate270),
+            ]
+        }
+
+        fn rect_within(width: i32, height: i32) -> impl Strategy<Value = Rect> {
+            let width = width.max(1);
+            let height = height.max(1);
+            (0..width, 0..height).prop_flat_map(move |(x, y)| {
+                (Just(x), Just(y), 1..=(width - x), 1..=(height - y))
+                    .prop_map(|(x, y, w, h)| Rect::new(x, y, w, h))
+            })
+        }
+
+        fn geometry_case() -> impl Strategy<Value = (SurfaceGeometry, i32, i32)> {
+            (1i32..=128, 1i32..=128, transform_strategy(), 1i32..=4).prop_flat_map(
+                |(local_width, local_height, transform, buffer_scale)| {
+                    // Valid Wayland state: the raw buffer is exactly the
+                    // surface-local extent times buffer_scale, with the
+                    // transform applied to the axes.
+                    let (buffer_width, buffer_height) = if transform.swap_axes() {
+                        (local_height * buffer_scale, local_width * buffer_scale)
+                    } else {
+                        (local_width * buffer_scale, local_height * buffer_scale)
+                    };
+                    let viewport_src = prop::option::of(rect_within(local_width, local_height));
+                    let viewport_dst = prop::option::of(
+                        (1i32..=1024, 1i32..=1024).prop_map(|(w, h)| Size { w, h }),
+                    );
+                    (
+                        Just(buffer_width),
+                        Just(buffer_height),
+                        Just(transform),
+                        Just(buffer_scale),
+                        viewport_src,
+                        viewport_dst,
+                    )
+                        .prop_map(
+                            |(
+                                buffer_width,
+                                buffer_height,
+                                transform,
+                                buffer_scale,
+                                viewport_src,
+                                viewport_dst,
+                            )| {
+                                (
+                                    SurfaceGeometry {
+                                        transform,
+                                        buffer_scale,
+                                        viewport_src,
+                                        viewport_dst,
+                                        ..Default::default()
+                                    },
+                                    buffer_width,
+                                    buffer_height,
+                                )
+                            },
+                        )
+                },
+            )
+        }
+
+        fn geometry_with_surface_rect() -> impl Strategy<Value = (SurfaceGeometry, i32, i32, Rect)>
+        {
+            geometry_case().prop_flat_map(|(geometry, buffer_width, buffer_height)| {
+                let (width, height) = geometry.surface_extent(buffer_width, buffer_height);
+                rect_within(width, height)
+                    .prop_map(move |rect| (geometry, buffer_width, buffer_height, rect))
+            })
+        }
+
+        fn geometry_with_source_rect() -> impl Strategy<Value = (SurfaceGeometry, i32, i32, Rect)> {
+            geometry_case().prop_flat_map(|(geometry, buffer_width, buffer_height)| {
+                let (width, height) = geometry.surface_extent(buffer_width, buffer_height);
+                let visible = geometry
+                    .surface_rect_to_buffer(
+                        Rect::new(0, 0, width, height),
+                        buffer_width,
+                        buffer_height,
+                    )
+                    .expect("the visible surface must map to a buffer rect");
+                rect_within(visible.size.w, visible.size.h).prop_map(move |rect| {
+                    (
+                        geometry,
+                        buffer_width,
+                        buffer_height,
+                        Rect::new(
+                            visible.origin.x + rect.origin.x,
+                            visible.origin.y + rect.origin.y,
+                            rect.size.w,
+                            rect.size.h,
+                        ),
+                    )
+                })
+            })
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
+
+            #[test]
+            fn every_surface_damage_rect_round_trips_through_the_buffer(
+                (geometry, buffer_width, buffer_height, rect) in geometry_with_surface_rect()
+            ) {
+                let raw = geometry
+                    .surface_rect_to_buffer(rect, buffer_width, buffer_height)
+                    .expect("visible surface damage must map into the buffer");
+                let back = geometry.buffer_rect_to_logical(raw, buffer_width, buffer_height);
+                prop_assert!(
+                    rect.fully_covered_by(&[back]),
+                    "surface {:?} -> raw {:?} -> surface {:?} did not cover the input (geometry {:?}, buffer {}x{})",
+                    rect, raw, back, geometry, buffer_width, buffer_height
+                );
+            }
+
+            #[test]
+            fn every_visible_buffer_damage_rect_round_trips_through_the_surface(
+                (geometry, buffer_width, buffer_height, rect) in geometry_with_source_rect()
+            ) {
+                let surface = geometry.buffer_rect_to_logical(rect, buffer_width, buffer_height);
+                prop_assert!(
+                    !surface.is_empty(),
+                    "visible buffer damage {:?} mapped to an empty surface rect (geometry {:?}, buffer {}x{})",
+                    rect, geometry, buffer_width, buffer_height
+                );
+                let back = geometry
+                    .surface_rect_to_buffer(surface, buffer_width, buffer_height)
+                    .expect("surface damage from a visible buffer rect must map back");
+                prop_assert!(
+                    rect.fully_covered_by(&[back]),
+                    "buffer {:?} -> surface {:?} -> buffer {:?} did not cover the input (geometry {:?}, buffer {}x{})",
+                    rect, surface, back, geometry, buffer_width, buffer_height
+                );
+            }
+        }
 
         #[test]
         fn buffer_rect_to_logical_maps_fractional_scale_viewport() {
@@ -653,18 +907,134 @@ mod surface_tests {
         }
 
         #[test]
-        fn buffer_rect_to_logical_round_trips_logical_to_buffer_scale() {
+        fn buffer_rect_to_logical_round_trips_buffer_scale_with_outward_rounding() {
             // No viewport: the mapping degenerates to the buffer-scale division
-            // (`buffer_damage_to_surface` semantics) with outward rounding.
+            // with outward rounding.
             let geometry = SurfaceGeometry {
                 buffer_scale: 2,
                 ..Default::default()
             };
             let mapped = geometry.buffer_rect_to_logical(Rect::new(3, 5, 8, 10), 200, 200);
-            // Outward-rounded division by the buffer scale, matching
-            // `buffer_damage_to_surface`: x: floor(3/2)=1..ceil(11/2)=6 → w=5;
+            // x: floor(3/2)=1..ceil(11/2)=6 → w=5;
             // y: floor(5/2)=2..ceil(15/2)=8 → h=6.
             assert_eq!(mapped, Rect::new(1, 2, 5, 6));
+        }
+
+        #[test]
+        fn surface_rect_to_buffer_maps_fractional_scale_viewport() {
+            // Chrome on a 2x output: surface damage is in the 1200x800
+            // destination space; the raw buffer is 2400x1600.
+            let geometry = SurfaceGeometry {
+                viewport_dst: Some(Size { w: 1200, h: 800 }),
+                ..Default::default()
+            };
+            assert_eq!(
+                geometry.surface_rect_to_buffer(Rect::new(50, 30, 8, 8), 2400, 1600),
+                Some(Rect::new(100, 60, 16, 16))
+            );
+        }
+
+        #[test]
+        fn surface_rect_to_buffer_honours_viewport_source_origin() {
+            // A crop at (100, 50) draws the source origin at surface (0, 0).
+            // Surface damage must therefore be offset back into the buffer.
+            let geometry = SurfaceGeometry {
+                viewport_src: Some(Rect::new(100, 50, 400, 400)),
+                viewport_dst: Some(Size { w: 200, h: 200 }),
+                ..Default::default()
+            };
+            assert_eq!(
+                geometry.surface_rect_to_buffer(Rect::new(0, 0, 200, 200), 800, 600),
+                Some(Rect::new(100, 50, 400, 400))
+            );
+            assert_eq!(
+                geometry.surface_rect_to_buffer(Rect::new(0, 0, 100, 100), 800, 600),
+                Some(Rect::new(100, 50, 200, 200))
+            );
+            assert_eq!(
+                geometry.surface_rect_to_buffer(Rect::new(200, 0, 10, 10), 800, 600),
+                None,
+                "damage outside the destination must not invent buffer pixels"
+            );
+        }
+
+        #[test]
+        fn surface_rect_to_buffer_crops_without_a_destination() {
+            let geometry = SurfaceGeometry {
+                viewport_src: Some(Rect::new(100, 50, 400, 300)),
+                ..Default::default()
+            };
+            assert_eq!(
+                geometry.surface_rect_to_buffer(Rect::new(0, 0, 400, 300), 800, 600),
+                Some(Rect::new(100, 50, 400, 300))
+            );
+            assert_eq!(
+                geometry.surface_rect_to_buffer(Rect::new(25, 30, 50, 40), 800, 600),
+                Some(Rect::new(125, 80, 50, 40))
+            );
+        }
+
+        #[test]
+        fn surface_rect_to_buffer_composes_buffer_scale_and_crop() {
+            // buffer_scale 2 turns the 800x600 raw buffer into a 400x300
+            // local space; the viewport crop then starts at local (50, 50).
+            let geometry = SurfaceGeometry {
+                buffer_scale: 2,
+                viewport_src: Some(Rect::new(50, 50, 200, 150)),
+                viewport_dst: Some(Size { w: 100, h: 75 }),
+                ..Default::default()
+            };
+            assert_eq!(
+                geometry.surface_rect_to_buffer(Rect::new(0, 0, 100, 75), 800, 600),
+                Some(Rect::new(100, 100, 400, 300))
+            );
+        }
+
+        #[test]
+        fn surface_rect_to_buffer_inverts_the_wayland_transforms() {
+            let dims = (100, 60);
+            let raw = Rect::new(10, 15, 20, 10);
+            for transform in [
+                Transform::Normal,
+                Transform::Rotate90,
+                Transform::Rotate180,
+                Transform::Rotate270,
+                Transform::FlipHorizontal,
+                Transform::FlipRotate90,
+                Transform::FlipRotate180,
+                Transform::FlipRotate270,
+            ] {
+                let geometry = SurfaceGeometry {
+                    transform,
+                    ..Default::default()
+                };
+                let surface = transform.map_buffer_rect_to_surface(raw, dims);
+                assert_eq!(
+                    geometry.surface_rect_to_buffer(surface, dims.0, dims.1),
+                    Some(raw),
+                    "{transform:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn buffer_and_surface_damage_conversions_round_trip_under_viewport() {
+            let dims = (800, 600);
+            let geometry = SurfaceGeometry {
+                buffer_scale: 2,
+                viewport_src: Some(Rect::new(50, 50, 200, 150)),
+                viewport_dst: Some(Size { w: 100, h: 75 }),
+                ..Default::default()
+            };
+            let raw = Rect::new(100, 100, 400, 300);
+            // raw -> surface clips to the destination and removes the crop
+            // offset; the inverse then puts it back into raw buffer space.
+            let surface = geometry.buffer_rect_to_logical(raw, dims.0, dims.1);
+            assert_eq!(surface, Rect::new(0, 0, 100, 75));
+            assert_eq!(
+                geometry.surface_rect_to_buffer(surface, dims.0, dims.1),
+                Some(raw)
+            );
         }
 
         #[test]

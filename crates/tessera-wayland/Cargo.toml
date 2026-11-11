@@ -16,6 +16,7 @@ tessera-wayland-protocols = { workspace = true }
 # Portal socket tree naming comes from the IPC contract (ADR-0147 D3);
 # the runtime directory itself is injected by the composition root.
 log.workspace = true
+tracing.workspace = true
 getrandom.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -26,6 +27,7 @@ xkbcommon.workspace = true
 pkg-config.workspace = true
 
 [dev-dependencies]
+proptest.workspace = true
 tempfile.workspace = true
 
 [package.metadata.cargo-machete]

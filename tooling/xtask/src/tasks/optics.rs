@@ -207,6 +207,71 @@ static OPTICS_API_DEPENDENCIES: &[ApiDependency] = &[
         "bindings/svg-rs/crates/svg/src/lib.rs",
         "pub struct Limits",
     ),
+    // ---- released with Optics v0.0.76 --------------------------------------
+    //
+    // The frame-damage epoch ledger (Optics ADR-0155) replaced Tessera's
+    // per-image vector; these are the C entry points and the binding surface
+    // the compositor now uses instead of maintaining its own history.
+    released(
+        "flux_frame_begin_desc damage input (ADR-0155)",
+        "libs/flux/include/flux/core.h",
+        "flux_damage damage;",
+    ),
+    released(
+        "flux_frame_begin_desc explicit full verdict (ADR-0155)",
+        "libs/flux/include/flux/core.h",
+        "bool damage_full;",
+    ),
+    released(
+        "flux_frame_repaint_scope (ADR-0155)",
+        "libs/flux/include/flux/core.h",
+        "flux_frame_repaint_scope",
+    ),
+    released(
+        "flux_surface_scanout_damage (ADR-0155)",
+        "libs/flux/include/flux/core.h",
+        "flux_surface_scanout_damage",
+    ),
+    released(
+        "flux_surface_invalidate_damage (ADR-0155)",
+        "libs/flux/include/flux/core.h",
+        "flux_surface_invalidate_damage",
+    ),
+    released(
+        "flux_frame_image_index (ADR-0155)",
+        "libs/flux/include/flux/core.h",
+        "flux_frame_image_index",
+    ),
+    released(
+        "flux::Damage verdict (ADR-0155)",
+        "bindings/flux-rs/crates/flux/src/lib.rs",
+        "pub enum Damage",
+    ),
+    released(
+        "flux::Surface::begin_frame_timeout_with_damage (ADR-0155)",
+        "bindings/flux-rs/crates/flux/src/lib.rs",
+        "fn begin_frame_timeout_with_damage",
+    ),
+    released(
+        "flux::Frame::repaint_scope (ADR-0155)",
+        "bindings/flux-rs/crates/flux/src/lib.rs",
+        "pub fn repaint_scope",
+    ),
+    released(
+        "flux::Surface::scanout_damage (ADR-0155)",
+        "bindings/flux-rs/crates/flux/src/lib.rs",
+        "pub fn scanout_damage",
+    ),
+    released(
+        "flux::Surface::invalidate_damage (ADR-0155)",
+        "bindings/flux-rs/crates/flux/src/lib.rs",
+        "pub fn invalidate_damage",
+    ),
+    released(
+        "flux::Frame::image_index (ADR-0155)",
+        "bindings/flux-rs/crates/flux/src/lib.rs",
+        "pub fn image_index",
+    ),
 ];
 
 fn git(args: &[&str], repo: &Path) -> Result<String> {

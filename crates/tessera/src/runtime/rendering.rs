@@ -8,16 +8,12 @@ use super::*;
 /// accepts. Re-exported from the api value layer.
 pub(super) use tessera_composite::presentation::frame_damage_scope;
 
-/// Resume the output after the no-stencil client/image pass for arbitrary
-/// compositor UI. Lens may emit path fills whose correct winding semantics
-/// require stencil, so shell drawing must never share Tessera's optimized
 /// Begin a stencil-capable overlay pass over the currently presented content.
 ///
-/// The pass loads the existing framebuffer contents; `damage` is inherited from
-/// the split's base pass so partial-repaint bounds survive, while `clear: None`
-/// preserves every pixel already composited below the UI. The scope is a *list*
-/// because the chrome it draws can be split across distant bands (a top HUD and
-/// a bottom dock), and their bounding box is the whole output.
+/// Production compositing merges the desktop scene and shell chrome into a
+/// single Canvas pass (`skip_stencil: !draw_chrome`); this helper is retained
+/// for pass-boundary unit tests.
+#[cfg(test)]
 pub(super) fn begin_stencil_frame_overlay<'c, 'surface>(
     canvas: &'c mut flux::Canvas,
     frame: &'c mut flux::Frame<'surface>,

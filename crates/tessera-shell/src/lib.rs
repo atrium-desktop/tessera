@@ -1240,6 +1240,17 @@ impl Shell {
             .any(|component| component.modal_active());
         let window_switcher_active = self.window_switcher_active();
         let exclusive_presentation_active = self.exclusive_presentation_active();
+        let immersive_active = modal_active
+            || window_switcher_active
+            || self.components.iter().any(|component| {
+                component.pivot_active()
+                    || component.control_center_active()
+                    || component.command_panel_active()
+                    || component.overview_active()
+            });
+        for component in &mut self.components {
+            component.update(ChromeUpdate::LauncherActive(immersive_active));
+        }
         let freeze = self.screenshot_freeze;
         let events = &mut self.events;
         for component in self.components.iter_mut() {
@@ -1674,6 +1685,17 @@ impl Shell {
             .any(|component| component.modal_active());
         let window_switcher_active = self.window_switcher_active();
         let exclusive_presentation_active = self.exclusive_presentation_active();
+        let immersive_active = modal_active
+            || window_switcher_active
+            || self.components.iter().any(|component| {
+                component.pivot_active()
+                    || component.control_center_active()
+                    || component.command_panel_active()
+                    || component.overview_active()
+            });
+        for component in &mut self.components {
+            component.update(ChromeUpdate::LauncherActive(immersive_active));
+        }
         let freeze = self.screenshot_freeze;
         for component in &mut self.components {
             if participates_in_shell_pass(
@@ -1689,7 +1711,23 @@ impl Shell {
 
         let raw = input.as_raw();
         let cursor = (raw.cursor.x, raw.cursor.y);
-        let input_active = cursor != self.last_input_cursor
+        let display = (raw.display_size.x, raw.display_size.y);
+        let pointer_moved = cursor != self.last_input_cursor;
+        // Pure pointer motion outside every chrome component's capture area
+        // (and when neither the old nor the new cursor position was captured by
+        // chrome) cannot alter any widget's hover state, so it must not force a
+        // full Lens scene rebuild on every mouse report over client windows or
+        // the desktop wallpaper. Any edge trigger handled by `component.prepare_frame`
+        // above (such as auto-hide dock edge reveal) sets `anim_pending()`,
+        // which independently triggers `needs_build` below.
+        let pointer_captured = pointer_moved
+            && (self.captures_pointer_at(cursor.0, cursor.1, display)
+                || self.captures_pointer_at(
+                    self.last_input_cursor.0,
+                    self.last_input_cursor.1,
+                    display,
+                ));
+        let input_active = pointer_captured
             || raw.mouse_pressed.iter().any(|&p| p)
             || raw.mouse_released.iter().any(|&r| r)
             || raw.mouse_down.iter().any(|&d| d)
@@ -1959,14 +1997,17 @@ impl Shell {
                     total.right += edge.right;
                     total
                 });
-            // Immersive modal surfaces (Pivot, Command Panel, Overview) own the whole output:
-            // persistent decorations (HUD status chips) floating inside the blurred field hide.
-            let immersive_active = components.iter().any(|component| {
-                component.pivot_active()
-                    || component.control_center_active()
-                    || component.command_panel_active()
-                    || component.overview_active()
-            });
+            // Immersive modal surfaces (Pivot, Command Panel, Overview, Window Switcher)
+            // own the whole output: persistent decorations floating inside the field
+            // hide or shed their transient popovers.
+            let immersive_active = modal_active
+                || window_switcher_active
+                || components.iter().any(|component| {
+                    component.pivot_active()
+                        || component.control_center_active()
+                        || component.command_panel_active()
+                        || component.overview_active()
+                });
             for component in components.iter_mut() {
                 component.update(ChromeUpdate::ModalReserved(modal_reserved));
                 component.update(ChromeUpdate::LauncherActive(immersive_active));

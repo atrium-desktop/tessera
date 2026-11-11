@@ -12,18 +12,22 @@
 /// Resolve the scheduling knobs from the `[compositor]` config into a
 /// [`tessera_sched::SchedPlan`].
 ///
-/// `compositor.realtime` is an opt-in master switch: when off, the frame loop
-/// keeps the process's inherited scheduling class (useful on kernels or
-/// sandboxes that forbid RT). When on, the plan pins and elevates the frame
-/// thread. The plan is computed **once at startup** so the frame/feeder/
-/// background split stays coherent across worker restarts.
+/// `compositor.realtime` is an opt-in master switch: when off (or when running
+/// a nested development session inside an outer Wayland compositor), the frame
+/// loop keeps the process's inherited scheduling class and multi-core CPU mask
+/// so it never pins itself onto the single dedicated CPU core owned at
+/// `SCHED_FIFO` by the outer host compositor. When on for a bare-metal DRM
+/// session, the plan pins and elevates the frame thread. The plan is computed
+/// **once at startup** so the frame/feeder/background split stays coherent
+/// across worker restarts.
 pub(super) fn plan_from_config(
     config: Option<&tessera_config::Config>,
+    nested: bool,
 ) -> tessera_sched::SchedPlan {
     let cfg = config.map(|c| c.compositor.clone()).unwrap_or_default();
-    if !cfg.realtime {
-        // Realtime off: report a plan that does not pin/elevate, leaving
-        // scheduling and affinity untouched.
+    if nested || !cfg.realtime {
+        // Realtime off or nested preview session: report a plan that does not
+        // pin/elevate, leaving scheduling and affinity untouched.
         return tessera_sched::SchedPlan::disabled();
     }
     let s = &cfg.scheduling;

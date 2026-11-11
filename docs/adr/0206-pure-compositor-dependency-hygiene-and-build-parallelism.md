@@ -61,7 +61,22 @@ In `Cargo.toml`, `opt-level = 3` overrides for `syn`, `quote`, `proc-macro2`, `s
 
 All unused dependencies identified by `cargo-machete` across `tessera`, `tessera-authority`, `tessera-shell`, `tessera-composite`, `tessera-avatar`, `tessera-primitives`, and `xtask` are removed from both package manifests and `dependency-policy.toml`.
 
+### 5. Development sessions default to an optimized profile
+
+`scripts/run-nested-dev.sh` and `scripts/run-drm-dev.sh` default to
+`--profile release-fast` (inherits `release`, keeps full debug info, disables
+LTO). `TESSERA_DEV_PROFILE=debug` is opt-in. The README and Getting Started
+tutorial use the same profile for their `cargo run` examples.
+
+`opt-level = 1` is the right trade for edit-compile latency, but it is not a
+measurement of compositor pacing: a 3072×1920 output at 120 Hz spends the whole
+8.3 ms budget in the frame loop before any GPU work. Judging frame drops from a
+debug binary measures the compiler's choices, not the architecture.
+
 ## Negative Knowledge
 
+- **Do not benchmark or judge frame pacing from `cargo run`'s dev profile**: the
+  dev profile deliberately trades runtime for rebuild latency. Use
+  `release-fast` for any interactive or pacing check.
 - **Do not set `opt-level = 3` on proc-macro crates in dev profiles**: The theory that "fast macro execution amortizes slow macro compilation" only holds when code is edited hundreds of times without rebuilding dependencies. In practice, clean builds, CI runs, toolchain updates, and feature changes pay a 30-second single-threaded compilation tax on `syn` that dwarfs any runtime savings.
 - **Do not declare raw versions in member manifests when workspace dependencies exist**: Individual crates declaring uninherited versions (e.g. `xkbcommon = "0.9"` vs `0.8`) silently fragment the workspace lockfile and force redundant compilation of multiple major/minor lines.

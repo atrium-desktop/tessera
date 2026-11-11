@@ -1312,36 +1312,41 @@ impl CompositorRuntime<'_> {
         // geometry stay logical. Re-advertise the buffer scale so the host
         // keeps mapping our pre-scaled buffer 1:1.
         if let Some(sz) = self.host.take_resize() {
-            // The swapchain was rebuilt at a new size or modifier set; damage
-            // from before the reconfigure does not describe the new
-            // framebuffer, so the next frame renders in full.
-            self.damage.force_full_redraw = true;
-            if let Some(capture) = self.pending_capture.take() {
-                refuse_capture_target(
-                    &self.capture_worker,
-                    capture.target,
-                    "output changed before the captured frame became readable".to_owned(),
-                    &self.journal,
-                    &self.ipc,
-                );
-            }
-            if self.host.surface_needs_recreate() {
-                // Direct KMS: a hotplug changed the plane-modifier
-                // intersection the surface was created with. Resize cannot
-                // retcon a modifier, so recreate the surface and its canvas
-                // at the new display set instead.
-                *self.surface = self.host.create_surface(self.device)?;
-                *self.canvas = flux::Canvas::new(self.surface)?;
-            } else {
-                let (pw, ph) = self.host.physical_size();
-                self.surface.resize(pw, ph)?;
-            }
-            self.damage.composite_slot_damage.clear();
-            if let Err(error) = self.surface.prepare_readback() {
-                log::warn!(
-                    "capture: could not preallocate resized readback staging: {error}{}",
-                    flux_last_error_detail()
-                );
+            // Rebuild the swapchain only when the physical extent or the
+            // backend modifier set actually changed; a pure refresh-rate
+            // update (`wl_output.mode` on NestedHost) keeps the existing
+            // swapchain and damage history intact.
+            let (pw, ph) = self.host.physical_size();
+            let needs_recreate = self.host.surface_needs_recreate();
+            let size_changed = self.surface.size() != (pw, ph);
+            if needs_recreate || size_changed {
+                self.damage.force_full_redraw = true;
+                if let Some(capture) = self.pending_capture.take() {
+                    refuse_capture_target(
+                        &self.capture_worker,
+                        capture.target,
+                        "output changed before the captured frame became readable".to_owned(),
+                        &self.journal,
+                        &self.ipc,
+                    );
+                }
+                if needs_recreate {
+                    // Direct KMS: a hotplug changed the plane-modifier
+                    // intersection the surface was created with. Resize cannot
+                    // retcon a modifier, so recreate the surface and its canvas
+                    // at the new display set instead.
+                    *self.surface = self.host.create_surface(self.device)?;
+                    *self.canvas = flux::Canvas::new(self.surface)?;
+                } else {
+                    self.surface.resize(pw, ph)?;
+                }
+                self.surface.invalidate_damage();
+                if let Err(error) = self.surface.prepare_readback() {
+                    log::warn!(
+                        "capture: could not preallocate resized readback staging: {error}{}",
+                        flux_last_error_detail()
+                    );
+                }
             }
             self.host.set_buffer_scale();
             self.server.set_outputs(self.host.output_infos());
@@ -1407,17 +1412,19 @@ impl CompositorRuntime<'_> {
                 .server
                 .point_over_virtual_output(self.input_acc.cursor.0, self.input_acc.cursor.1);
         let cursor_shape = current_cursor.shape;
-        // With a KMS cursor plane, plain pointer motion over client content
-        // changes no compositor pixels (even when the clamped absolute cursor
-        // pins at an output edge during locked 3D camera rotation). Let
-        // presentation issue a cursor-only atomic commit when the visible
+        // When the cursor is not painted into our primary framebuffer (either
+        // because KMS owns a hardware cursor plane or because the outer Wayland
+        // compositor draws the cursor on `Host::Nested`), plain pointer motion
+        // over client content or wallpaper changes no compositor pixels. On DRM
+        // let presentation issue a cursor-only atomic commit when the visible
         // sprite moved instead of turning every mouse report into a full
-        // Vulkan frame. Chrome hover, drags, client cursor surfaces, locks,
-        // and every non-motion input remain conservative full-damage signals.
+        // Vulkan frame. Chrome hover (entering, moving within, or leaving a
+        // chrome region), drags, client cursor surfaces, locks, and every
+        // non-motion input remain active input signals.
         let cursor_motion_plain = had_input
             && !non_cursor_input
             && pointer_motion_only
-            && self.host.supports_hardware_cursor()
+            && !self.host.uses_software_cursor()
             && !session_locked
             && self.server.interactive().is_none()
             && !self.server.drag_active()
@@ -1430,13 +1437,19 @@ impl CompositorRuntime<'_> {
             self.input_acc.cursor.0,
             self.input_acc.cursor.1,
             self.input_acc.display_size,
+        ) || self.shell.captures_pointer_at(
+            pointer_before.0,
+            pointer_before.1,
+            self.input_acc.display_size,
         );
         let cursor_plane_only = cursor_motion_plain && !chrome_captures;
         if cursor_plane_only {
             had_input = false;
         }
-        let cursor_fast_path =
-            cursor_plane_only && !cursor_hidden && pointer_before != self.input_acc.cursor;
+        let cursor_fast_path = self.host.supports_hardware_cursor()
+            && cursor_plane_only
+            && !cursor_hidden
+            && pointer_before != self.input_acc.cursor;
         if cursor_hidden != self.last_cursor_hidden
             || (!cursor_hidden && cursor_shape != self.last_cursor_shape)
         {

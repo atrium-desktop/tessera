@@ -13,13 +13,30 @@ use std::time::{Duration, Instant};
 
 const PRESENTATION_WATCHDOG: Duration = Duration::from_secs(1);
 
+/// What will make a retried render attempt possible.
+///
+/// The two cases are not interchangeable. A DRM flip rejection is owned by
+/// the backend: the previous atomic batch retires and its page-flip event
+/// wakes the loop, so the scheduler must wait for that event (bounded by the
+/// watchdog). A renderer acquire timeout owns no event: the presentation
+/// engine is simply holding every swapchain image, and the only useful retry
+/// is at the next presentation boundary. Treating the latter as a backend
+/// event either spins at millisecond cadence or sleeps for the full watchdog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetryWait {
+    /// The backend will wake the loop when its in-flight batch retires.
+    BackendEvent,
+    /// No event will arrive; retry at `not_before`.
+    Deadline,
+}
+
 /// The outcome of one render transaction, as reported back to the
 /// composition root's iteration loop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PresentationOutcome {
     Submitted,
     NoDamage { callbacks_sent: bool },
-    Retry,
+    Retry { wait: RetryWait },
 }
 
 /// Redraw lifecycle for one presentation domain.
@@ -40,21 +57,28 @@ enum PresentationState {
         submitted_at: Instant,
         stall_reported: bool,
     },
-    /// No backend vblank will arrive. The estimated boundary throttles
-    /// no-damage frame callbacks and nested animation frames without hiding
-    /// newly damaged content: `redraw_queued` makes the state renderable.
+    /// No backend vblank will arrive. When `paced` is `true` (entered after a
+    /// nested frame submission or an active animation cycle), input and damage
+    /// coalesce into `redraw_queued` until `deadline` expires, matching DRM's
+    /// `WaitingForVblank` discipline instead of rendering at pointer-polling
+    /// cadence. When `paced` is `false` (entered after a no-damage frame
+    /// callback cycle), `redraw_queued` remains immediately renderable while
+    /// `frame_callbacks_allowed` stays closed until `deadline`.
     WaitingForEstimatedVblank {
         deadline: Instant,
         redraw_queued: bool,
+        paced: bool,
     },
-    /// A transient backend rejection (EBUSY: KMS still owns the previous
-    /// batch). The retry is gated on *that batch retiring*, not on a timer:
-    /// the backend's flip completion promotes this to `Queued`, so exactly one
-    /// fresh render happens per real vblank. A short `not_before` floor bounds
-    /// the pathological case where no flip is pending at all (a rejection from
-    /// `Inactive`/`Reconfigured`), and `not_before` is also the last-resort
-    /// deadline when the flip event is lost.
-    Retrying { not_before: Instant },
+    /// A transient rejection or an acquire timeout. `wait` decides how the
+    /// state leaves this arm: `BackendEvent` renders when the owning atomic
+    /// batch retires (bounded by `not_before` and the watchdog), while
+    /// `Deadline` renders at `not_before` and never claims an event that does
+    /// not exist. The distinction is what keeps a nested swapchain that is
+    /// temporarily out of images from spinning or sleeping for a second.
+    Retrying {
+        not_before: Instant,
+        wait: RetryWait,
+    },
     /// Presentation is unavailable, with the reason retained so losing the
     /// backend after output power-off still invalidates the input epoch.
     Suspended(PresentationAvailability),
@@ -144,8 +168,20 @@ impl PresentationScheduler {
             // scanout to retire. That batch just retired, so re-render now:
             // this is the event that replaces the old 1 ms polling retry, which
             // re-composited the whole frame ~15 times per vblank only for each
-            // copy to be rejected again.
-            PresentationState::Retrying { .. } => PresentationState::Queued,
+            // copy to be rejected again. A deadline retry deliberately ignores
+            // this transition: no backend event exists for an acquire timeout,
+            // and promoting it here would spin until an image happens to free.
+            PresentationState::Retrying {
+                not_before,
+                wait: RetryWait::Deadline,
+            } => PresentationState::Retrying {
+                not_before,
+                wait: RetryWait::Deadline,
+            },
+            PresentationState::Retrying {
+                wait: RetryWait::BackendEvent,
+                ..
+            } => PresentationState::Queued,
             other => other,
         };
     }
@@ -156,7 +192,7 @@ impl PresentationScheduler {
     /// The runtime can then complete callbacks directly instead of performing
     /// a no-damage render assessment solely to reopen the callback cycle.
     pub fn tick(&mut self, now: Instant) -> bool {
-        if let PresentationState::Retrying { not_before } = self.state
+        if let PresentationState::Retrying { not_before, .. } = self.state
             && now >= not_before
         {
             // A parked retry promotes to a fresh render; this is not an
@@ -167,6 +203,7 @@ impl PresentationScheduler {
         if let PresentationState::WaitingForEstimatedVblank {
             deadline,
             redraw_queued,
+            ..
         } = self.state
             && now >= deadline
         {
@@ -196,16 +233,17 @@ impl PresentationScheduler {
                 submitted_at,
                 stall_reported,
             },
-            PresentationState::WaitingForEstimatedVblank { deadline, .. } => {
-                PresentationState::WaitingForEstimatedVblank {
-                    deadline,
-                    redraw_queued: true,
-                }
-            }
+            PresentationState::WaitingForEstimatedVblank {
+                deadline, paced, ..
+            } => PresentationState::WaitingForEstimatedVblank {
+                deadline,
+                redraw_queued: true,
+                paced,
+            },
             // A parked retry already implies a redraw; fresh damage simply
             // waits for the same deadline.
-            PresentationState::Retrying { not_before } => {
-                PresentationState::Retrying { not_before }
+            PresentationState::Retrying { not_before, wait } => {
+                PresentationState::Retrying { not_before, wait }
             }
             PresentationState::Suspended(availability) => {
                 PresentationState::Suspended(availability)
@@ -219,6 +257,7 @@ impl PresentationScheduler {
             PresentationState::Queued
                 | PresentationState::WaitingForEstimatedVblank {
                     redraw_queued: true,
+                    paced: false,
                     ..
                 }
         )
@@ -244,6 +283,7 @@ impl PresentationScheduler {
             PresentationState::WaitingForEstimatedVblank {
                 deadline,
                 redraw_queued: true,
+                paced: false,
             } => PresentationState::Rendering {
                 estimated_deadline: Some(deadline),
             },
@@ -268,10 +308,12 @@ impl PresentationScheduler {
                 submitted_at: pacing_anchor,
                 stall_reported: false,
             }
-        } else if redraw_after_present {
-            Self::estimated(pacing_anchor, refresh_interval)
         } else {
-            PresentationState::Idle
+            PresentationState::WaitingForEstimatedVblank {
+                deadline: pacing_anchor + refresh_interval,
+                redraw_queued: redraw_after_present,
+                paced: true,
+            }
         };
     }
 
@@ -291,10 +333,17 @@ impl PresentationScheduler {
             // let a frame-only client postpone the boundary forever.
             self.state = PresentationState::WaitingForEstimatedVblank {
                 deadline,
-                redraw_queued: false,
+                redraw_queued: redraw_after_cycle,
+                paced: redraw_after_cycle,
             };
-        } else if callbacks_sent || redraw_after_cycle {
-            self.state = Self::estimated(now, refresh_interval);
+        } else if redraw_after_cycle {
+            self.state = PresentationState::WaitingForEstimatedVblank {
+                deadline: now + refresh_interval,
+                redraw_queued: true,
+                paced: true,
+            };
+        } else if callbacks_sent {
+            self.state = Self::estimated_callback_cycle(now, refresh_interval);
         } else {
             self.state = PresentationState::Idle;
         }
@@ -313,7 +362,7 @@ impl PresentationScheduler {
             "estimated-vblank callback completed outside the idle boundary"
         );
         if callbacks_sent {
-            self.state = Self::estimated(now, refresh_interval);
+            self.state = Self::estimated_callback_cycle(now, refresh_interval);
         }
     }
 
@@ -321,12 +370,12 @@ impl PresentationScheduler {
     /// event is declared lost and scanout ownership is reclaimed.
     const RECOVERY_TIMEOUT: Duration = Duration::from_secs(3);
 
-    pub fn retry_at(&mut self, not_before: Instant) {
+    pub fn retry_at(&mut self, not_before: Instant, wait: RetryWait) {
         assert!(
             matches!(self.state, PresentationState::Rendering { .. }),
             "retry completed outside a render transaction"
         );
-        self.state = PresentationState::Retrying { not_before };
+        self.state = PresentationState::Retrying { not_before, wait };
     }
 
     /// Report a page flip that exceeded the ownership watchdog once per
@@ -378,24 +427,40 @@ impl PresentationScheduler {
             PresentationState::Queued
             | PresentationState::WaitingForEstimatedVblank {
                 redraw_queued: true,
+                paced: false,
                 ..
             } => Duration::ZERO,
             PresentationState::Rendering { .. } => {
                 panic!("event wait requested during a render transaction")
             }
-            PresentationState::Retrying { not_before } => {
-                // The retry is gated on the owning batch retiring, and the card
-                // fd is in the backend's poll set, so the flip event itself
-                // wakes the loop. Block up to the watchdog the way
-                // `WaitingForVblank` does instead of polling every millisecond:
-                // that poll is what used to drive a full re-render per tick.
-                // `not_before` still bounds a rejection that owns no flip
-                // (`Inactive`, `Reconfigured`, a lost event).
-                let until_floor = not_before.saturating_duration_since(now);
-                until_floor.max(PRESENTATION_WATCHDOG).min(idle_timeout)
-            }
-            PresentationState::WaitingForEstimatedVblank { deadline, .. } => {
-                deadline.saturating_duration_since(now).min(idle_timeout)
+            PresentationState::Retrying { not_before, wait } => match wait {
+                // The retry is gated on the owning batch retiring, and the
+                // card fd is in the backend's poll set, so the flip event
+                // itself wakes the loop. Block up to the watchdog the way
+                // `WaitingForVblank` does instead of polling every
+                // millisecond: that poll is what used to drive a full
+                // re-render per tick. `not_before` still bounds a rejection
+                // that owns no flip (`Inactive`, `Reconfigured`, a lost event).
+                RetryWait::BackendEvent => {
+                    let until_floor = not_before.saturating_duration_since(now);
+                    until_floor.max(PRESENTATION_WATCHDOG).min(idle_timeout)
+                }
+                // A deadline retry has no event source. Sleep exactly until
+                // its boundary: a nested swapchain that is briefly out of
+                // images must retry at the next presentation, not spin and not
+                // sleep for the backend watchdog.
+                RetryWait::Deadline => not_before.saturating_duration_since(now).min(idle_timeout),
+            },
+            PresentationState::WaitingForEstimatedVblank {
+                deadline,
+                redraw_queued,
+                paced,
+            } => {
+                if paced && !redraw_queued {
+                    idle_timeout
+                } else {
+                    deadline.saturating_duration_since(now).min(idle_timeout)
+                }
             }
             // Visual timers cannot make progress while KMS owns a submitted
             // batch. Ignoring them prevents expired wallpaper timers from
@@ -418,10 +483,11 @@ impl PresentationScheduler {
         }
     }
 
-    fn estimated(now: Instant, refresh_interval: Duration) -> PresentationState {
+    fn estimated_callback_cycle(now: Instant, refresh_interval: Duration) -> PresentationState {
         PresentationState::WaitingForEstimatedVblank {
             deadline: now + refresh_interval,
             redraw_queued: false,
+            paced: false,
         }
     }
 }
@@ -480,14 +546,43 @@ mod tests {
     }
 
     #[test]
-    fn nested_animation_uses_estimated_boundary_but_input_can_redraw_early() {
+    fn nested_submission_coalesces_input_until_estimated_boundary() {
         let now = Instant::now();
         let mut state = PresentationScheduler::new();
         state.begin_redraw();
         state.submitted(false, true, now, FRAME);
         assert!(!state.can_redraw());
+        assert_eq!(state.wait_timeout(Duration::from_secs(1), now), FRAME);
 
+        // Input arriving mid-frame coalesces rather than triggering an
+        // unpaced sub-millisecond render before the refresh boundary.
         state.queue_redraw();
+        assert!(!state.can_redraw());
+        assert_eq!(state.wait_timeout(Duration::from_secs(1), now), FRAME);
+
+        assert!(!state.tick(now + FRAME - Duration::from_nanos(1)));
+        assert!(!state.can_redraw());
+        assert!(!state.tick(now + FRAME));
+        assert!(state.can_redraw());
+    }
+
+    #[test]
+    fn nested_static_submission_sleeps_idle_unless_damage_arrives() {
+        let now = Instant::now();
+        let mut state = PresentationScheduler::new();
+        state.begin_redraw();
+        state.submitted(false, false, now, FRAME);
+        assert!(!state.can_redraw());
+        assert_eq!(
+            state.wait_timeout(Duration::from_secs(1), now),
+            Duration::from_secs(1)
+        );
+
+        // Input arriving inside the same refresh period arms the deadline wait.
+        state.queue_redraw();
+        assert!(!state.can_redraw());
+        assert_eq!(state.wait_timeout(Duration::from_secs(1), now), FRAME);
+        assert!(!state.tick(now + FRAME));
         assert!(state.can_redraw());
     }
 
@@ -572,7 +667,7 @@ mod tests {
         let now = Instant::now();
         let mut state = PresentationScheduler::new();
         state.begin_redraw();
-        state.retry_at(now + FRAME);
+        state.retry_at(now + FRAME, RetryWait::BackendEvent);
 
         // A parked retry must not spin. The wait is far longer than the retry
         // floor because the loop blocks on the backend's flip event (the card
@@ -602,7 +697,7 @@ mod tests {
         let now = Instant::now();
         let mut state = PresentationScheduler::new();
         state.begin_redraw();
-        state.retry_at(now + FRAME);
+        state.retry_at(now + FRAME, RetryWait::BackendEvent);
 
         // Still owned: nothing to re-render yet.
         state.reconcile_backend(true);
@@ -610,6 +705,27 @@ mod tests {
 
         // The floor alone also makes progress when the rejection owned no flip
         // at all (`Inactive`, `Reconfigured`, a lost event).
+        assert!(!state.tick(now + FRAME - Duration::from_nanos(1)));
+        assert!(!state.can_redraw());
+        state.tick(now + FRAME);
+        assert!(state.can_redraw());
+    }
+
+    #[test]
+    fn a_deadline_retry_sleeps_until_its_boundary_and_ignores_backend_readiness() {
+        let now = Instant::now();
+        let mut state = PresentationScheduler::new();
+        state.begin_redraw();
+        state.retry_at(now + FRAME, RetryWait::Deadline);
+
+        // No backend event owns this retry. `reconcile_backend(false)` must not
+        // promote it: the nested backend always reports no in-flight batch,
+        // and promoting would turn an acquire timeout into a millisecond spin.
+        state.reconcile_backend(false);
+        assert!(!state.can_redraw());
+        assert_eq!(state.wait_timeout(Duration::from_secs(30), now), FRAME);
+
+        // The deadline is the only thing that reopens the gate.
         assert!(!state.tick(now + FRAME - Duration::from_nanos(1)));
         assert!(!state.can_redraw());
         state.tick(now + FRAME);

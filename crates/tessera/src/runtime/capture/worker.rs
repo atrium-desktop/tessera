@@ -612,6 +612,13 @@ impl CaptureWorker {
         self.wake.fd()
     }
 
+    /// Shared signal handle for other producers that must wake the compositor
+    /// (currently the IPC server). The eventfd is level-triggered and drained
+    /// once per loop pass, so multiple producers coalesce harmlessly.
+    pub(in crate::runtime) fn wake_handle(&self) -> std::sync::Arc<std::os::fd::OwnedFd> {
+        std::sync::Arc::clone(&self.wake.completion)
+    }
+
     pub(in crate::runtime) fn drain_wakeup(&self) {
         self.wake.drain();
     }

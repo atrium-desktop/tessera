@@ -1,16 +1,15 @@
 use super::*;
 
 // The damage *value layer* lives in `tessera-presentation` (api tier): frame
-// damage verdicts, the assessment split, slot-ring repaint history, the
-// logical→physical mapping, and the `ClientDamageTracker` generation diff
-// behind the narrow `SurfaceDamageFrame` seam. This module keeps only the
-// composition-root orchestration: sampling the change signals spread across
-// the server, shell, notifications, and wallpaper, and deciding what the
-// frame's output and backdrop damage are.
+// damage verdicts, the assessment split, the logical→physical mapping, and the
+// `ClientDamageTracker` generation diff behind the narrow `SurfaceDamageFrame`
+// seam. Per-image epoch history belongs to Flux, not to this layer. This module
+// keeps only the composition-root orchestration: sampling the change signals
+// spread across the server, shell, notifications, and wallpaper, and deciding
+// what the current frame's delta is.
 pub(super) use tessera_composite::presentation::{
     AssessedFrameDamage, ClientDamage, ClientDamageTracker, DamageAssessment, FrameDamage,
-    SurfaceDamageFrame, composite_repaint_for_slot, logical_rects_to_frame,
-    record_composite_present, union_frame_damage,
+    SurfaceDamageFrame, logical_rects_to_frame, union_frame_damage,
 };
 
 /// Wall-clock minute, used to keep the status-bar clock honest: chrome draws
@@ -25,6 +24,50 @@ pub(super) fn wall_clock_minute() -> u64 {
 
 fn as_damage_frame<F: SurfaceDamageFrame>(frame: &F) -> &dyn SurfaceDamageFrame {
     frame
+}
+
+/// How far a window's painted shadow reaches beyond its geometry, in logical
+/// pixels. The damage path must repaint the whole visual footprint, not just
+/// the window rect: moving a floating window otherwise leaves its old shadow
+/// stroke (or blurred skirt) behind as a detached edge.
+fn window_shadow_damage_margin(style: tessera_desktop::window::WindowShadowStyle) -> i32 {
+    use tessera_desktop::window::WindowShadowStyle;
+    match style {
+        WindowShadowStyle::None => 0,
+        WindowShadowStyle::Resize => 4,
+        WindowShadowStyle::Soft => {
+            // Must match `WindowShadowRenderer`: sigma * 3 + vertical offset
+            // + 2 px of safety, rounded up. Over-repainting an unused side is
+            // cheap; stranding a single shadow row is a visible tear.
+            (super::rendering::SHADOW_BLUR_SIGMA * 3.0
+                + super::rendering::SHADOW_OFFSET_Y.abs()
+                + 2.0)
+                .ceil() as i32
+        }
+    }
+}
+
+fn inflate_damage_rect(rect: tessera_primitives::Rect, margin: i32) -> tessera_primitives::Rect {
+    if margin <= 0 {
+        return rect;
+    }
+    tessera_primitives::Rect::new(
+        rect.origin.x - margin,
+        rect.origin.y - margin,
+        rect.size.w + margin * 2,
+        rect.size.h + margin * 2,
+    )
+}
+
+fn transition_damage_with_shadow(
+    rects: Vec<tessera_primitives::Rect>,
+    style: tessera_desktop::window::WindowShadowStyle,
+) -> Vec<tessera_primitives::Rect> {
+    let margin = window_shadow_damage_margin(style);
+    rects
+        .into_iter()
+        .map(|rect| inflate_damage_rect(rect, margin))
+        .collect()
 }
 
 impl CompositorRuntime<'_> {
@@ -93,62 +136,102 @@ impl CompositorRuntime<'_> {
             .unwrap_or_else(|e| e.into_inner())
             .revision();
         // Modal chrome states whose transitions are not otherwise signed:
-        // overview, keyboard-grabbing chrome (launcher), and the screenshot
-        // selector.
+        // overview, window switcher, keyboard-grabbing chrome (launcher),
+        // screenshot selector, modal/exclusive overlays, and Control Center.
         let chrome_mode = (
             self.shell.overview_active(),
             self.shell.window_switcher_active(),
             self.shell.captures_keyboard(),
             self.shell.screenshot_active(),
+            self.shell.modal_or_exclusive_active(),
+            self.shell.control_center_active(),
         );
         let windows_hash = self.server.windows_signature();
         let all_windows_hash = self.server.all_windows_signature();
         let ws_sig = self.server.workspace_signature();
         let outputs_revision = self.server.outputs_revision();
         let interaction_domain_revision = self.server.interaction_domain_revision();
-        let base_full = self.frame_count == 0
-            || self.damage.force_full_redraw
-            || self.screenshot_freeze.needs_capture()
-            || session_locked != self.damage.last_session_locked
-            || (software_cursor
-                && self.damage.last_presented_cursor != Some((cursor_shape, cursor_hidden)))
-            // Only *animating* transitions force a full assessment: a settled
-            // ghost's hand-off frame changes exactly its own rect, which arrives
-            // as local damage through `transition_damage_rects` below. Reporting
-            // the hand-off as full here made the recorded rect dead on arrival
-            // (ADR-0220).
-            || self.server.live_transitions_pending()
-            // A live 3D model changes on its own animation clock. Media
-            // wallpaper contributes damage only when its absolute source
-            // deadline elapsed or a decoded video frame is already waiting;
-            // the mere existence of an animated source must not turn every
-            // unrelated client event into a full-output composite.
-            // A fullscreen window covers the output completely, so the
-            // wallpaper cannot be visible: advancing it would repaint (and
-            // re-blur, via the backdrop term below) pixels that never reach
-            // the display at the animation's frame rate. The source still
-            // advances its wall clock, so unfullscreening resumes in step.
-            || (!session_locked
-                && !self.space_use.client_owns_output()
-                && self
-                    .wallpaper
-                    .as_ref()
-                    .is_some_and(|w| {
-                        w.has_model()
-                            || w.next_frame_in()
-                                .is_some_and(|remaining| remaining.is_zero())
-                    }))
-            // Server-side topology: workspace, output, and Interaction Domain
-            // model changes feed both the scene and the chrome in full.
-            || self.last_ws_sig != Some(ws_sig)
-            || self.last_outputs_revision != Some(outputs_revision)
-            || self.last_interaction_domain_revision != Some(interaction_domain_revision)
-            || self.damage.last_chrome_mode != Some(chrome_mode)
-            // Shell mutations applied outside the signed paths (status poller,
-            // config reload, app rescan, IPC settings/Interaction Domain control).
-            || self.damage.chrome_dirty;
+        // Every "provably changed everything" signal is named and observed
+        // individually. A single anonymous boolean left the loop with no way to
+        // tell a forced full repaint from an over-conservative trigger, and the
+        // latter is a standing performance defect: a 5 MP output repainting at
+        // the panel rate because one term never turns off.
+        let first_frame = self.frame_count == 0;
+        let forced = self.damage.force_full_redraw;
+        let freeze_capture = self.screenshot_freeze.needs_capture();
+        let lock_changed = session_locked != self.damage.last_session_locked;
+        let software_cursor_changed = software_cursor
+            && self.damage.last_presented_cursor != Some((cursor_shape, cursor_hidden));
+        // A workspace slide translates entire page layers across the output, so
+        // no localized rect describes it: every sampled frame is a full-output
+        // repaint by construction. Per-window transitions are different — each
+        // record reports the union of the rect it occupied and the rect it now
+        // occupies through `transition_damage_rects`, inflated by the shadow
+        // reach below. Treating every animation as full made each window move
+        // or open repaint a 5 MP output at the panel rate and cut a 120 Hz
+        // session to 60 Hz.
+        let workspace_slide = self.server.workspace_slide_pending();
+        // Per-window transitions are localized; only the workspace slide above
+        // remains a full-output cause. The transition scan is intentionally
+        // evaluated only when trace logging is enabled: it is a diagnostic, not
+        // a per-frame decision input.
+        // A live 3D model changes on its own animation clock and paints outside
+        // the canvas damage vocabulary (the model pass owns every pixel it
+        // covers). Media wallpaper contributes damage only when its absolute
+        // source deadline elapsed or a decoded video frame is already waiting;
+        // the mere existence of an animated source must not turn every
+        // unrelated client event into a full-output composite. A fullscreen
+        // window covers the output completely, so the wallpaper cannot be
+        // visible: advancing it would repaint pixels that never reach the
+        // display. The source still advances its wall clock, so unfullscreening
+        // resumes in step.
+        let wallpaper_full = !session_locked
+            && !self.space_use.client_owns_output()
+            && self.wallpaper.as_ref().is_some_and(|w| {
+                w.has_model()
+                    || w.next_frame_in()
+                        .is_some_and(|remaining| remaining.is_zero())
+            });
+        // Server-side topology: workspace, output, and Interaction Domain model
+        // changes feed both the scene and the chrome in full.
+        let workspace_changed = self.last_ws_sig != Some(ws_sig);
+        let outputs_changed = self.last_outputs_revision != Some(outputs_revision);
+        let interaction_domains_changed =
+            self.last_interaction_domain_revision != Some(interaction_domain_revision);
+        let chrome_mode_changed = self.damage.last_chrome_mode != Some(chrome_mode);
+        // Shell mutations applied outside the signed paths (status poller,
+        // config reload, app rescan, IPC settings/Interaction Domain control).
+        let chrome_dirty = self.damage.chrome_dirty;
+        let base_full = first_frame
+            || forced
+            || freeze_capture
+            || lock_changed
+            || software_cursor_changed
+            || wallpaper_full
+            || workspace_slide
+            || workspace_changed
+            || outputs_changed
+            || interaction_domains_changed
+            || chrome_mode_changed
+            || chrome_dirty;
+        log::trace!(
+            "damage: base_full={base_full} first={first_frame} forced={forced} \
+             freeze={freeze_capture} lock={lock_changed} \
+             cursor={software_cursor_changed} wallpaper={wallpaper_full} \
+             workspace={workspace_changed} outputs={outputs_changed} \
+             domains={interaction_domains_changed} chrome_mode={chrome_mode_changed} \
+             chrome_dirty={chrome_dirty} workspace_slide={workspace_slide} \
+             live_transition={}",
+            self.server.live_transitions_pending()
+        );
 
-        let transition_rects = self.server.transition_damage_rects();
+        let shadow_style = self
+            .config
+            .as_ref()
+            .map(|config| config.ui.window_shadow)
+            .unwrap_or_default();
+        let transition_rects =
+            transition_damage_with_shadow(self.server.transition_damage_rects(), shadow_style);
 
         // Localized extra damage rects for chrome and server state changes:
         let mut chrome_extra_rects = Vec::new();
@@ -392,6 +475,26 @@ impl CompositorRuntime<'_> {
                 }
             }
         };
+        // A frame that never reached Flux's submit point (acquire timeout,
+        // surface loss before recording) has no epoch entry. Carry its damage
+        // forward instead of collapsing to Full: the next successful submit is
+        // the transaction that commits it.
+        let output = match self.damage.pending_damage.take() {
+            Some(pending) => union_frame_damage(pending, output),
+            None => output,
+        };
+        match &output {
+            FrameDamage::Full => log::trace!("damage: output=Full"),
+            FrameDamage::None => log::trace!("damage: output=None"),
+            FrameDamage::Area(rects) => log::trace!(
+                "damage: output=Area({} rects, area={})",
+                rects.len(),
+                rects
+                    .iter()
+                    .map(|r| (r.size.w.max(0) as i64) * (r.size.h.max(0) as i64))
+                    .sum::<i64>()
+            ),
+        }
         AssessedFrameDamage {
             output,
             sampled_surface_ids,

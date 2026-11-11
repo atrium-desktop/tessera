@@ -320,6 +320,44 @@ pub struct Server {
     journal_broadcaster: JournalBroadcaster,
     event_filter: Arc<Mutex<Option<EventFilter>>>,
     streams: Arc<Mutex<HashMap<u64, StreamLane>>>,
+    /// Optional compositor event-loop wakeup. Every inbound IPC request
+    /// signals it before dispatch: the compositor may be asleep with no
+    /// Wayland traffic, and a command that mutates window, workspace, or
+    /// chrome state must not wait for the one-second maintenance tick.
+    wake: Arc<RequestWake>,
+}
+
+/// One eventfd/pipe write handle shared by every connection thread.
+///
+/// The fd is owned by an `Arc` so a connection thread can never observe a
+/// closed descriptor while it signals. `None` keeps the server usable in unit
+/// tests that run without a compositor event loop.
+#[derive(Default)]
+pub(crate) struct RequestWake {
+    fd: Mutex<Option<Arc<std::os::fd::OwnedFd>>>,
+}
+
+impl RequestWake {
+    pub(crate) fn set(&self, fd: Option<Arc<std::os::fd::OwnedFd>>) {
+        *self.fd.lock().unwrap_or_else(|e| e.into_inner()) = fd;
+    }
+
+    pub(crate) fn signal(&self) {
+        let fd = self.fd.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let Some(fd) = fd else { return };
+        let value = 1u64;
+        let written = unsafe {
+            libc::write(
+                std::os::fd::AsRawFd::as_raw_fd(fd.as_ref()),
+                (&value as *const u64).cast(),
+                std::mem::size_of::<u64>(),
+            )
+        };
+        // A full eventfd means the compositor is already awake; either way the
+        // request is queued on its channel and will be drained. A closed fd
+        // means the loop is shutting down. Neither is actionable here.
+        let _ = written;
+    }
 }
 
 impl Server {
@@ -390,6 +428,8 @@ impl Server {
         let next_lease = Arc::new(AtomicU64::new(1));
         let next_conn = Arc::new(AtomicU64::new(1));
         let active_connections = Arc::new(AtomicU32::new(0));
+        let wake = Arc::new(RequestWake::default());
+        let wake_for_accept = Arc::clone(&wake);
         let subs_for_accept = Arc::clone(&subs);
         let journal_subs_for_accept = Arc::clone(&journal_subs);
         let streams_for_accept = Arc::clone(&streams);
@@ -410,6 +450,7 @@ impl Server {
                     lease_for_accept,
                     conn_for_accept,
                     active_for_accept,
+                    wake_for_accept,
                 )
             }) {
             Ok(accept) => accept,
@@ -425,7 +466,16 @@ impl Server {
             journal_broadcaster,
             event_filter,
             streams,
+            wake,
         })
+    }
+
+    /// Install the compositor's event-loop wakeup. Every inbound request
+    /// signals this descriptor before it is dispatched, so a command applied
+    /// while the compositor is idle is observed on the next loop iteration
+    /// instead of the next maintenance timeout.
+    pub fn set_wakeup_fd(&self, fd: Arc<std::os::fd::OwnedFd>) {
+        self.wake.set(Some(fd));
     }
     /// Push a coarse event to every subscribed connection (ADR-0027).
     ///

@@ -601,7 +601,6 @@ pub fn make_current_frame_thread(plan: &SchedPlan) {
         return;
     }
     arm_global_plan(plan.clone());
-    pin_current_thread(plan, ThreadRole::Frame);
     apply_role(plan, ThreadRole::Frame);
 }
 

@@ -92,14 +92,16 @@ build = []
 dev = ["proptest", "tessera-audit"]
 
 [tessera-composite]
-normal = ["flux", "flux-sys", "image", "libc", "log", "tessera-desktop", "tessera-primitives"]
+# Structured damage diagnostics are emitted with tracing; the binary installs
+# the subscriber (ADR-0079, ADR-0230, ADR-0232).
+normal = ["flux", "flux-sys", "image", "libc", "log", "tessera-desktop", "tessera-primitives", "tracing"]
 build = []
-dev = []
+dev = ["proptest"]
 
 [tessera-primitives]
 normal = ["serde"]
 build = []
-dev = []
+dev = ["proptest"]
 
 [tessera-sched]
 normal = ["libc", "log"]
@@ -112,14 +114,16 @@ build = []
 dev = ["flate2"]
 
 [tessera-wallpaper]
-normal = ["flux", "flux-sys", "image", "log", "tessera-sched", "thiserror", "transit", "vista", "vista-sys"]
+normal = ["flux", "flux-sys", "image", "log", "tessera-sched", "thiserror", "transit", "transit-sys", "vista", "vista-sys"]
 build = []
 dev = ["tessera-composite"]
 
 [tessera-wayland]
-normal = ["getrandom", "log", "serde", "serde_json", "tessera-authority", "tessera-desktop", "tessera-primitives", "tessera-wayland-protocols", "thiserror", "xkbcommon"]
+# Structured damage diagnostics are emitted with tracing; the binary installs
+# the subscriber (ADR-0079, ADR-0230, ADR-0232).
+normal = ["getrandom", "log", "serde", "serde_json", "tessera-authority", "tessera-desktop", "tessera-primitives", "tessera-wayland-protocols", "thiserror", "tracing", "xkbcommon"]
 build = ["pkg-config"]
-dev = ["tempfile"]
+dev = ["proptest", "tempfile"]
 
 [tessera-wayland-protocols]
 normal = []

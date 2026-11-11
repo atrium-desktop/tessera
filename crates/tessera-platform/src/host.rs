@@ -215,7 +215,15 @@ impl Host {
                 let (width, height) = host.physical_size();
                 // SAFETY: NestedHost created this surface from device's Vulkan
                 // instance and retains it for at least as long as Host.
-                Ok(unsafe { flux::Surface::from_vk(device, vk_surface, width, height, true)? })
+                // Use non-blocking presentation (`vsync = false`, selecting
+                // `VK_PRESENT_MODE_MAILBOX_KHR` on Wayland WSI): `PresentationScheduler`
+                // already paces nested submissions to the outer output's refresh
+                // interval (`paced: true`), and `NestedHost::dispatch_host_events`
+                // absorbs WSI-internal `wl_buffer.release` reads without waking
+                // the render loop early. Avoiding Mesa's synchronous FIFO
+                // `wl_surface.frame` wait prevents the 1.000s `vkQueuePresentKHR`
+                // stall when the nested window is occluded or unfocused.
+                Ok(unsafe { flux::Surface::from_vk(device, vk_surface, width, height, false)? })
             }
             Self::Drm(host) => Ok(host.create_surface(device)?),
         }
@@ -228,11 +236,18 @@ impl Host {
         damage: Option<&[tessera_primitives::Rect]>,
     ) -> Result<Option<OwnedFd>, HostError> {
         match self {
-            Self::Nested(_) => {
+            Self::Nested(host) => {
                 // The outer compositor owns scanout and does its own damage
-                // tracking; the hint is DRM/KMS-only.
+                // tracking; the hint is DRM/KMS-only. Request a Wayland
+                // `wl_surface.frame` callback before `vkQueuePresentKHR`
+                // commits our surface so `presentation_pending()` tracks the
+                // outer compositor's real vblank non-blockingly.
                 let _ = damage;
-                frame.present()?;
+                host.arm_frame_callback();
+                if let Err(error) = frame.present() {
+                    host.cancel_frame_callback();
+                    return Err(error.into());
+                }
                 Ok(None)
             }
             Self::Drm(host) => Ok(host.present(surface, frame, damage)?),
@@ -293,6 +308,17 @@ impl Host {
             Self::Nested(_) => "nested",
             Self::Drm(_) => "drm",
         }
+    }
+
+    /// Whether presentation goes through a host-owned swapchain (Wayland WSI)
+    /// rather than the compositor's own exportable offscreen ring.
+    ///
+    /// The distinction decides what a frame-acquire timeout can mean. A
+    /// swapchain acquire can block because the outer compositor withholds every
+    /// image (occluded or suspended window); an offscreen ring has no acquire at
+    /// all, so a timeout can only mean the GPU has not retired a slot fence.
+    pub fn presents_through_host_swapchain(&self) -> bool {
+        matches!(self, Self::Nested(_))
     }
 
     /// Whether the host still owns an in-flight presentation batch.

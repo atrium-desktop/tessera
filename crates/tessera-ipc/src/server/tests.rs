@@ -26,6 +26,7 @@ fn bare_server() -> Server {
         journal_broadcaster: JournalBroadcaster::default(),
         event_filter: Arc::new(Mutex::new(None)),
         streams: Arc::new(Mutex::new(HashMap::new())),
+        wake: Arc::new(RequestWake::default()),
     }
 }
 
@@ -445,6 +446,7 @@ where
     scope.spawn(move || {
         let mut read = server_end.try_clone().unwrap();
         let shutdown = Arc::new(server_end);
+        let wake = RequestWake::default();
         drive_read_loop(
             &mut read,
             &tx,
@@ -455,6 +457,7 @@ where
             &next_sub,
             &next_lease,
             &shutdown,
+            &wake,
             conn_id,
             std::process::id(),
         )
@@ -1038,6 +1041,7 @@ where
     scope.spawn(move || {
         let mut read = server_end.try_clone().unwrap();
         let shutdown = Arc::new(server_end);
+        let wake = RequestWake::default();
         drive_read_loop(
             &mut read,
             &tx,
@@ -1048,6 +1052,7 @@ where
             &next_sub,
             &next_lease,
             &shutdown,
+            &wake,
             conn_id,
             std::process::id(),
         )

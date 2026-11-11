@@ -14,6 +14,13 @@ negative_knowledge: true
 - Date: 2026-11-02
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0015](0015-damage-tracking.md), [ADR-0020](0020-buffer-scale-applied-at-composite.md), [ADR-0077](0077-presentation-domain-redraw-state-machine.md), [ADR-0179](0179-zero-redundancy-presentation-pipeline-substepped-motion-and-render-target-bucketing.md)
+
+> **Amended by [ADR-0230](0230-damage-is-surface-local-and-viewport-is-a-buffer-transfer-inverse.md).**
+> This record's `source_origin` map assumed damage rectangles were expressed in
+> the pre-viewport local space. They are surface-local (post-viewport): the
+> viewport source crop belongs to the surface→buffer conversion, not to output
+> placement. The placement/ownership/list decisions below remain; the formula
+> and the `source_origin` clipping rule are superseded.
 - Related: [ADR-0202](0202-single-pass-full-output-backdrop-capture-and-glass-interior-compute-elision.md), [ADR-0204](0204-frame-scheduling-reserves-a-runqueue-the-desktop-does-not-use.md)
 
 ---

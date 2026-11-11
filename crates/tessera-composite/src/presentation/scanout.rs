@@ -401,6 +401,7 @@ mod tests {
             height: 1920,
             generation: 1,
             damage: Vec::new(),
+            damage_full: false,
             buffer_id: 1,
             fd: -1,
             drm_format: format,

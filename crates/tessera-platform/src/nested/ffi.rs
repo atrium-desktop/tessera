@@ -41,8 +41,9 @@ pub const WL_MARSHAL_FLAG_DESTROY: u32 = 1;
 pub const WL_DISPLAY_GET_REGISTRY: u32 = 1;
 pub const WL_REGISTRY_BIND: u32 = 0;
 pub const WL_COMPOSITOR_CREATE_SURFACE: u32 = 0;
-pub const WL_SURFACE_COMMIT: u32 = 6;
 pub const WL_SURFACE_DESTROY: u32 = 0;
+pub const WL_SURFACE_FRAME: u32 = 3;
+pub const WL_SURFACE_COMMIT: u32 = 6;
 pub const WL_SURFACE_SET_BUFFER_SCALE: u32 = 8;
 pub const WP_VIEWPORTER_GET_VIEWPORT: u32 = 1;
 pub const WP_VIEWPORT_SET_DESTINATION: u32 = 2;
@@ -143,6 +144,12 @@ pub struct wl_surface_listener {
     pub leave: unsafe extern "C" fn(*mut c_void, *mut wl_proxy, *mut wl_proxy),
 }
 
+/// `wl_callback` listener vtable (`wl_surface.frame` completion).
+#[repr(C)]
+pub struct wl_callback_listener {
+    pub done: unsafe extern "C" fn(*mut c_void, *mut wl_proxy, u32),
+}
+
 /// `wp_fractional_scale_v1` listener vtable (v1: preferred_scale).
 #[repr(C)]
 pub struct wp_fractional_scale_v1_listener {
@@ -223,6 +230,7 @@ unsafe extern "C" {
     pub static wl_registry_interface: wl_interface;
     pub static wl_compositor_interface: wl_interface;
     pub static wl_surface_interface: wl_interface;
+    pub static wl_callback_interface: wl_interface;
     pub static wl_seat_interface: wl_interface;
     pub static wl_pointer_interface: wl_interface;
     pub static wl_keyboard_interface: wl_interface;
@@ -235,6 +243,9 @@ unsafe extern "C" {
     pub fn wl_display_roundtrip(display: *mut wl_display) -> c_int;
     pub fn wl_display_dispatch(display: *mut wl_display) -> c_int;
     pub fn wl_display_dispatch_pending(display: *mut wl_display) -> c_int;
+    pub fn wl_display_prepare_read(display: *mut wl_display) -> c_int;
+    pub fn wl_display_read_events(display: *mut wl_display) -> c_int;
+    pub fn wl_display_cancel_read(display: *mut wl_display);
     pub fn wl_display_flush(display: *mut wl_display) -> c_int;
     pub fn wl_display_get_fd(display: *mut wl_display) -> c_int;
 

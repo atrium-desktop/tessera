@@ -53,9 +53,10 @@ pub(super) struct DamageTracking {
     /// generation diff never freshly heap-allocates.
     pub(super) client_damage: ClientDamageTracker,
     pub(super) last_notif_revision: Option<u64>,
-    /// (overview, window switcher, keyboard capture, screenshot selector) at
-    /// the last assessment — modal chrome changes outside signed paths.
-    pub(super) last_chrome_mode: Option<(bool, bool, bool, bool)>,
+    /// (overview, window switcher, keyboard capture, screenshot selector,
+    /// modal/exclusive active, control center active) at the last assessment —
+    /// modal chrome changes outside signed paths.
+    pub(super) last_chrome_mode: Option<(bool, bool, bool, bool, bool, bool)>,
     pub(super) last_session_locked: bool,
     /// (shape, hidden) as of the last presented frame.
     pub(super) last_presented_cursor: Option<(u32, bool)>,
@@ -68,10 +69,11 @@ pub(super) struct DamageTracking {
     /// (VT switch, backend reconfigure).
     pub(super) last_presented_cursor_hotspot: Option<(u32, u32)>,
     pub(super) last_presented_cursor_pixels: Option<(u32, u32)>,
-    /// Damage each Flux ring slot has missed since it was last presented.
-    /// Partial repaint unions the current frame's damage with this history so
-    /// a three-buffer compositor never exposes stale pixels.
-    pub(super) composite_slot_damage: Vec<FrameDamage>,
+    /// Assessed damage whose frame never reached Flux's submit point (acquire
+    /// timeout, a pre-recording surface failure). Flux owns per-image epoch
+    /// history; this is only the pre-submit transaction carry. Unioned into the
+    /// next assessment and cleared by the next successful submit.
+    pub(super) pending_damage: Option<FrameDamage>,
     /// Wall-clock minute of the last presented frame; a rollover forces one
     /// frame so the status-bar clock cannot go stale while idle.
     pub(super) last_present_minute: Option<u64>,

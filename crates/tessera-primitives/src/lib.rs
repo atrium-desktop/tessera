@@ -13,6 +13,6 @@ pub mod stream;
 
 pub use geometry::{
     ClosingGhostView, MinimizeWarp, Point, PresentationHint, Rect, Size, SurfaceDmabuf,
-    SurfaceGeometry, SurfacePixels, Transform,
+    SurfaceGeometry, SurfacePixels, Transform, logical_surface_extent,
 };
 pub use identity::*;

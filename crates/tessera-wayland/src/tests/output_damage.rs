@@ -157,12 +157,12 @@ fn surface_damage_accumulates_until_present_and_full_is_sticky() {
     let mut surface = SurfaceRec::new(std::ptr::null_mut());
     accumulate_committed_damage(
         &mut surface,
-        vec![tessera_primitives::Rect::new(10, 20, 30, 40)],
+        &[tessera_primitives::Rect::new(10, 20, 30, 40)],
         false,
     );
     accumulate_committed_damage(
         &mut surface,
-        vec![tessera_primitives::Rect::new(100, 5, 10, 10)],
+        &[tessera_primitives::Rect::new(100, 5, 10, 10)],
         false,
     );
     assert_eq!(
@@ -174,27 +174,235 @@ fn surface_damage_accumulates_until_present_and_full_is_sticky() {
     );
     assert!(!surface.committed_damage_full);
 
-    accumulate_committed_damage(&mut surface, Vec::new(), true);
+    accumulate_committed_damage(&mut surface, &[], true);
     assert!(surface.committed_damage.is_empty());
     assert!(surface.committed_damage_full);
 
-    // `unknown_full` is absorbing *within* a frame, but it no longer
-    // discards precise damage from later commits in the same render
-    // interval: those rects accumulate so the acknowledging present clears
-    // both states together and the next frame resumes incremental updates
-    // instead of inheriting a stale full latch (the historical behaviour
-    // made one damage-less commit permanently poison every following
-    // precise commit until present, forcing whole-buffer copies).
+    // `unknown_full` is absorbing *within* a frame: the exposed list is
+    // empty and the full latch stays set until the acknowledging present
+    // clears both together. A later precise commit must not narrow the
+    // interval back to its own rects — consumers would then repaint only
+    // that rect while the rest of the surface is also unknown. The commit's
+    // own rects still reach the SHM snapshot copy through its per-commit
+    // slice.
     accumulate_committed_damage(
         &mut surface,
-        vec![tessera_primitives::Rect::new(1, 1, 2, 2)],
+        &[tessera_primitives::Rect::new(1, 1, 2, 2)],
         false,
     );
-    assert_eq!(
-        surface.committed_damage,
-        vec![tessera_primitives::Rect::new(1, 1, 2, 2)]
-    );
+    assert!(surface.committed_damage.is_empty());
     assert!(surface.committed_damage_full);
+}
+
+#[test]
+fn snapshot_copy_never_reapplies_another_commits_damage() {
+    // A frame interval can contain several commits before the next present.
+    // `committed_damage` intentionally accumulates all of them for damage
+    // assessment, but the SHM snapshot copy for a commit must take only that
+    // commit's rects from that commit's buffer. A later buffer's pixels at an
+    // earlier commit's rects are from an older frame; re-copying them rolls
+    // the surface backwards (typing caret and text returning to an earlier
+    // position until the next full repaint).
+    let first = tessera_primitives::Rect::new(10, 20, 30, 40);
+    let second = tessera_primitives::Rect::new(100, 5, 10, 10);
+    let mut surface = SurfaceRec::new(std::ptr::null_mut());
+    accumulate_committed_damage(&mut surface, &[first], false);
+    accumulate_committed_damage(&mut surface, &[second], false);
+    assert_eq!(surface.committed_damage, vec![first, second]);
+
+    assert!(matches!(
+        commit_snapshot_damage(&[second], &[], false),
+        SnapshotRepair::Rects { surface: rects, .. } if rects == [second]
+    ));
+    assert!(matches!(
+        commit_snapshot_damage(&[second], &[], true),
+        SnapshotRepair::Full
+    ));
+    // Damage was reported but every rect clipped away: copy nothing. Treating
+    // it as "no information" would copy a whole alternating buffer over pixels
+    // contributed by an earlier commit.
+    assert!(matches!(
+        commit_snapshot_damage(&[], &[], false),
+        SnapshotRepair::Rects { surface: rects, buffer: raw } if rects.is_empty() && raw.is_empty()
+    ));
+}
+
+fn shm_test_pixel(source: &[u8], width: i32, x: i32, y: i32) -> [u8; 4] {
+    let at = ((y * width + x) * 4) as usize;
+    source[at..at + 4].try_into().expect("pixel")
+}
+
+#[test]
+fn shm_snapshot_repairs_only_the_committing_buffer() {
+    // Two commits in one frame attach different buffers. Each repair may take
+    // only its own buffer's damage; applying the frame aggregate would write
+    // buffer B's stale left half over the pixels buffer A just contributed.
+    let width = 4;
+    let height = 2;
+    let stride = (width * 4) as usize;
+    let tight = stride;
+    let mut snapshot = vec![0u8; tight * height as usize];
+    let geometry = tessera_primitives::SurfaceGeometry::default();
+
+    let buffer_a = vec![1u8; stride * height as usize];
+    copy_shm_snapshot(
+        &mut snapshot,
+        &buffer_a,
+        width,
+        height,
+        stride,
+        &geometry,
+        SnapshotRepair::Rects {
+            surface: &[tessera_primitives::Rect::new(0, 0, 2, 2)],
+            buffer: &[],
+        },
+        false,
+    );
+
+    let buffer_b = vec![2u8; stride * height as usize];
+    copy_shm_snapshot(
+        &mut snapshot,
+        &buffer_b,
+        width,
+        height,
+        stride,
+        &geometry,
+        SnapshotRepair::Rects {
+            surface: &[tessera_primitives::Rect::new(2, 0, 2, 2)],
+            buffer: &[],
+        },
+        false,
+    );
+
+    for y in 0..height {
+        assert_eq!(shm_test_pixel(&snapshot, width, 0, y), [1, 1, 1, 1]);
+        assert_eq!(shm_test_pixel(&snapshot, width, 1, y), [1, 1, 1, 1]);
+        assert_eq!(shm_test_pixel(&snapshot, width, 2, y), [2, 2, 2, 2]);
+        assert_eq!(shm_test_pixel(&snapshot, width, 3, y), [2, 2, 2, 2]);
+    }
+}
+
+#[test]
+fn shm_snapshot_maps_viewport_crop_origin_into_the_buffer() {
+    // A crop at (2, 1) draws buffer pixel (2, 1) at surface (0, 0). A full
+    // surface damage must repair buffer rows 1..3, columns 2..6, not 0..4.
+    let width = 8;
+    let height = 4;
+    let stride = (width * 4) as usize;
+    let mut snapshot = vec![0u8; stride * height as usize];
+    let source: Vec<u8> = (0..width * height)
+        .flat_map(|pixel| [(pixel + 1) as u8; 4])
+        .collect();
+    let geometry = tessera_primitives::SurfaceGeometry {
+        viewport_src: Some(tessera_primitives::Rect::new(2, 1, 4, 2)),
+        ..Default::default()
+    };
+    copy_shm_snapshot(
+        &mut snapshot,
+        &source,
+        width,
+        height,
+        stride,
+        &geometry,
+        SnapshotRepair::Rects {
+            surface: &[tessera_primitives::Rect::new(0, 0, 4, 2)],
+            buffer: &[],
+        },
+        false,
+    );
+
+    assert_eq!(
+        shm_test_pixel(&snapshot, width, 2, 1),
+        shm_test_pixel(&source, width, 2, 1)
+    );
+    assert_eq!(
+        shm_test_pixel(&snapshot, width, 5, 2),
+        shm_test_pixel(&source, width, 5, 2)
+    );
+    // Outside the crop the snapshot is untouched.
+    assert_eq!(shm_test_pixel(&snapshot, width, 0, 0), [0, 0, 0, 0]);
+    assert_eq!(shm_test_pixel(&snapshot, width, 6, 3), [0, 0, 0, 0]);
+}
+
+#[test]
+fn shm_snapshot_reported_empty_damage_copies_nothing() {
+    let width = 4;
+    let height = 2;
+    let stride = (width * 4) as usize;
+    let mut snapshot = vec![0u8; stride * height as usize];
+    let source = vec![9u8; stride * height as usize];
+    copy_shm_snapshot(
+        &mut snapshot,
+        &source,
+        width,
+        height,
+        stride,
+        &tessera_primitives::SurfaceGeometry::default(),
+        SnapshotRepair::Rects {
+            surface: &[],
+            buffer: &[],
+        },
+        false,
+    );
+    assert!(snapshot.iter().all(|&byte| byte == 0));
+}
+
+#[test]
+fn shm_snapshot_repair_keeps_raw_buffer_damage_even_when_cropped() {
+    let surface = [tessera_primitives::Rect::new(0, 0, 4, 2)];
+    let raw = [tessera_primitives::Rect::new(0, 3, 8, 1)];
+    assert!(matches!(
+        commit_snapshot_damage(&surface, &raw, false),
+        SnapshotRepair::Rects { surface: got_surface, buffer: got_buffer }
+            if got_surface == surface && got_buffer == raw
+    ));
+    assert!(matches!(
+        commit_snapshot_damage(&surface, &raw, true),
+        SnapshotRepair::Full
+    ));
+}
+
+#[test]
+fn shm_snapshot_copies_hidden_raw_buffer_damage() {
+    let width = 8;
+    let height = 4;
+    let stride = (width * 4) as usize;
+    let mut snapshot = vec![0u8; stride * height as usize];
+    let source: Vec<u8> = (0..width * height)
+        .flat_map(|pixel| [(pixel + 1) as u8; 4])
+        .collect();
+    let geometry = tessera_primitives::SurfaceGeometry {
+        viewport_src: Some(tessera_primitives::Rect::new(2, 1, 4, 2)),
+        ..Default::default()
+    };
+    copy_shm_snapshot(
+        &mut snapshot,
+        &source,
+        width,
+        height,
+        stride,
+        &geometry,
+        SnapshotRepair::Rects {
+            surface: &[tessera_primitives::Rect::new(0, 0, 4, 2)],
+            buffer: &[tessera_primitives::Rect::new(0, 3, 3, 1)],
+        },
+        false,
+    );
+
+    // The visible source goes through the viewport mapping.
+    assert_eq!(
+        shm_test_pixel(&snapshot, width, 2, 1),
+        shm_test_pixel(&source, width, 2, 1)
+    );
+    // The raw buffer damage is copied directly, outside the visible crop.
+    for x in 0..3 {
+        assert_eq!(
+            shm_test_pixel(&snapshot, width, x, 3),
+            shm_test_pixel(&source, width, x, 3)
+        );
+    }
+    assert_eq!(shm_test_pixel(&snapshot, width, 3, 3), [0, 0, 0, 0]);
+    assert_eq!(shm_test_pixel(&snapshot, width, 0, 0), [0, 0, 0, 0]);
 }
 
 #[test]
@@ -202,12 +410,12 @@ fn surface_damage_region_subtracts_overlap_without_inventing_bbox_pixels() {
     let mut surface = SurfaceRec::new(std::ptr::null_mut());
     accumulate_committed_damage(
         &mut surface,
-        vec![tessera_primitives::Rect::new(0, 0, 10, 10)],
+        &[tessera_primitives::Rect::new(0, 0, 10, 10)],
         false,
     );
     accumulate_committed_damage(
         &mut surface,
-        vec![tessera_primitives::Rect::new(5, 5, 10, 10)],
+        &[tessera_primitives::Rect::new(5, 5, 10, 10)],
         false,
     );
 
@@ -229,10 +437,10 @@ fn surface_damage_region_subtracts_overlap_without_inventing_bbox_pixels() {
 #[test]
 fn surface_damage_region_caps_pathological_client_lists() {
     let mut surface = SurfaceRec::new(std::ptr::null_mut());
-    let rects = (0..=MAX_COMMITTED_DAMAGE_RECTS)
+    let rects: Vec<_> = (0..=MAX_COMMITTED_DAMAGE_RECTS)
         .map(|index| tessera_primitives::Rect::new((index * 2) as i32, 0, 1, 1))
         .collect();
-    accumulate_committed_damage(&mut surface, rects, false);
+    accumulate_committed_damage(&mut surface, &rects, false);
 
     assert_eq!(surface.committed_damage.len(), 1);
     assert_eq!(
@@ -248,16 +456,10 @@ fn surface_damage_region_promotes_unrepresentable_span_to_full() {
         .map(|index| tessera_primitives::Rect::new(i32::MIN + (index as i32 * 2), 0, 1, 1))
         .collect::<Vec<_>>();
     rects.push(tessera_primitives::Rect::new(i32::MAX - 1, 0, 1, 1));
-    accumulate_committed_damage(&mut surface, rects, false);
+    accumulate_committed_damage(&mut surface, &rects, false);
 
     assert!(surface.committed_damage_full);
     assert!(surface.committed_damage.is_empty());
-}
-
-#[test]
-fn buffer_damage_at_hidpi_scale_rounds_outward_to_surface_coordinates() {
-    let mapped = buffer_damage_to_surface(tessera_primitives::Rect::new(3, 5, 8, 10), 2);
-    assert_eq!(mapped, tessera_primitives::Rect::new(1, 2, 5, 6));
 }
 
 #[test]
@@ -899,4 +1101,208 @@ fn test_inv_arch_78_output_scoped_input_rejects_out_of_bounds_and_locked_session
             )
             .is_none()
     );
+}
+
+mod shm_snapshot_properties {
+    use super::*;
+    use proptest::prelude::*;
+    use tessera_primitives::{Rect, Size, SurfaceGeometry, Transform};
+
+    fn transform_strategy() -> impl Strategy<Value = Transform> {
+        prop_oneof![
+            Just(Transform::Normal),
+            Just(Transform::Rotate90),
+            Just(Transform::Rotate180),
+            Just(Transform::Rotate270),
+            Just(Transform::FlipHorizontal),
+            Just(Transform::FlipRotate90),
+            Just(Transform::FlipRotate180),
+            Just(Transform::FlipRotate270),
+        ]
+    }
+
+    fn rect_within(width: i32, height: i32) -> impl Strategy<Value = Rect> {
+        let width = width.max(1);
+        let height = height.max(1);
+        (0..width, 0..height).prop_flat_map(move |(x, y)| {
+            (Just(x), Just(y), 1..=(width - x), 1..=(height - y))
+                .prop_map(|(x, y, w, h)| Rect::new(x, y, w, h))
+        })
+    }
+
+    fn shm_case() -> impl Strategy<Value = (SurfaceGeometry, i32, i32, Rect, Vec<u8>)> {
+        (1i32..=16, 1i32..=16, transform_strategy(), 1i32..=2).prop_flat_map(
+            |(local_width, local_height, transform, buffer_scale)| {
+                let (buffer_width, buffer_height) = if transform.swap_axes() {
+                    (local_height * buffer_scale, local_width * buffer_scale)
+                } else {
+                    (local_width * buffer_scale, local_height * buffer_scale)
+                };
+                let viewport_src = prop::option::of(rect_within(local_width, local_height));
+                let viewport_dst =
+                    prop::option::of((1i32..=64, 1i32..=64).prop_map(|(w, h)| Size { w, h }));
+                (
+                    Just(buffer_width),
+                    Just(buffer_height),
+                    Just(transform),
+                    Just(buffer_scale),
+                    viewport_src,
+                    viewport_dst,
+                )
+                    .prop_flat_map(
+                        |(
+                            buffer_width,
+                            buffer_height,
+                            transform,
+                            buffer_scale,
+                            viewport_src,
+                            viewport_dst,
+                        )| {
+                            let geometry = SurfaceGeometry {
+                                transform,
+                                buffer_scale,
+                                viewport_src,
+                                viewport_dst,
+                                ..Default::default()
+                            };
+                            let (surface_width, surface_height) =
+                                geometry.surface_extent(buffer_width, buffer_height);
+                            let damage = rect_within(surface_width, surface_height);
+                            let source = prop::collection::vec(
+                                any::<u8>(),
+                                (buffer_width * buffer_height * 4) as usize,
+                            );
+                            (
+                                Just(geometry),
+                                Just(buffer_width),
+                                Just(buffer_height),
+                                damage,
+                                source,
+                            )
+                        },
+                    )
+            },
+        )
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig { cases: 256, ..ProptestConfig::default() })]
+
+        #[test]
+        fn shm_snapshot_copies_exactly_the_mapped_damage(
+            (geometry, width, height, damage, source) in shm_case()
+        ) {
+            let stride = (width * 4) as usize;
+            let mut snapshot = vec![0u8; stride * height as usize];
+            copy_shm_snapshot(
+                &mut snapshot,
+                &source,
+                width,
+                height,
+                stride,
+                &geometry,
+                SnapshotRepair::Rects { surface: &[damage], buffer: &[] },
+                false,
+            );
+            let mapped = geometry
+                .surface_rect_to_buffer(damage, width, height)
+                .expect("surface damage within the extent must map to the buffer");
+            for y in 0..height {
+                for x in 0..width {
+                    let at = ((y * width + x) * 4) as usize;
+                    let inside = x >= mapped.origin.x
+                        && x < mapped.origin.x + mapped.size.w
+                        && y >= mapped.origin.y
+                        && y < mapped.origin.y + mapped.size.h;
+                    if inside {
+                        prop_assert_eq!(
+                            &snapshot[at..at + 4],
+                            &source[at..at + 4],
+                            "damage {:?} mapped {:?}; pixel ({}, {}) was not copied",
+                            damage, mapped, x, y
+                        );
+                    } else {
+                        prop_assert_eq!(
+                            &snapshot[at..at + 4],
+                            &[0u8; 4],
+                            "damage {:?} mapped {:?}; pixel ({}, {}) escaped the damage",
+                            damage, mapped, x, y
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+mod damage_sequence_properties {
+    use super::*;
+    use proptest::prelude::*;
+    use tessera_primitives::Rect;
+
+    fn damage_rect() -> impl Strategy<Value = Rect> {
+        (0i32..64, 0i32..64, 1i32..=16, 1i32..=16).prop_map(|(x, y, w, h)| Rect::new(x, y, w, h))
+    }
+
+    fn commit_sequence() -> impl Strategy<Value = Vec<(bool, Vec<Rect>, bool)>> {
+        prop::collection::vec(
+            (
+                any::<bool>(),
+                prop::collection::vec(damage_rect(), 0..4),
+                any::<bool>(),
+            ),
+            1..=12,
+        )
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig { cases: 256, ..ProptestConfig::default() })]
+
+        #[test]
+        fn commit_sequence_keeps_the_frame_ledger_monotonic(
+            commits in commit_sequence()
+        ) {
+            let mut surface = SurfaceRec::new(std::ptr::null_mut());
+            let mut accumulated: Vec<Rect> = Vec::new();
+            let mut full = false;
+
+            for (reset, rects, unknown_full) in commits {
+                if reset {
+                    surface.committed_damage.clear();
+                    surface.committed_damage_full = false;
+                    accumulated.clear();
+                    full = false;
+                }
+
+                // Per-commit repair never takes the frame aggregate.
+                match commit_snapshot_damage(&rects, &[], unknown_full) {
+                    SnapshotRepair::Full => prop_assert!(unknown_full),
+                    SnapshotRepair::Rects { surface: got, buffer: raw } => {
+                        prop_assert!(!unknown_full);
+                        prop_assert_eq!(got, rects.as_slice());
+                        prop_assert!(raw.is_empty());
+                    }
+                }
+
+                accumulate_committed_damage(&mut surface, &rects, unknown_full);
+
+                if surface.committed_damage_full {
+                    full = true;
+                    accumulated.clear();
+                    // The exposed list is empty and stays empty until present.
+                    prop_assert!(surface.committed_damage.is_empty());
+                } else if !full {
+                    accumulated.extend(rects.iter().copied());
+                    for rect in &accumulated {
+                        prop_assert!(
+                            rect.fully_covered_by(&surface.committed_damage),
+                            "commit rect {:?} is not covered by {:?} (unknown_full={})",
+                            rect, surface.committed_damage, unknown_full
+                        );
+                    }
+                }
+                prop_assert_eq!(surface.committed_damage_full, full);
+            }
+        }
+    }
 }

@@ -54,6 +54,7 @@ pub(super) fn accept_loop<H: Handler + 'static>(
     next_lease: Arc<AtomicU64>,
     next_conn: Arc<AtomicU64>,
     active_connections: Arc<AtomicU32>,
+    wake: Arc<crate::server::RequestWake>,
 ) {
     for incoming in listener.incoming() {
         let Ok(stream) = incoming else {
@@ -84,12 +85,13 @@ pub(super) fn accept_loop<H: Handler + 'static>(
         let st = Arc::clone(&streams);
         let n = Arc::clone(&next_sub);
         let l = Arc::clone(&next_lease);
+        let w = Arc::clone(&wake);
         let conn_id = next_conn.fetch_add(1, Ordering::Relaxed);
         let _ = thread::Builder::new()
             .name("tessera-ipc-conn".into())
             .spawn(move || {
                 let _permit = permit;
-                serve_connection(stream, h, s, js, st, n, l, conn_id, peer_pid);
+                serve_connection(stream, h, s, js, st, n, l, conn_id, peer_pid, w);
             });
     }
 }
@@ -111,6 +113,7 @@ pub(super) fn serve_connection<H: Handler + 'static>(
     next_lease: Arc<AtomicU64>,
     conn_id: u64,
     peer_pid: u32,
+    wake: Arc<crate::server::RequestWake>,
 ) {
     let mut read_half = match stream.try_clone() {
         Ok(s) => s,
@@ -212,6 +215,7 @@ pub(super) fn serve_connection<H: Handler + 'static>(
         &next_sub,
         &next_lease,
         &shutdown,
+        &wake,
         conn_id,
         peer_pid,
     );

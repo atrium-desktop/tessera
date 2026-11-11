@@ -43,6 +43,9 @@ impl NestedHost {
                 preferred_scale_120: 120,
                 fractional_active: false,
                 scale_changed: false,
+                mode_changed: false,
+                frame_callback: ptr::null_mut(),
+                frame_callback_deadline: None,
                 input_events: Vec::new(),
                 pending_pointer_axis: PointerAxisFrame::default(),
                 pointer_gesture_events: Vec::new(),
@@ -177,6 +180,8 @@ impl NestedHost {
             if state.fractional_active && ffi::wl_display_roundtrip(display) < 0 {
                 return Err(NestedError::Roundtrip);
             }
+            state.scale_changed = false;
+            state.mode_changed = false;
 
             Ok(NestedHost {
                 display,
@@ -313,6 +318,52 @@ impl NestedHost {
     pub fn should_close(&self) -> bool {
         self.state.should_close
     }
+
+    /// Request a Wayland `wl_surface.frame` callback for the upcoming commit
+    /// (`frame.present()`). While the callback is in flight,
+    /// [`presentation_pending`](Backend::presentation_pending) returns `true`
+    /// so `PresentationScheduler` paces animations to the outer compositor's
+    /// real vblank without blocking inside `vkQueuePresentKHR` or delaying
+    /// interactive input after vblank.
+    pub fn arm_frame_callback(&mut self) {
+        self.cancel_frame_callback();
+        unsafe {
+            let cb = surface_frame(self.surface);
+            if !cb.is_null() {
+                let data = &mut *self.state as *mut State as *mut c_void;
+                ffi::wl_proxy_add_listener(
+                    cb,
+                    &FRAME_CALLBACK_LISTENER as *const _ as *const c_void,
+                    data,
+                );
+                self.state.frame_callback = cb;
+                // Bound the wait to ~2 host refresh periods (clamped to
+                // 16ms..=34ms) so an occluded or unfocused nested window whose
+                // outer compositor withholds `wl_callback.done` never stalls
+                // the inner event loop or trips the 100ms frame watchdog.
+                let timeout = if self.state.refresh_mhz > 0 {
+                    let nanos = (2_000_000_000_000u64 / self.state.refresh_mhz as u64)
+                        .clamp(16_000_000, 34_000_000);
+                    std::time::Duration::from_nanos(nanos)
+                } else {
+                    std::time::Duration::from_millis(34)
+                };
+                self.state.frame_callback_deadline = Some(std::time::Instant::now() + timeout);
+            }
+        }
+    }
+
+    /// Destroy any pending `wl_surface.frame` callback proxy (used on failed
+    /// present, timeout expiration, or teardown).
+    pub fn cancel_frame_callback(&mut self) {
+        if !self.state.frame_callback.is_null() {
+            unsafe {
+                ffi::wl_proxy_destroy(self.state.frame_callback);
+            }
+            self.state.frame_callback = ptr::null_mut();
+        }
+        self.state.frame_callback_deadline = None;
+    }
 }
 
 impl Backend for NestedHost {
@@ -401,52 +452,11 @@ impl Backend for NestedHost {
     /// sleeping on the host. Returns false only on a hard error; an idle queue
     /// still returns true (no events, but alive).
     fn dispatch_nonblocking(&mut self) -> bool {
-        unsafe {
-            // `wl_display_dispatch_pending` processes events already read into
-            // the display's internal queue without blocking for new ones. A
-            // negative return is a fatal connection error, not "no events".
-            if ffi::wl_display_dispatch_pending(self.display) < 0 {
-                self.state.should_close = true;
-            }
-        }
-        !self.state.should_close
+        self.dispatch_host_events(std::time::Duration::ZERO)
     }
 
     fn dispatch_timeout(&mut self, timeout: std::time::Duration) -> bool {
-        unsafe {
-            if ffi::wl_display_dispatch_pending(self.display) < 0 {
-                self.state.should_close = true;
-                return false;
-            }
-            // Flush requests before waiting. A would-block result is benign:
-            // POLLOUT is unnecessary here because the regular frame loop will
-            // retry and our small request stream fits the Wayland socket.
-            let _ = ffi::wl_display_flush(self.display);
-            // The second fd is the compositor's own Wayland server event
-            // loop: a committing client must wake an idle compositor just
-            // like outer-compositor input does. Its readability needs no
-            // handling here — the main loop dispatches the server itself.
-            let mut fds = [
-                super::listeners::libc::pollfd {
-                    fd: ffi::wl_display_get_fd(self.display),
-                    events: super::listeners::libc::POLLIN,
-                    revents: 0,
-                },
-                super::listeners::libc::pollfd {
-                    fd: self.wakeup_fd.unwrap_or(-1),
-                    events: super::listeners::libc::POLLIN,
-                    revents: 0,
-                },
-            ];
-            let timeout_ms = timeout.as_millis().min(i32::MAX as u128) as i32;
-            let ready = super::listeners::libc::poll(fds.as_mut_ptr(), fds.len(), timeout_ms);
-            let dispatch_failed =
-                ready > 0 && fds[0].revents != 0 && ffi::wl_display_dispatch(self.display) < 0;
-            if ready < 0 || dispatch_failed {
-                self.state.should_close = true;
-            }
-        }
-        !self.state.should_close
+        self.dispatch_host_events(timeout)
     }
 
     fn set_wakeup_fd(&mut self, fd: std::os::fd::RawFd) {
@@ -459,19 +469,19 @@ impl Backend for NestedHost {
         std::mem::take(&mut self.state.input_events)
     }
 
-    /// Reports a new *logical* size when the host resized us or the output
-    /// scale changed (the window moved to a differently-scaled monitor). The
-    /// main loop derives the physical swapchain extent from
-    /// [`physical_size`](NestedHost::physical_size); on a pure scale change the
-    /// logical size is unchanged but the physical size is not.
+    /// Reports a new *logical* size when the host resized us, the output
+    /// scale changed (the window moved to a differently-scaled monitor), or
+    /// the host output mode (`refresh_mhz`) changed. The main loop derives the
+    /// physical swapchain extent from [`physical_size`](NestedHost::physical_size).
     fn take_resize(&mut self) -> Option<Size> {
-        if self.state.resized || self.state.scale_changed {
+        if self.state.resized || self.state.scale_changed || self.state.mode_changed {
             if self.state.resized {
                 self.state.width = self.state.pending_width;
                 self.state.height = self.state.pending_height;
             }
             self.state.resized = false;
             self.state.scale_changed = false;
+            self.state.mode_changed = false;
             Some(Size {
                 w: self.state.width,
                 h: self.state.height,
@@ -479,6 +489,14 @@ impl Backend for NestedHost {
         } else {
             None
         }
+    }
+
+    fn presentation_pending(&self) -> bool {
+        !self.state.frame_callback.is_null()
+            && self
+                .state
+                .frame_callback_deadline
+                .is_some_and(|deadline| std::time::Instant::now() < deadline)
     }
 
     fn set_text_input_state(&mut self, state: TextInputState) {
@@ -530,7 +548,8 @@ impl Drop for NestedHost {
             }
             // Bound outputs are independent globals; reap them before the
             // registry.
-            for (output, _) in self.state.outputs.iter() {
+            self.cancel_frame_callback();
+            for (output, _, _) in self.state.outputs.iter() {
                 if !output.is_null() {
                     ffi::wl_proxy_destroy(*output);
                 }
@@ -565,6 +584,125 @@ impl Drop for NestedHost {
 }
 
 impl NestedHost {
+    /// Canonical single-threaded libwayland dispatch: take read ownership,
+    /// wait for either the host display or the compositor's wakeup mux, read
+    /// only when the host fd is readable, and dispatch pending events last.
+    ///
+    /// `wl_display_dispatch` is deliberately not used: it blocks in `read()`
+    /// after the poll, so a host event that was already consumed by the WSI,
+    /// or an unrelated eventfd wakeup, could park the compositor's only loop
+    /// thread past its timeout. That is user-visible on the nested backend as
+    /// a delayed pointer/keyboard event or a stalled window transition.
+    fn dispatch_host_events(&mut self, timeout: std::time::Duration) -> bool {
+        let mut deadline = std::time::Instant::now() + timeout;
+        if let Some(cb_deadline) = self.state.frame_callback_deadline {
+            deadline = deadline.min(cb_deadline);
+        }
+        loop {
+            unsafe {
+                if ffi::wl_display_prepare_read(self.display) != 0 {
+                    // Pending events are already queued; dispatch them and let the
+                    // next iteration take read ownership. Never spin here.
+                    if ffi::wl_display_dispatch_pending(self.display) < 0 {
+                        self.state.should_close = true;
+                    }
+                    if self
+                        .state
+                        .frame_callback_deadline
+                        .is_some_and(|d| std::time::Instant::now() >= d)
+                    {
+                        self.cancel_frame_callback();
+                    }
+                    return !self.state.should_close;
+                }
+                // Flush requests before waiting. A would-block result is benign:
+                // POLLOUT is unnecessary here because the regular frame loop will
+                // retry and our small request stream fits the Wayland socket.
+                let _ = ffi::wl_display_flush(self.display);
+                let mut fds = [
+                    super::listeners::libc::pollfd {
+                        fd: ffi::wl_display_get_fd(self.display),
+                        events: super::listeners::libc::POLLIN,
+                        revents: 0,
+                    },
+                    super::listeners::libc::pollfd {
+                        fd: self.wakeup_fd.unwrap_or(-1),
+                        events: super::listeners::libc::POLLIN,
+                        revents: 0,
+                    },
+                ];
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                // Ceiling-round sub-millisecond remainders so a <1ms pacing tail
+                // sleeps until the deadline instead of truncating to 0ms and
+                // busy-spinning in `poll`.
+                let timeout_ms = if remaining.is_zero() {
+                    0
+                } else {
+                    remaining
+                        .as_nanos()
+                        .div_ceil(1_000_000)
+                        .min(i32::MAX as u128) as i32
+                };
+                let ready = super::listeners::libc::poll(fds.as_mut_ptr(), fds.len(), timeout_ms);
+                if ready < 0 {
+                    ffi::wl_display_cancel_read(self.display);
+                    let error = std::io::Error::last_os_error();
+                    if error.kind() == std::io::ErrorKind::Interrupted {
+                        if std::time::Instant::now() < deadline {
+                            continue;
+                        }
+                    } else {
+                        self.state.should_close = true;
+                    }
+                    if self
+                        .state
+                        .frame_callback_deadline
+                        .is_some_and(|d| std::time::Instant::now() >= d)
+                    {
+                        self.cancel_frame_callback();
+                    }
+                    return !self.state.should_close;
+                }
+                let host_readable =
+                    ready > 0 && fds[0].revents & super::listeners::libc::POLLIN != 0;
+                let wakeup_ready = ready > 0 && fds[1].revents != 0;
+                if host_readable {
+                    if ffi::wl_display_read_events(self.display) < 0 {
+                        // A failed read consumes the prepared read and leaves the
+                        // display in an error state; do not cancel afterwards.
+                        self.state.should_close = true;
+                        return false;
+                    }
+                } else {
+                    ffi::wl_display_cancel_read(self.display);
+                }
+                let dispatched = ffi::wl_display_dispatch_pending(self.display);
+                if dispatched < 0 {
+                    self.state.should_close = true;
+                    return false;
+                }
+                if self
+                    .state
+                    .frame_callback_deadline
+                    .is_some_and(|d| std::time::Instant::now() >= d)
+                {
+                    self.cancel_frame_callback();
+                }
+                // `self.display` is shared with Mesa's Wayland Vulkan WSI queue.
+                // When a socket read only queued WSI-internal events (such as
+                // `wl_buffer.release`), `dispatched` on the default queue is 0;
+                // keep waiting until `deadline` unless `wakeup_fd` also fired.
+                if dispatched > 0
+                    || wakeup_ready
+                    || ready == 0
+                    || std::time::Instant::now() >= deadline
+                {
+                    return !self.state.should_close;
+                }
+            }
+        }
+    }
+
     fn wm_base_ptr(&self) -> *mut ffi::wl_proxy {
         self.state.wm_base
     }

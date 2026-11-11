@@ -171,6 +171,21 @@ pub(super) unsafe fn commit(surface: *mut ffi::wl_proxy) {
     }
 }
 
+/// `wl_surface.frame`: request a `wl_callback` that fires `done` when the outer
+/// compositor has latched the upcoming commit at its presentation vblank.
+pub(super) unsafe fn surface_frame(surface: *mut ffi::wl_proxy) -> *mut ffi::wl_proxy {
+    unsafe {
+        ffi::wl_proxy_marshal_flags(
+            surface,
+            ffi::WL_SURFACE_FRAME,
+            &ffi::wl_callback_interface,
+            1,
+            0,
+            ptr::null::<c_void>(),
+        )
+    }
+}
+
 /// `wl_surface.set_buffer_scale`: declare the attached buffer is pre-scaled by
 /// `scale`, so the host maps it 1:1 instead of upscaling a logical-sized
 /// buffer. Double-buffered; applies on the next commit (the next present).

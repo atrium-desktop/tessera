@@ -56,6 +56,7 @@ pub(super) fn drive_read_loop<H: Handler>(
     next_sub: &AtomicU64,
     next_lease: &AtomicU64,
     shutdown: &Arc<UnixStream>,
+    wake: &crate::server::RequestWake,
     conn_id: u64,
     peer_pid: u32,
 ) -> (Option<SubId>, Option<SubId>, bool) {
@@ -307,6 +308,13 @@ pub(super) fn drive_read_loop<H: Handler>(
     // released through the handler on disconnect (ADR-0075).
     let mut idle_inhibited = false;
     while let Ok(req) = read_msg::<_, Request>(read) {
+        // The compositor loop can be blocked on its own event wait with no
+        // Wayland traffic. Signal before dispatch so a state-changing request
+        // is observed on the next loop pass, not at the maintenance timeout.
+        // Queries wake once too; the signal is a single eventfd write and the
+        // alternative — classifying every Handler entry point — is a second
+        // request taxonomy that will drift.
+        wake.signal();
         if let Err(message) = handler.authorize_actor_session(session.id) {
             let _ = tx.send(Outbound::Response(Response::Error { message }));
             break;

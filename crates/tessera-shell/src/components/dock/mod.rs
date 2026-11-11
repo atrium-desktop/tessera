@@ -212,6 +212,9 @@ pub struct Dock {
     pub menu_damage_rect: Option<tessera_primitives::Rect>,
     /// Swapchain ring drain frames remaining after a hover surface closes or moves.
     pub hover_drain_frames: u8,
+    /// Whether an immersive modal or overlay (Pivot, Overview, Window Switcher, etc.)
+    /// owns the output, inhibiting Dock hover popovers and tile magnification.
+    pub launcher_active: bool,
     pub reduced_motion: bool,
     pub(crate) tile_cache: RefCell<TileCache>,
     pub all_windows: Vec<Window>,
@@ -289,6 +292,7 @@ impl Dock {
             hover_damage_rect: None,
             menu_damage_rect: None,
             hover_drain_frames: 0,
+            launcher_active: false,
             reduced_motion: false,
             tile_cache: RefCell::new(TileCache {
                 signature: None,
@@ -838,20 +842,36 @@ impl Dock {
         // extra band to grow. The expression stays because it is the invariant
         // that matters: the envelope covers whichever endpoint reaches furthest.
         let tuck = (DOCK_EDGE_MARGIN - AUTOHIDE_HANDLE_EDGE_MARGIN).max(0.0);
+        // Magnified tiles grow inward from the icon baseline, past the panel's
+        // own thickness. The damage envelope must contain the largest tile the
+        // spring can produce on that side, or the top rows of a hovered icon
+        // are painted outside the repaint region and the previous frame shows
+        // through as a horizontal tear. The shadow skirt belongs to the body,
+        // not to this envelope; `damage_regions` adds it separately.
+        let max_tile = DOCK_TILE_MAX * SPRING_OVERSHOOT_MARGIN;
+        let overshoot = (max_tile - (DOCK_PANEL_HEIGHT - DOCK_BASELINE_INSET)).max(0.0);
         match self.position {
-            DockPosition::Bottom => Rect {
-                h: panel.h + tuck,
-                ..panel
-            },
+            DockPosition::Bottom => {
+                let y = (panel.y - overshoot).max(0.0);
+                Rect {
+                    y,
+                    h: panel.h + tuck + (panel.y - y),
+                    ..panel
+                }
+            }
             DockPosition::Left => Rect {
                 x: panel.x - tuck,
-                w: panel.w + tuck,
+                w: panel.w + tuck + overshoot,
                 ..panel
             },
-            DockPosition::Right => Rect {
-                w: panel.w + tuck,
-                ..panel
-            },
+            DockPosition::Right => {
+                let x = (panel.x - overshoot).max(0.0);
+                Rect {
+                    x,
+                    w: panel.w + tuck + (panel.x - x),
+                    ..panel
+                }
+            }
         }
     }
 
@@ -931,6 +951,12 @@ impl Dock {
 
     /// Dismiss popups, preview panels, and tooltips.
     pub fn dismiss_transient_ui(&mut self) {
+        if self.app_menu.is_open()
+            && let Some(disp) = self.last_display
+            && let Some(bounds) = self.app_menu.bounds(disp)
+        {
+            Self::record_menu_damage(&mut self.menu_damage_rect, bounds);
+        }
         self.app_menu.dismiss();
         self.menu_tile = None;
         self.press = None;

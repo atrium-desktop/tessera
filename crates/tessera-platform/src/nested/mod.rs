@@ -78,10 +78,10 @@ struct State {
     pending_height: i32,
     resized: bool,
     should_close: bool,
-    /// Bound `wl_output` globals and the integer scale each last advertised.
-    /// The nested window reads the scale of the output it currently sits on
-    /// (`current_output`) to size its buffer for HiDPI.
-    outputs: Vec<(*mut ffi::wl_proxy, i32)>,
+    /// Bound `wl_output` globals and the `(scale, refresh_mhz)` each last
+    /// advertised. The nested window reads the scale and refresh rate of the
+    /// output it currently sits on (`current_output`).
+    outputs: Vec<(*mut ffi::wl_proxy, i32, u32)>,
     /// The output the surface most recently entered, or null before the first
     /// `wl_surface.enter`.
     current_output: *mut ffi::wl_proxy,
@@ -103,6 +103,16 @@ struct State {
     /// differently-scaled output); drained by `take_resize` so the main loop
     /// rebuilds the swapchain at the new physical size.
     scale_changed: bool,
+    /// Set when `refresh_mhz` changed; drained by `take_resize` so the main
+    /// loop refreshes `server.set_outputs` with the outer host's cadence.
+    mode_changed: bool,
+    /// Active `wl_surface.frame` callback proxy while waiting for the outer
+    /// compositor to latch our most recently presented frame.
+    frame_callback: *mut ffi::wl_proxy,
+    /// Safety expiration for `frame_callback` so an occluded or unfocused
+    /// nested window whose outer compositor withholds `wl_callback.done` never
+    /// stalls the inner event loop.
+    frame_callback_deadline: Option<std::time::Instant>,
     /// Input events drained by `take_input`. Pointer motion and button state
     /// changes accumulate here each dispatch; the main loop drains once per
     /// frame.

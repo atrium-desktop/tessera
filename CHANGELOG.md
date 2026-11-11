@@ -14,6 +14,60 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Fixed
+
+- **wayland/composite**: SHM damage is now repaired and uploaded in the
+  surface-local coordinate space the protocol defines. The surface→buffer
+  conversion applies the `wp_viewport` source origin, source extent, buffer
+  scale, and the 8-way buffer transform; the compositor no longer applies the
+  viewport scale a second time to output damage
+  ([ADR-0230](docs/adr/0230-damage-is-surface-local-and-viewport-is-a-buffer-transfer-inverse.md)).
+  This fixes fractional-scale clients repainting only a fraction of a changed
+  region, cropped clients copying stale buffer rows into the snapshot, and the
+  alternating-buffer rollback that survived the per-commit repair fix. A
+  viewport, transform, or buffer-scale revision invalidates the frame's
+  accumulated damage and repairs the snapshot from the whole new buffer.
+- **damage**: A normalization overflow now answers the bounding box of the
+  whole input set instead of dropping rectangles the decomposition had not
+  visited yet.
+- **damage**: `SurfacePixels`/`SurfaceDmabuf` now carry an explicit
+  `damage_full` verdict instead of overloading an empty rectangle list
+  ([ADR-0231](docs/adr/0231-surface-damage-carries-an-explicit-full-verdict.md)).
+  A reported-but-clipped commit is a real no-op: the tracker emits no output
+  damage and the SHM uploader consumes the generation without a full texture
+  refresh.
+- **observability**: Structured `tessera.damage.*` tracing events now carry the
+  commit decision, geometry, mapped SHM boxes, explicit full reason, and upload
+  mode. Every event is counter-shaped (`metric`, `count=1`) for a tracing/metrics
+  layer; see `docs/dev/observability.md`.
+
+### Changed
+
+- **compositor**: The per-image damage ledger now lives in Flux
+  ([ADR-0229](docs/adr/0229-the-compositor-supplies-current-damage-flux-owns-the-image-ledger.md),
+  Optics ADR-0155). Tessera supplies each frame's current delta and asks Flux for
+  the exact repaint scope; the KMS damage hint comes from Flux's scanout ledger
+  (including submitted-but-abandoned frames).
+- **presentation**: A KMS `Busy` or flip timeout no longer forces
+  `force_full_redraw`. Submission commits the rendered image and its epoch, so
+  the retry reuses the same image and paints only the new damage. Damage that
+  never reached submission (acquire timeout, direct-scanout rejection) is
+  carried forward in `pending_damage` instead of collapsing to `Full`.
+- **presentation**: Surface resize, VT resume, direct-scanout exit, and lost
+  flips invalidate Flux's damage epochs; the next frame is full.
+- **Adopted Optics v0.0.78.** The pin moves to the current Optics release and
+  keeps the native frame-damage epoch ledger this compositor consumes (Optics
+  ADR-0155), the pairwise-disjoint damage decomposition and bounded output
+  dither behind it (Optics ADR-0154), and the Slang-first shader toolchain
+  (Optics ADR-0156). Optics v0.0.78 adds the first RenderPlan slice, versioned
+  DisplayList serialization, and immutable image snapshots upstream; Tessera
+  does not consume those new APIs yet, so its runtime behavior is unchanged.
+  The shader migration is build-time only for Tessera: building Optics from
+  source requires `slangc` instead of `glslangValidator`, and CI installs the
+  pinned Slang release. The `-sys` crates require the exact native `X.Y.Z`; the
+  full pre-1.0 SONAME fails a stale library at load time instead of reading a
+  mismatched descriptor layout.
+
 ## [0.0.92] - 2026-11-08
 
 ### Added

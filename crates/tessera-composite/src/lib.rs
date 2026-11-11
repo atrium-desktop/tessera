@@ -240,14 +240,63 @@ fn destination_size(
     viewport_dst: Option<tessera_primitives::Size>,
     buffer_scale: i32,
 ) -> (f32, f32) {
-    let scale = buffer_scale.max(1) as f32;
-    match (viewport_dst, viewport_src) {
-        (Some(dst), _) => (dst.w as f32, dst.h as f32),
-        (None, Some(src)) => (src.size.w as f32, src.size.h as f32),
-        (None, None) => {
-            let (tw, th) = post_transform_dims;
-            (tw as f32 / scale, th as f32 / scale)
-        }
+    let (width, height) = tessera_primitives::logical_surface_extent(
+        post_transform_dims,
+        buffer_scale,
+        viewport_src,
+        viewport_dst,
+    );
+    (width as f32, height as f32)
+}
+
+/// What an SHM surface's generation change asks the texture cache to do.
+///
+/// `None` is a real no-op: damage was reported, but no rectangle survives the
+/// visible-surface clip. The caller still consumes the generation so the same
+/// no-op is not retried forever. `Full` is the explicit whole-surface verdict,
+/// never inferred from an empty rectangle list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShmUploadPlan {
+    None,
+    Full,
+    Region(tessera_primitives::Rect),
+}
+
+fn plan_shm_upload(frame: &SurfacePixels<'_>) -> ShmUploadPlan {
+    if frame.damage_full {
+        return ShmUploadPlan::Full;
+    }
+    if frame.damage.is_empty() {
+        return ShmUploadPlan::None;
+    }
+    let mut union: Option<(i32, i32, i32, i32)> = None;
+    for damage in frame.damage {
+        let Some(rect) = frame
+            .geometry
+            .surface_rect_to_buffer(*damage, frame.width, frame.height)
+        else {
+            continue;
+        };
+        let x1 = rect.origin.x.saturating_add(rect.size.w);
+        let y1 = rect.origin.y.saturating_add(rect.size.h);
+        union = Some(match union {
+            Some((x0, y0, x1_old, y1_old)) => (
+                x0.min(rect.origin.x),
+                y0.min(rect.origin.y),
+                x1_old.max(x1),
+                y1_old.max(y1),
+            ),
+            None => (rect.origin.x, rect.origin.y, x1, y1),
+        });
+    }
+    match union {
+        Some((x0, y0, x1, y1)) => ShmUploadPlan::Region(tessera_primitives::Rect::new(
+            x0,
+            y0,
+            x1.saturating_sub(x0),
+            y1.saturating_sub(y0),
+        )),
+        None => ShmUploadPlan::None,
     }
 }
 
@@ -1501,9 +1550,10 @@ impl Renderer {
             //
             // * HOW to upload (mirrors the server's incremental shm
             //   copy): a same-size commit with usable damage refreshes
-            //   only the damage bounding box; anything else — first
-            //   frame, resize, transform, or empty damage
-            //   ("no information") — replaces the whole texture.
+            //   only the damage bounding box; an explicit `damage_full`,
+            //   a first frame, a resize, or a transform replaces the whole
+            //   texture. Empty damage with `damage_full == false` is a
+            //   visible no-op, not a full upload.
             let (tex_w, tex_h) = transformed_dims(f.width, f.height, f.geometry.transform);
             let dims_match = self
                 .cache
@@ -1529,9 +1579,8 @@ impl Renderer {
                 //    deferred-release queue, and the per-upload queue
                 //    submit churn that dominated CPU profiles for
                 //    continuously-updating SHM clients (terminals, browser
-                //    tabs) on HiDPI outputs. This also covers the
-                //    "no information" commit (empty damage) — the whole
-                //    texture is rewritten either way.
+                //    tabs) on HiDPI outputs. An explicit `damage_full`
+                //    rewrites the whole texture through this path.
                 // 2. Same conditions *plus* usable surface-local damage:
                 //    upload only the damage bounding box.
                 // 3. Anything else (first frame, resize, color-tag change,
@@ -1540,64 +1589,83 @@ impl Renderer {
                 let in_place =
                     dims_match && !tag_changed && upright && self.cache.contains_key(&f.id);
                 // Incremental refresh additionally requires the server to
-                // have supplied usable surface-local damage. Unlike the
-                // historical guard, a buffer_scale > 1 is NOT a barrier: the
-                // server already normalises buffer damage to surface-local
-                // logical coordinates at commit, so we only have to scale
-                // those coordinates into buffer pixels (buffer_scale, or the
-                // viewport-implied factor for fractional-scale clients).
-                let incremental = in_place && !f.damage.is_empty();
-                if in_place || incremental {
-                    // Union of the damage rects mapped from surface-local
-                    // logical coordinates to buffer pixels (rounded outward so
-                    // no edge pixel is dropped), then clamped to the buffer
-                    // extent. Uploaded in a single update_region: pixels
-                    // outside every damaged rect are identical to the previous
-                    // frame by the damage protocol, so refreshing a bounding
-                    // superset is always correct. The factor is the effective
-                    // logical→buffer scale — fractional-scale clients keep
-                    // buffer_scale at 1 and carry the density in a wp_viewport
-                    // destination, which buffer_scale alone under-covers.
-                    let (x0, y0, x1, y1) = if incremental {
-                        let (scale_x, scale_y) =
-                            f.geometry.logical_to_buffer_scale(f.width, f.height);
-                        let mut x0 = i32::MAX;
-                        let mut y0 = i32::MAX;
-                        let mut x1 = i32::MIN;
-                        let mut y1 = i32::MIN;
-                        for d in f.damage {
-                            // Outward rounding so a partially-covered buffer
-                            // pixel is always included (mirrors the server's
-                            // buffer_damage_to_surface division).
-                            let sx0 = ((d.origin.x as f32 * scale_x).floor() as i32)
-                                .max(0)
-                                .min(f.width);
-                            let sy0 = ((d.origin.y as f32 * scale_y).floor() as i32)
-                                .max(0)
-                                .min(f.height);
-                            let sx1 = (((d.origin.x + d.size.w) as f32 * scale_x).ceil() as i32)
-                                .max(0)
-                                .min(f.width);
-                            let sy1 = (((d.origin.y + d.size.h) as f32 * scale_y).ceil() as i32)
-                                .max(0)
-                                .min(f.height);
-                            if sx1 <= sx0 || sy1 <= sy0 {
-                                continue;
+                // have supplied usable surface-local damage. The mapping is
+                // the exact inverse of the renderer's sampling pipeline —
+                // buffer transform, buffer scale, viewport source crop and
+                // destination stretch — not a bare scale factor. A crop has an
+                // origin; dropping it refreshes the wrong buffer pixels.
+                if in_place {
+                    let plan = plan_shm_upload(f);
+                    // A bounding superset of the commit damage is uploaded
+                    // from the *current snapshot*, so over-covering is safe;
+                    // under-covering strands stale texture pixels. A `None`
+                    // plan with damage_full=false means the commit changed no
+                    // visible pixel: consume the generation without touching
+                    // the texture. Do not skip the draw below — another
+                    // surface's damage, a transition, or a full repaint can
+                    // still put this surface inside the frame's render area.
+                    let damage_box = match plan {
+                        ShmUploadPlan::None => {
+                            if tracing::enabled!(
+                                target: "tessera.damage.upload",
+                                tracing::Level::TRACE
+                            ) {
+                                tracing::trace!(
+                                    target: "tessera.damage.upload",
+                                    metric = "shm.upload",
+                                    count = 1u64,
+                                    id = f.id,
+                                    window = ?f.window,
+                                    generation = f.generation,
+                                    full = f.damage_full,
+                                    damage_rects = f.damage.len(),
+                                    mode = "none",
+                                    "shm texture upload"
+                                );
                             }
-                            x0 = x0.min(sx0);
-                            y0 = y0.min(sy0);
-                            x1 = x1.max(sx1);
-                            y1 = y1.max(sy1);
+                            if let Some(cached) = self.cache.get_mut(&f.id) {
+                                cached.generation = f.generation;
+                                cached.last_used_epoch = self.frame_epoch;
+                            }
+                            None
                         }
-                        (x0, y0, x1, y1)
-                    } else {
-                        // No damage information: rewrite the whole texture.
-                        (0, 0, f.width, f.height)
+                        ShmUploadPlan::Full => Some((0, 0, f.width, f.height)),
+                        ShmUploadPlan::Region(rect) => Some((
+                            rect.origin.x,
+                            rect.origin.y,
+                            rect.origin.x.saturating_add(rect.size.w),
+                            rect.origin.y.saturating_add(rect.size.h),
+                        )),
                     };
-                    if x0 < x1
+                    if let Some((x0, y0, x1, y1)) = damage_box
+                        && x0 < x1
                         && y0 < y1
                         && let Some(entry) = self.cache.get(&f.id)
                     {
+                        if tracing::enabled!(target: "tessera.damage.upload", tracing::Level::TRACE)
+                        {
+                            let mode = if x0 == 0 && y0 == 0 && x1 == f.width && y1 == f.height {
+                                "full"
+                            } else {
+                                "partial"
+                            };
+                            tracing::trace!(
+                                target: "tessera.damage.upload",
+                                metric = "shm.upload",
+                                count = 1u64,
+                                id = f.id,
+                                window = ?f.window,
+                                generation = f.generation,
+                                full = f.damage_full,
+                                damage_rects = f.damage.len(),
+                                mode,
+                                box_x = x0,
+                                box_y = y0,
+                                box_width = x1 - x0,
+                                box_height = y1 - y0,
+                                "shm texture upload"
+                            );
+                        }
                         let img = &entry.image;
                         let (bw, bh) = ((x1 - x0) as u32, (y1 - y0) as u32);
                         let updated = if x0 == 0
@@ -2652,6 +2720,57 @@ mod tests {
         assert!((covered - 240.0).abs() < 1e-3);
     }
 
+    fn shm_frame<'a>(
+        width: i32,
+        height: i32,
+        geometry: tessera_primitives::SurfaceGeometry,
+        damage: &'a [tessera_primitives::Rect],
+        damage_full: bool,
+    ) -> SurfacePixels<'a> {
+        SurfacePixels {
+            id: 1,
+            window: None,
+            width,
+            height,
+            generation: 1,
+            pixels: &[],
+            geometry,
+            damage,
+            damage_full,
+            opaque_region: None,
+            color: None,
+        }
+    }
+
+    #[test]
+    fn shm_upload_plan_distinguishes_full_empty_and_region() {
+        use tessera_primitives::{Rect, Size, SurfaceGeometry};
+
+        let geometry = SurfaceGeometry {
+            viewport_dst: Some(Size { w: 4, h: 2 }),
+            ..Default::default()
+        };
+        assert_eq!(
+            plan_shm_upload(&shm_frame(8, 4, geometry, &[], true)),
+            ShmUploadPlan::Full
+        );
+        assert_eq!(
+            plan_shm_upload(&shm_frame(8, 4, geometry, &[], false)),
+            ShmUploadPlan::None,
+            "an empty non-full list is a visible no-op, not a full upload"
+        );
+        assert_eq!(
+            plan_shm_upload(&shm_frame(8, 4, geometry, &[Rect::new(4, 0, 1, 1)], false,)),
+            ShmUploadPlan::None,
+            "damage outside the surface must not fall back to a full upload"
+        );
+        // A 4x2 viewport destination over an 8x4 buffer maps 2:1.
+        assert_eq!(
+            plan_shm_upload(&shm_frame(8, 4, geometry, &[Rect::new(1, 1, 2, 1)], false,)),
+            ShmUploadPlan::Region(Rect::new(2, 2, 4, 2))
+        );
+    }
+
     /// `destination_size` covers the four viewport/scale combinations.
     #[test]
     fn destination_size_handles_viewport_and_scale() {
@@ -3066,43 +3185,41 @@ mod placement_agreement {
     }
 
     /// The renderer draws the visible content at `geometry.position`, whatever
-    /// the viewport crop is. Damage at the visible content's own origin must
-    /// therefore land at `geometry.position` — not at some crop-offset
-    /// multiple of it. A scale-only map passes the extent test above and fails
-    /// this one, which is exactly how the crop-offset defect survived.
+    /// the viewport crop is. Damage is in surface coordinates, so the surface's
+    /// own origin must land at `geometry.position`; a viewport crop belongs to
+    /// the surface→buffer conversion and must not shift the output damage.
     #[test]
-    fn test_inv_arch_92_damage_at_the_visible_origin_lands_at_the_drawn_origin() {
+    fn test_inv_arch_92_damage_at_the_surface_origin_lands_at_the_drawn_origin() {
         for (name, geometry, width, height) in cases() {
             let mut geometry = geometry;
             geometry.position = tessera_primitives::Point { x: 37, y: 41 };
             let placement = SurfacePlacement::resolve(&geometry, width, height);
-            // The top-left pixel of whatever is visible.
-            let visible_origin = tessera_primitives::Rect::new(
-                placement.source_origin.0,
-                placement.source_origin.1,
-                1,
-                1,
-            );
             let landed = placement
-                .place(visible_origin)
-                .unwrap_or_else(|| panic!("{name}: the visible origin must map onto the output"));
+                .place(Rect::new(0, 0, 1, 1))
+                .unwrap_or_else(|| panic!("{name}: the surface origin must map onto the output"));
             assert_eq!(
                 (landed.origin.x, landed.origin.y),
                 (37, 41),
-                "{name}: damage at the visible origin landed at {landed:?}, but the renderer \
+                "{name}: damage at the surface origin landed at {landed:?}, but the renderer \
                  draws the visible content at (37, 41)"
+            );
+            // The far edge of a full-surface damage is exactly the drawn rect.
+            assert_eq!(
+                placement.place_damage(&[], true),
+                vec![placement.rect()],
+                "{name}: whole-surface damage disagrees with the drawn rect"
             );
         }
     }
 
     #[test]
     fn test_inv_arch_93_full_surface_damage_covers_exactly_the_drawn_rect() {
-        // The empty-damage convention ("no usable information → the whole
-        // surface changed") must produce exactly the rectangle the renderer
-        // draws, never a larger one.
+        // The explicit full verdict must produce exactly the rectangle the
+        // renderer draws, never a larger one. An empty non-full list is a
+        // no-op and must not reach this path.
         for (name, geometry, width, height) in cases() {
             let placement = SurfacePlacement::resolve(&geometry, width, height);
-            let rects = placement.place_damage(&[]);
+            let rects = placement.place_damage(&[], true);
             assert_eq!(rects.len(), 1, "{name}: expected one whole-surface rect");
             assert_eq!(
                 rects[0],

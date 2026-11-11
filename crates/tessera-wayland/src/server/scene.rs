@@ -468,6 +468,7 @@ impl Server {
                         ..Default::default()
                     },
                     damage: &s.committed_damage,
+                    damage_full: s.committed_damage_full,
                     opaque_region: s.opaque_region.as_deref(),
                     color: s.image_description.clone(),
                 }
@@ -570,6 +571,7 @@ impl Server {
                     height: s.height,
                     generation: s.generation,
                     damage: s.committed_damage.clone(),
+                    damage_full: s.committed_damage_full,
                     buffer_id: db.buffer_id,
                     fd: db.fd,
                     drm_format: db.drm_format,
@@ -1023,6 +1025,7 @@ impl Server {
                     ..Default::default()
                 },
                 damage: &surface.committed_damage,
+                damage_full: surface.committed_damage_full,
                 opaque_region: surface.opaque_region.as_deref(),
                 color: surface.image_description.clone(),
             })
@@ -1056,6 +1059,7 @@ impl Server {
                     height: surface.height,
                     generation: surface.generation,
                     damage: surface.committed_damage.clone(),
+                    damage_full: surface.committed_damage_full,
                     buffer_id: dmabuf.buffer_id,
                     fd: dmabuf.fd,
                     drm_format: dmabuf.drm_format,
@@ -1196,6 +1200,7 @@ impl Server {
                         interaction_domain,
                     )?,
                     damage: &surface.committed_damage,
+                    damage_full: surface.committed_damage_full,
                     opaque_region: surface.opaque_region.as_deref(),
                     color: surface.image_description.clone(),
                 })
@@ -1263,6 +1268,7 @@ impl Server {
                     height: surface.height,
                     generation: surface.generation,
                     damage: surface.committed_damage.clone(),
+                    damage_full: surface.committed_damage_full,
                     opaque_region: surface.opaque_region.clone(),
                     color: surface.image_description.clone(),
                     buffer_id: dmabuf.buffer_id,
@@ -1357,6 +1363,7 @@ impl Server {
                     ..Default::default()
                 },
                 damage: &surface.committed_damage,
+                damage_full: surface.committed_damage_full,
                 opaque_region: surface.opaque_region.as_deref(),
                 color: surface.image_description.clone(),
             })
@@ -1390,6 +1397,7 @@ impl Server {
                             ..Default::default()
                         },
                         damage: &surface.committed_damage,
+                        damage_full: surface.committed_damage_full,
                         opaque_region: surface.opaque_region.as_deref(),
                         color: surface.image_description.clone(),
                     });
@@ -1421,6 +1429,7 @@ impl Server {
                     height: surface.height,
                     generation: surface.generation,
                     damage: surface.committed_damage.clone(),
+                    damage_full: surface.committed_damage_full,
                     opaque_region: surface.opaque_region.clone(),
                     color: surface.image_description.clone(),
                     buffer_id: buffer.buffer_id,
@@ -1465,6 +1474,7 @@ impl Server {
                         height: surface.height,
                         generation: surface.generation,
                         damage: surface.committed_damage.clone(),
+                        damage_full: surface.committed_damage_full,
                         opaque_region: surface.opaque_region.clone(),
                         color: surface.image_description.clone(),
                         buffer_id: buffer.buffer_id,
@@ -1564,6 +1574,7 @@ impl Server {
                         ..Default::default()
                     },
                     damage: &surface.committed_damage,
+                    damage_full: surface.committed_damage_full,
                     opaque_region: surface.opaque_region.as_deref(),
                     color: surface.image_description.clone(),
                 })
@@ -1634,6 +1645,7 @@ impl Server {
                     height: surface.height,
                     generation: surface.generation,
                     damage: surface.committed_damage.clone(),
+                    damage_full: surface.committed_damage_full,
                     opaque_region: surface.opaque_region.clone(),
                     color: surface.image_description.clone(),
                     buffer_id: buffer.buffer_id,
@@ -1833,6 +1845,7 @@ impl Server {
                 pixels: &surface.pixels,
                 geometry,
                 damage: &surface.committed_damage,
+                damage_full: surface.committed_damage_full,
                 opaque_region: surface.opaque_region.as_deref(),
                 color: surface.image_description.clone(),
             });
@@ -1940,6 +1953,7 @@ impl Server {
                 height: surface.height,
                 generation: surface.generation,
                 damage: surface.committed_damage.clone(),
+                damage_full: surface.committed_damage_full,
                 opaque_region: surface.opaque_region.clone(),
                 color: surface.image_description.clone(),
                 buffer_id: dmabuf.buffer_id,
@@ -2070,6 +2084,7 @@ impl Server {
                     ..Default::default()
                 },
                 damage: &s.committed_damage,
+                damage_full: s.committed_damage_full,
                 opaque_region: s.opaque_region.as_deref(),
                 color: s.image_description.clone(),
             });
@@ -2168,6 +2183,7 @@ impl Server {
                 height: s.height,
                 generation: s.generation,
                 damage: s.committed_damage.clone(),
+                damage_full: s.committed_damage_full,
                 opaque_region: s.opaque_region.clone(),
                 color: s.image_description.clone(),
                 buffer_id: db.buffer_id,

@@ -9,9 +9,8 @@ mod stream;
 
 pub use damage::{
     AssessedFrameDamage, ClientDamage, ClientDamageTracker, DamageAssessment, FrameDamage,
-    SurfaceDamageFrame, SurfacePlacement, composite_repaint_for_slot, frame_damage_scope,
-    logical_rects_to_frame, logical_to_physical, offscreen_damage_to_target,
-    record_composite_present, union_frame_damage,
+    SurfaceDamageFrame, SurfacePlacement, frame_damage_scope, logical_rects_to_frame,
+    logical_to_physical, offscreen_damage_to_target, union_frame_damage,
 };
 pub use geometry::{clamp_logical_region, crop_rgba, logical_rect_to_physical};
 pub use scanout::{
@@ -20,6 +19,7 @@ pub use scanout::{
 };
 pub use scheduler::{
     ActivationChange, PresentationAvailability, PresentationOutcome, PresentationScheduler,
+    RetryWait,
 };
 pub use stream::{
     BlitFailure, CaptureCursorState, DRM_FORMAT_XRGB8888, DmabufCapture, DmabufStream,

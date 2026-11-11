@@ -25,7 +25,8 @@ Tessera requires Rust 1.88 or later and the native build dependencies listed in
 the [Getting Started tutorial](docs/tutorials/01-getting-started.md).
 
 Install the Optics `v<OPTICS_VERSION>` native libraries from a distribution package or
-build the matching source release:
+build the matching source release. Building Optics needs a C23 compiler,
+Meson, and `slangc` (Slang 2026.17+; recent Vulkan SDKs bundle it):
 
 ```bash
 git clone --branch "v<OPTICS_VERSION>" --depth 1 \
@@ -38,18 +39,47 @@ sudo ldconfig
 pkg-config --modversion flux vista lens iris svg
 ```
 
-From the Tessera repository root, start the compositor:
+From the Tessera repository root, start the compositor. Use the
+`release-fast` profile for real desktop use: the debug profile is for stepping
+through code, and its `opt-level = 1` cannot hold a 120 Hz 5 MP frame budget.
 
 ```bash
 cargo build --locked -p tessera-idle -p tessera-lock
-cargo run --locked -p tessera
+cargo run --locked --profile release-fast -p tessera
 ```
+
+For a debug session, prefer `./scripts/run-nested-dev.sh` (it defaults to
+`release-fast`) and set `TESSERA_DEV_PROFILE=debug` only when a debugger is
+the point.
+
+Nested output is composited by the **outer** session. If the outer compositor
+is an installed build older than the source tree, refresh artifacts can
+originate there even when the nested compositor is correct. Validate damage or
+pacing fixes on the direct DRM session (a spare VT), or restart the outer
+session on the same build.
 
 `TESSERA_BACKEND=auto` is the default. A terminal with `WAYLAND_DISPLAY` set
 opens a nested window; a login on a bare TTY selects direct DRM/KMS.
 When developing nested inside an active Tessera session, specify an isolated
 `XDG_DATA_HOME` (e.g. `XDG_DATA_HOME=/tmp/tessera-dev XDG_DATA_DIRS=$HOME/.local/share:/usr/local/share:/usr/share`)
 to prevent audit store lock contention with the host compositor.
+
+### How the C libraries are selected
+
+The Rust bindings (`flux`, `lens`, `transit`, `svg`, ...) are ordinary crates
+compiled into the compositor binary. The C implementations are **shared
+libraries**. The patched `*-sys` build scripts auto-discover the sibling
+`../optics` checkout and prepend its `build/meson-uninstalled` directory to
+`pkg-config`, then emit an RPATH to `build/libs/*`. A source-tree `cargo run`
+therefore uses the freshly built C libraries, even though the system-wide
+`pkg-config --modversion flux` still reports the installed release.
+
+Set `FLUX_USE_INSTALLED=1` to link the system pkg-config database instead.
+Pre-1.0 the bindings require the **exact** `X.Y.Z` of the C library: a
+mismatch fails the build (or the dynamic loader, because the SONAME carries the
+full pre-1.0 version) instead of silently reading a different descriptor
+layout. A running compositor keeps the library inode it mapped at startup;
+restart it after rebuilding Optics.
 
 Source-tree Cargo commands do not install systemd, D-Bus, portal, desktop, or
 icon metadata. The D-Bus-activated portal backend is built from the

@@ -34,6 +34,21 @@ const MAX_VISIBLE: usize = 5;
 /// it bumps no revision — [`Self::anim_pending`] keeps the frames coming
 /// until every visible toast has crossed the window.
 const TOAST_TTL_MS: u64 = 3_000;
+/// Frames the vacated strip keeps repainting after the last toast leaves.
+///
+/// A toast expiring is not a queue mutation, so it cannot rely on
+/// `scene_changed`. The compositor's DRM ring may hold three images with
+/// different vintages; one clear frame would leave the toast on the other
+/// two. Four frames reproduces the strip on every image with margin, then
+/// `anim_pending` goes false and the loop idles again. The band is small, so
+/// the cost is bounded.
+const TOAST_RETIRE_FRAMES: u8 = 4;
+/// Start rebuilding this long before the oldest toast expires, so the
+/// expiry frame is a real build and can arm the retirement window. Without
+/// it the loop wakes at the deadline only to find that the component no
+/// longer has a deadline (the toast is already past its window) and skips
+/// the build. Two 60 Hz frames of a static strip is negligible.
+const TOAST_EXPIRY_LEAD_MS: u64 = 34;
 
 /// Whether `n` is still inside its presentation window at `now_ms`.
 fn within_window(n: &Notification, now_ms: u64) -> bool {
@@ -55,6 +70,14 @@ pub struct Toast {
     /// [`crate::Shell::add`] and refreshed when the desktop color scheme
     /// changes; defaults to the dark appearance until the first update arrives.
     design: Design,
+    /// Band painted by the last render, used to arm the retirement window
+    /// when the stack becomes empty.
+    last_band: Option<Rect>,
+    /// Band vacated by the stack that still needs a few repaints, and the
+    /// remaining frame budget for it. Non-zero also keeps the component
+    /// participating so `damage_regions` is asked for the clear.
+    retire_band: Option<Rect>,
+    retire_frames: u8,
 }
 
 impl Toast {
@@ -64,7 +87,26 @@ impl Toast {
             queue,
             cache: None,
             design: Design::dark(),
+            last_band: None,
+            retire_band: None,
+            retire_frames: 0,
         }
+    }
+
+    /// The stacked strip's painted band for `count` visible toasts.
+    fn band(display: (f32, f32), count: usize) -> Option<Rect> {
+        (count > 0).then(|| {
+            let width = (TOAST_W + TOAST_RIGHT_MARGIN).min(display.0.max(1.0));
+            let height = TOAST_TOP_MARGIN
+                + count as f32 * TOAST_H
+                + (count.saturating_sub(1)) as f32 * TOAST_GAP;
+            Rect {
+                x: (display.0 - width).max(0.0),
+                y: 0.0,
+                w: width.ceil(),
+                h: height.ceil(),
+            }
+        })
     }
 
     /// The entries eligible for presentation right now: do-not-disturb off,
@@ -184,6 +226,22 @@ impl Chrome for Toast {
                 );
             });
         }
+
+        // The strip is static; its only lifecycle event is "the last toast
+        // left". Arm a short retirement window so every ring image receives
+        // the clear, even though no queue revision or animation reported it.
+        let band = Self::band((disp.x, disp.y), slot);
+        let armed_now = band.is_none() && self.last_band.is_some();
+        if armed_now {
+            self.retire_band = self.last_band;
+            self.retire_frames = TOAST_RETIRE_FRAMES;
+        } else if band.is_some() {
+            self.retire_band = None;
+            self.retire_frames = 0;
+        } else if self.retire_frames > 0 {
+            self.retire_frames -= 1;
+        }
+        self.last_band = band;
     }
 
     fn update(&mut self, update: ChromeUpdate<'_>) {
@@ -195,12 +253,31 @@ impl Chrome for Toast {
     fn anim_pending(&self) -> bool {
         // A toast is a static strip that vanishes when its window closes. It
         // has no fade, so it must not pump the frame loop for its whole
-        // lifetime: that repainted a fully static desktop at the output
-        // refresh rate for three seconds after every notification. The
-        // compositor instead schedules one wake at the exact moment the
-        // oldest toast leaves its window (`animation_deadline_in`), so the
-        // strip clears on screen without a single redundant frame.
-        false
+        // lifetime. `animation_deadline_in` schedules the expiry wake, and the
+        // short lead below turns that wake into a build; the retirement window
+        // then repaints the vacated band across the swapchain ring.
+        if self.retire_frames > 0 {
+            return true;
+        }
+        // The stack is empty but the last painted band is still owned: this is
+        // the frame that must rebuild, observe the empty stack in `render`,
+        // and arm the retirement window.
+        if self.last_band.is_some() && self.presentable().is_empty() {
+            return true;
+        }
+        let queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
+        if queue.do_not_disturb() {
+            return false;
+        }
+        let now_ms = queue.now_ms();
+        queue
+            .recent()
+            .iter()
+            .rev()
+            .filter(|n| within_window(n, now_ms))
+            .map(|n| TOAST_TTL_MS.saturating_sub(now_ms.saturating_sub(n.at_ms)))
+            .min()
+            .is_some_and(|remaining| remaining <= TOAST_EXPIRY_LEAD_MS)
     }
 
     fn animation_deadline_in(&self) -> Option<std::time::Duration> {
@@ -224,26 +301,25 @@ impl Chrome for Toast {
     }
 
     fn damage_regions(&self, _windows: &[Window], display: (f32, f32)) -> Option<Vec<Rect>> {
-        let count = self.presentable().len();
-        (count > 0).then(|| {
-            // The stacked strip in the top-right corner: every slot a toast
-            // occupies (or is about to vacate by expiring this frame) sits
-            // inside this band, margins included.
-            let width = (TOAST_W + TOAST_RIGHT_MARGIN).min(display.0.max(1.0));
-            let height = TOAST_TOP_MARGIN
-                + count as f32 * TOAST_H
-                + (count.saturating_sub(1)) as f32 * TOAST_GAP;
-            vec![Rect {
-                x: (display.0 - width).max(0.0),
-                y: 0.0,
-                w: width.ceil(),
-                h: height.ceil(),
-            }]
-        })
+        let current = Self::band(display, self.presentable().len());
+        let mut regions = Vec::new();
+        if let Some(rect) = current {
+            regions.push(rect);
+        }
+        if self.retire_frames > 0
+            && let Some(rect) = self.retire_band
+        {
+            regions.push(rect);
+        }
+        (!regions.is_empty()).then_some(regions)
     }
 
     fn requires_composition(&self) -> bool {
-        !self.presentable().is_empty()
+        // `last_band` keeps the component in the pass for the one build that
+        // observes the empty stack and arms the retirement window. Without it
+        // the component would be filtered out before `render`, so the band it
+        // painted last frame would never be named as damage.
+        self.retire_frames > 0 || self.last_band.is_some() || !self.presentable().is_empty()
     }
 }
 
@@ -278,5 +354,22 @@ mod tests {
         assert!(!within_window(&n, 13_001), "past 3s the toast is gone");
         // A clock reading older than the post time never underflows.
         assert!(within_window(&n, 5_000));
+    }
+
+    #[test]
+    fn an_empty_stack_after_a_band_keeps_the_toast_participating() {
+        // The expiry build must still call `render` so the component can arm
+        // its retirement window; filtering it out because the stack is empty
+        // would leave the last band unowned.
+        let queue = Arc::new(Mutex::new(NotificationQueue::new(10_000)));
+        let mut toast = Toast::new(queue);
+        toast.last_band = Some(Rect {
+            x: 10.0,
+            y: 0.0,
+            w: 300.0,
+            h: 64.0,
+        });
+        assert!(toast.requires_composition());
+        assert!(toast.anim_pending());
     }
 }

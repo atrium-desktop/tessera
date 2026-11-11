@@ -6,9 +6,10 @@ expected to follow. The architectural decision is
 
 ## The seam
 
-Crates emit through the standard `log` facade. Each first-party binary
-installs a `tracing`-based subscriber through the shared `tessera-env`
-crate before doing anything else:
+Most crates emit through the standard `log` facade; code that needs
+structured, correlated fields uses `tracing` directly (the damage pipeline is
+the current example). Each first-party binary installs a `tracing`-based
+subscriber through the shared `tessera-env` crate before doing anything else:
 
 ```rust
 fn main() {
@@ -92,3 +93,36 @@ Prefer `debug_span` (elided at the default `info` level) for anything that
 could run frequently, so instrumentation is free unless someone raises the
 filter. Events emitted through `log::` inside an entered span are captured
 into that span automatically via the bridge.
+
+## Damage diagnostics
+
+The damage pipeline emits structured `tracing` events under the
+`tessera.damage.*` target namespace. They are `trace`-level (per commit or per
+frame), and the field expressions are gated with `tracing::enabled!` so a
+disabled trace costs nothing.
+
+Enable them with a prefix filter:
+
+```bash
+RUST_LOG="info,tessera.damage=trace" TESSERA_LOG_FORMAT=json \
+  cargo run --locked -p tessera
+```
+
+| Target | Event | Key fields |
+|--------|-------|------------|
+| `tessera.damage.commit` | `commit.decision` | `surface`, `window`, `generation`, `buffer_set`, `damage_reported`, `geometry_revision`, `damage_space_changed`, `unknown_full`, `buffer_extent`, `frame_damage`, `surface_damage`, `buffer_damage`, `committed_damage`, `committed_full` |
+| `tessera.damage.shm` | `shm.snapshot` | `surface`, `window`, `generation`, `width`, `height`, `transform`, `buffer_scale`, `viewport_src`, `viewport_dst`, `surface_extent`, `damage_reported`, `unknown_full`, `geometry_revision`, `reason`, `surface_commit_rects`, `buffer_commit_rects`, `mapped` |
+| `tessera.damage.assess` | `damage.surface` / `damage.assess` | per-surface `id`, `generation`, `damage_full`, `damage_rects`, `placement`; aggregate `surfaces`, `rects`, `area` |
+| `tessera.damage.upload` | `shm.upload` | `id`, `window`, `generation`, `full`, `damage_rects`, `mode` (`full`/`partial`/`none`), `box_*` |
+
+Every event carries `metric` and `count = 1`. A tracing layer can therefore
+treat them as counters without a second telemetry type:
+`commit.full`, `shm.snapshot.unknown_full`, `shm.upload.none`, and so on. The
+`reason` field distinguishes `unknown_full`, `snapshot_mismatch`,
+`reported_empty`, and `incremental`; do not infer the reason from the rectangle
+count alone.
+
+`window` is the stable `WindowId` when the surface belongs to a toplevel;
+`surface` is the Wayland resource pointer used as the renderer cache identity.
+Use both: the pointer correlates with `SurfacePixels::id`, the window id
+correlates with user-visible clients.

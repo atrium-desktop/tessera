@@ -22,10 +22,12 @@ verify the native development files before building Tessera:
 pkg-config --modversion flux vista lens iris svg
 ```
 
-Each command must report a version compatible with `<OPTICS_VERSION>`. Distribution
-package names vary, so express the dependency in terms of the shared
-libraries, headers, and `.pc` files rather than copying files from an Optics
-build tree. (On Arch this is the separate `optics` package; see
+Each command must report exactly `<OPTICS_VERSION>`. Pre-1.0 the `-sys` crates
+probe `pkg-config` with an exact version, and the SONAME carries the full
+version, so a mismatched native release fails at build or load time rather than
+reading a different descriptor layout. Distribution package names vary, so
+express the dependency in terms of the shared libraries, headers, and `.pc`
+files rather than copying files from an Optics build tree. (On Arch this is the separate `optics` package; see
 [Arch Linux](#arch-linux).)
 
 The remaining Tessera build dependencies include a C toolchain, `pkg-config`,
@@ -263,7 +265,7 @@ url='https://github.com/ming2k/optics'
 license=(MIT)
 depends=(glibc vulkan-icd-loader wayland libxkbcommon pipewire libinput
          seatd freetype2 harfbuzz fontconfig fribidi)
-makedepends=(meson ninja pkgconf gcc glslang clang
+makedepends=(meson ninja pkgconf gcc shader-slang clang
              vulkan-headers wayland-protocols systemd-libs glfw-x11)
 source=("$url/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('SKIP')   # replace with the real release-tarball checksum

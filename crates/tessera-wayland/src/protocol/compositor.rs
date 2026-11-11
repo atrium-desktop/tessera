@@ -195,28 +195,70 @@ fn insert_damage_rect(
 /// Rectangles remain exact and disjoint under the bounded region budget so a
 /// small video update cannot invalidate unrelated backdrop/chrome pixels.
 ///
-/// `unknown_full` is absorbing within a frame — once any commit in the
-/// render interval is unlocalizable the frame must be treated as fully
-/// damaged — but it no longer discards *precise* damage from later commits
-/// in the same interval: those rects are recorded anyway, so the
-/// acknowledging present clears both states together and a subsequent
-/// frame returns to incremental updates instead of inheriting a stale
-/// "everything is damaged" latch.
+/// The exposed list is either a precise disjoint set or empty with
+/// `committed_damage_full` set. An unlocalizable (or over-capacity) commit
+/// latches the interval to full and **keeps the list empty**: consumers read
+/// an empty list as "the whole surface changed", and a later precise commit
+/// must not replace that verdict with a smaller one before the present
+/// acknowledges the interval. The later commit's own rects still reach the
+/// SHM snapshot copy through its per-commit slice; they are only withheld
+/// from the frame-level list.
 pub(crate) fn accumulate_committed_damage(
     rec: &mut SurfaceRec,
-    pending: Vec<tessera_primitives::Rect>,
+    pending: &[tessera_primitives::Rect],
     unknown_full: bool,
 ) {
-    if unknown_full && !rec.committed_damage_full {
+    if rec.committed_damage_full {
+        return;
+    }
+    if unknown_full {
         rec.committed_damage.clear();
         rec.committed_damage_full = true;
         return;
     }
-    for rect in pending {
+    for &rect in pending {
         if insert_damage_rect(&mut rec.committed_damage, rect) {
             rec.committed_damage.clear();
             rec.committed_damage_full = true;
             break;
+        }
+    }
+}
+
+/// How one commit repairs the retained SHM snapshot.
+///
+/// This is deliberately not the frame-accumulated `committed_damage`: a later
+/// commit in the same render interval attaches a different buffer, and the
+/// earlier commit's rects in that buffer still hold pixels from an older
+/// frame. Re-copying them rolls the surface snapshot backwards (visible as a
+/// typing caret and text returning to a previous position).
+#[derive(Clone, Copy)]
+pub(crate) enum SnapshotRepair<'a> {
+    /// The commit could not describe itself. The whole buffer is the only
+    /// truthful source.
+    Full,
+    /// Copy exactly this commit's damage. `surface` is in surface-local
+    /// logical coordinates; `buffer` is raw buffer coordinates and therefore
+    /// also covers pixels hidden by a `wp_viewport.set_source` crop. Empty
+    /// lists mean the commit is a visible no-op: copy nothing, never the whole
+    /// buffer.
+    Rects {
+        surface: &'a [tessera_primitives::Rect],
+        buffer: &'a [tessera_primitives::Rect],
+    },
+}
+
+pub(crate) fn commit_snapshot_damage<'a>(
+    surface_damage: &'a [tessera_primitives::Rect],
+    buffer_damage: &'a [tessera_primitives::Rect],
+    unknown_full: bool,
+) -> SnapshotRepair<'a> {
+    if unknown_full {
+        SnapshotRepair::Full
+    } else {
+        SnapshotRepair::Rects {
+            surface: surface_damage,
+            buffer: buffer_damage,
         }
     }
 }
@@ -1040,15 +1082,36 @@ pub(crate) unsafe extern "C" fn surface_commit(
             return;
         }
         (*rec).subsurface_cached_commit = false;
-        let visual_metadata_changed = (*rec).pending_window_geometry.is_some()
-            || (*rec).pending_viewport_src.is_some()
-            || (*rec).pending_viewport_dst.is_some()
-            || (*rec).pending_opaque_region.is_some()
+        // Damage rectangles are surface-local. A commit that changes the
+        // surface-local extent moves that coordinate space; rectangles already
+        // accumulated earlier in this render interval can no longer be
+        // reinterpreted in the new one. Capture the old extent now, before the
+        // pending state is latched. A viewport/transform change that preserves
+        // the extent still bumps the generation below, but does not invalidate
+        // the accumulated rectangles.
+        let old_surface_extent = tessera_primitives::SurfaceGeometry {
+            transform: (*rec).buffer_transform,
+            buffer_scale: (*rec).buffer_scale,
+            viewport_src: (*rec).viewport_src,
+            viewport_dst: (*rec).viewport_dst,
+            ..Default::default()
+        }
+        .surface_extent((*rec).width, (*rec).height);
+        let viewport_src_changed = (*rec)
+            .pending_viewport_src
+            .is_some_and(|next| next != (*rec).viewport_src);
+        let viewport_dst_changed = (*rec)
+            .pending_viewport_dst
+            .is_some_and(|next| next != (*rec).viewport_dst);
+        let geometry_revision_changed = viewport_src_changed
+            || viewport_dst_changed
             || (*rec).pending_transform != (*rec).buffer_transform
-            || (*rec).pending_scale != (*rec).buffer_scale
+            || (*rec).pending_scale != (*rec).buffer_scale;
+        let visual_metadata_changed = (*rec).pending_window_geometry.is_some()
+            || geometry_revision_changed
+            || (*rec).pending_opaque_region.is_some()
             || (*rec).pending_image_description.is_some()
-            || !(*rec).pending_damage.is_empty()
-            || !(*rec).pending_buffer_damage.is_empty();
+            || (*rec).pending_damage_reported;
         let old_window_size = (*rec).window.size;
         if let Some(region) = (*rec).pending_input_region.take() {
             (*rec).input_region = region;
@@ -1138,56 +1201,104 @@ pub(crate) unsafe extern "C" fn surface_commit(
         // stale in the retained shm snapshot/GPU texture and under-report the
         // KMS damage hint. Empty damage on a new buffer carries no usable
         // information and therefore poisons the aggregate to full.
-        let mut pending_damage = std::mem::take(&mut (*rec).pending_damage);
+        let surface_damage = std::mem::take(&mut (*rec).pending_damage);
         let pending_buffer_damage = std::mem::take(&mut (*rec).pending_buffer_damage);
-        // buffer damage (wl_surface.damage_buffer) is in buffer-pixel space. It
-        // is mappable to surface-local logical pixels whenever the pending
-        // buffer's own dimensions are known (so the transform can be applied)
-        // and the surface has no wp_viewport crop/destination — viewport
-        // changes the buffer↔surface sample relationship in a way a simple
-        // rect transform cannot capture. The historical guard also bailed on
-        // any buffer_transform != Normal; that is now handled by a real
-        // 8-way geometric remap, so rotated/flipped clients no longer force a
-        // whole-output repaint.
+        let damage_reported = std::mem::take(&mut (*rec).pending_damage_reported);
+        let mut frame_damage = surface_damage.clone();
+        // `wl_surface.damage_buffer` is in raw buffer pixels. The geometry
+        // conversion owns the entire pipeline — buffer transform, buffer
+        // scale, viewport source crop and destination stretch — and returns
+        // surface-local logical coordinates. Keeping the transform here as
+        // well would apply it twice (and dropping the viewport origin copied
+        // the wrong buffer region). The only unmappable case left is a buffer
+        // whose dimensions are not locally known.
         let buffer_dims = if !buffer.is_null() {
             pending_buffer_dimensions(buffer)
         } else {
             None
         };
-        // `wl_surface.damage_buffer` is mappable through the viewport too:
-        // the 8-way transform remap runs first (buffer → post-transform
-        // buffer space), then the viewport src-crop + dst-stretch (or the
-        // buffer-scale division when no destination is set) lands the rect
-        // in surface-local logical coordinates with outward rounding.
-        // Historically any viewport ⇒ "unmappable" ⇒ full damage, which made
-        // every fractional-scale client (Chrome, GTK4, Electron on HiDPI)
-        // pay a whole-buffer CPU copy plus a whole-texture GPU upload per
-        // commit — the dominant memmove storm on the compositor main loop.
         let buffer_damage_unmappable = !pending_buffer_damage.is_empty() && buffer_dims.is_none();
         if !buffer_damage_unmappable {
             let (bw, bh) = buffer_dims.unwrap_or(((*rec).width, (*rec).height));
-            let transform = (*rec).buffer_transform;
             let geometry = tessera_primitives::SurfaceGeometry {
-                transform,
+                transform: (*rec).buffer_transform,
                 buffer_scale: (*rec).buffer_scale,
                 viewport_src: (*rec).viewport_src,
                 viewport_dst: (*rec).viewport_dst,
                 ..Default::default()
             };
-            pending_damage.extend(pending_buffer_damage.into_iter().map(|damage| {
-                if geometry.viewport_src.is_some() || geometry.viewport_dst.is_some() {
-                    let mapped = transform.map_buffer_rect_to_surface(damage, (bw, bh));
-                    geometry.buffer_rect_to_logical(mapped, bw, bh)
-                } else {
-                    let mapped = transform.map_buffer_rect_to_surface(damage, (bw, bh));
-                    buffer_damage_to_surface(mapped, (*rec).buffer_scale)
-                }
-            }));
+            frame_damage.extend(
+                pending_buffer_damage
+                    .iter()
+                    .map(|damage| geometry.buffer_rect_to_logical(*damage, bw, bh))
+                    .filter(|damage| !damage.is_empty()),
+            );
         }
+        // A new buffer with no damage request means the whole surface changed.
+        // A buffer whose damage was reported but clipped away is a visible
+        // no-op; treating it as "no information" would copy a whole
+        // alternating buffer over pixels contributed by an earlier commit.
+        // A geometry revision changes which buffer pixels the surface samples,
+        // so the new buffer becomes the authority for the whole snapshot.
         let unknown_full = buffer_damage_unmappable
-            || (buffer_set && !buffer.is_null() && pending_damage.is_empty());
-        accumulate_committed_damage(&mut *rec, pending_damage, unknown_full);
-        apply_committed_buffer(rec, buffer, buffer_set, was_mapped);
+            || (buffer_set && !buffer.is_null() && (!damage_reported || geometry_revision_changed));
+        let current_geometry = tessera_primitives::SurfaceGeometry {
+            transform: (*rec).buffer_transform,
+            buffer_scale: (*rec).buffer_scale,
+            viewport_src: (*rec).viewport_src,
+            viewport_dst: (*rec).viewport_dst,
+            ..Default::default()
+        };
+        let target_dims = if buffer_set {
+            buffer_dims.unwrap_or(((*rec).width, (*rec).height))
+        } else {
+            ((*rec).width, (*rec).height)
+        };
+        let new_surface_extent = current_geometry.surface_extent(target_dims.0, target_dims.1);
+        let damage_space_changed = geometry_revision_changed
+            || new_surface_extent != old_surface_extent
+            || (*rec).width <= 0
+            || (*rec).height <= 0
+            || (buffer_set && !buffer.is_null() && buffer_dims.is_none());
+        if damage_space_changed {
+            (*rec).committed_damage.clear();
+            (*rec).committed_damage_full = true;
+        }
+        accumulate_committed_damage(&mut *rec, &frame_damage, unknown_full);
+        apply_committed_buffer(
+            rec,
+            buffer,
+            buffer_set,
+            was_mapped,
+            &surface_damage,
+            &pending_buffer_damage,
+            unknown_full,
+            damage_reported,
+            geometry_revision_changed,
+        );
+
+        if tracing::enabled!(target: "tessera.damage.commit", tracing::Level::TRACE) {
+            tracing::trace!(
+                target: "tessera.damage.commit",
+                metric = "commit.decision",
+                count = 1u64,
+                surface = (*rec).resource as usize,
+                window = ?(*rec).window.id,
+                generation = (*rec).generation,
+                buffer_set,
+                damage_reported,
+                geometry_revision = geometry_revision_changed,
+                damage_space_changed,
+                unknown_full,
+                buffer_extent = ?buffer_dims,
+                frame_damage = ?frame_damage,
+                surface_damage = ?surface_damage,
+                buffer_damage = ?pending_buffer_damage,
+                committed_damage = ?(*rec).committed_damage,
+                committed_full = (*rec).committed_damage_full,
+                "commit damage decision"
+            );
+        }
 
         // Buffer transform/scale/viewport/window-geometry commits alter the
         // composed pixels even when no new wl_buffer is attached. Give the
@@ -1472,11 +1583,10 @@ pub(crate) fn push_pending_damage(
     list.push(bbox);
 }
 
-/// `wl_surface.damage` (v1): damage in surface-local logical coordinates. The renderer's
-/// texture is in buffer pixel coords, so under buffer_scale > 1 these rects
-/// cover only a fraction of the buffer. The renderer bypasses the
-/// incremental-upload path when `buffer_scale != 1` (see tessera-render); a
-/// generation change still triggers a correct full upload.
+/// `wl_surface.damage` (v1): damage in surface-local logical coordinates —
+/// the post-viewport extent, exactly the space `SurfacePixels::damage`
+/// exposes. The geometry conversion at the producer/consumer boundary owns the
+/// surface→buffer inverse; no consumer re-derives a scale factor here.
 unsafe extern "C" fn surface_damage(
     _c: *mut ffi::wl_client,
     r: *mut ffi::wl_resource,
@@ -1490,37 +1600,12 @@ unsafe extern "C" fn surface_damage(
         if rec.is_null() || w <= 0 || h <= 0 {
             return;
         }
+        (*rec).pending_damage_reported = true;
         push_pending_damage(
             &mut (*rec).pending_damage,
             tessera_primitives::Rect::new(x, y, w, h),
         );
     }
-}
-
-/// Map normal-orientation buffer damage to the surface-local coordinate space
-/// shared with `wl_surface.damage`. Rounding outward preserves every touched
-/// logical pixel when a HiDPI buffer rectangle is not scale-aligned.
-pub(crate) fn buffer_damage_to_surface(
-    damage: tessera_primitives::Rect,
-    scale: i32,
-) -> tessera_primitives::Rect {
-    if scale <= 1 {
-        return damage;
-    }
-    let scale = i64::from(scale);
-    let x0 = i64::from(damage.origin.x).div_euclid(scale);
-    let y0 = i64::from(damage.origin.y).div_euclid(scale);
-    let buffer_x1 = i64::from(damage.origin.x) + i64::from(damage.size.w);
-    let buffer_y1 = i64::from(damage.origin.y) + i64::from(damage.size.h);
-    let x1 = -(-buffer_x1).div_euclid(scale);
-    let y1 = -(-buffer_y1).div_euclid(scale);
-    let clamp_i32 = |value: i64| value.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
-    tessera_primitives::Rect::new(
-        clamp_i32(x0),
-        clamp_i32(y0),
-        clamp_i32(x1.saturating_sub(x0)),
-        clamp_i32(y1.saturating_sub(y0)),
-    )
 }
 
 /// `wl_surface.damage_buffer` (v4): damage in buffer coordinates. Keep it
@@ -1569,6 +1654,7 @@ unsafe extern "C" fn surface_damage_buffer(
         if rec.is_null() || w <= 0 || h <= 0 {
             return;
         }
+        (*rec).pending_damage_reported = true;
         push_pending_damage(
             &mut (*rec).pending_buffer_damage,
             tessera_primitives::Rect::new(x, y, w, h),
@@ -1884,11 +1970,125 @@ unsafe extern "C" fn region_resource_destroy(resource: *mut ffi::wl_resource) {
     }
 }
 
+/// Copy one row range between a raw shm buffer and the tightly packed snapshot.
+fn copy_shm_rows(
+    snapshot: &mut [u8],
+    source: &[u8],
+    tight: usize,
+    stride: usize,
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+    xrgb: bool,
+) {
+    let row_bytes = width * 4;
+    for row in 0..height {
+        let src_start = (y + row) * stride + x * 4;
+        let dst_start = (y + row) * tight + x * 4;
+        let Some(src_end) = src_start.checked_add(row_bytes) else {
+            return;
+        };
+        let Some(dst_end) = dst_start.checked_add(row_bytes) else {
+            return;
+        };
+        if src_end > source.len() || dst_end > snapshot.len() {
+            return;
+        }
+        snapshot[dst_start..dst_end].copy_from_slice(&source[src_start..src_end]);
+        if xrgb {
+            for quad in snapshot[dst_start..dst_end].chunks_exact_mut(4) {
+                quad[3] = 0xff;
+            }
+        }
+    }
+}
+
+/// Apply one commit's repair to the retained shm snapshot.
+///
+/// This is the single place that turns a [`SnapshotRepair`] and a
+/// [`tessera_primitives::SurfaceGeometry`] into bytes. Surface-coordinate
+/// damage is mapped through the viewport; raw buffer damage is copied directly,
+/// which keeps `wp_viewport.set_source`-hidden pixels updateable without a
+/// whole-buffer copy. Keeping it safe and data-oriented makes the
+/// alternating-buffer and viewport-crop regressions testable without a live
+/// wl_shm buffer.
+pub(crate) fn copy_shm_snapshot(
+    snapshot: &mut [u8],
+    source: &[u8],
+    width: i32,
+    height: i32,
+    stride: usize,
+    geometry: &tessera_primitives::SurfaceGeometry,
+    repair: SnapshotRepair<'_>,
+    xrgb: bool,
+) {
+    if width <= 0 || height <= 0 {
+        return;
+    }
+    let width = width as usize;
+    let height = height as usize;
+    let tight = width.saturating_mul(4);
+    if stride < tight
+        || snapshot.len() < tight.saturating_mul(height)
+        || source.len() < stride.saturating_mul(height)
+    {
+        return;
+    }
+    match repair {
+        SnapshotRepair::Full => {
+            copy_shm_rows(snapshot, source, tight, stride, 0, 0, width, height, xrgb);
+        }
+        SnapshotRepair::Rects { surface, buffer } => {
+            let buffer_extent = tessera_primitives::Rect::new(0, 0, width as i32, height as i32);
+            for rect in surface {
+                let Some(rect) =
+                    geometry.surface_rect_to_buffer(*rect, width as i32, height as i32)
+                else {
+                    continue;
+                };
+                copy_shm_rows(
+                    snapshot,
+                    source,
+                    tight,
+                    stride,
+                    rect.origin.x as usize,
+                    rect.origin.y as usize,
+                    rect.size.w as usize,
+                    rect.size.h as usize,
+                    xrgb,
+                );
+            }
+            for rect in buffer {
+                let Some(rect) = rect.intersect(buffer_extent) else {
+                    continue;
+                };
+                copy_shm_rows(
+                    snapshot,
+                    source,
+                    tight,
+                    stride,
+                    rect.origin.x as usize,
+                    rect.origin.y as usize,
+                    rect.size.w as usize,
+                    rect.size.h as usize,
+                    xrgb,
+                );
+            }
+        }
+    }
+}
+
 unsafe fn apply_committed_buffer(
     rec: *mut SurfaceRec,
     buffer: *mut ffi::wl_resource,
     buffer_set: bool,
     was_mapped: bool,
+    surface_damage: &[tessera_primitives::Rect],
+    buffer_damage: &[tessera_primitives::Rect],
+    unknown_full: bool,
+    damage_reported: bool,
+    geometry_revision_changed: bool,
 ) {
     unsafe {
         if buffer_set && buffer.is_null() {
@@ -1966,121 +2166,77 @@ unsafe fn apply_committed_buffer(
                 // damaged rows onto the retained snapshot yields the new frame
                 // without a full-buffer memcpy (and without the per-commit
                 // allocation — the snapshot Vec is reused while its size holds).
-                // Empty damage carries no information and forces a full copy,
-                // as does a transform (surface-local rectangles do not map
-                // axis-for-axis onto the retained buffer). Integer buffer scale
-                // is mapped explicitly below. The guard mirrors the renderer's
-                // incremental-upload guard exactly; the two paths must always
-                // agree or the texture would tear.
+                // A new buffer with no damage request carries no information and
+                // forces a full copy; a commit that reported damage outside the
+                // visible surface copies nothing. Surface-local damage maps to
+                // raw buffer pixels through the full transform/scale/viewport
+                // inverse, so a rotated buffer or a source crop no longer forces
+                // a whole-buffer copy either.
                 let shm = ffi::wl_shm_buffer_get(buffer);
                 if !shm.is_null() {
                     let w = ffi::wl_shm_buffer_get_width(shm);
                     let h = ffi::wl_shm_buffer_get_height(shm);
-                    let stride = ffi::wl_shm_buffer_get_stride(shm) as usize;
+                    let stride_i32 = ffi::wl_shm_buffer_get_stride(shm);
                     let format = ffi::wl_shm_buffer_get_format(shm);
                     let src = ffi::wl_shm_buffer_get_data(shm) as *const u8;
-                    if !src.is_null() && w > 0 && h > 0 {
+                    if !src.is_null() && w > 0 && h > 0 && stride_i32 > 0 {
+                        let stride = stride_i32 as usize;
                         let tight = (w as usize) * 4;
                         let needed = tight * h as usize;
+                        // This copy runs for *this commit's* buffer. Only this
+                        // commit's damage may be taken from it: the
+                        // accumulated `committed_damage` also names rects
+                        // written by earlier commits in the same render
+                        // interval, and those live in a *different* buffer
+                        // whose pixels at those rects are older. Re-applying
+                        // them here rolls the snapshot back to that buffer's
+                        // previous contents — the visible "typing/cursor
+                        // returns to an earlier frame, then continues"
+                        // loop. `surface_damage` is already mapped to
+                        // surface-local logical coordinates; `buffer_damage`
+                        // stays in raw buffer coordinates so a source crop
+                        // cannot hide a declared change.
+                        //
+                        // Damage rects are surface-local logical coordinates.
+                        // The geometry conversion is the exact inverse of the
+                        // renderer's sampling pipeline: viewport origin/extent,
+                        // buffer scale, and the 8-way buffer transform. A bare
+                        // scale factor silently copied the wrong buffer rows
+                        // whenever a viewport source crop was active.
+                        let geometry = tessera_primitives::SurfaceGeometry {
+                            transform: (*rec).buffer_transform,
+                            buffer_scale: (*rec).buffer_scale,
+                            viewport_src: (*rec).viewport_src,
+                            viewport_dst: (*rec).viewport_dst,
+                            ..Default::default()
+                        };
+                        let repair =
+                            commit_snapshot_damage(surface_damage, buffer_damage, unknown_full);
                         let incremental = (*rec).width == w
                             && (*rec).height == h
                             && (*rec).pixels.len() == needed
-                            && (*rec).buffer_transform == tessera_primitives::Transform::Normal
-                            && !(*rec).committed_damage.is_empty();
+                            && matches!(repair, SnapshotRepair::Rects { .. });
                         if (*rec).pixels.len() != needed {
                             (*rec).pixels = vec![0u8; needed];
                         }
-                        // Read the damage list locally: the copy mutates
-                        // `pixels` while the rects are consulted.
-                        let damage = if incremental {
-                            std::mem::take(&mut (*rec).committed_damage)
+                        let repair = if incremental {
+                            repair
                         } else {
-                            Vec::new()
+                            SnapshotRepair::Full
                         };
                         ffi::wl_shm_buffer_begin_access(shm);
-                        // One explicit mutable borrow for the whole copy: raw
-                        // pointer field indexing would implicitly autoref each
-                        // access.
-                        let pixels = &mut (*rec).pixels;
-                        if incremental {
-                            // Damage rects are surface-local logical
-                            // coordinates; map them to buffer pixels (rounded
-                            // outward) before copying, so a HiDPI client's
-                            // incremental refresh is no longer forced into a
-                            // whole-buffer copy. The factor is the effective
-                            // logical→buffer scale: fractional-scale clients
-                            // keep buffer_scale at 1 and carry the density in
-                            // a wp_viewport destination, which buffer_scale
-                            // alone would under-cover, stranding the far side
-                            // of every alternated buffer (read: truncated
-                            // Chrome tooltips).
-                            let geometry = tessera_primitives::SurfaceGeometry {
-                                transform: (*rec).buffer_transform,
-                                buffer_scale: (*rec).buffer_scale,
-                                viewport_src: (*rec).viewport_src,
-                                viewport_dst: (*rec).viewport_dst,
-                                ..Default::default()
-                            };
-                            let (scale_x, scale_y) = geometry.logical_to_buffer_scale(w, h);
-                            for d in &damage {
-                                let x =
-                                    ((d.origin.x as f32 * scale_x).floor() as i32).max(0).min(w);
-                                let y =
-                                    ((d.origin.y as f32 * scale_y).floor() as i32).max(0).min(h);
-                                let x1 = (((d.origin.x + d.size.w) as f32 * scale_x).ceil() as i32)
-                                    .max(0)
-                                    .min(w);
-                                let y1 = (((d.origin.y + d.size.h) as f32 * scale_y).ceil() as i32)
-                                    .max(0)
-                                    .min(h);
-                                let cw = (x1 - x) as usize;
-                                let ch = (y1 - y) as usize;
-                                if cw == 0 || ch == 0 {
-                                    continue;
-                                }
-                                let x = x as usize;
-                                let y = y as usize;
-                                for row in 0..ch {
-                                    std::ptr::copy_nonoverlapping(
-                                        src.add((y + row) * stride + x * 4),
-                                        pixels.as_mut_ptr().add((y + row) * tight + x * 4),
-                                        cw * 4,
-                                    );
-                                }
-                                // XRGB8888 has undefined alpha; force opaque on
-                                // the refreshed rows. Chunked so the compiler
-                                // emits vector stores (4 bytes per lane) —
-                                // the scalar byte loop burned ~4 ms per
-                                // full-frame commit at 2400x1600 on the
-                                // compositor's main loop, second only to the
-                                // row copies themselves.
-                                if tessera_primitives::dmabuf::is_wl_shm_format_xrgb(format) {
-                                    for row in 0..ch {
-                                        let base = (y + row) * tight + x * 4;
-                                        let row_pixels = &mut pixels[base..base + cw * 4];
-                                        for quad in row_pixels.chunks_exact_mut(4) {
-                                            quad[3] = 0xff;
-                                        }
-                                    }
-                                }
-                            }
-                            (*rec).committed_damage = damage;
-                        } else {
-                            for row in 0..h as usize {
-                                std::ptr::copy_nonoverlapping(
-                                    src.add(row * stride),
-                                    pixels.as_mut_ptr().add(row * tight),
-                                    tight,
-                                );
-                            }
-                            // XRGB8888 has undefined alpha; force opaque.
-                            // Chunked for vector stores (see the incremental
-                            // twin above for the rationale).
-                            if tessera_primitives::dmabuf::is_wl_shm_format_xrgb(format) {
-                                for quad in pixels.chunks_exact_mut(4) {
-                                    quad[3] = 0xff;
-                                }
-                            }
+                        if let Some(source_len) = stride.checked_mul(h as usize) {
+                            let source = std::slice::from_raw_parts(src, source_len);
+                            copy_shm_snapshot(
+                                &mut (*rec).pixels,
+                                source,
+                                w,
+                                h,
+                                stride,
+                                &geometry,
+                                repair,
+                                tessera_primitives::dmabuf::is_wl_shm_format_xrgb(format),
+                            );
                         }
                         ffi::wl_shm_buffer_end_access(shm);
                         retire_surface_buffer(rec);
@@ -2092,6 +2248,50 @@ unsafe fn apply_committed_buffer(
                         (*rec).height = h;
                         (*rec).generation = (*rec).generation.wrapping_add(1);
                         (*rec).mapped = true;
+
+                        if tracing::enabled!(target: "tessera.damage.shm", tracing::Level::TRACE) {
+                            let (surface_rects, buffer_rects) = match repair {
+                                SnapshotRepair::Rects { surface, buffer } => (surface, buffer),
+                                SnapshotRepair::Full => (&[][..], &[][..]),
+                            };
+                            let mapped: Vec<tessera_primitives::Rect> = surface_rects
+                                .iter()
+                                .filter_map(|damage| geometry.surface_rect_to_buffer(*damage, w, h))
+                                .collect();
+                            let (surface_width, surface_height) = geometry.surface_extent(w, h);
+                            let reason = if unknown_full {
+                                "unknown_full"
+                            } else if !incremental {
+                                "snapshot_mismatch"
+                            } else if surface_rects.is_empty() && buffer_rects.is_empty() {
+                                "reported_empty"
+                            } else {
+                                "incremental"
+                            };
+                            tracing::trace!(
+                                target: "tessera.damage.shm",
+                                metric = "shm.snapshot",
+                                count = 1u64,
+                                surface = (*rec).resource as usize,
+                                window = ?(*rec).window.id,
+                                generation = (*rec).generation,
+                                width = w,
+                                height = h,
+                                transform = ?(*rec).buffer_transform,
+                                buffer_scale = (*rec).buffer_scale,
+                                viewport_src = ?(*rec).viewport_src,
+                                viewport_dst = ?(*rec).viewport_dst,
+                                surface_extent = ?(surface_width, surface_height),
+                                damage_reported,
+                                unknown_full,
+                                geometry_revision = geometry_revision_changed,
+                                reason,
+                                surface_commit_rects = ?surface_rects,
+                                buffer_commit_rects = ?buffer_rects,
+                                mapped = ?mapped,
+                                "shm snapshot repair"
+                            );
+                        }
                     }
                 }
                 ffi::wl_resource_post_event(buffer, ffi::WL_BUFFER_RELEASE);

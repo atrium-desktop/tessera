@@ -5,7 +5,7 @@ use tessera_wayland::PresentedSurfaces;
 // `tessera-presentation`; the transaction itself stays here because it is
 // the composition root's synchronous orchestration of renderer, server,
 // host, and shell.
-pub(super) use tessera_composite::presentation::PresentationOutcome;
+pub(super) use tessera_composite::presentation::{PresentationOutcome, RetryWait};
 
 mod capture;
 use capture::FrameCapture;
@@ -336,9 +336,11 @@ impl CompositorRuntime<'_> {
                     // Nothing was presented and no damage baseline was
                     // consumed, so the retry stays on the cheap cursor-only
                     // path: the unpresented position keeps
-                    // `cursor_plane_changed` true next frame. The scheduler
-                    // paces the retry to the next estimated vblank.
-                    return Ok(PresentationOutcome::Retry);
+                    // `cursor_plane_changed` true next frame. The backend owns
+                    // the flip that must retire before this commit can retry.
+                    return Ok(PresentationOutcome::Retry {
+                        wait: RetryWait::BackendEvent,
+                    });
                 }
                 Err(HostError::Drm(DrmError::ScanoutUnsupported)) => {
                     damage = FrameDamage::Full;
@@ -482,8 +484,24 @@ impl CompositorRuntime<'_> {
                                 | DrmError::Reconfigured
                         )
                     ) {
-                        self.damage.force_full_redraw = true;
-                        return Ok(PresentationOutcome::Retry);
+                        if matches!(
+                            &error,
+                            HostError::Drm(DrmError::Busy | DrmError::FlipTimeout)
+                        ) {
+                            // No Flux frame was recorded on the direct-scanout
+                            // path. Carry the assessed damage to the retry
+                            // instead of forcing a full composite.
+                            self.damage.pending_damage =
+                                Some(match self.damage.pending_damage.take() {
+                                    Some(pending) => union_frame_damage(pending, damage.clone()),
+                                    None => damage.clone(),
+                                });
+                        } else {
+                            self.damage.force_full_redraw = true;
+                        }
+                        return Ok(PresentationOutcome::Retry {
+                            wait: RetryWait::BackendEvent,
+                        });
                     }
                     if !matches!(error, HostError::Drm(DrmError::ScanoutUnsupported)) {
                         log::warn!(
@@ -504,7 +522,10 @@ impl CompositorRuntime<'_> {
         // appeared, the cursor moved, chrome opened…): force a full composite so
         // the resumed render is correct rather than skipped as "unchanged".
         if was_scanout {
+            // Direct scanout bypassed Flux's epoch ledger entirely. The first
+            // resumed composite has no trustworthy image history.
             self.damage.force_full_redraw = true;
+            self.surface.invalidate_damage();
             damage = FrameDamage::Full;
         }
         // Opportunistic stream capture: this frame composites for real
@@ -530,24 +551,40 @@ impl CompositorRuntime<'_> {
                 cursor: self.stream_shm_cursor_state(),
             });
         }
-        // Bounded frame acquire (Optics ADR-0124 integration): wait at most
-        // 1 ms for the slot's previous submit fence to retire rather than
-        // blocking the main event-loop thread for up to 2 seconds. If the GPU
-        // is busy under compile load, yield immediately with `Retry` so the
-        // event loop can pump input and update pointer motion out-of-band.
-        match self.surface.begin_frame_timeout(1_000_000) {
+        // Bounded frame acquire (Optics ADR-0124 integration).
+        //
+        // On the direct DRM path the acquire waits for the slot's fence from
+        // three frames ago; no presentation engine owns those images, so a
+        // timeout here means the GPU is genuinely behind and dropping the
+        // already-assessed frame would forfeit its damage baselines. Wait long
+        // enough for the queue to retire (250 ms) instead of the 2 ms that
+        // turned any burst of GPU work into a retry loop, a full-output repaint
+        // and a visible frame-time jump.
+        //
+        // A host swapchain is different: `vkAcquireNextImageKHR` can block
+        // because the outer compositor holds every image while occluded or
+        // suspended. Keep that bound short (one frame at 60 Hz) so an invisible
+        // nested window cannot park the loop, and let the scheduler retry at
+        // the next presentation boundary.
+        let acquire_timeout_ns = if self.host.presents_through_host_swapchain() {
+            16_000_000
+        } else {
+            250_000_000
+        };
+        let current_damage = damage.to_flux_damage();
+        match self
+            .surface
+            .begin_frame_timeout_with_damage(acquire_timeout_ns, &current_damage)
+        {
             Ok(mut frame) => {
                 let frame_slot = frame.index() as usize;
-                // `repaint` also contains damage missed by this swapchain
-                // slot; only this logical frame's damage may be fanned out to
-                // the other slots after present, otherwise first-use Full
-                // damage circulates around the ring forever.
-                let presented_damage = damage.clone();
-                let repaint = composite_repaint_for_slot(
-                    &mut self.damage.composite_slot_damage,
-                    frame_slot,
-                    damage,
-                );
+                // Damage belongs to the swapchain image the presentation
+                // engine handed us, not to the GPU frame slot. Flux owns that
+                // ledger and answers with the exact scope this image must
+                // repaint; the compositor no longer maintains a parallel
+                // per-image history.
+                let image_index = frame.image_index() as usize;
+                let repaint = FrameDamage::from_flux_damage(frame.repaint_scope()?);
                 // Exact physical render area of the currently open output
                 // base pass. Full-output and offscreen-target passes leave it
                 // as `None`. If visible Lens chrome is drawn below, the base
@@ -767,7 +804,7 @@ impl CompositorRuntime<'_> {
                                     clear: None,
                                     antialias: flux::CanvasAntialias::None,
                                     damage: Vec::new(),
-                                    skip_stencil: true,
+                                    skip_stencil: !shell_requires_composition,
                                 },
                             )?;
                             draw_direct_desktop_scene(
@@ -783,6 +820,31 @@ impl CompositorRuntime<'_> {
                                 soft_shadow_layer.as_ref(),
                                 shadow_style,
                             )?;
+                            let (include_live_cursor, cursor_position) =
+                                if !human_screenshot_session {
+                                    (false, None)
+                                } else {
+                                    let client_cursor = screenshot_include_cursor
+                                        && frozen_trigger_cursor
+                                            .is_some_and(|cursor| cursor.client_surface);
+                                    (
+                                        client_cursor,
+                                        client_cursor
+                                            .then(|| {
+                                                frozen_trigger_cursor.map(|cursor| cursor.position)
+                                            })
+                                            .flatten(),
+                                    )
+                                };
+                            if shell_requires_composition {
+                                let _uploads = self.device.uploads_begin();
+                                let _ = unsafe { self.shell.submit(s2.as_raw() as *mut _) };
+                            }
+                            // Draw window-switcher and Dock live-preview thumbnails AFTER
+                            // `self.shell.submit` so their client-surface miniatures sit on
+                            // top of the opaque FloatingPanel background (`#111622`, alpha=242)
+                            // inside `card.geometry.preview` (above the disjoint bottom label
+                            // strip `card.geometry.label`).
                             if !session_locked {
                                 if let Some(presentation) = window_switcher.as_ref() {
                                     draw_window_switcher_cards(
@@ -803,108 +865,32 @@ impl CompositorRuntime<'_> {
                                         &live_previews,
                                     );
                                 }
+                                draw_client_overlays(
+                                    &s2,
+                                    self.device,
+                                    self.renderer,
+                                    self.server,
+                                    scale,
+                                    include_live_cursor,
+                                    cursor_position,
+                                );
+                            }
+                            if human_screenshot_session
+                                && screenshot_include_cursor
+                                && let Some(cursor) = frozen_trigger_cursor
+                                && !cursor.hidden
+                                && !cursor.client_surface
+                            {
+                                draw_software_cursor(
+                                    &s2,
+                                    self.device,
+                                    &mut self.cursor_cache,
+                                    cursor.position,
+                                    cursor.shape,
+                                    scale,
+                                );
                             }
                             s2.end()?;
-
-                            let (include_live_cursor, cursor_position) =
-                                if !human_screenshot_session {
-                                    (false, None)
-                                } else {
-                                    let client_cursor = screenshot_include_cursor
-                                        && frozen_trigger_cursor
-                                            .is_some_and(|cursor| cursor.client_surface);
-                                    (
-                                        client_cursor,
-                                        client_cursor
-                                            .then(|| {
-                                                frozen_trigger_cursor.map(|cursor| cursor.position)
-                                            })
-                                            .flatten(),
-                                    )
-                                };
-                            if shell_requires_composition {
-                                let s3 = self.canvas.begin_session(
-                                    flux::ImageTarget {
-                                        frame: &mut frame,
-                                        image: target,
-                                    },
-                                    flux::CanvasPassOptions {
-                                        clear: None,
-                                        antialias: flux::CanvasAntialias::None,
-                                        damage: Vec::new(),
-                                        skip_stencil: false,
-                                    },
-                                )?;
-                                let _uploads = self.device.uploads_begin();
-                                let _ = unsafe { self.shell.submit(s3.as_raw() as *mut _) };
-                                if !session_locked {
-                                    draw_client_overlays(
-                                        &s3,
-                                        self.device,
-                                        self.renderer,
-                                        self.server,
-                                        scale,
-                                        include_live_cursor,
-                                        cursor_position,
-                                    );
-                                }
-                                if human_screenshot_session
-                                    && screenshot_include_cursor
-                                    && let Some(cursor) = frozen_trigger_cursor
-                                    && !cursor.hidden
-                                    && !cursor.client_surface
-                                {
-                                    draw_software_cursor(
-                                        &s3,
-                                        self.device,
-                                        &mut self.cursor_cache,
-                                        cursor.position,
-                                        cursor.shape,
-                                        scale,
-                                    );
-                                }
-                                s3.end()?;
-                            } else {
-                                let s3 = self.canvas.begin_session(
-                                    flux::ImageTarget {
-                                        frame: &mut frame,
-                                        image: target,
-                                    },
-                                    flux::CanvasPassOptions {
-                                        clear: None,
-                                        antialias: flux::CanvasAntialias::None,
-                                        damage: Vec::new(),
-                                        skip_stencil: true,
-                                    },
-                                )?;
-                                if !session_locked {
-                                    draw_client_overlays(
-                                        &s3,
-                                        self.device,
-                                        self.renderer,
-                                        self.server,
-                                        scale,
-                                        include_live_cursor,
-                                        cursor_position,
-                                    );
-                                }
-                                if human_screenshot_session
-                                    && screenshot_include_cursor
-                                    && let Some(cursor) = frozen_trigger_cursor
-                                    && !cursor.hidden
-                                    && !cursor.client_surface
-                                {
-                                    draw_software_cursor(
-                                        &s3,
-                                        self.device,
-                                        &mut self.cursor_cache,
-                                        cursor.position,
-                                        cursor.shape,
-                                        scale,
-                                    );
-                                }
-                                s3.end()?;
-                            }
                             Ok(())
                         })();
                         if capture_ok.is_ok() {
@@ -960,6 +946,23 @@ impl CompositorRuntime<'_> {
                     }
                     s
                 } else {
+                    // Determine upfront whether shell chrome participates in this
+                    // pass so desktop surfaces and shell chrome share a single
+                    // Canvas pass (`skip_stencil: !draw_chrome`), eliminating the
+                    // redundant `base_session.end() -> begin_stencil_frame_overlay`
+                    // LOAD round-trip across the 8-bit surface.
+                    let chrome_in_damage_scope = if output_damage_scope.is_empty() {
+                        true
+                    } else {
+                        output_damage_scope.iter().any(|area| {
+                            self.shell
+                                .chrome_intersects_render_area(*area, scale, logical_size)
+                        })
+                    };
+                    let draw_chrome = shell_requires_composition
+                        && chrome_in_damage_scope
+                        && (!self.screenshot_freeze.active() || self.screenshot_freeze.opened);
+
                     let active = begin_desktop_output(
                         self.canvas,
                         self.device,
@@ -968,14 +971,10 @@ impl CompositorRuntime<'_> {
                         logical_size,
                         scale,
                         self.clear,
-                        /* Cloned, not moved: this branch consumes the scope
-                         * twice — once for the desktop base pass here and once
-                         * for the chrome overlay pass below. Two rects' worth of
-                         * copying is cheaper than threading a borrow through
-                         * `CanvasPassOptions`, which owns its scope. */
-                        output_damage_scope.clone(),
+                        output_damage_scope,
                         model_active && !self.screenshot_freeze.active(),
                         wallpaper_occluded,
+                        !draw_chrome,
                     )?;
                     if self.screenshot_freeze.active() {
                         if let Some(image) = self.screenshot_freeze.image() {
@@ -1005,12 +1004,27 @@ impl CompositorRuntime<'_> {
                             shadow_style,
                         )?;
                     }
-                    let base_session = active;
 
+                    if draw_chrome {
+                        let _uploads = self.device.uploads_begin();
+                        // See the occluded branch above: a shell chrome draw
+                        // failure degrades to a chrome-less frame instead of
+                        // dropping the still-open session.
+                        if let Err(error) = unsafe { self.shell.submit(active.as_raw() as *mut _) }
+                        {
+                            log::warn!("compositor: shell chrome render failed: {error}");
+                        }
+                    }
+
+                    // Draw window-switcher and Dock live-preview thumbnails AFTER
+                    // `self.shell.submit` so their client-surface miniatures sit on
+                    // top of the opaque FloatingPanel background (`#111622`, alpha=242)
+                    // inside `card.geometry.preview` (above the disjoint bottom label
+                    // strip `card.geometry.label`).
                     if !session_locked && !self.screenshot_freeze.active() {
                         if let Some(presentation) = window_switcher.as_ref() {
                             draw_window_switcher_cards(
-                                &base_session,
+                                &active,
                                 self.device,
                                 self.renderer,
                                 self.server,
@@ -1019,7 +1033,7 @@ impl CompositorRuntime<'_> {
                             );
                         } else {
                             draw_live_preview_scenes(
-                                &base_session,
+                                &active,
                                 self.device,
                                 self.renderer,
                                 self.server,
@@ -1029,39 +1043,7 @@ impl CompositorRuntime<'_> {
                         }
                     }
 
-                    // The overlay pass is worth beginning when any damaged
-                    // rectangle can contain chrome. An empty scope means "the
-                    // whole destination", so chrome is always reachable then.
-                    let chrome_in_damage_scope = if output_damage_scope.is_empty() {
-                        true
-                    } else {
-                        output_damage_scope.iter().any(|area| {
-                            self.shell
-                                .chrome_intersects_render_area(*area, scale, logical_size)
-                        })
-                    };
-
-                    if shell_requires_composition
-                        && chrome_in_damage_scope
-                        && (!self.screenshot_freeze.active() || self.screenshot_freeze.opened)
-                    {
-                        base_session.end()?;
-                        let s = begin_stencil_frame_overlay(
-                            self.canvas,
-                            &mut frame,
-                            output_damage_scope,
-                        )?;
-                        let _uploads = self.device.uploads_begin();
-                        // See the occluded branch above: a shell chrome draw
-                        // failure degrades to a chrome-less frame instead of
-                        // dropping the still-open overlay session.
-                        if let Err(error) = unsafe { self.shell.submit(s.as_raw() as *mut _) } {
-                            log::warn!("compositor: shell chrome render failed: {error}");
-                        }
-                        s
-                    } else {
-                        base_session
-                    }
+                    active
                 };
 
                 // Protocol overlays sit above ordinary shell chrome. A modal
@@ -2019,10 +2001,15 @@ impl CompositorRuntime<'_> {
                         return Err(error.into());
                     }
                 };
+                // The KMS hint is relative to the frame that is actually on
+                // screen, not to this image's own last use. Flux's scanout
+                // ledger includes every submitted-but-abandoned frame, so a
+                // Busy retry cannot under-report changed pixels.
+                let scanout_damage = FrameDamage::from_flux_damage(self.surface.scanout_damage()?);
                 let completion_fence =
                     match self
                         .host
-                        .present(self.surface, submitted, repaint.area_rects())
+                        .present(self.surface, submitted, scanout_damage.area_rects())
                     {
                         Ok(fence) => fence,
                         Err(error) => {
@@ -2059,12 +2046,25 @@ impl CompositorRuntime<'_> {
                                         self.host.name()
                                     );
                                 }
-                                // Damage/revision baselines were assessed
-                                // before this frame was rendered. They must
-                                // not let the retry skip content that never
-                                // reached scanout.
-                                self.damage.force_full_redraw = true;
-                                return Ok(PresentationOutcome::Retry);
+                                // Submission already committed this frame's
+                                // pixels and history. Busy/timeout retries need no
+                                // full repaint: the abandoned image is complete and
+                                // the next scope is computed from its new epoch.
+                                // Only a backend epoch/geometry/cursor change
+                                // invalidates the framebuffer contract.
+                                if matches!(
+                                    &error,
+                                    HostError::Drm(
+                                        DrmError::Inactive
+                                            | DrmError::Reconfigured
+                                            | DrmError::CursorFallback
+                                    )
+                                ) {
+                                    self.damage.force_full_redraw = true;
+                                }
+                                return Ok(PresentationOutcome::Retry {
+                                    wait: RetryWait::BackendEvent,
+                                });
                             }
                             return Err(error.into());
                         }
@@ -2076,11 +2076,13 @@ impl CompositorRuntime<'_> {
                         self.host.name()
                     );
                 }
-                // Fold this frame's damage into every stream's accumulator
-                // before any stream-facing sampling below, so a frame
-                // captured from this composite carries exactly the damage
-                // that produced it (ADR-0127).
-                self.streams.accumulate_damage(&presented_damage);
+                // Fold the changes the display actually had not seen into
+                // every stream's accumulator before any stream-facing sampling
+                // below, so a frame captured from this composite carries
+                // exactly the damage that produced it (ADR-0127). This is the
+                // scanout ledger, not this image's repaint scope: a retried
+                // frame's pixels are part of the next captured delta.
+                self.streams.accumulate_damage(&scanout_damage);
                 if capture_for_present
                     .as_ref()
                     .is_some_and(|capture| matches!(capture.target, CaptureTarget::Stream))
@@ -2089,10 +2091,18 @@ impl CompositorRuntime<'_> {
                     // due SHM stream's damage for its delivery.
                     self.stash_shm_stream_damage();
                 }
-                record_composite_present(
-                    &mut self.damage.composite_slot_damage,
-                    frame_slot,
-                    presented_damage,
+                let repaint_label = match &repaint {
+                    FrameDamage::Full => "full".to_owned(),
+                    FrameDamage::None => "none".to_owned(),
+                    FrameDamage::Area(rects) => format!("{} rect(s)", rects.len()),
+                };
+                let scanout_label = match &scanout_damage {
+                    FrameDamage::Full => "full".to_owned(),
+                    FrameDamage::None => "none".to_owned(),
+                    FrameDamage::Area(rects) => format!("{} rect(s)", rects.len()),
+                };
+                log::trace!(
+                    "present: slot={frame_slot} image={image_index} damage={repaint_label} scanout={scanout_label}"
                 );
                 if let Some(capture) = capture_for_present {
                     debug_assert!(self.pending_capture.is_none());
@@ -2171,6 +2181,7 @@ impl CompositorRuntime<'_> {
             Err(error) if error.0 == flux_sys::flux_result::FLUX_ERROR_TIMEOUT => {
                 // A capture bound by the pre-pass never got its frame; refuse
                 // it so the worker lane is released for the next iteration.
+                log::trace!("frame acquire timed out: {error}");
                 if let Some(capture) = frame_capture.take() {
                     refuse_capture_target(
                         &self.capture_worker,
@@ -2182,11 +2193,17 @@ impl CompositorRuntime<'_> {
                 }
                 // The previous frame's GPU work did not retire inside the
                 // frame timeout (or the presentation engine released no
-                // swapchain image): transient. Skip this iteration and let
-                // the next wakeup retry instead of rebuilding the
-                // swapchain against a busy device.
-                self.damage.force_full_redraw = true;
-                return Ok(PresentationOutcome::Retry);
+                // swapchain image): transient. No Flux frame exists, so this
+                // damage has no epoch entry yet. Carry it forward verbatim;
+                // collapsing to Full here is what turned a transient acquire
+                // miss into three full-output repaints.
+                self.damage.pending_damage = Some(match self.damage.pending_damage.take() {
+                    Some(pending) => union_frame_damage(pending, damage.clone()),
+                    None => damage.clone(),
+                });
+                return Ok(PresentationOutcome::Retry {
+                    wait: RetryWait::Deadline,
+                });
             }
             Err(_) => {
                 if let Some(capture) = frame_capture.take() {
@@ -2228,7 +2245,7 @@ impl CompositorRuntime<'_> {
                         self.shell.start_screenshot();
                     }
                 }
-                self.damage.composite_slot_damage.clear();
+                self.surface.invalidate_damage();
                 // Damage tracked against the old framebuffer does not
                 // describe the rebuilt one; render the next frame in full.
                 self.damage.force_full_redraw = true;
@@ -2238,7 +2255,10 @@ impl CompositorRuntime<'_> {
                         flux_last_error_detail()
                     );
                 }
-                return Ok(PresentationOutcome::Retry);
+                // The surface was rebuilt; no backend event exists for it.
+                return Ok(PresentationOutcome::Retry {
+                    wait: RetryWait::Deadline,
+                });
             }
         }
 
@@ -2378,6 +2398,7 @@ fn begin_desktop_output<'c, 'surface>(
     damage: Vec<flux::CanvasRenderArea>,
     model_active: bool,
     wallpaper_occluded: bool,
+    skip_stencil: bool,
 ) -> Result<flux::CanvasSession<'c, &'c mut flux::Frame<'surface>>, flux::Error> {
     if model_active {
         let s = canvas.begin_session(
@@ -2402,7 +2423,7 @@ fn begin_desktop_output<'c, 'surface>(
                 clear: None,
                 antialias: flux::CanvasAntialias::None,
                 damage,
-                skip_stencil: true,
+                skip_stencil,
             },
         )
     } else {
@@ -2412,7 +2433,7 @@ fn begin_desktop_output<'c, 'surface>(
                 clear: Some(clear),
                 antialias: flux::CanvasAntialias::None,
                 damage,
-                skip_stencil: true,
+                skip_stencil,
             },
         )?;
         if !wallpaper_occluded {
