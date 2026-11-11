@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.93] - 2026-11-11
+
 ### Fixed
 
 - **wayland/composite**: SHM damage is now repaired and uploaded in the
