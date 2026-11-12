@@ -9,6 +9,7 @@ the architectural role; directory nesting does not grant dependency rights.
 ```text
 crates/
   tessera                 composition root binary, display resource lifecycle, and session orchestration
+  tessera-assets          theme asset decoding: vector sources and premultiplied-BGRA rasters (ADR-0233)
   tessera-audit           bounded, integrity-checked durable event storage
   tessera-authority       actor identity, credentials, grants, ceilings, capabilities, and observation leases
   tessera-avatar          profile contract, portrait assets, and VRM runtime
@@ -54,7 +55,10 @@ abstractions live in `tessera-ipc`. Durable event storage lives in
 `tessera-audit`.
 
 Application discovery, icon lookup, process launching, and intent search live
-in `tessera-launch-services` (ADR-0164). GPU capture encoding is integrated into `tessera-composite`.
+in `tessera-launch-services` (ADR-0164). Theme asset bytes and pixels — SVG/SVGZ
+sources, icon rasters, symbolic recolouring — live in `tessera-assets`, the only
+package with a `reticle` normal edge (ADR-0233). GPU capture encoding is
+integrated into `tessera-composite`.
 
 Create a new package only for an independent public API, process, feature or
 platform boundary, resource owner, or compile-time dependency restriction. A

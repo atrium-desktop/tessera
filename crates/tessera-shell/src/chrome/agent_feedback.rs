@@ -93,20 +93,13 @@ impl AgentCursorSet {
                 // art and the `data-hotspot-*` metadata, so there is no separate
                 // PNG bake to keep in sync. A theme that ships a PNG still wins,
                 // because that is the artist's own pre-rendered sprite.
-                let document =
-                    theme
-                        .get_file(format!("cursors/{candidate}.svg"))
-                        .and_then(|file| {
-                            reticle::Document::parse_bytes(
-                                file.contents(),
-                                reticle::Limits::default(),
-                            )
-                            .ok()
-                        });
+                let document = theme
+                    .get_file(format!("cursors/{candidate}.svg"))
+                    .and_then(|file| tessera_assets::VectorDocument::parse(file.contents()).ok());
                 let sprite = theme.get_file(format!("cursors/{candidate}.png"));
                 let (image, hotspot) = match (sprite, document.as_ref()) {
                     (Some(sprite), document) => {
-                        let image = upload_sprite(device, sprite.contents(), 96, 96)?;
+                        let image = upload_sprite(device, sprite.contents(), 96)?;
                         (image, normalized_hotspot(document))
                     }
                     (None, Some(document)) => {
@@ -151,53 +144,32 @@ impl AgentCursorSet {
 /// `data-hotspot-*` metadata. A theme that stamps none gets the top-left corner,
 /// which is the XDG convention for "no hotspot data".
 #[cfg(feature = "agent-sprites")]
-fn normalized_hotspot(document: Option<&reticle::Document>) -> (f32, f32) {
-    let Some(document) = document else {
-        return (0.0, 0.0);
-    };
-    let viewport = document.viewport();
-    let read = |name: &str| -> Option<f32> { document.attribute(name)?.trim().parse().ok() };
-    let axis = |value: Option<f32>, extent: f32| -> f32 {
-        if extent > 0.0 {
-            (value.unwrap_or(0.0) / extent).clamp(0.0, 1.0)
-        } else {
-            0.0
-        }
-    };
-    (
-        axis(read("data-hotspot-x"), viewport[2]),
-        axis(read("data-hotspot-y"), viewport[3]),
+fn normalized_hotspot(document: Option<&tessera_assets::VectorDocument>) -> (f32, f32) {
+    document.map_or(
+        (0.0, 0.0),
+        tessera_assets::VectorDocument::normalized_hotspot,
     )
 }
 
 /// Compile a theme document into an uploaded sprite of `size`x`size` pixels.
 ///
-/// `SVG_PAINT_THEME` keeps the AI theme's own two-tone silhouette, which is what
-/// distinguishes the Agent's pointer from the user's; `currentColor` resolves to
-/// white so a theme that leaves a shape unpainted is still visible over the
-/// mirror's scrim.
+/// `PaintMode::theme` keeps the AI theme's own two-tone silhouette, which is
+/// what distinguishes the Agent's pointer from the user's; `currentColor`
+/// resolves to white so a theme that leaves a shape unpainted is still visible
+/// over the mirror's scrim.
 #[cfg(feature = "agent-sprites")]
 fn upload_document_sprite(
     device: &flux::Device,
-    document: &reticle::Document,
+    document: &tessera_assets::VectorDocument,
     size: u32,
 ) -> Option<flux::Image> {
-    let raster = document
-        .rasterize(reticle::RasterizeOptions {
-            width: size,
-            height: size,
-            supersample: 0,
-            format: reticle::PixelFormat::Bgra8Premul,
-            paint: reticle::PaintMode::theme(0xFFFF_FFFF),
-            stroke_width: 0.0,
-        })
-        .ok()?;
+    let raster = document.rasterize(size).ok()?;
     flux::Image::from_bytes(
         device,
         raster.width(),
         raster.height(),
         flux::Format::Bgra8Unorm,
-        raster.as_bytes(),
+        raster.as_bgra(),
     )
     .ok()
 }
@@ -1105,25 +1077,16 @@ fn scaled_alpha(alpha: u8, numerator: u16, denominator: u16) -> u8 {
 /// degrades to no on-screen pointer. Compiling an asset decoder into a build that
 /// does not want it is the thing to avoid, not the absence of the sprites.
 #[cfg(feature = "agent-sprites")]
-fn upload_sprite(
-    device: &flux::Device,
-    png: &[u8],
-    width: u32,
-    height: u32,
-) -> Option<flux::Image> {
-    let dyn_img = image::load_from_memory(png).ok()?;
-    let resized = if dyn_img.width() == width && dyn_img.height() == height {
-        dyn_img.to_rgba8()
-    } else {
-        dyn_img
-            .resize_exact(width, height, image::imageops::FilterType::Triangle)
-            .to_rgba8()
-    };
-    let mut pixels = resized.into_raw();
-    for chunk in pixels.chunks_exact_mut(4) {
-        chunk.swap(0, 2);
-    }
-    flux::Image::from_bytes(device, width, height, flux::Format::Bgra8Unorm, &pixels).ok()
+fn upload_sprite(device: &flux::Device, png: &[u8], size: u32) -> Option<flux::Image> {
+    let raster = tessera_assets::decode_bytes(png, size).ok()?;
+    flux::Image::from_bytes(
+        device,
+        raster.width(),
+        raster.height(),
+        flux::Format::Bgra8Unorm,
+        raster.as_bgra(),
+    )
+    .ok()
 }
 
 fn window_contains(window: &Window, position: Point) -> bool {
@@ -1244,11 +1207,9 @@ mod tests {
                 .expect("dark shape exists");
 
             let render = |png: &[u8]| {
-                let dyn_img = image::load_from_memory(png).unwrap();
-                let resized = dyn_img
-                    .resize_exact(24, 24, image::imageops::FilterType::Triangle)
-                    .to_rgba8();
-                resized.into_raw()
+                tessera_assets::decode_bytes(png, 24)
+                    .expect("sprite decodes")
+                    .into_bgra()
             };
             let a = render(light_file.contents());
             let b = render(dark_file.contents());

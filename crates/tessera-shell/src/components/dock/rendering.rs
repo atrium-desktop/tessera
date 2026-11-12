@@ -26,6 +26,12 @@ impl Chrome for Dock {
         // other non-fullscreen windows use the geometric intersection policy.
         if self.fullscreen_locked() {
             self.dismiss_transient_ui();
+            // A fullscreen client covers every pixel the Dock could have
+            // vacated, so there is nothing to retire; clearing the budget is
+            // also what keeps `damage_pending` from holding the frame clock
+            // alive while the Dock is not painting at all.
+            self.menu_retire_frames = 0;
+            self.menu_damage_rect = None;
             self.motion.reveal = SpringState::new(0.0);
             self.autohide_idle = self.autohide_timeout;
             self.anim_active = false;
@@ -403,13 +409,17 @@ impl Chrome for Dock {
         );
 
         self.app_menu.set_design(self.design);
-        // A closed menu's last footprint is erased exactly once: it stays in
-        // `menu_damage_rect` through the dismissal frame so `damage_regions`
-        // repaints it, then it is dropped at the top of the next render.
-        if !self.app_menu.is_open() {
+        // The menu's vacated footprint stays owned until the retirement budget
+        // expires, not until the next render: the frame that dismisses the menu
+        // only repaints the image it happened to acquire, and the other ring
+        // images would otherwise show it again (ADR-0227).
+        if !self.app_menu.is_open() && self.menu_retire_frames == 0 {
             self.menu_damage_rect = None;
         }
         let menu_was_open = self.app_menu.is_open();
+        let menu_bounds_before = menu_was_open
+            .then(|| self.app_menu.bounds((disp.x, disp.y)))
+            .flatten();
         self.app_menu.render(f, input, &self.all_windows, i18n, out);
         let menu_now_open = self.app_menu.is_open();
         if !menu_now_open && menu_was_open {
@@ -418,7 +428,19 @@ impl Chrome for Dock {
             // owned windows all vanished. Both are structural changes with no
             // animation and no host snapshot behind them, so the shell has to be
             // told or the popup's pixels stay on screen forever.
+            if let Some(bounds) = menu_bounds_before {
+                Self::record_menu_damage(&mut self.menu_damage_rect, bounds);
+                self.menu_retire_frames = 5;
+            }
             out.scene_changed = true;
+        } else if menu_was_open && self.menu_retire_frames > 0 {
+            self.menu_retire_frames = 0;
+        }
+        if menu_now_open {
+            self.menu_retire_frames = 0;
+        }
+        if self.menu_retire_frames > 0 {
+            self.menu_retire_frames -= 1;
         }
         // The popup follows its tile, and a tile rides the magnification spring.
         // When the anchor rect moves, the pixels at the previous rect still hold
@@ -558,6 +580,10 @@ impl Chrome for Dock {
         self.anim_active
             || idle_counting
             || self.motion.anim_pending(target, dwell_active, drag_active)
+    }
+
+    fn damage_pending(&self) -> bool {
+        self.menu_retire_frames > 0
     }
 
     /// The dock answers for its own hover reaction with the footprint it already

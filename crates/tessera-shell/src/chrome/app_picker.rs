@@ -48,6 +48,11 @@ const BUTTON_W: f32 = 88.0;
 const DOUBLE_CLICK: Duration = DEFAULT_DOUBLE_CLICK_TIMEOUT;
 /// Rows scrolled per wheel detent over the list.
 const WHEEL_ROWS: f32 = DEFAULT_WHEEL_SCROLL_ROWS;
+/// Damage-bearing frames the vacated modal keeps naming after it closes
+/// (ADR-0227). The picker has no exit animation: without this window the frame
+/// that removes the veil and panel repaints only the acquired swapchain image,
+/// and the other images flash the closed picker back as the ring rotates.
+const RETIRE_FRAMES: u8 = 4;
 
 /// One candidate row: the requested id plus its catalog-resolved display
 /// name (the id stem when the catalog has no entry for it).
@@ -155,6 +160,9 @@ pub struct AppPicker {
     /// [`crate::Shell::add`] and refreshed when the desktop color scheme
     /// changes; defaults to the dark appearance until the first update arrives.
     design: Design,
+    /// Damage-only frames remaining after the panel closes. The picker is a
+    /// full-output veil, so every retirement frame is a full-output repaint.
+    retire_frames: u8,
 }
 
 impl AppPicker {
@@ -171,6 +179,7 @@ impl AppPicker {
             modal_reserved: Reserved::default(),
             catalog: AppCatalog::default(),
             design: Design::dark(),
+            retire_frames: 0,
         }
     }
 
@@ -191,12 +200,20 @@ impl AppPicker {
     }
 
     fn close(&mut self) {
+        if self.active {
+            // Even an abrupt close must own its vacated pixels for longer than
+            // the one frame that happened to be on screen (ADR-0227). The
+            // pre-pass decrements before damage is read, so arm one extra tick
+            // to leave `RETIRE_FRAMES` damage-bearing frames.
+            self.retire_frames = RETIRE_FRAMES + 1;
+        }
         self.active = false;
         self.rows = Vec::new();
         self.last_click = None;
     }
 
     fn start_app_pick(&mut self, params: AppPickParams) {
+        self.retire_frames = 0;
         self.rows = params
             .choices
             .into_iter()
@@ -272,6 +289,17 @@ impl Default for AppPicker {
 }
 
 impl Chrome for AppPicker {
+    fn prepare_frame(
+        &mut self,
+        _input: &Input,
+        _windows: &[Window],
+        _workspaces: &crate::WorkspaceSnapshot,
+    ) {
+        if !self.active && self.retire_frames > 0 {
+            self.retire_frames -= 1;
+        }
+    }
+
     fn render(
         &mut self,
         frame: &mut Frame,
@@ -495,8 +523,27 @@ impl Chrome for AppPicker {
         true
     }
 
+    fn damage_pending(&self) -> bool {
+        self.retire_frames > 0
+    }
+
+    /// The veil covers every output pixel, so the retired picker's footprint is
+    /// the whole output. It is still bounded in time: four frames, one more
+    /// than the deepest supported rotation.
+    fn damage_regions(&self, _windows: &[Window], display: (f32, f32)) -> Option<Vec<Rect>> {
+        if self.retire_frames > 0 {
+            return Some(vec![Rect {
+                x: 0.0,
+                y: 0.0,
+                w: display.0.max(1.0),
+                h: display.1.max(1.0),
+            }]);
+        }
+        if self.active { None } else { Some(Vec::new()) }
+    }
+
     fn requires_composition(&self) -> bool {
-        self.active
+        self.active || self.retire_frames > 0
     }
 
     fn cursor_shape_at(
@@ -655,6 +702,33 @@ mod tests {
         );
         assert!(out.app_pick_cancelled);
         assert!(!picker.app_pick_active());
+    }
+
+    #[test]
+    fn a_cancelled_picker_owns_its_vacated_output_across_the_ring() {
+        let mut picker = picker_with_catalog();
+        picker.start_app_pick(params(&["firefox.desktop"], None));
+        let mut out = ChromeEvents::default();
+        picker.cancel(&mut out);
+        assert!(out.app_pick_cancelled);
+        assert!(!picker.app_pick_active());
+        assert!(
+            picker.damage_pending(),
+            "the close must keep frames arriving for the retirement window"
+        );
+        let regions = picker
+            .damage_regions(&[], (1280.0, 800.0))
+            .expect("the retired veil names a real footprint");
+        assert_eq!(
+            regions,
+            vec![Rect {
+                x: 0.0,
+                y: 0.0,
+                w: 1280.0,
+                h: 800.0,
+            }],
+            "the veil covered the whole output, so its clear does too"
+        );
     }
 
     #[test]

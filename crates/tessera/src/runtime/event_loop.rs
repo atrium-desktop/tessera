@@ -245,7 +245,9 @@ impl CompositorRuntime<'_> {
         // completion wakeup. Treating it as animation used to schedule full
         // compositor frames at the output refresh rate throughout PNG encode
         // and fsync, exactly when the machine was already under load.
-        self.animating = self.shell.anim_pending() || self.server.transitions_pending();
+        self.animating = self.shell.anim_pending()
+            || self.shell.damage_pending()
+            || self.server.transitions_pending();
     }
 
     fn queue_frame_state(&mut self, frame: FrameState) {

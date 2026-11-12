@@ -33,6 +33,17 @@ use tessera_primitives::input::{
     XKB_KEY_Right, XKB_KEY_Tab, XKB_KEY_Up, key_action,
 };
 
+/// Frames the vacated panel band keeps being named after the close animation
+/// settles (ADR-0227).
+///
+/// The panel is a transient chrome surface. The frame that removes it repaints
+/// only the swapchain image it happened to acquire; the other images in the
+/// presentation rotation still carry the panel until they are repaired. A
+/// bounded retirement window keeps naming the band for one more frame than the
+/// deepest supported rotation, so a closed launcher cannot flash back every
+/// two or three frames while the ring cycles.
+const RETIRE_FRAMES: u8 = 4;
+
 /// Unified system intent and action surface (Chrome host).
 pub struct Pivot {
     pub state: PivotState,
@@ -45,6 +56,21 @@ pub struct Pivot {
     /// spring. `render` consults it so the same `dt` is never integrated
     /// twice when both the pre-pass and a direct `render` call run.
     pub frame_prepared: bool,
+    /// Whether the last pre-pass observed Pivot open. A close is detected from
+    /// this edge rather than only from [`Pivot::close`], so every exit path —
+    /// Escape, a clicked action, and the shell's `ClosePivot` command — arms
+    /// the same retirement window.
+    was_open: bool,
+    /// Set when the last preparation observed an open-to-closed transition and
+    /// the reveal has not reached zero yet.
+    closing: bool,
+    /// Union of every panel band painted while the reveal ran, used as the
+    /// retirement footprint after the panel is gone.
+    last_band: Option<Rect>,
+    /// Band the closed panel vacated; painted while `retire_frames` is non-zero.
+    retire_band: Option<Rect>,
+    /// Damage-only frames remaining after the close animation settles.
+    retire_frames: u8,
 }
 
 impl Deref for Pivot {
@@ -72,6 +98,11 @@ impl Pivot {
             reduced_motion: false,
             design: Design::dark(),
             frame_prepared: false,
+            was_open: false,
+            closing: false,
+            last_band: None,
+            retire_band: None,
+            retire_frames: 0,
         }
     }
 
@@ -84,19 +115,88 @@ impl Pivot {
     /// band describes frame T-1 geometry while the foreground panel draws
     /// frame T (ADR-0171, ADR-0217).
     fn prepare_frame_state(&mut self, input: &Input) {
-        let target = if self.state.is_open() { 1.0 } else { 0.0 };
+        let open = self.state.is_open();
+        if open && !self.was_open {
+            // A fresh open owns a fresh footprint; never inherit the band the
+            // previous session retired.
+            self.last_band = None;
+            self.retire_band = None;
+            self.retire_frames = 0;
+            self.closing = false;
+        } else if !open && self.was_open {
+            // Covers every close path, including actions that close the state
+            // machine from `key_char`/`render` without calling [`Pivot::close`].
+            self.closing = true;
+        }
+        self.was_open = open;
+
+        let target = if open { 1.0 } else { 0.0 };
         self.motion.advance(
             target,
             input.as_raw().dt_seconds.max(0.0),
             self.reduced_motion,
         );
+
+        if self.closing && self.motion.visibility <= 0.001 {
+            self.retire_band = self.last_band;
+            self.retire_frames = RETIRE_FRAMES;
+            self.closing = false;
+        } else if self.retire_frames > 0 {
+            self.retire_frames -= 1;
+        }
+
         self.frame_prepared = true;
     }
 
-    /// Whether Pivot is currently active (open or animating).
+    /// Whether Pivot is currently active (open or animating). The retirement
+    /// window is deliberately excluded: once the panel is gone it must not
+    /// keep capturing the keyboard or the pointer while its pixels drain.
     #[must_use]
     pub fn is_active(&self) -> bool {
         self.state.is_open() || self.motion.visibility > 0.01
+    }
+
+    /// The painted envelope of one panel placement: the body plus the
+    /// floating material's shadow halo, clamped to the output.
+    fn panel_band(&self, display: (f32, f32), panel: Rect) -> Option<Rect> {
+        if display.0 <= 0.0 || display.1 <= 0.0 {
+            return None;
+        }
+        let style = self
+            .design
+            .surfaces
+            .for_role(tessera_design::SurfaceRole::ProminentPanel);
+        let fringe = 2.0 * style.shadow_blur.max(0.0) + style.shadow_offset_y.abs() + 1.0;
+        let x0 = (panel.x - fringe).floor().max(0.0);
+        let y0 = (panel.y - fringe).floor().max(0.0);
+        let x1 = (panel.x + panel.w + fringe).ceil().min(display.0);
+        let y1 = (panel.y + panel.h + fringe + style.shadow_offset_y.max(0.0))
+            .ceil()
+            .min(display.1);
+        (x1 > x0 && y1 > y0).then_some(Rect {
+            x: x0,
+            y: y0,
+            w: x1 - x0,
+            h: y1 - y0,
+        })
+    }
+
+    fn union_band(&mut self, band: Rect) {
+        self.last_band = Some(match self.last_band {
+            Some(existing) => {
+                let x0 = existing.x.min(band.x);
+                let y0 = existing.y.min(band.y);
+                let x1 = (existing.x + existing.w).max(band.x + band.w);
+                let y1 = (existing.y + existing.h).max(band.y + band.h);
+                Rect {
+                    x: x0,
+                    y: y0,
+                    w: x1 - x0,
+                    h: y1 - y0,
+                }
+            }
+            None => band,
+        });
     }
 
     /// Update application catalog and cached icons.
@@ -119,12 +219,24 @@ impl Pivot {
 
     /// Toggle Pivot open or closed.
     pub fn toggle(&mut self) {
+        let opening = !self.state.is_open();
         self.state.toggle();
+        if opening {
+            self.last_band = None;
+            self.retire_band = None;
+            self.retire_frames = 0;
+            self.closing = false;
+        } else {
+            self.closing = true;
+        }
         self.motion.anim_active = true;
     }
 
     /// Close Pivot and trigger closing animation.
     pub fn close(&mut self) {
+        if self.state.is_open() {
+            self.closing = true;
+        }
         self.state.close();
         self.motion.anim_active = true;
     }
@@ -139,6 +251,33 @@ impl Default for Pivot {
 impl Chrome for Pivot {
     fn anim_pending(&self) -> bool {
         self.motion.anim_active
+    }
+
+    fn damage_pending(&self) -> bool {
+        self.retire_frames > 0
+    }
+
+    /// The panel plus its painted halo is the only surface the reveal can
+    /// touch: it slides 14 px upward and fades in place. Localizing the
+    /// animation keeps a close from repainting the whole output at the panel
+    /// rate; the retirement window keeps naming the vacated band after the
+    /// panel itself has gone (ADR-0227).
+    fn damage_regions(&self, _windows: &[Window], display: (f32, f32)) -> Option<Vec<Rect>> {
+        if !self.state.is_open() && self.motion.visibility <= 0.001 && self.retire_frames == 0 {
+            return Some(Vec::new());
+        }
+        if let Some(band) = self.retire_band {
+            return Some(vec![band]);
+        }
+        // `last_band` is the union of every placement the reveal has painted,
+        // so it also covers the strip a closing panel vacates when it slides
+        // upward. Recomputing the band from the current frame alone would
+        // leave that strip attached to the previous frame.
+        if let Some(band) = self.last_band {
+            return Some(vec![band]);
+        }
+        let panel = rendering::panel_rect(&self.state, display, usize::MAX, 1.0);
+        self.panel_band(display, panel).map(|band| vec![band])
     }
 
     fn prepare_frame(
@@ -408,6 +547,13 @@ impl Chrome for Pivot {
         }
 
         let panel = rendering::panel_rect(&self.state, display, 1, progress);
+        // Remember every band the panel actually paints while the reveal runs.
+        // When the panel closes, its query is cleared, so recomputing the band
+        // from the closed state could shrink it below the search-result panel
+        // the user was just looking at. The union is the only safe footprint.
+        if let Some(band) = self.panel_band(display, panel) {
+            self.union_band(band);
+        }
         let cursor = (raw.cursor.x, raw.cursor.y);
 
         if pressed && self.state.is_open() && !contains(panel, cursor.0, cursor.1) {
@@ -451,6 +597,58 @@ mod tests {
             categories: cat.iter().map(|s| s.to_string()).collect(),
             ..Default::default()
         }
+    }
+
+    fn frame_input(dt: f32) -> Input {
+        let mut input = Input::default();
+        input.set_dt(dt);
+        input
+    }
+
+    #[test]
+    fn a_closed_launcher_retires_its_band_and_stops_animating() {
+        let mut pivot = Pivot::new();
+        pivot.state.open();
+        let input = frame_input(1.0 / 60.0);
+        for _ in 0..240 {
+            pivot.prepare_frame_state(&input);
+        }
+        assert!(pivot.motion.visibility >= 0.999);
+        assert!(!pivot.anim_pending());
+
+        // The band the open panel painted is owned through the close.
+        pivot.last_band = Some(Rect {
+            x: 100.0,
+            y: 100.0,
+            w: 400.0,
+            h: 300.0,
+        });
+        pivot.close();
+        for _ in 0..120 {
+            pivot.prepare_frame_state(&input);
+            if pivot.retire_frames > 0 {
+                break;
+            }
+        }
+        assert!(!pivot.is_active(), "the panel itself is gone");
+        assert!(pivot.retire_frames > 0, "the vacated band is still owned");
+        assert!(
+            pivot
+                .damage_regions(&[], (1280.0, 800.0))
+                .is_some_and(|regions| regions.len() == 1),
+            "a retired launcher localizes its clear to the panel band"
+        );
+
+        for _ in 0..RETIRE_FRAMES {
+            pivot.prepare_frame_state(&input);
+        }
+        assert_eq!(pivot.retire_frames, 0);
+        assert!(!pivot.damage_pending(), "the retirement window is finite");
+        assert_eq!(
+            pivot.damage_regions(&[], (1280.0, 800.0)),
+            Some(Vec::new()),
+            "a quiescent closed launcher owns no pixels"
+        );
     }
 
     #[test]

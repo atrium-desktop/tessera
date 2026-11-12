@@ -184,10 +184,11 @@ const REVEAL_SETTLE_VALUE_EPS: f32 = 0.004;
 const REVEAL_SETTLE_VELOCITY_EPS: f32 = 0.04;
 
 /// Frames the panel keeps reporting full-output damage after its reveal settles
-/// (ADR-0171 `[INV-ARCH-03]`, ADR-0176). The panel's canvas is opaque and
-/// full-screen, so every swapchain ring slot must overwrite the pre-open
-/// desktop pixels it covered; `FLUX_MAX_FRAMES_IN_FLIGHT` (3) drains the ring.
-const SETTLED_DRAIN_FRAMES: u8 = 3;
+/// (ADR-0171 `[INV-ARCH-03]`, ADR-0176, ADR-0227). The panel's canvas is opaque
+/// and full-screen, so every swapchain ring slot must overwrite the pre-open
+/// desktop pixels it covered. One more than `FLUX_MAX_FRAMES_IN_FLIGHT` (3)
+/// leaves margin for an image acquired twice while the budget ticks down.
+const SETTLED_DRAIN_FRAMES: u8 = 4;
 
 fn presentation_anim_pending(
     reveal: &Spring,
@@ -889,6 +890,18 @@ impl ControlCenter {
         // Reopening starts at the first page: the lane's contents are not
         // remembered state, and a fresh look should not open on page 3.
         self.tray_page = 0;
+        // Hover latches and their reveals are advanced against the *rendered*
+        // panel. Once `render` stops running they would hold their last value
+        // forever: a pointer resting on a control when Escape closes the panel
+        // would keep `interaction_anim_pending` true for the rest of the
+        // session, repainting the whole output at the panel rate for a panel
+        // that is not on screen. Clear them with the things that own them.
+        self.work_mode_hover = None;
+        self.session_hover = None;
+        self.kbd_backlight_preview = None;
+        self.notif_scrollbar_reveal = 0.0;
+        self.work_mode_tooltip_reveal = 0.0;
+        self.session_tooltip_reveal = 0.0;
         if let Some(key) = self.menu_open_for.take() {
             self.menu_path.clear();
             self.menu_just_opened = false;
@@ -1271,7 +1284,7 @@ impl Chrome for ControlCenter {
         // Wheel activity over the notification stream keeps its scrollbar
         // revealed; `advance` decays it when idle.
         let wheel_dy = raw.scroll_pixels_y.abs().max(raw.scroll_y.abs() * 16.0);
-        if wheel_dy > 0.0 && contains(notifications_rect, cursor.0, cursor.1) {
+        if self.open && wheel_dy > 0.0 && contains(notifications_rect, cursor.0, cursor.1) {
             self.notif_scrollbar_reveal = 1.0;
         }
 
@@ -1529,18 +1542,16 @@ impl Chrome for ControlCenter {
 
     fn anim_pending(&self) -> bool {
         let target = if self.open { 1.0 } else { 0.0 };
-        // `settled_drain_frames` is swapchain-ring damage bookkeeping ("repaint
-        // this slot once more so every in-flight image shows the settled
-        // panel"), not an animation. Including it here closes the same
-        // feedback loop the Dock had: the drain asks for a frame, the frame
-        // re-primes the drain, and a closed control center is repainted at the
-        // output refresh rate forever.
         presentation_anim_pending(
             &self.reveal,
             target,
             self.open && self.avatar.as_ref().is_some_and(Portrait::is_animated),
             self.avatar_reload_pending(),
         ) || self.interaction_anim_pending()
+    }
+
+    fn damage_pending(&self) -> bool {
+        self.settled_drain_frames > 0
     }
 
     /// The union of the panel's animated footprints — the region a frame
@@ -1560,7 +1571,7 @@ impl Chrome for ControlCenter {
             self.reserved,
             // The reveal/close transition animates the opaque full-screen
             // canvas; the settle drain repaints the full output for
-            // FLUX_MAX_FRAMES_IN_FLIGHT slots. Both stay full-output via
+            // `SETTLED_DRAIN_FRAMES` slots. Both stay full-output via
             // `None`. Tooltip reveals are localized to their anchor bands.
             self.reveal_animating() || self.settled_drain_frames > 0,
             // The always-on bands are exact single-rect footprints: the

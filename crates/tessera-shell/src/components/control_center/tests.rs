@@ -58,10 +58,16 @@ fn toggle_opens_and_closes_the_panel() {
     assert!(panel.modal_active());
     assert!(panel.exclusive_presentation_active());
     assert!(panel.requires_composition());
-    // Reduced motion resolves the reveal in one frame, so the panel is
-    // settled and the settle drain (damage bookkeeping, not an animation)
-    // must not keep the frame loop alive.
+    // Reduced motion resolves the reveal in one frame, so the settle edge
+    // primes the ring drain. The bounded drain is a damage request, not an
+    // animation, but it still keeps frames arriving until every swapchain
+    // image has seen the settled canvas.
+    assert!(panel.damage_pending());
     assert!(!panel.anim_pending());
+    for _ in 0..SETTLED_DRAIN_FRAMES {
+        panel.advance(0.016);
+    }
+    assert!(!panel.damage_pending(), "the drain budget is finite");
 
     // The panel paints its own opaque full-screen canvas (ADR-0176): it is a
     // full-output cover, so the compositor can elide the desktop beneath it.
@@ -98,7 +104,7 @@ fn reveal_eases_instead_of_snapping_without_reduced_motion() {
 fn the_settle_drain_keeps_the_panel_active_for_the_ring_depth() {
     // The opaque full-screen canvas must overwrite the pre-open desktop in
     // every swapchain ring slot; on the frame the reveal settles the panel
-    // primes FLUX_MAX_FRAMES_IN_FLIGHT (3) drain frames of full-output damage
+    // primes SETTLED_DRAIN_FRAMES (4) drain frames of full-output damage
     // before releasing the chrome layer (ADR-0171 `[INV-ARCH-03]`).
     let mut panel = CommandPanel::without_sources();
     let mut out = ChromeEvents::default();
@@ -119,21 +125,26 @@ fn the_settle_drain_keeps_the_panel_active_for_the_ring_depth() {
     assert!(drain_primed, "the settle edge primes the ring drain");
     assert!(panel.active(), "the drain keeps the chrome layer");
     assert!(
+        panel.damage_pending(),
+        "the drain must keep frames arriving so every ring image is overwritten"
+    );
+    assert!(
         !panel.anim_pending(),
-        "the drain is damage bookkeeping; it must not pump the frame loop"
+        "the drain is a damage request, not a motion predicate"
     );
     assert!(
         panel.damage_regions(&[], (1920.0, 1080.0)).is_none(),
         "the drain forces a full-output repaint"
     );
 
-    // Exactly FLUX_MAX_FRAMES_IN_FLIGHT further frames drain the ring, then the
-    // panel releases the chrome layer.
+    // The bounded budget then drains the ring, after which the panel releases
+    // the chrome layer.
     for _ in 0..SETTLED_DRAIN_FRAMES {
         assert!(panel.active());
         panel.advance(0.016);
     }
     assert!(!panel.anim_pending());
+    assert!(!panel.damage_pending());
     assert!(
         !panel.active(),
         "the chrome layer is released after the drain"
@@ -2182,6 +2193,29 @@ fn quick_controls_grid_is_placed_in_main_panel() {
     assert!(
         !out.system_actions.is_empty(),
         "quick controls receives clicks at its placed location"
+    );
+}
+
+#[test]
+fn closing_clears_hover_latches_that_would_keep_the_clock_alive() {
+    let mut panel = CommandPanel::without_sources();
+    let mut out = ChromeEvents::default();
+    panel.toggle_command_panel(&mut out);
+    panel.work_mode_hover = Some(0);
+    panel.session_hover = Some("power");
+    panel.notif_scrollbar_reveal = 1.0;
+    panel.key_char(&escape(), &mut out);
+    assert!(!panel.open);
+    for _ in 0..600 {
+        panel.advance(0.016);
+    }
+    assert!(
+        !panel.anim_pending(),
+        "a closed panel must not keep animating from stale hover latches"
+    );
+    assert!(
+        !panel.damage_pending(),
+        "the bounded ring drain has finished"
     );
 }
 

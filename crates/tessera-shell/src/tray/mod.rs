@@ -85,9 +85,9 @@ impl TrayStatus {
 pub enum TrayIcon {
     /// Freedesktop theme icon name (`IconName`).
     Name(String),
-    /// Raw pixels (`IconPixmap`), converted to unpremultiplied BGRA8 — the
-    /// format flux samples (`Bgra8Unorm`), matching the
-    /// compositor's app-icon path.
+    /// Raw pixels (`IconPixmap`), converted to premultiplied BGRA8 — the
+    /// format flux samples (`Bgra8Unorm`) and the one `tessera-assets` emits
+    /// for file-backed icons.
     Pixmap(TrayPixmap),
     #[default]
     None,
@@ -97,7 +97,7 @@ pub enum TrayIcon {
 pub struct TrayPixmap {
     pub width: u32,
     pub height: u32,
-    /// `width * height * 4` bytes, unpremultiplied BGRA8.
+    /// `width * height * 4` bytes, premultiplied BGRA8.
     pub bgra: Vec<u8>,
 }
 
@@ -231,18 +231,20 @@ pub fn spawn() -> Option<TrayHandle> {
     watcher::spawn()
 }
 
-/// Convert one `IconPixmap` payload to BGRA8.
+/// Convert one `IconPixmap` payload to premultiplied BGRA8.
 ///
 /// Per the SNI spec each pixmap is ARGB32 in network byte order, so the
-/// in-memory byte sequence per pixel is `A, R, G, B`; flux samples BGRA, so
-/// the output sequence is `B, G, R, A` (alpha kept unpremultiplied, matching
-/// the compositor's app-icon upload path).
-pub(crate) fn argb32_to_bgra(data: &[u8]) -> Vec<u8> {
+/// in-memory byte sequence per pixel is `A, R, G, B`. The renderer samples
+/// BGRA8 with a premultiplied-alpha convention, so the output is `B, G, R, A`
+/// with the colour channels multiplied by alpha — the same layout every other
+/// decoded asset arrives in (ADR-0233).
+pub(crate) fn argb32_to_premultiplied_bgra(data: &[u8]) -> Vec<u8> {
     let mut bgra = Vec::with_capacity(data.len());
     for pixel in data.chunks_exact(4) {
         let [a, r, g, b] = [pixel[0], pixel[1], pixel[2], pixel[3]];
         bgra.extend_from_slice(&[b, g, r, a]);
     }
+    tessera_assets::premultiply_bgra_in_place(&mut bgra);
     bgra
 }
 
@@ -448,16 +450,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn argb_converts_byte_order_and_channels() {
-        // One pixel per 4 bytes, network byte order: A, R, G, B.
+    fn argb_converts_byte_order_channels_and_alpha() {
+        // One pixel per 4 bytes, network byte order: A, R, G, B. The renderer
+        // samples premultiplied BGRA, so the colour channels shrink with alpha.
         let argb = [0x80, 0x11, 0x22, 0x33, 0xff, 0xaa, 0xbb, 0xcc];
-        let bgra = argb32_to_bgra(&argb);
-        assert_eq!(bgra, vec![0x33, 0x22, 0x11, 0x80, 0xcc, 0xbb, 0xaa, 0xff]);
+        let bgra = argb32_to_premultiplied_bgra(&argb);
+        assert_eq!(bgra, vec![0x1a, 0x11, 0x09, 0x80, 0xcc, 0xbb, 0xaa, 0xff]);
     }
 
     #[test]
     fn argb_ignores_trailing_partial_pixel() {
-        assert_eq!(argb32_to_bgra(&[1, 2, 3]), Vec::<u8>::new());
+        assert_eq!(argb32_to_premultiplied_bgra(&[1, 2, 3]), Vec::<u8>::new());
     }
 
     #[test]

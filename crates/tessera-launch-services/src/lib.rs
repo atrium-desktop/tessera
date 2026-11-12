@@ -6,7 +6,6 @@ pub mod icons;
 pub mod ini;
 pub mod launcher;
 pub mod search;
-pub mod vector_source;
 
 // Top-level re-exports for unified application lifecycle consumption:
 pub use entries::{
@@ -14,8 +13,8 @@ pub use entries::{
     enumerate_with_theme_and_scale, expand_exec, expand_exec_tokens, parse_str,
 };
 pub use icons::{
-    DEFAULT_ICON_SIZE, DEFAULT_ICON_THEME, icon_search_bases, resolve_icon, resolve_icon_scaled,
-    xdg_data_dirs,
+    DEFAULT_ICON_SIZE, DEFAULT_ICON_THEME, ICON_EXTENSIONS, icon_search_bases, resolve_icon,
+    resolve_icon_scaled, xdg_data_dirs,
 };
 pub use launcher::{
     InteractionDomainResourceLimits, InteractionDomainSandbox, LaunchOpts, LaunchSource,
@@ -24,4 +23,3 @@ pub use launcher::{
 pub use search::{
     IntentAction, IntentEngine, IntentItem, IntentKind, QueryMode, SystemCmd, eval_math,
 };
-pub use vector_source::{SourceError, decompress_if_gzip, read_vector_source};

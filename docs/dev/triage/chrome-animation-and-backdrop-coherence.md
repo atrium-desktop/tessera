@@ -99,7 +99,11 @@ unioning the vacated footprint into `damage_regions()` until all three slots hav
 been overwritten.
 
 - The drain counter drives **damage**, never `anim_pending`: a counter in the
-  clock predicate re-primes itself on the frame it requests (Rule 2).
+  clock predicate re-primes itself on the frame it requests (Rule 2). A
+  component with a bounded retirement window reports it through
+  [`Chrome::damage_pending`]; the shell folds that into the frame-build and
+  repaint predicates without claiming the surface is still animating (the
+  launcher, app picker, and dock menu use this seam).
 - **Failure Mode**: clearing `hover_surface_bounds = None` immediately on tile
   exit without draining its damage rectangle leaves the closed tooltip or preview
   card burned into 2 of the 3 swapchain buffers, so it flashes every third frame

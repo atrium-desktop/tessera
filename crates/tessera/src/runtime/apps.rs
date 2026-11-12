@@ -24,13 +24,16 @@ pub(super) const DEFAULT_APP_ICON_PNG: &[u8] =
     include_bytes!("../../../../assets/icons/unknown.png");
 pub(super) const DEFAULT_ICON_KEY: &str = "__tessera_default_app_icon__";
 
-/// Raster extensions the `image` crate decodes directly. SVG/SVGZ is compiled
-/// by the Optics reticle compiler ([`reticle`]); a document it rejects falls
-/// back to the dock glyph without failing startup, and no subprocess or host
-/// rasterizer is involved either way.
-pub(super) const RASTER_ICON_EXTS: &[&str] =
-    &["png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff", "ico"];
-pub(super) const SVG_ICON_EXTS: &[&str] = &["svg", "svgz"];
+/// Raster extent for an application icon: the launcher asks for a large logical
+/// icon, so it scales with the output while the texture stays bounded.
+///
+/// `tessera-assets` owns the decode and the premultiplied-BGRA layout; this is
+/// only the compositor's size policy.
+pub(super) fn icon_raster_extent(icon_scale: u32) -> u32 {
+    tessera_launch_services::DEFAULT_ICON_SIZE
+        .saturating_mul(icon_scale.max(1))
+        .clamp(1, 512)
+}
 pub(super) const HUD_SYMBOLIC_ICON_NAMES: &[&str] = &[
     "audio-volume-muted-symbolic",
     "audio-volume-low-symbolic",
@@ -246,80 +249,61 @@ pub(super) struct DecodedIcon {
     pub(super) overwrite: bool,
 }
 
-/// Decode a PNG byte slice into a BGRA8 pixel buffer using `image` (ADR-0207).
-pub(super) fn decode_png_bgra(png: &[u8], target_size: u32) -> Option<Vec<u8>> {
-    let target = target_size.clamp(1, 512);
-    let dyn_img = image::load_from_memory(png).ok()?;
-    let resized = if dyn_img.width() == target && dyn_img.height() == target {
-        dyn_img.to_rgba8()
-    } else {
-        dyn_img
-            .resize_exact(target, target, image::imageops::FilterType::Triangle)
-            .to_rgba8()
-    };
-    let mut bgra = resized.into_raw();
-    for chunk in bgra.chunks_exact_mut(4) {
-        chunk.swap(0, 2); // RGBA -> BGRA
-    }
-    Some(bgra)
+/// Decode one asset for the icon cache.
+///
+/// `tessera-assets` owns the format dispatch, premultiplication and channel
+/// order. A broken icon is a logged fallback, never a failed scan.
+fn decode_asset(path: &std::path::Path, extent: u32) -> Option<tessera_assets::RasterImage> {
+    tessera_assets::decode_file(path, extent)
+        .inspect_err(|error| log::debug!("icon: {} did not decode: {error}", path.display()))
+        .ok()
 }
 
-/// Decode every application and HUD icon into raw BGRA8 pixels. Runs on the
-/// app-scan worker thread: it performs no GPU work, only file I/O and in-process
-/// SVG compilation.
+/// Decode every application and HUD icon into premultiplied BGRA8 pixels. Runs on
+/// the app-scan worker thread: no GPU work, only file I/O and in-process vector
+/// compilation.
 pub(super) fn decode_icons(
     apps: &[tessera_desktop::app::Entry],
     icon_theme: &str,
     icon_scale: u32,
 ) -> Vec<DecodedIcon> {
     let mut decoded = Vec::new();
+    let extent = icon_raster_extent(icon_scale);
 
-    // Default application fallback icon decoded from embedded PNG (ADR-0207).
-    let default_target = tessera_launch_services::DEFAULT_ICON_SIZE
-        .saturating_mul(icon_scale.max(1))
-        .min(512);
-    if let Some(default_bgra) = decode_png_bgra(DEFAULT_APP_ICON_PNG, default_target) {
+    // Default application fallback icon decoded from the embedded PNG (ADR-0207).
+    if let Ok(default) = tessera_assets::decode_bytes(DEFAULT_APP_ICON_PNG, extent) {
         decoded.push(DecodedIcon {
             keys: vec![
                 DEFAULT_ICON_KEY.to_string(),
                 "application-x-executable".to_string(),
                 "unknown".to_string(),
             ],
-            width: default_target,
-            height: default_target,
-            bgra: default_bgra,
+            width: default.width(),
+            height: default.height(),
+            bgra: default.into_bgra(),
             overwrite: false,
         });
+    } else {
+        log::warn!("icon: the embedded default icon did not decode");
     }
 
     for entry in apps {
         let Some(path) = &entry.icon_path else {
             continue;
         };
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_ascii_lowercase())
-            .unwrap_or_default();
-        let Some(image) = decode_icon(path, &ext, icon_scale) else {
+        let Some(raster) = decode_asset(path, extent) else {
             continue;
         };
-        let rgba = image.to_rgba8();
-        let (w, h) = rgba.dimensions();
-        let mut bgra = rgba.into_raw();
-        for chunk in bgra.chunks_exact_mut(4) {
-            chunk.swap(0, 2); // RGBA8 -> BGRA8 (flux samples BGRA8_UNORM).
-        }
         decoded.push(DecodedIcon {
             keys: entry.match_keys(),
-            width: w,
-            height: h,
-            bgra,
+            width: raster.width(),
+            height: raster.height(),
+            bgra: raster.into_bgra(),
             overwrite: false,
         });
     }
 
-    // HUD status assets come from the same icon theme as applications. SVGs
+    // HUD status assets come from the same icon theme as applications. Vectors
     // are rasterized at output scale (and subsequently sampled down by lens),
     // avoiding the coarse single-pixel strokes of compositor glyphs while
     // retaining the host theme's silhouettes and proportions.
@@ -342,37 +326,18 @@ pub(super) fn decode_icons(
             log::debug!("hud icon: '{name}' was not found in theme '{icon_theme}'");
             continue;
         };
-        let ext = path
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .map(str::to_ascii_lowercase)
-            .unwrap_or_default();
-        let Some(image) = decode_icon(&path, &ext, icon_scale) else {
+        let Some(mut raster) = decode_asset(&path, extent) else {
             continue;
         };
-        let mut rgba = image.to_rgba8();
         // Symbolic themes commonly encode a dark CSS foreground intended for
         // toolkit recolouring. The compositor has no GTK style context, so
-        // apply the HUD's light foreground while preserving every coverage
-        // value produced by SVG antialiasing.
-        for pixel in rgba.pixels_mut() {
-            if pixel[3] != 0 {
-                pixel[0] = 246;
-                pixel[1] = 246;
-                pixel[2] = 248;
-            }
-        }
-        let (w, h) = rgba.dimensions();
-        let mut bgra = rgba.into_raw();
-        for chunk in bgra.chunks_exact_mut(4) {
-            chunk.swap(0, 2);
-        }
-        let keys = vec![format!("tessera-hud:{name}")];
+        // apply the HUD's light foreground while preserving coverage.
+        raster.recolour_symbolic([246, 246, 248]);
         decoded.push(DecodedIcon {
-            keys,
-            width: w,
-            height: h,
-            bgra,
+            keys: vec![format!("tessera-hud:{name}")],
+            width: raster.width(),
+            height: raster.height(),
+            bgra: raster.into_bgra(),
             overwrite: true,
         });
     }
@@ -430,60 +395,6 @@ pub(super) fn build_icon_cache(device: &flux::Device, decoded: &[DecodedIcon]) -
         map,
         default_icon,
     }
-}
-
-/// Decode a desktop icon into RGBA8 pixels.
-///
-/// Raster formats are decoded in process. SVG is compiled by the Optics reticle
-/// compiler ([`reticle`]) at exactly the size the theme asked for — no
-/// subprocess, no third-party rasterizer on the host, and no unbounded texture:
-/// the output is pinned to `DEFAULT_ICON_SIZE * icon_scale`, capped, which is
-/// also the size the caller uploads.
-///
-/// Every failure is a normal fallback to the caller's glyph: a broken icon in one
-/// application must not disturb the rest of the launcher.
-pub(super) fn decode_icon(
-    path: &std::path::Path,
-    ext: &str,
-    icon_scale: u32,
-) -> Option<image::DynamicImage> {
-    if RASTER_ICON_EXTS.contains(&ext) {
-        return image::open(path).ok();
-    }
-    if !SVG_ICON_EXTS.contains(&ext) {
-        return None;
-    }
-    let target = tessera_launch_services::DEFAULT_ICON_SIZE
-        .saturating_mul(icon_scale.max(1))
-        .clamp(1, 512);
-    // `.svgz` is SVG under gzip, and the decompression rule lives in one place
-    // so this and the tray path cannot disagree about what they can read.
-    let source = tessera_launch_services::read_vector_source(path).ok()?;
-    let document = reticle::Document::parse_bytes(&source, reticle::Limits::default()).ok()?;
-
-    // An icon keeps its own aspect ratio: a wide logo must not be squashed into a
-    // square. The rasterized box is the requested square, and the document is
-    // fitted into it, so the pixels stay centred and proportional.
-    let raster = document
-        .rasterize(reticle::RasterizeOptions {
-            width: target,
-            height: target,
-            supersample: 0,
-            format: reticle::PixelFormat::Rgba8Premul,
-            paint: reticle::PaintMode::theme(0xFFFF_FFFF),
-            stroke_width: 0.0,
-        })
-        .ok()?;
-    let mut pixels = raster.as_bytes().to_vec();
-    // flux samples premultiplied BGRA8; the compiler produced premultiplied RGBA8,
-    // so this is the documented channel swap and nothing else.
-    for chunk in pixels.chunks_exact_mut(4) {
-        chunk.swap(0, 2);
-    }
-    // Hand back the same DynamicImage shape the raster path produces, so both
-    // branches converge on one upload path.
-    image::RgbaImage::from_raw(raster.width(), raster.height(), pixels)
-        .map(image::DynamicImage::ImageRgba8)
 }
 
 #[cfg(test)]
@@ -570,9 +481,29 @@ mod tests {
 
     #[test]
     fn default_app_icon_png_decodes_successfully() {
-        let bgra = decode_png_bgra(DEFAULT_APP_ICON_PNG, 48);
-        assert!(bgra.is_some(), "default unknown.png must decode cleanly");
-        let bytes = bgra.unwrap();
-        assert_eq!(bytes.len(), 48 * 48 * 4);
+        let raster =
+            tessera_assets::decode_bytes(DEFAULT_APP_ICON_PNG, 48).expect("default icon decodes");
+        assert_eq!((raster.width(), raster.height()), (48, 48));
+        assert_eq!(raster.as_bgra().len(), 48 * 48 * 4);
+    }
+
+    #[test]
+    fn every_resolved_icon_extension_has_a_decoder() {
+        // The resolver may only return files the decoder can paint. XPM was
+        // advertised once with no decoder behind it, so the asset silently
+        // disappeared (ADR-0222 `[INV-ASSET-06]`, ADR-0233).
+        for extension in tessera_launch_services::ICON_EXTENSIONS {
+            assert!(
+                tessera_assets::supports_extension(extension),
+                "resolver advertises {extension} with no decoder"
+            );
+        }
+    }
+
+    #[test]
+    fn icon_extent_scales_with_the_output_and_stays_bounded() {
+        assert_eq!(icon_raster_extent(1), 128);
+        assert_eq!(icon_raster_extent(2), 256);
+        assert_eq!(icon_raster_extent(9), 512);
     }
 }

@@ -2666,6 +2666,44 @@ fn the_tile_context_menu_is_part_of_the_dock_damage() {
     );
 }
 
+/// A dismissed context menu is removed in one frame, so it must own its
+/// vacated band for a bounded retirement window rather than only the frame that
+/// happened to be on screen (ADR-0227).
+#[test]
+fn a_dismissed_context_menu_retires_its_vacated_band() {
+    let mut dock = dock_with(vec![app("foot")]);
+    let display = (1920.0f32, 1080.0f32);
+    dock.last_display = Some(display);
+    dock.app_menu.open(
+        "foot",
+        Some(app("foot")),
+        std::iter::empty(),
+        lens_rect(600.0, 980.0, 84.0, 74.0),
+        None,
+    );
+    assert!(dock.captures_keyboard());
+
+    dock.dismiss_transient_ui();
+    assert!(!dock.app_menu.is_open());
+    assert!(
+        dock.damage_pending(),
+        "the close owes damage-only frames for the ring"
+    );
+    assert!(
+        dock.menu_retire_frames > 0 && dock.menu_damage_rect.is_some(),
+        "the vacated popup footprint is retained through the retirement"
+    );
+    assert!(
+        !dock.anim_pending(),
+        "a retirement is damage bookkeeping, not motion"
+    );
+    assert!(
+        dock.damage_regions(&[], display)
+            .is_some_and(|regions| !regions.is_empty()),
+        "the retirement names a repaintable region"
+    );
+}
+
 /// A popup that follows its tile must repaint the band it vacated: the previous
 /// frame's menu is still on screen, and no animation predicate reports the move.
 #[test]

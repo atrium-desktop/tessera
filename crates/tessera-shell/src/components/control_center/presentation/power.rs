@@ -42,8 +42,8 @@ impl ControlCenter {
             w: SESSION_BUTTON,
             h: SESSION_BUTTON,
         };
-        let lock_hover = contains(lock_rect, cursor.0, cursor.1);
-        let power_hover = contains(power_rect, cursor.0, cursor.1);
+        let lock_hover = self.open && contains(lock_rect, cursor.0, cursor.1);
+        let power_hover = self.open && contains(power_rect, cursor.0, cursor.1);
 
         let mut lock_clicked = false;
         f.set_theme(themes::hud(&hud).with_fg(if lock_hover {

@@ -1333,6 +1333,32 @@ impl Shell {
         self.ui.anim_pending()
     }
 
+    /// Whether any participating component owes a bounded **damage-repair**
+    /// frame (a retirement window for pixels it just removed). Kept separate
+    /// from [`Self::anim_pending`]: a repair budget must not be mistaken for a
+    /// value still in motion, and it must go false on its own.
+    #[must_use]
+    pub fn damage_pending(&self) -> bool {
+        let modal_active = self
+            .components
+            .iter()
+            .any(|component| component.modal_active());
+        let window_switcher_active = self.window_switcher_active();
+        let exclusive_presentation_active = self.exclusive_presentation_active();
+        self.components
+            .iter()
+            .filter(|component| {
+                participates_in_shell_pass(
+                    component.as_ref(),
+                    self.screenshot_freeze,
+                    modal_active,
+                    window_switcher_active,
+                    exclusive_presentation_active,
+                )
+            })
+            .any(|component| component.damage_pending())
+    }
+
     /// The output-logical rectangles this frame's chrome scene repaints, or
     /// `None` when a participating component cannot state its footprint.
     ///
@@ -1382,7 +1408,9 @@ impl Shell {
                     exclusive_presentation_active,
                 )
             })
-            .filter(|component| scene_changed || component.anim_pending())
+            .filter(|component| {
+                scene_changed || component.anim_pending() || component.damage_pending()
+            })
         {
             // `?` is deliberate: a component that cannot localize its own paint
             // is a genuine "repaint everything" instruction.
@@ -1756,6 +1784,7 @@ impl Shell {
         let needs_build = self.dirty
             || input_active
             || self.anim_pending()
+            || self.damage_pending()
             || caret_tick_due
             || self.pending_scene.is_none();
 
@@ -2767,6 +2796,67 @@ mod tests {
         // A successful build followed by a fresh build refreshes in place.
         shell.prepare_frame(&Input::default());
         assert!(shell.has_pending_scene());
+    }
+
+    /// A component that is not animating but owes a bounded damage repair for
+    /// pixels it just removed (ADR-0227).
+    struct RetiringChrome {
+        footprint: tessera_primitives::Rect,
+        pending: bool,
+    }
+
+    impl Chrome for RetiringChrome {
+        fn render(
+            &mut self,
+            _frame: &mut Frame,
+            _input: &Input,
+            _windows: &[Window],
+            _workspaces: &WorkspaceSnapshot,
+            _i18n: &Localizer,
+            _out: &mut ChromeEvents,
+        ) {
+        }
+
+        fn damage_pending(&self) -> bool {
+            self.pending
+        }
+
+        fn damage_regions(&self, _windows: &[Window], _display: (f32, f32)) -> Option<Vec<Rect>> {
+            Some(vec![Rect {
+                x: self.footprint.origin.x as f32,
+                y: self.footprint.origin.y as f32,
+                w: self.footprint.size.w as f32,
+                h: self.footprint.size.h as f32,
+            }])
+        }
+    }
+
+    #[test]
+    fn a_damage_only_retirement_is_queried_without_an_animation() {
+        let mut shell = Shell::headless().unwrap();
+        shell.add(Box::new(RetiringChrome {
+            footprint: tessera_primitives::Rect::new(300, 200, 440, 260),
+            pending: true,
+        }));
+        assert!(!shell.anim_pending(), "a retirement is not motion");
+        assert!(shell.damage_pending());
+        assert_eq!(
+            shell.chrome_damage_regions((1920.0, 1080.0), false),
+            Some(vec![tessera_primitives::Rect::new(300, 200, 440, 260)]),
+            "the repair frame must name the vacated footprint"
+        );
+
+        let mut shell = Shell::headless().unwrap();
+        shell.add(Box::new(RetiringChrome {
+            footprint: tessera_primitives::Rect::new(300, 200, 440, 260),
+            pending: false,
+        }));
+        assert!(!shell.damage_pending());
+        assert_eq!(
+            shell.chrome_damage_regions((1920.0, 1080.0), false),
+            Some(Vec::new()),
+            "an exhausted retirement owns no pixels"
+        );
     }
 
     #[test]

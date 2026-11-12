@@ -27,7 +27,7 @@ use zbus::zvariant::{OwnedObjectPath, Value};
 
 use super::{
     LayoutReply, MenuState, TrayCommand, TrayHandle, TrayIcon, TrayItem, TrayPixmap, TraySnapshot,
-    TrayStatus, argb32_to_bgra, parse_layout_reply, select_pixmap,
+    TrayStatus, argb32_to_premultiplied_bgra, parse_layout_reply, select_pixmap,
 };
 
 const WATCHER_NAME: &str = "org.kde.StatusNotifierWatcher";
@@ -382,7 +382,7 @@ fn build_props(
                 TrayIcon::Pixmap(TrayPixmap {
                     width: *w as u32,
                     height: *h as u32,
-                    bgra: argb32_to_bgra(data),
+                    bgra: argb32_to_premultiplied_bgra(data),
                 })
             }
             None => name

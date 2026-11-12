@@ -52,10 +52,10 @@ tessera-sched = { workspace = true }
 # Launcher: enumerate `.desktop` entries and spawn them detached (ADR-0022, ADR-0160).
 # Only the binary wires these; tessera-shell and tessera-composite stay free of them.
 tessera-launch-services = { workspace = true }
+# One theme-asset decoder for application icons, HUD symbols and cursors.
+tessera-assets = { workspace = true }
 flux = { workspace = true }
 lens = { workspace = true }
-reticle = { workspace = true }
-image = { workspace = true }
 libc = { workspace = true }
 # Embeds the bundled Tessera cursor theme as the default fallback (ADR-0207).
 include_dir = { workspace = true }
@@ -81,6 +81,8 @@ ignored = ["vista-sys", "reticle-sys"]
 [dev-dependencies]
 # `.svgz` fixtures are gzip streams; the tests build them in process.
 flate2 = { workspace = true }
+# Tests encode PNG fixtures; production code decodes through `tessera-assets`.
+image = { workspace = true }
 tessera-desktop = { workspace = true }
 tessera-ipc = { workspace = true }
 tessera-protocol = { workspace = true }

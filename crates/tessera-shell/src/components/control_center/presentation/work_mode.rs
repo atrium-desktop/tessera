@@ -115,7 +115,7 @@ impl ControlCenter {
                 w: seg_w,
                 h: inner.h,
             };
-            let hovered = contains(seg_rect, self.cursor_hint.0, self.cursor_hint.1);
+            let hovered = self.open && contains(seg_rect, self.cursor_hint.0, self.cursor_hint.1);
             if hovered {
                 self.work_mode_hover = Some(index);
             }

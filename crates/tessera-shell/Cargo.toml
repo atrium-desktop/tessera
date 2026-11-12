@@ -14,11 +14,10 @@ full-chrome = ["chrome-dock", "chrome-pivot", "chrome-control-center", "chrome-a
 chrome-dock = []
 chrome-accessibility = ["dep:zbus"]
 chrome-pivot = ["dep:tessera-launch-services"]
-# PNG decoding for the Agent feedback pointer sprites. Its own feature because
-# the sprites are not a tray concern: the tray feature merely happens to be
-# the one that always wanted them.
-agent-sprites = ["dep:image"]
-chrome-tray = ["agent-sprites", "dep:tessera-launch-services", "dep:zbus"]
+# Theme-asset decoding for Agent feedback sprites and tray icons. Its own
+# feature because the sprites are not a tray concern (ADR-0233).
+agent-sprites = ["dep:tessera-assets"]
+chrome-tray = ["agent-sprites", "dep:tessera-launch-services", "dep:zbus", "dep:tessera-assets"]
 chrome-control-center = ["chrome-tray", "persona"]
 # Full personalized portrait runtime preview example.
 persona = [
@@ -31,7 +30,7 @@ required-features = ["persona"]
 
 [dependencies]
 tessera-launch-services = { workspace = true, optional = true }
-image = { workspace = true, optional = true }
+tessera-assets = { workspace = true, optional = true }
 zbus = { workspace = true, optional = true }
 vista-sys.workspace = true
 tessera-authority.workspace = true
@@ -43,8 +42,9 @@ tessera-avatar = { workspace = true, optional = true, features = ["persona"] }
 flux = { workspace = true }
 flux-sys = { workspace = true }
 lens = { workspace = true }
-reticle = { workspace = true }
 lens-sys = { workspace = true }
+# Direct dep so this crate's build script receives DEP_RETICLE_RPATHS for the
+# test harness; the decoder itself lives in `tessera-assets` (ADR-0233).
 reticle-sys = { workspace = true }
 transit = { workspace = true }
 log.workspace = true

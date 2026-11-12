@@ -210,6 +210,10 @@ pub struct Dock {
     /// vacated on a previous frame. Repainted until the menu closes so a moving
     /// anchor never strands pixels.
     pub menu_damage_rect: Option<tessera_primitives::Rect>,
+    /// Ring slots still holding the dismissed context menu. The menu is removed
+    /// abruptly, so its vacated band must be named for longer than the one
+    /// frame that happened to be in flight (ADR-0227).
+    pub menu_retire_frames: u8,
     /// Swapchain ring drain frames remaining after a hover surface closes or moves.
     pub hover_drain_frames: u8,
     /// Whether an immersive modal or overlay (Pivot, Overview, Window Switcher, etc.)
@@ -291,6 +295,7 @@ impl Dock {
             hovered_preview: None,
             hover_damage_rect: None,
             menu_damage_rect: None,
+            menu_retire_frames: 0,
             hover_drain_frames: 0,
             launcher_active: false,
             reduced_motion: false,
@@ -951,11 +956,16 @@ impl Dock {
 
     /// Dismiss popups, preview panels, and tooltips.
     pub fn dismiss_transient_ui(&mut self) {
-        if self.app_menu.is_open()
-            && let Some(disp) = self.last_display
-            && let Some(bounds) = self.app_menu.bounds(disp)
-        {
-            Self::record_menu_damage(&mut self.menu_damage_rect, bounds);
+        if self.app_menu.is_open() {
+            if let Some(disp) = self.last_display
+                && let Some(bounds) = self.app_menu.bounds(disp)
+            {
+                Self::record_menu_damage(&mut self.menu_damage_rect, bounds);
+            }
+            // The render that observes the close burns one tick before damage
+            // is read, leaving four damage-bearing frames — one more than the
+            // deepest supported presentation rotation (ADR-0227).
+            self.menu_retire_frames = 5;
         }
         self.app_menu.dismiss();
         self.menu_tile = None;

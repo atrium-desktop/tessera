@@ -22,6 +22,7 @@ repository = "https://github.com/atrium-desktop/tessera"
 
 [workspace.dependencies]
 tessera-primitives = { path = "crates/tessera-primitives" }
+tessera-assets = { path = "crates/tessera-assets" }
 tessera-launch-services = { path = "crates/tessera-launch-services" }
 tessera-desktop = { path = "crates/tessera-desktop" }
 tessera-ipc = { path = "crates/tessera-ipc" }

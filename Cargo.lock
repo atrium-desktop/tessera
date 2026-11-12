@@ -1823,12 +1823,12 @@ dependencies = [
  "lens-sys",
  "libc",
  "log",
- "reticle",
  "reticle-sys",
  "serde",
  "serde_json",
  "sha2",
  "tempfile",
+ "tessera-assets",
  "tessera-audit",
  "tessera-authority",
  "tessera-cast",
@@ -1851,6 +1851,16 @@ dependencies = [
  "vista-sys",
  "zbus",
  "zeroize",
+]
+
+[[package]]
+name = "tessera-assets"
+version = "0.0.94"
+dependencies = [
+ "flate2",
+ "image",
+ "reticle",
+ "thiserror",
 ]
 
 [[package]]
@@ -2035,7 +2045,6 @@ dependencies = [
 name = "tessera-launch-services"
 version = "0.0.94"
 dependencies = [
- "flate2",
  "libc",
  "log",
  "tempfile",
@@ -2146,14 +2155,13 @@ dependencies = [
  "flate2",
  "flux",
  "flux-sys",
- "image",
  "include_dir",
  "lens",
  "lens-sys",
  "libc",
  "log",
- "reticle",
  "reticle-sys",
+ "tessera-assets",
  "tessera-authority",
  "tessera-avatar",
  "tessera-design",

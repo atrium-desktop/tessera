@@ -1,0 +1,17 @@
+[package]
+name = "tessera-assets"
+description = "Theme asset decoding: vector sources and premultiplied-BGRA rasters for the renderer"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+flate2.workspace = true
+image.workspace = true
+reticle.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

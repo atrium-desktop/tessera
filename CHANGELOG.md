@@ -14,6 +14,39 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Changed
+
+- **Theme assets have one decoder: `tessera-assets` (ADR-0233).** The compositor
+  and the shell no longer keep separate copies of the raster/vector icon decoder.
+  The crate owns SVG/SVGZ source reading, vector rasterization, PNG/JPEG/GIF/WebP
+  decoding, symbolic recolouring, and the `data-hotspot-*` convention. `reticle`
+  now has exactly one normal dependency edge in the workspace, and
+  `tessera-launch-services` no longer carries the vector-source reader or
+  `flate2`. The theme resolver stops advertising XPM, which had no decoder.
+
+### Fixed
+
+- **Full-colour SVG icons render with their authored colours.** The app and tray
+  decoders swapped RGBA→BGRA inside the decode helper and swapped again at
+  upload, cancelling out the conversion and uploading SVG art with red and blue
+  exchanged. SVG icons now arrive as premultiplied BGRA8 at the single upload
+  boundary.
+- **PNG icons, cursors, Agent sprites, and tray pixmaps composite with correct
+  edges.** They were uploaded as straight alpha to a renderer that samples
+  premultiplied texels; transparent edges appeared too bright. Every decoded
+  asset is now premultiplied before scaling and uploaded unchanged.
+- **A closed transient surface no longer flashes back from the swapchain
+  rotation.** The launcher, the app picker, and the dock's application menu
+  remove themselves in one frame, and that frame only repaints the image it
+  happened to acquire; the other images kept the surface until an unrelated
+  repaint. Each now owns its vacated footprint for a bounded four-frame
+  retirement window through the new `Chrome::damage_pending` seam (ADR-0227),
+  which keeps repair frames arriving without pretending a removed surface is
+  still animating. The launcher's close is localized to its panel band instead
+  of repainting the output, and the control center clears its hover/reveal
+  latches on close so a pointer resting on a control cannot keep the panel
+  repainting forever after Escape.
+
 ## [0.0.94] - 2026-11-12
 
 ### Changed

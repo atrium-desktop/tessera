@@ -14,10 +14,13 @@ use crate::ini::Ini;
 use super::DEFAULT_ICON_THEME;
 use super::xdg::icon_search_bases;
 
-/// Icon file extensions searched in specification preference order. SVGZ is
-/// accepted after the standard PNG/SVG/XPM formats as a compatible extension
-/// used by some real-world themes.
-const ICON_EXTS: &[&str] = &["png", "svg", "xpm", "svgz"];
+/// Icon file extensions searched in specification preference order.
+///
+/// XPM is deliberately absent: no decoder in the stack can paint it, and
+/// resolving a name to an undecodable file silently drops the icon from the
+/// desktop ([INV-ASSET-06], ADR-0233). SVGZ is accepted after PNG/SVG as a
+/// compatible extension used by real-world themes.
+pub const ICON_EXTENSIONS: &[&str] = &["png", "svg", "svgz"];
 
 #[derive(Debug, Clone, Copy)]
 enum DirectoryType {
@@ -338,7 +341,7 @@ fn lookup_file(icon: &str, directory: &Path) -> Option<PathBuf> {
         .extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| {
-            ICON_EXTS
+            ICON_EXTENSIONS
                 .iter()
                 .any(|candidate| extension.eq_ignore_ascii_case(candidate))
         })
@@ -346,7 +349,7 @@ fn lookup_file(icon: &str, directory: &Path) -> Option<PathBuf> {
     {
         return Some(direct);
     }
-    for extension in ICON_EXTS {
+    for extension in ICON_EXTENSIONS {
         let candidate = directory.join(format!("{icon}.{extension}"));
         if candidate.is_file() {
             return Some(candidate);

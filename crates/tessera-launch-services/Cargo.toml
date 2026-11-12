@@ -11,8 +11,6 @@ tessera-desktop.workspace = true
 tessera-i18n = { workspace = true }
 tessera-sched = { workspace = true }
 libc.workspace = true
-# `.svgz` is SVG under gzip (RFC 1952); the decompression lives in one place.
-flate2.workspace = true
 log.workspace = true
 thiserror.workspace = true
 

@@ -7,7 +7,7 @@
 //!
 //! Both halves of a cursor theme are read:
 //!
-//! - `cursors/<name>.svg` is compiled by the Optics reticle compiler ([`reticle`])
+//! - `cursors/<name>.svg` is compiled by the Optics reticle compiler
 //!   into premultiplied pixels at exactly the size the output needs. There is no
 //!   pre-baked bitmap, no subprocess, and no runtime SVG library beyond that one
 //!   device-less compiler.
@@ -64,62 +64,22 @@ struct RasterCursor {
     pixels: Vec<u8>,
 }
 
-/// Read `data-hotspot-x` / `data-hotspot-y` off a compiled document, scaled from
-/// the document's own user space to `out` pixels.
-///
-/// A theme that stamps no hotspot gets the top-left corner, which is what the
-/// XDG convention means by "no hotspot data" and is visible immediately rather
-/// than subtly wrong.
-fn hotspot(document: &reticle::Document, out: u32) -> (u32, u32) {
-    let viewport = document.viewport();
-    let read = |name: &str| -> Option<f32> { document.attribute(name)?.trim().parse().ok() };
-    let scale_x = if viewport[2] > 0.0 {
-        out as f32 / viewport[2]
-    } else {
-        1.0
-    };
-    let scale_y = if viewport[3] > 0.0 {
-        out as f32 / viewport[3]
-    } else {
-        1.0
-    };
-    let axis = |value: Option<f32>, scale: f32| -> u32 {
-        let pixels = value.unwrap_or(0.0) * scale;
-        (pixels.round().max(0.0) as u32).min(out.saturating_sub(1))
-    };
-    (
-        axis(read("data-hotspot-x"), scale_x),
-        axis(read("data-hotspot-y"), scale_y),
-    )
-}
-
 /// Compile an SVG sprite into premultiplied BGRA8 at `out` pixels square.
 ///
-/// The monochrome paint mode is deliberate: a cursor theme's own colours are
-/// honoured (`SVG_PAINT_THEME`), but `currentColor` resolves to opaque white so a
-/// theme that relies on it is still visible on both polarities instead of
-/// vanishing into the background.
-fn compile_svg_cursor(document: &reticle::Document, out: u32) -> Option<RasterCursor> {
+/// The theme's own colours are honoured; `currentColor` resolves to opaque white
+/// so a theme that relies on it is still visible on both polarities instead of
+/// vanishing into the background. `tessera-assets` owns the raster layout and
+/// the stamped-hotspot convention.
+fn compile_svg_cursor(document: &tessera_assets::VectorDocument, out: u32) -> Option<RasterCursor> {
     let out = out.clamp(1, MAX_CURSOR_SPRITE);
-    let options = reticle::RasterizeOptions {
-        width: out,
-        height: out,
-        supersample: 0,
-        format: reticle::PixelFormat::Bgra8Premul,
-        paint: reticle::PaintMode::theme(0xFFFF_FFFF),
-        stroke_width: 0.0,
-    };
-    let pixmap = document.rasterize(options).ok()?;
-    if pixmap.width() != out || pixmap.height() != out {
-        return None;
-    }
-    let (xhot, yhot) = hotspot(document, out);
+    let raster = document.rasterize(out).ok()?;
+    let (xhot, yhot) = document.hotspot(out);
     Some(RasterCursor {
-        width: out,
-        height: out,
+        width: raster.width(),
+        height: raster.height(),
         xhot,
         yhot,
-        pixels: pixmap.as_bytes().to_vec(),
+        pixels: raster.into_bgra(),
     })
 }
 
@@ -131,32 +91,21 @@ fn compile_svg_cursor(document: &reticle::Document, out: u32) -> Option<RasterCu
 /// only when the theme baked a different size than the output needs.
 fn decode_png_cursor(
     png: &[u8],
-    document: Option<&reticle::Document>,
+    document: Option<&tessera_assets::VectorDocument>,
     out: u32,
 ) -> Option<RasterCursor> {
     let out = out.clamp(1, MAX_CURSOR_SPRITE);
-    let dyn_img = image::load_from_memory(png).ok()?;
-    let resized = if dyn_img.width() == out && dyn_img.height() == out {
-        dyn_img.to_rgba8()
-    } else {
-        dyn_img
-            .resize_exact(out, out, image::imageops::FilterType::Triangle)
-            .to_rgba8()
-    };
-    let mut pixels = resized.into_raw();
-    for chunk in pixels.chunks_exact_mut(4) {
-        chunk.swap(0, 2); // RGBA -> BGRA
-    }
+    let raster = tessera_assets::decode_bytes(png, out).ok()?;
     let (xhot, yhot) = match document {
-        Some(document) => hotspot(document, out),
+        Some(document) => document.hotspot(out),
         None => (0, 0),
     };
     Some(RasterCursor {
-        width: out,
-        height: out,
+        width: raster.width(),
+        height: raster.height(),
         xhot,
         yhot,
-        pixels,
+        pixels: raster.into_bgra(),
     })
 }
 
@@ -245,22 +194,21 @@ impl Source {
     /// The compiled SVG document for `name`, if this source provides one.
     ///
     /// `.svgz` is tried after `.svg`, because it is the same document under gzip
-    /// and a theme may ship either. Decompression goes through the shared
-    /// launcher helper so a bundled asset and a filesystem theme obey one rule.
+    /// and a theme may ship either. Decompression goes through the shared asset
+    /// helper so a bundled asset and a filesystem theme obey one rule.
     ///
     /// Parsing happens once per source/name lookup; the caller (`load_shape`)
     /// walks the chain and takes the first hit, so a theme that only carries
     /// `<name>.png` costs two failed file reads and no parse.
-    fn document(&self, name: &str) -> Option<reticle::Document> {
-        for extension in ["svg", "svgz"] {
+    fn document(&self, name: &str) -> Option<tessera_assets::VectorDocument> {
+        for extension in tessera_assets::VECTOR_EXTENSIONS {
             let Some(bytes) = self.read(name, extension) else {
                 continue;
             };
-            let Ok(text) = tessera_launch_services::decompress_if_gzip(bytes.into_owned()) else {
+            let Ok(text) = tessera_assets::decompress_if_gzip(bytes.into_owned()) else {
                 continue; /* a corrupt .svgz must not hide a valid .svg */
             };
-            if let Ok(document) = reticle::Document::parse_bytes(&text, reticle::Limits::default())
-            {
+            if let Ok(document) = tessera_assets::VectorDocument::parse(&text) {
                 return Some(document);
             }
         }

@@ -11,7 +11,7 @@
 mod icon;
 mod xdg;
 
-pub use icon::{resolve_icon, resolve_icon_scaled};
+pub use icon::{ICON_EXTENSIONS, resolve_icon, resolve_icon_scaled};
 pub use xdg::{icon_search_bases, xdg_data_dirs};
 
 /// Default requested icon size. Large enough for a 72 logical-pixel launcher

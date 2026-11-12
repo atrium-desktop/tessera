@@ -312,8 +312,10 @@ impl CompositorRuntime<'_> {
         // panel rate, the defect that held a compositor at ~50% GPU on an idle
         // window.
         let scene_changed = self.shell.take_scene_changed();
-        let chrome_repaint =
-            scene_changed || self.shell.anim_pending() || self.shell.caret_flip_pending();
+        let chrome_repaint = scene_changed
+            || self.shell.anim_pending()
+            || self.shell.damage_pending()
+            || self.shell.caret_flip_pending();
         let chrome_anim_region = if chrome_repaint {
             self.shell
                 .chrome_damage_regions(self.input_acc.display_size, scene_changed)

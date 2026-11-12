@@ -998,6 +998,21 @@ pub trait Chrome {
         false
     }
 
+    /// Whether this component owes a frame whose purpose is **damage repair**
+    /// rather than motion: a bounded retirement window for pixels it just
+    /// removed (ADR-0227).
+    ///
+    /// This is deliberately separate from [`Chrome::anim_pending`]. An
+    /// animation predicate describes a value that is still travelling and can
+    /// legitimately keep the output at the panel rate; a retirement window is a
+    /// fixed budget that must go false by itself. The host uses it to keep
+    /// frames arriving and to include the component in
+    /// [`Chrome::damage_regions`] without turning the repair into an
+    /// unbounded animation.
+    fn damage_pending(&self) -> bool {
+        false
+    }
+
     /// The output-logical **regions** this component's paint touches this frame,
     /// for hosts that convert a change into a partial-output repaint instead of a
     /// full composite.

@@ -17,6 +17,9 @@ negative_knowledge: true
   (its pre-baked-cursor half), [ADR-0122](0122-original-mit-cursor-theme-replaces-bibata.md)
   (the art contract is unchanged; only the rasterizer is)
 - Related: Optics ADR-0150 (`docs/adr/0150-svg-vector-document-compiler.md` in that repository)
+- Amended by: [ADR-0233](0233-theme-assets-decode-once-into-premultiplied-bgra.md)
+  — the two icon decoders are now one crate, and the raster layout is
+  premultiplied BGRA8 at the boundary
 
 ---
 
