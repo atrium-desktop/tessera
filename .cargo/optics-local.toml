@@ -8,13 +8,12 @@
 # lockfile in that worktree; the repository hook keeps the local lockfile out
 # of commits. Remove the generated file before promoting an Optics release.
 [patch."https://github.com/ming2k/optics"]
-flux = { path = "../optics/bindings/flux-rs/crates/flux" }
-flux-sys = { path = "../optics/bindings/flux-rs/crates/flux-sys" }
-vista = { path = "../optics/bindings/vista-rs/crates/vista" }
-vista-sys = { path = "../optics/bindings/vista-rs/crates/vista-sys" }
-lens = { path = "../optics/bindings/lens-rs/crates/lens" }
-lens-sys = { path = "../optics/bindings/lens-rs/crates/lens-sys" }
-transit = { path = "../optics/bindings/transit-rs/crates/transit" }
-transit-sys = { path = "../optics/bindings/transit-rs/crates/transit-sys" }
-svg = { path = "../optics/bindings/svg-rs/crates/svg" }
-svg-sys = { path = "../optics/bindings/svg-rs/crates/svg-sys" }
+flux = { path = "../optics/bindings/crates/flux" }
+flux-sys = { path = "../optics/bindings/crates/flux-sys" }
+vista = { path = "../optics/bindings/crates/vista" }
+vista-sys = { path = "../optics/bindings/crates/vista-sys" }
+lens = { path = "../optics/bindings/crates/lens" }
+lens-sys = { path = "../optics/bindings/crates/lens-sys" }
+transit = { path = "../optics/bindings/crates/transit" }
+reticle = { path = "../optics/bindings/crates/reticle" }
+reticle-sys = { path = "../optics/bindings/crates/reticle-sys" }

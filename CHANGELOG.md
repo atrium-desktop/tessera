@@ -14,6 +14,19 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Changed
+
+- **Adopted Optics v0.0.79.** The pin moves to the release that renames the
+  vector-document compiler from `svg` to `reticle` (Optics ADR-0161), makes
+  `transit` a header-only C vocabulary with a pure Safe Rust binding and no
+  `transit-sys` FFI crate (Optics ADR-0158), and consolidates every Rust binding
+  under the `bindings/crates/` Cargo workspace (Optics ADR-0159). Tessera now
+  depends on `reticle` / `reticle-sys`, drops the Transit rpath plumbing, and
+  points its local Optics patch and API-verification manifest at the unified
+  workspace paths. The SVG format contract, cursor/icon policy, and the
+  `reticle` document API are unchanged; the change is in how Tessera names and
+  links the compiler, not in what it renders.
+
 ## [0.0.93] - 2026-11-11
 
 ### Fixed

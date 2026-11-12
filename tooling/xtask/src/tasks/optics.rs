@@ -94,7 +94,7 @@ const fn pending(api: &'static str, path: &'static str, marker: &'static str) ->
 static OPTICS_API_DEPENDENCIES: &[ApiDependency] = &[
     released(
         "lens::Ui::damage_rects",
-        "bindings/lens-rs/crates/lens/src/lib.rs",
+        "bindings/crates/lens/src/lib.rs",
         "fn damage_rects",
     ),
     released(
@@ -134,7 +134,7 @@ static OPTICS_API_DEPENDENCIES: &[ApiDependency] = &[
     ),
     released(
         "flux::CanvasPassOptions::damage (ADR-0149)",
-        "bindings/flux-rs/crates/flux/src/lib.rs",
+        "bindings/crates/flux/src/lib.rs",
         "pub damage: Vec<CanvasRenderArea>",
     ),
     released(
@@ -144,7 +144,7 @@ static OPTICS_API_DEPENDENCIES: &[ApiDependency] = &[
     ),
     released(
         "flux::ErrorInfo::last_if_code (ADR-0153)",
-        "bindings/flux-rs/crates/flux/src/lib.rs",
+        "bindings/crates/flux/src/lib.rs",
         "fn last_if_code",
     ),
     released(
@@ -164,47 +164,52 @@ static OPTICS_API_DEPENDENCIES: &[ApiDependency] = &[
     ),
     released(
         "lens::Ui::caret_flip_pending (ADR-0151)",
-        "bindings/lens-rs/crates/lens/src/lib.rs",
+        "bindings/crates/lens/src/lib.rs",
         "fn caret_flip_pending",
     ),
     released(
         "lens::Ui::set_caret_blink (ADR-0151)",
-        "bindings/lens-rs/crates/lens/src/lib.rs",
+        "bindings/crates/lens/src/lib.rs",
         "fn set_caret_blink",
     ),
     released(
         "lens::DEFAULT_CARET_BLINK_PERIOD_S (ADR-0151)",
-        "bindings/lens-rs/crates/lens/src/lib.rs",
+        "bindings/crates/lens/src/lib.rs",
         "DEFAULT_CARET_BLINK_PERIOD_S",
     ),
     released(
         "lens::Ui::focus (host-side focus transfer)",
-        "bindings/lens-rs/crates/lens/src/lib.rs",
+        "bindings/crates/lens/src/lib.rs",
         "pub fn focus",
     ),
     released(
         "lens::Snapshot::retain (ADR-0153)",
-        "bindings/lens-rs/crates/lens/src/lib.rs",
+        "bindings/crates/lens/src/lib.rs",
         "pub fn retain",
     ),
+    // ---- released with Optics v0.0.79 --------------------------------------
+    //
+    // The vector-document compiler moved from `svg`/`svg-sys` to
+    // `reticle`/`reticle-sys` (Optics ADR-0161). The safe Rust surface is
+    // unchanged; only the crate, module, and symbol prefix were renamed.
     released(
-        "svg::Document (ADR-0222)",
-        "bindings/svg-rs/crates/svg/src/lib.rs",
+        "reticle::Document (ADR-0222, Optics ADR-0161)",
+        "bindings/crates/reticle/src/lib.rs",
         "pub struct Document",
     ),
     released(
-        "svg::Document::parse_bytes (ADR-0222)",
-        "bindings/svg-rs/crates/svg/src/lib.rs",
+        "reticle::Document::parse_bytes (ADR-0222, Optics ADR-0161)",
+        "bindings/crates/reticle/src/lib.rs",
         "pub fn parse_bytes",
     ),
     released(
-        "svg::Document::rasterize (ADR-0222)",
-        "bindings/svg-rs/crates/svg/src/lib.rs",
+        "reticle::Document::rasterize (ADR-0222, Optics ADR-0161)",
+        "bindings/crates/reticle/src/lib.rs",
         "pub fn rasterize",
     ),
     released(
-        "svg::Limits (ADR-0222)",
-        "bindings/svg-rs/crates/svg/src/lib.rs",
+        "reticle::Limits (ADR-0222, Optics ADR-0161)",
+        "bindings/crates/reticle/src/lib.rs",
         "pub struct Limits",
     ),
     // ---- released with Optics v0.0.76 --------------------------------------
@@ -244,32 +249,32 @@ static OPTICS_API_DEPENDENCIES: &[ApiDependency] = &[
     ),
     released(
         "flux::Damage verdict (ADR-0155)",
-        "bindings/flux-rs/crates/flux/src/lib.rs",
+        "bindings/crates/flux/src/lib.rs",
         "pub enum Damage",
     ),
     released(
         "flux::Surface::begin_frame_timeout_with_damage (ADR-0155)",
-        "bindings/flux-rs/crates/flux/src/lib.rs",
+        "bindings/crates/flux/src/lib.rs",
         "fn begin_frame_timeout_with_damage",
     ),
     released(
         "flux::Frame::repaint_scope (ADR-0155)",
-        "bindings/flux-rs/crates/flux/src/lib.rs",
+        "bindings/crates/flux/src/lib.rs",
         "pub fn repaint_scope",
     ),
     released(
         "flux::Surface::scanout_damage (ADR-0155)",
-        "bindings/flux-rs/crates/flux/src/lib.rs",
+        "bindings/crates/flux/src/lib.rs",
         "pub fn scanout_damage",
     ),
     released(
         "flux::Surface::invalidate_damage (ADR-0155)",
-        "bindings/flux-rs/crates/flux/src/lib.rs",
+        "bindings/crates/flux/src/lib.rs",
         "pub fn invalidate_damage",
     ),
     released(
         "flux::Frame::image_index (ADR-0155)",
-        "bindings/flux-rs/crates/flux/src/lib.rs",
+        "bindings/crates/flux/src/lib.rs",
         "pub fn image_index",
     ),
 ];

@@ -34,10 +34,6 @@ tessera-launch-services = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 zbus = { workspace = true, optional = true }
 vista-sys.workspace = true
-# Direct dep so this crate's build script receives DEP_TRANSIT_RPATHS (published
-# via transit-sys's `links` metadata) and can re-emit the rpath — otherwise the
-# test/example harness loads a stale system libtransit instead of the local build.
-transit-sys = { workspace = true }
 tessera-authority.workspace = true
 tessera-desktop.workspace = true
 tessera-primitives.workspace = true
@@ -47,9 +43,9 @@ tessera-avatar = { workspace = true, optional = true, features = ["persona"] }
 flux = { workspace = true }
 flux-sys = { workspace = true }
 lens = { workspace = true }
-svg = { workspace = true }
+reticle = { workspace = true }
 lens-sys = { workspace = true }
-svg-sys = { workspace = true }
+reticle-sys = { workspace = true }
 transit = { workspace = true }
 log.workspace = true
 thiserror.workspace = true
@@ -64,7 +60,7 @@ include_dir = { workspace = true }
 flate2 = { workspace = true }
 
 [package.metadata.cargo-machete]
-ignored = ["flux-sys", "lens-sys", "svg-sys", "vista-sys", "transit-sys"]
+ignored = ["flux-sys", "lens-sys", "reticle-sys", "vista-sys"]
 
 [lints]
 workspace = true

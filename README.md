@@ -36,7 +36,7 @@ meson setup ../optics/build ../optics \
 meson compile -C ../optics/build
 sudo meson install -C ../optics/build
 sudo ldconfig
-pkg-config --modversion flux vista lens iris svg
+pkg-config --modversion flux vista lens iris reticle
 ```
 
 From the Tessera repository root, start the compositor. Use the
@@ -66,7 +66,7 @@ to prevent audit store lock contention with the host compositor.
 
 ### How the C libraries are selected
 
-The Rust bindings (`flux`, `lens`, `transit`, `svg`, ...) are ordinary crates
+The Rust bindings (`flux`, `lens`, `transit`, `reticle`, ...) are ordinary crates
 compiled into the compositor binary. The C implementations are **shared
 libraries**. The patched `*-sys` build scripts auto-discover the sibling
 `../optics` checkout and prepend its `build/meson-uninstalled` directory to

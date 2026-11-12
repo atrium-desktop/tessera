@@ -8,11 +8,11 @@ and bare-metal DRM/KMS hardware.
 
 ## 1. Prerequisites & Toolchain Setup
 
-Tessera requires Rust 1.88+ and the native Optics graphics stack (`flux`, `vista`, `lens`, `iris`, `svg`):
+Tessera requires Rust 1.88+ and the native Optics graphics stack (`flux`, `vista`, `lens`, `iris`, `reticle`):
 
 ```bash
 rustc --version                  # rustc >= 1.88
-pkg-config --modversion flux vista lens iris svg
+pkg-config --modversion flux vista lens iris reticle
 ```
 
 When maintaining Tessera and Optics together in this `tessera-dev` worktree, ensure

@@ -25,9 +25,9 @@ pub(super) const DEFAULT_APP_ICON_PNG: &[u8] =
 pub(super) const DEFAULT_ICON_KEY: &str = "__tessera_default_app_icon__";
 
 /// Raster extensions the `image` crate decodes directly. SVG/SVGZ is compiled
-/// by the Optics SVG compiler ([`svg`]); a document it rejects falls back to the
-/// dock glyph without failing startup, and no subprocess or host rasterizer is
-/// involved either way.
+/// by the Optics reticle compiler ([`reticle`]); a document it rejects falls
+/// back to the dock glyph without failing startup, and no subprocess or host
+/// rasterizer is involved either way.
 pub(super) const RASTER_ICON_EXTS: &[&str] =
     &["png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff", "ico"];
 pub(super) const SVG_ICON_EXTS: &[&str] = &["svg", "svgz"];
@@ -434,11 +434,11 @@ pub(super) fn build_icon_cache(device: &flux::Device, decoded: &[DecodedIcon]) -
 
 /// Decode a desktop icon into RGBA8 pixels.
 ///
-/// Raster formats are decoded in process. SVG is compiled by the Optics SVG
-/// compiler ([`svg`]) at exactly the size the theme asked for — no subprocess, no
-/// third-party rasterizer on the host, and no unbounded texture: the output is
-/// pinned to `DEFAULT_ICON_SIZE * icon_scale`, capped, which is also the size the
-/// caller uploads.
+/// Raster formats are decoded in process. SVG is compiled by the Optics reticle
+/// compiler ([`reticle`]) at exactly the size the theme asked for — no
+/// subprocess, no third-party rasterizer on the host, and no unbounded texture:
+/// the output is pinned to `DEFAULT_ICON_SIZE * icon_scale`, capped, which is
+/// also the size the caller uploads.
 ///
 /// Every failure is a normal fallback to the caller's glyph: a broken icon in one
 /// application must not disturb the rest of the launcher.
@@ -459,18 +459,18 @@ pub(super) fn decode_icon(
     // `.svgz` is SVG under gzip, and the decompression rule lives in one place
     // so this and the tray path cannot disagree about what they can read.
     let source = tessera_launch_services::read_vector_source(path).ok()?;
-    let document = svg::Document::parse_bytes(&source, svg::Limits::default()).ok()?;
+    let document = reticle::Document::parse_bytes(&source, reticle::Limits::default()).ok()?;
 
     // An icon keeps its own aspect ratio: a wide logo must not be squashed into a
     // square. The rasterized box is the requested square, and the document is
     // fitted into it, so the pixels stay centred and proportional.
     let raster = document
-        .rasterize(svg::RasterizeOptions {
+        .rasterize(reticle::RasterizeOptions {
             width: target,
             height: target,
             supersample: 0,
-            format: svg::PixelFormat::Rgba8Premul,
-            paint: svg::PaintMode::theme(0xFFFF_FFFF),
+            format: reticle::PixelFormat::Rgba8Premul,
+            paint: reticle::PaintMode::theme(0xFFFF_FFFF),
             stroke_width: 0.0,
         })
         .ok()?;

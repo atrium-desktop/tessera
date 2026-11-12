@@ -97,7 +97,11 @@ impl AgentCursorSet {
                     theme
                         .get_file(format!("cursors/{candidate}.svg"))
                         .and_then(|file| {
-                            svg::Document::parse_bytes(file.contents(), svg::Limits::default()).ok()
+                            reticle::Document::parse_bytes(
+                                file.contents(),
+                                reticle::Limits::default(),
+                            )
+                            .ok()
                         });
                 let sprite = theme.get_file(format!("cursors/{candidate}.png"));
                 let (image, hotspot) = match (sprite, document.as_ref()) {
@@ -147,7 +151,7 @@ impl AgentCursorSet {
 /// `data-hotspot-*` metadata. A theme that stamps none gets the top-left corner,
 /// which is the XDG convention for "no hotspot data".
 #[cfg(feature = "agent-sprites")]
-fn normalized_hotspot(document: Option<&svg::Document>) -> (f32, f32) {
+fn normalized_hotspot(document: Option<&reticle::Document>) -> (f32, f32) {
     let Some(document) = document else {
         return (0.0, 0.0);
     };
@@ -175,16 +179,16 @@ fn normalized_hotspot(document: Option<&svg::Document>) -> (f32, f32) {
 #[cfg(feature = "agent-sprites")]
 fn upload_document_sprite(
     device: &flux::Device,
-    document: &svg::Document,
+    document: &reticle::Document,
     size: u32,
 ) -> Option<flux::Image> {
     let raster = document
-        .rasterize(svg::RasterizeOptions {
+        .rasterize(reticle::RasterizeOptions {
             width: size,
             height: size,
             supersample: 0,
-            format: svg::PixelFormat::Bgra8Premul,
-            paint: svg::PaintMode::theme(0xFFFF_FFFF),
+            format: reticle::PixelFormat::Bgra8Premul,
+            paint: reticle::PaintMode::theme(0xFFFF_FFFF),
             stroke_width: 0.0,
         })
         .ok()?;

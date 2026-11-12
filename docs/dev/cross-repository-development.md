@@ -114,11 +114,21 @@ without dirtying version control:
 
 ```toml
 [patch."https://github.com/ming2k/optics"]
-flux = { path = "../optics/bindings/flux-rs/crates/flux" }
-flux-sys = { path = "../optics/bindings/flux-rs/crates/flux-sys" }
-lens = { path = "../optics/bindings/lens-rs/crates/lens" }
-iris = { path = "../optics/bindings/iris-rs/crates/iris" }
+flux = { path = "../optics/bindings/crates/flux" }
+flux-sys = { path = "../optics/bindings/crates/flux-sys" }
+vista = { path = "../optics/bindings/crates/vista" }
+vista-sys = { path = "../optics/bindings/crates/vista-sys" }
+lens = { path = "../optics/bindings/crates/lens" }
+lens-sys = { path = "../optics/bindings/crates/lens-sys" }
+transit = { path = "../optics/bindings/crates/transit" }
+reticle = { path = "../optics/bindings/crates/reticle" }
+reticle-sys = { path = "../optics/bindings/crates/reticle-sys" }
 ```
+
+Optics v0.0.79 keeps every Rust crate under the single
+`bindings/crates/` workspace (Optics ADR-0159). `transit` has no `-sys` crate
+because it is pure Safe Rust (Optics ADR-0158), and the vector compiler is
+`reticle` rather than the former `svg` (Optics ADR-0161).
 
 This configuration achieves two things:
 

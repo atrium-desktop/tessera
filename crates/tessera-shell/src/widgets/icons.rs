@@ -19,7 +19,7 @@ use lens::sys::lens_icon_id;
 
 /// Keyboard outline with three illumination rays above it — the keyboard
 /// backlight glyph. Drawn in the built-in icon set's 2/24 stroke weight; the
-/// lens SVG parser ignores the document's own paint and draws in the theme
+/// reticle parser ignores the document's own paint and draws in the theme
 /// colour, so this is stroke-only geometry with no `fill`.
 const KEYBOARD_BACKLIGHT_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 <path d="M3 14h18v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>

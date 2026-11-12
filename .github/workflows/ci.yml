@@ -143,7 +143,7 @@ jobs:
           meson compile -C optics/build
           sudo meson install -C optics/build
           sudo ldconfig
-          pkg-config --modversion flux vista lens iris svg
+          pkg-config --modversion flux vista lens iris reticle
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest

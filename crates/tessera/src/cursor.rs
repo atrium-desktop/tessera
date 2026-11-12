@@ -7,8 +7,8 @@
 //!
 //! Both halves of a cursor theme are read:
 //!
-//! - `cursors/<name>.svg` is compiled by the Optics SVG compiler ([`svg`]) into
-//!   premultiplied pixels at exactly the size the output needs. There is no
+//! - `cursors/<name>.svg` is compiled by the Optics reticle compiler ([`reticle`])
+//!   into premultiplied pixels at exactly the size the output needs. There is no
 //!   pre-baked bitmap, no subprocess, and no runtime SVG library beyond that one
 //!   device-less compiler.
 //! - `cursors/<name>.png` is still honoured as an *override*: a theme that ships
@@ -70,7 +70,7 @@ struct RasterCursor {
 /// A theme that stamps no hotspot gets the top-left corner, which is what the
 /// XDG convention means by "no hotspot data" and is visible immediately rather
 /// than subtly wrong.
-fn hotspot(document: &svg::Document, out: u32) -> (u32, u32) {
+fn hotspot(document: &reticle::Document, out: u32) -> (u32, u32) {
     let viewport = document.viewport();
     let read = |name: &str| -> Option<f32> { document.attribute(name)?.trim().parse().ok() };
     let scale_x = if viewport[2] > 0.0 {
@@ -99,14 +99,14 @@ fn hotspot(document: &svg::Document, out: u32) -> (u32, u32) {
 /// honoured (`SVG_PAINT_THEME`), but `currentColor` resolves to opaque white so a
 /// theme that relies on it is still visible on both polarities instead of
 /// vanishing into the background.
-fn compile_svg_cursor(document: &svg::Document, out: u32) -> Option<RasterCursor> {
+fn compile_svg_cursor(document: &reticle::Document, out: u32) -> Option<RasterCursor> {
     let out = out.clamp(1, MAX_CURSOR_SPRITE);
-    let options = svg::RasterizeOptions {
+    let options = reticle::RasterizeOptions {
         width: out,
         height: out,
         supersample: 0,
-        format: svg::PixelFormat::Bgra8Premul,
-        paint: svg::PaintMode::theme(0xFFFF_FFFF),
+        format: reticle::PixelFormat::Bgra8Premul,
+        paint: reticle::PaintMode::theme(0xFFFF_FFFF),
         stroke_width: 0.0,
     };
     let pixmap = document.rasterize(options).ok()?;
@@ -131,7 +131,7 @@ fn compile_svg_cursor(document: &svg::Document, out: u32) -> Option<RasterCursor
 /// only when the theme baked a different size than the output needs.
 fn decode_png_cursor(
     png: &[u8],
-    document: Option<&svg::Document>,
+    document: Option<&reticle::Document>,
     out: u32,
 ) -> Option<RasterCursor> {
     let out = out.clamp(1, MAX_CURSOR_SPRITE);
@@ -251,7 +251,7 @@ impl Source {
     /// Parsing happens once per source/name lookup; the caller (`load_shape`)
     /// walks the chain and takes the first hit, so a theme that only carries
     /// `<name>.png` costs two failed file reads and no parse.
-    fn document(&self, name: &str) -> Option<svg::Document> {
+    fn document(&self, name: &str) -> Option<reticle::Document> {
         for extension in ["svg", "svgz"] {
             let Some(bytes) = self.read(name, extension) else {
                 continue;
@@ -259,7 +259,8 @@ impl Source {
             let Ok(text) = tessera_launch_services::decompress_if_gzip(bytes.into_owned()) else {
                 continue; /* a corrupt .svgz must not hide a valid .svg */
             };
-            if let Ok(document) = svg::Document::parse_bytes(&text, svg::Limits::default()) {
+            if let Ok(document) = reticle::Document::parse_bytes(&text, reticle::Limits::default())
+            {
                 return Some(document);
             }
         }

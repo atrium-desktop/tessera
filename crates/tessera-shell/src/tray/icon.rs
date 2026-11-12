@@ -1,15 +1,16 @@
 //! Theme-icon resolution for SNI items, run on the worker threads.
 //!
 //! An `IconName` arrives as a theme lookup plus a decode (raster in-process, SVG
-//! compiled in process by the Optics SVG compiler) — far too slow for the render
-//! thread. The watcher resolves names into BGRA8 pixmaps before publishing them in
-//! the shared snapshot, so the shell only ever uploads ready pixels. The
+//! compiled in process by the Optics reticle compiler) — far too slow for the
+//! render thread. The watcher resolves names into BGRA8 pixmaps before publishing
+//! them in the shared snapshot, so the shell only ever uploads ready pixels. The
 //! resolution rules mirror the compositor's app-icon path
 //! (`tessera::runtime::apps`).
 //!
 //! This is deliberately the *same* decoder shape as the compositor's, and it links
 //! the same library: one SVG implementation for the whole desktop is the point of
-//! `svg` being a shared library (ADR-0150) rather than a per-consumer parser.
+//! `reticle` being a shared library (ADR-0150, Optics ADR-0161) rather than a
+//! per-consumer parser.
 
 use std::path::Path;
 
@@ -20,7 +21,7 @@ use super::TrayPixmap;
 const TRAY_ICON_SCALE: u32 = 2;
 
 /// Raster extensions the `image` crate decodes directly. SVG/SVGZ is compiled by
-/// the Optics SVG compiler; no subprocess and no host rasterizer is involved.
+/// the Optics reticle compiler; no subprocess and no host rasterizer is involved.
 const RASTER_ICON_EXTS: &[&str] = &["png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff", "ico"];
 const SVG_ICON_EXTS: &[&str] = &["svg", "svgz"];
 
@@ -87,7 +88,7 @@ fn decode_icon(path: &Path, ext: &str, scale: u32) -> Option<image::DynamicImage
         .saturating_mul(scale.max(1))
         .clamp(1, 512);
     let source = tessera_launch_services::read_vector_source(path).ok()?;
-    let document = match svg::Document::parse_bytes(&source, svg::Limits::default()) {
+    let document = match reticle::Document::parse_bytes(&source, reticle::Limits::default()) {
         Ok(document) => document,
         Err(error) => {
             log::debug!("tray: SVG parse failed for {}: {error}", path.display());
@@ -95,12 +96,12 @@ fn decode_icon(path: &Path, ext: &str, scale: u32) -> Option<image::DynamicImage
         }
     };
     let raster = document
-        .rasterize(svg::RasterizeOptions {
+        .rasterize(reticle::RasterizeOptions {
             width: target,
             height: target,
             supersample: 0,
-            format: svg::PixelFormat::Rgba8Premul,
-            paint: svg::PaintMode::theme(0xFFFF_FFFF),
+            format: reticle::PixelFormat::Rgba8Premul,
+            paint: reticle::PaintMode::theme(0xFFFF_FFFF),
             stroke_width: 0.0,
         })
         .ok()?;

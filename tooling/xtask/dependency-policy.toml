@@ -2,7 +2,7 @@
 # Review changes here alongside the owning package manifest.
 
 [tessera]
-normal = ["flux", "flux-sys", "image", "include_dir", "lens", "lens-sys", "libc", "log", "serde", "serde_json", "sha2", "svg", "svg-sys", "tessera-audit", "tessera-authority", "tessera-cast", "tessera-cli", "tessera-composite", "tessera-config", "tessera-design", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-launch-services", "tessera-platform", "tessera-primitives", "tessera-protocol", "tessera-sched", "tessera-shell", "tessera-wallpaper", "tessera-wayland", "tracing", "transit-sys", "vista-sys", "zbus", "zeroize"]
+normal = ["flux", "flux-sys", "image", "include_dir", "lens", "lens-sys", "libc", "log", "reticle", "reticle-sys", "serde", "serde_json", "sha2", "tessera-audit", "tessera-authority", "tessera-cast", "tessera-cli", "tessera-composite", "tessera-config", "tessera-design", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-launch-services", "tessera-platform", "tessera-primitives", "tessera-protocol", "tessera-sched", "tessera-shell", "tessera-wallpaper", "tessera-wayland", "tracing", "vista-sys", "zbus", "zeroize"]
 build = []
 dev = ["flate2", "tempfile", "tessera-desktop", "tessera-ipc", "tessera-protocol", "tessera-shell"]
 
@@ -109,12 +109,12 @@ build = []
 dev = []
 
 [tessera-shell]
-normal = ["flux", "flux-sys", "image", "include_dir", "lens", "lens-sys", "libc", "log", "svg", "svg-sys", "tessera-authority", "tessera-avatar", "tessera-design", "tessera-desktop", "tessera-i18n", "tessera-launch-services", "tessera-primitives", "thiserror", "transit", "transit-sys", "vista-sys", "zbus", "zeroize"]
+normal = ["flux", "flux-sys", "image", "include_dir", "lens", "lens-sys", "libc", "log", "reticle", "reticle-sys", "tessera-authority", "tessera-avatar", "tessera-design", "tessera-desktop", "tessera-i18n", "tessera-launch-services", "tessera-primitives", "thiserror", "transit", "vista-sys", "zbus", "zeroize"]
 build = []
 dev = ["flate2"]
 
 [tessera-wallpaper]
-normal = ["flux", "flux-sys", "image", "log", "tessera-sched", "thiserror", "transit", "transit-sys", "vista", "vista-sys"]
+normal = ["flux", "flux-sys", "image", "log", "tessera-sched", "thiserror", "transit", "vista", "vista-sys"]
 build = []
 dev = ["tessera-composite"]
 

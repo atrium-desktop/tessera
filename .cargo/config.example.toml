@@ -27,17 +27,16 @@ rustflags = ["-C", "symbol-mangling-version=v0", "-C", "link-arg=-fuse-ld=mold"]
 
 # When developing against a local checkout of Optics, append the source patches below:
 # [patch."https://github.com/ming2k/optics"]
-# flux = { path = "../optics/bindings/flux-rs/crates/flux" }
-# flux-sys = { path = "../optics/bindings/flux-rs/crates/flux-sys" }
-# vista = { path = "../optics/bindings/vista-rs/crates/vista" }
-# vista-sys = { path = "../optics/bindings/vista-rs/crates/vista-sys" }
-# glyph = { path = "../optics/bindings/glyph-rs/crates/glyph" }
-# glyph-sys = { path = "../optics/bindings/glyph-rs/crates/glyph-sys" }
-# transit = { path = "../optics/bindings/transit-rs/crates/transit" }
-# transit-sys = { path = "../optics/bindings/transit-rs/crates/transit-sys" }
-# lens = { path = "../optics/bindings/lens-rs/crates/lens" }
-# lens-sys = { path = "../optics/bindings/lens-rs/crates/lens-sys" }
-# svg = { path = "../optics/bindings/svg-rs/crates/svg" }
-# svg-sys = { path = "../optics/bindings/svg-rs/crates/svg-sys" }
-# iris = { path = "../optics/bindings/iris-rs/crates/iris" }
-# iris-sys = { path = "../optics/bindings/iris-rs/crates/iris-sys" }
+# flux = { path = "../optics/bindings/crates/flux" }
+# flux-sys = { path = "../optics/bindings/crates/flux-sys" }
+# vista = { path = "../optics/bindings/crates/vista" }
+# vista-sys = { path = "../optics/bindings/crates/vista-sys" }
+# glyph = { path = "../optics/bindings/crates/glyph" }
+# glyph-sys = { path = "../optics/bindings/crates/glyph-sys" }
+# transit = { path = "../optics/bindings/crates/transit" }
+# lens = { path = "../optics/bindings/crates/lens" }
+# lens-sys = { path = "../optics/bindings/crates/lens-sys" }
+# reticle = { path = "../optics/bindings/crates/reticle" }
+# reticle-sys = { path = "../optics/bindings/crates/reticle-sys" }
+# iris = { path = "../optics/bindings/crates/iris" }
+# iris-sys = { path = "../optics/bindings/crates/iris-sys" }

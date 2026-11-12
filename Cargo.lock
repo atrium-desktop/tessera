@@ -733,16 +733,16 @@ dependencies = [
 
 [[package]]
 name = "flux"
-version = "0.0.78"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.78#eaa66e6a85094bca901d5857776c2360cf9cdbf7"
+version = "0.0.79"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.79#63a92ba1aad53dfcef42c9d6e31a96b9d9de4a46"
 dependencies = [
  "flux-sys",
 ]
 
 [[package]]
 name = "flux-sys"
-version = "0.0.78"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.78#eaa66e6a85094bca901d5857776c2360cf9cdbf7"
+version = "0.0.79"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.79#63a92ba1aad53dfcef42c9d6e31a96b9d9de4a46"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -1092,8 +1092,8 @@ checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
 name = "lens"
-version = "0.0.78"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.78#eaa66e6a85094bca901d5857776c2360cf9cdbf7"
+version = "0.0.79"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.79#63a92ba1aad53dfcef42c9d6e31a96b9d9de4a46"
 dependencies = [
  "flux",
  "lens-sys",
@@ -1101,8 +1101,8 @@ dependencies = [
 
 [[package]]
 name = "lens-sys"
-version = "0.0.78"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.78#eaa66e6a85094bca901d5857776c2360cf9cdbf7"
+version = "0.0.79"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.79#63a92ba1aad53dfcef42c9d6e31a96b9d9de4a46"
 dependencies = [
  "bindgen",
  "flux-sys",
@@ -1532,6 +1532,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
+name = "reticle"
+version = "0.0.79"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.79#63a92ba1aad53dfcef42c9d6e31a96b9d9de4a46"
+dependencies = [
+ "flux",
+ "reticle-sys",
+]
+
+[[package]]
+name = "reticle-sys"
+version = "0.0.79"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.79#63a92ba1aad53dfcef42c9d6e31a96b9d9de4a46"
+dependencies = [
+ "bindgen",
+ "flux-sys",
+ "pkg-config",
+]
+
+[[package]]
 name = "rustc-hash"
 version = "2.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1747,25 +1766,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
-name = "svg"
-version = "0.0.78"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.78#eaa66e6a85094bca901d5857776c2360cf9cdbf7"
-dependencies = [
- "flux",
- "svg-sys",
-]
-
-[[package]]
-name = "svg-sys"
-version = "0.0.78"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.78#eaa66e6a85094bca901d5857776c2360cf9cdbf7"
-dependencies = [
- "bindgen",
- "flux-sys",
- "pkg-config",
-]
-
-[[package]]
 name = "syn"
 version = "2.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1823,11 +1823,11 @@ dependencies = [
  "lens-sys",
  "libc",
  "log",
+ "reticle",
+ "reticle-sys",
  "serde",
  "serde_json",
  "sha2",
- "svg",
- "svg-sys",
  "tempfile",
  "tessera-audit",
  "tessera-authority",
@@ -1848,7 +1848,6 @@ dependencies = [
  "tessera-wallpaper",
  "tessera-wayland",
  "tracing",
- "transit-sys",
  "vista-sys",
  "zbus",
  "zeroize",
@@ -2153,8 +2152,8 @@ dependencies = [
  "lens-sys",
  "libc",
  "log",
- "svg",
- "svg-sys",
+ "reticle",
+ "reticle-sys",
  "tessera-authority",
  "tessera-avatar",
  "tessera-design",
@@ -2164,7 +2163,6 @@ dependencies = [
  "tessera-primitives",
  "thiserror",
  "transit",
- "transit-sys",
  "vista-sys",
  "zbus",
  "zeroize",
@@ -2182,7 +2180,6 @@ dependencies = [
  "tessera-sched",
  "thiserror",
  "transit",
- "transit-sys",
  "vista",
  "vista-sys",
 ]
@@ -2370,20 +2367,8 @@ dependencies = [
 
 [[package]]
 name = "transit"
-version = "0.0.78"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.78#eaa66e6a85094bca901d5857776c2360cf9cdbf7"
-dependencies = [
- "transit-sys",
-]
-
-[[package]]
-name = "transit-sys"
-version = "0.0.78"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.78#eaa66e6a85094bca901d5857776c2360cf9cdbf7"
-dependencies = [
- "bindgen",
- "pkg-config",
-]
+version = "0.0.79"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.79#63a92ba1aad53dfcef42c9d6e31a96b9d9de4a46"
 
 [[package]]
 name = "typenum"
@@ -2457,8 +2442,8 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vista"
-version = "0.0.78"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.78#eaa66e6a85094bca901d5857776c2360cf9cdbf7"
+version = "0.0.79"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.79#63a92ba1aad53dfcef42c9d6e31a96b9d9de4a46"
 dependencies = [
  "flux",
  "gltf",
@@ -2468,8 +2453,8 @@ dependencies = [
 
 [[package]]
 name = "vista-sys"
-version = "0.0.78"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.78#eaa66e6a85094bca901d5857776c2360cf9cdbf7"
+version = "0.0.79"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.79#63a92ba1aad53dfcef42c9d6e31a96b9d9de4a46"
 dependencies = [
  "bindgen",
  "flux-sys",
