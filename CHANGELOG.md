@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.95] - 2026-11-13
+
 ### Changed
 
 - **Theme assets have one decoder: `tessera-assets` (ADR-0233).** The compositor
