@@ -12,7 +12,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.0.93"
+version = "0.0.94"
 edition = "2024"
 # Workspace crates contain MIT-licensed source, including the bundled cursor
 # art under assets/cursors (original, generated in-tree).

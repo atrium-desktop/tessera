@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.94] - 2026-11-12
+
 ### Changed
 
 - **Adopted Optics v0.0.79.** The pin moves to the release that renames the
