@@ -385,7 +385,7 @@ experiment is uninterpretable.
 
 ```bash
 # protocol and media unit tests
-cargo test -p tessera-cast
+cargo nextest run -p tessera-cast
 
 # real source ↔ scripted sink over a socketpair/loopback
 # (the test suite does this; for a manual run use two shells)

@@ -13,7 +13,7 @@ use super::ring::{STREAM_SLOT_COUNT, SlotRing};
 pub const DRM_FORMAT_XRGB8888: u32 = 0x3432_5258;
 
 /// The opaque one-sample pass configuration every capture-surface frame is
-/// recorded with (no clear-triggered MSAA; the compositor output does not
+/// recorded with (1x analytic coverage; the compositor output does not
 /// preserve destination alpha between layers).
 pub fn begin_opaque_frame<'c, 'surface>(
     canvas: &'c mut flux::Canvas,
@@ -25,9 +25,7 @@ pub fn begin_opaque_frame<'c, 'surface>(
         frame,
         flux::CanvasPassOptions {
             clear: Some(clear),
-            antialias: flux::CanvasAntialias::None,
             damage: Vec::new(),
-            skip_stencil: true,
         },
     )
 }

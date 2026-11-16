@@ -98,7 +98,7 @@ until an Optics manifest changes:
 ```bash
 cargo check -p tessera
 cargo check --locked --workspace
-cargo test --locked --workspace
+cargo nextest run --locked --workspace
 ```
 
 The local lockfile and target directory remain inside the linked worktree.
@@ -135,7 +135,7 @@ pkg-config --modversion flux vista lens iris reticle   # sanity check
 
 ```bash
 cargo run --locked -p tessera          # build & run (see Build and run below)
-cargo nextest run --locked --workspace # fast parallel test suite (or cargo test)
+cargo nextest run --locked --workspace # full parallel test suite
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
 ```
@@ -247,7 +247,7 @@ corpus, not a performance guarantee for real desktops or other CPUs.
 ## Tests
 
 ```bash
-cargo test --locked --workspace
+cargo nextest run --locked --workspace
 ```
 
 `tessera-desktop` and `tessera-wayland` unit tests run without the flux dependency;

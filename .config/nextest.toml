@@ -21,8 +21,15 @@ exclusive-system-tests = { max-threads = 1 }
 filter = 'package(tessera-platform) or package(tessera-ipc)'
 test-group = 'exclusive-system-tests'
 
+# The root integration suite carries the IPC loopback tests formerly owned by
+# tessera-ipc. Keep the same single-thread exclusion for socket/hardware-like
+# resources even though they now share one test binary.
+[[profile.default.overrides]]
+filter = 'package(tessera-tests) and test(ipc::)'
+test-group = 'exclusive-system-tests'
+
 # Prioritize heavy/long-running compositor and renderer test suites first
 # to maximize multi-core worker pool utilization and minimize the tail latency.
 [[profile.default.overrides]]
-filter = 'package(tessera-wayland) or package(tessera-composite) or package(tessera-shell)'
+filter = 'package(tessera-wayland) or package(tessera-composite) or package(tessera-shell) or package(tessera-tests)'
 priority = 100

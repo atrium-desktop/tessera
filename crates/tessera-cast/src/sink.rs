@@ -2,7 +2,7 @@
 //!
 //! Two uses, one implementation:
 //!
-//! - **Tests.** `cargo test` drives the real caster loop against this over a
+//! - **Tests.** `cargo nextest run` drives the real caster loop against this over a
 //!   socketpair, so the whole exchange is exercised on every run with no
 //!   radio, no GPU, and no television. That is what keeps the iteration loop
 //!   cheap: a fix costs a compile, not a hardware session.

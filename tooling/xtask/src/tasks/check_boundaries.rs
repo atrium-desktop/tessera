@@ -45,7 +45,11 @@ fn check_manifest(manifest: &toml::Value, workspace: &toml::Value, policy: &Poli
                     .get("package")
                     .and_then(toml::Value::as_str)
                     .unwrap_or(alias);
-                if dependency == "tessera"
+                // The compositor package is an application, not a library.
+                // Only the root external test suite may depend on it, so it
+                // can exercise the production binary entry points.
+                let app_dependency_allowed = dependency == "tessera" && name == "tessera-tests";
+                if (dependency == "tessera" && !app_dependency_allowed)
                     || !rules
                         .get(kind)
                         .is_some_and(|allowed| allowed.contains(dependency))
@@ -69,11 +73,14 @@ pub fn run_check_boundaries(_args: CheckBoundariesArgs) -> Result<()> {
         .context("workspace.members")?;
     for member in members {
         let member = member.as_str().context("member path")?;
-        if !matches!(member, "crates/*" | "tooling/*") {
-            bail!("unclassified workspace member pattern: {member}");
-        }
-        for entry in fs::read_dir(root.join(member.trim_end_matches("/*")))? {
-            let path = entry?.path().join("Cargo.toml");
+        let manifests = match member {
+            "crates/*" | "tooling/*" => fs::read_dir(root.join(member.trim_end_matches("/*")))?
+                .map(|entry| Ok(entry?.path().join("Cargo.toml")))
+                .collect::<Result<Vec<_>>>()?,
+            "tests" => vec![root.join("tests/Cargo.toml")],
+            _ => bail!("unclassified workspace member pattern: {member}"),
+        };
+        for path in manifests {
             if !path.exists() {
                 continue;
             }

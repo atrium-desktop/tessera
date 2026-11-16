@@ -87,10 +87,20 @@ card is read-only because the outer compositor owns the physical monitors.
 Run `tessera display` to inspect exact connector names, advertised modes,
 and the effective scale. The DRM startup log includes the validated physical
 size, calculated PPI, output kind, automatic scale, and the assigned primary,
-cursor, and available overlay plane counts. Overlay offload currently remains
-disabled by policy. Use the
-[Rendering and KMS Plane Reference](../reference/rendering.md) to interpret
-eligibility failures and rejection labels.
+cursor, and available overlay plane counts. Overlay offload is disabled by
+default; `TESSERA_OVERLAY_OFFLOAD=1` enables the explicit hardware-validation
+path for one eligible candidate. Follow the
+[KMS Overlay System Test](../dev/testing/kms-overlay-system-test.md) for the
+full scenario matrix, persistent log paths, and rejection-label triage. The
+enabled run is:
+
+```bash
+TESSERA_OVERLAY_OFFLOAD=1 TESSERA_BACKEND=drm \
+  target/release-fast/tessera
+```
+
+Use the [Rendering and KMS Plane Reference](../reference/rendering.md) to
+interpret eligibility failures and rejection labels.
 
 ## Smoke checklist
 

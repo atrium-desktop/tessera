@@ -7,7 +7,7 @@ build = []
 dev = ["flate2", "image", "tempfile", "tessera-desktop", "tessera-ipc", "tessera-protocol", "tessera-shell"]
 
 [tessera-assets]
-normal = ["flate2", "image", "reticle", "thiserror"]
+normal = ["flate2", "image", "reticle", "reticle-sys", "thiserror"]
 build = []
 dev = []
 
@@ -39,12 +39,12 @@ dev = []
 [tessera-env]
 normal = ["log", "thiserror", "tracing-log", "tracing-subscriber"]
 build = []
-dev = ["tessera-ipc"]
+dev = []
 
 [tessera-cli]
 normal = ["clap", "clap_complete", "serde", "serde_json", "tessera-audit", "tessera-authority", "tessera-config", "tessera-desktop", "tessera-env", "tessera-i18n", "tessera-ipc", "tessera-launch-services", "tessera-primitives", "tessera-protocol", "thiserror", "zeroize"]
 build = []
-dev = ["tempfile", "tessera-ipc", "tessera-primitives"]
+dev = ["tempfile"]
 
 [tessera-config]
 normal = ["libc", "serde", "tessera-desktop", "tessera-primitives", "thiserror", "toml", "toml_edit"]
@@ -79,7 +79,7 @@ dev = []
 [tessera-ipc]
 normal = ["libc", "serde", "serde_json", "tessera-authority", "tessera-desktop", "tessera-primitives", "tessera-protocol", "thiserror", "zeroize"]
 build = []
-dev = ["tempfile", "tessera-protocol"]
+dev = ["tempfile"]
 
 [tessera-lock]
 normal = ["ash", "flux", "flux-sys", "lens", "lens-sys", "libc", "log", "smithay-client-toolkit", "tessera-avatar", "tessera-config", "tessera-design", "tessera-env", "tessera-wallpaper", "thiserror", "vista-sys", "wayland-client", "wayland-protocols", "xkbcommon", "zeroize"]
@@ -89,7 +89,7 @@ dev = []
 [tessera-mcp]
 normal = ["clap", "serde", "serde_json", "tessera-authority", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-launch-services", "tessera-primitives", "tessera-protocol", "thiserror"]
 build = []
-dev = ["tessera-audit", "tessera-ipc"]
+dev = []
 
 [tessera-protocol]
 normal = ["serde", "serde_json", "tessera-authority", "tessera-desktop", "tessera-primitives", "zeroize"]
@@ -128,11 +128,26 @@ dev = ["tessera-composite"]
 # the subscriber (ADR-0079, ADR-0230, ADR-0232).
 normal = ["getrandom", "log", "serde", "serde_json", "tessera-authority", "tessera-desktop", "tessera-primitives", "tessera-wayland-protocols", "thiserror", "tracing", "xkbcommon"]
 build = ["pkg-config"]
-dev = ["proptest", "tempfile"]
+dev = ["proptest", "tempfile", "tessera-test-support"]
 
 [tessera-wayland-protocols]
 normal = []
 build = ["cc"]
+dev = []
+
+# Shared test infrastructure. Dev-dependency only; production crates must not
+# link it (ADR-0159 capability edges).
+[tessera-test-support]
+normal = ["tempfile"]
+build = []
+dev = []
+
+# Root external suites: one integration entry and one end-to-end entry. Native
+# dependencies are optional and gated by the `native` feature so flux-free CI
+# can compile the logical suites with --no-default-features.
+[tessera-tests]
+normal = ["clap", "libc", "serde_json", "tempfile", "tessera", "tessera-audit", "tessera-authority", "tessera-cli", "tessera-composite", "tessera-config", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-launch-services", "tessera-mcp", "tessera-primitives", "tessera-protocol", "tessera-sched", "tessera-shell", "tessera-test-support", "flux-sys", "lens-sys", "reticle-sys", "vista-sys", "zbus"]
+build = []
 dev = []
 
 [xtask]

@@ -1,20 +1,19 @@
 use super::*;
 
 // Backdrop effect-cache region algebra and the slot-fingerprint policy live
-// in `tessera-presentation` (api tier); the composition root keeps the
+// in `tessera-composite` (api tier); the composition root keeps the
 // chrome-typed mappings, the DAG planner (core types), and every GPU-owned
 // executor.
 /// Convert output damage to the physical-pixel damage scope a Canvas pass
 /// accepts. Re-exported from the api value layer.
 pub(super) use tessera_composite::presentation::frame_damage_scope;
 
-/// Begin a stencil-capable overlay pass over the currently presented content.
+/// Begin an overlay pass over the currently presented content.
 ///
 /// Production compositing merges the desktop scene and shell chrome into a
-/// single Canvas pass (`skip_stencil: !draw_chrome`); this helper is retained
-/// for pass-boundary unit tests.
+/// single Canvas pass; this helper is retained for pass-boundary unit tests.
 #[cfg(test)]
-pub(super) fn begin_stencil_frame_overlay<'c, 'surface>(
+pub(super) fn begin_overlay_frame<'c, 'surface>(
     canvas: &'c mut flux::Canvas,
     frame: &'c mut flux::Frame<'surface>,
     damage: Vec<flux::CanvasRenderArea>,
@@ -23,15 +22,13 @@ pub(super) fn begin_stencil_frame_overlay<'c, 'surface>(
         frame,
         flux::CanvasPassOptions {
             clear: None,
-            antialias: flux::CanvasAntialias::None,
             damage,
-            skip_stencil: false,
         },
     )
 }
 
-/// Begin a compositor canvas pass without Flux's clear-triggered 4x MSAA —
-/// a canvas pass-configuration fact owned by `tessera-presentation`.
+/// Begin a compositor canvas pass with the opaque clear invariant owned by
+/// `tessera-composite`.
 pub(super) use tessera_composite::presentation::begin_opaque_frame;
 
 /// Begin an opaque output pass clipped to the accumulated damage for this
@@ -51,9 +48,7 @@ pub(super) fn begin_opaque_frame_repaint<'c, 'surface>(
         frame,
         flux::CanvasPassOptions {
             clear: Some(clear),
-            antialias: flux::CanvasAntialias::None,
             damage,
-            skip_stencil: true,
         },
     )
 }
@@ -82,7 +77,7 @@ struct ScreenshotCapture {
 /// frozen image. `ScreenshotFreeze::should_disarm` ends the session
 /// once the selector closes.
 /// Cursor state sampled at a capture trigger instant — a pure value owned
-/// by `tessera-presentation` (shared by one-shot captures and streams).
+/// by `tessera-composite` (shared by one-shot captures and streams).
 pub(super) use tessera_composite::presentation::CaptureCursorState;
 
 pub(super) struct ScreenshotFreeze {
@@ -274,6 +269,7 @@ pub(super) fn draw_client_scene(
     retain_preview_sources: bool,
     soft_shadows: Option<&tessera_composite::SoftShadowLayer<'_>>,
     shadow_style: tessera_desktop::window::WindowShadowStyle,
+    overlay_window: Option<tessera_desktop::window::WindowId>,
 ) {
     canvas.save();
     if scale != 1.0 {
@@ -344,6 +340,19 @@ pub(super) fn draw_client_scene(
             );
             canvas.restore();
         }
+    } else if let Some(overlay_window) = overlay_window {
+        let excluded = std::collections::HashSet::from([overlay_window]);
+        renderer.draw_surfaces_ordered_with_window_shadows_excluding(
+            device,
+            canvas,
+            &surface_order,
+            &shm,
+            &dmabuf,
+            &windows,
+            soft_shadows,
+            shadow_style,
+            &excluded,
+        );
     } else {
         renderer.draw_surfaces_ordered_with_window_shadows(
             device,
@@ -1072,9 +1081,7 @@ impl WindowShadowRenderer {
                     flux::ImageTarget { frame, image: mask },
                     flux::CanvasPassOptions {
                         clear: Some(clear),
-                        antialias: flux::CanvasAntialias::Auto,
                         damage: Vec::new(),
-                        skip_stencil: true,
                     },
                 );
                 if let Ok(session) = session {

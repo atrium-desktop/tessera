@@ -108,7 +108,7 @@ Direct-scanout rejection telemetry uses the following stable labels.
 | `overview` | Overview mode is visible |
 | `window-switcher` | The live window switcher is opening, visible, or closing |
 | `visible-shell-pixels` | Shell chrome contributes pixels to the output |
-| `client-overlay` | A protocol overlay or client cursor surface is visible |
+| `client-overlay` | A scene overlay (IME popup, drag icon, or client cursor surface) is visible, not a KMS overlay plane |
 | `software-cursor` | A visible cursor must be drawn into the compositor frame |
 | `shm-client-surface` | A visible client surface uses SHM rather than dma-buf |
 | `no-dmabuf-candidate` | No client dma-buf can supply the primary plane |
@@ -152,22 +152,73 @@ swapchain rotation reuses one framebuffer per buffer instead of issuing a fresh
 import and a matching teardown every frame. An evicted entry is destroyed only
 once no in-flight commit references it.
 
-## KMS Plane Roles
+## Output Layers, Scene Layers, and KMS Planes
 
-| Plane role | Allocation | Content contract | Direct-scanout effect |
-|------------|------------|------------------|-----------------------|
+These are three different concepts (ADR-0234):
+
+- A **scene layer** is z-order, damage, and effects inside one framebuffer:
+  wallpaper, client surface trees, chrome, protocol overlays, and the
+  software cursor. Scene layers do not allocate KMS resources.
+- An **output layer** is an independently scanned-out source with its own
+  buffer and update contract: primary, cursor, or overlay.
+- A **KMS plane** is the kernel object that binds an output layer to a CRTC.
+
+Background and always-on-top are scene semantics. The wallpaper is painted as
+the first scene layer into Primary; it is not a “background plane”.
+Always-on-top is the window-stacking band, not an overlay plane.
+
+| Output layer | Allocation | Content contract | Direct-scanout effect |
+|--------------|------------|------------------|-----------------------|
 | Primary | Exactly one per active CRTC | Either the compositor framebuffer or the direct client framebuffer in one atomic commit | Owns the selected presentation plan |
 | Cursor | At most one compatible ARGB8888 linear plane per active CRTC | Compositor-owned cursor sprite; allocation maximizes coverage across all CRTCs | Allows a visible cursor without reclaiming the primary plane |
-| Overlay | Discovered and counted, but not allocated | No desktop, shell, client, or effect content is offloaded | None; overlay offload remains disabled |
+| Overlay | Discovered per CRTC; one validated candidate only when `TESSERA_OVERLAY_OFFLOAD=1` | One topmost, opaque, single-surface client window; no chrome, cursor, effects, or scene composition | Offloads that client from the composite; rejection falls back to composition |
 
 A missing cursor plane is not a startup failure. The cursor falls back to
 software composition, which blocks direct scanout while the cursor is
-visible.
+visible. The cursor is a cursor output layer, never a generic overlay: it
+needs asynchronous position updates and hotspot semantics that overlay planes
+do not provide.
 
-Overlay availability is not proof that a layer can be offloaded. The current
-policy requires a future planner to validate z-order, alpha, color, scaling,
-format, modifier, damage, and synchronization in one atomic `TEST_ONLY`
-request before overlay allocation becomes active.
+Overlay availability is not proof that content can be offloaded. Overlay
+allocation is disabled by default; the explicit validation path still
+allocates nothing until the complete plane set — not one candidate at a time —
+passes one atomic `TEST_ONLY` request. Validation covers z-order, plane type,
+alpha, color, scaling, format, modifier, damage, and explicit synchronization.
+A rejected candidate is composited; partial scanout is forbidden.
+
+### Overlay Candidate Policy
+
+The first candidate contract is deliberately narrow (ADR-0235): at most one
+overlay per output, and it must be a topmost, single-surface, fully opaque
+dma-buf toplevel with identity geometry, inside one output, not overlapped by
+chrome or a software cursor, and free of color management, transitions,
+captures, streams, overview, window-switcher, and session-lock state.
+
+Wallpaper, chrome, menus, notifications, shadows, effects, translucent
+windows, and always-on-top as a policy are never candidates. Overlay content
+damage belongs to the overlay plane; geometry, stacking, or visibility changes
+must repaint the old and new Primary rectangles.
+
+Direct primary scanout takes precedence (ADR-0237): overlay is evaluated only
+when Primary is composited. A direct-scanned client owns the whole output and
+has no compositor framebuffer underneath an overlay, so direct primary and
+overlay never coexist in one frame. The backend rejects that combination even
+if the runtime regresses.
+
+The planner always runs under debug logging as an audit: it gathers the live
+candidate facts, records rejection reasons through `OverlayTelemetry`, and for
+a policy-accepted candidate runs a complete-set Primary + Cursor + Overlay
+`TEST_ONLY` probe. The probe imports the client buffer, validates the atomic
+request, and releases the import without committing or arming a page flip.
+
+Setting `TESSERA_OVERLAY_OFFLOAD=1` enables the explicit hardware-validation
+path: the candidate window is excluded from the Primary scene, the overlay
+plane is committed with Primary and Cursor in one atomic set, and the client
+buffer retires with the page flip. Rejection falls back to composition. The
+first path still submits Primary alongside overlay content updates; an
+overlay-only commit is a follow-up optimization, not a correctness requirement. Hardware
+bring-up and the full scenario matrix live in
+[KMS Overlay System Test](../dev/testing/kms-overlay-system-test.md).
 
 ## Primary-Plane State
 
@@ -214,7 +265,7 @@ fullscreen configure round trip merely to display compositor chrome.
 
 | Log fragment | Interpretation |
 |--------------|----------------|
-| `plane allocation` | Reports assigned primary and cursor planes, discovered overlays, and the disabled overlay policy |
+| `plane allocation` | Reports assigned primary and cursor planes, per-CRTC overlay candidates, and the current overlay policy |
 | `direct scanout active` | A client framebuffer successfully acquired the primary plane |
 | `compositor reclaimed the primary plane` | A compositor framebuffer successfully replaced a direct client framebuffer |
 | `direct scanout blocked` | A plausible full-output candidate failed an eligibility condition |

@@ -64,9 +64,3 @@ ignored = ["flux-sys", "lens-sys", "reticle-sys", "vista-sys"]
 
 [lints]
 workspace = true
-
-# A real-session-bus smoke test: it binds zbus and the tray service, so it can
-# only build where that service is compiled in.
-[[test]]
-name = "tray_smoke"
-required-features = ["chrome-tray"]

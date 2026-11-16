@@ -22,5 +22,4 @@ zeroize = { workspace = true }
 workspace = true
 
 [dev-dependencies]
-tessera-protocol = { workspace = true }
 tempfile.workspace = true

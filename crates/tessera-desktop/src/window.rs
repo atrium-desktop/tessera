@@ -25,7 +25,7 @@ pub enum DecorationPolicy {
 
 /// Compositor drop-shadow style for floating windows (ADR-0139): the
 /// *policy* is data here; the drawing mechanism lives in the Optics stack
-/// (`flux::shadow_filter` renders a blurred mask; `tessera-render` composites
+/// (`flux::shadow_filter` renders a blurred mask; `tessera-composite` composites
 /// the result). Effect-free by design — pure data, no renderer types.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]

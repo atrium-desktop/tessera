@@ -192,6 +192,12 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         host,
         device,
     } = engine.session();
+    // Overlay presentation is an explicit hardware-validation path: the audit
+    // planner runs under debug logging, but the commit path is enabled only by
+    // the operator environment until a real KMS system test passes.
+    let overlay_offload_enabled = std::env::var("TESSERA_OVERLAY_OFFLOAD")
+        .is_ok_and(|value| matches!(value.as_str(), "1" | "true" | "yes"));
+    host.set_overlay_offload_enabled(overlay_offload_enabled);
     let mut input_status =
         host.set_input_config(config.as_ref().map(|c| c.input).unwrap_or_default());
     // The backend has no keyboard device model; the runtime owns the
@@ -1181,6 +1187,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         retired_defer,
         primary_plane_state: PrimaryPlaneState::default(),
         scanout_telemetry: ScanoutTelemetry::new(),
+        overlay_telemetry: tessera_composite::presentation::OverlayTelemetry::new(),
+        overlay_offload_enabled,
+        overlay_state: tessera_composite::presentation::OverlayState::default(),
         keyboard_capture,
         keymap,
         system_status,

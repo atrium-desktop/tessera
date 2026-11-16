@@ -1,0 +1,76 @@
+[package]
+name = "tessera-tests"
+description = "Root integration and end-to-end test suites for the Tessera workspace"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+autotests = false
+autobins = false
+autoexamples = false
+autobenches = false
+
+[features]
+default = ["native"]
+# Tests that cross a native boundary (Wayland, flux/lens, or a real binary
+# built from the compositor stack). Flux-free CI runs this package with
+# --no-default-features.
+native = [
+    "dep:tessera",
+    "dep:tessera-composite",
+    "dep:tessera-shell",
+    "dep:flux-sys",
+    "dep:lens-sys",
+    "dep:reticle-sys",
+    "dep:vista-sys",
+    "dep:zbus",
+]
+
+[dependencies]
+clap.workspace = true
+libc.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+
+tessera-audit.workspace = true
+tessera-authority.workspace = true
+tessera-cli.workspace = true
+tessera-config.workspace = true
+tessera-desktop.workspace = true
+tessera-env.workspace = true
+tessera-ipc.workspace = true
+tessera-launch-services.workspace = true
+tessera-mcp.workspace = true
+tessera-primitives.workspace = true
+tessera-protocol.workspace = true
+tessera-sched.workspace = true
+tessera-test-support.workspace = true
+
+tessera = { workspace = true, optional = true }
+tessera-composite = { workspace = true, optional = true }
+tessera-shell = { workspace = true, optional = true, default-features = false, features = [
+    "chrome-tray",
+] }
+# Native `-sys` edges are not linked from the suites directly; they publish the
+# local Optics rpaths that the test harnesses must re-emit (see `build.rs`).
+flux-sys = { workspace = true, optional = true }
+lens-sys = { workspace = true, optional = true }
+reticle-sys = { workspace = true, optional = true }
+vista-sys = { workspace = true, optional = true }
+zbus = { workspace = true, optional = true }
+
+[[test]]
+name = "integration"
+path = "integration/main.rs"
+
+[[test]]
+name = "e2e"
+path = "e2e/main.rs"
+
+[package.metadata.cargo-machete]
+# Native rpath metadata for the test harnesses; not referenced from source.
+ignored = ["flux-sys", "lens-sys", "reticle-sys", "vista-sys"]
+
+[lints]
+workspace = true

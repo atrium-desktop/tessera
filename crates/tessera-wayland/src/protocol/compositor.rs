@@ -1500,7 +1500,7 @@ unsafe extern "C" fn surface_set_input_region(
 
 /// `wl_surface.set_buffer_transform` (v2+): records how the client has
 /// pre-rotated the buffer. The renderer applies the inverse at composite
-/// time via CPU staging (tessera-render) — a GPU-side transform in flux's image
+/// time via CPU staging (tessera-composite) — a GPU-side transform in flux's image
 /// shader is the long-term path.
 unsafe extern "C" fn surface_set_buffer_transform(
     _c: *mut ffi::wl_client,

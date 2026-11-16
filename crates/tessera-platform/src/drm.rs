@@ -8,6 +8,11 @@
 //! is still scanning. `pending_flips` exposes that ownership boundary to the
 //! runtime presentation state machine: event/input dispatch remains live, but
 //! a second atomic batch cannot start until every CRTC retires the first one.
+//!
+//! KMS planes are *output layers*, not scene layers (ADR-0234). The background
+//! and always-on-top are compositor z-order semantics; only primary, cursor,
+//! and a policy-enabled, `TEST_ONLY`-proven overlay may allocate a plane
+//! (ADR-0235). Plane discovery and allocation live in [`planes`].
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -20,9 +25,11 @@ use std::time::Duration;
 mod device;
 mod events;
 mod output;
+mod planes;
 
 use device::PresentedComposite;
 use output::*;
+use planes::*;
 
 use drm::buffer::{Buffer, DrmFourcc, DrmModifier, Handle as BufferHandle, PlanarBuffer};
 use drm::control::{
@@ -221,7 +228,7 @@ fn add_cursor_plane_to_commit(
     state: Option<CursorState>,
     buffers: &[CursorBuffer],
 ) {
-    let Some(cursor) = &output.cursor else {
+    let Some(cursor) = &output.planes.cursor else {
         return;
     };
     let placement = state.and_then(|state| {
@@ -301,6 +308,170 @@ fn add_cursor_plane_to_commit(
     );
 }
 
+/// Pure KMS values for one overlay plane, before they are written into an
+/// `AtomicModeReq`. Keeping this value separately testable catches property
+/// mistakes without a DRM card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct OverlayPlaneRequest {
+    framebuffer: control::framebuffer::Handle,
+    crtc: crtc::Handle,
+    src: (u64, u64, u64, u64),
+    dst: (i64, i64, u64, u64),
+    alpha: Option<u64>,
+    zpos: Option<u64>,
+    in_fence_fd: Option<i32>,
+    damage_clips: bool,
+}
+
+fn overlay_plane_request(
+    plane: &OverlayPlaneCapabilities,
+    framebuffer: control::framebuffer::Handle,
+    crtc: crtc::Handle,
+    width: i32,
+    height: i32,
+    target: tessera_primitives::Rect,
+    zpos: Option<u32>,
+    acquire_fence: Option<&OwnedFd>,
+) -> Result<OverlayPlaneRequest, DrmError> {
+    let props = &plane.props;
+    if (zpos.is_some() && props.zpos.is_none())
+        || (acquire_fence.is_some() && props.in_fence_fd.is_none())
+        || width <= 0
+        || height <= 0
+        || target.size.w <= 0
+        || target.size.h <= 0
+    {
+        return Err(DrmError::ScanoutUnsupported);
+    }
+    Ok(OverlayPlaneRequest {
+        framebuffer,
+        crtc,
+        src: (0, 0, (width as u64) << 16, (height as u64) << 16),
+        dst: (
+            i64::from(target.origin.x),
+            i64::from(target.origin.y),
+            target.size.w as u64,
+            target.size.h as u64,
+        ),
+        // The candidate is proven fully opaque; 0xffff is the KMS opaque
+        // endpoint and does not depend on the plane's pixel-blend default.
+        alpha: props.alpha.map(|_| 0xffff),
+        zpos: props.zpos.and(zpos).map(u64::from),
+        in_fence_fd: props.in_fence_fd.and(acquire_fence.map(AsRawFd::as_raw_fd)),
+        damage_clips: props.fb_damage_clips.is_some(),
+    })
+}
+
+/// Program one overlay plane in a complete-set request.
+///
+/// The caller has already selected a plane that supports the candidate's
+/// format/modifier and zpos. This helper only expresses the KMS properties;
+/// it does not allocate, import, or present anything.
+fn add_overlay_plane_to_commit(
+    request: &mut atomic::AtomicModeReq,
+    output: &Output,
+    plane: &OverlayPlaneCapabilities,
+    framebuffer: control::framebuffer::Handle,
+    acquire_fence: Option<&OwnedFd>,
+    width: i32,
+    height: i32,
+    target: tessera_primitives::Rect,
+    zpos: Option<u32>,
+) {
+    let values = overlay_plane_request(
+        plane,
+        framebuffer,
+        output.crtc,
+        width,
+        height,
+        target,
+        zpos,
+        acquire_fence,
+    )
+    .expect("overlay import validated the plane request");
+    let props = &plane.props;
+    request.add_property(
+        plane.handle,
+        props.fb_id,
+        property::Value::Framebuffer(Some(values.framebuffer)),
+    );
+    request.add_property(
+        plane.handle,
+        props.crtc_id,
+        property::Value::CRTC(Some(values.crtc)),
+    );
+    request.add_property(
+        plane.handle,
+        props.src_x,
+        property::Value::UnsignedRange(values.src.0),
+    );
+    request.add_property(
+        plane.handle,
+        props.src_y,
+        property::Value::UnsignedRange(values.src.1),
+    );
+    request.add_property(
+        plane.handle,
+        props.src_w,
+        property::Value::UnsignedRange(values.src.2),
+    );
+    request.add_property(
+        plane.handle,
+        props.src_h,
+        property::Value::UnsignedRange(values.src.3),
+    );
+    request.add_property(
+        plane.handle,
+        props.crtc_x,
+        property::Value::SignedRange(values.dst.0),
+    );
+    request.add_property(
+        plane.handle,
+        props.crtc_y,
+        property::Value::SignedRange(values.dst.1),
+    );
+    request.add_property(
+        plane.handle,
+        props.crtc_w,
+        property::Value::UnsignedRange(values.dst.2),
+    );
+    request.add_property(
+        plane.handle,
+        props.crtc_h,
+        property::Value::UnsignedRange(values.dst.3),
+    );
+    if let (Some(alpha), Some(alpha_prop)) = (values.alpha, props.alpha) {
+        request.add_property(
+            plane.handle,
+            alpha_prop,
+            property::Value::UnsignedRange(alpha),
+        );
+    }
+    if let (Some(zpos), Some(zpos_prop)) = (values.zpos, props.zpos) {
+        request.add_property(
+            plane.handle,
+            zpos_prop,
+            property::Value::UnsignedRange(zpos),
+        );
+    }
+    if let (Some(fd), Some(in_fence)) = (values.in_fence_fd, props.in_fence_fd) {
+        request.add_property(
+            plane.handle,
+            in_fence,
+            property::Value::SignedRange(i64::from(fd)),
+        );
+    }
+    if values.damage_clips {
+        // The probe gives no damage information; the kernel treats a NULL
+        // blob as full damage, which is the safe conservatism for validation.
+        request.add_property(
+            plane.handle,
+            props.fb_damage_clips.expect("checked above"),
+            property::Value::Blob(0),
+        );
+    }
+}
+
 #[derive(Debug)]
 struct Card {
     device: libseat::Device,
@@ -341,63 +512,16 @@ struct OutputAtomicProperties {
     crtc_gamma_lut: Option<(property::Handle, u32)>,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct PrimaryPlaneProperties {
-    fb_id: property::Handle,
-    crtc_id: property::Handle,
-    src_x: property::Handle,
-    src_y: property::Handle,
-    src_w: property::Handle,
-    src_h: property::Handle,
-    crtc_x: property::Handle,
-    crtc_y: property::Handle,
-    crtc_w: property::Handle,
-    crtc_h: property::Handle,
-    in_fence_fd: Option<property::Handle>,
-    /// `FB_DAMAGE_CLIPS`: per-commit damage hint consumed by PSR-style
-    /// drivers. Absent on planes/kernels without damage tracking; commits
-    /// then carry no hint at all.
-    fb_damage_clips: Option<property::Handle>,
-}
-
-#[derive(Debug)]
-struct PrimaryPlane {
-    handle: plane::Handle,
-    props: PrimaryPlaneProperties,
-    /// Pre-created `FB_DAMAGE_CLIPS` blob covering the output's whole
-    /// framebuffer rectangle, reused by full/unknown-damage commits.
-    full_damage_blob: Option<(property::Value<'static>, u64)>,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct CursorPlaneProperties {
-    plane_fb_id: property::Handle,
-    plane_crtc_id: property::Handle,
-    plane_src_x: property::Handle,
-    plane_src_y: property::Handle,
-    plane_src_w: property::Handle,
-    plane_src_h: property::Handle,
-    plane_crtc_x: property::Handle,
-    plane_crtc_y: property::Handle,
-    plane_crtc_w: property::Handle,
-    plane_crtc_h: property::Handle,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct CursorPlane {
-    handle: plane::Handle,
-    props: CursorPlaneProperties,
-}
-
 #[derive(Debug)]
 struct Output {
     connector: connector::Handle,
     name: String,
     crtc: crtc::Handle,
-    /// Exactly one primary plane owns this CRTC. Its framebuffer is either a
-    /// compositor output or one eligible client dma-buf; those sources are
-    /// mutually exclusive within an atomic commit.
-    primary: PrimaryPlane,
+    /// Output-layer plane allocation for this CRTC. The primary plane carries
+    /// either a compositor output or one eligible client dma-buf; cursor is
+    /// optional; overlay is allocated only when its policy is enabled and the
+    /// complete set passes `TEST_ONLY` (ADR-0234, ADR-0235).
+    planes: OutputPlanes,
     mode: Mode,
     mode_blob: property::Value<'static>,
     mode_blob_id: u64,
@@ -413,9 +537,6 @@ struct Output {
     /// override this after the backend snapshot reaches the compositor.
     scale: Scale,
     props: OutputAtomicProperties,
-    /// Dedicated ARGB8888 KMS cursor plane for this CRTC. Direct scanout may
-    /// keep running with a visible cursor only when every output has one.
-    cursor: Option<CursorPlane>,
     /// The connector's advertised modes at selection time (deduplicated,
     /// highest resolution first), surfaced through `output_infos`.
     available_modes: Vec<OutputMode>,
@@ -461,7 +582,6 @@ struct DisplaySet {
     /// primary plane. This is broader than the compositor render-target
     /// format above and governs client direct scanout.
     scanout_formats: HashMap<u32, Vec<u64>>,
-    overlay: OverlayPlaneInventory,
     /// The negotiated session color pipeline. Derived from `format` and the
     /// requested policy: an 8-bit format means SDR regardless of intent.
     color_mode: DisplayColorMode,
@@ -471,35 +591,17 @@ struct DisplaySet {
     icc_profile: Option<String>,
 }
 
-/// Current overlay allocation contract. Discovery is useful for diagnostics,
-/// but arbitrary desktop layers stay compositor-owned until a future plane
-/// planner proves every relevant capability in one atomic TEST_ONLY request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OverlayPlanePolicy {
-    CompositorOnly,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct OverlayPlaneInventory {
-    available: usize,
-    policy: OverlayPlanePolicy,
-}
-
-#[derive(Debug, Clone)]
-struct AvailablePlane {
-    handle: plane::Handle,
-    possible_crtcs: Vec<crtc::Handle>,
-    formats: Vec<u32>,
-}
-
-#[derive(Debug, Default)]
-struct PlaneInventory {
-    primary: Vec<AvailablePlane>,
-    cursor: Vec<AvailablePlane>,
-    overlay: Vec<AvailablePlane>,
-}
-
-type OutputSignature = (String, u32, u32, u32, u32, u32, u32, bool);
+type OutputSignature = (
+    String,
+    u32,
+    u32,
+    u32,
+    u32,
+    u32,
+    u32,
+    bool,
+    OverlayPlaneAllocation,
+);
 type DisplaySignature = (
     DrmFourcc,
     Vec<u64>,
@@ -507,42 +609,65 @@ type DisplaySignature = (
     DisplayColorMode,
     Option<String>,
     Vec<OutputSignature>,
-    OverlayPlaneInventory,
 );
 
 #[derive(Debug)]
-struct Scanout {
+struct PrimaryScanout {
     framebuffer: control::framebuffer::Handle,
     gem: BufferHandle,
     slot: u32,
     acquire_fence: Option<OwnedFd>,
-    ownership: ScanoutOwnership,
+    ownership: PrimaryScanoutOwnership,
+}
+
+/// A client buffer scanned out by one overlay plane. The buffer shares the
+/// same import cache and retirement rules as a direct-scanout primary buffer,
+/// but it never owns Primary.
+#[derive(Debug)]
+struct OverlayScanout {
+    framebuffer: control::framebuffer::Handle,
+    gem: BufferHandle,
+    acquire_fence: Option<OwnedFd>,
+    ownership: PrimaryScanoutOwnership,
+    output: String,
+    plane: plane::Handle,
+    width: i32,
+    height: i32,
+    target: tessera_primitives::Rect,
+    zpos: Option<u32>,
 }
 
 /// Semantic source selected for the primary plane in this atomic commit.
 /// Keeping this explicit prevents a boolean parameter from silently mixing
 /// compositor framebuffer lifetime with client `wl_buffer` release rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PrimaryPlaneFrame {
+enum PrimaryPlaneSource {
     Composited,
     DirectClient,
 }
 
-impl PrimaryPlaneFrame {
+impl PrimaryPlaneSource {
     fn needs_kms_completion_fence(self) -> bool {
         matches!(self, Self::DirectClient)
     }
 }
 
+/// An overlay layer is only legal above the compositor framebuffer. A direct
+/// client owns the complete output and leaves no Primary pixels underneath an
+/// overlay (ADR-0237).
+fn overlay_source_supported(source: PrimaryPlaneSource) -> bool {
+    source == PrimaryPlaneSource::Composited
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ScanoutOwnership {
+enum PrimaryScanoutOwnership {
     /// An uncacheable compositor output import. It is destroyed when the
     /// scanout retires but does not use client `wl_buffer` release semantics.
     TransientCompositor,
     /// An uncacheable client direct-scanout import (when `fstat` identity is
     /// unavailable). Destroyed when the scanout retires or its commit fails.
     TransientClient,
-    /// A compositor-output import is owned by the backend cache. Scanout
+    /// A compositor-output import is owned by the backend cache. PrimaryScanout
     /// retirement only drops this reference; the cache destroys the DRM
     /// framebuffer and GEM handle after invalidation and the last reference.
     Cached(CompositeFbKey),
@@ -552,16 +677,16 @@ enum ScanoutOwnership {
     CachedClient(ClientFbKey),
 }
 
-impl ScanoutOwnership {
-    fn matches_frame(self, frame: PrimaryPlaneFrame) -> bool {
+impl PrimaryScanoutOwnership {
+    fn matches_source(self, source: PrimaryPlaneSource) -> bool {
         matches!(
-            (self, frame),
+            (self, source),
             (
                 Self::TransientCompositor | Self::Cached(_),
-                PrimaryPlaneFrame::Composited
+                PrimaryPlaneSource::Composited
             ) | (
                 Self::TransientClient | Self::CachedClient(_),
-                PrimaryPlaneFrame::DirectClient
+                PrimaryPlaneSource::DirectClient
             )
         )
     }
@@ -607,7 +732,7 @@ struct ClientFbKey {
 struct CachedCompositeFb {
     framebuffer: control::framebuffer::Handle,
     gem: BufferHandle,
-    /// Number of submitted/imported `Scanout` values that still reference
+    /// Number of submitted/imported `PrimaryScanout` values that still reference
     /// this entry. This includes failed commits until their error path releases
     /// the scanout, current scanout, and page-flip-retiring scanout.
     users: u32,
@@ -777,8 +902,20 @@ pub struct DrmBackend {
     failed: bool,
     modeset_done: bool,
     pending_flips: HashSet<crtc::Handle>,
-    current: Option<Scanout>,
-    retiring: Option<Scanout>,
+    current: Option<PrimaryScanout>,
+    retiring: Option<PrimaryScanout>,
+    /// Semantic source of `current`. A complete-set overlay probe is only
+    /// meaningful while the compositor framebuffer owns Primary; a direct
+    /// client owns the full output and leaves no desktop underneath.
+    current_source: Option<PrimaryPlaneSource>,
+    /// Overlay plane currently scanning out a client buffer. Kept separate
+    /// from Primary because its buffer lifetime and disable path are its own.
+    current_overlay: Option<OverlayScanout>,
+    retiring_overlay: Option<OverlayScanout>,
+    /// Hardware-validation gate for overlay allocation. Policy is reapplied
+    /// after every hotplug reprobe so a selected topology cannot silently
+    /// enable or disable it.
+    overlay_offload_enabled: bool,
     /// KMS framebuffer imports for Flux compositor-output swapchain images.
     composite_fb_cache: HashMap<CompositeFbKey, CachedCompositeFb>,
     /// Generation of the live Flux surface/storage. Resize and recreation
@@ -865,9 +1002,58 @@ pub struct DrmBackend {
 }
 
 impl DrmBackend {
+    /// Enable or disable the explicit overlay hardware-validation path.
+    ///
+    /// Enabling the policy allocates nothing by itself: the next overlay
+    /// commit still proves the complete plane set with `TEST_ONLY` (ADR-0235).
+    pub fn set_overlay_offload_enabled(&mut self, enabled: bool) {
+        self.overlay_offload_enabled = enabled;
+        apply_overlay_policy(&mut self.displays, enabled);
+        log::info!(
+            "drm: overlay offload {} (complete-set TEST_ONLY still required)",
+            if enabled {
+                "enabled for hardware validation"
+            } else {
+                "disabled"
+            }
+        );
+    }
+
+    /// Overlay planes discovered on every active output, with the
+    /// format/modifier and zpos facts an overlay planner needs. Allocation
+    /// remains governed by [`OverlayPlanePolicy`].
+    pub fn overlay_planes(&self) -> Vec<crate::host::OverlayPlaneInfo> {
+        self.displays
+            .outputs
+            .iter()
+            .flat_map(|output| {
+                output
+                    .planes
+                    .overlay
+                    .discovered
+                    .iter()
+                    .map(|plane| crate::host::OverlayPlaneInfo {
+                        output: output.name.clone(),
+                        formats: plane
+                            .formats
+                            .iter()
+                            .map(|format| crate::host::OverlayFormatInfo {
+                                fourcc: format.fourcc,
+                                modifiers: format.modifiers.clone(),
+                            })
+                            .collect(),
+                        zpos: plane.zpos,
+                        alpha: plane.alpha,
+                        in_fence_fd: plane.in_fence_fd,
+                        fb_damage_clips: plane.fb_damage_clips,
+                    })
+            })
+            .collect()
+    }
+
     /// Format/modifier pairs accepted by every active primary plane.
     ///
-    /// This is the conservative set suitable for the linux-dmabuf feedback
+    /// This is the conservative set suitable for linux-dmabuf feedback
     /// SCANOUT tranche: a client choosing one of these pairs can still be
     /// scanned out when the desktop spans more than one selected output.
     pub fn dmabuf_scanout_formats(&self) -> Vec<tessera_primitives::dmabuf::DmabufFormat> {
@@ -1296,6 +1482,13 @@ impl Drop for DrmBackend {
             if let Some(scanout) = self.current.take() {
                 self.release_scanout(scanout);
             }
+            if let Some(overlay) = self.current_overlay.take() {
+                self.release_overlay_scanout(overlay);
+            }
+            if let Some(overlay) = self.retiring_overlay.take() {
+                self.release_overlay_scanout(overlay);
+            }
+            self.current_source = None;
             // Cache owns compositor-output framebuffer/GEM resources; release
             // all of them exactly once while the originating card fd is live.
             if self.card.is_some() {
@@ -1306,6 +1499,9 @@ impl Drop for DrmBackend {
             // cleanup ioctls must not be sent to a future/reused handle.
             self.retiring = None;
             self.current = None;
+            self.current_source = None;
+            self.current_overlay = None;
+            self.retiring_overlay = None;
             self.forget_composite_fb_cache();
         }
         if self.active
@@ -1327,7 +1523,7 @@ impl Drop for DrmBackend {
             if self.active {
                 for output in &self.displays.outputs {
                     let _ = card.destroy_property_blob(output.mode_blob_id);
-                    if let Some((_, blob_id)) = output.primary.full_damage_blob.as_ref() {
+                    if let Some((_, blob_id)) = output.planes.primary.full_damage_blob.as_ref() {
                         let _ = card.destroy_property_blob(*blob_id);
                     }
                 }
@@ -1343,389 +1539,4 @@ impl Drop for DrmBackend {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn wheel_scaling_keeps_value120_and_steps_consistent() {
-        // Neutral factor: one full detent unchanged.
-        let neutral = scaled_wheel_value(120, 1.0);
-        assert_eq!(neutral.value, Some(10.0));
-        assert_eq!(neutral.discrete, Some(1));
-        assert_eq!(neutral.value120, Some(120));
-        // Double speed doubles every representation.
-        let doubled = scaled_wheel_value(120, 2.0);
-        assert_eq!(doubled.value, Some(20.0));
-        assert_eq!(doubled.discrete, Some(2));
-        assert_eq!(doubled.value120, Some(240));
-        // Half a detent doubled becomes exactly one detent.
-        let fraction = scaled_wheel_value(60, 2.0);
-        assert_eq!(fraction.discrete, Some(1));
-        assert_eq!(fraction.value120, Some(120));
-        // A click slowed below one detent still steps once for legacy v5–7
-        // clients while the continuous value carries the fraction.
-        let slow = scaled_wheel_value(120, 0.5);
-        assert_eq!(slow.value, Some(5.0));
-        assert_eq!(slow.discrete, Some(1));
-        assert_eq!(slow.value120, Some(60));
-        // High-resolution fractions carry no whole step at neutral speed so
-        // legacy clients do not see one full click per fraction.
-        let fraction = scaled_wheel_value(30, 1.0);
-        assert_eq!(fraction.discrete, None);
-        assert_eq!(fraction.value120, Some(30));
-        // A fraction scaled below the reporting floor (rounds to zero 120ths)
-        // is suppressed entirely.
-        assert_eq!(scaled_wheel_value(10, 0.04), PointerAxis::default());
-        // A negative factor inverts direction (defensive; the UI range is
-        // positive).
-        let inverted = scaled_wheel_value(120, -1.0);
-        assert_eq!(inverted.value, Some(-10.0));
-        assert_eq!(inverted.discrete, Some(-1));
-        assert_eq!(inverted.value120, Some(-120));
-    }
-
-    #[test]
-    fn scanout_ownership_must_match_primary_plane_source() {
-        assert!(ScanoutOwnership::TransientCompositor.matches_frame(PrimaryPlaneFrame::Composited));
-        assert!(
-            !ScanoutOwnership::TransientCompositor.matches_frame(PrimaryPlaneFrame::DirectClient)
-        );
-        assert!(ScanoutOwnership::TransientClient.matches_frame(PrimaryPlaneFrame::DirectClient));
-        assert!(!ScanoutOwnership::TransientClient.matches_frame(PrimaryPlaneFrame::Composited));
-    }
-
-    /// [INV-ARCH-70]: a cached client direct-scanout import must satisfy the
-    /// same primary-plane source contract as the uncached transient form, so a
-    /// cache hit can never be paired with a composited frame (and vice versa).
-    #[test]
-    fn cached_client_ownership_is_direct_client_only() {
-        let cached = ScanoutOwnership::CachedClient(ClientFbKey {
-            identity: DmabufIdentity {
-                device: 1,
-                inode: 2,
-            },
-            width: 4,
-            height: 4,
-            stride: 16,
-            offset: 0,
-            fourcc: 0,
-            modifier: 0,
-        });
-        assert!(cached.matches_frame(PrimaryPlaneFrame::DirectClient));
-        assert!(!cached.matches_frame(PrimaryPlaneFrame::Composited));
-    }
-
-    #[test]
-    fn damage_clip_intersects_output_rect() {
-        use tessera_primitives::Rect;
-        // Unknown damage covers the whole output.
-        assert_eq!(
-            damage_clip_for_output(None, 1920, 0, 1920, 1080),
-            vec![[1920, 0, 3840, 1080]]
-        );
-        // A box spanning both outputs of a side-by-side desktop clips to each.
-        let damage_rects = [Rect::new(1900, 100, 100, 200)];
-        let damage = Some(&damage_rects[..]);
-        assert_eq!(
-            damage_clip_for_output(damage, 0, 0, 1920, 1080),
-            vec![[1900, 100, 1920, 300]]
-        );
-        assert_eq!(
-            damage_clip_for_output(damage, 1920, 0, 1920, 1080),
-            vec![[1920, 100, 2000, 300]]
-        );
-        // Disjoint damage leaves the output untouched.
-        let other_rects = [Rect::new(0, 0, 100, 100)];
-        let other = Some(&other_rects[..]);
-        assert_eq!(
-            damage_clip_for_output(other, 1920, 0, 1920, 1080),
-            Vec::<[i32; 4]>::new()
-        );
-        // Damage fully outside the framebuffer on the negative side.
-        let negative_rects = [Rect::new(-50, -50, 40, 40)];
-        let negative = Some(&negative_rects[..]);
-        assert_eq!(
-            damage_clip_for_output(negative, 0, 0, 1920, 1080),
-            Vec::<[i32; 4]>::new()
-        );
-        // Disjoint dirty regions are preserved as separate clips.
-        let disjoint_rects = [Rect::new(10, 10, 5, 5), Rect::new(500, 400, 8, 8)];
-        let disjoint = Some(&disjoint_rects[..]);
-        assert_eq!(
-            damage_clip_for_output(disjoint, 0, 0, 1920, 1080),
-            vec![[10, 10, 15, 15], [500, 400, 508, 408]]
-        );
-    }
-
-    #[test]
-    fn cursor_plane_rect_clips_hotspot_and_output_boundaries() {
-        assert_eq!(
-            cursor_plane_rect((100, 80), (4, 6), (24, 24), (0, 0), (1920, 1080)),
-            Some(CursorPlaneRect {
-                src: (0, 0, 24, 24),
-                dst: (96, 74, 24, 24),
-            })
-        );
-        // Hotspot near the top-left keeps the full source and lets KMS clip a
-        // negative destination, as cursor planes conventionally require.
-        assert_eq!(
-            cursor_plane_rect((2, 3), (6, 7), (24, 24), (0, 0), (1920, 1080)),
-            Some(CursorPlaneRect {
-                src: (0, 0, 24, 24),
-                dst: (-4, -4, 24, 24),
-            })
-        );
-        // The same sprite can be committed to two cursor planes while it
-        // straddles side-by-side outputs.
-        assert_eq!(
-            cursor_plane_rect((1920, 100), (12, 12), (24, 24), (0, 0), (1920, 1080)),
-            Some(CursorPlaneRect {
-                src: (0, 0, 24, 24),
-                dst: (1908, 88, 24, 24),
-            })
-        );
-        assert_eq!(
-            cursor_plane_rect((1920, 100), (12, 12), (24, 24), (1920, 0), (1920, 1080),),
-            Some(CursorPlaneRect {
-                src: (0, 0, 24, 24),
-                dst: (-12, 88, 24, 24),
-            })
-        );
-    }
-
-    #[test]
-    fn poll_deadline_shapes_timeout_values() {
-        // No deadline blocks indefinitely and never expires.
-        assert_eq!(poll_ms_remaining(None), -1);
-        assert!(!deadline_passed(None));
-
-        // A future deadline yields a bounded positive remaining budget.
-        let future = std::time::Instant::now() + Duration::from_secs(60);
-        let remaining = poll_ms_remaining(Some(future));
-        assert!((1..=60_000).contains(&remaining));
-        assert!(!deadline_passed(Some(future)));
-
-        // A passed deadline degrades to a non-blocking poll.
-        let past = std::time::Instant::now() - Duration::from_secs(1);
-        assert_eq!(poll_ms_remaining(Some(past)), 0);
-        assert!(deadline_passed(Some(past)));
-    }
-
-    #[test]
-    fn busy_nonblocking_commit_is_a_transient_frame_skip() {
-        let error = std::io::Error::from_raw_os_error(libc::EBUSY);
-        assert!(commit_error_is_transient(&error));
-        assert!(matches!(commit_error(error), DrmError::Busy));
-    }
-
-    #[test]
-    fn card_candidates_honor_explicit_override() {
-        assert_eq!(
-            candidate_cards_with_override(Some("/dev/dri/card-test".into())),
-            vec![PathBuf::from("/dev/dri/card-test")]
-        );
-    }
-
-    #[test]
-    fn imported_buffer_exposes_single_xrgb_plane() {
-        let buffer = ImportedBuffer {
-            size: (1920, 1080),
-            stride: 7680,
-            modifier: DrmModifier::Linear,
-            format: DrmFourcc::Xrgb8888,
-            offset: 0,
-            gem: BufferHandle::from(std::num::NonZeroU32::new(1).unwrap()),
-        };
-        assert_eq!(buffer.size(), (1920, 1080));
-        assert_eq!(buffer.format(), DrmFourcc::Xrgb8888);
-        assert_eq!(buffer.pitches(), [7680, 0, 0, 0]);
-        assert_eq!(buffer.offsets(), [0; 4]);
-        assert_eq!(buffer.modifier(), Some(DrmModifier::Linear));
-    }
-
-    #[test]
-    fn parses_in_formats_modifier_bitsets() {
-        // Header + two fourcc values + one aligned modifier record.
-        let mut blob = vec![0_u8; 56];
-        blob[8..12].copy_from_slice(&2_u32.to_ne_bytes());
-        blob[12..16].copy_from_slice(&24_u32.to_ne_bytes());
-        blob[16..20].copy_from_slice(&1_u32.to_ne_bytes());
-        blob[20..24].copy_from_slice(&32_u32.to_ne_bytes());
-        blob[24..28].copy_from_slice(&(DrmFourcc::Argb8888 as u32).to_ne_bytes());
-        blob[28..32].copy_from_slice(&(DrmFourcc::Xrgb8888 as u32).to_ne_bytes());
-        blob[32..40].copy_from_slice(&0b10_u64.to_ne_bytes());
-        blob[40..44].copy_from_slice(&0_u32.to_ne_bytes());
-        blob[48..56].copy_from_slice(&0x1234_u64.to_ne_bytes());
-
-        assert_eq!(
-            parse_format_modifiers(&blob, DrmFourcc::Xrgb8888 as u32).unwrap(),
-            vec![0x1234]
-        );
-        assert!(
-            parse_format_modifiers(&blob, DrmFourcc::Argb8888 as u32)
-                .unwrap()
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn native_modifier_precedes_linear_fallback() {
-        // Preserve deterministic preference even when the kernel blob lists
-        // LINEAR first: output composition should use a GPU-native tiled
-        // layout whenever the primary plane and Vulkan both accept it.
-        let mut blob = vec![0_u8; 80];
-        blob[8..12].copy_from_slice(&1_u32.to_ne_bytes());
-        blob[12..16].copy_from_slice(&24_u32.to_ne_bytes());
-        blob[16..20].copy_from_slice(&2_u32.to_ne_bytes());
-        blob[20..24].copy_from_slice(&32_u32.to_ne_bytes());
-        blob[24..28].copy_from_slice(&(DrmFourcc::Xrgb8888 as u32).to_ne_bytes());
-
-        let linear = u64::from(DrmModifier::Linear);
-        let tiled = u64::from(DrmModifier::I915_x_tiled);
-        for (base, modifier) in [(32, linear), (56, tiled)] {
-            blob[base..base + 8].copy_from_slice(&1_u64.to_ne_bytes());
-            blob[base + 8..base + 12].copy_from_slice(&0_u32.to_ne_bytes());
-            blob[base + 16..base + 24].copy_from_slice(&modifier.to_ne_bytes());
-        }
-
-        assert_eq!(
-            parse_format_modifiers(&blob, DrmFourcc::Xrgb8888 as u32).unwrap(),
-            vec![tiled, linear]
-        );
-    }
-
-    #[test]
-    fn rejects_out_of_bounds_in_formats_blob() {
-        let mut blob = vec![0_u8; 24];
-        blob[8..12].copy_from_slice(&u32::MAX.to_ne_bytes());
-        blob[12..16].copy_from_slice(&24_u32.to_ne_bytes());
-        assert!(parse_format_modifiers(&blob, DrmFourcc::Xrgb8888 as u32).is_err());
-    }
-
-    #[test]
-    fn output_assignment_backtracks_and_intersects_modifiers() {
-        let raw = |value| std::num::NonZeroU32::new(value).unwrap();
-        // Mode is a transparent kernel modeinfo value and assignment never
-        // reads it; all-zero modeinfo is valid test storage.
-        let mode: Mode = unsafe { std::mem::zeroed() };
-        let candidates = vec![
-            OutputCandidate {
-                connector: connector::Handle::from(raw(1)),
-                name: "A".into(),
-                mode,
-                physical_size_mm: None,
-                ppi: None,
-                kind: OutputKind::External,
-                scale: Scale::IDENTITY,
-                choices: vec![
-                    OutputChoice {
-                        crtc: crtc::Handle::from(raw(10)),
-                        plane: plane::Handle::from(raw(20)),
-                        modifiers: vec![0, 7],
-                    },
-                    OutputChoice {
-                        crtc: crtc::Handle::from(raw(11)),
-                        plane: plane::Handle::from(raw(21)),
-                        modifiers: vec![0],
-                    },
-                ],
-                available_modes: Vec::new(),
-                color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
-            },
-            OutputCandidate {
-                connector: connector::Handle::from(raw(2)),
-                name: "B".into(),
-                mode,
-                physical_size_mm: None,
-                ppi: None,
-                kind: OutputKind::External,
-                scale: Scale::IDENTITY,
-                choices: vec![OutputChoice {
-                    crtc: crtc::Handle::from(raw(10)),
-                    plane: plane::Handle::from(raw(20)),
-                    modifiers: vec![0, 9],
-                }],
-                available_modes: Vec::new(),
-                color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
-            },
-        ];
-
-        let (selected, modifiers) = assign_outputs(&candidates).unwrap();
-        assert_eq!(selected[0].crtc, crtc::Handle::from(raw(11)));
-        assert_eq!(selected[1].crtc, crtc::Handle::from(raw(10)));
-        assert_eq!(modifiers, vec![0]);
-    }
-
-    #[test]
-    fn scanout_capabilities_are_checked_per_client_format() {
-        let mut formats = HashMap::new();
-        formats.insert(DrmFourcc::Xrgb8888 as u32, vec![0, 7]);
-        formats.insert(DrmFourcc::Argb8888 as u32, vec![0, 9]);
-
-        assert!(device::scanout_formats_support(
-            &formats,
-            DrmFourcc::Argb8888 as u32,
-            9
-        ));
-        assert!(!device::scanout_formats_support(
-            &formats,
-            DrmFourcc::Argb8888 as u32,
-            7
-        ));
-        assert!(!device::scanout_formats_support(
-            &formats,
-            DrmFourcc::Abgr8888 as u32,
-            0
-        ));
-    }
-
-    #[test]
-    fn scanout_modifier_intersection_requires_every_output() {
-        assert_eq!(
-            output::intersect_modifier_sets(&[vec![0, 7, 9], vec![0, 9], vec![9, 11]]),
-            vec![9]
-        );
-        assert!(output::intersect_modifier_sets(&[]).is_empty());
-    }
-
-    #[test]
-    fn pick_mode_without_spec_uses_highest_pixel_count_then_refresh() {
-        let modes = [
-            (1920, 1080, 60_000, false),
-            (2560, 1440, 60_000, true),
-            (2560, 1440, 144_000, false),
-            (3840, 2160, 60_000, false),
-        ];
-        assert_eq!(pick_mode(&modes, None), Some(3));
-
-        let same_resolution = [(2560, 1440, 60_000, true), (2560, 1440, 144_000, false)];
-        assert_eq!(pick_mode(&same_resolution, None), Some(1));
-        assert_eq!(pick_mode(&[], None), None);
-    }
-
-    #[test]
-    fn pick_mode_with_spec_requires_exact_size() {
-        let modes = [(1920, 1080, 60_000, false), (2560, 1440, 60_000, true)];
-        let spec: ModeSpec = "1920x1080".parse().unwrap();
-        assert_eq!(pick_mode(&modes, Some(&spec)), Some(0));
-        // Nothing matches → None so the caller can fall back and warn.
-        let missing: ModeSpec = "1280x720".parse().unwrap();
-        assert_eq!(pick_mode(&modes, Some(&missing)), None);
-    }
-
-    #[test]
-    fn pick_mode_with_spec_uses_highest_refresh_then_tie_breakers() {
-        let modes = [
-            (1920, 1080, 60_000, false),
-            (1920, 1080, 144_000, false),
-            (1920, 1080, 75_000, true),
-        ];
-        let spec: ModeSpec = "1920x1080".parse().unwrap();
-        assert_eq!(pick_mode(&modes, Some(&spec)), Some(1));
-        // An exact refresh request selects only that rate (rounded).
-        let hz: ModeSpec = "1920x1080@144".parse().unwrap();
-        assert_eq!(pick_mode(&modes, Some(&hz)), Some(1));
-        let odd: ModeSpec = "1920x1080@75".parse().unwrap();
-        assert_eq!(pick_mode(&modes, Some(&odd)), Some(2));
-    }
-}
+mod tests;

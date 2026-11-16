@@ -212,6 +212,21 @@ static OPTICS_API_DEPENDENCIES: &[ApiDependency] = &[
         "bindings/crates/reticle/src/lib.rs",
         "pub struct Limits",
     ),
+    // ---- released with Optics v0.0.80 --------------------------------------
+    //
+    // Optics ADR-0165 migrated canvas geometry draws to a single descriptor.
+    // The compositor calls the descriptor form directly for the soft-shadow
+    // draw instead of the retired positional signature (Wave 5).
+    released(
+        "flux_canvas_draw_geometry_opts (Optics ADR-0165)",
+        "libs/flux/include/flux/canvas.h",
+        "flux_canvas_draw_geometry_opts",
+    ),
+    released(
+        "flux::sys::flux_canvas_draw_geometry_opts (Optics ADR-0165)",
+        "bindings/crates/flux/src/lib.rs",
+        "flux_canvas_draw_geometry_opts",
+    ),
     // ---- released with Optics v0.0.76 --------------------------------------
     //
     // The frame-damage epoch ledger (Optics ADR-0155) replaced Tessera's

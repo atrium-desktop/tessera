@@ -174,6 +174,16 @@ pub(super) struct CompositorRuntime<'engine> {
     /// Kept independently from `primary_plane_state` so a persistent video client
     /// explains why it is composited instead of failing silently every frame.
     pub(super) scanout_telemetry: ScanoutTelemetry,
+    /// Overlay-candidate audit counters. This records why candidates are
+    /// rejected so the opt-in policy remains evidence-based (ADR-0235).
+    pub(super) overlay_telemetry: tessera_composite::presentation::OverlayTelemetry,
+    /// Explicit hardware-validation gate for overlay presentation. The audit
+    /// planner always exists; the commit path is enabled only by
+    /// `TESSERA_OVERLAY_OFFLOAD=1` until a real KMS system test has passed.
+    pub(super) overlay_offload_enabled: bool,
+    /// Overlay placement and transition policy. The pure state machine owns
+    /// activation, buffer-only updates, replacement, and deactivation.
+    pub(super) overlay_state: tessera_composite::presentation::OverlayState,
     pub(super) keyboard_capture: tessera_primitives::input::KeyboardCaptureState,
     pub(super) keymap: tessera_desktop::keybind::Keymap,
     pub(super) system_status: tessera_shell::component::SystemStatus,

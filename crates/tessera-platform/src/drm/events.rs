@@ -157,9 +157,15 @@ impl DrmBackend {
                             }
                         }
                     }
-                    if batch_completed && let Some(retired) = self.retiring.take() {
-                        log::trace!("drm: releasing Flux scanout slot {}", retired.slot);
-                        self.release_scanout(retired);
+                    if batch_completed {
+                        if let Some(retired) = self.retiring.take() {
+                            log::trace!("drm: releasing Flux scanout slot {}", retired.slot);
+                            self.release_scanout(retired);
+                        }
+                        if let Some(retired) = self.retiring_overlay.take() {
+                            log::trace!("drm: releasing retired overlay scanout");
+                            self.release_overlay_scanout(retired);
+                        }
                     }
                 }
                 Err(error) => {
@@ -249,6 +255,9 @@ impl DrmBackend {
                 }
                 self.current = None;
                 self.retiring = None;
+                self.current_source = None;
+                self.current_overlay = None;
+                self.retiring_overlay = None;
                 self.pending_flips.clear();
                 self.forget_composite_fb_cache();
                 self.hotplug_pending = false;

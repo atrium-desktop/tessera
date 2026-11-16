@@ -29,6 +29,7 @@ pkg-config.workspace = true
 [dev-dependencies]
 proptest.workspace = true
 tempfile.workspace = true
+tessera-test-support.workspace = true
 
 [package.metadata.cargo-machete]
 ignored = ["pkg-config"]

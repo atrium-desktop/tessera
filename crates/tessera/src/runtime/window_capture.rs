@@ -35,7 +35,7 @@ pub(super) struct PreparedWindowCapture {
 /// One offscreen target's render geometry: the resolved capture scale,
 /// the physical-pixel target extent it implies, and the logical placement
 /// at query time. Shared by the one-shot `CaptureWindow` path and the offscreen
-/// stream render targets (ADR-0127, ADR-0186). A pure value owned by `tessera-presentation`.
+/// stream render targets (ADR-0127, ADR-0186). A pure value owned by `tessera-composite`.
 pub(super) use tessera_composite::presentation::OffscreenGeometry;
 
 /// Resolve one window's offscreen-capture geometry from the live model. The

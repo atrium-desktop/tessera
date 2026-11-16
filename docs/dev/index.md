@@ -16,6 +16,7 @@ the other `docs/` sections; see the [documentation index](../index.md).
 | [First-Party Application Development](first-party-applications.md) | Installation staging, application discovery, and focused test behavior for standalone system applications |
 | [Distribution Packaging](packaging.md) | Reproducible build inputs, complete install manifest, package integration, and validation |
 | [VT/DRM Manual Testing](testing/vt-drm-testing.md) | Run and try the compositor on real display and input hardware |
+| [KMS Overlay System Test](testing/kms-overlay-system-test.md) | Manual KMS system test for the complete-set overlay candidate, `TEST_ONLY`, deactivation paths, and failure triage |
 | [Project Layout](project-layout.md) | Source tree map and ownership boundaries |
 | [Architecture Topology](architecture.md) | Concentric workspace layers, capability flow, and architectural red-lines |
 | [System Invariants](invariants.md) | Non-negotiable structural red-lines, admissibility matrix, and tag discipline |

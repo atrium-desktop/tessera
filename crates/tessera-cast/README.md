@@ -79,7 +79,7 @@ sink drives it:
 | `wfd::trace` | two-directional message trace | hex-dump shape, unverified traces never read as proof |
 | `sink` | a scripted sink (the other side) | drives the nominal order, answers interleaved requests, checks `CSeq`, and reports what the caster advertised |
 
-`cargo test -p tessera-cast` runs the real source server against the real scripted
+`cargo nextest run -p tessera-cast` runs the real source server against the real scripted
 sink client over a socketpair, so the entire M1–M6 + SETUP/PLAY exchange is
 verified with no
 hardware. For a manual run, `tessera-cast cast --source pattern --video-formats

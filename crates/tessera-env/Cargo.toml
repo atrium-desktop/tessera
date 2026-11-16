@@ -19,10 +19,5 @@ thiserror.workspace = true
 # into the subscriber), so the dependency is named explicitly here.
 log.workspace = true
 
-[dev-dependencies]
-tessera-ipc.workspace = true
-# The conformance suite asserts the socket-naming composition with the
-# IPC contract (ADR-0147 Decision 6).
-
 [lints]
 workspace = true

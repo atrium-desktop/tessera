@@ -44,7 +44,7 @@ user-visible.
 | ADR registry | `cargo run -p xtask -- check-adrs` | Unique ids, frontmatter, index sync, and lineage-link resolution across `docs/adr/` | Yes |
 | Panic discipline | `cargo run -p xtask -- check-panics` | ADR-0195: no poisonable-lock panics, no new panic sites | Yes |
 | Lockfile validity | `cargo metadata --locked` | Canonical `Cargo.lock` matches the manifests | Yes |
-| Tests | `cargo nextest run --locked --workspace` | Unit, integration, and doc tests | Yes |
+| Tests | `cargo nextest run --locked --workspace` | Unit, integration, and end-to-end tests | Yes |
 | Motion purity | `cargo run -p xtask -- check-motion` | ADR-0174 zero-hand-rolled-motion-math rule in `tessera-shell` | Local gate — run when chrome motion code moves |
 
 The CI column reflects `.github/workflows/ci.yml`; the local-only gate is

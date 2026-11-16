@@ -22,7 +22,8 @@ mod tests;
 
 pub(crate) use protocol::*;
 pub use server::{
-    ClipboardError, FilterOutcome, KeyboardAccessibilityFilter, PresentedSurfaces, StickyState,
+    ClipboardError, DesktopFrameSets, FilterOutcome, KeyboardAccessibilityFilter,
+    PresentedSurfaces, StickyState,
 };
 
 use std::ffi::{CStr, CString, c_void};

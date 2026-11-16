@@ -1,0 +1,15 @@
+[package]
+name = "tessera-test-support"
+description = "Shared test infrastructure for Tessera unit, integration, and end-to-end tests"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

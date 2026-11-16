@@ -43,7 +43,7 @@ impl DrmBackend {
 
     pub(super) fn reconfigure_outputs(&mut self) {
         self.hotplug_pending = false;
-        let selected = match select_outputs(
+        let mut selected = match select_outputs(
             self.card(),
             &self.configured_modes,
             &self.configured_color,
@@ -63,6 +63,13 @@ impl DrmBackend {
                 if let Some(scanout) = self.current.take() {
                     self.release_scanout(scanout);
                 }
+                if let Some(overlay) = self.current_overlay.take() {
+                    self.release_overlay_scanout(overlay);
+                }
+                if let Some(overlay) = self.retiring_overlay.take() {
+                    self.release_overlay_scanout(overlay);
+                }
+                self.current_source = None;
                 self.render_ready = false;
                 return;
             }
@@ -72,6 +79,7 @@ impl DrmBackend {
             }
         };
 
+        apply_overlay_policy(&mut selected, self.overlay_offload_enabled);
         if display_signature(&selected) == display_signature(&self.displays) {
             // Probe created fresh mode blobs. The existing display set remains
             // authoritative, so release only the redundant probe resources.
@@ -95,6 +103,13 @@ impl DrmBackend {
         if let Some(scanout) = self.current.take() {
             self.release_scanout(scanout);
         }
+        if let Some(overlay) = self.current_overlay.take() {
+            self.release_overlay_scanout(overlay);
+        }
+        if let Some(overlay) = self.retiring_overlay.take() {
+            self.release_overlay_scanout(overlay);
+        }
+        self.current_source = None;
 
         let old = std::mem::replace(&mut self.displays, selected);
         for output in old.outputs {
@@ -120,7 +135,7 @@ impl DrmBackend {
                 .displays
                 .outputs
                 .iter()
-                .all(|output| output.primary.props.in_fence_fd.is_some());
+                .all(|output| output.planes.primary.props.in_fence_fd.is_some());
         self.pending_resize = Some(Size {
             w: width as i32,
             h: height as i32,
@@ -134,18 +149,32 @@ impl DrmBackend {
         );
     }
 
-    pub(super) fn release_scanout(&mut self, scanout: Scanout) {
-        match scanout.ownership {
-            ScanoutOwnership::TransientCompositor | ScanoutOwnership::TransientClient => {
+    pub(super) fn release_scanout(&mut self, scanout: PrimaryScanout) {
+        self.release_scanout_parts(scanout.framebuffer, scanout.gem, scanout.ownership);
+    }
+
+    pub(super) fn release_overlay_scanout(&mut self, overlay: OverlayScanout) {
+        self.release_scanout_parts(overlay.framebuffer, overlay.gem, overlay.ownership);
+    }
+
+    fn release_scanout_parts(
+        &mut self,
+        framebuffer: control::framebuffer::Handle,
+        gem: BufferHandle,
+        ownership: PrimaryScanoutOwnership,
+    ) {
+        match ownership {
+            PrimaryScanoutOwnership::TransientCompositor
+            | PrimaryScanoutOwnership::TransientClient => {
                 let card = self.card();
-                if let Err(error) = card.destroy_framebuffer(scanout.framebuffer) {
+                if let Err(error) = card.destroy_framebuffer(framebuffer) {
                     log::warn!("DRM: failed to destroy framebuffer: {error}");
                 }
-                if let Err(error) = card.close_buffer(scanout.gem) {
+                if let Err(error) = card.close_buffer(gem) {
                     log::warn!("DRM: failed to close imported GEM handle: {error}");
                 }
             }
-            ScanoutOwnership::Cached(key) => {
+            PrimaryScanoutOwnership::Cached(key) => {
                 if let Some(entry) = self.composite_fb_cache.get_mut(&key) {
                     debug_assert!(entry.users > 0, "cached scanout released twice");
                     entry.users = entry.users.saturating_sub(1);
@@ -156,7 +185,7 @@ impl DrmBackend {
                 }
                 self.reap_composite_fb_cache();
             }
-            ScanoutOwnership::CachedClient(key) => {
+            PrimaryScanoutOwnership::CachedClient(key) => {
                 if let Some(entry) = self.client_fb_cache.get_mut(&key) {
                     debug_assert!(entry.users > 0, "cached client scanout released twice");
                     entry.users = entry.users.saturating_sub(1);
@@ -172,7 +201,7 @@ impl DrmBackend {
         let mut request = atomic::AtomicModeReq::new();
         for output in &self.displays.outputs {
             let props = output.props;
-            if let Some(cursor) = &output.cursor {
+            if let Some(cursor) = &output.planes.cursor {
                 request.add_property(
                     cursor.handle,
                     cursor.props.plane_fb_id,
@@ -185,13 +214,13 @@ impl DrmBackend {
                 );
             }
             request.add_property(
-                output.primary.handle,
-                output.primary.props.fb_id,
+                output.planes.primary.handle,
+                output.planes.primary.props.fb_id,
                 property::Value::Framebuffer(None),
             );
             request.add_property(
-                output.primary.handle,
-                output.primary.props.crtc_id,
+                output.planes.primary.handle,
+                output.planes.primary.props.crtc_id,
                 property::Value::CRTC(None),
             );
             request.add_property(
@@ -542,48 +571,20 @@ pub(super) fn select_outputs(
         x += size.0 as u32;
         outputs.push(output);
     }
-    // Cursor planes are independent of the primary-plane matching above.
-    // Validate each ARGB8888 linear candidate once, then run a maximum
-    // bipartite matching rather than greedily consuming a flexible plane that
-    // may be the only choice for a later CRTC. Failure is non-fatal because
-    // the compositor can still paint a software cursor, but direct scanout
-    // with a visible cursor then remains disabled.
-    let usable_cursor_planes = plane_inventory
-        .cursor
-        .iter()
-        .filter(|plane| plane.formats.contains(&(DrmFourcc::Argb8888 as u32)))
-        .filter(|plane| {
-            plane_modifiers(card, plane.handle, DrmFourcc::Argb8888)
-                .is_ok_and(|modifiers| modifiers.contains(&u64::from(DrmModifier::Linear)))
-        })
-        .filter_map(|plane| match build_cursor_plane(card, plane.handle) {
-            Ok(cursor) => Some((plane, cursor)),
-            Err(error) => {
-                log::warn!(
-                    "drm: cursor plane {:?} is incomplete: {error}",
-                    plane.handle
-                );
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    let cursor_choices = outputs
-        .iter()
-        .map(|output| {
-            usable_cursor_planes
-                .iter()
-                .enumerate()
-                .filter_map(|(index, (plane, _))| {
-                    plane.possible_crtcs.contains(&output.crtc).then_some(index)
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-    for (output, cursor_index) in outputs.iter_mut().zip(assign_optional_planes(
-        &cursor_choices,
-        usable_cursor_planes.len(),
-    )) {
-        output.cursor = cursor_index.map(|index| usable_cursor_planes[index].1);
+    // Cursor and overlay are independent of the primary-plane matching above.
+    // Cursor allocation is a maximum bipartite matching. Overlay discovery
+    // starts disabled and is enabled only by the explicit hardware-validation
+    // policy; the commit path still proves the complete set with TEST_ONLY
+    // (ADR-0234, ADR-0235).
+    assign_cursor_planes(card, &mut outputs, &plane_inventory);
+    for output in &mut outputs {
+        let discovered = plane_inventory
+            .overlay
+            .iter()
+            .filter(|plane| plane.possible_crtcs.contains(&output.crtc))
+            .cloned()
+            .collect();
+        output.planes.overlay = OverlayPlaneAllocation::disabled(discovered);
     }
     let scanout_formats = match scanout_format_intersection(card, &outputs) {
         Ok(formats) => formats,
@@ -600,77 +601,9 @@ pub(super) fn select_outputs(
         format,
         modifiers,
         scanout_formats,
-        overlay: OverlayPlaneInventory {
-            available: plane_inventory.overlay.len(),
-            policy: OverlayPlanePolicy::CompositorOnly,
-        },
         color_mode,
         icc_profile,
     })
-}
-
-fn discover_plane_inventory(
-    card: &Card,
-    resources: &control::ResourceHandles,
-) -> Result<PlaneInventory, DrmError> {
-    let mut inventory = PlaneInventory::default();
-    for handle in card.plane_handles()? {
-        let Ok(info) = card.get_plane(handle) else {
-            continue;
-        };
-        let plane = AvailablePlane {
-            handle,
-            possible_crtcs: resources.filter_crtcs(info.possible_crtcs()),
-            formats: info.formats().to_vec(),
-        };
-        match plane_type(card, handle) {
-            Some(control::PlaneType::Primary) => inventory.primary.push(plane),
-            Some(control::PlaneType::Cursor) => inventory.cursor.push(plane),
-            Some(control::PlaneType::Overlay) => inventory.overlay.push(plane),
-            None => log::debug!("drm: ignoring plane {handle:?} with no known role"),
-        }
-    }
-    Ok(inventory)
-}
-
-/// Maximize one-to-one optional plane allocation across a set of consumers.
-///
-/// Each entry in `choices` contains indices into the discovered plane list.
-/// The augmenting-path assignment keeps flexible planes available for
-/// consumers whose compatibility set is narrower.
-fn assign_optional_planes(choices: &[Vec<usize>], plane_count: usize) -> Vec<Option<usize>> {
-    fn augment(
-        consumer: usize,
-        choices: &[Vec<usize>],
-        owners: &mut [Option<usize>],
-        visited: &mut [bool],
-    ) -> bool {
-        for &plane in &choices[consumer] {
-            if plane >= owners.len() || visited[plane] {
-                continue;
-            }
-            visited[plane] = true;
-            let previous = owners[plane];
-            if previous.is_none_or(|owner| augment(owner, choices, owners, visited)) {
-                owners[plane] = Some(consumer);
-                return true;
-            }
-        }
-        false
-    }
-
-    let mut owners = vec![None; plane_count];
-    for consumer in 0..choices.len() {
-        let mut visited = vec![false; plane_count];
-        let _ = augment(consumer, choices, &mut owners, &mut visited);
-    }
-    let mut assignments = vec![None; choices.len()];
-    for (plane, consumer) in owners.into_iter().enumerate() {
-        if let Some(consumer) = consumer {
-            assignments[consumer] = Some(plane);
-        }
-    }
-    assignments
 }
 
 pub(super) fn intersect_modifier_sets(sets: &[Vec<u64>]) -> Vec<u64> {
@@ -699,12 +632,12 @@ fn scanout_format_intersection(
     ] {
         let mut per_output = Vec::with_capacity(outputs.len());
         for output in outputs {
-            let info = card.get_plane(output.primary.handle)?;
+            let info = card.get_plane(output.planes.primary.handle)?;
             if !info.formats().contains(&(format as u32)) {
                 per_output.clear();
                 break;
             }
-            let modifiers = plane_modifiers(card, output.primary.handle, format)?;
+            let modifiers = plane_modifiers(card, output.planes.primary.handle, format)?;
             if modifiers.is_empty() {
                 per_output.clear();
                 break;
@@ -847,10 +780,14 @@ pub(super) fn build_output(
         connector: candidate.connector,
         name: candidate.name,
         crtc: choice.crtc,
-        primary: PrimaryPlane {
-            handle: choice.plane,
-            props: primary_props,
-            full_damage_blob,
+        planes: OutputPlanes {
+            primary: PrimaryPlane {
+                handle: choice.plane,
+                props: primary_props,
+                full_damage_blob,
+            },
+            cursor: None,
+            overlay: OverlayPlaneAllocation::disabled(Vec::new()),
         },
         mode: candidate.mode,
         mode_blob,
@@ -862,28 +799,8 @@ pub(super) fn build_output(
         kind: candidate.kind,
         scale: candidate.scale,
         props,
-        cursor: None,
         available_modes: candidate.available_modes,
         color_caps: candidate.color_caps,
-    })
-}
-
-fn build_cursor_plane(card: &Card, handle: plane::Handle) -> Result<CursorPlane, DrmError> {
-    let props = property_map(card, handle)?;
-    Ok(CursorPlane {
-        handle,
-        props: CursorPlaneProperties {
-            plane_fb_id: required_prop(&props, "FB_ID")?,
-            plane_crtc_id: required_prop(&props, "CRTC_ID")?,
-            plane_src_x: required_prop(&props, "SRC_X")?,
-            plane_src_y: required_prop(&props, "SRC_Y")?,
-            plane_src_w: required_prop(&props, "SRC_W")?,
-            plane_src_h: required_prop(&props, "SRC_H")?,
-            plane_crtc_x: required_prop(&props, "CRTC_X")?,
-            plane_crtc_y: required_prop(&props, "CRTC_Y")?,
-            plane_crtc_w: required_prop(&props, "CRTC_W")?,
-            plane_crtc_h: required_prop(&props, "CRTC_H")?,
-        },
     })
 }
 
@@ -969,17 +886,17 @@ pub(super) fn display_signature(displays: &DisplaySet) -> DisplaySignature {
                     output.scale.as_f32().to_bits(),
                     output.x,
                     output.y,
-                    output.cursor.is_some(),
+                    output.planes.cursor.is_some(),
+                    output.planes.overlay.clone(),
                 )
             })
             .collect(),
-        displays.overlay,
     )
 }
 
 fn destroy_output_blobs(card: &Card, output: &Output) {
     let _ = card.destroy_property_blob(output.mode_blob_id);
-    if let Some((_, blob_id)) = output.primary.full_damage_blob.as_ref() {
+    if let Some((_, blob_id)) = output.planes.primary.full_damage_blob.as_ref() {
         let _ = card.destroy_property_blob(*blob_id);
     }
 }
@@ -1065,28 +982,6 @@ fn connector_color_caps(
         None
     })();
     read.unwrap_or_default()
-}
-
-pub(super) fn plane_type(card: &Card, handle: plane::Handle) -> Option<control::PlaneType> {
-    let properties = card.get_properties(handle).ok()?;
-    for (&id, &value) in properties.iter() {
-        let info = card.get_property(id).ok()?;
-        if info.name() == c"type" {
-            return match value as u32 {
-                value if value == control::PlaneType::Primary as u32 => {
-                    Some(control::PlaneType::Primary)
-                }
-                value if value == control::PlaneType::Cursor as u32 => {
-                    Some(control::PlaneType::Cursor)
-                }
-                value if value == control::PlaneType::Overlay as u32 => {
-                    Some(control::PlaneType::Overlay)
-                }
-                _ => None,
-            };
-        }
-    }
-    None
 }
 
 /// Return modifiers accepted by `plane` for `format`. Drivers predating the
@@ -1179,27 +1074,4 @@ pub(super) fn parse_format_modifiers(blob: &[u8], format: u32) -> Result<Vec<u64
     // Flux consumes this list as a producer preference order.
     modifiers.sort_by_key(|modifier| (*modifier == u64::from(DrmModifier::Linear), *modifier));
     Ok(modifiers)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn optional_plane_matching_preserves_the_only_plane_for_a_later_crtc() {
-        // Consumer 0 can use either plane, while consumer 1 can only use 0.
-        // A greedy first-fit allocator would strand consumer 1.
-        assert_eq!(
-            assign_optional_planes(&[vec![0, 1], vec![0]], 2),
-            vec![Some(1), Some(0)]
-        );
-    }
-
-    #[test]
-    fn optional_plane_matching_leaves_unsupported_consumers_unassigned() {
-        assert_eq!(
-            assign_optional_planes(&[vec![0], Vec::new(), vec![1]], 2),
-            vec![Some(0), None, Some(1)]
-        );
-    }
 }

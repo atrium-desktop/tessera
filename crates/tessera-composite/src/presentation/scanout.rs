@@ -314,6 +314,17 @@ pub fn plan_scanout(
     PrimaryPlanePlan::direct(candidate)
 }
 
+/// Whether an overlay output layer may be evaluated for this primary plan.
+///
+/// Direct primary scanout owns the complete output and has no compositor
+/// framebuffer underneath an overlay, so the two bypass paths are mutually
+/// exclusive (ADR-0237). This is the single gate the composition root uses;
+/// evaluating overlay against an accepted direct plan would also make the same
+/// client surface eligible twice.
+pub fn overlay_plan_permitted(primary: &PrimaryPlanePlan) -> bool {
+    primary.rejection().is_some()
+}
+
 const SCANOUT_TELEMETRY_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Rate-limited rejection counters.  A plausible full-output candidate is
@@ -438,6 +449,32 @@ mod tests {
             evaluate_surface(&surface, (3072, 1920), (1536, 960), true),
             Ok(())
         );
+    }
+
+    #[test]
+    fn test_inv_arch_134_direct_primary_excludes_overlay() {
+        let direct = plan_scanout(
+            eligible_scene(),
+            (3072, 1920),
+            (1536, 960),
+            Some(candidate(tessera_primitives::dmabuf::DRM_FORMAT_XRGB8888)),
+            true,
+        );
+        assert!(direct.direct_candidate().is_some());
+        assert!(!overlay_plan_permitted(&direct));
+
+        let composited = plan_scanout(
+            ScanoutSceneFacts {
+                client_overlay_count: 1,
+                ..eligible_scene()
+            },
+            (3072, 1920),
+            (1536, 960),
+            Some(candidate(tessera_primitives::dmabuf::DRM_FORMAT_XRGB8888)),
+            true,
+        );
+        assert!(composited.rejection().is_some());
+        assert!(overlay_plan_permitted(&composited));
     }
 
     #[test]

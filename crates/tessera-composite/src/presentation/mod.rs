@@ -3,6 +3,7 @@
 
 mod damage;
 mod geometry;
+mod overlay;
 mod scanout;
 mod scheduler;
 mod stream;
@@ -13,9 +14,14 @@ pub use damage::{
     logical_to_physical, offscreen_damage_to_target, union_frame_damage,
 };
 pub use geometry::{clamp_logical_region, crop_rgba, logical_rect_to_physical};
+pub use overlay::{
+    OverlayChange, OverlayPlacement, OverlayPlan, OverlayPlaneFacts, OverlayRejectReason,
+    OverlayRejection, OverlaySceneFacts, OverlayState, OverlaySurfaceFacts, OverlayTelemetry,
+    intersects_any, overlay_transition_damage, plan_overlay,
+};
 pub use scanout::{
     PrimaryPlanePlan, PrimaryPlaneState, ScanoutRejectReason, ScanoutRejection, ScanoutSceneFacts,
-    ScanoutTelemetry, evaluate_scene, evaluate_surface, plan_scanout,
+    ScanoutTelemetry, evaluate_scene, evaluate_surface, overlay_plan_permitted, plan_scanout,
 };
 pub use scheduler::{
     ActivationChange, PresentationAvailability, PresentationOutcome, PresentationScheduler,

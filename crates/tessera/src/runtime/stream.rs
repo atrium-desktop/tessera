@@ -25,7 +25,7 @@
 //! # Boundary
 //!
 //! The pacing, slot-ring, damage, and transport machines live in
-//! `tessera-presentation` (api tier), driven through the narrow
+//! `tessera-composite` (api tier), driven through the narrow
 //! [`StreamPainter`] content port. This module keeps the composition-root
 //! side: scene observation (output geometry, window trees, the cursor
 //! state), security gating against the capture worker, the IPC delivery

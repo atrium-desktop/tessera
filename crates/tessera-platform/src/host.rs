@@ -93,6 +93,49 @@ pub struct PresentedDmabuf {
     pub modifier: u64,
 }
 
+/// Format/modifier pair accepted by an overlay plane.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OverlayFormatInfo {
+    pub fourcc: u32,
+    pub modifiers: Vec<u64>,
+}
+
+/// Compositor-visible capabilities of one KMS overlay plane.
+///
+/// This is deliberately a value snapshot: the composition root can plan a
+/// candidate without learning about DRM property handles, and the backend
+/// still owns the complete-set `TEST_ONLY` proof.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OverlayPlaneInfo {
+    /// Connector name of the output whose CRTC this plane can drive.
+    pub output: String,
+    pub formats: Vec<OverlayFormatInfo>,
+    pub zpos: Option<(u64, u64)>,
+    pub alpha: bool,
+    pub in_fence_fd: bool,
+    pub fb_damage_clips: bool,
+}
+
+impl OverlayPlaneInfo {
+    pub fn supports(&self, fourcc: u32, modifier: u64) -> bool {
+        self.formats
+            .iter()
+            .any(|format| format.fourcc == fourcc && format.modifiers.contains(&modifier))
+    }
+}
+
+/// One proposed overlay output layer for a complete-set `TEST_ONLY` probe.
+///
+/// `target` is the physical destination rectangle in output-local coordinates.
+/// The backend imports the client buffer, programs the overlay plane, and
+/// validates primary + cursor + overlay together; it never presents.
+pub struct OverlayLayer<'a> {
+    pub surface: &'a tessera_primitives::SurfaceDmabuf,
+    pub output: &'a str,
+    pub target: tessera_primitives::Rect,
+    pub zpos: Option<u32>,
+}
+
 /// One runtime-selected compositor host.
 // There is exactly one process-lifetime Host. Keeping both backends inline
 // avoids an allocation and makes ownership explicit; enum stack size is not a
@@ -254,6 +297,22 @@ impl Host {
         }
     }
 
+    /// Present the composed desktop and one overlay client buffer together.
+    /// Nested presentation owns no overlay plane and rejects the request; the
+    /// runtime then composites normally.
+    pub fn present_with_overlay(
+        &mut self,
+        surface: &flux::Surface,
+        frame: flux::SubmittedFrame<'_>,
+        damage: Option<&[tessera_primitives::Rect]>,
+        overlay: OverlayLayer<'_>,
+    ) -> Result<Option<OwnedFd>, HostError> {
+        match self {
+            Self::Nested(_) => Err(HostError::Drm(DrmError::ScanoutUnsupported)),
+            Self::Drm(host) => Ok(host.present_with_overlay(surface, frame, damage, overlay)?),
+        }
+    }
+
     /// Duplicate the descriptor of the composited frame most recently
     /// presented to scanout, so zero-copy stream consumers can import exactly
     /// what is on screen (IPC protocol 25). `None` on the nested backend
@@ -396,6 +455,35 @@ impl Host {
         match self {
             Self::Nested(_) => false,
             Self::Drm(host) => host.supports_scanout(fourcc, modifier),
+        }
+    }
+
+    /// Enable the explicit overlay hardware-validation path. Nested
+    /// presentation has no KMS planes to enable.
+    pub fn set_overlay_offload_enabled(&mut self, enabled: bool) {
+        if let Self::Drm(host) = self {
+            host.set_overlay_offload_enabled(enabled);
+        }
+    }
+
+    /// Overlay planes discovered on the active DRM outputs, as value
+    /// snapshots. Nested presentation owns no KMS planes and returns empty.
+    pub fn overlay_planes(&self) -> Vec<OverlayPlaneInfo> {
+        match self {
+            Self::Nested(_) => Vec::new(),
+            Self::Drm(host) => host.overlay_planes(),
+        }
+    }
+
+    /// Validate one overlay layer against Primary and Cursor in one atomic
+    /// complete-set `TEST_ONLY` request. No pixels change, no page flip is
+    /// armed, and the imported client buffer is released immediately.
+    /// Requires the compositor framebuffer on Primary (ADR-0237). Nested
+    /// presentation owns no KMS planes.
+    pub fn probe_overlay(&mut self, layer: &OverlayLayer<'_>) -> Result<(), HostError> {
+        match self {
+            Self::Nested(_) => Err(HostError::Drm(DrmError::ScanoutUnsupported)),
+            Self::Drm(host) => Ok(host.probe_overlay(layer)?),
         }
     }
 
@@ -684,6 +772,25 @@ mod tests {
             BackendKind::Nested
         );
         assert!("x11".parse::<BackendKind>().is_err());
+    }
+
+    #[test]
+    fn overlay_plane_support_matches_format_and_modifier_pair() {
+        let plane = OverlayPlaneInfo {
+            output: "DP-1".into(),
+            formats: vec![OverlayFormatInfo {
+                fourcc: 0x34325258,
+                modifiers: vec![0, 7],
+            }],
+            zpos: Some((1, 3)),
+            alpha: true,
+            in_fence_fd: true,
+            fb_damage_clips: false,
+        };
+        assert!(plane.supports(0x34325258, 0));
+        assert!(plane.supports(0x34325258, 7));
+        assert!(!plane.supports(0x34325258, 9));
+        assert!(!plane.supports(0x34325241, 0));
     }
 
     #[test]

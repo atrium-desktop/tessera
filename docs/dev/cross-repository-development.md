@@ -125,8 +125,9 @@ reticle = { path = "../optics/bindings/crates/reticle" }
 reticle-sys = { path = "../optics/bindings/crates/reticle-sys" }
 ```
 
-Optics v0.0.79 keeps every Rust crate under the single
-`bindings/crates/` workspace (Optics ADR-0159). `transit` has no `-sys` crate
+Optics v0.0.80 keeps every Rust crate under `bindings/crates/`; the Cargo
+workspace root is now the repository root (Optics ADR-0163), so Cargo commands
+resolve the same paths from the checkout root. `transit` has no `-sys` crate
 because it is pure Safe Rust (Optics ADR-0158), and the vector compiler is
 `reticle` rather than the former `svg` (Optics ADR-0161).
 

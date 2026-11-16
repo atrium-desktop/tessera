@@ -139,7 +139,7 @@ the `cursor_only_eligible` KMS cursor-plane fast path.
 
 ### Rule 7: Occlusion Elision Requires a Dead Scene (`[INV-ARCH-65]`)
 `crates/tessera/src/runtime/presentation.rs` may skip `begin_desktop_output` and
-draw the shell into a single clearing stencil pass **only** when
+draw the shell into a single clearing pass **only** when
 `shell.occludes_desktop()` is true *and* the desktop scene has no live consumer.
 
 `desktop_occluded` is the conjunction of an occluder assertion and an empty

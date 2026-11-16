@@ -14,6 +14,22 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Changed
+
+- **Adopted Optics v0.0.80.** The pin moves to the release that retires the
+  MSAA, supersampling, stencil/tessellator, and CPU-supersampling paths in
+  favour of unconditional 1x continuous analytic coverage. The GPU tiled
+  rasterizer now bins and scans path coverage in compute tiles, lifting the
+  former 4096-segment and 64M-evaluation caps, and path
+  flattening/stroking grows its scratch buffers instead of enforcing the
+  2048-point / 64-contour ceiling. Tessera drops `CanvasAntialias`,
+  `CanvasPassOptions::{antialias, skip_stencil}`, and
+  `RasterizeOptions::supersample`; self-intersecting fills composite through
+  analytic coverage rather than a stencil attachment; and the soft-shadow draw
+  uses the `flux_canvas_draw_geometry` descriptor introduced by the single-opts
+  migration (Optics ADR-0165 Wave 5). The Rust bindings workspace root also
+  moved to the Optics repository root (Optics ADR-0163).
+
 ## [0.0.95] - 2026-11-13
 
 ### Changed

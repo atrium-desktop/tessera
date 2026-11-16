@@ -41,19 +41,14 @@ parsing without installing or building the native C23/Meson Optics stack (`flux`
 ### Execution Command
 
 ```bash
-# Using cargo-nextest (recommended)
 cargo nextest run --locked \
   -p tessera-desktop -p tessera-primitives -p tessera-authority -p tessera-audit \
   -p tessera-config -p tessera-ipc -p tessera-protocol -p tessera-launch-services \
   -p tessera-env -p tessera-cli -p tessera-mcp -p tessera-idle \
   -p tessera-wayland
 
-# Fallback using standard cargo test
-cargo test --locked \
-  -p tessera-desktop -p tessera-primitives -p tessera-authority -p tessera-audit \
-  -p tessera-config -p tessera-ipc -p tessera-protocol -p tessera-launch-services \
-  -p tessera-env -p tessera-cli -p tessera-mcp -p tessera-idle \
-  -p tessera-wayland
+# Root integration/e2e suites with native modules filtered out
+cargo nextest run --locked -p tessera-tests --no-default-features
 ```
 
 ### Essential Parameter Explanations
@@ -213,21 +208,20 @@ VT switching on physical GPU hardware.
    *(For multi-GPU systems, specify `TESSERA_DRM_DEVICE=/dev/dri/card1`)*.
 
 For extensive hardware verification steps (mixed-refresh rates, atomic planes),
-see the detailed guide: [VT/DRM Manual Testing](vt-drm-testing.md).
+see the detailed guide: [VT/DRM Manual Testing](vt-drm-testing.md). For the
+gated overlay candidate, complete-set `TEST_ONLY`, and deactivation matrix, see
+[KMS Overlay System Test](kms-overlay-system-test.md).
 
 ---
 
 ## 7. Scenario 5: Full Workspace Unit Sanity
 
-Before opening a pull request or pushing changes, verify all logic and doc tests
-across the full repository:
+Before opening a pull request or pushing changes, verify all logic and
+integration/e2e tests across the full repository:
 
 ```bash
-# Full parallel unit tests
+# Full parallel unit, integration, and e2e tests
 cargo nextest run --locked --workspace
-
-# Documentation code block tests
-cargo test --doc --locked --workspace
 
 # Or test a single crate under edit
 cargo nextest run --locked -p tessera-shell --lib

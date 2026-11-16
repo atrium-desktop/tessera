@@ -127,7 +127,7 @@ this order:
 ### 3.2 Reproduce with the smallest shapes
 
 - Run the fractional-scale probe:
-  `cargo test -p tessera-wayland --lib fractional_scale_popup_commits_are_copied_in_full -- --ignored --nocapture`
+  `cargo nextest run -p tessera-wayland --lib -E 'test(fractional_scale_popup_commits_are_copied_in_full)' --run-ignored only --no-capture`
 - For a crop, reduce the client to one surface with
   `viewport_src=(100,50,400,300)`, no destination, and a full-surface
   `wl_surface.damage`. The snapshot must contain raw rows 50..350 and columns

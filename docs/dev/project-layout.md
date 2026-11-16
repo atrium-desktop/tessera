@@ -33,8 +33,14 @@ crates/
   tessera-wallpaper       desktop wallpaper and continuous parallax runtime
   tessera-wayland         Wayland protocol handlers and client state machines
   tessera-wayland-protocols generated Wayland C ABI interface tables
+  tessera-test-support    shared test-only infrastructure (dev-dependency only)
+tests/                    root external suites: common/, integration/, e2e/, fixtures/
 tooling/xtask             repository checks, boundaries verification, and automation
 ```
+
+`test-support` is not a production package. It owns environment guards, scratch
+directories, socket names, polling, and workspace/binary lookup shared by
+in-crate tests and the root external suites.
 
 ## Ownership rules
 

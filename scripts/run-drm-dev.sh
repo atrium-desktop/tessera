@@ -11,6 +11,9 @@
 #
 #   ./scripts/run-drm-dev.sh
 #
+# For the gated overlay KMS system test, follow:
+#   docs/dev/testing/kms-overlay-system-test.md
+#
 # Environment overrides:
 #   TESSERA_DEV_DATA_HOME       isolated XDG_DATA_HOME (default /tmp/tessera-dev-drm)
 #   TESSERA_DEV_PROFILE         cargo profile (default release-fast; debug for symbols only)

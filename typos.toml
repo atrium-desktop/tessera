@@ -39,6 +39,8 @@ xdg = "xdg"
 # stream Event Information Table: both are protocol keywords, not misspellings.
 iif = "iif"
 EIT = "EIT"
+# `iy` is the intersection-y coordinate in the frame damage decomposition.
+iy = "iy"
 
 [files]
 extend-exclude = [

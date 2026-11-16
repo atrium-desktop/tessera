@@ -116,7 +116,7 @@ fn opaque_frame_fill_replaces_undefined_and_previous_contents() {
 }
 
 #[test]
-fn damaged_base_and_stencil_overlay_preserve_pixels_outside_the_scissor() {
+fn base_and_overlay_passes_composite_in_order() {
     let Ok(device) = flux::Device::new(true, &[], &[], 1) else {
         return;
     };
@@ -131,12 +131,12 @@ fn damaged_base_and_stencil_overlay_preserve_pixels_outside_the_scissor() {
     frame.submit().unwrap().present().unwrap();
 
     let mut frame = surface.begin_frame().unwrap();
-    /* Whole-output repaint on purpose. This test exists to prove the *pass
-     * boundary* between the optimized base pass and the stencil-capable chrome
-     * overlay, not to pin damage localization — the latter is covered by
-     * `frame_damage_scope_*` above. Using a narrow rect here would make the
-     * assertions depend on flux's swapchain epoch history, which is a different
-     * subsystem's contract and would silently couple the two. */
+    /* Whole-output repaint on purpose. This test proves the *pass boundary*
+     * between the base pass and a later overlay pass, not damage
+     * localization — the latter is covered by `frame_damage_scope_*` above.
+     * Using a narrow rect here would make the assertions depend on flux's
+     * swapchain epoch history, which is a different subsystem's contract and
+     * would silently couple the two. */
     let repaint = FrameDamage::Full;
     let session = begin_opaque_frame_repaint(
         &mut canvas,
@@ -146,13 +146,12 @@ fn damaged_base_and_stencil_overlay_preserve_pixels_outside_the_scissor() {
         &repaint,
     )
     .unwrap();
-    // End the optimized image/base pass, then exercise the exact pass
-    // boundary used before Lens. A self-intersecting fill is intentional:
-    // Flux rejects it from a no-stencil pass, so successful checked end
-    // proves the overlay really has stencil rather than merely being a
-    // second no-stencil LOAD pass.
+    // End the base pass, then reopen a LOAD pass for the overlay. A
+    // self-intersecting fill is intentional: flux's analytic rasterizer
+    // resolves overlapping contours without a stencil attachment, so the
+    // bowtie must draw in the second pass and leave the base pass intact.
     session.end().unwrap();
-    let session = begin_stencil_frame_overlay(
+    let session = begin_overlay_frame(
         &mut canvas,
         &mut frame,
         frame_damage_scope(&repaint, (256, 256)),
@@ -192,10 +191,9 @@ fn damaged_base_and_stencil_overlay_preserve_pixels_outside_the_scissor() {
     /* The overlay's self-intersecting "bowtie" must have painted green over the
      * base blue somewhere in its bounds. Exact pixels are not asserted: the two
      * lobes meet at (13,10), where coverage is partial and the result is a
-     * blend. What matters is that the second pass drew at all — and since flux
-     * rejects a self-intersecting fill from a *no-stencil* pass, a successful
-     * checked end plus green pixels proves the overlay really has stencil
-     * rather than merely being a second no-stencil LOAD pass. */
+     * blend. What matters is that the second pass drew at all without a
+     * stencil attachment: a successful checked end plus green pixels proves
+     * the analytic coverage path handled the overlapping contours. */
     let mut painted = 0;
     for y in 8..=12 {
         for x in 11..=15 {
@@ -211,7 +209,7 @@ fn damaged_base_and_stencil_overlay_preserve_pixels_outside_the_scissor() {
     }
     assert!(
         painted > 0,
-        "stencil overlay drew nothing: no green pixel inside its bounds"
+        "overlay drew nothing: no green pixel inside its bounds"
     );
 }
 
@@ -439,7 +437,15 @@ fn window_shadows_are_materialized_before_they_are_composited() {
             },
         },
     };
-    unsafe { flux::sys::flux_canvas_draw_geometry(canvas_raw, &geometry, &brush) };
+    unsafe {
+        flux::sys::flux_canvas_draw_geometry(
+            canvas_raw,
+            &flux::sys::flux_canvas_draw_geometry_opts {
+                geom: &geometry,
+                brush: &brush,
+            },
+        )
+    };
     session.end().unwrap();
     assert!(
         flux::ErrorInfo::last().is_none_or(|info| {

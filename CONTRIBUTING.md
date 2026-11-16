@@ -17,7 +17,7 @@ Thank you for your interest in contributing to **tessera** (*autonomous surface 
    - Run `cargo fmt --all` before committing.
    - Ensure `cargo clippy --locked` passes without warnings on workspace crates.
 3. **Tests**: Add unit or integration tests for new functionality where
-   applicable (`cargo test --locked`).
+   applicable (`cargo nextest run --locked`).
 4. **Documentation**:
    - Updates to public interfaces or schemas must update corresponding files in `docs/reference/` and `CHANGELOG.md`.
    - Structural design decisions must be recorded in a new ADR under `docs/adr/` starting from `docs/adr/template.md`.

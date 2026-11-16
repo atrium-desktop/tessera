@@ -162,8 +162,8 @@ Choose the narrowest command that answers the current question:
 | Check the crate being edited | `cargo check --locked -p tessera-shell` |
 | Check executable integration | `cargo check --locked -p tessera` |
 | Run the compositor | `cargo run --locked -p tessera` |
-| Test one crate | `cargo test --locked -p tessera-shell` |
-| Validate the workspace | `cargo test --locked --workspace` |
+| Test one crate | `cargo nextest run --locked -p tessera-shell` |
+| Validate the workspace | `cargo nextest run --locked --workspace` |
 | Build a production artifact | `cargo build --locked --release -p tessera` |
 | Profile a release build | `cargo build --locked --release -p tessera --timings` |
 

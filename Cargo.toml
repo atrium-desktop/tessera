@@ -1,13 +1,14 @@
 [workspace]
 resolver = "3"
-# Package boundaries are checked from Cargo metadata by `cargo xtask lint-deps`.
-members = ["crates/*", "tooling/*"]
+# Package boundaries are checked from Cargo metadata by `cargo xtask check-boundaries`.
+members = ["crates/*", "tooling/*", "tests"]
 default-members = [
     "crates/tessera",
     "crates/tessera-cli",
     "crates/tessera-lock",
     "crates/tessera-idle",
     "crates/tessera-cast",
+    "tests",
     "tooling/xtask",
 ]
 
@@ -21,6 +22,9 @@ rust-version = "1.88"
 repository = "https://github.com/atrium-desktop/tessera"
 
 [workspace.dependencies]
+# The compositor package is a dependency only of the root external test suite,
+# which exercises its binary entry points.
+tessera = { path = "crates/tessera" }
 tessera-primitives = { path = "crates/tessera-primitives" }
 tessera-assets = { path = "crates/tessera-assets" }
 tessera-launch-services = { path = "crates/tessera-launch-services" }
@@ -36,25 +40,25 @@ tessera-sched = { path = "crates/tessera-sched" }
 # development worktree can patch these sources through
 # .cargo/optics-local.toml without making a sibling checkout mandatory for CI
 # or downstream packagers.
-flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.79" }
-flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.79" }
-vista = { git = "https://github.com/ming2k/optics", tag = "v0.0.79" }
-vista-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.79" }
+flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
+flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
+vista = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
+vista-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
 # Renderer-neutral offscreen DAG planning above Flux image operators.
-lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.79" }
-lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.79" }
+lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
+lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
 # transit (motion vocabulary; ADR-0172) provides analytic springs and easing;
 # v0.0.53 adds the explicit `reduced_motion` flag to every advance entry point.
 # Optics v0.0.79 makes transit a header-only vocabulary on the C side and pure
 # Safe Rust here (Optics ADR-0158), so there is no transit-sys FFI crate and no
 # native library to discover or rpath.
-transit = { git = "https://github.com/ming2k/optics", tag = "v0.0.79" }
+transit = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
 # reticle (vector-document compiler; ADR-0220, renamed from svg in Optics
 # ADR-0161) is the single SVG implementation in the stack: cursors, application
 # icons and tray icons all compile through it instead of shelling out to
 # rsvg-convert or shipping pre-baked bitmaps.
-reticle = { git = "https://github.com/ming2k/optics", tag = "v0.0.79" }
-reticle-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.79" }
+reticle = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
+reticle-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
 
 # Observability: crates emit through the `log` facade; each binary installs a
 # `tracing`-based subscriber through the shared `tessera-env` crate, which
@@ -148,6 +152,8 @@ tessera-cli = { path = "crates/tessera-cli" }
 # access point (ADR-0047, ADR-0087). It is an out-of-process adapter any MCP
 # client can spawn; the compositor never links it.
 tessera-mcp = { path = "crates/tessera-mcp" }
+# Shared test infrastructure. Test-only dependency; never linked by production.
+tessera-test-support = { path = "crates/tessera-test-support" }
 
 # Declarative configuration (ADR-0026). `serde` drives the schema; `toml` is
 # the chosen file format over KDL/YAML/INI for tooling maturity and an

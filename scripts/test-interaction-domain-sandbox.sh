@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-cargo test -p tessera-launch-services --no-run
+cargo nextest run -p tessera-launch-services --no-run
 
 test_binary=$(
     find target/debug/deps -maxdepth 1 -type f -name 'tessera_launch_services-*' -perm -u+x \

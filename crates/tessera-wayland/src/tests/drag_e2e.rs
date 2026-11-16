@@ -98,17 +98,15 @@ fn same_client_drag_delivers_drop_before_source_completion() {
 }
 
 fn toplevel_drag_probe_binary() -> Option<std::path::PathBuf> {
-    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("toplevel_drag_probe.c");
+    let source = tessera_test_support::workspace::fixture("wayland/toplevel_drag_probe.c");
     if !source.exists() {
-        eprintln!("skipping: tests/toplevel_drag_probe.c missing");
+        eprintln!("skipping: tests/fixtures/wayland/toplevel_drag_probe.c missing");
         return None;
     }
     let out = std::env::temp_dir().join(format!("tessera-drag-probe-{}", std::process::id()));
     std::fs::create_dir_all(&out).ok()?;
-    let xml = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../tessera-wayland-protocols/protocols/xdg-toplevel-drag-v1.xml");
+    let xml = tessera_test_support::workspace::crate_dir("tessera-wayland-protocols")
+        .join("protocols/xdg-toplevel-drag-v1.xml");
     let header = out.join("xdg-toplevel-drag-v1-client.h");
     let code = out.join("xdg-toplevel-drag-v1-protocol.c");
     let bin = out.join("toplevel_drag_probe");

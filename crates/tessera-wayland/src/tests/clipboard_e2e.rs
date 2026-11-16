@@ -113,13 +113,12 @@ fn which(binary: &str) -> Option<std::path::PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
-/// Compile the wl_data_device clipboard probe (tests/clipboard_probe.c).
+/// Compile the wl_data_device clipboard probe
+/// (`tests/fixtures/wayland/clipboard_probe.c`).
 fn clipboard_probe_binary() -> Option<std::path::PathBuf> {
-    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("clipboard_probe.c");
+    let source = tessera_test_support::workspace::fixture("wayland/clipboard_probe.c");
     if !source.exists() {
-        eprintln!("skipping: tests/clipboard_probe.c missing");
+        eprintln!("skipping: tests/fixtures/wayland/clipboard_probe.c missing");
         return None;
     }
     let out = std::env::temp_dir().join(format!("tessera-clip-probe-{}", std::process::id()));

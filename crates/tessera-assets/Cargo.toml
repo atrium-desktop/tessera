@@ -11,7 +11,16 @@ rust-version.workspace = true
 flate2.workspace = true
 image.workspace = true
 reticle.workspace = true
+# The safe `reticle` wrapper does not currently republish the native rpath
+# metadata through its own `links` key, so the test harness relies on the
+# `-sys` crate's `DEP_RETICLE_RPATHS` directly (the same relay `tessera-shell`
+# uses).
+reticle-sys.workspace = true
 thiserror.workspace = true
+
+[package.metadata.cargo-machete]
+# Native rpath metadata for the test harness; not referenced from source.
+ignored = ["reticle-sys"]
 
 [lints]
 workspace = true

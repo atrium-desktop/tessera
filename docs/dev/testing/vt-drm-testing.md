@@ -103,8 +103,8 @@ For presentation-plan or KMS plane changes, complete this additional pass:
 
 1. Start with a normal multi-window desktop. Confirm the startup
    `plane allocation` message reports one primary plane per active output,
-   the maximum compatible cursor-plane assignment, and overlay offload as
-   disabled.
+   the maximum compatible cursor-plane assignment, and the overlay policy
+   (disabled unless `TESSERA_OVERLAY_OFFLOAD=1`).
 2. Open one opaque dma-buf client that covers the complete physical domain,
    then hide all shell chrome. Confirm `direct scanout active` appears once
    and does not repeat every frame.

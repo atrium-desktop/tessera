@@ -259,7 +259,6 @@ fn rasterize_document(
     let pixmap = document.rasterize(reticle::RasterizeOptions {
         width: extent,
         height: extent,
-        supersample: 0,
         format: reticle::PixelFormat::Bgra8Premul,
         paint: reticle::PaintMode::theme(0xFFFF_FFFF),
         stroke_width: 0.0,

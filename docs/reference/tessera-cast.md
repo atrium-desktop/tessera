@@ -30,7 +30,7 @@ cargo run -p tessera-cast -- sink --connect 127.0.0.1:7236 --play  # in another
 
 The source listens; the sink connects and sends `OPTIONS` first. That prints the
 source's full trace and the sink's report of what it received.
-`cargo test -p tessera-cast` drives the same two sides against each other over a
+`cargo nextest run -p tessera-cast` drives the same two sides against each other over a
 socketpair in milliseconds.
 
 Miracast has two halves that come from different places, so a machine can have

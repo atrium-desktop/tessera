@@ -21,6 +21,7 @@ pub(super) fn draw_direct_desktop_scene(
     scheme: tessera_desktop::settings::ColorScheme,
     soft_shadows: Option<&tessera_composite::SoftShadowLayer<'_>>,
     shadow_style: tessera_desktop::window::WindowShadowStyle,
+    overlay_window: Option<tessera_desktop::window::WindowId>,
 ) -> Result<(), flux::Error> {
     let RenderGeometry {
         logical_size,
@@ -47,6 +48,7 @@ pub(super) fn draw_direct_desktop_scene(
             window_switcher.is_some(),
             soft_shadows,
             shadow_style,
+            overlay_window,
         );
         if let Some(presentation) = window_switcher {
             draw_window_switcher_scrim(canvas, logical_size, scale, presentation, scheme);

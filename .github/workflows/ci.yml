@@ -95,6 +95,8 @@ jobs:
           -p tessera-config -p tessera-ipc -p tessera-protocol -p tessera-launch-services -p tessera-env
           -p tessera-cli -p tessera-mcp -p tessera-idle
           -p tessera-wayland
+      - name: Test flux-free root suites
+        run: cargo nextest run --profile ci --locked -p tessera-tests --no-default-features
       - name: Build tessera-wayland-protocols
         run: cargo build --locked -p tessera-wayland-protocols
 
@@ -147,10 +149,10 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest
+      - name: Build workspace binaries
+        run: cargo build --locked --workspace --bins
       - name: Test full workspace
-        run: |
-          cargo nextest run --profile ci --locked --workspace
-          cargo test --doc --locked --workspace
+        run: cargo nextest run --profile ci --locked --workspace
       - name: Check selective chrome builds
         run: |
           cargo check --locked -p tessera --no-default-features

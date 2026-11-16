@@ -1,6 +1,6 @@
 use super::*;
 
-// The damage *value layer* lives in `tessera-presentation` (api tier): frame
+// The damage *value layer* lives in `tessera-composite` (api tier): frame
 // damage verdicts, the assessment split, the logical→physical mapping, and the
 // `ClientDamageTracker` generation diff behind the narrow `SurfaceDamageFrame`
 // seam. Per-image epoch history belongs to Flux, not to this layer. This module

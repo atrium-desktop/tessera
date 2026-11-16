@@ -2,7 +2,7 @@ use super::*;
 use tessera_wayland::PresentedSurfaces;
 
 // The render transaction outcome is a scheduler-domain value owned by
-// `tessera-presentation`; the transaction itself stays here because it is
+// `tessera-composite`; the transaction itself stays here because it is
 // the composition root's synchronous orchestration of renderer, server,
 // host, and shell.
 pub(super) use tessera_composite::presentation::{PresentationOutcome, RetryWait};
@@ -258,7 +258,7 @@ impl CompositorRuntime<'_> {
         // Synchronize server model snapshots (windows, global strip,
         // workspaces, outputs, and Interaction Domains) AND the output scale
         // into the shell and IPC mirror BEFORE `Shell::prepare_frame`,
-        // `assess_frame_damage`, and `plan_primary_plane` run. Entering
+        // `assess_frame_damage`, and `plan_output_layers` run. Entering
         // fullscreen therefore puts HUD and Dock into dormancy on the very
         // same frame, allowing direct scanout without a one-frame composite
         // lag.
@@ -284,7 +284,7 @@ impl CompositorRuntime<'_> {
             physical_size,
         });
         let mut damage = assessed_damage.output;
-        let sampled_surface_ids = assessed_damage.sampled_surface_ids;
+        let mut sampled_surface_ids = assessed_damage.sampled_surface_ids;
         let cursor_plane_changed = self.host.supports_hardware_cursor()
             && (self.damage.last_presented_cursor != Some((cursor_shape, cursor_hidden))
                 || (!cursor_hidden
@@ -390,12 +390,52 @@ impl CompositorRuntime<'_> {
         // composite, or the fallback frame could skip rendering and show a
         // frozen image.
         let was_scanout = self.primary_plane_state.is_direct();
-        let primary_plane_plan = self.plan_primary_plane(
+        let output_layer_plans = self.plan_output_layers(
             physical_size,
             logical_size,
+            scale,
             cursor_hidden,
             frame_capture.is_some() || self.streams.any_output_live(),
         );
+        if let Some(overlay) = &output_layer_plans.overlay {
+            self.overlay_telemetry
+                .record(self.host.name(), &overlay.plan);
+        }
+        let wanted_overlay = if self.overlay_offload_enabled {
+            output_layer_plans.overlay.as_ref().and_then(|audit| {
+                tessera_composite::presentation::OverlayPlacement::from_plan(
+                    &audit.plan,
+                    audit.output.clone()?,
+                    audit.target,
+                )
+            })
+        } else {
+            None
+        };
+        let overlay_change = self.overlay_state.reconcile(wanted_overlay);
+        if overlay_change.requires_primary_repaint() {
+            self.damage.force_full_redraw = true;
+            self.surface.invalidate_damage();
+            damage = FrameDamage::Full;
+            if matches!(
+                overlay_change,
+                tessera_composite::presentation::OverlayChange::Deactivated
+            ) {
+                log::info!(
+                    "{}: overlay offload inactive; compositing",
+                    self.host.name()
+                );
+            } else if let Some(overlay) = self.overlay_state.active() {
+                log::info!(
+                    "{}: overlay offload active for window {:?} on {} at {:?}",
+                    self.host.name(),
+                    overlay.window,
+                    overlay.output,
+                    overlay.target
+                );
+            }
+        }
+        let primary_plane_plan = &output_layer_plans.primary;
         if let Some(candidate) = primary_plane_plan.direct_candidate() {
             match self.host.present_scanout(candidate, damage.area_rects()) {
                 Ok(completion_fence) => {
@@ -586,10 +626,10 @@ impl CompositorRuntime<'_> {
                 let image_index = frame.image_index() as usize;
                 let repaint = FrameDamage::from_flux_damage(frame.repaint_scope()?);
                 // Exact physical render area of the currently open output
-                // base pass. Full-output and offscreen-target passes leave it
-                // as `None`. If visible Lens chrome is drawn below, the base
-                // no-stencil pass is ended and a stencil-capable LOAD pass is
-                // reopened with this same area.
+                // pass. Full-output and offscreen-target passes leave it as
+                // `None`. The merged desktop-and-chrome pass uses this scope
+                // to decide whether visible Lens chrome intersects the
+                // repaint.
                 #[allow(unused_assignments)]
                 let mut output_damage_scope: Vec<flux::CanvasRenderArea> = Vec::new();
                 self.renderer.begin_frame();
@@ -777,9 +817,7 @@ impl CompositorRuntime<'_> {
                                 },
                                 flux::CanvasPassOptions {
                                     clear: Some(self.clear),
-                                    antialias: flux::CanvasAntialias::None,
                                     damage: Vec::new(),
-                                    skip_stencil: true,
                                 },
                             )?;
                             draw_wallpaper_background(
@@ -802,9 +840,7 @@ impl CompositorRuntime<'_> {
                                 },
                                 flux::CanvasPassOptions {
                                     clear: None,
-                                    antialias: flux::CanvasAntialias::None,
                                     damage: Vec::new(),
-                                    skip_stencil: !shell_requires_composition,
                                 },
                             )?;
                             draw_direct_desktop_scene(
@@ -819,6 +855,7 @@ impl CompositorRuntime<'_> {
                                 color_scheme,
                                 soft_shadow_layer.as_ref(),
                                 shadow_style,
+                                None,
                             )?;
                             let (include_live_cursor, cursor_position) =
                                 if !human_screenshot_session {
@@ -905,7 +942,7 @@ impl CompositorRuntime<'_> {
                 // Control Center at full reveal opacity) completely occludes
                 // the desktop and no consumer of the desktop scene is live,
                 // skip the redundant base desktop pass and render the shell
-                // directly into a single clearing stencil pass.
+                // directly into a single clearing pass.
                 //
                 // The consumer list below is exhaustive and load-bearing: every
                 // surface that draws scene-derived content (overview thumbnails, the interactive
@@ -926,13 +963,11 @@ impl CompositorRuntime<'_> {
                         &mut frame,
                         flux::CanvasPassOptions {
                             clear: Some(self.clear),
-                            antialias: flux::CanvasAntialias::None,
                             /* Moved, not cloned: this branch is the mutually
                              * exclusive alternative to the overlay pass below,
                              * so the scope has exactly one consumer on each
                              * path. */
                             damage: output_damage_scope,
-                            skip_stencil: false,
                         },
                     )?;
                     let _uploads = self.device.uploads_begin();
@@ -948,9 +983,9 @@ impl CompositorRuntime<'_> {
                 } else {
                     // Determine upfront whether shell chrome participates in this
                     // pass so desktop surfaces and shell chrome share a single
-                    // Canvas pass (`skip_stencil: !draw_chrome`), eliminating the
-                    // redundant `base_session.end() -> begin_stencil_frame_overlay`
-                    // LOAD round-trip across the 8-bit surface.
+                    // Canvas pass, eliminating the redundant base-session end
+                    // and overlay reopen LOAD round-trip across the 8-bit
+                    // surface.
                     let chrome_in_damage_scope = if output_damage_scope.is_empty() {
                         true
                     } else {
@@ -974,7 +1009,6 @@ impl CompositorRuntime<'_> {
                         output_damage_scope,
                         model_active && !self.screenshot_freeze.active(),
                         wallpaper_occluded,
-                        !draw_chrome,
                     )?;
                     if self.screenshot_freeze.active() {
                         if let Some(image) = self.screenshot_freeze.image() {
@@ -1002,6 +1036,7 @@ impl CompositorRuntime<'_> {
                             color_scheme,
                             soft_shadow_layer.as_ref(),
                             shadow_style,
+                            self.overlay_state.active().map(|overlay| overlay.window),
                         )?;
                     }
 
@@ -1986,6 +2021,25 @@ impl CompositorRuntime<'_> {
                         }
                     }
                 });
+                let overlay_frame = self.overlay_state.active().and_then(|active| {
+                    let sets = self.server.desktop_frame_sets();
+                    self.server
+                        .toplevel_dmabuf_frames_with(&sets.visible, &sets.occluded)
+                        .into_iter()
+                        .find(|frame| frame.id == active.surface_id)
+                });
+                if self.overlay_state.active().is_some() && overlay_frame.is_none() {
+                    self.overlay_state.deactivate();
+                    self.damage.force_full_redraw = true;
+                    self.surface.invalidate_damage();
+                    log::warn!(
+                        "{}: overlay candidate disappeared before present; falling back to composition",
+                        self.host.name()
+                    );
+                    return Ok(PresentationOutcome::Retry {
+                        wait: RetryWait::BackendEvent,
+                    });
+                }
                 let submitted = match frame.submit() {
                     Ok(submitted) => submitted,
                     Err(error) => {
@@ -2006,69 +2060,97 @@ impl CompositorRuntime<'_> {
                 // ledger includes every submitted-but-abandoned frame, so a
                 // Busy retry cannot under-report changed pixels.
                 let scanout_damage = FrameDamage::from_flux_damage(self.surface.scanout_damage()?);
-                let completion_fence =
-                    match self
-                        .host
+                let present_result = if let (Some(active), Some(overlay_surface)) =
+                    (self.overlay_state.active(), overlay_frame.as_ref())
+                {
+                    self.host.present_with_overlay(
+                        self.surface,
+                        submitted,
+                        scanout_damage.area_rects(),
+                        tessera_platform::host::OverlayLayer {
+                            surface: overlay_surface,
+                            output: &active.output,
+                            target: active.target,
+                            zpos: active.zpos,
+                        },
+                    )
+                } else {
+                    self.host
                         .present(self.surface, submitted, scanout_damage.area_rects())
-                    {
-                        Ok(fence) => fence,
-                        Err(error) => {
-                            if let Some(capture) = capture_for_present.take() {
-                                refuse_capture_target(
-                                    &self.capture_worker,
-                                    capture.target,
-                                    format!("captured frame was not presented: {error}"),
-                                    &self.journal,
-                                    &self.ipc,
+                };
+                let completion_fence = match present_result {
+                    Ok(fence) => fence,
+                    Err(error) => {
+                        if self.overlay_state.active().is_some()
+                            && matches!(&error, HostError::Drm(DrmError::ScanoutUnsupported))
+                        {
+                            self.overlay_state.deactivate();
+                            self.damage.force_full_redraw = true;
+                            self.surface.invalidate_damage();
+                            log::warn!(
+                                "{}: overlay presentation rejected; falling back to composition: {error}",
+                                self.host.name()
+                            );
+                            return Ok(PresentationOutcome::Retry {
+                                wait: RetryWait::BackendEvent,
+                            });
+                        }
+                        if let Some(capture) = capture_for_present.take() {
+                            refuse_capture_target(
+                                &self.capture_worker,
+                                capture.target,
+                                format!("captured frame was not presented: {error}"),
+                                &self.journal,
+                                &self.ipc,
+                            );
+                        }
+                        // Transient direct-display conditions (VT switch,
+                        // hotplug reconfigure, flip timeout): drop this frame
+                        // and keep the session alive instead of exiting.
+                        if matches!(
+                            error,
+                            HostError::Drm(
+                                DrmError::Busy
+                                    | DrmError::FlipTimeout
+                                    | DrmError::Inactive
+                                    | DrmError::Reconfigured
+                                    | DrmError::CursorFallback
+                            )
+                        ) {
+                            if matches!(&error, HostError::Drm(DrmError::Busy)) {
+                                log::debug!(
+                                    "{}: previous atomic commit still busy; coalescing frame",
+                                    self.host.name()
+                                );
+                            } else {
+                                log::warn!(
+                                    "{}: transient present failure; skipping frame: {error}",
+                                    self.host.name()
                                 );
                             }
-                            // Transient direct-display conditions (VT switch,
-                            // hotplug reconfigure, flip timeout): drop this frame
-                            // and keep the session alive instead of exiting.
+                            // Submission already committed this frame's
+                            // pixels and history. Busy/timeout retries need no
+                            // full repaint: the abandoned image is complete and
+                            // the next scope is computed from its new epoch.
+                            // Only a backend epoch/geometry/cursor change
+                            // invalidates the framebuffer contract.
                             if matches!(
-                                error,
+                                &error,
                                 HostError::Drm(
-                                    DrmError::Busy
-                                        | DrmError::FlipTimeout
-                                        | DrmError::Inactive
+                                    DrmError::Inactive
                                         | DrmError::Reconfigured
                                         | DrmError::CursorFallback
                                 )
                             ) {
-                                if matches!(&error, HostError::Drm(DrmError::Busy)) {
-                                    log::debug!(
-                                        "{}: previous atomic commit still busy; coalescing frame",
-                                        self.host.name()
-                                    );
-                                } else {
-                                    log::warn!(
-                                        "{}: transient present failure; skipping frame: {error}",
-                                        self.host.name()
-                                    );
-                                }
-                                // Submission already committed this frame's
-                                // pixels and history. Busy/timeout retries need no
-                                // full repaint: the abandoned image is complete and
-                                // the next scope is computed from its new epoch.
-                                // Only a backend epoch/geometry/cursor change
-                                // invalidates the framebuffer contract.
-                                if matches!(
-                                    &error,
-                                    HostError::Drm(
-                                        DrmError::Inactive
-                                            | DrmError::Reconfigured
-                                            | DrmError::CursorFallback
-                                    )
-                                ) {
-                                    self.damage.force_full_redraw = true;
-                                }
-                                return Ok(PresentationOutcome::Retry {
-                                    wait: RetryWait::BackendEvent,
-                                });
+                                self.damage.force_full_redraw = true;
                             }
-                            return Err(error.into());
+                            return Ok(PresentationOutcome::Retry {
+                                wait: RetryWait::BackendEvent,
+                            });
                         }
-                    };
+                        return Err(error.into());
+                    }
+                };
                 let left_scanout = self.primary_plane_state.commit_composited();
                 if left_scanout {
                     log::info!(
@@ -2115,6 +2197,14 @@ impl CompositorRuntime<'_> {
                 // (ADR-0126); it never caused the frame.
                 if dmabuf_stream_capture_due {
                     self.blit_dmabuf_stream_frames(completion_fence.as_ref());
+                }
+                if let Some(overlay) = self.overlay_state.active()
+                    && !sampled_surface_ids.contains(&overlay.surface_id)
+                {
+                    // The overlay surface bypassed the composite pass, but it
+                    // is still owned by this presented frame until its page
+                    // flip retires.
+                    sampled_surface_ids.push(overlay.surface_id);
                 }
                 self.server.acknowledge_presented_surface_damage(
                     sampled_surface_ids.iter(),
@@ -2268,7 +2358,7 @@ impl CompositorRuntime<'_> {
     /// Synchronize server model snapshots (windows, global window strip,
     /// workspaces, outputs, and Interaction Domains) into the shell and IPC
     /// mirror before `Shell::prepare_frame`, `assess_frame_damage`, and
-    /// `plan_primary_plane` run.
+    /// `plan_output_layers` run.
     ///
     /// Does not mutate `self.last_*` revision baselines — `assess_frame_damage`
     /// consumes the delta to flag full scene/backdrop damage and then advances
@@ -2398,16 +2488,13 @@ fn begin_desktop_output<'c, 'surface>(
     damage: Vec<flux::CanvasRenderArea>,
     model_active: bool,
     wallpaper_occluded: bool,
-    skip_stencil: bool,
 ) -> Result<flux::CanvasSession<'c, &'c mut flux::Frame<'surface>>, flux::Error> {
     if model_active {
         let s = canvas.begin_session(
             &mut *frame,
             flux::CanvasPassOptions {
                 clear: Some(clear),
-                antialias: flux::CanvasAntialias::None,
                 damage: damage.clone(),
-                skip_stencil: true,
             },
         )?;
         if !wallpaper_occluded {
@@ -2421,9 +2508,7 @@ fn begin_desktop_output<'c, 'surface>(
             frame,
             flux::CanvasPassOptions {
                 clear: None,
-                antialias: flux::CanvasAntialias::None,
                 damage,
-                skip_stencil,
             },
         )
     } else {
@@ -2431,9 +2516,7 @@ fn begin_desktop_output<'c, 'surface>(
             frame,
             flux::CanvasPassOptions {
                 clear: Some(clear),
-                antialias: flux::CanvasAntialias::None,
                 damage,
-                skip_stencil,
             },
         )?;
         if !wallpaper_occluded {

@@ -141,7 +141,13 @@ fn measure(root: &Path) -> Result<BTreeMap<String, Counts>> {
     let mut files = Vec::new();
     for entry in fs::read_dir(&crates)? {
         let path = entry?.path();
-        if path.is_dir() {
+        // `tessera-test-support` is a dev-only crate. Its helpers are allowed
+        // to panic because they run only in tests and never ship in a binary.
+        if path.is_dir()
+            && path
+                .file_name()
+                .is_none_or(|name| name != "tessera-test-support")
+        {
             rust_files(&path.join("src"), &mut files)?;
         }
     }
