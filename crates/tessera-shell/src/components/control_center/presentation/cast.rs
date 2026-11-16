@@ -73,9 +73,7 @@ impl ControlCenter {
                                     },
                                 );
                                 if back_resp.clicked {
-                                    self.cast_expanded = false;
-                                    self.cast_scanning = false;
-                                    out.system_actions.push(SystemAction::StopCastDiscovery);
+                                    self.show_page(Page::Main, out);
                                 }
 
                                 f.spacer(4.0);

@@ -1,16 +1,16 @@
 # Tessera
 
 Tessera is a Wayland compositor and desktop shell for Linux. It combines a
-Vulkan-first renderer, native shell surfaces, panel-hosted system settings,
-and scoped AI-agent workspaces behind explicit process and security
-boundaries.
+Vulkan-first renderer, native shell surfaces, a standalone Settings
+application, and scoped AI-agent workspaces behind explicit process and
+security boundaries.
 
 ## Capabilities
 
 - Vulkan rendering through the
   [Optics](https://github.com/ming2k/optics) stack
-- Native status bar, Dock, full application launcher, Prism search,
-  notifications, and multi-workspace window management
+- Native Dock, full application launcher, Prism search, notifications, the
+  Control Center, and multi-workspace window management
 - Multi-output session lock, staged idle policy, lock-before-sleep, and
   physical display power management
 - Nested Wayland development and direct DRM/KMS presentation
@@ -102,7 +102,7 @@ lifecycle.
 | Action | Shortcut or command |
 |--------|---------------------|
 | Open Applications | Click Launchpad or press `Super` |
-| Open System Settings | Press `Super+S` and select a settings tab |
+| Open Settings | Press `Super+S`, then ⚙, or run `tessera-settings` |
 | Lock the session | Press `Super+L` |
 | Inspect compositor state | Run `tessera window` |
 

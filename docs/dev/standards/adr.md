@@ -172,8 +172,8 @@ rule, the regression test, the CI job, or the manual hardware validation step.
    supersession link. The index is generated alongside the record, not later.
 3. **Verification**: Before hand-off, confirm the record's links resolve, its
    frontmatter parses, and its declared enforcement mechanism exists in the
-   tree (`cargo run -p xtask -- check-boundaries`, `check-motion`,
-   `check-vtables`, or the named test). The registry rules above are enforced
+   tree (`cargo run -p xtask -- check-boundaries`, `check-vtables`, a
+   clippy `disallowed-methods` entry, or the named test). The registry rules above are enforced
    mechanically by `cargo run -p xtask -- check-adrs`, which validates unique
    ids, mandatory frontmatter, supersession targets, index sync and ordering,
    and the resolution of every in-repo lineage link in the corpus.

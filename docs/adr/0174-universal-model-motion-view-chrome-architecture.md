@@ -12,6 +12,7 @@ negative_knowledge: true
 
 - Status: Accepted
 - Date: 2026-09-28
+- Amended by: [ADR-0240](0240-repository-automation-at-the-root-and-fixtures-with-their-consumer.md) — INV-ARCH-49 is enforced by clippy `disallowed-methods` in `crates/tessera-shell/clippy.toml`; `check-motion` is retired.
 - Deciders: Tessera Maintainers & Core Architects
 - Consulted: Optics Graphics Team & Accessibility Working Group
 - Informed: Compositor Runtime & AI Agent Platform Team

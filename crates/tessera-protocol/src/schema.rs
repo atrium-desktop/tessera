@@ -158,6 +158,13 @@ pub const LOCAL_OWNER_ADMIN_SCOPE: &str = "tessera-owner-admin";
 /// the connection into an explicit high-risk operation allowlist and its
 /// time-bounded lease.
 pub const LOCAL_PORTAL_SCOPE: &str = "atrium-portal";
+/// Built-in scope for the Settings application (`tessera-settings`). Its
+/// session capability and lease authorize revisioned settings transactions
+/// (`Request::Settings`), which carry their own validation and audit, plus
+/// one command: `Focus` targeting a window whose app id is Settings, so a
+/// later invocation can raise the running window. Every other command is
+/// refused by name.
+pub const LOCAL_SETTINGS_SCOPE: &str = "tessera-settings";
 
 /// The capability classes a client may hold (ADR-0027).
 ///

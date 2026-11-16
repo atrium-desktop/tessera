@@ -402,14 +402,14 @@ impl CompositorRuntime<'_> {
                         }
                     }
                     GestureAction::ControlCenter => {
-                        // Down opens the panel, up closes it; fires at most
+                        // Down opens the sheet, up closes it; fires at most
                         // once per gesture so a long swipe cannot oscillate
-                        // the panel (ADR-0080).
-                        if !swipe.panel_fired {
+                        // the sheet (ADR-0080).
+                        if !swipe.control_center_fired {
                             let open = self.shell.control_center_active();
                             if (!open && swipe.dy > STEP_PX) || (open && swipe.dy < -STEP_PX) {
                                 self.shell.toggle_control_center();
-                                swipe.panel_fired = true;
+                                swipe.control_center_fired = true;
                             }
                         }
                     }

@@ -53,7 +53,7 @@ Run Tessera as a regular client window inside an existing graphical session (GNO
 
 ```bash
 mkdir -p /tmp/tessera-dev/tessera
-TESSERA_COMMAND_PANEL_OPEN=1 \
+TESSERA_PREVIEW=control-center \
 TESSERA_BACKEND=nested \
 XDG_DATA_HOME=/tmp/tessera-dev \
 XDG_DATA_DIRS=$HOME/.local/share:/usr/local/share:/usr/share \
@@ -63,7 +63,7 @@ cargo run --locked -p tessera
 **Key Parameters**:
 - `TESSERA_BACKEND=nested`: Forces nested presentation inside the existing host display server.
 - `XDG_DATA_HOME=/tmp/tessera-dev`: Prevents `AuditError::Locked` contention with the host compositor.
-- `TESSERA_COMMAND_PANEL_OPEN=1`: Automatically opens the Command Panel at startup for fast UI iteration.
+- `TESSERA_PREVIEW=control-center`: Opens the Control Center at startup for fast UI iteration.
 
 ### B. Inner Client Injection
 

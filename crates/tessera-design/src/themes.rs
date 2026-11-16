@@ -142,10 +142,10 @@ mod tests {
     }
 
     #[test]
-    fn hud_theme_follows_the_command_panel_scheme() {
+    fn hud_theme_follows_the_control_center_scheme() {
         for colors in [
-            crate::CommandPanelColors::dark(),
-            crate::CommandPanelColors::light(),
+            crate::ControlCenterColors::dark(),
+            crate::ControlCenterColors::light(),
         ] {
             let theme = hud(&colors);
             assert_eq!(theme.fg(), colors.text);

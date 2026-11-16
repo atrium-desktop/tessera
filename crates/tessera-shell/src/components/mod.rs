@@ -5,5 +5,3 @@ pub mod control_center;
 pub mod dock;
 #[cfg(feature = "chrome-pivot")]
 pub mod pivot;
-#[cfg(feature = "chrome-control-center")]
-pub mod settings;

@@ -85,7 +85,7 @@ the crate boundary rather than forcing everything into one test package.
 | External integration tests | `tests/integration/main.rs` + `tests/integration/` | One entry compiles all integration modules once. |
 | External end-to-end tests | `tests/e2e/main.rs` + `tests/e2e/` | One entry compiles all e2e modules once; native modules are feature-gated. |
 | Cross-suite helpers | `tests/common/mod.rs` | Re-exports `tessera-test-support`; no tests of its own. |
-| C/probe fixtures | `tests/fixtures/` | Data and probe sources used by external or crate-local e2e tests. |
+| Test fixtures | `crates/<crate>/tests/fixtures/` | Data and probe sources live in the package whose tests consume them, resolved through `env!("CARGO_MANIFEST_DIR")`. A missing fixture fails the test; it never skips. |
 
 The root `tests/` package is the single external-test entry point. It depends on
 the workspace crates, but no production crate depends on it. Large modules are

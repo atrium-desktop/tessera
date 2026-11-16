@@ -1,8 +1,8 @@
-//! The SNI tray shelf: a horizontal pager of item cells, plus its dbusmenu
-//! popover (ADR-0221).
+//! The SNI tray row: a horizontal pager of item cells pinned to the controls
+//! card's footer, plus its dbusmenu popover (ADR-0221).
 //!
-//! The shelf is a **horizontal, bottom-anchored lane**. Its capacity is derived
-//! from the display and the shell's reserved bands ([INV-CHROME-02]), it has no
+//! The row is a **horizontal lane**. Its capacity is derived from the card's
+//! width ([INV-CHROME-02]), it has no
 //! scroll viewport ([INV-CHROME-03]), and when the items exceed the lane the
 //! shelf paginates with a chevron at each end whose disabled state is real — the
 //! first page cannot go back, the last cannot go forward, and each end renders
@@ -30,32 +30,14 @@ fn drawn_or_declared(drawn: Rect, declared: Rect) -> Rect {
 }
 
 impl ControlCenter {
-    /// Render the tray shelf at the bottom-left anchor.
+    /// Paint the tray cells into the footer row.
     ///
-    /// StatusNotifierItem icons run **left to right** along one row anchored to
-    /// the bottom edge. Left-click activates an item; right-click opens the
-    /// host-rendered dbusmenu popover (or falls back to `SecondaryActivate` when
-    /// the item exposes no `Menu` object). Hover and menu-open are the cell
-    /// pressable's own background, never a sibling `place()` overlay
-    /// ([INV-CHROME-06]).
-    pub(crate) fn render_tray_shelf(
-        &mut self,
-        f: &mut Frame,
-        anchor: Rect,
-        progress: f32,
-        cursor: (f32, f32),
-        i18n: &Localizer,
-    ) {
-        let cells = self.sni_cells();
-        self.render_tray_shelf_cells(f, anchor, &cells, progress, cursor, i18n);
-    }
-
-    /// Paint an explicit cell list into the shelf.
-    ///
-    /// Split from [`Self::render_tray_shelf`] so the shelf's behaviour is
-    /// drivable with a known item set: paging is a function of
-    /// `(anchor, item count, page)`, and a caller that already holds the cells
-    /// should not have to re-derive them through the projection to exercise it.
+    /// StatusNotifierItem icons run left to right. Left-click activates an
+    /// item; right-click opens the host-rendered dbusmenu popover (or falls
+    /// back to `SecondaryActivate` when the item exposes no `Menu` object).
+    /// Hover and menu-open are the cell pressable's own background, never a
+    /// sibling `place()` overlay ([INV-CHROME-06]). Paging is a pure function
+    /// of `(anchor, item count, page)`.
     pub(crate) fn render_tray_shelf_cells(
         &mut self,
         f: &mut Frame,

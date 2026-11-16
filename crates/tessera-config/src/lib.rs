@@ -1209,7 +1209,7 @@ pub struct GestureEntry {
     pub fingers: u8,
     /// Swipe axis: `horizontal` or `vertical`.
     pub axis: String,
-    /// Action name: `workspace_switch`, `window_cycle`, `command_panel`, or
+    /// Action name: `workspace_switch`, `window_cycle`, `control_center`, or
     /// `none` to shadow the built-in default on this axis.
     pub action: String,
 }

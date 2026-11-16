@@ -24,7 +24,7 @@ tessera-authority = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 zeroize.workspace = true
-clap = { version = "4", features = ["derive", "wrap_help", "string"] }
+clap = { workspace = true, features = ["wrap_help", "string"] }
 clap_complete = { workspace = true }
 thiserror = { workspace = true }
 

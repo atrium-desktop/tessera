@@ -60,7 +60,7 @@ cargo build --locked --release -p tessera -p tessera-idle -p tessera-lock
 Install the PAM service profile before testing authentication:
 
 ```bash
-sudo install -Dm0644 contrib/pam/tessera-lock /etc/pam.d/tessera-lock
+sudo install -Dm0644 system/etc/pam.d/tessera-lock /etc/pam.d/tessera-lock
 ```
 
 Run `target/release/tessera`; it discovers the two sibling programs without a
@@ -98,7 +98,7 @@ been verified.
 Use any one of these entry points:
 
 - press `Super+L`;
-- select **Lock Now** in the command panel; or
+- select **Lock Now** in the Control Center; or
 - run `tessera-idle --lock-now` inside the Tessera session environment.
 
 Running `tessera-lock` directly is useful for diagnosis, but normal sessions
@@ -228,7 +228,7 @@ Use lowercase ASCII file stems beginning with a letter, such as
 `idle/breathe.vrma` and `actions/greeting.vrma`. Tessera plays every idle clip
 once in shuffled order before reshuffling, without repeating across the
 shuffle boundary. Named actions play once and then return to the idle pool or
-the rest pose. Opening the command panel requests a random action; the lock
+the rest pose. Opening the Control Center requests a random action; the lock
 screen requests `greeting` and falls back to a random action when that name is
 absent.
 
@@ -238,7 +238,7 @@ both motion-library directories contain no clips. The motion library takes
 precedence when both layouts exist.
 
 The shared persona portrait contract gives still images precedence over a
-VRM model. Both the lock screen and command panel use the same ordered
+VRM model. Both the lock screen and Control Center use the same ordered
 configuration for initial loading and live reload. The internal VRM backend
 receives only an explicitly selected model and the camera owned by that
 presentation; it does not choose a source or surrounding chrome.
@@ -252,7 +252,7 @@ images and additional texture-coordinate sets are rejected instead of
 rendering an incomplete white model.
 
 Avatar sources and motion libraries reload live in both the lock screen and
-command panel. Save or atomically replace a still image, VRM, or VRMA file and
+Control Center. Save or atomically replace a still image, VRM, or VRMA file and
 allow about one second for an idle surface to observe it, plus a short debounce
 while writes settle. A complete replacement is decoded and uploaded before it
 becomes visible. If a save temporarily leaves malformed data, Tessera keeps the

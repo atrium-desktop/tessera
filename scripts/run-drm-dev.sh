@@ -60,7 +60,7 @@ if command -v dbus-run-session >/dev/null 2>&1 &&
 fi
 
 exec env -u WAYLAND_DISPLAY \
-    TESSERA_COMMAND_PANEL_OPEN=1 \
+    TESSERA_PREVIEW=control-center \
     TESSERA_BACKEND=drm \
     XDG_DATA_HOME="$data_home" \
     XDG_DATA_DIRS="$HOME/.local/share:/usr/local/share:/usr/share" \

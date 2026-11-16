@@ -34,8 +34,10 @@ crates/
   tessera-wayland         Wayland protocol handlers and client state machines
   tessera-wayland-protocols generated Wayland C ABI interface tables
   tessera-test-support    shared test-only infrastructure (dev-dependency only)
-tests/                    root external suites: common/, integration/, e2e/, fixtures/
-tooling/xtask             repository checks, boundaries verification, and automation
+tests/                    root external suites: common/, integration/, e2e/
+assets/                   data compiled into binaries (cursors, icons, wallpapers)
+system/                     files installed beside the binaries; mirrors the install prefix (ADR-0241)
+xtask/                    repository architecture gates and Optics pin management (`cargo run -p xtask --`)
 ```
 
 `test-support` is not a production package. It owns environment guards, scratch
@@ -72,7 +74,7 @@ large module with one owner remains a module.
 
 ## Dependency verification
 
-The boundary check reads Cargo manifests and validates against explicit capability edges:
+The boundary check reads `cargo metadata` and validates every edge against explicit capabilities:
 
 ```bash
 cargo run -p xtask -- check-boundaries

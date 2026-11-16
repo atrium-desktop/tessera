@@ -920,6 +920,7 @@ struct ScopeHandler {
     allowed: Vec<PathBuf>,
     refusals: Mutex<Vec<(u64, tessera_protocol::journal::JournalMutation, String)>>,
     lockdown: bool,
+    windows: Vec<tessera_desktop::window::Window>,
 }
 
 impl ScopeHandler {
@@ -929,6 +930,7 @@ impl ScopeHandler {
             allowed: Vec::new(),
             refusals: Mutex::new(Vec::new()),
             lockdown,
+            windows: Vec::new(),
         }
     }
 
@@ -939,7 +941,12 @@ impl ScopeHandler {
             peer_exe: self.peer_exe,
             refusals: self.refusals,
             lockdown: self.lockdown,
+            windows: self.windows,
         }
+    }
+
+    fn with_windows(self, windows: Vec<tessera_desktop::window::Window>) -> Self {
+        ScopeHandler { windows, ..self }
     }
 }
 
@@ -954,7 +961,7 @@ impl Handler for ScopeHandler {
         }
     }
     fn windows(&self) -> Vec<tessera_desktop::window::Window> {
-        Vec::new()
+        self.windows.clone()
     }
     fn workspaces(&self) -> tessera_desktop::workspace::WorkspaceSnapshot {
         tessera_desktop::workspace::WorkspaceSnapshot {
@@ -975,10 +982,17 @@ impl Handler for ScopeHandler {
         }
     }
     fn resolve_scope(&self, name: &str) -> Option<Scope> {
-        (name == LOCAL_PORTAL_SCOPE).then(|| Scope {
-            ops: Some(vec![ActorCapability::StreamOutput]),
-            ..Scope::default()
-        })
+        match name {
+            LOCAL_PORTAL_SCOPE => Some(Scope {
+                ops: Some(vec![ActorCapability::StreamOutput]),
+                ..Scope::default()
+            }),
+            LOCAL_SETTINGS_SCOPE => Some(Scope {
+                ops: Some(Vec::new()),
+                ..Scope::default()
+            }),
+            _ => None,
+        }
     }
     fn peer_executable(&self, _pid: u32) -> Option<PathBuf> {
         self.peer_exe.lock().unwrap().clone()
@@ -1224,5 +1238,110 @@ fn the_default_identity_hooks_keep_scope_resolution_name_only() {
             Response::Hello { .. } => {}
             other => panic!("expected Hello, got {other:?}"),
         }
+    });
+}
+
+#[test]
+fn the_settings_scope_only_focuses_its_own_window() {
+    // Under lockdown an anonymous connection loses `session`; the Settings
+    // scope, claimed by an allowlisted executable, keeps it for settings
+    // transactions. Scopes do not gate session commands, so the dispatcher
+    // refuses `Quit` by scope name. The sole exception is focusing a window
+    // Settings owns: a second invocation hands over its page and must be able
+    // to raise the running window.
+    let settings = PathBuf::from("/usr/bin/tessera-settings");
+    let own = tessera_desktop::window::Window {
+        id: tessera_desktop::window::WindowId(9),
+        app_id: Some(tessera_desktop::app::settings_app::APP_ID.to_owned()),
+        ..tessera_desktop::window::Window::default()
+    };
+    let handler = ScopeHandler::new(true)
+        .with_peer(Some(settings.clone()), vec![settings])
+        .with_windows(vec![own]);
+    std::thread::scope(|scope| {
+        let (server_end, mut client) = UnixStream::pair().unwrap();
+        let (tx, rx) = mpsc::sync_channel(OUTBOUND_QUEUE_DEPTH);
+        let handler = &handler;
+        scope.spawn(move || {
+            let subs = Mutex::new(HashMap::new());
+            let journal_subs = Mutex::new(HashMap::new());
+            let streams = Mutex::new(HashMap::new());
+            let next_sub = AtomicU64::new(0);
+            let next_lease = AtomicU64::new(1);
+            let mut read = server_end.try_clone().unwrap();
+            let shutdown = Arc::new(server_end);
+            let wake = RequestWake::default();
+            drive_read_loop(
+                &mut read,
+                &tx,
+                handler,
+                &subs,
+                &journal_subs,
+                &streams,
+                &next_sub,
+                &next_lease,
+                &shutdown,
+                &wake,
+                3,
+                std::process::id(),
+            )
+        });
+        let hello = Request::Hello {
+            version: PROTOCOL_VERSION,
+            caps: ConnectionCapabilities {
+                query: true,
+                session: true,
+                ..ConnectionCapabilities::default()
+            },
+            scope: Some(LOCAL_SETTINGS_SCOPE.to_owned()),
+            lease: Some(tessera_protocol::schema::LeaseRequest { ttl_ms: 60_000 }),
+            agent: None,
+        };
+        write_msg(&mut client, &hello).unwrap();
+        match recv_response(&rx) {
+            Response::Hello { caps, .. } => {
+                assert!(caps.session, "lockdown keeps a built-in scope's session");
+                assert!(!caps.control);
+            }
+            other => panic!("expected Hello, got {other:?}"),
+        }
+        write_msg(
+            &mut client,
+            &Request::Do {
+                cmd: Command::Focus {
+                    id: tessera_desktop::window::WindowId(9),
+                    reveal: true,
+                },
+            },
+        )
+        .unwrap();
+        match recv_response(&rx) {
+            Response::Ok => {}
+            other => panic!("focusing Settings' own window must pass, got {other:?}"),
+        }
+        write_msg(
+            &mut client,
+            &Request::Do {
+                cmd: Command::Focus {
+                    id: tessera_desktop::window::WindowId(7),
+                    reveal: true,
+                },
+            },
+        )
+        .unwrap();
+        match recv_response(&rx) {
+            Response::Error { message } => {
+                assert!(message.starts_with("out of scope"), "{message}")
+            }
+            other => panic!("focusing another application must be refused, got {other:?}"),
+        }
+        write_msg(&mut client, &Request::Do { cmd: Command::Quit }).unwrap();
+        match recv_response(&rx) {
+            Response::Error { message } => {
+                assert!(message.starts_with("out of scope"), "{message}")
+            }
+            other => panic!("Quit must be refused, got {other:?}"),
+        }
+        drop(client);
     });
 }

@@ -138,7 +138,7 @@ impl CompositorRuntime<'_> {
     /// each opening the system-level confirmation dialog. Only one dialog
     /// exists at a time; later requests in the same batch drop while one
     /// is pending, matching the picks' single-modal rule. The consent
-    /// dialog is exclusive chrome, so an open command panel closes first —
+    /// dialog is exclusive chrome, so an open Control Center closes first —
     /// exactly like the battery alert taking over the band.
     pub(super) fn drain_system_confirm_requests(&mut self) {
         let requests = std::mem::take(&mut self.system_confirm_requests);

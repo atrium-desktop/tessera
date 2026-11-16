@@ -4,7 +4,7 @@ Agent Workspaces isolate an agent's pointer, keyboard, focus, rendering, and
 application process tree from the physical desktop.
 
 “Agent Workspace” is the user-facing term for an Agent Interaction Domain,
-shown as a status label in the command panel. Each workspace is backed by an
+reported by `tessera interaction-domain list`. Each workspace is backed by an
 `InteractionDomain`, the compositor's security and routing primitive; it is
 not a normal desktop workspace. Lifecycle management uses the
 `tessera interaction-domain *` CLI or the `interaction_domain_*` MCP tools.

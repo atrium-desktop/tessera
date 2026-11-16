@@ -16,7 +16,7 @@ documentation that must move in the same change:
 | **New or changed CLI command or flag** | `docs/reference/cli.md` and `docs/reference/keyboard-shortcuts.md` where a global binding is added |
 | **Wire protocol, IPC message, or audit vocabulary change** | `docs/reference/ipc.md`, `CHANGELOG.md`, and an ADR when the change alters a boundary |
 | **Render, scanout, damage, or plane-role behavior** | `docs/reference/rendering.md` |
-| **Subsystem architectural refactoring or crate boundary change** | New ADR under `docs/adr/`, plus `docs/dev/architecture.md` and `tooling/xtask/dependency-policy.toml` when edges move |
+| **Subsystem architectural refactoring or crate boundary change** | New ADR under `docs/adr/`, plus `docs/dev/architecture.md` and `xtask/dependency-policy.toml` when edges move |
 | **Chrome, control surface, or user-visible workflow change** | The matching `docs/how-to/` guide and `docs/dev/design/` where visual language is affected |
 | **Build system, test runner, or CI pipeline change** | `docs/dev/setup.md`, `docs/dev/testing/surface-testing.md`, and this document |
 | **Contributor bootstrap or worktree workflow change** | `docs/dev/setup.md` or `docs/dev/cross-repository-development.md` |
@@ -43,12 +43,13 @@ user-visible.
 | Vtable admission | `cargo run -p xtask -- check-vtables` | ADR-0193 metadata-derived vtable sizing in `tessera-wayland` | Yes |
 | ADR registry | `cargo run -p xtask -- check-adrs` | Unique ids, frontmatter, index sync, and lineage-link resolution across `docs/adr/` | Yes |
 | Panic discipline | `cargo run -p xtask -- check-panics` | ADR-0195: no poisonable-lock panics, no new panic sites | Yes |
+| System files | `cargo run -p xtask -- check-system-files` | ADR-0241: `system/` mirrors the install tree; manifest, file modes, and documented `system/` paths agree | Yes |
+| Desktop entries | `desktop-file-validate system/share/applications/*.desktop` | freedesktop Desktop Entry specification | Yes |
 | Lockfile validity | `cargo metadata --locked` | Canonical `Cargo.lock` matches the manifests | Yes |
 | Tests | `cargo nextest run --locked --workspace` | Unit, integration, and end-to-end tests | Yes |
-| Motion purity | `cargo run -p xtask -- check-motion` | ADR-0174 zero-hand-rolled-motion-math rule in `tessera-shell` | Local gate — run when chrome motion code moves |
+| Motion purity | `cargo clippy -p tessera-shell --all-targets` | ADR-0174: `f32::exp`/`f64::exp` are `disallowed-methods` in `crates/tessera-shell/clippy.toml`; only `widgets::motion` may opt out | Yes (full-workspace clippy) |
 
-The CI column reflects `.github/workflows/ci.yml`; the local-only gate is
-enforced by reviewers on the corresponding changes.
+The CI column reflects `.github/workflows/ci.yml`. Every mechanical gate runs in CI.
 
 ### Gate B: Reasoning Gates (Reviewer-Verified)
 

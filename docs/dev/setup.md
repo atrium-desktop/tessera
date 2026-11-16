@@ -173,9 +173,11 @@ The development commands have distinct responsibilities:
 | `cargo run --locked -p tessera` | Build and run the compositor with automatic backend selection |
 | `TESSERA_BACKEND=drm cargo run --locked -p tessera` | Force direct-display testing |
 
-Persistent settings have no separate binary: the settings pages are tabs in
-the command panel (`Super+S`), hosted in-process from the `tessera-settings`
-module library. Distribution installation,
+Persistent settings are edited in the Settings application:
+`cargo run -p tessera-settings -- display` against a running session. A debug
+compositor recognizes the sibling development binary; see
+[Nested Backend](nested-backend.md) when the two builds live in different
+directories. Distribution installation,
 which owns systemd units, D-Bus services, and portal metadata, is documented
 separately in [Distribution Packaging](packaging.md).
 

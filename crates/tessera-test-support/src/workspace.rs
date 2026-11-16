@@ -23,11 +23,6 @@ pub fn workspace_path(relative: impl AsRef<Path>) -> PathBuf {
     workspace_root().join(relative)
 }
 
-/// Absolute path to a test fixture in the root `tests/fixtures` tree.
-pub fn fixture(relative: impl AsRef<Path>) -> PathBuf {
-    workspace_root().join("tests/fixtures").join(relative)
-}
-
 /// Directory containing built artifacts for the current test profile.
 pub fn target_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("TESSERA_TARGET_DIR") {
@@ -131,13 +126,5 @@ mod tests {
     #[test]
     fn workspace_root_contains_the_workspace_manifest() {
         assert!(workspace_root().join("Cargo.toml").is_file());
-    }
-
-    #[test]
-    fn fixture_path_is_rooted_at_the_external_test_tree() {
-        assert_eq!(
-            fixture("wayland/clipboard_probe.c"),
-            workspace_root().join("tests/fixtures/wayland/clipboard_probe.c")
-        );
     }
 }

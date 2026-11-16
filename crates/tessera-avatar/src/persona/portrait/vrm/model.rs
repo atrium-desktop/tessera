@@ -304,7 +304,7 @@ impl Model {
         self.scene.draw_materials(&pass, &camera, Some(&light));
         pass.end();
         // Blit the scene through an analytic circular clip into the published
-        // texture, so hosts (including the lens-based command panel, which
+        // texture, so hosts (including the lens-based Control Center, which
         // cannot clip images to a circle) composite it without their own
         // mask. The radius of half the edge makes the rrect a full circle.
         let session = self

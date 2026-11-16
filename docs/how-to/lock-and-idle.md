@@ -18,7 +18,8 @@ seconds without interaction. Rejected attempts use an increasing retry delay.
 
 ## Configure Automatic Actions
 
-Open the command panel with `Super+S`, then select **Power Management**.
+Run `tessera-settings power`, or open Settings from the Control Center's ⚙
+button and select **Power Management**.
 
 1. Turn **Automatic idle actions** on or off.
 2. Enable the stages the session should use.
@@ -34,9 +35,8 @@ locking and lock-before-sleep remain available.
 
 The idle stages apply as a set, but two concerns are often wanted
 separately: whether the screen may blank, and whether the session may lock.
-The command panel's Quick Controls (`Super+S`) expose both as switches —
-**Keep Screen Awake** and **Automatic Lock** — which compose into the
-session power mode (ADR-0140):
+The Control Center's work-mode switch (`Super+S`) selects one of three
+session power modes (ADR-0140), which combine the two:
 
 | Keep awake | Auto lock | Mode | Behavior after idle |
 |------------|-----------|------|---------------------|

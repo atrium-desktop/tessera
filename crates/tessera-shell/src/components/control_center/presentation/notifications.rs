@@ -1,223 +1,225 @@
-//! The notifications panel.
+//! The notifications card: the wall clock over the notification list.
 
 use super::*;
 
+/// Locale wall-clock strings: `("21:47", "Saturday, June 21")`.
+pub(crate) use crate::clock::clock_strings;
+
 impl ControlCenter {
-    /// The top-right notifications stream: each notification as its own
-    /// recessed card — a distinct background, hairline border, and 10px
-    /// gaps so individuals read clearly — newest first, with the tail
-    /// fading out toward the bottom of the region. The scrollbar stays
-    /// hidden until the user wheels over the stream and fades back out
-    /// when idle. Slides in from the top-right.
-    pub(crate) fn render_notifications_panel(
+    pub(crate) fn render_notifications_card(
         &mut self,
         f: &mut Frame,
         rect: Rect,
-        progress: f32,
         i18n: &Localizer,
         out: &mut ChromeEvents,
     ) {
-        let slide = (1.0 - ease_out_cubic(progress)) * 24.0;
-        let rect = Rect {
-            x: rect.x + slide,
-            ..rect
-        };
         let hud = self.panel_colors();
-        let type_scale = self.design.typography;
-        let original = f.theme();
-        let base_theme = themes::hud(&hud);
-        let muted_theme = themes::hud_muted(base_theme, &hud);
+        let design = self.design;
+        let type_scale = design.typography;
+        let base = themes::hud(&hud);
+        let muted = themes::hud_muted(base, &hud);
         let notifications = self.notification_snapshot();
+        let (time, date) = clock_strings();
+        let inner_w = (rect.w - layout::CARD_PAD * 2.0).max(1.0);
 
-        // Small muted section header, still frameless.
-        f.set_theme(muted_theme);
-        f.place(
-            "tessera-hud-notifications-header",
-            &chrome_place(
-                Rect {
-                    x: rect.x,
-                    y: rect.y,
-                    w: rect.w,
-                    h: 18.0,
-                },
-                transparent(),
-            ),
+        let mut dismissed: Vec<u64> = Vec::new();
+        let original = f.theme();
+        f.set_theme(base);
+        materials::place_floating(
+            f,
+            "control-center-notifications",
+            SurfaceRole::FloatingPanel,
+            &design,
+            rect,
+            1.0,
+            LayoutOpts {
+                radius: design.radii.panel_lg,
+                ..materials::canvas_panel(&hud)
+            },
             |f| {
-                f.row_ex(
+                f.column_ex(
                     &LayoutOpts {
                         width: rect.w,
-                        height: 18.0,
-                        cross: Align::Center,
+                        height: rect.h,
+                        pad: layout::CARD_PAD,
+                        gap: layout::SECTION_GAP,
+                        cross: Align::Stretch,
                         ..Default::default()
                     },
                     |f| {
-                        display_label(f, i18n.text(Message::Notifications), type_scale.label);
-                    },
-                );
-            },
-        );
-
-        let body = Rect {
-            x: rect.x,
-            y: rect.y + 24.0,
-            w: rect.w,
-            h: (rect.h - 24.0).max(1.0),
-        };
-
-        if notifications.is_empty() {
-            f.place(
-                "tessera-hud-messages-empty",
-                &chrome_place(body, transparent()),
-                |f| {
-                    f.row_ex(
-                        &LayoutOpts {
-                            width: body.w,
-                            height: body.h,
-                            cross: Align::Center,
-                            ..Default::default()
-                        },
-                        |f| {
-                            display_label(f, i18n.text(Message::NoNotifications), type_scale.body);
-                        },
-                    );
-                },
-            );
-            f.set_theme(original);
-            return;
-        }
-
-        // Scrollbar only while wheel activity keeps it revealed.
-        let scroll_id = "tessera-hud-messages-scroll";
-        let scrollbar_theme = if self.notif_scrollbar_reveal > 0.01 {
-            base_theme
-                .with_scrollbar_width(4.0)
-                .with_scrollbar_radius(2.0)
-                .with_scrollbar_track_color(hud.background.with_alpha(0))
-                .with_scrollbar_thumb_color(hud.surface.with_alpha(150))
-                .with_scrollbar_thumb_hover_color(hud.surface.with_alpha(220))
-        } else {
-            base_theme.with_scrollbar_width(0.0)
-        };
-        f.set_theme(scrollbar_theme);
-
-        f.place(
-            "tessera-hud-messages",
-            &chrome_place(body, transparent()),
-            |f| {
-                f.column_ex(&sized(body.w, body.h), |f| {
-                    f.flex(1.0);
-                    f.scroll(scroll_id, |f| {
+                        // The clock answers "what time is it" for a desktop
+                        // with no top bar.
                         f.column_ex(
                             &LayoutOpts {
-                                width: body.w,
-                                gap: 10.0,
-                                cross: Align::Stretch,
+                                width: inner_w,
+                                height: CLOCK_BLOCK_H,
+                                gap: 2.0,
                                 ..Default::default()
                             },
                             |f| {
-                                for notification in notifications.iter() {
-                                    let id = notification.id;
-                                    let (response, _) = f.pressable_row(
-                                        &format!("tessera-hud-message-{id}"),
-                                        "",
-                                        &LayoutOpts {
-                                            width: body.w,
-                                            cross: Align::Center,
-                                            gap: 10.0,
-                                            pad: 10.0,
-                                            radius: 10.0,
-                                            bg: hud.surface_recessed,
-                                            border: hud.border.with_alpha(60),
-                                            border_width: 1.0,
-                                            ..Default::default()
-                                        },
-                                        |f, _| {
-                                            // One item per card: a distinct
-                                            // recessed background, hairline
-                                            // border, and 10px of breathing
-                                            // room from its neighbours.
-                                            f.icon(Icon::Bell, 14.0);
-                                            f.column_ex(
-                                                &LayoutOpts {
-                                                    flex: 1.0,
-                                                    gap: 2.0,
-                                                    ..Default::default()
-                                                },
-                                                |f| {
-                                                    f.set_theme(base_theme);
-                                                    display_label(
-                                                        f,
-                                                        &notification.summary,
-                                                        type_scale.body,
-                                                    );
-                                                    f.set_theme(muted_theme);
-                                                    display_label(
-                                                        f,
-                                                        &notification.body,
-                                                        type_scale.footnote,
-                                                    );
-                                                },
-                                            );
-                                        },
-                                    );
-                                    if response.clicked {
-                                        out.dismissed_notification = Some(id);
+                                f.set_theme(base);
+                                display_label(f, &time, type_scale.hero);
+                                f.set_theme(muted);
+                                display_label(f, &date, type_scale.body);
+                            },
+                        );
+
+                        f.row_ex(
+                            &LayoutOpts {
+                                width: inner_w,
+                                height: LIST_HEADER_H,
+                                gap: 8.0,
+                                cross: Align::Center,
+                                ..Default::default()
+                            },
+                            |f| {
+                                f.set_theme(base);
+                                display_label(
+                                    f,
+                                    i18n.text(Message::Notifications),
+                                    type_scale.headline,
+                                );
+                                f.flex(1.0);
+                                f.spacer(0.0);
+                                if !notifications.is_empty() {
+                                    f.set_theme(base.with_fg(hud.accent));
+                                    if f.button_subtle(i18n.text(Message::ClearAllNotifications)) {
+                                        dismissed.extend(notifications.iter().map(|n| n.id));
                                     }
                                 }
                             },
                         );
-                    });
-                });
-            },
-        );
 
-        // Tail fade: a canvas-colored gradient plate masks the last stretch
-        // of the stream so items dissolve toward the region's bottom edge.
-        let fade_h = (body.h * 0.22).clamp(24.0, 72.0).min(body.h);
-        f.place(
-            "tessera-hud-messages-fade",
-            &chrome_place(
-                Rect {
-                    x: body.x,
-                    y: body.y + body.h - fade_h,
-                    w: body.w,
-                    h: fade_h,
-                },
-                transparent(),
-            ),
-            |f| {
-                let steps = 10;
-                for step in 0..steps {
-                    let t = step as f32 / steps as f32;
-                    let alpha = (t * t * 255.0) as u8;
-                    f.place(
-                        &format!("tessera-hud-messages-fade-{step}"),
-                        &chrome_place(
-                            Rect {
-                                x: body.x,
-                                y: body.y + body.h - fade_h + fade_h * (step as f32 / steps as f32),
-                                w: body.w,
-                                h: fade_h / steps as f32 + 0.5,
-                            },
-                            LayoutOpts {
-                                bg: hud.background.with_alpha(alpha),
-                                ..Default::default()
-                            },
-                        ),
-                        |f| {
+                        if notifications.is_empty() {
+                            f.set_theme(muted);
                             f.row_ex(
                                 &LayoutOpts {
-                                    width: body.w,
-                                    height: fade_h / steps as f32 + 0.5,
+                                    width: inner_w,
+                                    height: EMPTY_LIST_H,
+                                    gap: 8.0,
+                                    cross: Align::Center,
                                     ..Default::default()
                                 },
-                                |_| {},
+                                |f| {
+                                    f.flex(1.0);
+                                    f.spacer(0.0);
+                                    f.icon_raw(lens::sys::lens_icon_id::LENS_ICON_BELL_OFF, 16.0);
+                                    display_label(
+                                        f,
+                                        i18n.text(Message::NoNotifications),
+                                        type_scale.body,
+                                    );
+                                    f.flex(1.0);
+                                    f.spacer(0.0);
+                                },
                             );
-                        },
-                    );
-                }
+                            return;
+                        }
+
+                        f.flex(1.0);
+                        f.scroll("control-center-notification-list", |f| {
+                            f.column_ex(
+                                &LayoutOpts {
+                                    width: inner_w,
+                                    gap: NOTIFICATION_GAP,
+                                    cross: Align::Stretch,
+                                    ..Default::default()
+                                },
+                                |f| {
+                                    for notification in notifications.iter() {
+                                        if notification_card(
+                                            f,
+                                            notification,
+                                            inner_w,
+                                            hud,
+                                            type_scale,
+                                        ) {
+                                            dismissed.push(notification.id);
+                                        }
+                                    }
+                                },
+                            );
+                        });
+                    },
+                );
             },
         );
         f.set_theme(original);
+        out.dismissed_notifications.extend(dismissed);
     }
+}
+
+/// One notification: the sending app, the summary, and the first line of the
+/// body. Pressing the card dismisses it. Returns whether it was pressed.
+fn notification_card(
+    f: &mut Frame,
+    notification: &Notification,
+    width: f32,
+    hud: ControlCenterColors,
+    type_scale: TypeScale,
+) -> bool {
+    let base = themes::hud(&hud);
+    let muted = themes::hud_muted(base, &hud);
+    let text_w = (width - 24.0 - 16.0 - 10.0).max(1.0);
+    let app = notification
+        .app_id
+        .as_deref()
+        .filter(|app| !app.is_empty())
+        .map(app_label)
+        .unwrap_or_default();
+    let summary = ellipsize(f, &notification.summary, type_scale.body, text_w);
+    let first_line = notification.body.lines().next().unwrap_or_default();
+    let body = ellipsize(f, first_line, type_scale.footnote, text_w);
+    let app = ellipsize(f, &app, type_scale.caption, text_w);
+    let (response, _) = f.pressable_row(
+        &format!("control-center-notification-{}", notification.id),
+        &notification.summary,
+        &LayoutOpts {
+            width,
+            height: NOTIFICATION_H,
+            pad: 12.0,
+            gap: 10.0,
+            radius: 12.0,
+            bg: hud.surface_recessed,
+            cross: Align::Center,
+            ..Default::default()
+        },
+        |f, _| {
+            f.set_theme(muted);
+            f.icon_raw(lens::sys::lens_icon_id::LENS_ICON_BELL, 16.0);
+            f.column_ex(
+                &LayoutOpts {
+                    flex: 1.0,
+                    gap: 1.0,
+                    ..Default::default()
+                },
+                |f| {
+                    if !app.is_empty() {
+                        f.set_theme(muted);
+                        f.label_sized(&app, type_scale.caption);
+                    }
+                    f.set_theme(base);
+                    display_label(f, &summary, type_scale.body);
+                    if !body.is_empty() {
+                        f.set_theme(muted);
+                        f.label_sized(&body, type_scale.footnote);
+                    }
+                },
+            );
+        },
+    );
+    f.set_theme(base);
+    response.clicked
+}
+
+/// A readable app name from an application id: the last reverse-DNS segment
+/// without a `.desktop` suffix (`org.gnome.Nautilus.desktop` → `Nautilus`).
+pub(crate) fn app_label(app_id: &str) -> String {
+    let trimmed = app_id.strip_suffix(".desktop").unwrap_or(app_id);
+    trimmed
+        .rsplit('.')
+        .next()
+        .filter(|segment| !segment.is_empty())
+        .unwrap_or(trimmed)
+        .to_owned()
 }

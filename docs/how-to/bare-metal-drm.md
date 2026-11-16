@@ -69,8 +69,8 @@ the compositor process.
 
 ## Configure displays
 
-Open the command panel with `Super+S`, then use the **Display**
-tab to:
+Run `tessera-settings display` (or open Settings from the Control Center's ⚙
+button) to:
 
 1. Select a connected monitor.
 2. Choose one of its advertised resolution and refresh-rate modes.

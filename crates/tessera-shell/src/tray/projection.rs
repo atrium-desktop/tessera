@@ -1,6 +1,6 @@
 //! Render-thread StatusNotifierItem projection shared by every chrome surface.
 //!
-//! The display-only HUD and the interactive command panel present the same SNI
+//! The display-only HUD and the interactive Control Center present the same SNI
 //! set: read the worker's snapshot, upload each item's pixmap to the GPU once
 //! per icon generation, and drop textures for items that disappear. That policy
 //! previously lived twice, once per surface, and could silently drift. It now

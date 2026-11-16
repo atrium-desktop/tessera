@@ -1,14 +1,14 @@
 ---
 id: ADR-0114
 title: "Panel-hosted settings and the HUD command panel"
-status: accepted
+status: superseded
 date: 2026-08-07
-superseded_by: null
+superseded_by: ADR-0238
 ---
 
 # ADR-0114: Panel-hosted settings and the HUD command panel
 
-- Status: Accepted
+- Status: Superseded by [ADR-0238](0238-settings-is-a-standalone-application-behind-its-own-scope.md)
 - Date: 2026-08-07
 
 ## Context

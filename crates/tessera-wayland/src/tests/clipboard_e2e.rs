@@ -114,13 +114,9 @@ fn which(binary: &str) -> Option<std::path::PathBuf> {
 }
 
 /// Compile the wl_data_device clipboard probe
-/// (`tests/fixtures/wayland/clipboard_probe.c`).
+/// (`tests/fixtures/clipboard_probe.c`).
 fn clipboard_probe_binary() -> Option<std::path::PathBuf> {
-    let source = tessera_test_support::workspace::fixture("wayland/clipboard_probe.c");
-    if !source.exists() {
-        eprintln!("skipping: tests/fixtures/wayland/clipboard_probe.c missing");
-        return None;
-    }
+    let source = super::probe_source("clipboard_probe.c");
     let out = std::env::temp_dir().join(format!("tessera-clip-probe-{}", std::process::id()));
     std::fs::create_dir_all(&out).ok()?;
     let xdg_xml = "/usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml";

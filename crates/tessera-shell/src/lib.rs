@@ -70,7 +70,7 @@ use tessera_desktop::workspace::WorkspaceSnapshot;
 /// modal overlays preserve persistent decorations; an exclusive presentation
 /// temporarily owns the complete chrome band. A held screenshot freeze
 /// outranks every other state: the frozen snapshot already contains the other
-/// components (an open command panel included), so only the selector itself
+/// components (an open Control Center included), so only the selector itself
 /// may draw and receive input until it closes.
 fn participates_in_shell_pass(
     component: &dyn Chrome,
@@ -484,7 +484,7 @@ impl Shell {
         self.events.quit
     }
 
-    /// Drain an immediate-lock request from the chrome (the command panel's
+    /// Drain an immediate-lock request from the chrome (the Control Center's
     /// Lock now row). The main loop feeds it to `IdleProcess::lock_now`.
     pub fn take_lock(&mut self) -> bool {
         std::mem::take(&mut self.events.lock)
@@ -686,9 +686,9 @@ impl Shell {
         self.events.switch_workspace.take()
     }
 
-    /// Drain a notification dismissal requested by the toast stack.
-    pub fn take_dismissed_notification(&mut self) -> Option<u64> {
-        self.events.dismissed_notification.take()
+    /// Drain the notification dismissals the Control Center requested.
+    pub fn take_dismissed_notifications(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.events.dismissed_notifications)
     }
 
     /// Whether the chrome asked to toggle Pivot this frame (e.g. clicking the
@@ -1126,7 +1126,7 @@ impl Shell {
     /// used to answer with [`None`] whenever any component captured the
     /// pointer, on the premise that "chrome reacts somewhere in its own band".
     /// That premise holds for a bar and fails for a component that owns most of
-    /// the output — an open command panel, Pivot — where a single mouse
+    /// the output — an open Control Center, Pivot — where a single mouse
     /// movement repainted the whole screen at the panel's refresh rate.
     ///
     /// Components that capture the pointer answer through
@@ -1245,7 +1245,6 @@ impl Shell {
             || self.components.iter().any(|component| {
                 component.pivot_active()
                     || component.control_center_active()
-                    || component.command_panel_active()
                     || component.overview_active()
             });
         for component in &mut self.components {
@@ -1537,12 +1536,10 @@ impl Shell {
             .any(|component| component.modal_active());
         let window_switcher_active = self.window_switcher_active();
         let exclusive_presentation_active = self.exclusive_presentation_active();
-        let immersive_active = self.components.iter().any(|c| {
-            c.pivot_active()
-                || c.control_center_active()
-                || c.command_panel_active()
-                || c.overview_active()
-        });
+        let immersive_active = self
+            .components
+            .iter()
+            .any(|c| c.pivot_active() || c.control_center_active() || c.overview_active());
         if modal_active
             || window_switcher_active
             || exclusive_presentation_active
@@ -1718,7 +1715,6 @@ impl Shell {
             || self.components.iter().any(|component| {
                 component.pivot_active()
                     || component.control_center_active()
-                    || component.command_panel_active()
                     || component.overview_active()
             });
         for component in &mut self.components {
@@ -2026,7 +2022,7 @@ impl Shell {
                     total.right += edge.right;
                     total
                 });
-            // Immersive modal surfaces (Pivot, Command Panel, Overview, Window Switcher)
+            // Immersive modal surfaces (Pivot, Control Center, Overview, Window Switcher)
             // own the whole output: persistent decorations floating inside the field
             // hide or shed their transient popovers.
             let immersive_active = modal_active
@@ -2034,7 +2030,6 @@ impl Shell {
                 || components.iter().any(|component| {
                     component.pivot_active()
                         || component.control_center_active()
-                        || component.command_panel_active()
                         || component.overview_active()
                 });
             for component in components.iter_mut() {

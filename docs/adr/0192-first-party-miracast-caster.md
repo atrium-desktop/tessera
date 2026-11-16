@@ -321,7 +321,7 @@ unverified half **never** collapses into "ready".
 - A new long-lived protocol surface: RTSP/WFD, MPEG2-TS, RTP, and encoder
   plumbing, plus a sink-compatibility treadmill that no amount of design removes.
 - Two new external dependency families must be admitted through
-  [`dependency-policy.toml`](../../tooling/xtask/dependency-policy.toml) (an iwd
+  [`dependency-policy.toml`](../../xtask/dependency-policy.toml) (an iwd
   D-Bus client and a PipeWire/VA-API path), which is a reviewed capability
   decision per [ADR-0159](0159-package-boundaries-follow-capabilities.md), not a
   drive-by manifest edit.

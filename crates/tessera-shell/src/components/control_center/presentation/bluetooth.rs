@@ -65,7 +65,7 @@ impl ControlCenter {
                                     },
                                 );
                                 if back_resp.clicked {
-                                    self.bluetooth_expanded = false;
+                                    self.show_page(Page::Main, out);
                                 }
 
                                 f.spacer(4.0);

@@ -724,7 +724,7 @@ pub enum SystemAction {
         powered: bool,
     },
     /// Hold or release the session-owned "always on" idle inhibitor (the
-    /// command panel toggle). While held, idle notifications stay resumed:
+    /// Control Center toggle). While held, idle notifications stay resumed:
     /// no automatic dimming, locking, or display power-off.
     ///
     /// Superseded by [`SystemAction::SetPowerMode`] (ADR-0140), which covers

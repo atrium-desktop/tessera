@@ -34,11 +34,6 @@ pub enum GestureAction {
     Overview,
 }
 
-impl GestureAction {
-    #[allow(non_upper_case_globals)]
-    pub const CommandPanel: GestureAction = GestureAction::ControlCenter;
-}
-
 /// The axis a swipe binding listens on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GestureAxis {
@@ -139,9 +134,7 @@ pub fn gesture_action_from_name(s: &str) -> Option<GestureAction> {
         "none" | "unbind" | "disabled" => GestureAction::None,
         "workspace_switch" | "workspaces" | "workspace" => GestureAction::WorkspaceSwitch,
         "window_cycle" | "cycle_windows" | "windows" | "switcher" => GestureAction::WindowCycle,
-        "control_center" | "controlcenter" | "command_panel" | "commandpanel" | "panel" => {
-            GestureAction::ControlCenter
-        }
+        "control_center" | "controlcenter" => GestureAction::ControlCenter,
         "overview" | "window_overview" | "picker" => GestureAction::Overview,
         _ => return None,
     })
@@ -164,7 +157,7 @@ mod tests {
         );
         assert_eq!(
             gm.lookup(4, GestureAxis::Vertical),
-            Some(GestureAction::CommandPanel)
+            Some(GestureAction::ControlCenter)
         );
         // Unbound axes and finger counts have no listener.
         assert_eq!(gm.lookup(4, GestureAxis::Horizontal), None);
@@ -181,11 +174,11 @@ mod tests {
         let gm = GestureMap::defaults().with_overrides(vec![gb(
             3,
             GestureAxis::Vertical,
-            GestureAction::CommandPanel,
+            GestureAction::ControlCenter,
         )]);
         assert_eq!(
             gm.lookup(3, GestureAxis::Vertical),
-            Some(GestureAction::CommandPanel)
+            Some(GestureAction::ControlCenter)
         );
         assert_eq!(
             gm.lookup(3, GestureAxis::Horizontal),
@@ -211,7 +204,7 @@ mod tests {
     #[test]
     fn action_filter_releases_removed_finger_count() {
         let gm =
-            GestureMap::defaults().retain_actions(|action| action != GestureAction::CommandPanel);
+            GestureMap::defaults().retain_actions(|action| action != GestureAction::ControlCenter);
         assert_eq!(gm.lookup(4, GestureAxis::Vertical), None);
         assert!(!gm.claims(4));
         assert!(gm.claims(3));
@@ -237,9 +230,10 @@ mod tests {
             Some(GestureAction::WindowCycle)
         );
         assert_eq!(
-            gesture_action_from_name("command_panel"),
-            Some(GestureAction::CommandPanel)
+            gesture_action_from_name("control_center"),
+            Some(GestureAction::ControlCenter)
         );
+        assert_eq!(gesture_action_from_name("command_panel"), None);
         assert_eq!(
             gesture_action_from_name("overview"),
             Some(GestureAction::Overview)

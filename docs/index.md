@@ -31,7 +31,7 @@ tessera is a Wayland compositor for Linux, written in Rust on
 - Looking up compositor versus direct scanout behavior, KMS plane roles, or
   rejection diagnostics: read the
   [Rendering and KMS Plane Reference](reference/rendering.md).
-- Looking for settings module routes and backend availability: read the
+- Looking for Settings pages and backend availability: read the
   [Settings Reference](reference/settings.md).
 - Starting applications or using app-level window actions: read
   [How to Use the Dock, Launcher, and Prism](how-to/dock-and-launcher.md).

@@ -17,7 +17,7 @@
 //! * **No stack.** A newer reading replaces the current one. Two volume steps in a
 //!   row are one volume reading, not two panels.
 //! * **No history.** When it leaves, it leaves. Anything worth keeping belongs in
-//!   the notification stream or the command panel, which are built for it.
+//!   the notification stream or the Control Center, which are built for it.
 //!
 //! It anchors above the dock's edge — where the user's attention already is when
 //! they reach for a hardware control — and holds no space and no focus.

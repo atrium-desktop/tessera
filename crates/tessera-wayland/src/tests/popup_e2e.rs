@@ -1,7 +1,7 @@
 use super::*;
 
 /// End-to-end popup probes: a tiny C client
-/// (`tests/fixtures/wayland/popup_probe.c`) drives
+/// (`tests/fixtures/popup_probe.c`) drives
 /// real xdg_popup protocol traffic against an in-process `Server`, and the
 /// test feeds it physical input through `forward_input`, asserting on the
 /// wire events the client logs. Ignored by default: building the probe needs
@@ -18,11 +18,7 @@ fn probe_binary(tag: &str) -> Option<std::path::PathBuf> {
         let path = std::path::PathBuf::from(path);
         return path.exists().then_some(path);
     }
-    let source = tessera_test_support::workspace::fixture("wayland").join(source_name);
-    if !source.exists() {
-        eprintln!("skipping: tests/fixtures/wayland/{source_name} missing");
-        return None;
-    }
+    let source = super::probe_source(source_name);
     let out =
         std::env::temp_dir().join(format!("tessera-popup-probe-{}-{tag}", std::process::id()));
     std::fs::create_dir_all(&out).ok()?;
@@ -815,11 +811,7 @@ fn qt_probe_binary(tag: &str) -> Option<std::path::PathBuf> {
         let path = std::path::PathBuf::from(path);
         return path.exists().then_some(path);
     }
-    let source = tessera_test_support::workspace::fixture("wayland/qt_menu_probe.cpp");
-    if !source.exists() {
-        eprintln!("skipping: tests/fixtures/wayland/qt_menu_probe.cpp missing");
-        return None;
-    }
+    let source = super::probe_source("qt_menu_probe.cpp");
     let out = std::env::temp_dir().join(format!("tessera-qt-probe-{}-{tag}", std::process::id()));
     std::fs::create_dir_all(&out).ok()?;
     let bin = out.join("qt_menu_probe");

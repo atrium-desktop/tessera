@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-07-29
+- Amended by: [ADR-0241](0241-system-mirrors-the-install-prefix.md) — installed metadata moved from `contrib/` to the prefix-mirrored `system/`.
 
 ## Context
 

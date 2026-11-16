@@ -314,7 +314,7 @@ fn screenshot_freeze_outranks_modal_and_exclusive_presentations() {
     let exclusive = ExclusivePresentation;
 
     // While the freeze holds, only the selector participates — even when
-    // an exclusive presentation such as the command panel is still open
+    // an exclusive presentation such as the Control Center is still open
     // underneath (its pixels are already part of the frozen snapshot).
     assert!(participates_in_shell_pass(
         &selector, true, true, false, true

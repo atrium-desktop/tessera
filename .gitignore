@@ -6,3 +6,4 @@
 
 # Local backup bundle from the license-rewrite safety step
 *.bundle
+/.commandcode/

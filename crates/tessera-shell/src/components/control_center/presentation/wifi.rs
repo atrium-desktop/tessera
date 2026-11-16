@@ -60,8 +60,7 @@ impl ControlCenter {
                                     },
                                 );
                                 if back_resp.clicked {
-                                    self.wifi_expanded = false;
-                                    self.wifi_input_ssid = None;
+                                    self.show_page(Page::Main, out);
                                 }
 
                                 f.spacer(4.0);
@@ -497,5 +496,38 @@ impl ControlCenter {
             },
         );
         f.set_theme(original);
+    }
+}
+
+impl ControlCenter {
+    /// Typing into the Wi-Fi passphrase prompt. Returns whether the key was
+    /// consumed: Escape cancels the prompt, Return connects, Backspace
+    /// deletes, printable characters append.
+    pub(crate) fn wifi_key_char(&mut self, kc: &KeyChar, out: &mut ChromeEvents) -> bool {
+        let Some(ssid) = self.wifi_input_ssid.clone() else {
+            return false;
+        };
+        match kc.keysym {
+            tessera_primitives::input::XKB_KEY_Escape => {
+                self.wifi_input_ssid = None;
+                self.wifi_input_passphrase.clear();
+            }
+            tessera_primitives::input::XKB_KEY_Return => {
+                let passphrase = (!self.wifi_input_passphrase.is_empty())
+                    .then(|| std::mem::take(&mut self.wifi_input_passphrase));
+                out.system_actions
+                    .push(SystemAction::ConnectWifi { ssid, passphrase });
+                self.wifi_input_ssid = None;
+                self.wifi_input_passphrase.clear();
+            }
+            tessera_primitives::input::XKB_KEY_BackSpace => {
+                self.wifi_input_passphrase.pop();
+            }
+            _ => match kc.ch {
+                Some(c) if !c.is_control() => self.wifi_input_passphrase.push(c),
+                _ => return false,
+            },
+        }
+        true
     }
 }

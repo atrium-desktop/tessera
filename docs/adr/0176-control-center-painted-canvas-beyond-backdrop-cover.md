@@ -1,16 +1,16 @@
 ---
 id: ADR-0176
 title: "Control Center Painted Canvas, Bounded Reveal, and Retired Backdrop Cover"
-status: accepted
+status: superseded
 date: 2026-09-29
 scope: shell/control-center, shell/chrome-contract, motion, presentation
-superseded_by: null
+superseded_by: ADR-0239
 negative_knowledge: true
 ---
 
 # 0176. Control Center Painted Canvas, Bounded Reveal, and Retired Backdrop Cover
 
-- Status: Accepted
+- Status: Superseded by [ADR-0239](0239-the-control-center-is-a-right-anchored-sheet.md)
 - Date: 2026-09-29
 - Deciders: Tessera Maintainers & Shell Architects
 - Consulted: Compositor Runtime & Optics Graphics Team

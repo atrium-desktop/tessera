@@ -133,7 +133,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Notification queue (M9, over the IPC): shared between the IPC handler
     // (reads), the toast chrome component (renders), and this loop (pushes
     // on `Notify`, expires each frame). The TTL is the retention horizon for
-    // the command panel's Messages list, the HUD count, and IPC history —
+    // the Control Center's notifications card and IPC history —
     // the toast strip applies its own 3-second presentation window on top.
     // Declared early so the toast component registration below can clone it.
     let notif_queue: std::sync::Arc<std::sync::Mutex<tessera_desktop::notify::NotificationQueue>> =
@@ -343,11 +343,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // The overview (M9): a modal window/workspace picker over the same live
     // scene; registered with the modal chrome so it covers ordinary overlays.
     shell.add(Box::new(tessera_shell::Overview::new()));
-    // The control center (ADR-0080): the interactive counterpart of the
-    // display-only HUD — quick settings, tray activation with dbusmenu
-    // popovers, and notification dismissal in one modal surface, toggled by
-    // the Super+S binding or a four-finger touchpad swipe.
-    #[cfg(any(feature = "chrome-control-center", feature = "chrome-command-panel"))]
+    // The Control Center sheet: daily controls, the tray, and notifications
+    // in one right-anchored surface, toggled by Super+S or a four-finger
+    // swipe. Persistent settings live in the separate `tessera-settings`
+    // application.
+    #[cfg(feature = "chrome-control-center")]
     shell.add(Box::new(
         tessera_shell::components::control_center::ControlCenter::new(
             device,
@@ -482,9 +482,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // + the borrowed icon cache, which outlives the shell) before registering
     // the dock: `Shell::add` seeds new components with the current catalog.
     // The dock stays last so it stacks above the other chrome.
-    let is_preview = std::env::var_os("TESSERA_COMMAND_PANEL").is_some()
-        || std::env::var_os("TESSERA_COMMAND_PANEL_OPEN").is_some()
-        || std::env::var_os("TESSERA_PREVIEW").is_some();
+    let is_preview = std::env::var_os("TESSERA_PREVIEW").is_some();
     let preview_sandbox = if is_preview {
         let path = std::env::temp_dir().join(format!("tessera-preview-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&path);
@@ -641,7 +639,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|e| e.into_inner())
         .do_not_disturb();
     shell.set_system_status(system_status.clone());
-    // Resource sampling was retired with the command panel's machine
+    // Resource sampling was retired with the Control Center's machine
     // monitor: no surface displays utilization anymore, and an always-on
     // CPU/GPU/RAM/network probe contradicted the panel's event-driven
     // scope. `ResourceProbe` stays available for any future consumer that

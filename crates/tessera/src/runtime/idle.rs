@@ -26,7 +26,7 @@ pub(super) enum IdleControl {
 }
 
 /// Reserved registry id for the session-owned power mode (ADR-0140,
-/// `SystemAction::SetPowerMode`; historically the command panel's Always On
+/// `SystemAction::SetPowerMode`; historically the Control Center's Always On
 /// row). Real IPC connection ids count up from 1, so `u64::MAX` can never
 /// collide; holding the mode in the same registry keeps the two inhibitor
 /// sources folded into one effective flag — a disconnecting IPC client can

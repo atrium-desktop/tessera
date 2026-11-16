@@ -1,4 +1,4 @@
-//! Minimal MPRIS bridge for the command panel's now-playing card.
+//! Minimal MPRIS bridge for the Control Center's now-playing card.
 //!
 //! The render thread never touches D-Bus. A blocking worker periodically
 //! selects the active `org.mpris.MediaPlayer2.*` name, publishes a compact
@@ -56,7 +56,8 @@ impl MediaHandle {
         let _ = self.commands.send(command);
     }
 
-    /// Controllable mock media handle for testing and preview sandboxes (ADR-0169).
+    /// A controllable media handle standing in for a session bus in tests.
+    #[cfg(test)]
     pub fn mock() -> Self {
         let (commands, rx) = mpsc::channel();
         let snapshot = Arc::new(Mutex::new(MediaSnapshot {

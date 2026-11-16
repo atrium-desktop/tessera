@@ -16,7 +16,7 @@ light snapshots.
 | Type | Scope |
 |------|-------|
 | `ProductColors` | Shared application, chrome, interaction, and semantic roles |
-| `CommandPanelColors` | Scheme-adaptive solid command-panel hierarchy |
+| `ControlCenterColors` | Scheme-adaptive solid Control Center hierarchy |
 | `SceneColors` | Compositor clear, scrim, and glass-tint roles |
 | `DockColors` | Scheme-invariant foreground colors painted inside Dock glass |
 
@@ -40,8 +40,9 @@ Rust color fields use `snake_case` and the ordered grammar:
 | State | The interaction or availability state; always last | `hover`, `active`, `selected`, `disabled` |
 
 The containing type supplies an implicit scope. For example,
-`CommandPanelColors::surface_recessed` does not repeat `command_panel`, while
-`ProductColors::application_surface_hover` needs the `application` scope.
+`ControlCenterColors::surface_recessed` does not repeat `control_center`,
+while `ProductColors::application_surface_hover` needs the `application`
+scope.
 
 ### Accepted names
 

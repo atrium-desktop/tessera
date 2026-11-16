@@ -2,7 +2,7 @@
 //! top-right, newest on top — plain floating text in the VR/AR manner, no
 //! background panel, no border, no pointer capture. Each toast is visible
 //! for [`TOAST_TTL_MS`] and then simply gone; every interaction (dismissal)
-//! lives in the command panel's Messages section, which reads the same
+//! lives in the Control Center's notifications card, which reads the same
 //! queue's much longer retention history.
 //!
 //! The component reads a shared [`NotificationQueue`] each frame, so it

@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Settings
+Name[zh_CN]=设置
+GenericName=System Settings
+GenericName[zh_CN]=系统设置
+Comment=Displays, input, power, appearance, the dock, and accessibility
+Comment[zh_CN]=显示、输入、电源、外观、程序坞与辅助功能
+Exec=tessera-settings
+TryExec=tessera-settings
+Icon=com.hihusky.Tessera.Settings
+StartupWMClass=com.hihusky.Tessera.Settings
+Categories=Settings;DesktopSettings;
+Keywords=settings;preferences;display;monitor;input;touchpad;keyboard;power;appearance;theme;dock;accessibility;

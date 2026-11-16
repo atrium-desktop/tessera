@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Shell(cargo:*)"
-    ],
-    "deny": [],
-    "defaultMode": "default"
-  }
-}

@@ -48,6 +48,8 @@ jobs:
         run: cargo run --package xtask -- check-vtables
       - name: ADR registry
         run: cargo run --package xtask -- check-adrs
+      - name: Dist files (ADR-0241)
+        run: cargo run --package xtask -- check-system-files
       - name: Panic discipline (ADR-0195)
         run: cargo run --package xtask -- check-panics
       - name: Install system dependencies
@@ -55,7 +57,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libwayland-dev wayland-protocols \
-            libclang-dev pkg-config mold
+            libclang-dev pkg-config mold desktop-file-utils
+      - name: Validate desktop entries
+        run: desktop-file-validate system/share/applications/*.desktop
       - name: Clippy (flux-free crates)
         run: >-
           cargo clippy --locked
@@ -115,6 +119,8 @@ jobs:
           path: optics
           ref: ${{ steps.optics-release.outputs.ref }}
       - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: clippy
       - name: Set up sccache
         uses: mozilla-actions/sccache-action@v0.0.9
       - name: Install system dependencies
@@ -151,6 +157,10 @@ jobs:
           tool: nextest
       - name: Build workspace binaries
         run: cargo build --locked --workspace --bins
+      # The fast job lints only flux-free crates; this covers the rest,
+      # including the tessera-shell motion rule (ADR-0174, ADR-0240).
+      - name: Clippy (full workspace)
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Test full workspace
         run: cargo nextest run --profile ci --locked --workspace
       - name: Check selective chrome builds

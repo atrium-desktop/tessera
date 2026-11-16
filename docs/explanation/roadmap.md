@@ -241,11 +241,10 @@ schedule. Mixed HDR/SDR multi-output awaits per-output presentation
 surfaces. Multi-monitor rendering correctness and gesture/tablet
 feel need real hardware to verify. The per-output display policy landed as
 `[[output]]` config entries: scale, live DRM mode selection, position, and
-primary are in effect and editable through the command panel's settings
-tabs; the output
+primary are in effect and editable on the Settings Display page; the output
 transform is parsed but deferred until the renderer applies it.
-The settings pages share one module contract hosted by the command panel,
-while unfinished settings domains keep stable module routes but remain
+The settings pages share one module contract in the standalone Settings
+application, while unfinished settings domains keep stable routes but remain
 unavailable.
 
 **Verification.** Two outputs at different scales render correctly and the

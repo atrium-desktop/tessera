@@ -4,7 +4,7 @@ This document codifies the workspace topology, subsystem boundaries, and
 non-negotiable architectural red-lines of Tessera.
 
 The normative source of truth for any individual edge is
-`tooling/xtask/dependency-policy.toml`, checked from Cargo metadata by
+`xtask/dependency-policy.toml`, checked from Cargo metadata by
 `cargo run -p xtask -- check-boundaries`. This document states the layering
 intent that policy encodes.
 
@@ -123,7 +123,7 @@ The `tessera-wayland-protocols` package is a generated C ABI table owned by the
    platform boundary, feature boundary, or resource-ownership boundary. A large
    module with one owner remains a module.
 3. **Explicit Dependency Policy**: Every production package has an explicit
-   entry in `tooling/xtask/dependency-policy.toml`. Unknown packages fail
+   entry in `xtask/dependency-policy.toml`. Unknown packages fail
    validation — there is no default unrestricted role.
 4. **Moving Code Preserves Behavior**: Refactors must preserve tests and
    behavior, and must not leave compatibility facade packages for removed names.

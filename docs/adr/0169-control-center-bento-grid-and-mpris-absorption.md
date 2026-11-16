@@ -1,16 +1,16 @@
 ---
 id: ADR-0169
 title: "Control Center 2D Bento Grid and MPRIS Media Player Absorption"
-status: accepted
+status: superseded
 date: 2026-09-28
 scope: control center, shell, layout, mpris, media
-superseded_by: null
+superseded_by: ADR-0239
 negative_knowledge: true
 ---
 
 # 0169. Control Center 2D Bento Grid and MPRIS Media Player Absorption
 
-- Status: Accepted
+- Status: Superseded by [ADR-0239](0239-the-control-center-is-a-right-anchored-sheet.md)
 - Date: 2026-09-28
 - Deciders: Tessera Maintainers & Core Architects
 - Amends: [ADR-0044](0044-dock-and-control-center-crates.md), [ADR-0080](0080-hud-status-chips-and-sao-command-panel.md), [ADR-0114](0114-panel-hosted-settings-and-hud-command-panel.md), [ADR-0155](0155-workspace-tiering-shell-lexicon-and-state-canonization.md)

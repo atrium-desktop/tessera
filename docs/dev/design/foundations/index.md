@@ -9,7 +9,7 @@ drawing capabilities remain in Optics; adopted Tessera values live in
 
 | ID | Foundation | Status | Current source of truth |
 |----|------------|--------|-------------------------|
-| 1.1 | [Color System](color.md) | Adopted | `colors`, `ProductColors`, `CommandPanelColors`, and `Design` |
+| 1.1 | [Color System](color.md) | Adopted | `colors`, `ProductColors`, `ControlCenterColors`, and `Design` |
 | 1.2 | [Space and Layout](spacing-and-layout.md) | Partial | Shared component metrics plus owner-local layouts |
 | 1.3 | [Shape and Border](shape-and-border.md) | Adopted | `Radii`, `Strokes`, and surface-role geometry |
 | 1.4 | [Elevation and Materials](elevation-and-materials.md) | Adopted | Material factories and surface roles |

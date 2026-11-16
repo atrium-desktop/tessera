@@ -1510,7 +1510,7 @@ impl CompositorRuntime<'_> {
                         origin.clone(),
                     );
                 }
-                if let Some(id) = self.shell.take_dismissed_notification() {
+                for id in self.shell.take_dismissed_notifications() {
                     let cmd = tessera_protocol::Command::DismissNotification { id };
                     apply_command_and_journal(
                         self.server,
@@ -1784,7 +1784,7 @@ impl CompositorRuntime<'_> {
                         effect,
                     );
                 }
-                // The command panel's Lock now row: lock immediately through
+                // The Control Center's Lock now row: lock immediately through
                 // the same idle-process path as the Super+L binding.
                 if self.shell.take_lock() {
                     self.idle_process.lock_now();

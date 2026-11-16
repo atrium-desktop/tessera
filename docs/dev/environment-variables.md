@@ -9,11 +9,11 @@ here provide development-time escape hatches, backend overrides, and testing hoo
 ## Quick Recipe: Nested Testing Inside a Live Tessera Session
 
 When developing inside an active Tessera desktop session, start the nested instance
-with an isolated data directory and auto-opened command panel:
+with an isolated data directory and auto-opened Control Center:
 
 ```bash
 mkdir -p /tmp/tessera-dev/tessera
-TESSERA_COMMAND_PANEL_OPEN=1 \
+TESSERA_PREVIEW=control-center \
 XDG_DATA_HOME=/tmp/tessera-dev \
 XDG_DATA_DIRS=$HOME/.local/share:/usr/local/share:/usr/share \
 cargo run --locked -p tessera
@@ -36,13 +36,12 @@ cargo run --locked -p tessera
 
 | Variable | Values | Purpose |
 |----------|--------|---------|
-| `TESSERA_COMMAND_PANEL_OPEN` | `1`, `true` | **Auto-opens the Command Panel on startup in debug builds**. Bypasses the need for `Super+S` keystrokes (which are captured by the host compositor in nested sessions). |
+| `TESSERA_PREVIEW` | `control-center`, `overview`, `pivot`, `switcher` | **Opens the named surface at startup** and isolates dock state in a temporary sandbox. Bypasses `Super+S` and other keystrokes the host compositor captures in nested sessions. Presentation only. |
 
 > [!NOTE]
-> In debug mode (`debug_assertions`), the compositor automatically pre-populates
-> the notification queue with mock tactical notifications (Network, GPU Telemetry,
-> Security Subsystem, Power Management) if the queue is empty, allowing immediate
-> visual inspection of the top-right notification cards without manual IPC triggers.
+> No build seeds demo notifications or tray items. To fill the Control
+> Center's notifications card, post real ones over IPC:
+> `tessera notification send "Summary" "Body"`.
 
 ---
 

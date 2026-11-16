@@ -12,7 +12,7 @@ the other `docs/` sections; see the [documentation index](../index.md).
 | [Tessera and Optics Cross-Repository Development](cross-repository-development.md) | Worktree-isolated local patches, commit protection, and release promotion |
 | [Miracast Operational Runbook](runbooks/miracast.md) | Operational guide, real-world hardware verification, WFD protocol quirks, and diagnostic playbook |
 | [Nested Backend Development](nested-backend.md) | Successful-build process replacement, scene restoration, and backend validation inside a Wayland session |
-| [Surface Testing](testing/surface-testing.md) | Test model and code conventions for shell surfaces: command-panel and lock-screen previews, nested integration, agent pixel capture, and physical validation |
+| [Surface Testing](testing/surface-testing.md) | Test model and code conventions for shell surfaces: Control Center and lock-screen previews, nested integration, agent pixel capture, and physical validation |
 | [First-Party Application Development](first-party-applications.md) | Installation staging, application discovery, and focused test behavior for standalone system applications |
 | [Distribution Packaging](packaging.md) | Reproducible build inputs, complete install manifest, package integration, and validation |
 | [VT/DRM Manual Testing](testing/vt-drm-testing.md) | Run and try the compositor on real display and input hardware |

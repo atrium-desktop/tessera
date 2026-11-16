@@ -12,6 +12,7 @@ negative_knowledge: true
 
 - Status: Accepted
 - Date: 2026-10-26
+- Amended by: [ADR-0240](0240-repository-automation-at-the-root-and-fixtures-with-their-consumer.md) — the baseline moved to `xtask/panic-baseline.toml`.
 - Deciders: Tessera Maintainers
 
 ---
@@ -63,7 +64,7 @@ with `unwrap_or_else(|e| e.into_inner())`; the gate fails on any occurrence. All
 
 **Rule 2 — no new panic sites (ratchet).** The remaining production panic sites
 are recorded per crate in
-[`tooling/xtask/panic-baseline.toml`](../../tooling/xtask/panic-baseline.toml).
+[`xtask/panic-baseline.toml`](../../xtask/panic-baseline.toml).
 The gate fails when a count rises or a new crate appears with sites and no
 baseline; counts may fall, and `--update` rewrites the ledger so a reduction is
 recorded in the same change.

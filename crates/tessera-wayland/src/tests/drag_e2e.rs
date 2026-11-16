@@ -98,11 +98,7 @@ fn same_client_drag_delivers_drop_before_source_completion() {
 }
 
 fn toplevel_drag_probe_binary() -> Option<std::path::PathBuf> {
-    let source = tessera_test_support::workspace::fixture("wayland/toplevel_drag_probe.c");
-    if !source.exists() {
-        eprintln!("skipping: tests/fixtures/wayland/toplevel_drag_probe.c missing");
-        return None;
-    }
+    let source = super::probe_source("toplevel_drag_probe.c");
     let out = std::env::temp_dir().join(format!("tessera-drag-probe-{}", std::process::id()));
     std::fs::create_dir_all(&out).ok()?;
     let xml = tessera_test_support::workspace::crate_dir("tessera-wayland-protocols")

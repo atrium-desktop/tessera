@@ -1,15 +1,15 @@
 [workspace]
 resolver = "3"
 # Package boundaries are checked from Cargo metadata by `cargo xtask check-boundaries`.
-members = ["crates/*", "tooling/*", "tests"]
+members = ["crates/*", "tests", "xtask"]
 default-members = [
     "crates/tessera",
     "crates/tessera-cli",
     "crates/tessera-lock",
     "crates/tessera-idle",
     "crates/tessera-cast",
+    "crates/tessera-settings",
     "tests",
-    "tooling/xtask",
 ]
 
 [workspace.package]

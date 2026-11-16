@@ -1,7 +1,7 @@
 # Getting Started with Tessera
 
-This tutorial builds Tessera, starts a nested compositor, opens the command
-panel's settings tabs, and queries compositor state.
+This tutorial builds Tessera, starts a nested compositor, opens the Control
+Center and Settings, and queries compositor state.
 Run every command from the Tessera repository root inside an existing Wayland
 session.
 
@@ -55,13 +55,14 @@ Because `WAYLAND_DISPLAY` is set, the default `TESSERA_BACKEND=auto` opens a
 nested Tessera window. The background and the Dock confirm that the
 session is ready.
 
-## Open the Settings Tabs
+## Open the Control Center and Settings
 
-Press `Super+S` inside the nested session. The command panel opens over a
-dark blurred scrim. Select the **Display** or **Touchpad** tab in the main
-panel's tab bar: the settings page renders in place and its edits commit
-through the compositor's revisioned settings transaction. This verifies the
-panel chrome, the hosted settings modules, and the commit path together.
+Press `Super+S` inside the nested session. The Control Center opens as a
+sheet against the right edge, with the desktop still visible. Its ⚙ button
+opens Settings, whose edits commit through the compositor's revisioned
+settings transaction. A debug compositor recognizes the sibling development
+binary; if the compositor and Settings come from different build directories,
+allowlist the binary as described in [Nested Backend](../dev/nested-backend.md).
 
 ## Query Compositor State
 

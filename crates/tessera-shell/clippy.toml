@@ -1,0 +1,15 @@
+# tessera-shell clippy configuration.
+#
+# Clippy reads the nearest clippy.toml and does not merge it with the root
+# one, so this file restates the workspace settings and adds the chrome-only
+# rule. Keep the shared part identical to /clippy.toml.
+
+avoid-breaking-exported-api = false
+
+disallowed-methods = [
+    # Shared with /clippy.toml.
+    { path = "serde_json::from_reader", reason = "Parsing directly from an unbuffered reader is slow. Use `serde_json::from_slice` or `serde_json::from_str` instead." },
+    # INV-ARCH-49 (ADR-0174): chrome motion math goes through `widgets::motion`.
+    { path = "f32::exp", reason = "Hand-rolled motion math. Delegate to `crate::widgets::motion` (`approach`, `blend`, `decay`, `Spring`) (INV-ARCH-49, ADR-0174)." },
+    { path = "f64::exp", reason = "Hand-rolled motion math. Delegate to `crate::widgets::motion` (`approach`, `blend`, `decay`, `Spring`) (INV-ARCH-49, ADR-0174)." },
+]

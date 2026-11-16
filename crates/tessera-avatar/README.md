@@ -17,5 +17,5 @@ still/VRM portrait, motion playback, and hot-reload pipeline
 
 - No authentication: security principals stay in `tessera-authority` and the
   lock-screen boundary.
-- No host process: consumers (command panel, lock host) own the runtime and
+- No host process: consumers (Control Center, lock host) own the runtime and
   pass in the borrowed flux device.

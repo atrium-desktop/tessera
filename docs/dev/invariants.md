@@ -30,7 +30,7 @@ one of four categories:
 | :--- | :--- | :--- | :--- |
 | **System Invariant** | Non-negotiable structural red-lines with cross-boundary blast radius (e.g., protocol purity, composition-root ownership, pre-pass seam uniqueness). | Declared as `[INV-<DOMAIN>-NN]` in the ADR that establishes it. Domain prefixes in use include `ARCH`, `IPC`, `INPUT`, `DND`, `A11Y`, `BT`, `NET`. | 1. Cargo dependency firewalls (`check-boundaries`)<br>2. Dedicated regression test (`test_inv_*`)<br>3. Rust compiler typestates / private visibility |
 | **Domain Contract** | State-machine transitions and behavioral rules within a single crate or subsystem (e.g., Dock autohide reveal, window-switcher phases). | **No global `INV-` tag.**<br>Expressed as named types. | 1. Rust `enum` variants & private field encapsulation<br>2. RAII guard patterns<br>3. Unit tests |
-| **Design Specification** | Visual styling, layout margins, truncation heuristics, motion curves, keyboard shortcuts, theme and material tokens. | **No `INV-` tag.**<br>Expressed as design constants. | 1. `tessera-design` tokens<br>2. `check-motion` zero-math gate (ADR-0174)<br>3. Surface preview snapshots |
+| **Design Specification** | Visual styling, layout margins, truncation heuristics, motion curves, keyboard shortcuts, theme and material tokens. | **No `INV-` tag.**<br>Expressed as design constants. | 1. `tessera-design` tokens<br>2. Clippy `disallowed-methods` zero-math gate in `crates/tessera-shell/clippy.toml` (ADR-0174)<br>3. Surface preview snapshots |
 | **Implementation Note** | Transient workarounds, driver bug workarounds, localized edge-case guards. | **No `INV-` tag.**<br>Standard code comments. | Direct regression unit test |
 
 ---

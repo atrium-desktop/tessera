@@ -110,18 +110,34 @@ inside the package build root.
 | `target/release/tessera` | `/usr/bin/tessera` | core |
 | `target/release/tessera-idle` | `/usr/bin/tessera-idle` | core |
 | `target/release/tessera-lock` | `/usr/bin/tessera-lock` | core |
-| Portal: Meson portal executable | `/usr/libexec/xdg-desktop-portal-atrium` by default | portal |
-| Portal: Meson FileChooser executable | `/usr/libexec/atrium-portal-prompter` by default | portal |
+| `target/release/tessera-settings` | `/usr/bin/tessera-settings` | core |
 | `target/release/tessera-mcp` | `/usr/bin/tessera-mcp` | agent integration |
-| `contrib/systemd/user/tessera.service` | `/usr/lib/systemd/user/tessera.service` | core |
-| `contrib/systemd/user/tessera-shutdown.target` | `/usr/lib/systemd/user/tessera-shutdown.target` | core |
-| `contrib/systemd/tessera-session` | `/usr/bin/tessera-session` | core |
-| `contrib/pam/tessera-lock` | `/etc/pam.d/tessera-lock` | core |
-| Portal: generated D-Bus service | `/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.atrium.service` | portal |
-| Portal: `contrib/xdg-desktop-portal/portals/atrium.portal` | `/usr/share/xdg-desktop-portal/portals/atrium.portal` | portal |
-| Portal: `contrib/xdg-desktop-portal/atrium-portals.conf` | `/usr/share/xdg-desktop-portal/atrium-portals.conf` | portal |
+| `system/bin/tessera-session` | `/usr/bin/tessera-session` | core |
+| `system/lib/systemd/user/tessera.service` | `/usr/lib/systemd/user/tessera.service` | core |
+| `system/lib/systemd/user/tessera-shutdown.target` | `/usr/lib/systemd/user/tessera-shutdown.target` | core |
+| `system/share/applications/com.hihusky.Tessera.Settings.desktop` | `/usr/share/applications/com.hihusky.Tessera.Settings.desktop` | core |
+| `system/share/icons/hicolor/scalable/apps/com.hihusky.Tessera.Settings.svg` | `/usr/share/icons/hicolor/scalable/apps/com.hihusky.Tessera.Settings.svg` | core |
+| `system/etc/pam.d/tessera-lock` | `/etc/pam.d/tessera-lock` | core |
 | `LICENSE` | `/usr/share/licenses/tessera/LICENSE` | core |
-| Portal: `LICENSE` | `/usr/share/licenses/xdg-desktop-portal-atrium/LICENSE` | portal |
+
+`system/` mirrors the installed system: a file at `system/<path>` installs to
+`/usr/<path>`, except `system/etc/<path>`, which installs to `/etc/<path>`. Files
+under `system/bin/` are executable (`0755`); every other file is `0644`.
+`cargo run -p xtask -- check-system-files` keeps this table, the tree, and every
+`system/` path quoted in the documentation in agreement.
+
+The Portal package installs from the
+[xdg-desktop-portal-atrium repository](https://github.com/aegis-shell/xdg-desktop-portal-atrium);
+these source paths are relative to that repository, not to this one:
+
+| Source (portal repository) | Destination |
+|--------|-------------|
+| Meson portal executable | `/usr/libexec/xdg-desktop-portal-atrium` by default |
+| Meson FileChooser executable | `/usr/libexec/atrium-portal-prompter` by default |
+| Generated D-Bus service | `/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.atrium.service` |
+| Portal-provided `atrium.portal` | `/usr/share/xdg-desktop-portal/portals/atrium.portal` |
+| Portal-provided `atrium-portals.conf` | `/usr/share/xdg-desktop-portal/atrium-portals.conf` |
+| `LICENSE` | `/usr/share/licenses/xdg-desktop-portal-atrium/LICENSE` |
 
 `tessera-lock-preview` is a feature-gated contributor tool, not a distribution
 artifact. Package builds must not enable the `dev-preview` feature and must
@@ -212,16 +228,18 @@ systemd-analyze --user verify tessera.service tessera-shutdown.target
 pkg-config --modversion flux vista lens iris reticle
 test -x /usr/bin/tessera-idle
 test -x /usr/bin/tessera-lock
+test -x /usr/bin/tessera-settings
+desktop-file-validate /usr/share/applications/com.hihusky.Tessera.Settings.desktop
 test -r /etc/pam.d/tessera-lock
 systemctl --user daemon-reload
 systemctl --user start tessera.service
 ```
 
-Confirm that the command panel's Power Management tab
-persists an idle policy, `Super+L` authenticates through the installed PAM
-stack, `xdg-desktop-portal-atrium` activates through D-Bus, the preferred portal
-configuration is selected for an Tessera session, and `tessera window` reaches
-the compositor. Run the Interaction Domain sandbox test through the packaged service
+Confirm that Settings (`tessera-settings power`) opens writable — not
+read-only — and persists an idle policy, `Super+L` authenticates through the
+installed PAM stack, `xdg-desktop-portal-atrium` activates through D-Bus, the
+preferred portal configuration is selected for a Tessera session, and
+`tessera window` reaches the compositor. Run the Interaction Domain sandbox test through the packaged service
 topology as described in [Setup](setup.md#tests).
 
 ## Distribution recipes
@@ -324,16 +342,16 @@ package() {
   install -Dm0755 target/release/tessera          "$dest/bin/tessera"
   install -Dm0755 target/release/tessera-idle     "$dest/bin/tessera-idle"
   install -Dm0755 target/release/tessera-lock     "$dest/bin/tessera-lock"
+  install -Dm0755 target/release/tessera-settings "$dest/bin/tessera-settings"
   install -Dm0755 target/release/tessera-mcp "$dest/bin/tessera-mcp"
 
-  install -Dm0644 contrib/systemd/user/tessera.service \
-    "$pkgdir/usr/lib/systemd/user/tessera.service"
-  install -Dm0644 contrib/systemd/user/tessera-shutdown.target \
-    "$pkgdir/usr/lib/systemd/user/tessera-shutdown.target"
-  install -Dm0755 contrib/systemd/tessera-session \
-    "$pkgdir/usr/bin/tessera-session"
-  install -Dm0644 contrib/pam/tessera-lock \
-    "$pkgdir/etc/pam.d/tessera-lock"
+  # system/ mirrors the installed tree; see the Install Manifest.
+  install -Dm0755 system/bin/tessera-session "$dest/bin/tessera-session"
+  install -Dm0644 -t "$dest/lib/systemd/user" system/lib/systemd/user/*
+  install -Dm0644 -t "$dest/share/applications" system/share/applications/*
+  install -Dm0644 -t "$dest/share/icons/hicolor/scalable/apps" \
+    system/share/icons/hicolor/scalable/apps/*
+  install -Dm0644 system/etc/pam.d/tessera-lock "$pkgdir/etc/pam.d/tessera-lock"
 
   install -Dm0644 LICENSE \
     "$pkgdir/usr/share/licenses/tessera/LICENSE"

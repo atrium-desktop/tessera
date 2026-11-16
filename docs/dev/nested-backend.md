@@ -76,11 +76,28 @@ Prefer the built-in launcher. It passes the inner socket to the child process
 explicitly, so launched applications reach the nested compositor regardless of
 the environment they inherited.
 
-The command panel's settings tabs (`Super+S`) exercise the hosted settings
-modules and the compositor's commit path without any separate application.
-See
-[First-Party Application Development](first-party-applications.md) for the
-contract that applies when a standalone first-party application is added.
+Persistent settings are edited in the standalone Settings application. Run it
+against the nested compositor with the inner runtime directory:
+
+```bash
+WAYLAND_DISPLAY=wayland-1 cargo run -p tessera-settings -- display
+```
+
+A debug compositor accepts the `tessera-settings` binary built beside it, so a
+normal workspace run is writable without extra configuration. When the two
+binaries come from different build directories, allowlist the Settings binary
+in the nested session's configuration (`[ipc.scope_executables]`); otherwise
+it opens read-only:
+
+```toml
+schema_version = 2
+
+[ipc.scope_executables]
+tessera-settings = ["/path/to/tessera/target/debug/tessera-settings"]
+```
+
+See [First-Party Application Development](first-party-applications.md) for the
+contract every standalone first-party application follows.
 
 To start a test client from another terminal, copy the inner socket name from
 the `server: listening` log line:
@@ -206,7 +223,7 @@ not hot-reloaded in-process. Repeat this explicit development cycle:
 Each run recreates windows, Wayland connections, IPC state, and other
 in-memory state.
 
-## Debug Chrome and Overlays (Command Panel)
+## Debug Chrome and Overlays (Control Center)
 
 In nested sessions, the host compositor intercepts global `Super` shortcuts
 (such as `Super+S`), preventing them from reaching the nested window.
@@ -215,12 +232,12 @@ Use one of two recommended workflows for overlay debugging:
 
 ### 1. Auto-Open on Startup (Zero Keystrokes)
 
-Pass `TESSERA_COMMAND_PANEL_OPEN=1` to open the Command Panel automatically when
-the nested compositor starts in debug mode:
+Pass `TESSERA_PREVIEW=control-center` to open the Control Center automatically
+when the nested compositor starts:
 
 ```bash
 mkdir -p /tmp/tessera-dev/tessera
-TESSERA_COMMAND_PANEL_OPEN=1 \
+TESSERA_PREVIEW=control-center \
 XDG_DATA_HOME=/tmp/tessera-dev \
 XDG_DATA_DIRS=$HOME/.local/share:/usr/local/share:/usr/share \
 cargo run --locked -p tessera
@@ -235,7 +252,7 @@ the focused nested window. Add a development keybinding in `config.toml`:
 [[keybind]]
 mods = ["ctrl", "alt"]
 key = "s"
-action = "command_panel"
+action = "control_center"
 ```
 
 See [Development Environment Variables](environment-variables.md) for the complete

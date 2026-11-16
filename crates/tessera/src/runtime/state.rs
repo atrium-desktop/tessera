@@ -33,9 +33,9 @@ pub(super) struct SwipeState {
     pub(super) axis: Option<tessera_desktop::gesture::GestureAxis>,
     /// Whether this swipe opened the window switcher (`WindowCycle`).
     pub(super) switcher: bool,
-    /// Whether the command-panel binding already fired (`CommandPanel`);
-    /// latches until SwipeEnd so a long swipe cannot oscillate the panel.
-    pub(super) panel_fired: bool,
+    /// Whether the Control Center binding already fired (`ControlCenter`);
+    /// latches until SwipeEnd so a long swipe cannot oscillate the sheet.
+    pub(super) control_center_fired: bool,
     /// Whether the overview binding already fired (`Overview`); latches
     /// until SwipeEnd so a long swipe cannot oscillate the picker.
     pub(super) overview_fired: bool,

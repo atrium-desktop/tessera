@@ -34,7 +34,7 @@ features. The remaining APIs on this page require the shell's optional
 accepts an explicit ordered list for an embedder that must replace the
 canonical policy.
 
-The lock screen and command panel retain one `PortraitConfig` value and use
+The lock screen and Control Center retain one `PortraitConfig` value and use
 that same value for initial loading, filesystem observation, and every
 transactional reload.
 

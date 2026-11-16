@@ -626,10 +626,7 @@ const fn unavailable_key_action_feature(
             Some("chrome-pivot")
         }
         tessera_desktop::keybind::Action::ToggleControlCenter
-            if !cfg!(any(
-                feature = "chrome-control-center",
-                feature = "chrome-command-panel"
-            )) =>
+            if !cfg!(feature = "chrome-control-center") =>
         {
             Some("chrome-control-center")
         }
@@ -674,10 +671,7 @@ const fn unavailable_gesture_action_feature(
 ) -> Option<&'static str> {
     match action {
         tessera_desktop::gesture::GestureAction::ControlCenter
-            if !cfg!(any(
-                feature = "chrome-control-center",
-                feature = "chrome-command-panel"
-            )) =>
+            if !cfg!(feature = "chrome-control-center") =>
         {
             Some("chrome-control-center")
         }
@@ -686,7 +680,8 @@ const fn unavailable_gesture_action_feature(
 }
 
 /// Built-in trusted named IPC scopes for ordinary owner control, agent
-/// administration, Interaction Domain administration, and portal consent (ADR-0090).
+/// administration, Interaction Domain administration, portal consent, and the
+/// Settings application (ADR-0090).
 /// Config-declared agent scopes were removed in protocol v18 (ADR-0088);
 /// agent capability ceilings now come from the compositor-held principal
 /// registry.
@@ -746,6 +741,16 @@ pub(super) fn builtin_ipc_scopes() -> std::collections::HashMap<String, tessera_
                 ask_ops: None,
             },
         ),
+        // The Settings application: no operation. Its session lease
+        // authorizes revisioned settings transactions; the dispatcher adds
+        // one targeted self-focus exception by name.
+        (
+            tessera_protocol::LOCAL_SETTINGS_SCOPE.to_string(),
+            tessera_protocol::Scope {
+                ops: Some(Vec::new()),
+                ..tessera_protocol::Scope::default()
+            },
+        ),
         // The portal backend (ADR-0075; mechanisms ADR-0052/0054) serves
         // compositor-owned capture, inhibit, target/app/consent prompts, and
         // notification/wallpaper actions through explicit fail-closed ops.
@@ -785,13 +790,17 @@ pub(super) fn builtin_ipc_scopes() -> std::collections::HashMap<String, tessera_
 /// replaces these defaults for its scope.
 pub(super) fn builtin_scope_executables(name: &str) -> Option<Vec<std::path::PathBuf>> {
     let executable = |dir: &str, file: &str| std::path::PathBuf::from(dir).join(file);
-    let paths: Vec<std::path::PathBuf> = match name {
+    let mut paths: Vec<std::path::PathBuf> = match name {
         tessera_protocol::LOCAL_PORTAL_SCOPE => {
             ["/usr/bin", "/usr/libexec", "/usr/lib", "/usr/local/bin"]
                 .into_iter()
                 .map(|dir| executable(dir, "xdg-desktop-portal-atrium"))
                 .collect()
         }
+        tessera_protocol::LOCAL_SETTINGS_SCOPE => ["/usr/bin", "/usr/local/bin"]
+            .into_iter()
+            .map(|dir| executable(dir, "tessera-settings"))
+            .collect(),
         tessera_protocol::LOCAL_OWNER_ADMIN_SCOPE
         | tessera_protocol::LOCAL_AGENT_ADMIN_SCOPE
         | tessera_protocol::LOCAL_INTERACTION_DOMAIN_ADMIN_SCOPE => ["/usr/bin", "/usr/local/bin"]
@@ -800,7 +809,27 @@ pub(super) fn builtin_scope_executables(name: &str) -> Option<Vec<std::path::Pat
             .collect(),
         _ => return None,
     };
+    // A development compositor (`target/debug/tessera`) and its Settings
+    // binary are built together by the workspace. Let the sibling binary
+    // claim the scope without a hand-written allowlist, but only in debug
+    // builds and only when it actually sits next to the compositor. Release
+    // and packaged compositors keep the installed-path allowlist alone.
+    if cfg!(debug_assertions)
+        && name == tessera_protocol::LOCAL_SETTINGS_SCOPE
+        && let Some(sibling) = std::env::current_exe()
+            .ok()
+            .as_deref()
+            .and_then(dev_settings_sibling)
+        && sibling.is_file()
+    {
+        paths.push(sibling);
+    }
     Some(paths)
+}
+
+/// The `tessera-settings` binary next to a development `tessera` executable.
+pub(super) fn dev_settings_sibling(executable: &std::path::Path) -> Option<std::path::PathBuf> {
+    (executable.file_name()? == "tessera").then(|| executable.with_file_name("tessera-settings"))
 }
 
 /// Whether `peer_exe` — the peer's canonicalized `/proc/<pid>/exe` — appears

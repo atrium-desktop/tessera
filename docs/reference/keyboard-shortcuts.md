@@ -11,7 +11,7 @@ application does not also receive the shortcut.
 | `Super+A` | Open or close the full application launcher |
 | `Super+Space` | Open or close Prism application search |
 | `Super+O` | Open or close the window and workspace overview (`Escape` also closes it) |
-| `Super+S` | Open or close the control center (quick settings, settings modules, tray, notifications) |
+| `Super+S` | Open or close the Control Center (quick controls, detail pages, tray, notifications) |
 | `Super+Q` | Close the focused toplevel |
 | `Super+Tab` | Focus the next toplevel and show the live switcher while `Super` remains held |
 | `Super+Shift+Tab` | Focus the previous toplevel and show the live switcher while `Super` remains held |

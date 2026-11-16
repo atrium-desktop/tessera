@@ -47,16 +47,16 @@ loupe frames a reading, so it keeps a rounded body.
 | `preview.inactive_content_brightness` | 0.74 | Opaque brightness for nonfocused preview siblings |
 | `preview.focused` | scale 1.0, lift 0 px | Stationary focus inside an anchored preview panel |
 | `preview.staged` | scale 1.06, lift 7 px | Restrained foreground staging in the window switcher |
-| `CommandPanelColors::background` | rgb(18, 18, 20), alpha 255 | Command panel dark grouped background |
-| `CommandPanelColors::surface` | rgb(28, 28, 30), alpha 255 | Command panel dark elevated surfaces |
-| `CommandPanelColors::surface_recessed` | rgb(22, 22, 24), alpha 255 | Command panel dark recessed surfaces |
-| `CommandPanelColors::border` | white, alpha 28 | Command panel quiet separators |
-| `CommandPanelColors::accent` | rgb(10, 132, 255) | Command panel active tabs, sliders, and gauges |
-| `CommandPanelColors::selection_surface` | rgb(24, 55, 86), alpha 255 | Command panel dark selected surface |
+| `ControlCenterColors::background` | rgb(18, 18, 20), alpha 255 | Control Center dark grouped background |
+| `ControlCenterColors::surface` | rgb(28, 28, 30), alpha 255 | Control Center dark elevated surfaces |
+| `ControlCenterColors::surface_recessed` | rgb(22, 22, 24), alpha 255 | Control Center dark recessed surfaces |
+| `ControlCenterColors::border` | white, alpha 28 | Control Center quiet separators |
+| `ControlCenterColors::accent` | rgb(10, 132, 255) | Control Center active controls, sliders, and gauges |
+| `ControlCenterColors::selection_surface` | rgb(24, 55, 86), alpha 255 | Control Center dark selected surface |
 
-The light command-panel appearance maps the same roles to `rgb(242, 242, 247)`
-for the grouped background, opaque white elevated surfaces, dark text, and
-`rgb(0, 122, 255)` for the accent.
+The light Control Center appearance maps the same roles to
+`rgb(242, 242, 247)` for the grouped background, opaque white elevated
+surfaces, dark text, and `rgb(0, 122, 255)` for the accent.
 
 ## Surface roles
 

@@ -75,8 +75,8 @@ restore behavior.
 
 ## Choose the Minimize Animation
 
-1. Press `Super+S` to open the command panel.
-2. Select the `Dock` tab.
+1. Run `tessera-settings dock`, or open Settings from the Control Center's
+   ⚙ button and select **Dock**.
 3. Set `Minimize animation` to `Genie`, `Scale`, or `Suck`.
 
 The change applies immediately and persists as `minimize_animation` in the

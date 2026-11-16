@@ -11,9 +11,8 @@ log diagnostic and never crashes the compositor.
 
 ## Programmatic Edits
 
-The command panel's settings tabs do not write TOML directly. They submit
-revisioned, typed
-settings transactions to the compositor, which validates authority, serializes
+The Settings application (`tessera-settings`) does not write TOML directly.
+It submits revisioned, typed settings transactions to the compositor, which validates authority, serializes
 all configuration writes, and applies live state. Dock pin changes use the
 same serialized path.
 
@@ -65,7 +64,7 @@ not written back to TOML.
 | `TESSERA_WALLPAPER` | `[wallpaper]`, then bundled image | Process-start source override. Accepts an image, animated image, short video, or model-only `.glb` and disables the configured source mode for that process. |
 | `TESSERA_WALLPAPER_MODEL` | configured model, then unset | Process-start 3D-model override. Set to `builtin` for the procedural knot or to a `.glb` path. Ignored when `TESSERA_WALLPAPER` is a `.glb` or the configured mode is parallax. |
 | `TESSERA_BACKEND` | `auto` | Presentation backend target: `auto`, `drm`, or `nested`. When `auto`, automatically selects `nested` if `$WAYLAND_DISPLAY` is present, or `drm` on bare-metal virtual terminals. Explicit values override detection for CI, direct DRM testing within existing sessions, or display-manager transitions. |
-| `TESSERA_PREVIEW` | unset | Direct component preview routing: `pivot` (or `launcher`, `spotlight`), `control-center` (or `command-panel`), `overview`, or `switcher`. Opens directly into the requested surface on startup and isolates state in a temporary disposable sandbox directory. |
+| `TESSERA_PREVIEW` | unset | Direct component preview routing: `pivot` (or `launcher`, `spotlight`), `control-center` (or `control_center`), `overview`, or `switcher`. Opens directly into the requested surface on startup and isolates state in a temporary disposable sandbox directory. |
 | `TESSERA_OVERLAY_OFFLOAD` | unset | Set to `1` to enable the hardware-validation path for one topmost opaque overlay candidate (ADR-0235). Requires a complete-set atomic `TEST_ONLY` pass; rejection falls back to composition. Unset keeps overlay allocation and presentation disabled. See [KMS Overlay System Test](../dev/testing/kms-overlay-system-test.md). |
 | `TESSERA_COLOR_SCHEME` | `[appearance] color_scheme`, then `system` | Process-start appearance scheme override: `dark`, `light`, or `system`. Overrides persistent configuration for the session and exports to toolkit portals without mutating configuration. Also accepts `TESSERA_THEME` as an alias. |
 | `TESSERA_AVATAR_DEBUG_ASSETS` | unset | Set to `1` in debug builds to prepend `assets/debug/persona/` to avatar discovery before system stills. Ignored in release builds. |
@@ -346,11 +345,10 @@ Per-surface `zwp_idle_inhibit_v1` inhibitors and authorized portal
 those inhibitors. Activity restores a dimmed backlight and wakes powered-down
 outputs behind the lock.
 
-The command panel's Quick Controls (`Super+S`) offer the related controls:
-Lock Now locks the session immediately through the same path as `Super+L`,
-and the two session switches compose into the session power mode
-(ADR-0140): *Keep Screen Awake* is the display axis (never blank) and
-*Automatic Lock* is the security axis. The three resulting modes:
+The Control Center (`Super+S`) offers the related controls: its Lock button
+locks the session immediately through the same path as `Super+L`, and its
+work-mode switch selects the session power mode (ADR-0140). The three
+modes:
 
 | Mode | Dim | Lock | Display off | Suspend |
 |------|-----|------|-------------|---------|
@@ -517,7 +515,7 @@ watchdog_ms = 100   # stall budget before a frame-stall warning is logged
 | `scheduling.frame_nice` | integer | `-10` | Fallback `nice` for the frame thread when realtime is not permitted. |
 | `scheduling.watchdog_ms` | integer | `100` | If the frame loop stalls longer than this, the compositor logs a warning. `0` disables the watchdog. |
 
-The systemd unit `contrib/systemd/user/tessera.service` grants the capabilities
+The systemd unit `system/lib/systemd/user/tessera.service` grants the capabilities
 this needs (`LimitRTPRIO=50`, `LimitNICE=-15`, `LimitMEMLOCK=infinity`). If you
 run the compositor outside the unit (bare TTY, nested development) the priority
 raise is skipped silently; pinning and nice still apply where permitted.
@@ -551,7 +549,7 @@ subscribes to that profile and exports its standard and toolkit-compatible
 projections. See
 [ADR-0072](../adr/0072-desktop-preference-authority-and-toolkit-compatibility.md).
 
-Changes apply on live reload. The command panel's Appearance tab writes the
+Changes apply on live reload. The Settings Appearance page writes the
 `[appearance]` and
 preference-related `[ui]` fields as one validated transaction.
 
@@ -629,9 +627,8 @@ Run `tessera display` to see the modes each connector advertises; the
 `mode` value must match one of them (resolution exactly, refresh to the
 nearest whole hertz).
 
-The command panel's Display tab submits edits for these same `[[output]]`
-entries through the
-compositor. Its display page can select a connected output, choose an
+The Settings Display page (`tessera-settings display`) submits edits for
+these same `[[output]]` entries through the compositor. It can select a connected output, choose an
 advertised resolution and refresh rate, set fractional scale, select the
 primary output, and place an extended output to the right, left, above, below,
 or at custom logical coordinates. Existing comments, unrelated settings, and
@@ -652,7 +649,7 @@ case-insensitively.
 | `autohide` | boolean | `false` | Whether the dock automatically hides offscreen into a thin glass capsule when not in use. Maximized windows force autohide overlay behavior regardless of this setting. |
 | `autohide_timeout` | float | `0.50` | Inactivity delay in seconds before an autohidden dock collapses after interaction. Retreating from an unengaged reveal uses an accelerated 0.15s exit. |
 | `autohide_dwell` | float | `0.18` | Continuous hover dwell time in seconds required on the collapsed indicator before expanding. Prevents accidental reveals while skimming bottom-edge content. |
-| `minimize_animation` | string | `"genie"` | The effect played when a window minimizes into its dock tile (and, reversed, when it restores): `"genie"` funnels the window's lower edge into the icon first, `"scale"` shrinks the window uniformly into the icon, and `"suck"` collapses it into the icon's centre with accelerating ease-in. Also selectable from the command panel's Dock tab. |
+| `minimize_animation` | string | `"genie"` | The effect played when a window minimizes into its dock tile (and, reversed, when it restores): `"genie"` funnels the window's lower edge into the icon first, `"scale"` shrinks the window uniformly into the icon, and `"suck"` collapses it into the icon's centre with accelerating ease-in. Also selectable on the Settings Dock page. |
 
 ```toml
 [dock]
@@ -694,7 +691,7 @@ belongs to windows. Its readings now live where the question is asked.
   (ADR-0214): a small surface above the Dock, shown for a couple of seconds when
   a value changes. It captures no pointer and no keyboard and keeps no history.
 - **Notification history and every former status-bar interaction** stay in the
-  command panel (`Super+S`, or a four-finger touchpad swipe down; see
+  Control Center (`Super+S`, or a four-finger touchpad swipe down; see
   [Key Bindings](#key-bindings) and [System Shortcuts](keyboard-shortcuts.md)).
 
 `[hud]` is no longer a recognized table. A configuration that still carries it is
@@ -873,6 +870,7 @@ naming the scope resolves only when the peer's canonicalized
 | `tessera-owner-admin` | `tessera` in `/usr/bin`, `/usr/local/bin` |
 | `tessera-agent-admin` | `tessera` in `/usr/bin`, `/usr/local/bin` |
 | `tessera-interaction-domain-admin` | `tessera` in `/usr/bin`, `/usr/local/bin` |
+| `tessera-settings` | `tessera-settings` in `/usr/bin`, `/usr/local/bin`; in debug builds also the sibling of the running `tessera` binary |
 
 The `[ipc.scope_executables]` sub-table replaces the compiled-in allowlist
 per scope: a scope named there admits exactly the listed paths — an empty
@@ -952,7 +950,7 @@ Letters (`a`–`z`, lowercased), digits (`0`–`9`), and the common controls:
 |------|---------|--------|
 | `pivot` | `togglepivot`, `prism`, `toggleprism`, `spotlight`, `launcher`, `togglelauncher`, `apps` | Open or close the Pivot system intent surface (ADR-0151) |
 | `overview` | `toggleoverview` | Open or close the window and workspace overview |
-| `control_center` | `controlcenter`, `command_panel`, `commandpanel`, `panel` | Open or close the control center (quick settings, settings modules, tray, notifications) |
+| `control_center` | `controlcenter` | Open or close the Control Center (quick controls, detail pages, tray, notifications) |
 | `close` | `closefocused` | Close the focused toplevel |
 | `cycle` | `next` | Move focus to the next toplevel; while `Super` remains held, show the live preview strip |
 | `prev` | `previous`, `cycleback` | Move focus to the previous toplevel; while `Super` remains held, show the live preview strip |
@@ -1048,7 +1046,7 @@ swipe's dominant direction selects the direction inside the action.
 |------|---------|--------|
 | `workspace_switch` | `workspaces`, `workspace` | Horizontal: swipe left switches to the next workspace, right to the previous one |
 | `window_cycle` | `cycle_windows`, `windows`, `switcher` | Vertical: swipe up focuses the next toplevel on the current workspace, down the previous one; the live switcher stays open until the gesture ends |
-| `control_center` | `controlcenter`, `command_panel`, `commandpanel`, `panel` | Vertical: swipe down opens the control center, up closes it; fires once per gesture |
+| `control_center` | `controlcenter` | Vertical: swipe down opens the Control Center, up closes it; fires once per gesture |
 | `overview` | `window_overview`, `picker` | Vertical: swipe up opens the window/workspace overview, down closes it; fires once per gesture |
 | `none` | `unbind`, `disabled` | Consume the swipe without acting; shadows the built-in default on this axis |
 
@@ -1064,7 +1062,7 @@ configured:
 | 4 | vertical | `control_center` |
 
 The four-finger vertical swipe opened the overview between ADR-0116 and
-ADR-0119. Re-add that binding (shadowing the command panel default) with:
+ADR-0119. Re-add that binding (shadowing the Control Center default) with:
 
 ```toml
 [[gesture]]

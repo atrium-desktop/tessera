@@ -459,8 +459,8 @@ mod tests {
     #[test]
     fn canvas_panel_material_is_opaque_in_both_schemes() {
         for colors in [
-            crate::CommandPanelColors::dark(),
-            crate::CommandPanelColors::light(),
+            crate::ControlCenterColors::dark(),
+            crate::ControlCenterColors::light(),
         ] {
             let material = canvas_panel(&colors);
             assert_eq!(material.bg, colors.surface);

@@ -12,7 +12,7 @@
 //! watcher already owns the name, [`spawn`] returns `None` and shell chrome
 //! simply shows no SNI icons. The composition root spawns the service once
 //! and shares the handle between the display-only HUD and the
-//! interactive command panel (ADR-0080).
+//! interactive Control Center (ADR-0080).
 //!
 //! Items that expose a `com.canonical.dbusmenu` object path (the SNI `Menu`
 //! property) also receive host-rendered context menus: the worker fetches the

@@ -61,9 +61,8 @@ Run a live, reversible smoke test before connecting the agent:
 target/release/tessera-mcp smoke
 ```
 
-Watch for an agent notification and a temporary `Tessera Agent · Active` or
-`Tessera Agent · Paused` label in the command panel's Agent Workspaces status
-row (`Super+S`, **System** tab). The row reports Interaction Domain
+Watch for an agent notification, and check `tessera interaction-domain list`
+for the `Tessera Agent` domain's state. It reports Interaction Domain
 authority, not whether the agent process is online. The first smoke run
 after pairing prompts for the sensitive Interaction Domain operations one
 by one; *Allow session* covers the rest of the session.
@@ -79,7 +78,7 @@ completion after cleanup, so the visible result remains available after
 the Agent indicator disappears.
 
 Do Not Disturb may suppress the transient toast. The notification remains
-visible in the command panel's notification list, and the command still verifies its
+visible in the Control Center's notification list, and the command still verifies its
 presence in compositor state. A successful command prints a JSON report
 with `"mode": "live"` and `"status": "passed"`.
 

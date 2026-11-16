@@ -499,7 +499,7 @@ pub struct ChromeEvents {
     /// that produces no animation and no snapshot revision. Without it a popup
     /// that opens and closes without animating never reaches the output.
     pub scene_changed: bool,
-    /// The chrome asked to lock the session immediately (the command panel's
+    /// The chrome asked to lock the session immediately (the Control Center's
     /// Lock now row). Drained by the main loop into the same lock path as the
     /// Super+L binding.
     pub lock: bool,
@@ -537,9 +537,10 @@ pub struct ChromeEvents {
     pub clipboard_copy: Option<String>,
     /// Natural-language prompt dispatched from Pivot to the Agent Broker.
     pub agent_prompt: Option<String>,
-    /// Notification id the toast stack asked to dismiss. Drained through the
-    /// same command/journal path as an IPC dismissal.
-    pub dismissed_notification: Option<u64>,
+    /// Notification ids the user dismissed this frame (one card, or every
+    /// card through "Clear all"), in order. Drained through the same
+    /// command/journal path as an IPC dismissal.
+    pub dismissed_notifications: Vec<u64>,
     /// Window id the overview asked to focus this frame (a thumbnail click).
     /// Drained through the focus command/journal path; picking also closes
     /// the overview.
@@ -847,15 +848,9 @@ pub trait Chrome {
         None
     }
 
-    /// Whether the component's control center is currently open.
+    /// Whether the component's Control Center sheet is open or animating.
     /// Default `false`.
     fn control_center_active(&self) -> bool {
-        self.command_panel_active()
-    }
-
-    /// Whether the component's command panel is currently open.
-    /// Default `false`.
-    fn command_panel_active(&self) -> bool {
         false
     }
 

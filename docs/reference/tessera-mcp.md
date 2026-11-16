@@ -57,7 +57,6 @@ local position, journal sequence, and restoration result.
 | Surface | Behavior |
 |---------|----------|
 | Notification toast and history | Shows agent-originated notifications. Do Not Disturb suppresses only the toast. |
-| Command panel Agent Workspaces status row | In the System tab. One live Interaction Domain shows its own label; multiple Interaction Domains show a count and aggregate state. It does not report whether an agent process is online. |
 | Agent operation feedback | After Interaction Domain input is applied, shows a semi-transparent mask and an operation label over the visible read-only mirror, with an arrow-cursor sprite at the applied pointer position and a mouse sprite highlighting the pressed button for clicks and scrolls. Hidden targets and positionless input use a background-operation pill. This never moves the user's XDG cursor and is excluded from Interaction Domain capture. |
 | `tessera interaction-domain list` | Shows each Interaction Domain's authority revision, state, seat, and controlled-window count. |
 | Overview Interaction Domain shelf | Shows live Interaction Domain targets and window authority during overview and drag transfer. |

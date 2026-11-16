@@ -860,8 +860,8 @@ executable allowlist, or the claim is refused with
 `ScopeClaim` refusal; an unreadable identity fails closed. The same match
 governs the `[agent] lockdown` exemption, so the exemption can never be
 name-only. Compiled-in allowlists map `atrium-portal` to
-`xdg-desktop-portal-atrium` and the admin scopes to the `tessera` CLI in the
-usual install prefixes; the additive `[ipc.scope_executables]` config
+`xdg-desktop-portal-atrium` the admin scopes to the `tessera` CLI, and `tessera-settings` to the Settings
+application in the usual install prefixes; the additive `[ipc.scope_executables]` config
 table replaces them per scope (see the
 [configuration reference](config.md#ipc)). Anonymous connections and
 paired agents are unaffected: peer identity binds platform components,
@@ -870,6 +870,17 @@ never agents (ADR-0088).
 Native `tessera` commands use separate `tessera-owner-admin`,
 `tessera-interaction-domain-admin`, and `tessera-agent-admin` scopes for ordinary
 owner mutations, Interaction Domain recovery, and agent-registry administration.
+
+The Settings application uses the built-in `tessera-settings` scope, bound to
+`tessera-settings` in `/usr/bin` and `/usr/local/bin`; a debug compositor
+also accepts the sibling `tessera-settings` built beside it. It keeps
+`session` and a lease under lockdown, but its operation list is empty and the
+server refuses every `Do` command on it — including session commands such as
+`Quit`, which scopes otherwise do not gate. The sole exception is `Focus`
+when the target window's app id is Settings itself, which lets a later
+invocation raise the running window. The scope therefore authorizes
+`Settings` transactions plus self-focus and nothing else
+([ADR-0238](../adr/0238-settings-is-a-standalone-application-behind-its-own-scope.md)).
 
 `xdg-desktop-portal-atrium` uses the built-in owner-only `atrium-portal`
 scope, which grants exactly these operations: `CaptureOutput` for Screenshot,

@@ -8,7 +8,6 @@ tests/
   common/            shared helpers; re-exports tessera-test-support
   integration/       one entry, one link: main.rs + modules
   e2e/               one entry, one link: main.rs + modules
-  fixtures/          C/C++ probes and data used by end-to-end tests
 ```
 
 Run both suites:

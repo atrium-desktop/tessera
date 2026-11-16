@@ -1,77 +1,51 @@
-//! The command panel: a full-screen modal overlay in a personal-info HUD
-//! language (ADR-0080). The presentation uses an opaque, scheme-adaptive
-//! canvas with solid elevated surfaces: pale grouped grays and white panels
-//! in light mode, near-black grouped grays in dark mode, and system blue for
-//! shared interactive emphasis.
+//! The Control Center: a sheet anchored to the right edge of the output.
 //!
-//! The canvas is the panel's *own* painted background (ADR-0176): a full-screen
-//! solid fill in the lens `Backdrop` band, faded by the reveal spring. The
-//! panel declares no capture, blur, or frost, and paints its own canvas, so
-//! its enter/exit never captures or composites the desktop behind it — the
-//! reveal is a paint-only fade. This is the panel's documented rendering budget
-//! made real: the full-screen 16σ Gaussian blur + scrim cover it used to declare
-//! forced a full-resolution effect recompute and a full-output repaint on every
-//! frame of the open and close.
+//! Two cards make up the sheet (see [`layout`]):
 //!
-//! One centered cluster of surfaces: a frameless user identity block with
-//! the avatar, display name, `@username · groups`, and the hostname on the
-//! left; the main panel to its right, hosting the Quick Controls tab plus
-//! one tab per available settings module; a notification stream of
-//! individually-carded items in the top-right that fades out at its tail; a
-//! clock and date at top-center; the tray icons as a bottom-anchored shelf at
-//! the bottom-left corner, sized to the display and disclosing its overflow
-//! (ADR-0197). The right-bottom corner is one horizontal band
-//! pinned flush to the edges: a work-mode segmented control, an explicit
-//! lock button, and an explicit power button that uses the system-level
-//! power-off confirmation. Quick Controls holds the daily toggles — volume, brightness,
-//! always-on, do-not-disturb — while the System tab keeps the remaining
-//! quick settings and the Agent Workspaces status row (ADR-0083); settings
-//! module tabs host the module registry's pages and route their
-//! `SettingsAction`s through `ChromeEvents::settings_actions`; the tray
-//! keeps left-click activation with host-rendered dbusmenu popovers, and
-//! the notification list keeps click-to-dismiss. Panel-wide display
-//! typography is bold sans-serif at amplified sizes — the game-HUD voice.
-//! The panel opens through the `Super+S` keybinding or a four-finger
-//! touchpad swipe down, and closes on Escape, a scrim click, the same
-//! binding, or a four-finger swipe up.
+//! - the **controls** card — the persona header with Settings, Lock, and Power
+//!   actions; connectivity and preference tiles; the sound, brightness,
+//!   microphone, and keyboard-backlight controls; the now-playing card; the
+//!   work-mode switch; and the tray row. Wi-Fi, Bluetooth, Cast, and Sound
+//!   drill into a detail page in place, with a Back affordance.
+//! - the **notifications** card — the wall clock and date over the
+//!   notification list, newest first, with dismiss-one and clear-all.
 //!
-//! Scope (ADR-0115): the panel is the display-and-control surface for
-//! desktop-computer behavior — the domains daily desktop use involves:
-//! sound, displays, network and Bluetooth, power, the session,
-//! notifications, the tray, the user's persona, and desktop preferences.
-//! The scope test is the user's computer, not this compositor: a surface
-//! belongs when its subject exists on any desktop computer regardless of
-//! the compositor implementation. Compositor-
-//! mechanism surfaces — window-tree internals, protocol or IPC state,
-//! introspection, developer tooling — stay out and remain CLI/MCP
-//! territory. Domains follow the user's model rather than the implementing
-//! component, so window tiling and Agent Workspaces are in scope while
-//! Interaction Domain lifecycle management is not.
+//! The sheet floats over the live desktop: no full-output canvas, no scrim, no
+//! backdrop capture. Its paint is bounded by its cards, so its cost follows its
+//! area (ADR-0213) and its damage is the cards' footprint. It opens with
+//! `Super+S`, a four-finger swipe down, or a press on the Dock's reading cells,
+//! and closes on `Escape`, a press outside the cards, the same keybinding, or a
+//! four-finger swipe up. While presented it owns the pointer and keyboard, so a
+//! dismissing press never leaks into the window beneath it.
 //!
-//! Like the HUD and the dock, the panel is compositor-owned lens chrome on
-//! the `tessera_shell` `Chrome` seam: snapshots arrive through the
-//! trait each frame, and user intents leave through `ChromeEvents` plus the
-//! shared SNI tray command channel.
+//! Persistent settings are not edited here. They belong to the Settings
+//! application (`tessera-settings`), which the header's gear opens; the sheet
+//! only toggles the color scheme, because that is a daily control rather than
+//! configuration.
+//!
+//! Scope (ADR-0115): the sheet is the display-and-control surface for
+//! desktop-computer behavior — sound, displays, network and Bluetooth, power,
+//! the session, notifications, the tray, and the user's persona. Compositor
+//! mechanism (window-tree internals, IPC state, introspection) stays in the CLI
+//! and MCP.
+//!
+//! The component owns presentation and interaction state only. Snapshots
+//! arrive through the `Chrome` trait; intents leave through `ChromeEvents` and
+//! the shared tray command channel.
 
 use std::ffi::c_void;
 use std::sync::{Arc, Mutex};
 
-use crate::components::settings::builtin_settings_modules;
-use crate::components::settings::module::{
-    ModuleAvailability, ModuleEvents, ModuleId, ModuleRegistry,
-};
 use crate::widgets::motion::{Spring, SpringParams};
 use crate::widgets::tiered::TieredIndicator;
-use lens::{Align, Color, Frame, Input, LayoutOpts, PlaceMode, PlaceOpts, Rect};
-use tessera_authority::interaction_domain::InteractionDomainSnapshot;
+use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 use tessera_avatar::persona::{Portrait, PortraitConfig, PortraitWatcher, Profile};
 use tessera_design::tokens::TypeScale;
-use tessera_design::{AvatarRole, ControlCenterColors, Design, materials, themes};
+use tessera_design::{AvatarRole, ControlCenterColors, Design, SurfaceRole, materials, themes};
 use tessera_desktop::notify::Notification;
 use tessera_desktop::notify::NotificationQueue;
 use tessera_desktop::power::PowerMode;
-use tessera_desktop::settings::SettingsAction;
-use tessera_desktop::settings::SettingsSnapshot;
+use tessera_desktop::settings::DesktopPreferences;
 use tessera_desktop::window::Window;
 use tessera_desktop::workspace::WorkspaceSnapshot;
 use tessera_primitives::input::KeyChar;
@@ -83,85 +57,72 @@ use crate::component::{
 pub(super) use crate::tray;
 use crate::tray::{MenuNode, MenuState, TrayCommand, TrayHandle, TrayProjection};
 
+mod layout;
 mod mpris;
 mod rendering;
 mod tray_shelf;
 
+use layout::{SheetLayout, sheet_layout};
 use mpris::{MediaCommand, MediaHandle};
 use rendering::*;
 
 #[cfg(test)]
 mod tests;
 
-/// Layout constants for the 8-part visual HUD anchor architecture:
-/// - Top-Left (左上): Compact user profile chip (48px avatar + name).
-/// - Top-Center (上中): Clock & date, frameless.
-/// - Top-Right (右上): Floating notification stream (frameless items).
-/// - Bottom-Left (左下): The tray shelf (ADR-0197) — icons stacked upward from
-///   the bottom edge, in a capsule sized to its occupied slots.
-/// - Center (中): Unified Main Control Panel (navigation + active page).
-/// - Right-Bottom (右下): Mode selector, lock button, and power button.
-const PROFILE_W: f32 = 300.0;
-const PROFILE_H: f32 = 84.0;
-const MAIN_W: f32 = 820.0;
-/// Main panel height. Sized to the Quick Controls Bento grid's natural height:
-/// 3 tile rows (58px) + four fader/tier rows (72px: brightness, sound,
-/// microphone, keyboard backlight) + 6 row gaps (10px) = 522px of body, plus
-/// the view header (42px), its 8px gap, and 10px vertical padding top and
-/// bottom = 616px of panel content. 620 leaves a small breathing margin so the
-/// last fader row never crowds the panel's bottom rim.
-///
-/// The microphone row (ADR-0216) is conditional on a sound server answering, so
-/// this is the *maximum* the grid reaches; `quick_controls_grid_fits_the_main_panel_body`
-/// pins that maximum against this constant.
-const MAIN_H: f32 = 620.0;
-const NOTIF_W: f32 = 260.0;
-const NOTIF_H: f32 = 200.0;
-/// The clock surface's footprint at top-center; the real glyph box is much
-/// smaller and centered inside.
-const CLOCK_W: f32 = 320.0;
-const CLOCK_H: f32 = 96.0;
+// ---- controls card rhythm -------------------------------------------------
+
+/// The persona header row.
+const HEADER_H: f32 = 48.0;
+/// The session strip the power button discloses under the header.
+const SESSION_STRIP_H: f32 = 40.0;
+/// One tile row in the toggle grid.
+const TILE_H: f32 = 58.0;
+const TILE_GAP: f32 = 10.0;
+/// One fader card: a 24px title row, an 8px gap, a 20px trough, and 10px of
+/// padding above and below.
+const FADER_H: f32 = 72.0;
+/// The now-playing card.
+const MEDIA_H: f32 = 92.0;
+/// The work-mode segmented control.
+const WORK_MODE_H: f32 = 40.0;
 /// One tray cell: the hover plate / hit area around the icon. A pager chevron
 /// is the same size, so turning a page never demands more precision than
 /// pressing the icon beside it (ADR-0221).
 const TRAY_CELL: f32 = 40.0;
 /// The SNI glyph itself, centered in the cell.
 const TRAY_ICON: f32 = 22.0;
-/// Horizontal rhythm between tray shelf slots (ADR-0221).
+/// Horizontal rhythm between tray slots (ADR-0221).
 const TRAY_GAP: f32 = 10.0;
-/// Inset between the tray shelf's capsule boundary and its contained icons.
+/// Inset between the tray capsule and its icons.
 const TRAY_PAD: f32 = 8.0;
-/// The right-bottom band: one mode selector followed by the lock and power
-/// buttons. All three components share one compact baseline.
-const WORK_MODE_W: f32 = 252.0;
-const WORK_MODE_H: f32 = 44.0;
-const POWER_PANEL_W: f32 = 94.0;
-/// The main panel's flat tab bar.
-const PANEL_GAP: f32 = 12.0;
-/// Main panel's reveal lags the header's by this fraction.
-const CONTENT_STAGGER: f32 = 0.18;
-/// The side column's reveal lags the header's by this fraction.
-const SIDE_STAGGER: f32 = 0.26;
+/// The tray row: one cell plus the capsule's inset.
+const TRAY_ROW_H: f32 = TRAY_CELL + TRAY_PAD * 2.0;
+/// A detail page never collapses below this, so its list has room to read.
+const DETAIL_MIN_H: f32 = 520.0;
+/// A header icon button.
+const HEADER_BUTTON: f32 = 36.0;
+/// Space a scrolling column leaves for its scrollbar.
+const SCROLL_GUTTER: f32 = 12.0;
 
-/// Session action buttons in the right-bottom band.
-const SESSION_BUTTON: f32 = 44.0;
-const SESSION_BUTTON_GAP: f32 = 6.0;
+// ---- notifications card rhythm --------------------------------------------
 
-// Segmented-control indicator spring tuning lives with the shared
-// `TieredIndicator` (crate::widgets::tiered): the power-mode selector and the
-// keyboard-backlight selector share it, so every segmented control in the shell
-// settles identically.
+/// The clock block: hero time over the date.
+const CLOCK_BLOCK_H: f32 = 76.0;
+/// The "Notifications · Clear all" row.
+const LIST_HEADER_H: f32 = 36.0;
+/// One notification card: app line, summary, and a one-line body.
+const NOTIFICATION_H: f32 = 72.0;
+const NOTIFICATION_GAP: f32 = 8.0;
+/// The empty state.
+const EMPTY_LIST_H: f32 = 64.0;
 
-// The keyboard-backlight tier ladder is derived from the hardware's own
-// `max_brightness` via `SystemStatus::kbd_brightness_tiers` (ADR-0168
-// amendment); the documented four-rung default lives in `tessera-desktop` as
-// `KBD_BRIGHTNESS_FALLBACK_TIERS` and is only used by the stepping action.
-
-/// The command panel explicitly owns its VRM composition. Keeping the
-/// parameters here lets another host choose a different crop without changing
-/// the VRM renderer or the shared portrait source policy.
+/// The panel explicitly owns its VRM composition. Keeping the parameters here
+/// lets another host choose a different crop without changing the VRM
+/// renderer or the shared portrait source policy.
 const AVATAR_CAMERA: tessera_avatar::persona::VrmCamera =
     tessera_avatar::persona::VrmCamera::new(28.0, 0.25, 0.48, 0.0);
+/// Header avatar diameter.
+const AVATAR_SIZE: f32 = 40.0;
 
 // dbusmenu popover geometry. Placement follows the shared shell popup policy.
 const MENU_WIDTH: f32 = 236.0;
@@ -171,56 +132,40 @@ const MENU_HEADER_HEIGHT: f32 = 23.0;
 const MENU_SEP_GAP: f32 = 4.0;
 const MENU_SEPARATOR_HEIGHT: f32 = MENU_SEP_GAP * 2.0 + 1.0;
 
-/// Reveal spring tuning (ADR-0176, ADR-0178). The panel's enter/exit travels on a
-/// critically damped spring (ζ = 1.0) so the full-screen canvas fade approaches
-/// its endpoint from one side only — an under-damped reveal would overshoot the
-/// opaque canvas past full opacity, reading as a flash at the end of every open.
-/// `stiffness` 480 (ω₀ ≈ 21.9 rad/s) settles cleanly within ≈0.22 s, delivering
-/// a snappy, responsive transition while eliminating the previous sluggish 0.48 s
-/// tail of full-output repaints (ADR-0172 `[INV-ARCH-44]`, ADR-0178).
+/// Reveal spring (ADR-0176, ADR-0178): critically damped, so the fade and the
+/// slide approach their endpoint from one side only.
 const REVEAL_SPRING: SpringParams = SpringParams::new(480.0, 1.0);
-/// Value/velocity tolerances at which the reveal spring is considered at rest.
 const REVEAL_SETTLE_VALUE_EPS: f32 = 0.004;
 const REVEAL_SETTLE_VELOCITY_EPS: f32 = 0.04;
+/// Frames the sheet keeps reporting its footprint after its reveal settles
+/// (ADR-0227): every swapchain ring slot must repaint the pixels the cards
+/// covered or uncovered. One more than `FLUX_MAX_FRAMES_IN_FLIGHT` (3).
+const RETIRE_FRAMES: u8 = 4;
+/// Delay before a hovered icon button's tooltip starts to appear.
+const TOOLTIP_DELAY: f32 = 0.45;
 
-/// Frames the panel keeps reporting full-output damage after its reveal settles
-/// (ADR-0171 `[INV-ARCH-03]`, ADR-0176, ADR-0227). The panel's canvas is opaque
-/// and full-screen, so every swapchain ring slot must overwrite the pre-open
-/// desktop pixels it covered. One more than `FLUX_MAX_FRAMES_IN_FLIGHT` (3)
-/// leaves margin for an image acquired twice while the budget ticks down.
-const SETTLED_DRAIN_FRAMES: u8 = 4;
-
-fn presentation_anim_pending(
-    reveal: &Spring,
-    target: f32,
-    avatar_playing: bool,
-    avatar_reload_pending: bool,
-) -> bool {
-    !reveal.settled(target, REVEAL_SETTLE_VALUE_EPS, REVEAL_SETTLE_VELOCITY_EPS)
-        || avatar_playing
-        || avatar_reload_pending
-}
-
-/// The main panel's tabs: the Quick Controls tab plus one tab per available
-/// settings module from the registry, in registry order.
+/// What the controls card shows below its header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Tab {
-    QuickControls,
-    Settings(ModuleId),
+pub(crate) enum Page {
+    Main,
+    Wifi,
+    Bluetooth,
+    Sound,
+    Cast,
 }
 
-/// A click resolved inside the tab bar, applied after the render pass so
-/// the bar can finish drawing before state changes.
-enum TabAction {
-    Select(Tab),
+/// An icon-only control whose name is shown as a tooltip on hover.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tip {
+    Settings,
+    Lock,
+    Power,
+    DoNotDisturb,
+    DarkMode,
+    WorkMode(usize),
 }
 
 /// One SNI cell to draw this frame, distilled from the tray snapshot.
-///
-/// `pub(crate)` because the shelf's paint entry point
-/// ([`ControlCenter::render_tray_shelf_cells`]) takes an explicit cell list so
-/// the overflow behaviour is drivable with a known item set; that entry point
-/// is `pub(crate)` for the same reason.
 #[derive(Clone)]
 pub(crate) struct SniCell {
     key: String,
@@ -229,7 +174,7 @@ pub(crate) struct SniCell {
     textured: bool,
 }
 
-/// The per-cell visuals for the tray grid, distilled before the layout
+/// The per-cell visuals for the tray row, distilled before the layout
 /// closures so they borrow no `self` state.
 struct TrayCellVisual {
     key: String,
@@ -240,188 +185,106 @@ struct TrayCellVisual {
 }
 
 /// Render-side cache of the shared dbusmenu tree, tagged with the worker's
-/// `menu_revision` so the (potentially large) tree is re-cloned only when the
-/// menu actually changed.
+/// `menu_revision` so the tree is re-cloned only when the menu changed.
 struct MenuSnapshotCache {
     revision: u64,
     menu: Option<Arc<MenuState>>,
 }
 
-/// The modal control center.
 pub struct ControlCenter {
     open: bool,
-    /// Reveal spring (0 = hidden, 1 = fully presented) driving the enter/exit
-    /// fade of the opaque full-screen canvas and its cluster. Kept while
-    /// closing so the surfaces fade and slide out instead of vanishing in one
-    /// frame. A spring, not an exponential follow, so convergence is bounded
-    /// and the frame loop can prove when it has settled (ADR-0172/ADR-0176).
+    /// Reveal spring (0 = hidden, 1 = presented) driving the cards' fade and
+    /// slide. A spring, not an exponential follow, so convergence is bounded
+    /// and the frame loop can prove when it has settled (ADR-0172).
     reveal: Spring,
-    /// Frames remaining in the swapchain ring drain after the reveal settles
-    /// (ADR-0171 `[INV-ARCH-03]`). The opaque full-screen canvas must overwrite
-    /// the pre-open desktop in every in-flight ring slot, exactly as the dock
-    /// drains its transient morph; while non-zero the panel keeps reporting
-    /// full-output damage even though no value is still moving.
-    settled_drain_frames: u8,
-    /// The main panel's active tab.
-    tab: Tab,
-    /// Settings module registry behind the module tabs; modules own their
-    /// draft/apply state and render into the active tab's body.
-    modules: ModuleRegistry,
-    /// Latest persistent-settings snapshot, seeded and refreshed by the
-    /// shell; module tabs render a placeholder until the first one arrives.
-    settings: Option<SettingsSnapshot>,
-    /// The shell-wide design snapshot the hosted settings modules paint
-    /// from, seeded and refreshed by `ChromeUpdate::Appearance`.
+    /// Frames left in the post-settle retirement window (ADR-0227).
+    retire_frames: u8,
+    page: Page,
+    /// The session strip (Suspend · Restart · Power off) under the header.
+    session_open: bool,
+    /// The authoritative desktop preferences, so the dark-mode tile can flip
+    /// the scheme without resetting the rest of the profile.
+    preferences: Option<DesktopPreferences>,
     design: Design,
-    /// Accessibility reduced-motion policy shared with the other chrome.
     reduced_motion: bool,
     prev_down: bool,
     status: SystemStatus,
-    /// Local account behind the header band's profile zone, resolved once
-    /// at construction (never per frame).
+    /// Local account behind the header, resolved once at construction.
     profile: Profile,
-    /// Header-band portrait selected by the shared profile contract. Without
-    /// configured content, initials render over a flat host-owned disc; no
-    /// fallback texture is synthesized by either resource layer.
+    /// Header portrait selected by the shared profile contract. Without
+    /// configured content, initials render over a flat disc.
     avatar: Option<Portrait>,
-    /// Immutable source order shared with the watcher and every reload.
     portrait_config: PortraitConfig,
     /// Non-owning view of the compositor device, used only on the render
-    /// thread to construct a complete hot-reload replacement.
+    /// thread to build a complete hot-reload replacement.
     avatar_device: Option<flux::Device>,
-    /// Filesystem observation is notification-only; all decode and GPU work
-    /// stays on the render thread.
+    /// Filesystem observation is notification-only; decode and GPU work stay
+    /// on the render thread.
     avatar_watcher: Option<PortraitWatcher>,
-    /// One-shot latch so an animated avatar's advance failure logs once.
     avatar_warned: bool,
-    /// Agent Interaction Domain aggregate behind the System section's Agent Workspaces
-    /// status row (ADR-0083).
-    interaction_domains: InteractionDomainSnapshot,
     icons: IconSet,
     notifications: Arc<Mutex<NotificationQueue>>,
-    /// Notification list cache keyed by the queue's revision; re-cloned only
-    /// when the queue actually changes.
+    /// Notification list cache keyed by the queue's revision.
     notification_cache: Option<(u64, Arc<Vec<Notification>>)>,
     tray: Option<TrayProjection>,
-    /// Session-bus MPRIS source. The worker owns all D-Bus calls; the panel
-    /// reads a small snapshot and sends transport commands over a channel.
+    /// Session-bus MPRIS source. The worker owns all D-Bus calls.
     media: Option<MediaHandle>,
-    /// SNI item key whose dbusmenu popover is showing (set on the right-click
-    /// that opens it, cleared by click-away, item disappearance, tab change,
-    /// or panel close).
+    /// SNI item key whose dbusmenu popover is showing.
     menu_open_for: Option<String>,
-    /// Breadcrumb of submenu ids from root to the current view; `path[0]` is
-    /// always the root sentinel (0), each later id descends one level.
+    /// Breadcrumb of submenu ids from root to the current view.
     menu_path: Vec<i32>,
-    /// The tray cell rect that opened the popover (kept current each frame so
-    /// `place_popup` re-anchors on relayout).
+    /// The tray cell rect that opened the popover.
     menu_owner: Rect,
-    /// One-frame flag suppressing the same right-press that opened the menu
-    /// from also immediately closing it.
+    /// Suppresses the press that opened the menu from also closing it.
     menu_just_opened: bool,
-    /// The tray shelf's current page (ADR-0221). The shelf paginates when the
-    /// items exceed the horizontal lane; the chevrons at each end step this and
-    /// the resolver clamps it, so an item leaving cannot strand the shelf on a
-    /// page that no longer exists.
+    /// The tray row's current page (ADR-0221).
     tray_page: usize,
-    /// Edge space the shell's persistent decorations currently reserve,
-    /// published through `ChromeUpdate::ModalReserved`. The tray shelf reads
-    /// the dock's band from here so its derived lane length follows the real
-    /// declaration instead of a mirrored constant (ADR-0197).
+    /// Edge space the shell's persistent decorations reserve; the sheet never
+    /// crosses it (ADR-0197).
     reserved: Reserved,
-    /// The tray shelf layout resolved by the last frame (ADR-0221). Cached so
-    /// click-away hit-testing and the popover anchors read the *same* geometry
-    /// the renderer used instead of re-deriving it.
+    /// The tray layout resolved by the last frame (ADR-0221).
     tray_shelf: Option<tray_shelf::TrayShelfLayout>,
     menu_cache: Option<MenuSnapshotCache>,
-    /// Spring driving the segmented control's sliding indicator between
-    /// work-mode segments (0..=2 in segment-width units).
     work_mode_indicator: TieredIndicator,
-    /// Spring driving the keyboard-backlight tier indicator (ADR-0168).
     kbd_backlight_indicator: TieredIndicator,
-    /// Segment the pointer is scrubbing over during a press-and-drag on the
-    /// keyboard-backlight selector, if any. Drives a live preview: the highlight
-    /// and the header value follow the pointer before release, then snap back to
-    /// the committed tier if the drag is cancelled off-target.
+    /// The tier a press-and-drag over the keyboard-backlight control previews.
     kbd_backlight_preview: Option<usize>,
-    /// 0..1 hover reveal of the notification stream's scrollbar; wheel
-    /// activity pushes it to 1, idle decays it back to 0.
-    notif_scrollbar_reveal: f32,
-    /// Hovered work-mode segment index for the mode tooltip (None = none).
-    work_mode_hover: Option<usize>,
-    /// 0..1 reveal of the work-mode tooltip.
-    work_mode_tooltip_reveal: f32,
-    /// Hovered session control ("power" or "lock") for its tooltip.
-    session_hover: Option<&'static str>,
-    /// 0..1 reveal of the session tooltip.
-    session_tooltip_reveal: f32,
-    /// The action whose system-level confirmation is pending. The runtime
-    /// owns the confirmation chrome; the panel only suppresses duplicate
-    /// requests until it closes.
+    /// The icon control under the pointer and how long it has been there.
+    tip: Option<(Tip, Rect)>,
+    tip_dwell: f32,
+    tip_reveal: f32,
+    /// The action whose system-level confirmation is pending; the runtime owns
+    /// the confirmation chrome.
     power_pending_confirm: Option<SystemAction>,
-    /// Last frame's cursor position, cached for hover checks inside
-    /// presentation helpers that do not receive the raw input.
-    cursor_hint: (f32, f32),
     frame_prepared: bool,
-    pub(super) wifi_expanded: bool,
+    /// The sheet resolved for the last frame's output.
+    sheet: SheetLayout,
+    display: (f32, f32),
     pub(super) wifi_input_ssid: Option<String>,
     pub(super) wifi_input_passphrase: String,
-    /// Bluetooth detail view open (ADR-0175). Mutually exclusive with the
-    /// Wi-Fi detail view: the quick-controls body hosts one at a time.
-    pub(super) bluetooth_expanded: bool,
-    /// Audio output detail view open (ADR-0215). Mutually exclusive with the
-    /// Wi-Fi, Bluetooth, and Cast detail views: the quick-controls body hosts
-    /// one page at a time.
-    pub(super) audio_expanded: bool,
-    /// Wireless display / Cast detail view open (ADR-0188, ADR-0192). Mutually
-    /// exclusive with the Wi-Fi and Bluetooth detail views.
-    pub(super) cast_expanded: bool,
     pub(super) cast_scanning: bool,
+    /// Test-only tray contents standing in for a session bus.
+    #[cfg(test)]
+    test_cells: Vec<SniCell>,
 }
 
-pub type CommandPanel = ControlCenter;
-
 impl ControlCenter {
-    #[cfg(test)]
-    fn toggle_control_center(&mut self, out: &mut ChromeEvents) {
-        <Self as Chrome>::command(self, &ChromeCommand::ToggleControlCenter, out);
-    }
-
-    #[cfg(test)]
-    fn toggle_command_panel(&mut self, out: &mut ChromeEvents) {
-        self.toggle_control_center(out);
-    }
-
-    #[cfg(test)]
-    fn set_reduced_motion(&mut self, reduced: bool) {
-        <Self as Chrome>::update(self, ChromeUpdate::ReducedMotion(reduced));
-    }
-
-    #[cfg(test)]
-    fn update_space_use(&mut self, space_use: tessera_desktop::window::SpaceUse) {
-        <Self as Chrome>::update(self, ChromeUpdate::SpaceUse(space_use));
-    }
-
-    /// Construct the control center. The flux device is borrowed (non-owning, like
-    /// [`crate::Shell::new`]) to upload SNI tray pixmaps to the GPU;
-    /// the caller must keep it alive past the panel. The tray handle comes
-    /// from the composition root's single `crate::tray::spawn()` shared with
-    /// the HUD; `None` leaves the tray section empty.
+    /// Construct the Control Center. The flux device is borrowed (non-owning,
+    /// like [`crate::Shell::new`]) to upload tray pixmaps and the portrait; the
+    /// caller keeps it alive past the panel. The tray handle comes from the
+    /// composition root's single `crate::tray::spawn()`.
     pub fn new(
         device: &flux::Device,
         tray: Option<TrayHandle>,
         notifications: Arc<Mutex<NotificationQueue>>,
     ) -> ControlCenter {
         let tray = tray.map(|handle| {
-            // SAFETY: the composition root declares its flux device before
-            // the shell (and thus this panel) and drops it after, and the
-            // panel only touches the device on the render thread.
+            // SAFETY: the composition root declares its flux device before the
+            // shell and drops it after; the panel touches it on the render
+            // thread only.
             let device = unsafe { flux::Device::borrow_raw(device.as_raw()) };
             TrayProjection::new(device, handle)
         });
-        // Source precedence and still/VRM routing come from the shared
-        // profile contract. The panel supplies only its VRM camera and owns
-        // the outer disc, keyline, and reveal treatment.
         let portrait_config = PortraitConfig::current();
         let avatar = match Portrait::load_transactional(device, &portrait_config, AVATAR_CAMERA) {
             Ok(loaded) => loaded,
@@ -430,9 +293,7 @@ impl ControlCenter {
                 None
             }
         };
-        // SAFETY: the composition root owns the device and drops the shell
-        // (including this panel) before the device. Chrome methods run on the
-        // compositor render thread.
+        // SAFETY: as above.
         let avatar_device = unsafe { flux::Device::borrow_raw(device.as_raw()) };
         let avatar_watcher = match PortraitWatcher::new(&portrait_config) {
             Ok(watcher) => Some(watcher),
@@ -441,172 +302,34 @@ impl ControlCenter {
                 None
             }
         };
-        let env_open = std::env::var("TESSERA_COMMAND_PANEL")
-            .or_else(|_| std::env::var("TESSERA_COMMAND_PANEL_OPEN"))
-            .or_else(|_| {
-                std::env::var("TESSERA_PREVIEW").and_then(|val| {
-                    let v = val.trim();
-                    if v.eq_ignore_ascii_case("command-panel")
-                        || v.eq_ignore_ascii_case("command_panel")
-                        || v.eq_ignore_ascii_case("panel")
-                        || v == "1"
-                    {
-                        Ok("quick".to_string())
-                    } else {
-                        Err(std::env::VarError::NotPresent)
-                    }
-                })
-            })
-            .ok()
-            .filter(|val| {
-                !val.trim().is_empty() && val != "0" && !val.eq_ignore_ascii_case("false")
-            });
-        let open_on_start = env_open.is_some();
-        let initial_tab = match env_open.as_deref() {
-            Some(val)
-                if val.eq_ignore_ascii_case("quick")
-                    || val == "1"
-                    || val.eq_ignore_ascii_case("true") =>
-            {
-                Tab::QuickControls
-            }
-            Some(module_name) => {
-                let modules = builtin_settings_modules();
-                modules
-                    .metadata()
-                    .find(|m| m.id.as_str().eq_ignore_ascii_case(module_name))
-                    .map(|m| Tab::Settings(m.id))
-                    .unwrap_or(Tab::QuickControls)
-            }
-            None => Tab::QuickControls,
-        };
-        // Debug builds or preview runs seed demo notifications so the panel's stream
-        // has content to lay out without a bus.
-        if (cfg!(debug_assertions) || open_on_start)
-            && let Ok(mut queue) = notifications.lock()
-            && queue.snapshot().is_empty()
-        {
-            queue.push(
-                "战术网络",
-                "已建立量子加密链路，节点 0x7F 延迟 4ms",
-                Some("tessera-net".into()),
-                1000,
-            );
-            queue.push(
-                "核心遥测",
-                "GPU Shader 预热完成，显存动态分配 384MB",
-                Some("tessera-gpu".into()),
-                2000,
-            );
-            queue.push(
-                "安全总线",
-                "Agent 交互域沙箱环境完整性验证通过",
-                Some("tessera-security".into()),
-                3000,
-            );
-            queue.push(
-                "电源管理",
-                "已开启高能效模式，当前电池电量 92% (充电中)",
-                Some("tessera-power".into()),
-                4000,
-            );
-        }
-        ControlCenter {
-            open: open_on_start,
-            reveal: Spring::new(if open_on_start { 1.0 } else { 0.0 }),
-            settled_drain_frames: 0,
-            tab: initial_tab,
-            modules: builtin_settings_modules(),
-            settings: None,
-            design: Design::dark(),
-            reduced_motion: false,
-            prev_down: false,
-            status: SystemStatus::default(),
-            work_mode_indicator: TieredIndicator::at(0),
-            kbd_backlight_indicator: TieredIndicator::default(),
-            kbd_backlight_preview: None,
-            notif_scrollbar_reveal: 0.0,
-            work_mode_hover: None,
-            work_mode_tooltip_reveal: 0.0,
-            session_hover: None,
-            session_tooltip_reveal: 0.0,
-            power_pending_confirm: None,
-            cursor_hint: (0.0, 0.0),
-            profile: Profile::current().unwrap_or_else(|_| Profile::fallback()),
-            avatar,
-            portrait_config,
-            avatar_device: Some(avatar_device),
-            avatar_watcher,
-            avatar_warned: false,
-            interaction_domains:
-                tessera_authority::interaction_domain::InteractionDomainModel::new().snapshot(),
-            icons: IconSet::default(),
-            notifications,
-            notification_cache: None,
-            tray,
-            media: if open_on_start {
-                mpris::spawn().or_else(|| Some(mpris::MediaHandle::mock()))
-            } else {
-                mpris::spawn()
-            },
-            menu_open_for: None,
-            menu_path: Vec::new(),
-            menu_owner: Rect {
-                x: 0.0,
-                y: 0.0,
-                w: 0.0,
-                h: 0.0,
-            },
-            menu_just_opened: false,
-            tray_page: 0,
-            reserved: Reserved::default(),
-            tray_shelf: None,
-            menu_cache: None,
-            frame_prepared: false,
-            wifi_expanded: false,
-            wifi_input_ssid: None,
-            wifi_input_passphrase: String::new(),
-            bluetooth_expanded: false,
-            audio_expanded: false,
-            cast_expanded: false,
-            cast_scanning: false,
-        }
+        let mut panel = Self::bare(notifications);
+        panel.avatar = avatar;
+        panel.portrait_config = portrait_config;
+        panel.avatar_device = Some(avatar_device);
+        panel.avatar_watcher = avatar_watcher;
+        panel.tray = tray;
+        panel.media = mpris::spawn();
+        panel
     }
 
-    /// Test/preview constructor without a GPU device, tray, or notification
-    /// source.
-    #[cfg(test)]
-    fn without_sources() -> ControlCenter {
-        let (notifications, _) = (Arc::new(Mutex::new(NotificationQueue::new(3_600_000))), ());
+    fn bare(notifications: Arc<Mutex<NotificationQueue>>) -> ControlCenter {
         ControlCenter {
             open: false,
             reveal: Spring::new(0.0),
-            settled_drain_frames: 0,
-            tab: Tab::QuickControls,
-            modules: builtin_settings_modules(),
-            settings: None,
+            retire_frames: 0,
+            page: Page::Main,
+            session_open: false,
+            preferences: None,
             design: Design::dark(),
             reduced_motion: false,
             prev_down: false,
             status: SystemStatus::default(),
-            work_mode_indicator: TieredIndicator::at(0),
-            kbd_backlight_indicator: TieredIndicator::default(),
-            kbd_backlight_preview: None,
-            notif_scrollbar_reveal: 0.0,
-            work_mode_hover: None,
-            work_mode_tooltip_reveal: 0.0,
-            session_hover: None,
-            session_tooltip_reveal: 0.0,
-            power_pending_confirm: None,
-            cursor_hint: (0.0, 0.0),
             profile: Profile::current().unwrap_or_else(|_| Profile::fallback()),
             avatar: None,
             portrait_config: PortraitConfig::new(Vec::new()),
             avatar_device: None,
             avatar_watcher: None,
             avatar_warned: false,
-            interaction_domains:
-                tessera_authority::interaction_domain::InteractionDomainModel::new().snapshot(),
             icons: IconSet::default(),
             notifications,
             notification_cache: None,
@@ -625,47 +348,126 @@ impl ControlCenter {
             reserved: Reserved::default(),
             tray_shelf: None,
             menu_cache: None,
+            work_mode_indicator: TieredIndicator::at(0),
+            kbd_backlight_indicator: TieredIndicator::default(),
+            kbd_backlight_preview: None,
+            tip: None,
+            tip_dwell: 0.0,
+            tip_reveal: 0.0,
+            power_pending_confirm: None,
             frame_prepared: false,
-            wifi_expanded: false,
+            sheet: sheet_layout((0.0, 0.0), Reserved::default(), 1.0, 1.0),
+            display: (0.0, 0.0),
             wifi_input_ssid: None,
             wifi_input_passphrase: String::new(),
-            bluetooth_expanded: false,
-            audio_expanded: false,
-            cast_expanded: false,
             cast_scanning: false,
+            #[cfg(test)]
+            test_cells: Vec::new(),
         }
     }
 
-    /// Whether the panel is visually presented or mid reveal/close: it owns the
-    /// modal layer, captures input, and suppresses other chrome.
+    /// Test constructor without a GPU device, tray, or bus.
+    #[cfg(test)]
+    fn without_sources() -> ControlCenter {
+        Self::bare(Arc::new(Mutex::new(NotificationQueue::new(3_600_000))))
+    }
+
+    /// Visible or mid reveal/close: owns the input and the modal layer.
     fn presented(&self) -> bool {
         self.open || self.reveal.value > 0.005
     }
 
-    /// Whether the panel still owes the compositor work: presented, or draining
-    /// the swapchain ring after the reveal settled. The drain is invisible (the
-    /// canvas is already at zero), so it never captures input or holds the modal
-    /// layer — only render, damage, and composition follow it.
+    /// Presented, or still repairing the pixels it last covered.
     fn active(&self) -> bool {
-        self.presented() || self.settled_drain_frames > 0
+        self.presented() || self.retire_frames > 0
     }
 
-    /// The panel's eased reveal progress in `[0, 1]`, sampled by the canvas
-    /// paint, the per-section staggers, and the damage policy.
     fn reveal(&self) -> f32 {
         self.reveal.value.clamp(0.0, 1.0)
     }
 
-    /// Advance the panel's animation clocks and hot-reload watcher before
-    /// backdrop declarations and damage policy are queried for the frame.
+    fn panel_colors(&self) -> ControlCenterColors {
+        ControlCenterColors::for_scheme(self.design.scheme)
+    }
+
+    /// Reach of the cards' elevation halo beyond their bodies.
+    fn halo_reach(&self) -> f32 {
+        let style = self.design.surfaces.for_role(SurfaceRole::FloatingPanel);
+        style.shadow_blur + style.shadow_offset_y.abs()
+    }
+
+    fn open_sheet(&mut self) {
+        self.open = true;
+        self.page = Page::Main;
+        if let Some(name) = self
+            .avatar
+            .as_mut()
+            .and_then(|avatar| avatar.play_random_action().map(str::to_owned))
+        {
+            log::debug!("control-center: playing avatar action {name:?}");
+        }
+    }
+
+    /// Close the sheet. Detail pages, the session strip, the tray popover, and
+    /// hover latches all go with it, so a reopened sheet starts at rest and a
+    /// latch can never keep a closed sheet animating.
+    fn close(&mut self, out: &mut ChromeEvents) {
+        self.open = false;
+        self.show_page(Page::Main, out);
+        self.session_open = false;
+        self.power_pending_confirm = None;
+        self.tray_page = 0;
+        self.kbd_backlight_preview = None;
+        self.tip = None;
+        self.tip_dwell = 0.0;
+        self.tip_reveal = 0.0;
+        if let Some(key) = self.menu_open_for.take() {
+            self.menu_path.clear();
+            self.menu_just_opened = false;
+            self.send_tray_command(TrayCommand::CloseMenu { key });
+        }
+    }
+
+    /// Switch the controls card's page, ending the side effects of the page
+    /// being left: Cast discovery stops and a half-typed Wi-Fi passphrase is
+    /// dropped. Entering a page starts its scan.
+    pub(crate) fn show_page(&mut self, page: Page, out: &mut ChromeEvents) {
+        if self.page == page {
+            return;
+        }
+        match self.page {
+            Page::Cast => {
+                self.cast_scanning = false;
+                out.system_actions.push(SystemAction::StopCastDiscovery);
+            }
+            Page::Wifi => {
+                self.wifi_input_ssid = None;
+                self.wifi_input_passphrase.clear();
+            }
+            Page::Main | Page::Bluetooth | Page::Sound => {}
+        }
+        match page {
+            Page::Wifi => out.system_actions.push(SystemAction::ScanWifi),
+            Page::Bluetooth => out.system_actions.push(SystemAction::ScanBluetooth),
+            Page::Cast => {
+                self.cast_scanning = true;
+                out.system_actions.push(SystemAction::ScanCast);
+            }
+            Page::Main | Page::Sound => {}
+        }
+        self.page = page;
+        self.session_open = false;
+    }
+
+    /// Advance clocks and the portrait watcher before damage is queried.
     fn prepare_frame(&mut self, input: &Input) {
         let raw = input.as_raw();
         let dt = raw.dt_seconds.max(0.0);
         self.advance(dt);
         self.reload_avatar_if_ready();
-        // Advance the animated VRM avatar during the pre-pass (before the main
-        // output canvas session and deferred upload batch open) so offscreen
-        // portrait submissions never interleave with active output render passes.
+        // Advance the animated VRM portrait during the pre-pass, before the
+        // output canvas session opens, so offscreen submissions never
+        // interleave with output render passes.
         if self.open
             && self.avatar.as_ref().is_some_and(Portrait::is_animated)
             && let Some(avatar) = &mut self.avatar
@@ -678,20 +480,14 @@ impl ControlCenter {
         self.frame_prepared = true;
     }
 
-    /// Resolve the panel-local semantic palette from the live appearance.
-    fn panel_colors(&self) -> ControlCenterColors {
-        ControlCenterColors::for_scheme(self.design.scheme)
-    }
-
     fn avatar_reload_pending(&self) -> bool {
         self.avatar_watcher
             .as_ref()
             .is_some_and(PortraitWatcher::needs_poll)
     }
 
-    /// Rebuild on the render thread and publish only a complete replacement.
-    /// A failed decode/upload leaves the currently displayed GPU resources
-    /// untouched and schedules a bounded retry.
+    /// Rebuild the portrait on the render thread and publish only a complete
+    /// replacement; a failed decode keeps the current one and retries later.
     fn reload_avatar_if_ready(&mut self) {
         let ready = self
             .avatar_watcher
@@ -739,339 +535,173 @@ impl ControlCenter {
         }
     }
 
+    fn reveal_target(&self) -> f32 {
+        if self.open { 1.0 } else { 0.0 }
+    }
+
+    fn reveal_settled(&self) -> bool {
+        self.reveal.settled(
+            self.reveal_target(),
+            REVEAL_SETTLE_VALUE_EPS,
+            REVEAL_SETTLE_VELOCITY_EPS,
+        )
+    }
+
+    fn work_mode_index(&self) -> usize {
+        PowerMode::ALL
+            .iter()
+            .position(|mode| *mode == self.status.power_mode)
+            .unwrap_or(0)
+    }
+
+    fn kbd_backlight_index(&self) -> usize {
+        self.kbd_backlight_preview
+            .unwrap_or_else(|| self.status.kbd_brightness_tier_index())
+    }
+
     fn advance(&mut self, dt: f32) {
-        let target = if self.open { 1.0 } else { 0.0 };
-        // The segmented control's current segment, as an index into
-        // `PowerMode::ALL` (the control's fixed segment order).
-        let mode_index = PowerMode::ALL
-            .iter()
-            .position(|mode| *mode == self.status.power_mode)
-            .unwrap_or(0) as f32;
-        let tip_target = if self.work_mode_hover.is_some() {
-            1.0
-        } else {
-            0.0
-        };
-        let session_tip_target = if self.session_hover.is_some() {
-            1.0
-        } else {
-            0.0
-        };
-        // Reduced motion is a one-frame resolve expressed once by `transit`:
-        // `approach`/`decay`/`Spring::advance` all take the flag, so the whole
-        // panel resolves without a duplicated per-field snap branch.
         let reduced = self.reduced_motion;
-        // The reveal travels on a bounded spring (ADR-0176). On the frame the
-        // spring first reports settled, prime the ring drain so every in-flight
-        // swapchain slot overwrites the pre-open desktop under the opaque canvas
-        // (ADR-0171 `[INV-ARCH-03]`).
-        let was_animating = self.reveal_animating_value();
+        let was_moving = !self.reveal_settled();
         self.reveal
-            .advance_substep(target, REVEAL_SPRING, dt, 1.0 / 60.0, reduced);
-        if !self
-            .reveal
-            .settled(target, REVEAL_SETTLE_VALUE_EPS, REVEAL_SETTLE_VELOCITY_EPS)
-        {
-            self.settled_drain_frames = 0;
-        } else if was_animating {
-            self.reveal.snap_to(target);
-            self.settled_drain_frames = SETTLED_DRAIN_FRAMES;
-        } else if self.settled_drain_frames > 0 {
-            self.settled_drain_frames -= 1;
+            .advance_substep(self.reveal_target(), REVEAL_SPRING, dt, 1.0 / 60.0, reduced);
+        if !self.reveal_settled() {
+            self.retire_frames = 0;
+        } else if was_moving {
+            self.reveal.snap_to(self.reveal_target());
+            self.retire_frames = RETIRE_FRAMES;
+        } else if self.retire_frames > 0 {
+            self.retire_frames -= 1;
         }
-        // Segmented-control indicator: an under-damped spring gives the
-        // switch its slight overshoot ("弹力") without ringing.
         self.work_mode_indicator
-            .advance(mode_index as usize, dt, reduced);
-        // Keyboard backlight tier indicator (ADR-0168). The ladder is the
-        // standard hardware stepping sequence; the active tier is the one the
-        // reported level maps to.
+            .advance(self.work_mode_index(), dt, reduced);
         if self.status.kbd_brightness.is_some() {
-            // A live drag previews its target rung; otherwise the indicator
-            // rests on the committed tier.
-            let index = self
-                .kbd_backlight_preview
-                .unwrap_or_else(|| self.status.kbd_brightness_tier_index());
-            self.kbd_backlight_indicator.advance(index, dt, reduced);
+            self.kbd_backlight_indicator
+                .advance(self.kbd_backlight_index(), dt, reduced);
         }
-        // Wheel-activity reveals decay once the stream is left alone.
-        self.notif_scrollbar_reveal =
-            crate::widgets::motion::decay(self.notif_scrollbar_reveal, 3.5, dt, reduced);
-        if self.notif_scrollbar_reveal < 0.01 {
-            self.notif_scrollbar_reveal = 0.0;
+        // A tooltip appears after a short dwell and leaves at once.
+        if self.tip.is_some() {
+            self.tip_dwell += dt;
+        } else {
+            self.tip_dwell = 0.0;
         }
-        self.work_mode_tooltip_reveal = crate::widgets::motion::approach(
-            self.work_mode_tooltip_reveal,
-            tip_target,
-            18.0,
-            dt,
-            reduced,
-        );
-        if (self.work_mode_tooltip_reveal - tip_target).abs() < 0.01 {
-            self.work_mode_tooltip_reveal = tip_target;
-        }
-        self.session_tooltip_reveal = crate::widgets::motion::approach(
-            self.session_tooltip_reveal,
-            session_tip_target,
-            18.0,
-            dt,
-            reduced,
-        );
-        if (self.session_tooltip_reveal - session_tip_target).abs() < 0.01 {
-            self.session_tooltip_reveal = session_tip_target;
+        let tip_target = if self.tip.is_some() && self.tip_dwell >= TOOLTIP_DELAY {
+            1.0
+        } else {
+            0.0
+        };
+        self.tip_reveal =
+            crate::widgets::motion::approach(self.tip_reveal, tip_target, 18.0, dt, reduced);
+        if (self.tip_reveal - tip_target).abs() < 0.01 {
+            self.tip_reveal = tip_target;
         }
     }
 
-    /// Whether any of the always-animating micro-interactions (segment
-    /// indicator spring, scrollbar reveals, tooltip reveals) is still
-    /// settling; keeps the frame loop ticking while open.
+    /// Whether a micro-interaction (segment indicator, backlight indicator,
+    /// tooltip dwell or fade) is still moving.
     fn interaction_anim_pending(&self) -> bool {
-        self.work_mode_anim_pending()
-            || self.kbd_backlight_anim_pending()
-            || self.notif_scrollbar_reveal > 0.0
-            || self.work_mode_tooltip_reveal > 0.02
-            || self.session_tooltip_reveal > 0.02
+        self.work_mode_indicator
+            .anim_pending(self.work_mode_index())
+            || (self.status.kbd_brightness.is_some()
+                && self
+                    .kbd_backlight_indicator
+                    .anim_pending(self.kbd_backlight_index()))
+            || (self.tip.is_some() && self.tip_reveal < 1.0)
+            || (self.tip.is_none() && self.tip_reveal > 0.0)
     }
 
-    /// Whether the keyboard-backlight tier indicator is still settling.
-    fn kbd_backlight_anim_pending(&self) -> bool {
-        if self.status.kbd_brightness.is_none() {
-            return false;
-        }
-        let index = self
-            .kbd_backlight_preview
-            .unwrap_or_else(|| self.status.kbd_brightness_tier_index());
-        self.kbd_backlight_indicator.anim_pending(index)
-    }
-
-    /// Whether the segmented power-mode indicator spring is still settling.
-    fn work_mode_anim_pending(&self) -> bool {
-        let mode_index = PowerMode::ALL
-            .iter()
-            .position(|mode| *mode == self.status.power_mode)
-            .unwrap_or(0);
-        self.work_mode_indicator.anim_pending(mode_index)
-    }
-
-    /// Whether the persona avatar is advancing its own texture this frame
-    /// (an animated VRM playing, or a hot-reload replacing the portrait).
     fn avatar_animating(&self) -> bool {
         (self.open && self.avatar.as_ref().is_some_and(Portrait::is_animated))
             || self.avatar_reload_pending()
     }
 
-    /// Whether the reveal spring is still travelling, measured against the
-    /// panel's current open/closed target.
-    fn reveal_animating_value(&self) -> bool {
-        let target = if self.open { 1.0 } else { 0.0 };
-        !self
-            .reveal
-            .settled(target, REVEAL_SETTLE_VALUE_EPS, REVEAL_SETTLE_VELOCITY_EPS)
+    // ---- content-driven geometry --------------------------------------
+
+    fn media_visible(&self) -> bool {
+        self.media
+            .as_ref()
+            .is_some_and(|media| media.snapshot().available)
     }
 
-    /// Whether the panel is mid reveal/close transition.
-    fn reveal_animating(&self) -> bool {
-        self.reveal_animating_value()
+    fn microphone_visible(&self) -> bool {
+        self.status.microphone_volume.is_some() || !self.status.audio_inputs.is_empty()
     }
 
-    /// Close the panel, also dismissing any open dbusmenu popover and
-    /// dropping the pending-confirmation latch: the
-    /// system-level consent dialog (if one opened) resolves on its own
-    /// while the panel is closed, so a reopened panel starts collapsed.
-    fn close(&mut self) {
-        self.open = false;
-        self.power_pending_confirm = None;
-        self.wifi_expanded = false;
-        self.wifi_input_ssid = None;
-        self.bluetooth_expanded = false;
-        self.audio_expanded = false;
-        self.cast_expanded = false;
-        self.cast_scanning = false;
-        // Reopening starts at the first page: the lane's contents are not
-        // remembered state, and a fresh look should not open on page 3.
-        self.tray_page = 0;
-        // Hover latches and their reveals are advanced against the *rendered*
-        // panel. Once `render` stops running they would hold their last value
-        // forever: a pointer resting on a control when Escape closes the panel
-        // would keep `interaction_anim_pending` true for the rest of the
-        // session, repainting the whole output at the panel rate for a panel
-        // that is not on screen. Clear them with the things that own them.
-        self.work_mode_hover = None;
-        self.session_hover = None;
-        self.kbd_backlight_preview = None;
-        self.notif_scrollbar_reveal = 0.0;
-        self.work_mode_tooltip_reveal = 0.0;
-        self.session_tooltip_reveal = 0.0;
-        if let Some(key) = self.menu_open_for.take() {
-            self.menu_path.clear();
-            self.menu_just_opened = false;
-            self.send_tray_command(TrayCommand::CloseMenu { key });
+    /// The controls card's height when nothing constrains it.
+    fn controls_natural_height(&mut self) -> f32 {
+        let mut sections: Vec<f32> = vec![HEADER_H];
+        if self.session_open {
+            sections.push(SESSION_STRIP_H);
         }
-    }
-
-    fn select_tab(&mut self, tab: Tab) {
-        if self.tab != tab {
-            self.tab = tab;
-            self.wifi_expanded = false;
-            self.wifi_input_ssid = None;
-            self.bluetooth_expanded = false;
-            self.audio_expanded = false;
-            self.cast_expanded = false;
-            self.cast_scanning = false;
-            // A tab switch drops an open tray popover even though the tray
-            // shelf itself is not part of any tab.
-            if let Some(key) = self.menu_open_for.take() {
-                self.menu_path.clear();
-                self.send_tray_command(TrayCommand::CloseMenu { key });
-            }
+        if self.page != Page::Main {
+            let body: f32 = sections.iter().sum::<f32>()
+                + layout::SECTION_GAP * sections.len() as f32
+                + layout::CARD_PAD * 2.0;
+            return body.max(DETAIL_MIN_H);
         }
+        sections.push(TILE_H * 2.0 + TILE_GAP);
+        let faders = [
+            self.status.volume.is_some(),
+            self.status.brightness.is_some(),
+            self.microphone_visible(),
+            self.status.kbd_brightness.is_some(),
+        ]
+        .into_iter()
+        .filter(|visible| *visible)
+        .count();
+        if faders > 0 {
+            sections.push(FADER_H * faders as f32 + TILE_GAP * (faders - 1) as f32);
+        }
+        if self.media_visible() {
+            sections.push(MEDIA_H);
+        }
+        sections.push(WORK_MODE_H);
+        if !self.sni_cells().is_empty() {
+            sections.push(TRAY_ROW_H);
+        }
+        sections.iter().sum::<f32>()
+            + layout::SECTION_GAP * (sections.len() - 1) as f32
+            + layout::CARD_PAD * 2.0
     }
 
-    /// Calculate panel bounds based on the spatial anchor system:
-    /// - Top-Left (左上): User Profile Chip
-    /// - Top-Center (上中): Clock & Date
-    /// - Top-Right (右上): Notifications Stream (frameless items)
-    /// - Bottom-Left (左下): The tray shelf: a one-row horizontal lane whose
-    ///   length is derived from the display less the bottom band's span
-    ///   (ADR-0221)
-    /// - Right-Bottom (右下): Work-mode segmented control + power/session
-    /// - Center (中): Split Main Control Panel (Left Nav Rail + Right Tab View)
-    fn cluster_bounds(
-        display: (f32, f32),
-        reserved: Reserved,
-    ) -> (Rect, Rect, Rect, Rect, Rect, Rect, Rect) {
-        let margin_x = (display.0 * 0.025).clamp(16.0, 48.0);
-        let margin_y = (display.1 * 0.035).clamp(16.0, 40.0);
-        let gap = PANEL_GAP;
-
-        // 1. Top-Left Anchor (左上): User Profile Chip
-        let profile_w = PROFILE_W.min((display.0 * 0.35).max(140.0));
-        let profile_h = PROFILE_H.min((display.1 * 0.18).max(48.0));
-        let profile = Rect {
-            x: margin_x,
-            y: margin_y,
-            w: profile_w.min((display.0 - margin_x * 2.0).max(1.0)),
-            h: profile_h.min((display.1 - margin_y * 2.0).max(1.0)),
-        };
-
-        // 2. Top-Right Anchor (右上): Notifications Stream
-        let notif_w = NOTIF_W.min((display.0 * 0.38).max(140.0));
-        let notif_h = NOTIF_H.min((display.1 * 0.42).max(64.0));
-        let notif_x = (display.0 - margin_x - notif_w).max(profile.x + profile.w + gap);
-        let notifications = Rect {
-            x: notif_x,
-            y: margin_y,
-            w: notif_w.min((display.0 - notif_x - margin_x).max(1.0)),
-            h: notif_h.min((display.1 - margin_y * 2.0).max(1.0)),
-        };
-
-        // 3. Top-Center Anchor (上中): Clock & Date. Framed between the
-        // profile chip and the notification stream when space is tight.
-        let clock_w = CLOCK_W.min(
-            (notifications.x - gap - (profile.x + profile.w + gap))
-                .max(0.0)
-                .max(display.0 * 0.16),
-        );
-        let clock_h = CLOCK_H.min((display.1 * 0.2).max(48.0));
-        let clock_x = ((display.0 - clock_w) * 0.5)
-            .max(profile.x + profile.w + gap)
-            .min((notifications.x - gap - clock_w).max(profile.x + profile.w + gap));
-        let clock = Rect {
-            x: clock_x,
-            y: margin_y,
-            w: clock_w.max(1.0),
-            h: clock_h.min((display.1 - margin_y * 2.0).max(1.0)),
-        };
-
-        // 4. Bottom-Left Anchor (左下): the tray shelf (ADR-0221). It is a
-        // one-row horizontal lane hugging the bottom edge, and its *length* is
-        // derived, never capped: the span from the left margin to the bottom
-        // band's left edge bounds how many icons fit in one row. Anything past
-        // that paginates with a chevron at each end.
-        //
-        // The lane's bottom edge stops above the dock's reserved band, which is
-        // the dock's own `Chrome::reserved()` declaration threaded through
-        // `ChromeUpdate::ModalReserved`. Using the real declaration rather than
-        // a mirrored constant keeps the shelf correct when the dock is
-        // auto-hidden, locked out by fullscreen, or moved to a side edge.
-        let row_h = TRAY_CELL + TRAY_PAD * 2.0;
-        let tray_bottom = (display.1 - margin_y - reserved.bottom as f32).max(row_h);
-
-        // 5. Right-Bottom Anchor (右下): one horizontal band pinned into the
-        // corner — the work-mode segmented control to the left of the
-        // power/session cluster, both sharing one height and flush against
-        // the display's right and bottom margins.
-        let band_w_total = WORK_MODE_W + POWER_PANEL_W + gap;
-        let scale = if display.0 * 0.62 < band_w_total {
-            (display.0 * 0.62 / band_w_total).max(0.4)
+    /// The notifications card's height when nothing constrains it.
+    fn notifications_natural_height(&mut self) -> f32 {
+        let count = self.notification_snapshot().len();
+        let list = if count == 0 {
+            EMPTY_LIST_H
         } else {
-            1.0
+            NOTIFICATION_H * count as f32 + NOTIFICATION_GAP * (count - 1) as f32
         };
-        let power_w = (POWER_PANEL_W * scale).max(SESSION_BUTTON * 2.0 + SESSION_BUTTON_GAP);
-        let work_w = (WORK_MODE_W * scale).max(150.0);
-        // Flush to the right and bottom edges of the margin box.
-        let power_x = display.0 - margin_x - power_w;
-        // The lane terminates where the bottom band begins, so the two share
-        // the corner without overlapping.
-        let band_left = (power_x - gap - work_w).max(margin_x + TRAY_CELL + TRAY_PAD * 2.0);
-        let tray = Rect {
-            x: margin_x,
-            y: tray_bottom - row_h,
-            w: (band_left - gap - margin_x).max(TRAY_CELL + TRAY_PAD * 2.0),
-            h: row_h,
-        };
-
-        // The bottom band clamps to the right of the lane on narrow displays.
-        let work_x = (power_x - gap - work_w).max(tray.x + tray.w + gap);
-        let work_w = work_w.min((power_x - gap - work_x).max(1.0));
-        let band_h = WORK_MODE_H
-            .min((display.1 * 0.12).max(56.0))
-            .min((display.1 - margin_y * 2.0).max(1.0));
-        let work_mode = Rect {
-            x: work_x,
-            y: display.1 - margin_y - band_h,
-            w: work_w.max(1.0),
-            h: band_h,
-        };
-        let power = Rect {
-            x: power_x,
-            y: display.1 - margin_y - band_h,
-            w: power_w,
-            h: band_h,
-        };
-
-        // 6. Center Anchor (中): the main panel owns the visual centre. The
-        // bottom actions are far below it, so they must not become a
-        // horizontal fence that squeezes the content column.
-        let main_w = MAIN_W.min((display.0 - margin_x * 2.0).max(1.0));
-        let main_h = MAIN_H.min((display.1 - margin_y * 2.0).max(1.0));
-        let main_x = ((display.0 - main_w) * 0.5).max(margin_x);
-        let main_y = ((display.1 - main_h) * 0.5).max(margin_y);
-        let main = Rect {
-            x: main_x,
-            y: main_y,
-            w: main_w,
-            h: (display.1 - main_y - margin_y).min(main_h).max(1.0),
-        };
-
-        (profile, main, notifications, clock, tray, work_mode, power)
+        CLOCK_BLOCK_H
+            + layout::SECTION_GAP
+            + LIST_HEADER_H
+            + NOTIFICATION_GAP
+            + list
+            + layout::CARD_PAD * 2.0
     }
 
-    /// Clone the notification queue, memoized on the queue's revision: an
-    /// unchanged queue reuses the cached `Arc` instead of re-cloning every
-    /// entry every frame.
+    /// Resolve and cache the sheet for `display`.
+    fn resolve_sheet(&mut self, display: (f32, f32)) -> SheetLayout {
+        let controls = self.controls_natural_height();
+        let notifications = self.notifications_natural_height();
+        self.display = display;
+        self.sheet = sheet_layout(display, self.reserved, controls, notifications);
+        self.sheet
+    }
+
+    // ---- shared sources ------------------------------------------------
+
+    /// Clone the notification queue, memoized on its revision.
     fn notification_snapshot(&mut self) -> Arc<Vec<Notification>> {
         let queue = self.notifications.lock().unwrap_or_else(|e| e.into_inner());
         let revision = queue.revision();
-        let stale = self
-            .notification_cache
-            .as_ref()
-            .map(|(cached, _)| *cached != revision)
-            .unwrap_or(true);
-        if stale {
-            self.notification_cache = Some((revision, Arc::new(queue.snapshot())));
+        match &self.notification_cache {
+            Some((cached, list)) if *cached == revision => Arc::clone(list),
+            _ => {
+                let list = Arc::new(queue.snapshot());
+                self.notification_cache = Some((revision, Arc::clone(&list)));
+                list
+            }
         }
-        Arc::clone(&self.notification_cache.as_ref().unwrap().1)
     }
 
     fn send_tray_command(&self, command: TrayCommand) {
@@ -1086,86 +716,15 @@ impl ControlCenter {
     }
 
     /// Read the shared menu snapshot, memoized on the worker's
-    /// `menu_revision` so the menu tree is re-cloned only when it changes. A
-    /// contended snapshot lock (the worker publishing a large tree) serves
-    /// the cached menu rather than blocking the frame.
+    /// `menu_revision`. A contended lock serves the cached menu rather than
+    /// blocking the frame.
     fn menu_snapshot(&mut self) -> Option<Arc<MenuState>> {
-        if let Some(key) = self.menu_open_for.as_deref()
-            && key.starts_with("demo.")
-        {
-            return Some(Arc::new(MenuState {
-                key: key.to_string(),
-                revision: 1,
-                root: MenuNode {
-                    id: 0,
-                    kind: tray::MenuEntryKind::Standard,
-                    label: "Root".into(),
-                    enabled: true,
-                    visible: true,
-                    toggle: tray::MenuToggle::None,
-                    has_submenu: false,
-                    children: vec![
-                        MenuNode {
-                            id: 1,
-                            kind: tray::MenuEntryKind::Standard,
-                            label: "Status: Active".into(),
-                            enabled: true,
-                            visible: true,
-                            toggle: tray::MenuToggle::Checkmark(1),
-                            has_submenu: false,
-                            children: vec![],
-                        },
-                        MenuNode {
-                            id: 2,
-                            kind: tray::MenuEntryKind::Separator,
-                            label: String::new(),
-                            enabled: true,
-                            visible: true,
-                            toggle: tray::MenuToggle::None,
-                            has_submenu: false,
-                            children: vec![],
-                        },
-                        MenuNode {
-                            id: 3,
-                            kind: tray::MenuEntryKind::Standard,
-                            label: "Open Dashboard".into(),
-                            enabled: true,
-                            visible: true,
-                            toggle: tray::MenuToggle::None,
-                            has_submenu: false,
-                            children: vec![],
-                        },
-                        MenuNode {
-                            id: 4,
-                            kind: tray::MenuEntryKind::Separator,
-                            label: String::new(),
-                            enabled: true,
-                            visible: true,
-                            toggle: tray::MenuToggle::None,
-                            has_submenu: false,
-                            children: vec![],
-                        },
-                        MenuNode {
-                            id: 5,
-                            kind: tray::MenuEntryKind::Standard,
-                            label: "Preferences...".into(),
-                            enabled: true,
-                            visible: true,
-                            toggle: tray::MenuToggle::None,
-                            has_submenu: false,
-                            children: vec![],
-                        },
-                    ],
-                },
-            }));
-        }
         let tray = self.tray.as_ref()?;
         if let Ok(snapshot) = tray.handle().snapshot().try_lock() {
             let stale = self
                 .menu_cache
                 .as_ref()
-                .map(|cache| cache.revision != snapshot.menu_revision)
-                .unwrap_or(true);
+                .is_none_or(|cache| cache.revision != snapshot.menu_revision);
             if stale {
                 self.menu_cache = Some(MenuSnapshotCache {
                     revision: snapshot.menu_revision,
@@ -1176,13 +735,13 @@ impl ControlCenter {
         self.menu_cache.as_ref()?.menu.clone()
     }
 
-    /// Project the SNI tray for this frame and widen each cell with the layout
-    /// rect the tray grid fills in. The upload/prune policy lives in
-    /// [`crate::tray::TrayProjection`], shared with the HUD, so the two
-    /// surfaces cannot drift.
+    /// Project the SNI tray for this frame.
     fn sni_cells(&mut self) -> Vec<SniCell> {
-        let mut cells: Vec<SniCell> = self
-            .tray
+        #[cfg(test)]
+        if !self.test_cells.is_empty() {
+            return self.test_cells.clone();
+        }
+        self.tray
             .as_mut()
             .map(TrayProjection::cells)
             .unwrap_or_default()
@@ -1193,38 +752,7 @@ impl ControlCenter {
                 has_menu: cell.has_menu,
                 textured: cell.textured,
             })
-            .collect();
-        if cells.is_empty()
-            && (std::env::var_os("TESSERA_COMMAND_PANEL").is_some()
-                || std::env::var_os("TESSERA_COMMAND_PANEL_OPEN").is_some()
-                || std::env::var("TESSERA_PREVIEW").is_ok_and(|val| {
-                    let v = val.trim();
-                    v.eq_ignore_ascii_case("command-panel")
-                        || v.eq_ignore_ascii_case("command_panel")
-                        || v.eq_ignore_ascii_case("panel")
-                        || v == "1"
-                }))
-        {
-            cells.push(SniCell {
-                key: "demo.agent".into(),
-                title: "Agent Service".into(),
-                has_menu: true,
-                textured: false,
-            });
-            cells.push(SniCell {
-                key: "demo.network".into(),
-                title: "Network Link".into(),
-                has_menu: true,
-                textured: false,
-            });
-            cells.push(SniCell {
-                key: "demo.power".into(),
-                title: "Power Profile".into(),
-                has_menu: true,
-                textured: false,
-            });
-        }
-        cells
+            .collect()
     }
 
     fn close_menu(&mut self, key: String) {
@@ -1233,9 +761,18 @@ impl ControlCenter {
         self.menu_just_opened = false;
         self.send_tray_command(TrayCommand::CloseMenu { key });
     }
+
+    /// Bounds of the tray's dbusmenu popover, if one is open.
+    fn open_popover_bounds(&mut self) -> Option<Rect> {
+        let key = self.menu_open_for.clone()?;
+        let menu = self.menu_snapshot().filter(|menu| menu.key == key)?;
+        tray::visible_children(&menu.root, &self.menu_path)
+            .map(|visible| menu_bounds(self.menu_owner, visible, self.display))
+    }
 }
 
 mod presentation;
+
 impl Chrome for ControlCenter {
     fn prepare_frame(
         &mut self,
@@ -1264,94 +801,44 @@ impl Chrome for ControlCenter {
         let cursor = (raw.cursor.x, raw.cursor.y);
         let down = raw.mouse_down.first().copied().unwrap_or(false);
         let pressed = down && !self.prev_down;
-        if !self.active() {
-            self.prev_down = down;
+        self.prev_down = down;
+        if !self.presented() {
             return;
         }
-        let reveal = self.reveal();
-        let (
-            profile_rect,
-            main_rect,
-            notifications_rect,
-            clock_rect,
-            tray_rect,
-            work_mode_rect,
-            power_rect,
-        ) = Self::cluster_bounds(display, self.reserved);
+        let sheet = self.resolve_sheet(display);
 
-        // Cache the cursor for presentation helpers that only see `Frame`.
-        self.cursor_hint = cursor;
-        // Wheel activity over the notification stream keeps its scrollbar
-        // revealed; `advance` decays it when idle.
-        let wheel_dy = raw.scroll_pixels_y.abs().max(raw.scroll_y.abs() * 16.0);
-        if self.open && wheel_dy > 0.0 && contains(notifications_rect, cursor.0, cursor.1) {
-            self.notif_scrollbar_reveal = 1.0;
-        }
-
-        // Click-away: a press landing on none of the cluster's surfaces nor
-        // an open tray dbusmenu popover dismisses the panel.
+        // A press outside both cards and any open popover dismisses the sheet.
         let on_popover = self
-            .open_popover_bounds(display)
-            .map(|rect| contains(rect, cursor.0, cursor.1))
-            .unwrap_or(false);
-        if pressed
-            && !contains(profile_rect, cursor.0, cursor.1)
-            && !contains(notifications_rect, cursor.0, cursor.1)
-            && !contains(main_rect, cursor.0, cursor.1)
-            && !contains(clock_rect, cursor.0, cursor.1)
-            && !contains(tray_rect, cursor.0, cursor.1)
-            && !contains(work_mode_rect, cursor.0, cursor.1)
-            && !contains(power_rect, cursor.0, cursor.1)
-            && !on_popover
-        {
-            self.close();
+            .open_popover_bounds()
+            .is_some_and(|rect| contains(rect, cursor.0, cursor.1));
+        if pressed && self.open && !sheet.contains(cursor.0, cursor.1) && !on_popover {
+            self.close(out);
         }
-
-        // Tabs stop accepting presses while the panel is closing.
         let pressed = pressed && self.open;
 
-        let profile_progress = stagger(reveal, 0.0);
-        let notif_progress = stagger(reveal, 0.0);
-        let content_progress = ease_out_cubic(stagger(reveal, CONTENT_STAGGER));
-        let side_progress = ease_out_cubic(stagger(reveal, SIDE_STAGGER));
+        let reveal = ease_out_cubic(self.reveal());
+        let slide = (1.0 - reveal) * layout::REVEAL_SLIDE;
+        let shift = |rect: Rect| Rect {
+            x: rect.x + slide,
+            ..rect
+        };
 
-        // The opaque scheme-adaptive canvas under the whole cluster: the
-        // panel's own painted background, faded by the same reveal that drives
-        // every section (ADR-0176). This replaces the retired full-screen
-        // backdrop blur + scrim cover: the panel is a solid grouped surface,
-        // not a translucent sheet over the live desktop, so it never captures,
-        // blurs, or composites the desktop behind it.
-        Self::render_canvas(&self.panel_colors(), f, display, reveal);
-
-        // Display typography is per-call (`display_label`, bold sans at the
-        // amplified HUD sizes), so no context-wide scope is needed here.
-        // Lens stamps each built node with the context opacity, so one
-        // switch fades every element of a section — text, icons, images,
-        // sliders, scrollbars; the switch is restored after the cluster
-        // (lens also resets it at every frame begin).
-        f.set_opacity(profile_progress);
-        self.render_profile_panel(f, profile_rect, profile_progress, i18n);
-        f.set_opacity(notif_progress);
-        self.render_notifications_panel(f, notifications_rect, notif_progress, i18n, out);
-        f.set_opacity(content_progress);
-        self.render_main_panel(f, main_rect, content_progress, i18n, out);
-        f.set_opacity(side_progress.max(content_progress));
-        self.render_clock_panel(f, clock_rect, side_progress, i18n);
-        self.render_tray_shelf(f, tray_rect, side_progress, cursor, i18n);
-        self.render_work_mode_panel(f, work_mode_rect, side_progress, i18n, out);
-        self.render_power_session_panel(f, power_rect, side_progress, cursor, i18n, out);
-
-        // The dbusmenu popover floats above the panels; it belongs to the
-        // tray, so it fades with the side column.
+        // Lens stamps every built node with the context opacity, so one switch
+        // fades a card's text, icons, images, and controls together.
+        self.tip = None;
+        f.set_opacity(reveal);
+        self.render_controls_card(f, shift(sheet.controls), cursor, i18n, out);
+        if sheet.notifications_visible() {
+            self.render_notifications_card(f, shift(sheet.notifications), i18n, out);
+        }
         if self.menu_open_for.is_some()
             && let Some(menu) = self.menu_snapshot()
             && Some(&menu.key) == self.menu_open_for.as_ref()
         {
             self.render_tray_menu(f, &menu, display, cursor, pressed);
         }
+        self.render_tip(f, i18n);
         f.set_opacity(1.0);
-
-        self.prev_down = down;
     }
 
     fn captures_keyboard(&self) -> bool {
@@ -1362,60 +849,22 @@ impl Chrome for ControlCenter {
         if !self.open {
             return;
         }
-
-        if let Some(ssid) = self.wifi_input_ssid.clone() {
-            if kc.keysym == tessera_primitives::input::XKB_KEY_Escape {
-                self.wifi_input_ssid = None;
-                self.wifi_input_passphrase.clear();
-                return;
-            }
-            if kc.keysym == tessera_primitives::input::XKB_KEY_Return {
-                let pass = if self.wifi_input_passphrase.is_empty() {
-                    None
-                } else {
-                    Some(self.wifi_input_passphrase.clone())
-                };
-                out.system_actions.push(SystemAction::ConnectWifi {
-                    ssid,
-                    passphrase: pass,
-                });
-                self.wifi_input_ssid = None;
-                self.wifi_input_passphrase.clear();
-                return;
-            }
-            if kc.keysym == tessera_primitives::input::XKB_KEY_BackSpace {
-                self.wifi_input_passphrase.pop();
-                return;
-            }
-            if let Some(c) = kc.ch
-                && !c.is_control()
-            {
-                self.wifi_input_passphrase.push(c);
-                return;
-            }
+        if self.wifi_key_char(kc, out) {
+            return;
         }
-
         if kc.keysym != tessera_primitives::input::XKB_KEY_Escape {
             return;
         }
-        // Escape peels the innermost surface first: an open tray menu, then
-        // the tray's overflow disclosure popover, then an expanded Wi-Fi,
-        // Bluetooth, audio-output, or Cast view, then the panel itself.
+        // Escape peels the innermost layer first: the tray popover, the
+        // session strip, a detail page, then the sheet itself.
         if let Some(key) = self.menu_open_for.clone() {
             self.close_menu(key);
-        } else if self.wifi_expanded {
-            self.wifi_expanded = false;
-            self.wifi_input_ssid = None;
-        } else if self.bluetooth_expanded {
-            self.bluetooth_expanded = false;
-        } else if self.audio_expanded {
-            self.audio_expanded = false;
-        } else if self.cast_expanded {
-            self.cast_expanded = false;
-            self.cast_scanning = false;
-            out.system_actions.push(SystemAction::StopCastDiscovery);
+        } else if self.session_open {
+            self.session_open = false;
+        } else if self.page != Page::Main {
+            self.show_page(Page::Main, out);
         } else {
-            self.close();
+            self.close(out);
         }
     }
 
@@ -1423,30 +872,13 @@ impl Chrome for ControlCenter {
         match command {
             ChromeCommand::ToggleControlCenter => {
                 if self.open {
-                    if self.cast_expanded {
-                        self.cast_expanded = false;
-                        self.cast_scanning = false;
-                        out.system_actions.push(SystemAction::StopCastDiscovery);
-                    }
-                    self.close();
+                    self.close(out);
                 } else {
-                    self.open = true;
-                    if let Some(name) = self
-                        .avatar
-                        .as_mut()
-                        .and_then(|avatar| avatar.play_random_action().map(str::to_owned))
-                    {
-                        log::debug!("control-center: playing avatar action {name:?}");
-                    }
+                    self.open_sheet();
                 }
             }
             ChromeCommand::CloseControlCenter | ChromeCommand::DismissModal if self.open => {
-                if self.cast_expanded {
-                    self.cast_expanded = false;
-                    self.cast_scanning = false;
-                    out.system_actions.push(SystemAction::StopCastDiscovery);
-                }
-                self.close();
+                self.close(out);
             }
             _ => {}
         }
@@ -1456,10 +888,8 @@ impl Chrome for ControlCenter {
         self.presented()
     }
 
-    fn command_panel_active(&self) -> bool {
-        self.presented()
-    }
-
+    /// While presented the sheet owns the whole pointer: a press outside the
+    /// cards dismisses it and must not also reach the window beneath.
     fn captures_pointer(
         &self,
         _x: f32,
@@ -1468,72 +898,61 @@ impl Chrome for ControlCenter {
         _windows: &[Window],
         _workspaces: &WorkspaceSnapshot,
     ) -> bool {
-        // Modal: the whole screen belongs to the panel (scrim click-away
-        // included) while it is presented or animating — never during the
-        // invisible ring drain that follows.
         self.presented()
     }
 
-    fn modal_active(&self) -> bool {
-        self.presented()
-    }
-
-    fn exclusive_presentation_active(&self) -> bool {
-        self.presented()
-    }
-
-    /// The panel renders while modal — it *is* the modal component.
-    fn visible_during_modal(&self) -> bool {
-        true
-    }
-
-    fn cursor_shape_at(
+    fn pointer_damage_regions(
         &self,
         _x: f32,
         _y: f32,
         _display: (f32, f32),
         _windows: &[Window],
         _workspaces: &WorkspaceSnapshot,
+    ) -> Option<Vec<Rect>> {
+        // Hover feedback lands on the cards and on an open popover; a pointer
+        // over the desktop changes nothing the sheet paints.
+        self.footprint()
+    }
+
+    fn modal_active(&self) -> bool {
+        self.presented()
+    }
+
+    fn visible_during_modal(&self) -> bool {
+        true
+    }
+
+    fn cursor_shape_at(
+        &self,
+        x: f32,
+        y: f32,
+        _display: (f32, f32),
+        _windows: &[Window],
+        _workspaces: &WorkspaceSnapshot,
     ) -> Option<CursorShape> {
-        self.presented().then_some(CursorShape::Pointer)
+        (self.presented() && self.sheet.contains(x, y)).then_some(CursorShape::Pointer)
     }
 
     fn update(&mut self, update: ChromeUpdate<'_>) {
         match update {
             ChromeUpdate::AppCatalog(catalog) => self.icons = catalog.icons.clone(),
             ChromeUpdate::SystemStatus(status) => self.status = status.clone(),
-            // Resource sampling was retired with the machine monitor: the
-            // panel no longer displays utilization, so the host-side probe
-            // is gone and there is nothing to fold into panel state.
-            ChromeUpdate::InteractionDomains(snapshot) => {
-                self.interaction_domains = snapshot.clone();
-            }
-            ChromeUpdate::Appearance(design) => {
-                self.design = *design;
-            }
+            ChromeUpdate::Appearance(design) => self.design = *design,
             ChromeUpdate::Settings(snapshot) => {
-                self.settings = Some(snapshot.clone());
-                self.modules.update_settings(snapshot);
+                self.preferences = Some(snapshot.preferences.clone());
             }
             ChromeUpdate::SpaceUse(space_use) => {
-                // A client that owns the output presentation takes the whole
-                // screen; an open control center must not survive it.
+                // A client that takes the whole output takes it from the sheet.
                 if space_use.client_owns_output() && self.open {
-                    self.close();
+                    self.close(&mut ChromeEvents::default());
                 }
             }
             ChromeUpdate::ModalReserved(reserved) => self.reserved = reserved,
             ChromeUpdate::ReducedMotion(reduced) => {
                 self.reduced_motion = reduced;
-                if reduced {
-                    let target = if self.open { 1.0 } else { 0.0 };
-                    // Only a snap that actually moves the reveal needs the ring
-                    // drain: a panel that is already at its resting value has
-                    // nothing to overwrite.
-                    if (self.reveal.value - target).abs() > 0.0 {
-                        self.reveal.snap_to(target);
-                        self.settled_drain_frames = SETTLED_DRAIN_FRAMES;
-                    }
+                if reduced && (self.reveal.value - self.reveal_target()).abs() > 0.0 {
+                    self.reveal.snap_to(self.reveal_target());
+                    self.retire_frames = RETIRE_FRAMES;
                 }
             }
             _ => {}
@@ -1541,143 +960,40 @@ impl Chrome for ControlCenter {
     }
 
     fn anim_pending(&self) -> bool {
-        let target = if self.open { 1.0 } else { 0.0 };
-        presentation_anim_pending(
-            &self.reveal,
-            target,
-            self.open && self.avatar.as_ref().is_some_and(Portrait::is_animated),
-            self.avatar_reload_pending(),
-        ) || self.interaction_anim_pending()
+        !self.reveal_settled()
+            || self.avatar_animating()
+            || (self.presented() && self.interaction_anim_pending())
     }
 
     fn damage_pending(&self) -> bool {
-        self.settled_drain_frames > 0
+        self.retire_frames > 0
     }
 
-    /// The union of the panel's animated footprints — the region a frame
-    /// driven purely by the panel's in-flight animation can touch.
-    ///
-    /// The compositor turns an animation-driven frame into a partial repaint
-    /// of exactly this rectangle instead of a full-output composite. The
-    /// reveal/close transition animates the opaque full-screen canvas, and the
-    /// settle drain must overwrite a full screen of ring slots, so both stay
-    /// full-output via `None`; only the micro-interactions localize.
-    fn damage_regions(&self, _windows: &[Window], display: (f32, f32)) -> Option<Vec<Rect>> {
+    fn damage_regions(&self, _windows: &[Window], _display: (f32, f32)) -> Option<Vec<Rect>> {
         if !self.active() {
             return None;
         }
-        animated_damage_regions(
-            display,
-            self.reserved,
-            // The reveal/close transition animates the opaque full-screen
-            // canvas; the settle drain repaints the full output for
-            // `SETTLED_DRAIN_FRAMES` slots. Both stay full-output via
-            // `None`. Tooltip reveals are localized to their anchor bands.
-            self.reveal_animating() || self.settled_drain_frames > 0,
-            // The always-on bands are exact single-rect footprints: the
-            // segmented indicator moves within the work-mode control, each
-            // scrollbar fades within its own scrolling surface, and the avatar
-            // re-renders its texture inside the profile block.
-            self.work_mode_anim_pending(),
-            self.notif_scrollbar_reveal > 0.0,
-            self.avatar_animating(),
-            self.work_mode_tooltip_reveal > 0.02,
-            self.session_tooltip_reveal > 0.02,
-        )
+        self.footprint()
     }
 
     fn requires_composition(&self) -> bool {
         self.active()
     }
-
-    /// The panel's own canvas is the frame background while it is open: it
-    /// paints every output pixel at full reveal, so the desktop beneath it is
-    /// elidable. Mid-fade the canvas is still draining and the desktop shows
-    /// through, which is exactly what `cover_opacity` reports.
-    fn paints_opaque_cover(&self) -> bool {
-        self.active()
-    }
-
-    fn cover_opacity(&self) -> f32 {
-        if self.active() {
-            f32::from(presentation::canvas_alpha(self.reveal())) / 255.0
-        } else {
-            0.0
-        }
-    }
-
-    fn occludes_desktop(&self) -> bool {
-        self.active() && presentation::canvas_alpha(self.reveal()) == 255
-    }
 }
 
-/// The union of the panel's animated footprints, from the individual
-/// "this is still moving" signals. Pure so the mapping is unit-testable
-/// without a GPU (the avatar path needs a live flux device). `None` means the
-/// frame must be a conservative full-output repaint.
-fn animated_damage_regions(
-    display: (f32, f32),
-    reserved: Reserved,
-    conservative: bool,
-    work_mode: bool,
-    notif_scrollbar: bool,
-    avatar: bool,
-    work_mode_tooltip: bool,
-    session_tooltip: bool,
-) -> Option<Vec<Rect>> {
-    if conservative {
-        return None;
-    }
-    let rects = ControlCenter::cluster_bounds(display, reserved);
-    /* Distinct animated bands stay distinct: the work-mode tooltip and the
-     * session tooltip live in different clusters, and their union would span the
-     * whole column between them. */
-    let mut region: Vec<Rect> = Vec::new();
-    let mut merge = |rect: Rect, pad_top: f32| {
-        /* Round *outward on both edges*. Flooring the origin and ceiling the
-         * extent instead leaves the far edge short by the fractional part, which
-         * is an under-covering region — the one unsafe direction: a band whose
-         * bottom lands on 1042.2 must report 1043, not 1042. */
-        let x0 = rect.x.floor();
-        let y0 = (rect.y - pad_top).floor();
-        let x1 = (rect.x + rect.w).ceil();
-        let y1 = (rect.y + rect.h).ceil();
-        let as_rect = tessera_primitives::Rect::new(
-            x0 as i32,
-            y0 as i32,
-            (x1 - x0).max(0.0) as i32,
-            (y1 - y0).max(0.0) as i32,
-        );
-        if as_rect.is_empty() {
-            return;
+impl ControlCenter {
+    /// Every pixel the sheet may change: both cards with their halo and reveal
+    /// slide, plus the tray popover.
+    fn footprint(&self) -> Option<Vec<Rect>> {
+        let mut rects = self.sheet.footprint(self.halo_reach());
+        if self.menu_open_for.is_some()
+            && let Some(key) = self.menu_open_for.as_deref()
+            && let Some(cache) = &self.menu_cache
+            && let Some(menu) = cache.menu.as_ref().filter(|menu| menu.key == key)
+            && let Some(visible) = tray::visible_children(&menu.root, &self.menu_path)
+        {
+            rects.push(menu_bounds(self.menu_owner, visible, self.display));
         }
-        let as_lens = Rect {
-            x: as_rect.origin.x as f32,
-            y: as_rect.origin.y as f32,
-            w: as_rect.size.w as f32,
-            h: as_rect.size.h as f32,
-        };
-        if !region.contains(&as_lens) {
-            region.push(as_lens);
-        }
-    };
-    if work_mode {
-        merge(rects.5, 0.0); // work-mode band
+        Some(rects)
     }
-    if work_mode_tooltip {
-        merge(rects.5, 50.0); // work-mode band + tooltip headroom
-    }
-    if session_tooltip {
-        merge(rects.6, 50.0); // power/session band + tooltip headroom
-    }
-    if notif_scrollbar {
-        merge(rects.2, 0.0); // notification stream
-    }
-    if avatar {
-        merge(rects.0, 0.0); // profile block
-    }
-    /* No signal localized anything, so this frame cannot name its damage: `None`
-     * is the honest answer and forces a full-output repaint. An empty list would
-     * claim "nothing changed", which is a different and wrong statement. */
-    (!region.is_empty()).then_some(region)
 }

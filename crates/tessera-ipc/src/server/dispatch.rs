@@ -1,6 +1,6 @@
 use super::*;
 
-/// The four compositor-owned built-in scope names (ADR-0090). Claims of
+/// The compositor-owned built-in scope names (ADR-0090). Claims of
 /// these scopes are bound to kernel-verified peer process identity
 /// (ADR-0128) before they may resolve.
 fn is_builtin_scope_name(name: &str) -> bool {
@@ -10,7 +10,23 @@ fn is_builtin_scope_name(name: &str) -> bool {
             | LOCAL_OWNER_ADMIN_SCOPE
             | LOCAL_INTERACTION_DOMAIN_ADMIN_SCOPE
             | LOCAL_PORTAL_SCOPE
+            | LOCAL_SETTINGS_SCOPE
     )
+}
+
+/// The Settings scope's one permitted command: focus a window that Settings
+/// itself owns. A second `tessera-settings` invocation forwards its page over
+/// the per-session instance socket, and the running app then raises its own
+/// window through the ordinary IPC focus command. Targeting any other app is
+/// refused before it reaches the command handler.
+fn settings_self_focus<H: Handler>(handler: &H, cmd: &Command) -> bool {
+    let Command::Focus { id, .. } = cmd else {
+        return false;
+    };
+    handler.windows().iter().any(|window| {
+        window.id == *id
+            && window.app_id.as_deref() == Some(tessera_desktop::app::settings_app::APP_ID)
+    })
 }
 
 /// The query-gated, scope-filtered output list shared by `GetOutputs`,
@@ -1053,7 +1069,24 @@ pub(super) fn drive_read_loop<H: Handler>(
                     &granted_scope,
                     principal.as_deref(),
                 );
-                let mut rejection = if !allowed {
+                let mut rejection = if scope_name.as_deref() == Some(LOCAL_SETTINGS_SCOPE) {
+                    // The Settings scope holds `session` only to commit
+                    // settings transactions. Scopes do not gate session
+                    // commands (Quit), so its command surface is closed here,
+                    // by name, before any capability check. The one exception
+                    // is raising a window this application owns: a second
+                    // invocation hands its page to the running instance and
+                    // must be able to bring that window forward.
+                    if settings_self_focus(handler, &cmd) {
+                        if !lease_alive {
+                            Some("privileged capability lease expired".to_owned())
+                        } else {
+                            cmd.validate().err().map(str::to_owned)
+                        }
+                    } else {
+                        Some("out of scope: the Settings scope permits no such command".to_owned())
+                    }
+                } else if !allowed {
                     Some("command requires a capability not granted".to_owned())
                 } else if !lease_alive {
                     Some("privileged capability lease expired".to_owned())

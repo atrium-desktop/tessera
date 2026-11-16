@@ -142,7 +142,7 @@ impl ProductColors {
     }
 }
 
-/// Scheme-adaptive colors for the command panel's solid-surface hierarchy.
+/// Scheme-adaptive colors for the Control Center's solid-surface hierarchy.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub struct ControlCenterColors {
@@ -160,8 +160,6 @@ pub struct ControlCenterColors {
     pub control_track: Color,
     pub control_knob: Color,
 }
-
-pub type CommandPanelColors = ControlCenterColors;
 
 impl ControlCenterColors {
     /// The canonical dark control-center colors.
@@ -184,7 +182,7 @@ impl ControlCenterColors {
         }
     }
 
-    /// The canonical light command-panel colors.
+    /// The canonical light Control Center colors.
     #[must_use]
     pub fn light() -> Self {
         Self {
@@ -406,15 +404,15 @@ mod tests {
     }
 
     #[test]
-    fn command_panel_colors_are_opaque_and_follow_the_scheme() {
-        let dark = CommandPanelColors::dark();
-        let light = CommandPanelColors::light();
+    fn control_center_colors_are_opaque_and_follow_the_scheme() {
+        let dark = ControlCenterColors::dark();
+        let light = ControlCenterColors::light();
 
         assert_eq!(dark.scheme, ColorScheme::Dark);
         assert_eq!(light.scheme, ColorScheme::Light);
         assert_eq!(dark.accent, Color::rgba(10, 132, 255, 255));
         assert_eq!(light.accent, Color::rgba(0, 122, 255, 255));
-        assert_eq!(CommandPanelColors::for_scheme(ColorScheme::System), dark);
+        assert_eq!(ControlCenterColors::for_scheme(ColorScheme::System), dark);
 
         for colors in [dark, light] {
             assert_eq!(colors.background.components().3, 255);

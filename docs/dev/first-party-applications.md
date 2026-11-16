@@ -1,11 +1,10 @@
 # First-Party Application Development
 
 Use this workflow for standalone applications that ship with Tessera but run as
-ordinary Wayland clients. No first-party standalone application currently
-ships in-tree — the former System Settings application is now a settings
-module library hosted by the command panel
-([ADR-0114](../adr/0114-panel-hosted-settings-and-hud-command-panel.md)) —
-but the contract below remains the model for adding one.
+ordinary Wayland clients. **Settings** (`tessera-settings`,
+[ADR-0238](../adr/0238-settings-is-a-standalone-application-behind-its-own-scope.md))
+is the in-tree reference: a library crate for its model and pages, a binary
+for its window, and the compositor reached only over IPC.
 
 The installation and staging model is defined by
 [ADR-0069](../adr/0069-documentation-owned-installation-and-throwaway-development-staging.md).
@@ -35,8 +34,12 @@ A standalone application reaches Tessera through two runtime boundaries:
 Do not add the application crate as an `tessera` Rust dependency. Shared
 schemas and models belong in library crates such as `tessera-desktop`,
 `tessera-protocol`, and `tessera-primitives`. A surface that should render in-process belongs in a chrome
-component crate on the `tessera-shell` contract instead — that is where the
-settings modules live.
+component crate on the `tessera-shell` contract instead.
+
+An application that needs privileged IPC claims a built-in scope bound to its
+installed executable path (ADR-0128), never ambient privilege: Settings claims
+`tessera-settings`, which permits settings transactions and focuses only a
+Settings-owned window (so a second invocation can raise the running one).
 
 ## Installation Contract
 
@@ -53,8 +56,9 @@ must agree with the installed executable, icon name, and Wayland application
 id. Do not use an absolute build-directory path in packaged metadata.
 
 Cargo does not install desktop entries or icons. Distribution packages and
-installation tooling must install the files under `contrib/` alongside the
-compiled binaries.
+installation tooling must install the files under `system/share/` alongside the
+compiled binaries; `system/` mirrors the installed prefix (see
+[Packaging](packaging.md#install-manifest)).
 
 ## Development Staging
 
@@ -62,6 +66,18 @@ Direct Cargo commands are the default development loop. Stage the complete
 first-party application contract — executable, desktop entry, and icon —
 into a throwaway prefix only when a test needs XDG discovery, so the user's
 `~/.local` stays clean.
+
+```bash
+prefix=$(mktemp -d)
+install -Dm0755 target/debug/tessera-settings "$prefix/bin/tessera-settings"
+cp -r system/share "$prefix/"
+PATH="$prefix/bin:$PATH" XDG_DATA_DIRS="$prefix/share:$XDG_DATA_DIRS" \
+  TESSERA_BACKEND=nested cargo run -p tessera
+```
+
+A staged binary is not at an allowlisted path, so add it to the nested
+session's `[ipc.scope_executables]` (`tessera-settings = ["<prefix>/bin/tessera-settings"]`)
+or Settings opens read-only.
 
 The desktop entry's `Exec` resolves through `PATH` and its `Icon` through
 `XDG_DATA_DIRS`, so the launcher follows the same lookup path as a packaged

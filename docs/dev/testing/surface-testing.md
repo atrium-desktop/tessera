@@ -6,7 +6,7 @@
 
 How the interactive shell surfaces are tested: the test model, the
 code-organization rules every layer follows, and the commands for each
-surface — the command panel (compositor chrome, ADR-0080) and the lock screen
+surface — the Control Center (compositor chrome, ADR-0080) and the lock screen
 (the `tessera-lock` production surface). A result from one layer does not stand
 in for a result from another.
 
@@ -35,15 +35,15 @@ and debug facilities follow these rules.
 Presentation logic is written as pure data transformations and tested in
 in-crate `#[cfg(test)]` modules with `cargo nextest run --locked -p <crate>
 --lib`. Provide a constructor that removes external sources — for example
-`CommandPanel::without_sources()` — so tests need no GPU, bus, or tray. Unit
+`ControlCenter::without_sources()` — so tests need no GPU, bus, or tray. Unit
 tests never open windows or devices.
 
 ### Presentation Toggles: Debug-Gated Environment Variables
 
 A production binary may expose debug-gated environment variables that change
 **presentation only** — which surface is open at startup, what demo content is
-seeded. `TESSERA_COMMAND_PANEL_OPEN` is the example: it opens the panel at
-startup in debug builds and seeds demo notifications. Environment variables
+seeded. `TESSERA_PREVIEW=control-center` is the example: it opens the
+Control Center at startup. Environment variables
 must never alter authentication, authorization, or capture behavior. See
 [Development Environment Variables](../environment-variables.md) for the complete
 reference.
@@ -95,11 +95,11 @@ recipes below repeat it so each block stands alone. Only one Tessera process can
 own `tessera.sock`: a nested instance started beside a live session logs an
 address-in-use warning and runs without IPC.
 
-## Test the Command Panel
+## Test the Control Center
 
 ### Unit Tests
 
-Panel presentation logic follows the unit-layer rule: pure logic, no GPU or
+Control Center presentation logic follows the unit-layer rule: pure logic, no GPU or
 live sources. Run the suite:
 
 ```bash
@@ -107,35 +107,37 @@ cargo check --locked -p tessera-shell
 cargo nextest run --locked -p tessera-shell --lib
 ```
 
-The suite covers cluster bounds on small displays, reduced-motion reveal
-snapping, the constraint that the panel never requests backdrop effects,
-formatting helpers, and persona profile resolution. It cannot catch rendering
+The suite covers card bounds and stacking on small displays, reduced-motion
+reveal snapping, the constraint that the sheet never requests backdrop
+effects, formatting helpers, and persona profile resolution. It cannot catch rendering
 faults such as a frame arena overflow; escalate to the preview layer when the
 change touches rendering.
 
-### Panel Preview in a Nested Session
+### Control Center Preview in a Nested Session
 
-The panel is compositor chrome, so its preview runs the production compositor
+The Control Center is compositor chrome, so its preview runs the production compositor
 with a presentation toggle rather than a harness binary.
 
 The host compositor intercepts global `Super` shortcuts in nested sessions, so
-open the panel one of two ways.
+open the sheet one of two ways.
 
 Auto-open on startup (zero keystrokes) — the shared isolation block plus one
 toggle, debug builds only:
 
 ```bash
 mkdir -p /tmp/tessera-dev/tessera
-TESSERA_COMMAND_PANEL_OPEN=1 \
+TESSERA_PREVIEW=control-center \
 TESSERA_BACKEND=nested \
 XDG_DATA_HOME=/tmp/tessera-dev \
 XDG_DATA_DIRS=$HOME/.local/share:/usr/local/share:/usr/share \
 cargo run --locked -p tessera
 ```
 
-Debug builds seed a few demo notifications so the stream has content without a
-bus. Close and reopen the panel with `Super+S` when the host does not claim
-it, `Escape`, or a click on the scrim.
+No build seeds demo notifications or tray items. Post real notifications over
+IPC when the card needs content:
+`tessera notification send "Summary" "Body"`. Close and reopen the sheet with
+`Super+S` when the host does not claim it, `Escape`, or a press outside both
+cards.
 
 Non-Super keybinding — key combinations such as `Ctrl+Alt+S` reach the nested
 window directly. Add a development keybinding in `config.toml`:
@@ -144,7 +146,7 @@ window directly. Add a development keybinding in `config.toml`:
 [[keybind]]
 mods = ["ctrl", "alt"]
 key = "s"
-action = "command_panel"
+action = "control_center"
 ```
 
 Nested limits: the instance cannot modeset physical outputs or configure
@@ -152,9 +154,9 @@ libinput devices, so validate display and touchpad settings under DRM/KMS.
 Follow [Nested Backend Development](../nested-backend.md) for socket discovery,
 process replacement, and backend limits.
 
-### Capture Panel Pixels for an Agent
+### Capture Control Center Pixels for an Agent
 
-Keep the physical session unlocked. Start the nested compositor with the panel
+Keep the physical session unlocked. Start the nested compositor with the sheet
 auto-opened, then drive the outer session's CLI from another terminal:
 
 ```bash
@@ -170,7 +172,7 @@ nested_region=$(printf '%s' "$windows" | jq -r \
 cargo run --locked -p tessera -- window focus "$nested_id"
 cargo run --locked -p tessera -- display capture \
   --region "$nested_region" \
-  /tmp/tessera-nested-panel.png
+  /tmp/tessera-nested-control-center.png
 ```
 
 Focus before capture so the terminal does not raise itself above the target.
@@ -280,7 +282,7 @@ cargo run --locked -p tessera -- display capture \
   /tmp/tessera-lock-preview.png
 ```
 
-The capture readiness and HiDPI notes from the panel recipe apply unchanged.
+The capture readiness and HiDPI notes from the Control Center recipe apply unchanged.
 
 ### Nested Integration: the Production Lock
 
@@ -331,7 +333,7 @@ another TTY available, and perform these checks in order:
    and input is required again.
 4. Repeat on every physical output.
 
-Validate the exact PAM service with `pamtester` first. For the command panel,
+Validate the exact PAM service with `pamtester` first. For the Control Center,
 physical sessions validate the display and touchpad settings that nested mode
 can only observe. For the full hardware procedure, see
 [VT/DRM Manual Testing](vt-drm-testing.md).
@@ -340,9 +342,9 @@ can only observe. For the full hardware procedure, see
 
 | Change | Required checks |
 |--------|-----------------|
-| Panel layout, color, typography or localized copy | Unit tests plus panel preview at representative sizes, scales, locales, and visual states |
-| Panel quick controls, tabs, tray, or menu navigation | Panel preview: open and close, switch tabs, descend and back in menus, tray activation |
-| Panel notification stream or network monitor | Panel preview: seeded demo notifications and live source rendering |
+| Control Center layout, color, typography or localized copy | Unit tests plus sheet preview at representative sizes, scales, locales, and visual states |
+| Control Center quick controls, detail pages, tray, or menu navigation | Sheet preview: open and close, enter and leave detail pages, descend and back in menus, tray activation |
+| Notification card or live-source readings | Sheet preview with notifications posted over IPC and live source rendering |
 | Lock layout, color, typography or localized copy | Preview both compositions at representative sizes, scales, locales and visual states |
 | Independent lock background or artwork scrim | Preview with `--background`, then start a fresh production lock using `[lock_screen.background]` |
 | Stop-screen (`bsod`) composition | Preview engaged, typing, checking, and rejected states at compact, desktop, and ultra sizes; confirm the keystroke counter and stop code track each state |

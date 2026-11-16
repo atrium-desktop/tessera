@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Proposed
 - Date: 2026-09-15
+- Amended by: [ADR-0240](0240-repository-automation-at-the-root-and-fixtures-with-their-consumer.md) — xtask moved from `tooling/xtask` to the root `xtask/`.
 - Scope: Workspace topology, `crates/**`, `tooling/xtask`, `docs/explanation/architecture.md`;
   amends [ADR-0021](0021-chrome-component-trait.md), [ADR-0044](0044-dock-and-control-center-crates.md),
   [ADR-0046](0046-design-system-crate.md), [ADR-0110](0110-shared-model-crate-naming-and-placement.md)

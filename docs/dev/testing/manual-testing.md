@@ -129,7 +129,7 @@ cargo build --locked -p tessera-idle -p tessera-lock
 
 ```bash
 mkdir -p /tmp/tessera-dev/tessera
-TESSERA_COMMAND_PANEL_OPEN=1 \
+TESSERA_PREVIEW=control-center \
 TESSERA_BACKEND=nested \
 XDG_DATA_HOME=/tmp/tessera-dev \
 XDG_DATA_DIRS=$HOME/.local/share:/usr/local/share:/usr/share \
@@ -143,9 +143,9 @@ cargo run --locked -p tessera
 - `XDG_DATA_HOME=/tmp/tessera-dev`: **Crucial isolation**. Prevents
   `AuditError::Locked` caused by an active host session holding an exclusive
   `flock` on `events-v2.jsonl`.
-- `TESSERA_COMMAND_PANEL_OPEN=1`: Automatically opens the Command Panel at
-  startup with mock notifications in debug builds, bypassing the host compositor's
-  interception of the global `Super+S` shortcut.
+- `TESSERA_PREVIEW=control-center`: Opens the Control Center at startup,
+  bypassing the host compositor's interception of the global `Super+S`
+  shortcut. Post sample notifications with `tessera notification send`.
 - `XDG_DATA_DIRS`: Preserves desktop asset and application discovery when
   `XDG_DATA_HOME` is redirected.
 
@@ -235,7 +235,7 @@ Confirm these key points before opening a pull request:
 
 - [ ] **Startup**: Compositor window appears without panics or swapchain errors.
 - [ ] **Chrome**: Background wallpaper and Dock render cleanly at scale.
-- [ ] **Shortcuts & Panels**: Command Panel or Settings open and respond to focus.
+- [ ] **Shortcuts & Panels**: Control Center or Settings open and respond to focus.
 - [ ] **Client Interaction**: Inner client window opens, accepts keyboard/pointer
       input, and resizes properly.
 - [ ] **Dynamic Resize**: Resizing the outer host window updates the nested

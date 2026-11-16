@@ -6,7 +6,7 @@ chrome components on top of lens.
 ## Responsibilities
 
 - Centralize literal product colors in `colors` and expose semantic
-  `ProductColors`, `CommandPanelColors`, `SceneColors`, and `DockColors` roles.
+  `ProductColors`, `ControlCenterColors`, `SceneColors`, and `DockColors` roles.
 - Define radii, stroke widths, the chrome type scale, and role-based
   presentation policies in `tokens`.
 - Own the scheme palettes for chrome surfaces, the compositor scene (clear
@@ -37,7 +37,7 @@ Construct a design snapshot and pass it to a theme or material factory:
 let design = tessera_design::Design::dark();
 let theme = tessera_design::themes::menu(frame.theme(), &design);
 let popover = tessera_design::materials::popover(&design);
-let panel_colors = tessera_design::CommandPanelColors::for_scheme(design.scheme);
+let panel_colors = tessera_design::ControlCenterColors::for_scheme(design.scheme);
 let preview_shadow = design
     .glass
     .for_role(tessera_design::GlassRole::FloatingPanel);

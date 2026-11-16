@@ -2148,6 +2148,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "tessera-settings"
+version = "0.0.96"
+dependencies = [
+ "ash",
+ "flux",
+ "flux-sys",
+ "lens",
+ "lens-sys",
+ "libc",
+ "log",
+ "pkg-config",
+ "smithay-client-toolkit",
+ "tessera-design",
+ "tessera-desktop",
+ "tessera-env",
+ "tessera-i18n",
+ "tessera-ipc",
+ "tessera-primitives",
+ "tessera-protocol",
+ "thiserror",
+ "vista-sys",
+ "wayland-client",
+ "wayland-protocols",
+]
+
+[[package]]
 name = "tessera-shell"
 version = "0.0.96"
 dependencies = [
@@ -2909,8 +2935,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "serde",
+ "serde_json",
  "tempfile",
  "toml",
+ "toml_edit",
 ]
 
 [[package]]

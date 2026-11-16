@@ -1,188 +1,92 @@
-//! The work-mode panel and its behavior hints.
+//! The work-mode switch: how the session behaves when idle.
 
 use super::*;
 
 impl ControlCenter {
-    /// The first of the three right-bottom components: a stable segmented
-    /// mode selector. Its visible segments and interaction targets share
-    /// the same absolute geometry, preventing the indicator and labels from
-    /// drifting into different layout flows.
-    pub(crate) fn render_work_mode_panel(
+    /// A segmented control over the session power modes. The selection
+    /// highlight follows the shared under-damped indicator spring: each
+    /// segment's highlight strength is its closeness to the spring's position,
+    /// so a switch cross-fades from the old segment to the new one with the
+    /// same light settle every segmented control in the shell has.
+    pub(crate) fn render_work_mode(
         &mut self,
         f: &mut Frame,
-        rect: Rect,
-        progress: f32,
+        width: f32,
         i18n: &Localizer,
         out: &mut ChromeEvents,
     ) {
-        if rect.w < 120.0 || rect.h < 32.0 {
-            return;
-        }
         let hud = self.panel_colors();
         let type_scale = self.design.typography;
-        let slide = (1.0 - ease_out_cubic(progress)) * 24.0;
-        let rect = Rect {
-            x: rect.x + slide,
-            ..rect
-        };
-
-        let current_mode = self.status.power_mode;
+        let current = self.status.power_mode;
+        let position = self.work_mode_indicator.spring.value;
+        let inset = 4.0;
+        let segment_w = ((width - inset * 2.0) / PowerMode::ALL.len() as f32).max(1.0);
+        let segment_h = WORK_MODE_H - inset * 2.0;
         let original = f.theme();
-        let base_theme = themes::hud(&hud);
-        const INSET: f32 = 4.0;
-        let control = Rect {
-            x: rect.x,
-            y: rect.y,
-            w: rect.w,
-            h: rect.h,
-        };
-        let inner = Rect {
-            x: control.x + INSET,
-            y: control.y + INSET,
-            w: (control.w - INSET * 2.0).max(1.0),
-            h: (control.h - INSET * 2.0).max(1.0),
-        };
-        let seg_w = inner.w / PowerMode::ALL.len() as f32;
-
-        f.set_theme(base_theme);
-        f.place(
-            "tessera-hud-work-mode-surface",
-            &chrome_place(
-                control,
-                LayoutOpts {
-                    radius: control.h * 0.5,
-                    bg: hud.surface_recessed,
-                    border: hud.border,
-                    border_width: 1.0,
-                    ..Default::default()
-                },
-            ),
-            |f| {
-                f.row_ex(&sized(control.w, control.h), |_| {});
+        let mut chosen: Option<PowerMode> = None;
+        let mut hovered: Option<(Tip, Rect)> = None;
+        f.row_ex(
+            &LayoutOpts {
+                width,
+                height: WORK_MODE_H,
+                pad: inset,
+                radius: WORK_MODE_H * 0.5,
+                bg: hud.surface_recessed,
+                cross: Align::Center,
+                ..Default::default()
             },
-        );
-
-        // Sliding indicator: position from the spring (segment units), so
-        // it overshoots slightly and settles with elastic bounce.
-        let spring_pos = self
-            .work_mode_indicator
-            .spring
-            .value
-            .clamp(0.0, PowerMode::ALL.len().saturating_sub(1) as f32);
-        let indicator_x = inner.x + spring_pos * seg_w;
-        f.place(
-            "tessera-hud-work-mode-indicator",
-            &chrome_place(
-                Rect {
-                    x: indicator_x,
-                    y: inner.y,
-                    w: seg_w,
-                    h: inner.h,
-                },
-                LayoutOpts {
-                    radius: inner.h * 0.5,
-                    bg: hud.selection_surface,
-                    border: hud.accent.with_alpha(80),
-                    border_width: 1.0,
-                    ..Default::default()
-                },
-            ),
             |f| {
-                f.row_ex(
-                    &LayoutOpts {
-                        width: seg_w,
-                        height: inner.h,
-                        ..Default::default()
-                    },
-                    |_| {},
-                );
-            },
-        );
-
-        // Segment hit areas over the indicator.
-        self.work_mode_hover = None;
-        for (index, mode) in PowerMode::ALL.iter().enumerate() {
-            let active = *mode == current_mode;
-            let label = match mode {
-                PowerMode::Balanced => i18n.text(Message::PowerModeBalanced),
-                PowerMode::Awake => i18n.text(Message::PowerModeAwake),
-                PowerMode::Secure => i18n.text(Message::PowerModeSecure),
-            };
-            let hint = power_mode_hint(*mode);
-            let seg_rect = Rect {
-                x: inner.x + index as f32 * seg_w,
-                y: inner.y,
-                w: seg_w,
-                h: inner.h,
-            };
-            let hovered = self.open && contains(seg_rect, self.cursor_hint.0, self.cursor_hint.1);
-            if hovered {
-                self.work_mode_hover = Some(index);
-            }
-            let fg = if active { hud.accent } else { hud.text_muted };
-            let seg_theme = themes::hud(&hud).with_fg(fg);
-            f.set_theme(seg_theme);
-            let mut clicked = false;
-            f.place(
-                &format!("tessera-hud-work-seg-place-{index}"),
-                &chrome_place(seg_rect, transparent()),
-                |f| {
+                for (index, mode) in PowerMode::ALL.iter().enumerate() {
+                    let strength = (1.0 - (position - index as f32).abs()).clamp(0.0, 1.0);
+                    let label = i18n.text(match mode {
+                        PowerMode::Balanced => Message::PowerModeBalanced,
+                        PowerMode::Awake => Message::PowerModeAwake,
+                        PowerMode::Secure => Message::PowerModeSecure,
+                    });
+                    let fg = if *mode == current {
+                        hud.accent
+                    } else {
+                        hud.text_muted
+                    };
+                    f.set_theme(themes::hud(&hud).with_fg(fg));
                     let (response, _) = f.pressable_row(
-                        &format!("tessera-hud-work-seg-{index}"),
+                        &format!("control-center-work-mode-{index}"),
                         label,
                         &LayoutOpts {
-                            width: seg_rect.w,
-                            height: seg_rect.h,
+                            width: segment_w,
+                            height: segment_h,
+                            radius: segment_h * 0.5,
                             cross: Align::Center,
-                            radius: inner.h * 0.5,
-                            bg: Color::TRANSPARENT,
+                            bg: hud
+                                .selection_surface
+                                .with_alpha((strength * 255.0).round() as u8),
                             ..Default::default()
                         },
                         |f, _| {
-                            f.centered(seg_rect.w, seg_rect.h, |f| {
+                            f.centered(segment_w, segment_h, |f| {
                                 display_label(
                                     f,
-                                    &truncate(label, (seg_rect.w / 7.0).max(3.0) as usize),
+                                    &truncate(label, (segment_w / 7.0).max(3.0) as usize),
                                     type_scale.footnote,
                                 );
                             });
                         },
                     );
-                    clicked = response.clicked;
-                },
-            );
-            if clicked && !active {
-                out.system_actions
-                    .push(SystemAction::SetPowerMode { mode: *mode });
-            }
-            // Segment tooltip on hover.
-            if hovered && self.work_mode_tooltip_reveal > 0.02 {
-                render_tooltip(
-                    f,
-                    &format!("tessera-hud-work-seg-tip-{index}"),
-                    Rect {
-                        x: seg_rect.x,
-                        y: control.y - 32.0,
-                        w: seg_w.max(120.0),
-                        h: 26.0,
-                    },
-                    hint,
-                    hud,
-                    type_scale,
-                    self.work_mode_tooltip_reveal,
-                );
-            }
-        }
-
+                    if response.clicked && *mode != current {
+                        chosen = Some(*mode);
+                    }
+                    if response.hovered {
+                        hovered = Some((Tip::WorkMode(index), response.rect));
+                    }
+                }
+            },
+        );
         f.set_theme(original);
-    }
-}
-
-/// The one-line behavior hint under each work-mode segment.
-fn power_mode_hint(mode: PowerMode) -> &'static str {
-    match mode {
-        PowerMode::Balanced => "Dim → Lock → Blank → Suspend",
-        PowerMode::Awake => "Screen stays lit & unlocked",
-        PowerMode::Secure => "Lock on idle, screen stays lit",
+        if let Some((tip, anchor)) = hovered {
+            self.hover_tip(tip, anchor);
+        }
+        if let Some(mode) = chosen {
+            out.system_actions.push(SystemAction::SetPowerMode { mode });
+        }
     }
 }

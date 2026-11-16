@@ -1,4 +1,5 @@
-//! Composite UI patterns, modal dialog scaffolding, settings controls, motion curves, and shared layout primitives for Tessera chrome.
+//! Composite UI patterns, modal dialog scaffolding, motion curves, and shared
+//! layout primitives for Tessera chrome.
 //!
 //! # Architecture & Boundary
 //!
@@ -15,6 +16,5 @@ pub mod icons;
 pub mod menu;
 pub mod motion;
 pub mod picker;
-pub mod settings;
 pub mod shapes;
 pub mod tiered;

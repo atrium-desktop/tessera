@@ -11,6 +11,38 @@
 
 use std::path::PathBuf;
 
+/// Tessera Settings, the standalone persistent-settings application.
+///
+/// Its identities live here so the compositor chrome can open it (and deep
+/// link into one page) without depending on the application's crate.
+pub mod settings_app {
+    /// Wayland application id; the desktop entry's `StartupWMClass`.
+    pub const APP_ID: &str = "com.hihusky.Tessera.Settings";
+    /// Desktop file id.
+    pub const DESKTOP_ID: &str = "com.hihusky.Tessera.Settings.desktop";
+    /// Executable name on `PATH`.
+    pub const EXECUTABLE: &str = "tessera-settings";
+
+    /// The launch entry that opens Settings, on `page` when one is named.
+    /// A running Settings window receives the page and raises itself instead
+    /// of a second window opening.
+    #[must_use]
+    pub fn entry(page: Option<&str>) -> super::Entry {
+        let exec = match page {
+            Some(page) => format!("{EXECUTABLE} {page}"),
+            None => EXECUTABLE.to_owned(),
+        };
+        super::Entry {
+            id: DESKTOP_ID.to_owned(),
+            name: "Settings".to_owned(),
+            exec: Some(exec),
+            icon: Some(APP_ID.to_owned()),
+            startup_wm_class: Some(APP_ID.to_owned()),
+            ..super::Entry::default()
+        }
+    }
+}
+
 /// A compositor-owned application that is part of the desktop itself rather
 /// than an external process described by a desktop entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

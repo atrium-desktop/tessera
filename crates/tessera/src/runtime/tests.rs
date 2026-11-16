@@ -15,28 +15,17 @@ fn compiled_chrome_controls_default_input_ownership() {
     assert_eq!(keymap.match_key(Mods::SUPER, b'a' as u32), None);
     assert_eq!(
         keymap.match_key(Mods::SUPER, b's' as u32),
-        cfg!(any(
-            feature = "chrome-control-center",
-            feature = "chrome-command-panel"
-        ))
-        .then_some(Action::ToggleControlCenter)
+        cfg!(feature = "chrome-control-center").then_some(Action::ToggleControlCenter)
     );
 
     let gestures = build_gesture_map(None);
     assert_eq!(
         gestures.lookup(4, GestureAxis::Vertical),
-        cfg!(any(
-            feature = "chrome-control-center",
-            feature = "chrome-command-panel"
-        ))
-        .then_some(GestureAction::ControlCenter)
+        cfg!(feature = "chrome-control-center").then_some(GestureAction::ControlCenter)
     );
     assert_eq!(
         gestures.claims(4),
-        cfg!(any(
-            feature = "chrome-control-center",
-            feature = "chrome-command-panel"
-        )),
+        cfg!(feature = "chrome-control-center"),
         "the four-finger control center gesture is compositor-owned exactly when the component is built"
     );
 }
@@ -280,7 +269,18 @@ fn icon_raster_scale_uses_effective_output_policy() {
 #[test]
 fn builtin_scopes_are_fail_closed_allowlists() {
     let scopes = builtin_ipc_scopes();
-    assert_eq!(scopes.len(), 4, "only the four built-in component scopes");
+    assert_eq!(scopes.len(), 5, "only the five built-in component scopes");
+
+    // The Settings scope carries no operation: its lease authorizes settings
+    // transactions only, and the IPC server refuses its commands by name.
+    let settings = scopes
+        .get(tessera_protocol::LOCAL_SETTINGS_SCOPE)
+        .expect("built-in Settings scope");
+    assert_eq!(settings.ops.as_deref(), Some(&[][..]));
+    assert!(!settings.permits(&tessera_protocol::Command::Focus {
+        id: tessera_desktop::window::WindowId(9),
+        reveal: true,
+    }));
 
     let owner = scopes
         .get(tessera_protocol::LOCAL_OWNER_ADMIN_SCOPE)
@@ -499,7 +499,25 @@ fn builtin_scope_executables_cover_every_builtin_scope() {
             "{admin}"
         );
     }
+    assert_eq!(
+        builtin_scope_executables(tessera_protocol::LOCAL_SETTINGS_SCOPE).unwrap(),
+        vec![
+            std::path::PathBuf::from("/usr/bin/tessera-settings"),
+            std::path::PathBuf::from("/usr/local/bin/tessera-settings"),
+        ]
+    );
     assert!(builtin_scope_executables("some-agent-scope").is_none());
+}
+
+#[test]
+fn only_a_development_tessera_binary_gets_a_settings_sibling() {
+    let dir = std::path::Path::new("/work/tessera/target/debug");
+    assert_eq!(
+        dev_settings_sibling(&dir.join("tessera")),
+        Some(dir.join("tessera-settings"))
+    );
+    assert_eq!(dev_settings_sibling(&dir.join("tessera-0123abc")), None);
+    assert_eq!(dev_settings_sibling(&dir.join("tessera-settings")), None);
 }
 
 #[test]

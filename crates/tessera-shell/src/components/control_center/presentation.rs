@@ -1,36 +1,27 @@
-//! Control-center presentation, split by surface.
+//! Control Center presentation, split by surface.
 //!
-//! Each page painter lives in its own submodule; this module keeps the
-//! shared canvas, tooltip, cluster chrome, and the re-exports the rest of
-//! the component resolves through.
+//! Each surface lives in its own submodule; this module keeps the helpers they
+//! share and the tooltip every icon-only control uses.
 
 pub(crate) use super::*;
 
-pub(crate) use lens::{Band, Icon};
+pub(crate) use lens::Icon;
 pub(crate) use tessera_design::materials::{chrome_place, sized, transparent};
 
 mod audio;
 mod bluetooth;
-mod canvas;
 mod cast;
-pub(super) mod clock;
+pub(super) mod controls;
+mod header;
 mod media;
-mod notifications;
-mod overview;
-pub(super) mod power;
-mod profile;
-mod quick;
+pub(super) mod notifications;
 mod tray_panel;
 mod wifi;
 mod work_mode;
 
-pub(crate) use canvas::canvas_alpha;
-
 // ---- rendering -----------------------------------------------------------
 
 impl ControlCenter {
-    /// The Bluetooth tile's subtitle: the connected peripheral's name when a
-    /// link is up, otherwise the radio state (ADR-0175).
     /// The Cast tile's subtitle: the live casting/extended-display state read
     /// from the compositor-published status fields (`[INV-ARCH-80]`,
     /// ADR-0188). Casting streams win over a merely-present extended display;
@@ -142,45 +133,86 @@ impl ControlCenter {
     }
 }
 
-/// Render a small frameless tooltip pill with `reveal` opacity over the
-/// anchor's top edge. Purely presentational; hover state is caller-owned.
-fn render_tooltip(
-    f: &mut Frame,
-    id: &str,
-    anchor: Rect,
-    text: &str,
-    hud: ControlCenterColors,
-    type_scale: TypeScale,
-    reveal: f32,
-) {
-    let original_opacity = f.opacity();
-    f.set_opacity(reveal * original_opacity);
-    f.place(
-        id,
-        &chrome_place(
-            anchor,
-            LayoutOpts {
-                radius: 8.0,
-                bg: hud.surface_recessed,
-                border: hud.border,
-                border_width: 1.0,
-                ..Default::default()
-            },
-        ),
-        |f| {
-            f.row_ex(
-                &LayoutOpts {
-                    width: anchor.w,
-                    height: anchor.h,
-                    cross: Align::Center,
-                    pad: 6.0,
+impl ControlCenter {
+    /// Record the icon control under the pointer this frame; the tooltip
+    /// appears after a short dwell.
+    pub(super) fn hover_tip(&mut self, tip: Tip, anchor: Rect) {
+        if self.tip.map(|(current, _)| current) != Some(tip) {
+            self.tip_dwell = 0.0;
+        }
+        self.tip = Some((tip, anchor));
+    }
+
+    /// Paint the hovered control's tooltip just below it, kept inside the
+    /// controls card so the sheet's footprint covers it.
+    pub(super) fn render_tip(&mut self, f: &mut Frame, i18n: &Localizer) {
+        let Some((tip, anchor)) = self.tip else {
+            return;
+        };
+        if self.tip_reveal <= 0.02 {
+            return;
+        }
+        let text = match tip {
+            Tip::Settings => i18n.text(Message::Settings),
+            Tip::Lock => i18n.text(Message::LockNow),
+            Tip::Power => i18n.text(Message::PowerAndSession),
+            Tip::DoNotDisturb => i18n.text(Message::DoNotDisturb),
+            Tip::DarkMode => i18n.text(Message::DarkMode),
+            Tip::WorkMode(index) => PowerMode::ALL
+                .get(index)
+                .copied()
+                .map_or("", |mode| i18n.text(power_mode_hint(mode))),
+        };
+        let hud = self.panel_colors();
+        let type_scale = self.design.typography;
+        let width = (measure(f, text, type_scale.footnote) + 20.0).max(48.0);
+        let card = self.sheet.controls;
+        let x = (anchor.x + anchor.w * 0.5 - width * 0.5).clamp(
+            card.x + 4.0,
+            (card.x + card.w - width - 4.0).max(card.x + 4.0),
+        );
+        let rect = Rect {
+            x,
+            y: anchor.y + anchor.h + 6.0,
+            w: width,
+            h: 26.0,
+        };
+        let original_opacity = f.opacity();
+        f.set_opacity(self.tip_reveal * original_opacity);
+        let original = f.theme();
+        f.set_theme(themes::hud(&hud));
+        f.place(
+            "control-center-tooltip",
+            &chrome_place(
+                rect,
+                LayoutOpts {
+                    radius: 8.0,
+                    bg: hud.surface_recessed,
+                    border: hud.border,
+                    border_width: 1.0,
                     ..Default::default()
                 },
-                |f| {
+            ),
+            |f| {
+                f.centered(rect.w, rect.h, |f| {
                     display_label(f, text, type_scale.footnote);
-                },
-            );
-        },
-    );
-    f.set_opacity(original_opacity);
+                });
+            },
+        );
+        f.set_theme(original);
+        f.set_opacity(original_opacity);
+    }
+}
+
+/// The one-line idle behavior of each work mode, shown as its tooltip.
+pub(super) fn power_mode_hint(mode: PowerMode) -> Message {
+    match mode {
+        PowerMode::Balanced => Message::PowerModeBalancedHint,
+        PowerMode::Awake => Message::PowerModeAwakeHint,
+        PowerMode::Secure => Message::PowerModeSecureHint,
+    }
+}
+
+fn measure(f: &mut Frame, text: &str, size: f32) -> f32 {
+    f.measure_text(text, size).width
 }

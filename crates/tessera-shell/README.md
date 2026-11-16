@@ -9,8 +9,9 @@ as typed intents to the compositor loop.
 - Host pluggable `Chrome` components in a defined render order.
 - Own the shared chrome contract — `Chrome`, `ChromeCommand`, `ChromeUpdate`,
   `ChromeEvents`, and the `AppCatalog` snapshot — and provide the built-in
-  chrome components (`dock`, `pivot`, `control_center`, and `settings`)
-  under `components/`.
+  chrome components (`dock`, `pivot`, and `control_center`) under
+  `components/`. Persistent settings are not chrome: they live in the
+  standalone `tessera-settings` application.
 - Provide the shared live-preview card model, hit-testing, optical focus,
   brightness hierarchy, and foreground materials used by Dock previews and
   the window switcher.
@@ -18,7 +19,7 @@ as typed intents to the compositor loop.
   compositor-owned application components.
 - Own `persona::Profile`, the lightweight personalized-profile convention.
   The optional `persona` feature adds the shared still/VRM portrait, motion,
-  and transactional-reload runtime used by the lock and command panel.
+  and transactional-reload runtime used by the lock and Control Center.
 - Draw the launcher, notification toasts, Overview, the Interaction Domain transfer shelf,
   and trusted Agent operation feedback.
 - Consume window, workspace, Interaction Domain, application, notification, and input

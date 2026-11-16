@@ -1131,7 +1131,7 @@ fn bad_gesture_entries_diagnose_without_aborting() {
              [[gesture]]\n\
              fingers = 2\n\
              axis = \"vertical\"\n\
-             action = \"command_panel\"\n\
+             action = \"control_center\"\n\
              [[gesture]]\n\
              fingers = 3\n\
              axis = \"diagonal\"\n\
@@ -1163,7 +1163,7 @@ fn gesture_map_layers_overrides_on_defaults() {
              [[gesture]]\n\
              fingers = 3\n\
              axis = \"vertical\"\n\
-             action = \"command_panel\"\n",
+             action = \"control_center\"\n",
     )
     .unwrap();
     let (gm, errs) = cfg.gesture_map();
@@ -1171,7 +1171,7 @@ fn gesture_map_layers_overrides_on_defaults() {
     // Override present.
     assert_eq!(
         gm.lookup(3, tessera_desktop::gesture::GestureAxis::Vertical),
-        Some(tessera_desktop::gesture::GestureAction::CommandPanel)
+        Some(tessera_desktop::gesture::GestureAction::ControlCenter)
     );
     // Defaults still present.
     assert_eq!(
@@ -1332,11 +1332,11 @@ fn wallpaper_parallax_rejects_discrete_or_ambiguous_configs() {
 
 #[test]
 fn bundled_parallax_example_and_its_layers_stay_valid() {
-    let text = include_str!("../../../examples/parallax-wallpaper/tessera/config.toml");
+    let text = include_str!("../../../docs/examples/parallax-wallpaper/tessera/config.toml");
     let config = Config::parse(text).expect("example config parses");
     assert_eq!(config.wallpaper.mode, WallpaperMode::Parallax);
     let config_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../examples/parallax-wallpaper/tessera");
+        .join("../../docs/examples/parallax-wallpaper/tessera");
     for layer in &config.wallpaper.layers {
         assert!(
             config_dir.join(&layer.path).is_file(),

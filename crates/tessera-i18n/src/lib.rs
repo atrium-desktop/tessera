@@ -299,6 +299,20 @@ pub enum Message {
     DesktopChassis,
     Charging,
     Offline,
+    Settings,
+    SettingsCategoryHardware,
+    SettingsCategoryPersonalization,
+    SettingsCategorySystem,
+    SearchSettings,
+    NoMatchingSettings,
+    SettingsConnectionLost,
+    SettingsChangeRejected,
+    ClearAllNotifications,
+    DarkMode,
+    PowerModeBalancedHint,
+    PowerModeAwakeHint,
+    PowerModeSecureHint,
+    SettingsReadOnly,
 }
 
 /// Lightweight locale handle passed to chrome components for each frame.
@@ -567,6 +581,20 @@ impl Localizer {
             Message::DesktopChassis => &catalog.desktop_chassis,
             Message::Charging => &catalog.charging,
             Message::Offline => &catalog.offline,
+            Message::Settings => &catalog.settings,
+            Message::SettingsCategoryHardware => &catalog.settings_category_hardware,
+            Message::SettingsCategoryPersonalization => &catalog.settings_category_personalization,
+            Message::SettingsCategorySystem => &catalog.settings_category_system,
+            Message::SearchSettings => &catalog.search_settings,
+            Message::NoMatchingSettings => &catalog.no_matching_settings,
+            Message::SettingsConnectionLost => &catalog.settings_connection_lost,
+            Message::SettingsChangeRejected => &catalog.settings_change_rejected,
+            Message::ClearAllNotifications => &catalog.clear_all_notifications,
+            Message::DarkMode => &catalog.dark_mode,
+            Message::PowerModeBalancedHint => &catalog.power_mode_balanced_hint,
+            Message::PowerModeAwakeHint => &catalog.power_mode_awake_hint,
+            Message::PowerModeSecureHint => &catalog.power_mode_secure_hint,
+            Message::SettingsReadOnly => &catalog.settings_read_only,
         }
     }
 
@@ -926,6 +954,20 @@ struct Catalog {
     recording_with_count: String,
     quick_controls: String,
     offline: String,
+    settings: String,
+    settings_category_hardware: String,
+    settings_category_personalization: String,
+    settings_category_system: String,
+    search_settings: String,
+    no_matching_settings: String,
+    settings_connection_lost: String,
+    settings_change_rejected: String,
+    clear_all_notifications: String,
+    dark_mode: String,
+    power_mode_balanced_hint: String,
+    power_mode_awake_hint: String,
+    power_mode_secure_hint: String,
+    settings_read_only: String,
 }
 
 static ENGLISH: OnceLock<Catalog> = OnceLock::new();

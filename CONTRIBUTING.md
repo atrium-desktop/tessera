@@ -32,5 +32,6 @@ them, but updates to the standards themselves are reserved for project
 maintainers.
 
 The machine-checked gates these standards describe are implemented by
-`tooling/xtask` and the CI workflow: package conformity, crate dependency
-boundaries, bootstrap admission, chrome motion purity, formatting, and typos.
+`xtask/`, clippy configuration, and the CI workflow: package conformity, crate
+dependency boundaries, bootstrap admission, vtable admission, ADR registry,
+panic discipline, chrome motion purity, formatting, and typos.

@@ -98,7 +98,7 @@ configuration. From the repository root, run:
 
 ```bash
 env -u TESSERA_WALLPAPER -u TESSERA_WALLPAPER_MODEL \
-  XDG_CONFIG_HOME="$PWD/examples/parallax-wallpaper" \
+  XDG_CONFIG_HOME="$PWD/docs/examples/parallax-wallpaper" \
   cargo run --locked -p tessera
 ```
 

@@ -1,6 +1,6 @@
 //! The one wall-clock formatter for shell surfaces.
 //!
-//! The dock's clock cell and the command panel's clock both read it. Two copies
+//! The dock's clock cell and the Control Center's clock both read it. Two copies
 //! of a locale time format is two chances for the same session to show two
 //! different times, which is exactly the kind of disagreement a user notices.
 

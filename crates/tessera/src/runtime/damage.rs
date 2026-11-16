@@ -250,11 +250,12 @@ impl CompositorRuntime<'_> {
         }
 
         // 2. When DND status changes: the indicator is drawn inside the
-        // command panel, which repaints as a whole while it is open, so nothing
-        // outside it depends on the flag. The minute rollover used to repaint
-        // the status strip; that strip is gone (ADR-0213) and the clock now
-        // lives on the desktop layer, whose own damage report covers it, so
-        // neither change schedules a chrome repaint here.
+        // Control Center's controls card, whose own footprint covers it while
+        // it is open, so nothing outside it depends on the flag. The minute
+        // rollover used to repaint the status strip; that strip is gone
+        // (ADR-0213) and the clock now lives on the desktop layer, whose own
+        // damage report covers it, so neither change schedules a chrome
+        // repaint here.
 
         // 3. When notification toast arrives/dismisses:
         if self.damage.last_notif_revision != Some(notif_revision) {
@@ -424,7 +425,7 @@ impl CompositorRuntime<'_> {
                 Some(Vec::new())
             } else {
                 // Keyboard is captured by compositor chrome (launcher,
-                // control center, command panel). The chrome drew into
+                // Control Center, Pivot). The chrome drew into
                 // compositor-owned pixels and its own change report is the
                 // only reliable signal, but a captured key has unbounded
                 // chrome reach (cursor keys, typed text that reshapes the

@@ -2,7 +2,7 @@
 
 The design language is the shared product contract for every Tessera-owned UI
 surface: compositor chrome, first-party system applications, the Dock, the
-pivot, the command panel, menus, readings, and toasts. Components built by
+pivot, the Control Center, menus, readings, and toasts. Components built by
 different crates must read as one product, so the rules in this directory are
 normative for contributor-written Tessera UI.
 
@@ -28,7 +28,7 @@ private replacements for an adopted lower-layer contract.
 | 4 | Guidelines | Which cross-cutting quality rules constrain every layer? | [Guidelines](guidelines/index.md) |
 | 5 | Tooling | How are contracts generated, demonstrated, and measured? | [Tooling](tooling/index.md) |
 
-Product specifications such as the surfaces inventory and the command panel apply
+Product specifications such as the surfaces inventory and the Control Center apply
 this shared system to a particular surface. They remain normative, but they do
 not replace the system-wide contracts above.
 
@@ -73,7 +73,7 @@ implemented; deleting a local literal is not sufficient by itself.
 | Page | Purpose |
 |------|---------|
 | [Surfaces](surfaces.md) | Surface-role inventory for chrome with tokens and selection rules |
-| [Command Panel](command-panel.md) | The command panel: canvas, tabbed main panel, side column, and motion |
+| [Control Center](control-center.md) | The Control Center: canvas, tabbed main panel, side column, and motion |
 | [Persona Portraits](persona.md) | Profile and portrait-content boundaries plus role-based frame styles |
 
 ## Engineering ownership

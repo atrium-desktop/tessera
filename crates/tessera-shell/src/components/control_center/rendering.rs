@@ -10,17 +10,9 @@ pub(super) enum MenuRowAction {
 pub(super) use crate::widgets::geom::contains;
 pub(super) use crate::widgets::icons::keyboard_backlight as kbd_backlight_icon;
 pub(super) use crate::widgets::motion::ease_out_cubic;
-pub(super) use crate::widgets::motion::stagger;
 pub(super) use crate::widgets::shapes::render_disc;
 pub(super) use crate::widgets::shapes::render_ring;
 pub(super) use crate::widgets::tiered::{Tier, TieredIndicator, TieredOutcome, tiered_control};
-
-/// Two settings actions are the same kind when they mutate the same
-/// settings section; the queue keeps only the newest draft of each kind
-/// (instant modules emit one action per control change while dragging).
-pub(super) fn same_action_kind(left: &SettingsAction, right: &SettingsAction) -> bool {
-    std::mem::discriminant(left) == std::mem::discriminant(right)
-}
 
 pub(super) fn volume_icon_raw(status: &SystemStatus) -> lens::sys::lens_icon_id {
     if status.muted || status.volume.unwrap_or(0) == 0 {
@@ -59,8 +51,12 @@ pub(super) fn render_compact_quick_toggle_tile(
     size: (f32, f32),
     hud: ControlCenterColors,
     type_scale: TypeScale,
-) -> bool {
+) -> lens::Response {
     let original = f.theme();
+    // A tile too narrow for its label shows only its glyph; the label stays
+    // its accessible name and the caller shows it as a tooltip.
+    let label_w = (size.0 - 16.0 - 32.0 - 8.0).max(0.0);
+    let icon_only = f.measure_text(title, type_scale.label).width > label_w;
     let (bg, border, border_width, icon_bg, icon_fg, text_fg, sub_fg) = if active {
         (
             hud.selection_surface,
@@ -100,6 +96,10 @@ pub(super) fn render_compact_quick_toggle_tile(
             ..Default::default()
         },
         |f, _| {
+            if icon_only {
+                f.flex(1.0);
+                f.spacer(0.0);
+            }
             f.column_ex(
                 &LayoutOpts {
                     width: 32.0,
@@ -118,8 +118,11 @@ pub(super) fn render_compact_quick_toggle_tile(
                     f.spacer(0.0);
                 },
             );
-
-            let label_w = (size.0 - 16.0 - 32.0 - 8.0).max(1.0);
+            if icon_only {
+                f.flex(1.0);
+                f.spacer(0.0);
+                return;
+            }
             f.column_ex(
                 &LayoutOpts {
                     width: label_w,
@@ -148,7 +151,7 @@ pub(super) fn render_compact_quick_toggle_tile(
         },
     );
     f.set_theme(original);
-    response.clicked
+    response
 }
 
 pub(super) fn render_expandable_quick_toggle_tile(
@@ -546,7 +549,9 @@ pub(super) fn menu_row_label(row: &MenuNode) -> String {
 /// Compute the visible popover bounds from the owner cell rect, the visible
 /// rows (already truncated to the current `menu_path`), and the display. The
 /// height counts every visible row + separator and the optional Back header.
-/// The popover opens directly to the right of the tray owner.
+/// The popover opens above the tray owner: the tray row is the controls
+/// card's footer, so above is toward the card's content and away from the
+/// output's bottom edge.
 pub(super) fn menu_bounds(owner: Rect, visible: &[MenuNode], display: (f32, f32)) -> Rect {
     let separator_count = visible
         .iter()
@@ -562,7 +567,7 @@ pub(super) fn menu_bounds(owner: Rect, visible: &[MenuNode], display: (f32, f32)
         + MENU_HEADER_HEIGHT
         + row_count as f32 * MENU_ROW_HEIGHT
         + separator_count as f32 * MENU_SEPARATOR_HEIGHT;
-    place_popup_side(owner, (MENU_WIDTH, height), display, PopupSide::Right)
+    place_popup_side(owner, (MENU_WIDTH, height), display, PopupSide::Above)
 }
 
 // ---- display typography (ADR-0080 refresh) -------------------------------

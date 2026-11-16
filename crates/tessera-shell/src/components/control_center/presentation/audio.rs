@@ -56,7 +56,7 @@ impl ControlCenter {
                         ..Default::default()
                     },
                     |f| {
-                        self.render_audio_detail_header(f, area, i18n, &hud, type_scale);
+                        self.render_audio_detail_header(f, area, i18n, &hud, type_scale, out);
                         // The capture indicator sits directly under the header,
                         // above every control, because it is the one reading on
                         // this page the user did not ask for and must not have
@@ -141,6 +141,7 @@ impl ControlCenter {
         i18n: &Localizer,
         hud: &ControlCenterColors,
         type_scale: TypeScale,
+        out: &mut ChromeEvents,
     ) {
         let hud = *hud;
         // Header row: [< Back] Title
@@ -172,7 +173,7 @@ impl ControlCenter {
                     },
                 );
                 if back_resp.clicked {
-                    self.audio_expanded = false;
+                    self.show_page(Page::Main, out);
                 }
                 f.spacer(4.0);
                 display_label(f, i18n.text(Message::Sound), type_scale.headline);

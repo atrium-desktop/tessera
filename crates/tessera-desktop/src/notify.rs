@@ -32,7 +32,7 @@ pub struct Notification {
 /// per-frame readers can cache their clone of the entries and only re-clone
 /// when the queue actually changed.
 ///
-/// The TTL is the *retention* horizon (how long the command panel's list,
+/// The TTL is the *retention* horizon (how long the Control Center's list,
 /// the HUD count, and the IPC history keep an entry). Transient surfaces
 /// such as the toast strip apply their own, shorter presentation window on
 /// top, measured against the compositor clock the queue is ticked with (see

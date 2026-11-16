@@ -35,8 +35,8 @@ Use the distribution package when one is available. The
 | Backend portal executable | `/usr/libexec/xdg-desktop-portal-atrium` by default |
 | FileChooser prompter executable | `/usr/libexec/atrium-portal-prompter` by default |
 | Generated D-Bus service | `/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.atrium.service` |
-| `contrib/xdg-desktop-portal/portals/atrium.portal` | `/usr/share/xdg-desktop-portal/portals/atrium.portal` |
-| `contrib/xdg-desktop-portal/atrium-portals.conf` | `/usr/share/xdg-desktop-portal/atrium-portals.conf` |
+| Portal-provided `atrium.portal` | `/usr/share/xdg-desktop-portal/portals/atrium.portal` |
+| Portal-provided `atrium-portals.conf` | `/usr/share/xdg-desktop-portal/atrium-portals.conf` |
 | `LICENSE` | `/usr/share/licenses/xdg-desktop-portal-atrium/LICENSE` |
 
 The D-Bus service activates the portal backend. The `atrium.portal` file
@@ -145,8 +145,8 @@ gdbus call --session \
 ```
 
 The default returns `uint32 0`; a configured dark preference returns
-`uint32 1`. Change the color scheme on the command panel's **Appearance** tab
-(`Super+S`) and repeat the call to
+`uint32 1`. Change the color scheme with the Control Center's Dark Mode tile
+(`Super+S`) or the Settings Appearance page, and repeat the call to
 verify the frontend, backend, and compositor IPC chain together.
 
 ## Verify an Interactive Request

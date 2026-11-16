@@ -114,6 +114,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the seam's own test checks `blend` against the closed-form follow"
+    )]
     fn test_blend_matches_exponential_follow() {
         // Zero time covers no ground; a zero/negative rate snaps to the target.
         assert_eq!(blend(15.0, 0.0, false), 0.0);

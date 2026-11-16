@@ -2,7 +2,7 @@
 
 Persona presentation combines user-owned profile content with host-owned
 product chrome. Content selection and rendering stay separate from visual
-style so the lock screen, command panel, and future persona surfaces can
+style so the lock screen, Control Center, and future persona surfaces can
 share one profile without becoming the same composition. Account values are
 defaults; they are not the same as authenticated Actor principals.
 
@@ -26,7 +26,7 @@ module boundary is recorded in
 
 | Role | Ring | Fallback | Use |
 |------|------|----------|-----|
-| `PersonaHeader` | 1 px quiet amber | Warm graphite disc with neutral initials | Command-panel persona band |
+| `PersonaHeader` | 1 px quiet amber | Warm graphite disc with neutral initials | Control Center persona header |
 | `LockHero` | 1 px neutral hairline | Appearance-aware disc and initials | Centered lock composition |
 
 The host supplies portrait size. Every role remains circular and uses the

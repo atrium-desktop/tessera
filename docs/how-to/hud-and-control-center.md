@@ -2,13 +2,13 @@
 
 Tessera has no status bar. The top of the screen belongs to windows, and status
 lives in two places: readings on the Dock, and transient readings that appear
-when a value changes (ADR-0213, ADR-0214). Every related interaction stays in one
-modal panel, the control center (ADR-0080, ADR-0081, ADR-0083, ADR-0114). The
-panel is the display-and-control surface for desktop-computer behavior
-(ADR-0115): the state and controls of the daily-use domains — sound, displays,
-network and Bluetooth, power, the session, notifications, the tray, your account
-persona, machine resources, and desktop preferences. It is not a console for the
-compositor itself.
+when a value changes (ADR-0213, ADR-0214). Every related daily interaction
+stays in one sheet, the Control Center (ADR-0080, ADR-0081, ADR-0083,
+ADR-0115, ADR-0239). The sheet is the display-and-control surface for
+desktop-computer behavior: the state and controls of the daily-use domains —
+sound, displays, network and Bluetooth, power, the session, notifications, the
+tray, and your account persona. Persistent settings live in the Settings
+application. It is not a console for the compositor itself.
 
 ## Read the Dock's Reading Cell
 
@@ -49,7 +49,7 @@ With the default `warn_at = [20, 5]` you get a reading at 20% and a barrier at
 New notifications appear as a frameless strip at the top-right: plain
 floating text, newest on top, no background panel. A popup is display-only
 — it never captures clicks — and disappears on its own after three seconds.
-The notification itself is not gone: it stays in the command panel's
+The notification itself is not gone: it stays in the Control Center's
 notifications list for up to an hour, where you can dismiss it. Do Not Disturb
 suppresses popups while the list keeps accumulating.
 
@@ -60,17 +60,21 @@ change, so it is transient and takes no input.
 
 ## Open the Control Center
 
-Press `Super+S`, or swipe down on the touchpad with four fingers. The
-control center opens as a boundless floating layout over an opaque canvas.
-The background and elevated surfaces follow the desktop's light or dark
-appearance, while system blue marks active controls. The main control panel
-sits in the center, with a compact profile chip at the top-left,
-notifications at the top-right, the tray lane along the bottom-left, and the
-Work Mode selector with the power cluster at the bottom-right. The Dock hides
-while the control center owns the screen and returns after it has fully closed.
+Press `Super+S`, swipe down on the touchpad with four fingers, or press the
+Dock's reading cell. The Control Center opens as a sheet against the right
+edge of the screen; the desktop and the Dock stay visible beside it. It has
+two cards:
 
-Close it with `Super+S` again, `Escape`, a click on the scrim, the close
-button at the right end of the tab bar, or a four-finger swipe up.
+- **Controls** (right): your persona, the Settings, Lock, and Power buttons,
+  then toggles, sliders, and now playing. The work-mode switch and tray stay
+  pinned in the card's footer, so only the controls above them scroll on a
+  short screen.
+- **Notifications** (left of controls, or under them on a narrow screen): the
+  time and date over your notification list.
+
+Close it with `Super+S` again, `Escape`, a click anywhere outside the cards,
+or a four-finger swipe up. `Escape` closes one layer at a time — a tray menu,
+the power menu, a detail page — before it closes the sheet.
 
 Bind a different key with a `[[keybind]]` entry whose action is
 `control_center`:
@@ -82,48 +86,35 @@ key = "d"
 action = "control_center"
 ```
 
-### Preview and Debug Routing
+For development, open it at startup with
+`TESSERA_PREVIEW=control-center cargo run -p tessera`, and post sample
+notifications with `tessera notification send "Summary" "Body"`.
 
-For development, visual inspection, and verification without input gestures or keybindings:
+## Use the Header
 
-```bash
-TESSERA_PREVIEW=control-center cargo run -p tessera
-```
+The header shows your avatar (a photo, a live 3D VRM model, or your
+initials), display name, and `@user · host`. Its buttons:
 
-This runs a fully mocked, zero-side-effect component sandbox:
-- **Rich baseline telemetry**: Pre-populates realistic state (88% battery charging, Wi-Fi connected to `Home-WiFi-5G` with full scan list, 65% volume, 80% screen brightness, 66% keyboard backlight, Bluetooth active, and seeded notification cards);
-- **Zero host interference**: Volume, brightness, Wi-Fi, Bluetooth, and power actions update in-memory state and render immediately without spawning subprocesses (`wpctl`, `brightnessctl`, `rfkill`, `systemctl`) or altering host wireless daemons;
-- **State isolation**: Isolates dock pins, configuration, and audit journals within a disposable temporary sandbox directory.
+- **⚙ Settings** opens the Settings application and closes the sheet.
+- **🔒 Lock** locks the session.
+- **⏻ Power** reveals **Suspend**, **Restart**, and **Power off**. Each asks
+  for confirmation before anything happens.
 
-## Read the Profile and Machine Monitors
-
-The **profile chip (top-left)** shows your avatar (with live 3D VRM rendering
-and VRMA animation playback when configured), display name, and account groups.
-
-The **main control panel (center)** holds System quick controls (Sound, Brightness,
-Connectivity, Desktop) and modular settings tabs.
-
-The **tray lane (bottom-left)** holds StatusNotifierItem icons in one row,
-left to right. It takes as much of the display's width as the bottom band
-leaves it, and paginates with a chevron at each end when the icons outgrow the
-row; an end that cannot be reached is drawn dimmed and does nothing.
-
-The **notifications panel (top-right)** presents retained notification history
-with click-to-dismiss.
-
-## Switch Tabs
-
-Click a tab in the main panel's flat tab bar — **System** plus one tab
-per available settings module. The active tab uses the system-blue accent.
-Long tab bodies scroll inside the main panel.
+Hover a button to see its name.
 
 ## Adjust Quick Settings
 
-Open the panel and select the **System** tab. Controls are arranged in an ergonomic **2D Bento Grid** (ADR-0169):
-
-- **Bento Top Cluster**: Network tiles (expandable Wi-Fi on top, expandable Bluetooth below) paired directly beside the integrated **MPRIS Now Playing card** (album art, track title, artist, and transport controls: Previous, Play/Pause, Next);
-- **Quick Action Toggles**: Do Not Disturb and Dark Mode arranged side-by-side;
-- **Continuous Faders**: Display brightness slider, sound volume slider with mute toggle, microphone capture slider with its own mute toggle (ADR-0216), and an adaptive keyboard backlight slider (when supported by hardware, ADR-0168). Controls a host cannot serve read as unavailable or omit their fader entirely.
+- **Wi-Fi** and **Bluetooth** tiles toggle their radio; their chevron opens
+  the network or device list.
+- **Cast** opens the list of wireless displays.
+- **Do Not Disturb** (bell) suppresses popups while keeping the list.
+- **Dark Mode** (moon or sun) switches the desktop color scheme.
+- **Sound**, **Brightness**, **Microphone**, and **Keyboard** sliders appear
+  only when the hardware or sound server answers. The sound and microphone
+  icons mute; their chevrons open the audio page.
+- **Now playing** appears while a media player is running.
+- **Work mode** chooses how the session behaves when idle; hover a segment for
+  its behavior.
 
 ## Choose the Audio Output
 
@@ -135,7 +126,8 @@ playback there.
 
 The picker is a live view, not a saved preference. The default marker moves only
 after the server confirms the switch, so a stream that pins its own target keeps
-playing where it is and the panel shows that instead of claiming the move.
+playing where it is and the Control Center shows that instead of claiming the
+move.
 Use it when the automatic policy picked the wrong device on purpose — a Bluetooth
 headset connecting while you are showing something to the room, for example. The
 headset stays connected; only the routing moves.
@@ -172,7 +164,7 @@ apply the same changes.
 
 ## Manage Wireless Networks (Wi-Fi)
 
-Under the **System** tab, the Connectivity group features an expandable Wi-Fi tile (ADR-0162, ADR-0167):
+The Wi-Fi tile's chevron opens the network page (ADR-0162, ADR-0167):
 
 - **Expand Details**: Click the chevron (`>`) on the Wi-Fi tile to reveal the inline network list. Discovered access points sort by signal strength with normalized signal indicators and radio band badges (`2.4 GHz` or `5 GHz`).
 - **Scan**: Click the refresh button (`↻`) in the header row to trigger an active channel scan through the host wireless daemon (`iwd`).
@@ -183,7 +175,7 @@ Under the **System** tab, the Connectivity group features an expandable Wi-Fi ti
 
 ## Manage Bluetooth Devices
 
-Under the **System** tab, the Connectivity group features an expandable Bluetooth tile (ADR-0175):
+The Bluetooth tile's chevron opens the device page (ADR-0175):
 
 - **Expand Details**: Click the chevron (`>`) on the Bluetooth tile to reveal the inline device list. Connected peripherals sort first, then paired ones, then in-range-only discoveries.
 - **Scan**: Click the refresh button (`↻`) in the header row to start a bounded (20-second) discovery scan through the host Bluetooth daemon (BlueZ). Discovery auto-stops when the window closes.
@@ -192,24 +184,19 @@ Under the **System** tab, the Connectivity group features an expandable Bluetoot
 - **Forget**: A paired device offers **Forget**, which removes its host-side pairing keys. If it is connected, the link drops immediately.
 - **Radio Power**: The header switch powers the adapter on or off through the host Bluetooth daemon. Devices are not forgotten when the radio is off.
 
-Opening the Wi-Fi and Bluetooth detail views is mutually exclusive: the quick-controls body hosts one at a time, and `Escape` peels the open detail view before it closes the panel.
+One detail page shows at a time, below the header. **Back** or `Escape` returns to the controls; reopening the sheet always starts on the controls.
 
 ## Edit Persistent Settings
 
-Select a settings module tab — **Display**, **Input**, **Appearance**,
-**Dock**, or **Power Management**. Display, appearance, and power edits stage
-locally and commit when you select their **Apply** button; input and dock
-edits apply immediately. Committed changes persist to `config.toml`
-through the compositor's revisioned settings transaction; see the
-[Settings Reference](../reference/settings.md) for module routes, apply
-policies, and backend availability.
+Persistent settings — displays, input, power, appearance, the Dock, and
+accessibility — live in the **Settings** application. Open it from the
+header's ⚙ button, the launcher, or a terminal (`tessera-settings display`).
+See the [Settings Reference](../reference/settings.md).
 
 ## Activate a Tray Item
 
-The tray lane is always visible along the bottom-left. Items lay out in one
-left-to-right row sized to the display, so a wide output shows many more
-icons than a narrow one. Left-click an item to activate it; right-click to
-open its context menu. Items that expose a dbusmenu `Menu` object path render
+The tray row sits at the bottom of the controls card. Left-click an item to
+activate it; right-click to open its context menu above the icon. Items that expose a dbusmenu `Menu` object path render
 the menu in place with submenu navigation; all others fall back to the
 specification's `SecondaryActivate`.
 
@@ -222,12 +209,11 @@ since the cell it belonged to is no longer on screen.
 
 ## Dismiss Notifications
 
-The notifications list fills the rest of the side column and needs no
-tab or section switch. Notifications list as cards with the summary and
-body, newest first; click a card to dismiss it. The list scrolls and has
-no row cap: entries stay for up to an hour after they were posted — long
-after their three-second popup has disappeared. Do Not Disturb (on the
-**System** tab) suppresses popups while keeping the list.
+Notifications list as cards — app, summary, and the first line of the body —
+newest first. Click a card to dismiss it, or **Clear all** to dismiss every
+one. The list scrolls and has no row cap: entries stay for up to an hour
+after they were posted, long after their three-second popup has disappeared.
+Do Not Disturb suppresses popups while keeping the list.
 
 Four-finger swipes are compositor-owned and never reach applications. See
 [System Shortcuts](../reference/keyboard-shortcuts.md) for the complete

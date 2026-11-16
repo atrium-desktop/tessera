@@ -232,7 +232,7 @@ Alternative single-surface dma-buf clients such as `weston-simple-egl` or
 | Activation | Two tiled windows, focus the opaque video window | `overlay offload active for window ...` |
 | Direct-scanout precedence | Make the same client fullscreen, hide chrome | `direct scanout active`; no overlay placement or overlay commit |
 | Buffer updates | Play, pause, seek, and scrub the video | No flicker, stale bands, or tearing |
-| Chrome overlap | `Super+S` (command panel) | Overlay deactivates; `overlay offload inactive; compositing` |
+| Chrome overlap | `Super+S` (Control Center) | Overlay deactivates; `overlay offload inactive; compositing` |
 | Overview | `Super+O` | Overlay deactivates; full scene repaints |
 | Window switcher | `Super+Tab` | Overlay deactivates; switcher previews remain complete |
 | Screenshot | `tessera display capture /tmp/overlay-active.png` | Capture includes the overlay content; overlay temporarily deactivates |

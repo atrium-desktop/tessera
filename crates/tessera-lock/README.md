@@ -25,5 +25,5 @@ cargo run --locked -p tessera-lock --features dev-preview \
 Use only a development fake value: command arguments are not a safe place for
 an account password. See the contributor
 [Surface Testing](../../docs/dev/testing/surface-testing.md) workflow for
-command-panel test layers, visual states, agent captures, nested integration,
+control-center test layers, visual states, agent captures, nested integration,
 and physical validation.

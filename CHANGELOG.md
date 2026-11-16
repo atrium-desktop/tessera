@@ -14,6 +14,74 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Added
+
+- **Settings is a standalone application (ADR-0238).** `tessera-settings
+  [PAGE]` opens a resizable window with a categorized sidebar, search, and
+  deep links (`tessera-settings display`); a second invocation switches the
+  open window to its page and raises it. It reaches the compositor only over
+  IPC, follows edits made elsewhere live, holds drafts across a dropped link,
+  and shows a banner when the compositor refuses a change. Text fields use the
+  standard Wayland clipboard: `Ctrl+C`/`Ctrl+X` publish the selection and
+  `Ctrl+V` pastes text from any other client. It claims the new built-in
+  `tessera-settings` scope, bound to `/usr/bin` and `/usr/local/bin`; that
+  scope commits settings and permits only raising a Settings-owned window. A
+  debug compositor also recognizes the `tessera-settings` binary built beside
+  it, so `cargo run` development sessions are writable without an allowlist;
+  any other unlisted build opens read-only. The window app id and desktop
+  entry are `com.hihusky.Tessera.Settings`; packages install that file and its
+  icon from `system/share/`.
+
+### Changed
+
+- **The Control Center is a right-anchored sheet (ADR-0239).** Two
+  content-sized cards — controls, and the clock over notifications — sit
+  against the right edge (stacked on narrow outputs) with the desktop and the
+  Dock visible. The header carries the persona plus Settings, Lock, and Power
+  (Suspend · Restart · Power off) buttons; Wi-Fi, Bluetooth, Sound, and Cast
+  open in-place detail pages; notifications gain **Clear all**; the work-mode
+  switch and tray row are pinned in the card's footer with the tray menu
+  opening above, so both stay visible while the controls above scroll on a
+  short output. Damage is the cards' footprint instead of the full output.
+- **Repository layout (ADR-0240).** xtask moved from `tooling/xtask` to the
+  root `xtask/` and is no longer a default member. Every gate resolves the
+  workspace through `cargo metadata` and works from any directory. Package
+  conformity now fails on dependencies not inherited from
+  `[workspace.dependencies]` and covers `tests` and `xtask`. The Wayland probe
+  sources moved to `crates/tessera-wayland/tests/fixtures/`, and a missing
+  probe fails its test instead of skipping. The parallax example config moved
+  to `docs/examples/parallax-wallpaper/`. The chrome zero-math invariant
+  (ADR-0174) is a clippy `disallowed-methods` rule for `f32::exp`/`f64::exp`
+  in `tessera-shell`, and CI now runs clippy across the full workspace.
+- **Breaking (packagers): `contrib/` is now `system/` and mirrors the install
+  prefix (ADR-0241).** `system/<path>` installs to `/usr/<path>` and
+  `system/etc/<path>` to `/etc/<path>`: `tessera-session` moved to
+  `system/bin/`, the user units to `system/lib/systemd/user/`, the Settings
+  desktop entry and icon to `system/share/`, and the PAM service to
+  `system/etc/pam.d/`. `cargo run -p xtask -- check-system-files` keeps the
+  tree, file modes, the packaging manifest, and every documented `system/`
+  path in agreement, and CI validates desktop entries. The packaging manifest
+  lists the portal's files in a separate table that names the portal
+  repository.
+
+### Removed
+
+- **Breaking:** settings tabs in the Control Center; edit settings in the
+  Settings application.
+- **Breaking:** the `command_panel`, `commandpanel`, and `panel` gesture
+  action names (use `control_center`), the `TESSERA_COMMAND_PANEL` and
+  `TESSERA_COMMAND_PANEL_OPEN` variables (use `TESSERA_PREVIEW=control-center`),
+  the `CommandPanelColors` alias, `Chrome::command_panel_active`, and the
+  `chrome-command-panel` feature spelling.
+- Debug-build demo notifications, tray items, and menus in the Control
+  Center.
+- `ChromeEvents::dismissed_notification` is now `dismissed_notifications`, an
+  ordered list.
+- **Breaking (contributors):** `cargo xtask clippy`, `cargo xtask check-motion`
+  (replaced by clippy), `cargo xtask optics --verify-api` (a build against the
+  pinned tag is authoritative), `tessera_test_support::workspace::fixture`,
+  `scripts/check-crate-boundaries.sh`, and the root `test.sh`.
+
 ## [0.0.96] - 2026-11-16
 
 ### Added
