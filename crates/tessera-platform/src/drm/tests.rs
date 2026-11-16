@@ -49,8 +49,7 @@ fn overlay_plane_request_carries_full_geometry_and_optional_properties() {
         tessera_primitives::Rect::new(100, 50, 640, 480),
         Some(2),
         Some(&fence),
-    )
-    .unwrap();
+    );
     assert_eq!(values.framebuffer, framebuffer);
     assert_eq!(values.crtc, crtc);
     assert_eq!(values.src, (0, 0, 640 << 16, 480 << 16));
@@ -58,53 +57,42 @@ fn overlay_plane_request_carries_full_geometry_and_optional_properties() {
     assert_eq!(values.alpha, Some(0xffff));
     assert_eq!(values.zpos, Some(2));
     assert!(values.in_fence_fd.is_some());
-    assert!(values.damage_clips);
 }
 
 #[test]
-fn overlay_plane_request_rejects_unsupported_zpos_and_fence() {
-    let raw = |value| std::num::NonZeroU32::new(value).expect("non-zero test handle");
-    let framebuffer = control::framebuffer::Handle::from(raw(20));
-    let crtc = crtc::Handle::from(raw(21));
+fn overlay_plane_request_supported_rejects_unsupported_zpos_fence_and_geometry() {
     let fence: OwnedFd = std::fs::File::open("/dev/null").unwrap().into();
-    assert!(matches!(
-        overlay_plane_request(
-            &fake_overlay_plane(false, false, false, false),
-            framebuffer,
-            crtc,
-            640,
-            480,
-            tessera_primitives::Rect::new(0, 0, 640, 480),
-            Some(2),
-            None,
-        ),
-        Err(DrmError::ScanoutUnsupported)
+    assert!(!overlay_plane_request_supported(
+        &fake_overlay_plane(false, false, false, false),
+        640,
+        480,
+        tessera_primitives::Rect::new(0, 0, 640, 480),
+        Some(2),
+        None,
     ));
-    assert!(matches!(
-        overlay_plane_request(
-            &fake_overlay_plane(false, false, false, false),
-            framebuffer,
-            crtc,
-            640,
-            480,
-            tessera_primitives::Rect::new(0, 0, 640, 480),
-            None,
-            Some(&fence),
-        ),
-        Err(DrmError::ScanoutUnsupported)
+    assert!(!overlay_plane_request_supported(
+        &fake_overlay_plane(false, false, false, false),
+        640,
+        480,
+        tessera_primitives::Rect::new(0, 0, 640, 480),
+        None,
+        Some(&fence),
     ));
-    assert!(matches!(
-        overlay_plane_request(
-            &fake_overlay_plane(false, false, false, false),
-            framebuffer,
-            crtc,
-            0,
-            480,
-            tessera_primitives::Rect::new(0, 0, 640, 480),
-            None,
-            None,
-        ),
-        Err(DrmError::ScanoutUnsupported)
+    assert!(!overlay_plane_request_supported(
+        &fake_overlay_plane(false, false, false, false),
+        0,
+        480,
+        tessera_primitives::Rect::new(0, 0, 640, 480),
+        None,
+        None,
+    ));
+    assert!(overlay_plane_request_supported(
+        &fake_overlay_plane(true, true, true, true),
+        640,
+        480,
+        tessera_primitives::Rect::new(0, 0, 640, 480),
+        Some(2),
+        Some(&fence),
     ));
 }
 

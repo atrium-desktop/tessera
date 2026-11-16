@@ -320,7 +320,23 @@ struct OverlayPlaneRequest {
     alpha: Option<u64>,
     zpos: Option<u64>,
     in_fence_fd: Option<i32>,
-    damage_clips: bool,
+}
+
+fn overlay_plane_request_supported(
+    plane: &OverlayPlaneCapabilities,
+    width: i32,
+    height: i32,
+    target: tessera_primitives::Rect,
+    zpos: Option<u32>,
+    acquire_fence: Option<&OwnedFd>,
+) -> bool {
+    let props = &plane.props;
+    !(zpos.is_some() && props.zpos.is_none())
+        && !(acquire_fence.is_some() && props.in_fence_fd.is_none())
+        && width > 0
+        && height > 0
+        && target.size.w > 0
+        && target.size.h > 0
 }
 
 fn overlay_plane_request(
@@ -332,18 +348,13 @@ fn overlay_plane_request(
     target: tessera_primitives::Rect,
     zpos: Option<u32>,
     acquire_fence: Option<&OwnedFd>,
-) -> Result<OverlayPlaneRequest, DrmError> {
+) -> OverlayPlaneRequest {
     let props = &plane.props;
-    if (zpos.is_some() && props.zpos.is_none())
-        || (acquire_fence.is_some() && props.in_fence_fd.is_none())
-        || width <= 0
-        || height <= 0
-        || target.size.w <= 0
-        || target.size.h <= 0
-    {
-        return Err(DrmError::ScanoutUnsupported);
-    }
-    Ok(OverlayPlaneRequest {
+    debug_assert!(
+        overlay_plane_request_supported(plane, width, height, target, zpos, acquire_fence),
+        "overlay plane request must be validated before commit construction"
+    );
+    OverlayPlaneRequest {
         framebuffer,
         crtc,
         src: (0, 0, (width as u64) << 16, (height as u64) << 16),
@@ -358,8 +369,7 @@ fn overlay_plane_request(
         alpha: props.alpha.map(|_| 0xffff),
         zpos: props.zpos.and(zpos).map(u64::from),
         in_fence_fd: props.in_fence_fd.and(acquire_fence.map(AsRawFd::as_raw_fd)),
-        damage_clips: props.fb_damage_clips.is_some(),
-    })
+    }
 }
 
 /// Program one overlay plane in a complete-set request.
@@ -387,8 +397,7 @@ fn add_overlay_plane_to_commit(
         target,
         zpos,
         acquire_fence,
-    )
-    .expect("overlay import validated the plane request");
+    );
     let props = &plane.props;
     request.add_property(
         plane.handle,
@@ -461,14 +470,10 @@ fn add_overlay_plane_to_commit(
             property::Value::SignedRange(i64::from(fd)),
         );
     }
-    if values.damage_clips {
+    if let Some(damage_clips) = props.fb_damage_clips {
         // The probe gives no damage information; the kernel treats a NULL
         // blob as full damage, which is the safe conservatism for validation.
-        request.add_property(
-            plane.handle,
-            props.fb_damage_clips.expect("checked above"),
-            property::Value::Blob(0),
-        );
+        request.add_property(plane.handle, damage_clips, property::Value::Blob(0));
     }
 }
 

@@ -1018,6 +1018,7 @@ impl DrmBackend {
             .position(|plane| {
                 plane.supports(layer.surface.drm_format, layer.surface.modifier)
                     && plane.supports_zpos(layer.zpos)
+                    && (layer.surface.acquire_fence < 0 || plane.props.in_fence_fd.is_some())
             })
             .ok_or(DrmError::ScanoutUnsupported)?;
         if layer.surface.fd < 0 {
@@ -1175,6 +1176,7 @@ impl DrmBackend {
             .find(|plane| {
                 plane.supports(layer.surface.drm_format, layer.surface.modifier)
                     && plane.supports_zpos(layer.zpos)
+                    && (layer.surface.acquire_fence < 0 || plane.props.in_fence_fd.is_some())
             })
             .ok_or(DrmError::ScanoutUnsupported)?;
         if layer.surface.fd < 0 {
@@ -1851,11 +1853,10 @@ impl DrmBackend {
             }
             if overlay_transition {
                 for overlay_plane in &output.planes.overlay.discovered {
-                    let active = overlay_scanout.as_ref().is_some_and(|overlay| {
+                    let overlay = overlay_scanout.as_ref().filter(|overlay| {
                         overlay.output == output.name && overlay.plane == overlay_plane.handle
                     });
-                    if active {
-                        let overlay = overlay_scanout.as_ref().expect("checked above");
+                    if let Some(overlay) = overlay {
                         add_overlay_plane_to_commit(
                             &mut request,
                             output,
