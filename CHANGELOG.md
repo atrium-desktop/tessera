@@ -14,8 +14,23 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.96] - 2026-11-16
+
+### Added
+
+- **KMS overlay offload for one topmost opaque window (ADR-0234–ADR-0237).**
+  With `TESSERA_OVERLAY_OFFLOAD=1`, the DRM backend can place a single
+  topmost, fully opaque, identity-mapped client surface on a validated overlay
+  plane in the same complete-set atomic commit as Primary and Cursor. A
+  direct-scanned Primary takes precedence, every rejected candidate falls back
+  to composition, and overlay planes remain unallocated by default.
+
 ### Changed
 
+- **External tests have one entry point.** The integration and end-to-end
+  suites now live in the root `tessera-tests` package, shared harness code is
+  in `tessera-test-support`, and large inline test modules live in sibling
+  `tests.rs` files. CI runs the flux-free root suites separately.
 - **Adopted Optics v0.0.80.** The pin moves to the release that retires the
   MSAA, supersampling, stencil/tessellator, and CPU-supersampling paths in
   favour of unconditional 1x continuous analytic coverage. The GPU tiled
