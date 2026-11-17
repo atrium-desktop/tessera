@@ -52,6 +52,11 @@ case "$profile" in
     release) run_flags="--release" ;;
     *) run_flags="--profile $profile" ;;
 esac
+
+# Build the companion daemons as siblings of the compositor binary. A
+# `cargo run -p tessera` alone does not build a dependency package's binaries.
+cargo build --locked $run_flags -p tessera-network-system -p tessera-cast
+
 set -- cargo run $run_flags -p tessera "$@"
 
 if command -v dbus-run-session >/dev/null 2>&1 &&

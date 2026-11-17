@@ -165,6 +165,10 @@ pub struct Config {
     #[serde(default)]
     pub cast: CastConfig,
 
+    /// Network service backend policy (ADR-0242), written as `[network]`.
+    #[serde(default)]
+    pub network: NetworkConfig,
+
     /// Compositor scheduling and realtime policy, written as a
     /// `[compositor]` table. Controls whether the frame loop is raised above
     /// the crowd (realtime priority / CPU pinning) so a `cargo build` cannot
@@ -176,6 +180,22 @@ pub struct Config {
     /// Development-only; will be removed before release. Do not rely on it.
     #[serde(default)]
     pub dev: DevConfig,
+}
+
+/// The `[network]` section: which live network service owns the host's
+/// station networking (ADR-0242).
+///
+/// `auto` prefers NetworkManager and falls through to iwd **only when
+/// NetworkManager is not running**. Neither service is D-Bus-activated. An
+/// explicit name never falls back. The
+/// compositor does not open either service: it passes this choice to
+/// `tessera-networkd`, which owns the system D-Bus connection.
+#[derive(Debug, Clone, PartialEq, Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NetworkConfig {
+    /// The selected backend.
+    #[serde(default)]
+    pub backend: tessera_network::BackendChoice,
 }
 
 /// The source format validated end-to-end against the reference Skyworth A3F

@@ -19,6 +19,7 @@ scenarios:
 | **[`surface-testing.md`](surface-testing.md)** | **Surface Testing**: Detailed specification of the 4-layer testing model, preview harness contracts, non-default feature gating, and agent pixel capture. |
 | **[`vt-drm-testing.md`](vt-drm-testing.md)** | **VT/DRM Manual Testing**: In-depth hardware verification runbook for KMS atomic modesetting, multi-output pacing, GPU device selection, and TTY switching. |
 | **[`kms-overlay-system-test.md`](kms-overlay-system-test.md)** | **KMS Overlay System Test**: Manual hardware test for one topmost opaque overlay candidate, complete-set `TEST_ONLY`, chrome/lock/screenshot deactivation, and failure triage. |
+| **[`network-hardware.md`](network-hardware.md)** | **Network and Casting Hardware Acceptance**: Live NetworkManager/iwd checks, isolated-AP station operations, Miracast group formation, and the release gate for ADR-0242. |
 | **[`../nested-backend.md`](../nested-backend.md)** | **Nested Backend Development**: Subsystem architectural details on nested Vulkan swapchains, FIFO timing, and dma-buf tranche negotiation. |
 
 ---

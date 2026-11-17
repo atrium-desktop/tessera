@@ -5,6 +5,21 @@ use tessera_cast::daemon::{self, DaemonOptions};
 use tessera_cast::session::MediaSource;
 
 fn main() -> ExitCode {
+    #[cfg(target_os = "linux")]
+    {
+        // The compositor supervises this process. If it dies without sending
+        // Shutdown, do not leave a caster holding a P2P group.
+        // SAFETY: `prctl(PR_SET_PDEATHSIG)` only configures a signal on parent
+        // death and has no memory-safety preconditions.
+        unsafe {
+            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+        }
+        // SAFETY: `getppid` has no preconditions and cannot fail.
+        if unsafe { libc::getppid() } == 1 {
+            return ExitCode::SUCCESS;
+        }
+    }
+
     tessera_env::init("info");
     let mut options = DaemonOptions::default();
     let args: Vec<String> = std::env::args().skip(1).collect();

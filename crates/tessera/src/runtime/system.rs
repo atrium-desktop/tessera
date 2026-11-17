@@ -57,6 +57,33 @@ pub(super) fn audio_node_observed<T: tessera_desktop::system::AudioNode>(
     !inventory.is_empty() && inventory.iter().any(|node| node.node_name() == name)
 }
 
+/// Merge the network service's reading into the live system status.
+///
+/// The service is authoritative for Wi-Fi and for the primary link while it
+/// answers. When it does not, only the wireless fields are cleared: the host's
+/// sysfs probe remains the coarse fallback for `network`/`network_interface`
+/// so a machine without NetworkManager or iwd still shows a wired link.
+pub(super) fn apply_network_snapshot(
+    status: &mut tessera_desktop::system::SystemStatus,
+    snapshot: &tessera_network::NetworkSnapshot,
+) {
+    if !snapshot.available {
+        status.wifi_enabled = None;
+        status.wifi_ssid = None;
+        status.wifi_state = tessera_desktop::system::WifiLinkState::Disconnected;
+        status.wifi_networks.clear();
+        return;
+    }
+    status.wifi_enabled = snapshot.wifi_enabled;
+    status.wifi_state = snapshot.wifi_state;
+    status.wifi_ssid = snapshot.wifi_ssid.clone();
+    status.wifi_networks = snapshot.wifi_networks.clone();
+    if snapshot.network_authoritative {
+        status.network = snapshot.network;
+        status.network_interface = snapshot.network_interface.clone();
+    }
+}
+
 /// Apply one immediate system control through the authoritative runtime path.
 ///
 /// Host operations are delegated to [`HostSystem`], keeping the compositor main
@@ -69,7 +96,7 @@ pub(super) fn apply_system_action(
     status: &mut tessera_desktop::system::SystemStatus,
     idle_inhibits: &mut super::idle::IdleInhibits,
     idle_process: &mut super::session::IdleProcess,
-    wireless: &crate::wireless::WirelessHandle,
+    network: &crate::network::NetworkHandle,
     bluetooth: &crate::bluetooth::BluetoothHandle,
     casting: &crate::casting::CastHandle,
     host_system: &dyn HostSystem,
@@ -189,27 +216,27 @@ pub(super) fn apply_system_action(
             status.kbd_brightness = Some(next);
         }
         SystemAction::SetWifi { enabled } => {
-            wireless.set_enabled(enabled);
+            network.set_enabled(enabled);
             status.wifi_enabled = Some(enabled);
             if !enabled {
                 status.wifi_state = tessera_desktop::system::WifiLinkState::Disabled;
             }
         }
         SystemAction::ScanWifi => {
-            wireless.request_scan();
+            network.request_scan();
             status.wifi_state = tessera_desktop::system::WifiLinkState::Scanning;
         }
         SystemAction::ConnectWifi { ssid, passphrase } => {
-            wireless.connect(ssid, passphrase);
+            network.connect(ssid, passphrase);
             status.wifi_state = tessera_desktop::system::WifiLinkState::Connecting;
         }
         SystemAction::DisconnectWifi => {
-            wireless.disconnect();
+            network.disconnect();
             status.wifi_state = tessera_desktop::system::WifiLinkState::Disconnected;
             status.wifi_ssid = None;
         }
         SystemAction::ForgetWifi { ssid } => {
-            wireless.forget(ssid.clone());
+            network.forget(ssid.clone());
             if status.wifi_ssid.as_deref() == Some(&ssid) {
                 status.wifi_state = tessera_desktop::system::WifiLinkState::Disconnected;
                 status.wifi_ssid = None;
@@ -225,7 +252,7 @@ pub(super) fn apply_system_action(
             }
         }
         SystemAction::SetWifiAutoConnect { ssid, auto_connect } => {
-            wireless.set_auto_connect(ssid.clone(), auto_connect);
+            network.set_auto_connect(ssid.clone(), auto_connect);
             for net in &mut status.wifi_networks {
                 if net.ssid == ssid {
                     net.auto_connect = auto_connect;
@@ -536,6 +563,65 @@ mod tests {
                 "{action:?} must not raise a reading"
             );
         }
+    }
+
+    #[test]
+    fn a_network_snapshot_merges_only_what_its_backend_owns() {
+        use tessera_desktop::system::{NetworkState, SystemStatus, WifiLinkState};
+        use tessera_network::{BackendKind, NetworkSnapshot};
+
+        let mut status = SystemStatus {
+            network: NetworkState::Wired,
+            network_interface: "enp3s0".into(),
+            ..SystemStatus::default()
+        };
+        // NetworkManager owns the primary link: its answer replaces the sysfs
+        // fallback.
+        let nm = NetworkSnapshot {
+            available: true,
+            backend: BackendKind::NetworkManager,
+            network: NetworkState::Wifi,
+            network_authoritative: true,
+            network_interface: "wlan0".into(),
+            wifi_enabled: Some(true),
+            wifi_state: WifiLinkState::Connected,
+            wifi_ssid: Some("Home-WiFi-5G".into()),
+            ..NetworkSnapshot::default()
+        };
+        apply_network_snapshot(&mut status, &nm);
+        assert_eq!(status.network, NetworkState::Wifi);
+        assert_eq!(status.network_interface, "wlan0");
+        assert_eq!(status.wifi_ssid.as_deref(), Some("Home-WiFi-5G"));
+
+        // iwd owns only the station role: its Wi-Fi fields apply, but the
+        // wired primary link remains the sysfs probe's answer.
+        let mut status = SystemStatus {
+            network: NetworkState::Wired,
+            network_interface: "enp3s0".into(),
+            ..SystemStatus::default()
+        };
+        let iwd = NetworkSnapshot {
+            available: true,
+            backend: BackendKind::Iwd,
+            network: NetworkState::Offline,
+            network_authoritative: false,
+            network_interface: "wlan0".into(),
+            wifi_enabled: Some(true),
+            wifi_state: WifiLinkState::Disconnected,
+            ..NetworkSnapshot::default()
+        };
+        apply_network_snapshot(&mut status, &iwd);
+        assert_eq!(status.network, NetworkState::Wired);
+        assert_eq!(status.network_interface, "enp3s0");
+        assert_eq!(status.wifi_enabled, Some(true));
+
+        // No service: Wi-Fi is unavailable, but the coarse wired link stays.
+        let unavailable = NetworkSnapshot::unavailable(BackendKind::Unavailable, "not reachable");
+        apply_network_snapshot(&mut status, &unavailable);
+        assert_eq!(status.wifi_enabled, None);
+        assert_eq!(status.wifi_ssid, None);
+        assert_eq!(status.network, NetworkState::Wired);
+        assert_eq!(status.network_interface, "enp3s0");
     }
 
     #[test]

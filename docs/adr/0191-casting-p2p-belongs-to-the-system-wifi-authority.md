@@ -15,6 +15,7 @@ negative_knowledge: true
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0188](0188-out-of-process-casting-and-discovery-service.md), [ADR-0190](0190-wireless-backends-are-selected-and-capability-declared.md)
 - Amended by: [ADR-0192](0192-first-party-miracast-caster.md) — the radio authority is whatever already owns the radio; NetworkManager is not required. The reference configuration stays on iwd, and the WFD session is implemented by a first-party caster.
+- Amended by: [ADR-0242](0242-networkmanager-owns-station-networking-behind-a-neutral-service.md) — station and P2P are explicit roles: `tessera-networkd` owns station networking, while `tessera-castd` keeps the P2P role and selects iwd or NetworkManager's `wifi-p2p` device without touching station state.
 
 ---
 

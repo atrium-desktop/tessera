@@ -47,4 +47,4 @@ pub mod audio;
 pub mod bluetooth;
 mod host_command;
 mod host_system;
-pub mod wireless;
+pub mod network;

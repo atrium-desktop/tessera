@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use tessera_cast::cast::Opening;
 use tessera_cast::media::AudioSourceKind;
-use tessera_cast::session::{self, MediaSource, SessionEvent, SessionOptions};
+use tessera_cast::session::{self, MediaSource, Radio, SessionEvent, SessionOptions};
 use tessera_cast::wfd::transport::RtspTransport;
 
 /// Exit codes are part of the tool's contract: a script (or a stage gate) branches
@@ -71,6 +71,7 @@ fn print_usage() {
          --bind <ADDR>          Address to listen on (default 0.0.0.0)\n    \
          --port <PORT>          RTSP control port to serve and advertise (default 7236)\n    \
          --peer <PEER>          Sink to form a P2P group with (name, MAC, or D-Bus path)\n    \
+         --no-radio             Serve a sink that can already reach this host; skip iwd\n    \
          --settle <SECONDS>     Peer-discovery settle time before matching --peer (default 4)\n    \
          --video-formats FMT    The wfd_video_formats value (required; never defaulted)\n    \
          --audio                Share audio with the sink (AAC-LC 48 kHz stereo)\n    \
@@ -105,6 +106,7 @@ struct ServeOptions {
     bind: String,
     control_port: u16,
     peer: Option<String>,
+    no_radio: bool,
     settle: u64,
     video_formats: Option<String>,
     audio: bool,
@@ -127,6 +129,7 @@ impl Default for ServeOptions {
             bind: "0.0.0.0".to_owned(),
             control_port: DEFAULT_CONTROL_PORT,
             peer: None,
+            no_radio: false,
             settle: DEFAULT_SETTLE_SECS,
             video_formats: None,
             audio: false,
@@ -151,6 +154,11 @@ fn parse_serve_options(args: &[String]) -> Result<ServeOptions, ExitCode> {
     while index < args.len() {
         if args[index] == "--audio" {
             options.audio = true;
+            index += 1;
+            continue;
+        }
+        if args[index] == "--no-radio" {
+            options.no_radio = true;
             index += 1;
             continue;
         }
@@ -282,10 +290,22 @@ fn run_serve_command(args: &[String], media: bool) -> ExitCode {
         return ExitCode::from(EXIT_BLOCKED);
     }
     let control_port = options.control_port;
+    let stop = match tessera_cast::signals::install() {
+        Ok(stop) => stop,
+        Err(error) => {
+            eprintln!("tessera-cast: could not install signal handlers: {error}");
+            return ExitCode::from(EXIT_BLOCKED);
+        }
+    };
     let session_options = SessionOptions {
         bind: options.bind,
         control_port,
         peer: options.peer,
+        radio: if options.no_radio {
+            Radio::Disabled
+        } else {
+            Radio::System
+        },
         settle: Duration::from_secs(options.settle),
         video_formats,
         audio: options.audio,
@@ -313,8 +333,14 @@ fn run_serve_command(args: &[String], media: bool) -> ExitCode {
         } else {
             Opening::Sink
         },
-        stop: None,
+        stop: Some(stop),
+        group_attempts: session::DEFAULT_GROUP_ATTEMPTS,
+        group_retry_delay: session::DEFAULT_GROUP_RETRY_DELAY,
     };
+
+    if options.no_radio {
+        println!("radio: disabled (--no-radio); serving a sink that can already reach this host\n");
+    }
 
     let result = session::run(&session_options, &mut |event| match event {
         SessionEvent::Listening(address) => {
@@ -329,6 +355,8 @@ fn run_serve_command(args: &[String], media: bool) -> ExitCode {
                  \n  sudo nft add rule inet filter input iifname \"wlan0-p2p*\" accept\n"
             );
         }
+        SessionEvent::RadioAuthority(authority) => println!("radio: {authority}"),
+        SessionEvent::GroupFormed(peer) => println!("P2P group with {peer} is up\n"),
         SessionEvent::SinkConnected(address) => println!("sink connected from {address}\n"),
         SessionEvent::Negotiating => println!("negotiating Miracast..."),
         SessionEvent::Streaming => println!("sink accepted the handshake\n"),
@@ -520,14 +548,14 @@ fn run_discover(args: &[String]) -> ExitCode {
         );
     }
 
-    let radio = match tessera_cast::radio::iwd::IwdRadio::open() {
+    let radio = match tessera_cast::radio::open_system() {
         Ok(radio) => radio,
         Err(error) => {
             eprintln!("tessera-cast: {error}");
             return ExitCode::from(EXIT_BLOCKED);
         }
     };
-    match tessera_cast::discover::discover(&radio, port, Duration::from_secs(settle)) {
+    match tessera_cast::discover::discover(radio.as_ref(), port, Duration::from_secs(settle)) {
         Ok(report) => {
             print!("{}", report.render());
             if report.castable().count() > 0 {
@@ -592,14 +620,14 @@ fn run_doctor(args: &[String]) -> ExitCode {
     }
     println!();
 
-    let radio = match tessera_cast::radio::iwd::IwdRadio::open() {
+    let radio = match tessera_cast::radio::open_system() {
         Ok(radio) => radio,
         Err(error) => {
             eprintln!("discovery unavailable: {error}");
             return ExitCode::from(EXIT_BLOCKED);
         }
     };
-    match tessera_cast::discover::discover(&radio, port, Duration::from_secs(settle)) {
+    match tessera_cast::discover::discover(radio.as_ref(), port, Duration::from_secs(settle)) {
         Ok(report) => {
             print!("{}", report.render());
             if let Some(peer) = report.castable().next() {

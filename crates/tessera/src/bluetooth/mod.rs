@@ -2,7 +2,7 @@
 //!
 //! Provides a daemon-neutral asynchronous bridge to the host Bluetooth
 //! service (BlueZ), with deterministic mock support for test suites. The
-//! shape deliberately mirrors [`crate::wireless`]: a backend trait, a
+//! shape deliberately mirrors the retired in-process wireless backend: a backend trait, a
 //! command channel drained by one plain worker thread, and a shared snapshot
 //! the compositor reads without blocking.
 
@@ -91,7 +91,7 @@ impl BluetoothSnapshot {
 ///
 /// It never fabricates a radio state (`enabled()` is `None`) and refuses
 /// every mutation, so chrome presents the adapter as unavailable instead of
-/// pretending. Chosen over the wireless subsystem's mock fallback, which
+/// pretending. Chosen over the old wireless subsystem's mock fallback, which
 /// seeds fixture networks — acceptable for a scan list, misleading for a
 /// device list that would look like real hardware.
 #[derive(Debug, Default)]

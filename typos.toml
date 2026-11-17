@@ -41,6 +41,9 @@ iif = "iif"
 EIT = "EIT"
 # `iy` is the intersection-y coordinate in the frame damage decomposition.
 iy = "iy"
+# wpa_supplicant's station management entity; quoted verbatim in the Miracast
+# runbook next to other supplicant log keywords.
+SME = "SME"
 
 [files]
 extend-exclude = [

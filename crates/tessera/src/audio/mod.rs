@@ -12,7 +12,7 @@
 //! no client library, delivers no binary, and its only platform interaction is
 //! short-lived CLI probes through `crate::host_command`. The dependency
 //! firewall would gain a manifest and lose nothing. The shape here therefore
-//! mirrors `wireless` and `bluetooth` — a `Backend` trait, one parse seam that
+//! mirrors the network and Bluetooth subsystems — a `Backend` trait, one parse seam that
 //! is testable against a captured document, a mock for deterministic tests and
 //! preview, and a strict boundary between *observation* and *intent* — without
 //! paying for a fourth manifest.

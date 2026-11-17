@@ -84,7 +84,7 @@ impl MockBluetoothBackend {
     }
 
     /// Connect a named seed device in one call, the mock analogue of the
-    /// preview seeding the real runtime does for the wireless subsystem.
+    /// preview seeding the network service performs.
     pub fn connect(&self, address: &str) -> Result<(), String> {
         BluetoothBackend::connect(self, address)
     }

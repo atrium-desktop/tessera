@@ -21,7 +21,7 @@ security boundaries.
 ## Quick Start
 
 The safest first run is a nested session inside an existing Wayland desktop.
-Tessera requires Rust 1.88 or later and the native build dependencies listed in
+Tessera requires Rust 1.89 or later and the native build dependencies listed in
 the [Getting Started tutorial](docs/tutorials/01-getting-started.md).
 
 Install the Optics `v<OPTICS_VERSION>` native libraries from a distribution package or
@@ -44,9 +44,15 @@ From the Tessera repository root, start the compositor. Use the
 through code, and its `opt-level = 1` cannot hold a 120 Hz 5 MP frame budget.
 
 ```bash
-cargo build --locked -p tessera-idle -p tessera-lock
+cargo build --locked -p tessera-idle -p tessera-lock \
+  -p tessera-network-system -p tessera-cast
 cargo run --locked --profile release-fast -p tessera
 ```
+
+The additional packages build the supervised companion binaries
+(`tessera-networkd` and `tessera-castd`); the compositor locates them as
+trusted siblings. Without `tessera-networkd` the Control Center reports the
+network service as unavailable instead of showing stale state.
 
 For a debug session, prefer `./scripts/run-nested-dev.sh` (it defaults to
 `release-fast`) and set `TESSERA_DEV_PROFILE=debug` only when a debugger is

@@ -39,8 +39,8 @@ not pull an async runtime into the compositor's process.
 
 aegis ships a portal backend as a **standalone process, `aegis-portal`** (new
 `crates/aegis-portal` crate), that is a pure bridge: outward it speaks D-Bus
-(zbus blocking API on the session bus, plain `std::thread` workers, no
-tokio — the same dependency red line as the SNI tray); inward it is an
+(zbus on the session bus driven by `zbus::block_on`, plain `std::thread`
+workers, no tokio — the same dependency red line as the SNI tray); inward it is an
 ordinary scoped IPC client of the compositor. No Wayland capture protocol is
 added anywhere.
 

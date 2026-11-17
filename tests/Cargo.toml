@@ -25,6 +25,7 @@ native = [
     "dep:reticle-sys",
     "dep:vista-sys",
     "dep:zbus",
+    "dep:tessera-cast",
 ]
 
 [dependencies]
@@ -48,6 +49,9 @@ tessera-sched.workspace = true
 tessera-test-support.workspace = true
 
 tessera = { workspace = true, optional = true }
+# Casting suites: a fake NetworkManager on a private bus (zbus) drives the
+# caster's radio; gated with `native` alongside the other zbus suites.
+tessera-cast = { workspace = true, optional = true }
 tessera-composite = { workspace = true, optional = true }
 tessera-shell = { workspace = true, optional = true, default-features = false, features = [
     "chrome-tray",

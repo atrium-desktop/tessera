@@ -1,6 +1,6 @@
 //! Native BlueZ (`org.bluez`) backend over the system D-Bus.
 //!
-//! Mirrors the iwd bridge's shape (`crate::wireless::iwd`): a blocking zbus
+//! Mirrors the retired iwd bridge's shape: a blocking zbus
 //! connection owned by the subsystem's worker thread, a cached projection of
 //! the daemon's managed objects, and one `refresh` that recomputes the whole
 //! cache. Nothing here runs on the render thread, and no BlueZ object path or
@@ -11,8 +11,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tessera_desktop::system::{BluetoothDevice, BluetoothKind, BluetoothLinkState};
-use zbus::blocking::Connection;
-use zbus::zvariant::{OwnedValue, Value};
+use zbus::{Connection, OwnedObjectPath, OwnedVariant, Variant};
 
 use super::BluetoothBackend;
 
@@ -32,23 +31,37 @@ const DISCOVERY_WINDOW: Duration = Duration::from_secs(20);
 /// trip off that cadence while discovery is idle.
 const REFRESH_INTERVAL: Duration = Duration::from_secs(2);
 
-fn get_str<'a>(props: &'a HashMap<String, OwnedValue>, key: &str) -> Option<&'a str> {
+fn blocking_call<B>(
+    connection: &Connection,
+    destination: Option<&str>,
+    path: &str,
+    interface: Option<&str>,
+    method: &str,
+    body: &B,
+) -> zbus::Result<zbus::Message>
+where
+    B: zbus::export::serde::ser::Serialize + zbus::DynamicType,
+{
+    zbus::block_on(connection.call_method(destination, path, interface, method, body))
+}
+
+fn get_str<'a>(props: &'a HashMap<String, OwnedVariant>, key: &str) -> Option<&'a str> {
     props.get(key).and_then(|value| {
-        let v: &Value = Borrow::<Value>::borrow(value);
+        let v: &Variant = Borrow::<Variant>::borrow(value);
         v.downcast_ref::<&str>().ok()
     })
 }
 
-fn get_bool(props: &HashMap<String, OwnedValue>, key: &str) -> Option<bool> {
+fn get_bool(props: &HashMap<String, OwnedVariant>, key: &str) -> Option<bool> {
     props.get(key).and_then(|value| {
-        let v: &Value = Borrow::<Value>::borrow(value);
+        let v: &Variant = Borrow::<Variant>::borrow(value);
         v.downcast_ref::<bool>().ok()
     })
 }
 
-fn get_u32(props: &HashMap<String, OwnedValue>, key: &str) -> Option<u32> {
+fn get_u32(props: &HashMap<String, OwnedVariant>, key: &str) -> Option<u32> {
     props.get(key).and_then(|value| {
-        let v: &Value = Borrow::<Value>::borrow(value);
+        let v: &Variant = Borrow::<Variant>::borrow(value);
         v.downcast_ref::<u32>().ok()
     })
 }
@@ -89,7 +102,7 @@ fn kind_from_class(class: u32) -> BluetoothKind {
     }
 }
 
-fn device_kind(props: &HashMap<String, OwnedValue>) -> BluetoothKind {
+fn device_kind(props: &HashMap<String, OwnedVariant>) -> BluetoothKind {
     get_str(props, "Icon")
         .and_then(kind_from_icon)
         .or_else(|| get_u32(props, "Class").map(kind_from_class))
@@ -120,7 +133,8 @@ impl BluezBackend {
     /// has no adapter — the caller then reports Bluetooth as unavailable
     /// rather than fabricating a radio.
     pub fn open() -> Result<Self, String> {
-        let conn = Connection::system().map_err(|e| format!("system bus unavailable: {e}"))?;
+        let conn = zbus::block_on(Connection::system())
+            .map_err(|e| format!("system bus unavailable: {e}"))?;
         let backend = Self {
             conn,
             cache: Arc::new(Mutex::new(BluezCache::default())),
@@ -140,19 +154,18 @@ impl BluezBackend {
 
     /// Refresh the cached adapter and device projection from BlueZ.
     pub fn refresh(&self) -> Result<(), String> {
-        let reply = self
-            .conn
-            .call_method(
-                Some(BLUEZ_SERVICE),
-                "/",
-                Some(OBJECT_MANAGER_IFACE),
-                "GetManagedObjects",
-                &(),
-            )
-            .map_err(|e| format!("bluez ObjectManager call failed: {e}"))?;
+        let reply = blocking_call(
+            &self.conn,
+            Some(BLUEZ_SERVICE),
+            "/",
+            Some(OBJECT_MANAGER_IFACE),
+            "GetManagedObjects",
+            &(),
+        )
+        .map_err(|e| format!("bluez ObjectManager call failed: {e}"))?;
 
         type ManagedObjects =
-            HashMap<zbus::zvariant::OwnedObjectPath, HashMap<String, HashMap<String, OwnedValue>>>;
+            HashMap<OwnedObjectPath, HashMap<String, HashMap<String, OwnedVariant>>>;
         let objects: ManagedObjects = reply
             .body()
             .deserialize()
@@ -227,17 +240,17 @@ impl BluezBackend {
         path: &str,
         iface: &str,
         name: &str,
-        value: Value<'_>,
+        value: Variant<'_>,
     ) -> Result<(), String> {
-        self.conn
-            .call_method(
-                Some(BLUEZ_SERVICE),
-                path,
-                Some(PROPERTIES_IFACE),
-                "Set",
-                &(iface, name, value),
-            )
-            .map_err(|e| format!("bluez set {iface}.{name} failed: {e}"))?;
+        blocking_call(
+            &self.conn,
+            Some(BLUEZ_SERVICE),
+            path,
+            Some(PROPERTIES_IFACE),
+            "Set",
+            &(iface, name, value),
+        )
+        .map_err(|e| format!("bluez set {iface}.{name} failed: {e}"))?;
         Ok(())
     }
 }
@@ -264,7 +277,7 @@ fn sort_devices(devices: &mut [BluetoothDevice]) {
 impl BluetoothBackend for BluezBackend {
     fn set_enabled(&self, enabled: bool) -> Result<(), String> {
         let adapter = self.adapter_path()?;
-        self.set_property(&adapter, ADAPTER_IFACE, "Powered", Value::Bool(enabled))?;
+        self.set_property(&adapter, ADAPTER_IFACE, "Powered", Variant::Bool(enabled))?;
         if !enabled {
             let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
             cache.discovery_deadline = None;
@@ -283,15 +296,15 @@ impl BluetoothBackend for BluezBackend {
             return Err("bluetooth adapter is powered off".to_string());
         }
         if !discovering {
-            self.conn
-                .call_method(
-                    Some(BLUEZ_SERVICE),
-                    adapter.as_str(),
-                    Some(ADAPTER_IFACE),
-                    "StartDiscovery",
-                    &(),
-                )
-                .map_err(|e| format!("bluez StartDiscovery failed: {e}"))?;
+            blocking_call(
+                &self.conn,
+                Some(BLUEZ_SERVICE),
+                adapter.as_str(),
+                Some(ADAPTER_IFACE),
+                "StartDiscovery",
+                &(),
+            )
+            .map_err(|e| format!("bluez StartDiscovery failed: {e}"))?;
         }
         // Extend (or arm) the bounded window; a repeated request never leaves
         // discovery running forever.
@@ -305,67 +318,65 @@ impl BluetoothBackend for BluezBackend {
 
     fn pair(&self, address: &str) -> Result<(), String> {
         let path = self.device_path(address)?;
-        self.conn
-            .call_method(
-                Some(BLUEZ_SERVICE),
-                path.as_str(),
-                Some(DEVICE_IFACE),
-                "Pair",
-                &(),
-            )
-            .map_err(|e| format!("bluez Pair failed: {e}"))?;
+        blocking_call(
+            &self.conn,
+            Some(BLUEZ_SERVICE),
+            path.as_str(),
+            Some(DEVICE_IFACE),
+            "Pair",
+            &(),
+        )
+        .map_err(|e| format!("bluez Pair failed: {e}"))?;
         // Pair alone leaves the peer untrusted; trusting it lets BlueZ
         // reconnect on proximity, which is what "connected" means to a user
         // who just paired a headset or keyboard.
-        let _ = self.set_property(&path, DEVICE_IFACE, "Trusted", Value::Bool(true));
+        let _ = self.set_property(&path, DEVICE_IFACE, "Trusted", Variant::Bool(true));
         let _ = self.refresh();
         Ok(())
     }
 
     fn connect(&self, address: &str) -> Result<(), String> {
         let path = self.device_path(address)?;
-        self.conn
-            .call_method(
-                Some(BLUEZ_SERVICE),
-                path.as_str(),
-                Some(DEVICE_IFACE),
-                "Connect",
-                &(),
-            )
-            .map_err(|e| format!("bluez Connect failed: {e}"))?;
+        blocking_call(
+            &self.conn,
+            Some(BLUEZ_SERVICE),
+            path.as_str(),
+            Some(DEVICE_IFACE),
+            "Connect",
+            &(),
+        )
+        .map_err(|e| format!("bluez Connect failed: {e}"))?;
         let _ = self.refresh();
         Ok(())
     }
 
     fn disconnect(&self, address: &str) -> Result<(), String> {
         let path = self.device_path(address)?;
-        self.conn
-            .call_method(
-                Some(BLUEZ_SERVICE),
-                path.as_str(),
-                Some(DEVICE_IFACE),
-                "Disconnect",
-                &(),
-            )
-            .map_err(|e| format!("bluez Disconnect failed: {e}"))?;
+        blocking_call(
+            &self.conn,
+            Some(BLUEZ_SERVICE),
+            path.as_str(),
+            Some(DEVICE_IFACE),
+            "Disconnect",
+            &(),
+        )
+        .map_err(|e| format!("bluez Disconnect failed: {e}"))?;
         let _ = self.refresh();
         Ok(())
     }
 
     fn forget(&self, address: &str) -> Result<(), String> {
         let adapter = self.adapter_path()?;
-        self.conn
-            .call_method(
-                Some(BLUEZ_SERVICE),
-                adapter.as_str(),
-                Some(ADAPTER_IFACE),
-                "RemoveDevice",
-                &(
-                    zbus::zvariant::ObjectPath::try_from(self.device_path(address)?)
-                        .map_err(|e| format!("invalid device path: {e}"))?,
-                ),
-            )
-            .map_err(|e| format!("bluez RemoveDevice failed: {e}"))?;
+        blocking_call(
+            &self.conn,
+            Some(BLUEZ_SERVICE),
+            adapter.as_str(),
+            Some(ADAPTER_IFACE),
+            "RemoveDevice",
+            &(zbus::ObjectPath::try_from(self.device_path(address)?)
+                .map_err(|e| format!("invalid device path: {e}"))?,),
+        )
+        .map_err(|e| format!("bluez RemoveDevice failed: {e}"))?;
         let _ = self.refresh();
         Ok(())
     }
@@ -381,7 +392,8 @@ impl BluetoothBackend for BluezBackend {
                 // The call is bounded and off the render thread; a failure
                 // only means the adapter is gone, and the refresh below
                 // reconciles that anyway.
-                let _ = self.conn.call_method(
+                let _ = blocking_call(
+                    &self.conn,
                     Some(BLUEZ_SERVICE),
                     adapter.as_str(),
                     Some(ADAPTER_IFACE),

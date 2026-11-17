@@ -14,6 +14,7 @@ negative_knowledge: true
 - Date: 2026-11-01
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0162](0162-wireless-network-subsystem-and-iwd-bridge.md), [ADR-0190](0190-wireless-backends-are-selected-and-capability-declared.md)
+- Amended by: [ADR-0242](0242-networkmanager-owns-station-networking-behind-a-neutral-service.md) — the event-driven bridge and its signal coalescing move into `tessera-networkd`; the compositor consumes pushed snapshots.
 
 ---
 

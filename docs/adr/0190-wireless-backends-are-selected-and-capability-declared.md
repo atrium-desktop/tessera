@@ -14,6 +14,7 @@ negative_knowledge: true
 - Date: 2026-10-28
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0162](0162-wireless-network-subsystem-and-iwd-bridge.md)
+- Amended by: [ADR-0242](0242-networkmanager-owns-station-networking-behind-a-neutral-service.md) — the second candidate exists; selection now prefers NetworkManager, falls back to iwd only when NetworkManager is not running, never activates either daemon, and runs in the out-of-process network service.
 
 ---
 

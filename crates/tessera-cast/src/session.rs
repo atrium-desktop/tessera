@@ -7,7 +7,7 @@
 
 use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::cast::{self, AcceptError, Drain, Opening};
@@ -35,12 +35,32 @@ pub enum MediaSource {
     Pattern,
 }
 
+/// Whether this session uses the system's Wi-Fi Display P2P radio.
+///
+/// The radio is what makes a source *discoverable* and what forms the P2P
+/// group. It is not what makes the RTSP server reachable: a sink on the local
+/// machine (the scripted harness) or on the existing station link can connect
+/// directly. [`Radio::Disabled`] exists for those cases, so a machine without an
+/// iwd P2P authority can still exercise and verify the protocol half.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Radio {
+    /// Open the system P2P authority, advertise as a Wi-Fi Display source, and
+    /// form a group when a peer was named.
+    System,
+    /// Serve a sink that can already reach this host; do not touch iwd.
+    /// `--peer` is refused in this mode because group formation needs the radio.
+    Disabled,
+}
+
 /// Everything one session needs.
 #[derive(Debug, Clone)]
 pub struct SessionOptions {
     pub bind: String,
     pub control_port: u16,
     pub peer: Option<String>,
+    /// Whether to open and drive the system P2P radio. [`Radio::Disabled`] skips
+    /// iwd entirely and is only valid without a `peer`.
+    pub radio: Radio,
     pub settle: Duration,
     pub video_formats: String,
     pub rtp_port: u16,
@@ -70,12 +90,25 @@ pub struct SessionOptions {
     pub audio_bitrate_kbps: u32,
     /// Owner-supplied cancellation, checked while waiting and per frame.
     pub stop: Option<Arc<AtomicBool>>,
+    /// How many times to try forming the P2P group (at least one).
+    pub group_attempts: u32,
+    /// The pause between group-formation attempts.
+    pub group_retry_delay: Duration,
 }
+
+/// The default number of group-formation attempts.
+pub const DEFAULT_GROUP_ATTEMPTS: u32 = 3;
+/// The default pause between group-formation attempts.
+pub const DEFAULT_GROUP_RETRY_DELAY: Duration = Duration::from_secs(2);
 
 /// Progress a caller can project into its own state machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SessionEvent {
     Listening(SocketAddr),
+    /// The P2P authority this session drives (`iwd`, `NetworkManager`, …).
+    RadioAuthority(String),
+    /// The P2P group with the named sink is up (or already was).
+    GroupFormed(String),
     FirewallBlocked(String),
     SinkConnected(SocketAddr),
     Negotiating,
@@ -106,8 +139,63 @@ pub enum SessionEvent {
     Failed(String),
 }
 
-/// Run one session to completion.
+/// Tears down the P2P group this session formed, on every exit path.
+///
+/// Before this guard each failure branch called `disconnect_peer` by hand, and
+/// several `?` returns after group formation (sink address, media socket, TS
+/// file) skipped it, leaving the sink's group up after a failed cast.
+struct GroupGuard<'a> {
+    radio: Option<&'a dyn P2pRadio>,
+    peer_path: Option<String>,
+}
+
+impl GroupGuard<'_> {
+    fn release(&mut self) {
+        if let (Some(radio), Some(path)) = (self.radio, self.peer_path.take())
+            && let Err(error) = radio.disconnect_peer(&path)
+        {
+            log::warn!("cast: could not leave the P2P group with {path}: {error}");
+        }
+    }
+}
+
+impl Drop for GroupGuard<'_> {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+/// Run one session to completion, opening the system P2P authority when
+/// `options.radio` asks for it.
 pub fn run(options: &SessionOptions, events: &mut dyn FnMut(SessionEvent)) -> Result<(), String> {
+    let radio = match options.radio {
+        Radio::System => Some(crate::radio::open_system().map_err(|error| {
+            format!(
+                "could not open the Wi-Fi Display P2P radio: {error}; \
+                     if the sink can reach this host without P2P (a local harness or an \
+                     infrastructure link), rerun with --no-radio"
+            )
+        })?),
+        Radio::Disabled => None,
+    };
+    run_with_radio(options, radio.as_deref(), events)
+}
+
+/// Run one session with a caller-supplied radio (`None` serves a sink that can
+/// already reach this host). This is the seam the tests drive with a scripted
+/// authority.
+pub fn run_with_radio(
+    options: &SessionOptions,
+    radio: Option<&dyn P2pRadio>,
+    events: &mut dyn FnMut(SessionEvent),
+) -> Result<(), String> {
+    if radio.is_none() && options.peer.is_some() {
+        return Err(
+            "--peer needs the P2P radio to form a group; remove --no-radio or drop --peer"
+                .to_owned(),
+        );
+    }
+
     let listener =
         TcpListener::bind((options.bind.as_str(), options.control_port)).map_err(|error| {
             format!(
@@ -125,67 +213,104 @@ pub fn run(options: &SessionOptions, events: &mut dyn FnMut(SessionEvent)) -> Re
         events(SessionEvent::FirewallBlocked(inbound.describe()));
     }
 
-    let radio = crate::radio::iwd::IwdRadio::open().map_err(|error| error.to_string())?;
-    let report = crate::discover::discover(&radio, options.control_port, options.settle)
-        .map_err(|error| format!("discovery failed: {error}"))?;
+    let mut group = GroupGuard {
+        radio,
+        peer_path: None,
+    };
+    if let Some(radio) = radio {
+        events(SessionEvent::RadioAuthority(radio.authority().to_owned()));
+        let report = crate::discover::discover(radio, options.control_port, options.settle)
+            .map_err(|error| {
+                format!(
+                    "discovery failed: {error}; \
+                     if the sink can reach this host without P2P (a local harness or an \
+                     infrastructure link), rerun with --no-radio"
+                )
+            })?;
 
-    let peer_path = match &options.peer {
-        Some(needle) => match crate::endpoint::match_peer(&report.peers, needle) {
-            crate::endpoint::PeerMatch::ExactlyOne(peer) => {
-                if !peer.connected {
-                    // WPS/P2P group formation is asynchronous and the sink's
-                    // state is not ours: a stale credential on either side can
-                    // fail one attempt and succeed on the next. Retry a bounded
-                    // number of times, then name the operator action.
-                    let mut last_error = None;
-                    for attempt in 1..=3 {
-                        match radio.form_group(&peer.path) {
-                            Ok(()) => {
-                                last_error = None;
-                                break;
+        if let Some(needle) = &options.peer {
+            match crate::endpoint::match_peer(&report.peers, needle) {
+                crate::endpoint::PeerMatch::ExactlyOne(peer) => {
+                    if !peer.connected {
+                        // WPS/P2P group formation is asynchronous and the sink's
+                        // state is not ours: a stale credential on either side can
+                        // fail one attempt and succeed on the next. Retry a bounded
+                        // number of times, then name the operator action.
+                        let mut last_error = None;
+                        for attempt in 1..=options.group_attempts.max(1) {
+                            if options
+                                .stop
+                                .as_ref()
+                                .is_some_and(|stop| stop.load(Ordering::Relaxed))
+                            {
+                                events(SessionEvent::Stopped(
+                                    "stopped before forming the P2P group".to_owned(),
+                                ));
+                                return Ok(());
                             }
-                            Err(error) => {
-                                log::warn!("cast: P2P group attempt {attempt}/3 failed: {error}");
-                                last_error = Some(error);
-                                if attempt < 3 {
-                                    std::thread::sleep(Duration::from_secs(2));
+                            match radio.form_group(&peer.path) {
+                                Ok(()) => {
+                                    last_error = None;
+                                    break;
+                                }
+                                // A missing privilege does not change between
+                                // attempts, and toggling the sink will not fix it.
+                                Err(crate::iwd::IwdError::NotAuthorized(reason)) => {
+                                    let reason =
+                                        format!("not authorized to form the P2P group: {reason}");
+                                    events(SessionEvent::Failed(reason.clone()));
+                                    return Err(reason);
+                                }
+                                Err(error) => {
+                                    log::warn!(
+                                        "cast: P2P group attempt {attempt}/{} failed: {error}",
+                                        options.group_attempts
+                                    );
+                                    last_error = Some(error);
+                                    if attempt < options.group_attempts {
+                                        std::thread::sleep(options.group_retry_delay);
+                                    }
                                 }
                             }
                         }
+                        if let Some(error) = last_error {
+                            let reason = format!(
+                                "could not form the P2P group after {} attempts: {error}; \
+                                 toggle the sink's Screen Mirroring mode (or reboot it) and retry",
+                                options.group_attempts.max(1)
+                            );
+                            events(SessionEvent::Failed(reason.clone()));
+                            return Err(reason);
+                        }
+                        // Only a group this session formed is this session's to
+                        // tear down; a pre-existing one is left alone.
+                        group.peer_path = Some(peer.path.clone());
                     }
-                    if let Some(error) = last_error {
-                        return Err(format!(
-                            "could not form the P2P group after 3 attempts: {error}; \
-                             toggle the sink's Screen Mirroring mode (or reboot it) and retry"
-                        ));
-                    }
+                    events(SessionEvent::GroupFormed(
+                        peer.name.clone().unwrap_or_else(|| peer.path.clone()),
+                    ));
                 }
-                Some(peer.path.clone())
+                crate::endpoint::PeerMatch::None => {
+                    return Err(format!("no peer matched '{needle}'"));
+                }
+                crate::endpoint::PeerMatch::Ambiguous(candidates) => {
+                    let labels: Vec<&str> = candidates
+                        .iter()
+                        .map(|peer| peer.name.as_deref().unwrap_or(peer.path.as_str()))
+                        .collect();
+                    return Err(format!(
+                        "multiple peers matched '{needle}': {}",
+                        labels.join(", ")
+                    ));
+                }
             }
-            crate::endpoint::PeerMatch::None => {
-                return Err(format!("no peer matched '{needle}'"));
-            }
-            crate::endpoint::PeerMatch::Ambiguous(candidates) => {
-                let labels: Vec<&str> = candidates
-                    .iter()
-                    .map(|peer| peer.name.as_deref().unwrap_or(peer.path.as_str()))
-                    .collect();
-                return Err(format!(
-                    "multiple peers matched '{needle}': {}",
-                    labels.join(", ")
-                ));
-            }
-        },
-        None => None,
-    };
+        }
+    }
 
     let deadline = Instant::now() + options.timeout;
     let sink_stream = match cast::accept_until(&listener, deadline, options.stop.as_deref()) {
         Ok(stream) => stream,
         Err(AcceptError::Stopped) => {
-            if let Some(path) = &peer_path {
-                let _ = radio.disconnect_peer(path);
-            }
             events(SessionEvent::Stopped(
                 "stopped while waiting for a sink".to_owned(),
             ));
@@ -200,9 +325,6 @@ pub fn run(options: &SessionOptions, events: &mut dyn FnMut(SessionEvent)) -> Re
             } else {
                 error.to_string()
             };
-            if let Some(path) = &peer_path {
-                let _ = radio.disconnect_peer(path);
-            }
             events(SessionEvent::Failed(reason.clone()));
             return Err(reason);
         }
@@ -274,9 +396,6 @@ pub fn run(options: &SessionOptions, events: &mut dyn FnMut(SessionEvent)) -> Re
         Err(error) => {
             events(SessionEvent::Trace(session.trace().render()));
             let reason = format!("handshake failed: {error}");
-            if let Some(path) = &peer_path {
-                let _ = radio.disconnect_peer(path);
-            }
             events(SessionEvent::Failed(reason.clone()));
             return Err(reason);
         }
@@ -285,18 +404,13 @@ pub fn run(options: &SessionOptions, events: &mut dyn FnMut(SessionEvent)) -> Re
 
     if !outcome.is_streaming() {
         let reason = format!("the sink did not accept streaming: {}", outcome.describe());
-        if let Some(path) = &peer_path {
-            let _ = radio.disconnect_peer(path);
-        }
         events(SessionEvent::Failed(reason.clone()));
         return Err(reason);
     }
     events(SessionEvent::Streaming);
 
     if !options.stream_media {
-        if let Some(path) = &peer_path {
-            let _ = radio.disconnect_peer(path);
-        }
+        group.release();
         events(SessionEvent::Stopped(
             "handshake only; no media was sent".to_owned(),
         ));
@@ -430,10 +544,10 @@ pub fn run(options: &SessionOptions, events: &mut dyn FnMut(SessionEvent)) -> Re
     if let Some(reason) = stats.rtcp_failure.clone() {
         events(SessionEvent::RtcpUnavailable(reason));
     }
-
-    if let Some(path) = &peer_path {
-        let _ = radio.disconnect_peer(path);
-    }
+    group.release();
     events(SessionEvent::Stopped(stats.termination.to_string()));
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

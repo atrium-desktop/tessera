@@ -111,7 +111,7 @@ pub fn record_screen(
         }
     );
 
-    let connection = zbus::blocking::Connection::session()
+    let connection = zbus::block_on(zbus::Connection::session())
         .map_err(|err| RecordError::Portal(PortalError::Bus(err)))?;
 
     // 1. Open Portal ScreenCast session

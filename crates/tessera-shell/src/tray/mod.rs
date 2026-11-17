@@ -4,8 +4,8 @@
 //! StatusNotifierHost on the session bus: a dedicated worker setup owns the
 //! `org.kde.StatusNotifierWatcher` name, tracks every registered item, and
 //! mirrors them into a plain [`TraySnapshot`] the render thread reads. No
-//! async runtime is involved — zbus runs its blocking API on two
-//! `std::thread`s (signal tracking and command dispatch) and shares state
+//! async runtime is involved — two `std::thread`s (signal tracking and command
+//! dispatch) drive zbus's async API through `zbus::block_on` and share state
 //! through `Arc<Mutex<_>>` + `std::sync::mpsc`, per ADR-0021/0044.
 //!
 //! Failure is silent by design: without a session bus, or when another
@@ -31,7 +31,7 @@ use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, mpsc};
 
-use zbus::zvariant::{OwnedValue, Value};
+use zbus::{OwnedVariant, Variant};
 /// One registered StatusNotifierItem, mirrored for the render thread.
 #[derive(Debug, Clone)]
 pub struct TrayItem {
@@ -280,7 +280,7 @@ pub(crate) fn select_pixmap(pixmaps: &[(i32, i32, Vec<u8>)], target: i32) -> Opt
 /// Shape of the `GetLayout` reply: `(revision, root_layout)` where
 /// `root_layout` is the recursive `(id, props, children)` node and each
 /// child in `children` is a `Variant` wrapping the same structure.
-pub(crate) type LayoutReply = (u32, (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>));
+pub(crate) type LayoutReply = (u32, (i32, HashMap<String, OwnedVariant>, Vec<OwnedVariant>));
 
 /// Property names requested from `GetLayout` so the parser can rely on a
 /// stable shape (any unrequested property is simply absent from the dict).
@@ -306,8 +306,8 @@ pub(crate) fn parse_layout_reply(reply: LayoutReply) -> Option<(MenuNode, u32)> 
 
 fn parse_layout_node(
     id: i32,
-    props: &HashMap<String, OwnedValue>,
-    children: &[OwnedValue],
+    props: &HashMap<String, OwnedVariant>,
+    children: &[OwnedVariant],
 ) -> MenuNode {
     let kind = match get_string(props, "type").as_deref() {
         Some("separator") => MenuEntryKind::Separator,
@@ -339,18 +339,18 @@ fn parse_layout_node(
 }
 
 /// Walk a single child `Value` from an `av` array: dbusmenu wraps each child
-/// layout node in a variant, so we descend through `Value::Value` and then
+/// layout node in a variant, so we descend through `Variant::Value` and then
 /// expect a `(i32, a{sv}, av)` structure.
-fn parse_child_value(value: &Value<'_>) -> Option<MenuNode> {
+fn parse_child_value(value: &Variant<'_>) -> Option<MenuNode> {
     let target = match value {
         // The dbusmenu layout nests each child inside a `v`.
-        Value::Value(inner) => &**inner,
+        Variant::Variant(inner) => &**inner,
         // Some toolkits skip the variant wrapper for the root node.
-        Value::Structure(_) => value,
+        Variant::Structure(_) => value,
         _ => return None,
     };
     let structure = match target {
-        Value::Structure(s) => s,
+        Variant::Structure(s) => s,
         _ => return None,
     };
     let fields = structure.fields();
@@ -358,8 +358,8 @@ fn parse_child_value(value: &Value<'_>) -> Option<MenuNode> {
         return None;
     }
     let id: i32 = fields[0].downcast_ref().ok()?;
-    let mut props: HashMap<String, OwnedValue> = HashMap::new();
-    if let Value::Dict(dict) = &fields[1] {
+    let mut props: HashMap<String, OwnedVariant> = HashMap::new();
+    if let Variant::Dict(dict) = &fields[1] {
         for (key, val) in dict.iter() {
             if let Ok(name) = <&str>::try_from(key)
                 && let Ok(owned) = val.try_to_owned()
@@ -368,32 +368,32 @@ fn parse_child_value(value: &Value<'_>) -> Option<MenuNode> {
             }
         }
     }
-    let children: Vec<OwnedValue> = match &fields[2] {
-        Value::Array(array) => array.iter().filter_map(|v| v.try_to_owned().ok()).collect(),
+    let children: Vec<OwnedVariant> = match &fields[2] {
+        Variant::Array(array) => array.iter().filter_map(|v| v.try_to_owned().ok()).collect(),
         _ => Vec::new(),
     };
     Some(parse_layout_node(id, &props, &children))
 }
 
-fn get_string(props: &HashMap<String, OwnedValue>, key: &str) -> Option<String> {
+fn get_string(props: &HashMap<String, OwnedVariant>, key: &str) -> Option<String> {
     props.get(key).and_then(|value| {
-        Borrow::<Value>::borrow(value)
+        Borrow::<Variant>::borrow(value)
             .downcast_ref::<&str>()
             .ok()
             .map(str::to_string)
     })
 }
 
-fn get_bool(props: &HashMap<String, OwnedValue>, key: &str) -> Option<bool> {
+fn get_bool(props: &HashMap<String, OwnedVariant>, key: &str) -> Option<bool> {
     props
         .get(key)
-        .and_then(|value| Borrow::<Value>::borrow(value).downcast_ref::<bool>().ok())
+        .and_then(|value| Borrow::<Variant>::borrow(value).downcast_ref::<bool>().ok())
 }
 
-fn get_int(props: &HashMap<String, OwnedValue>, key: &str) -> Option<i32> {
+fn get_int(props: &HashMap<String, OwnedVariant>, key: &str) -> Option<i32> {
     props
         .get(key)
-        .and_then(|value| Borrow::<Value>::borrow(value).downcast_ref::<i32>().ok())
+        .and_then(|value| Borrow::<Variant>::borrow(value).downcast_ref::<i32>().ok())
 }
 
 /// Strip `_` mnemonic prefixes from a dbusmenu label (e.g. `_Open` → `Open`,
@@ -522,16 +522,16 @@ mod tests {
         assert!(item(TrayStatus::NeedsAttention).is_visible());
     }
 
-    fn owned_string(value: &str) -> OwnedValue {
-        OwnedValue::from(zbus::zvariant::Str::from(value.to_string()))
+    fn owned_string(value: &str) -> OwnedVariant {
+        OwnedVariant::from(zbus::Str::from(value.to_string()))
     }
 
-    fn owned_bool(value: bool) -> OwnedValue {
-        OwnedValue::from(value)
+    fn owned_bool(value: bool) -> OwnedVariant {
+        OwnedVariant::from(value)
     }
 
-    fn owned_i32(value: i32) -> OwnedValue {
-        OwnedValue::from(value)
+    fn owned_i32(value: i32) -> OwnedVariant {
+        OwnedVariant::from(value)
     }
 
     #[test]
@@ -648,33 +648,33 @@ mod tests {
 
     #[test]
     fn parse_child_value_descends_through_variant_and_structure() {
-        use zbus::zvariant::{Dict, Signature, StructureBuilder, Value};
+        use zbus::{Dict, Signature, Structure, Variant};
 
         // Build the inner props dict for a leaf node manually: a{sv} with one
         // entry "label" -> "_Hello".
         let mut dict = Dict::new(&Signature::Str, &Signature::Variant);
         dict.append(
-            Value::Str(zbus::zvariant::Str::from("label".to_string())),
-            Value::Value(Box::new(Value::Str(zbus::zvariant::Str::from(
+            Variant::Str(zbus::Str::from("label".to_string())),
+            Variant::Variant(Box::new(Variant::Str(zbus::Str::from(
                 "_Hello".to_string(),
             )))),
         )
         .unwrap();
 
         // Empty children array (`av`).
-        let empty_arr: zbus::zvariant::Array = Vec::<Value>::new().into();
+        let empty_arr: zbus::Array = Vec::<Variant<'_>>::new().into();
 
         // `append_field` pushes the Value as-is; the From<tuple> impl would
-        // route through Value::new, which wraps any Value in another Value
+        // route through Variant::new, which wraps any Value in another Value
         // because Value's Type signature is `v`.
-        let structure = StructureBuilder::new()
-            .append_field(Value::I32(42))
-            .append_field(Value::Dict(dict))
-            .append_field(Value::Array(empty_arr))
+        let structure = Structure::builder()
+            .append_field(Variant::I32(42))
+            .append_field(Variant::Dict(dict))
+            .append_field(Variant::Array(empty_arr))
             .build()
             .unwrap();
         // dbusmenu wraps each child in a variant.
-        let wrapped = Value::Value(Box::new(Value::Structure(structure)));
+        let wrapped = Variant::Variant(Box::new(Variant::Structure(structure)));
 
         let node = parse_child_value(&wrapped).expect("node should parse");
         assert_eq!(node.id, 42);

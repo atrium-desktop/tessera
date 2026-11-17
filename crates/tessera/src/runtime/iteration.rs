@@ -606,18 +606,7 @@ impl CompositorRuntime<'_> {
             input_status.keyboard = self.system_status.input.keyboard;
             detected.input = input_status;
             detected.display = self.system_status.display.clone();
-            let wireless_snap = self.wireless.snapshot();
-            detected.wifi_state = wireless_snap.state;
-            detected.wifi_ssid = wireless_snap.active_ssid;
-            detected.wifi_networks = wireless_snap.networks;
-            // `[INV-ARCH-82]` (ADR-0190): with no wireless service, report
-            // wireless as unavailable instead of presenting an empty network
-            // list as though a scan had simply found nothing.
-            if !wireless_snap.available {
-                detected.wifi_enabled = None;
-                detected.wifi_ssid = None;
-                detected.wifi_networks = Vec::new();
-            }
+            apply_network_snapshot(&mut detected, &self.network.snapshot());
             // The subsystem reports adapter power when a Bluetooth service
             // answered; when none did, the host's rfkill probe is the fallback
             // (`enabled()` is stably `None` only in that case, so the two never
@@ -659,48 +648,50 @@ impl CompositorRuntime<'_> {
             self.poll_battery_warning();
         }
 
-        // Reconcile real-time asynchronous wireless state changes (ADR-0162)
-        let wireless_snap = self.wireless.snapshot();
-        let mut wireless_changed = false;
-        // `[INV-ARCH-82]` (ADR-0190): the service vanished (or never existed).
-        // Clear the radio view rather than leave last-known or empty networks.
-        if !wireless_snap.available
-            && (self.system_status.wifi_enabled.is_some()
-                || self.system_status.wifi_ssid.is_some()
-                || !self.system_status.wifi_networks.is_empty())
+        // Reconcile real-time asynchronous network state changes (ADR-0242).
+        // The service is authoritative while it answers; when it does not, the
+        // Wi-Fi view is cleared and the host's sysfs link probe remains the
+        // coarse fallback for `network`/`network_interface`.
+        let network_snapshot = self.network.snapshot();
+        let mut network_changed = false;
+        if network_snapshot.available {
+            if self.system_status.wifi_enabled != network_snapshot.wifi_enabled {
+                self.system_status.wifi_enabled = network_snapshot.wifi_enabled;
+                network_changed = true;
+            }
+            if self.system_status.wifi_state != network_snapshot.wifi_state {
+                self.system_status.wifi_state = network_snapshot.wifi_state;
+                network_changed = true;
+            }
+            if self.system_status.wifi_ssid != network_snapshot.wifi_ssid {
+                self.system_status.wifi_ssid = network_snapshot.wifi_ssid.clone();
+                network_changed = true;
+            }
+            if self.system_status.wifi_networks != network_snapshot.wifi_networks {
+                self.system_status.wifi_networks = network_snapshot.wifi_networks.clone();
+                network_changed = true;
+            }
+            if network_snapshot.network_authoritative {
+                if self.system_status.network != network_snapshot.network {
+                    self.system_status.network = network_snapshot.network;
+                    network_changed = true;
+                }
+                if self.system_status.network_interface != network_snapshot.network_interface {
+                    self.system_status.network_interface = network_snapshot.network_interface;
+                    network_changed = true;
+                }
+            }
+        } else if self.system_status.wifi_enabled.is_some()
+            || self.system_status.wifi_ssid.is_some()
+            || !self.system_status.wifi_networks.is_empty()
         {
             self.system_status.wifi_enabled = None;
             self.system_status.wifi_ssid = None;
-            self.system_status.wifi_networks = Vec::new();
-            wireless_changed = true;
+            self.system_status.wifi_state = tessera_desktop::system::WifiLinkState::Disconnected;
+            self.system_status.wifi_networks.clear();
+            network_changed = true;
         }
-        if self.system_status.wifi_state != wireless_snap.state {
-            self.system_status.wifi_state = wireless_snap.state;
-            wireless_changed = true;
-        }
-        if self.system_status.wifi_ssid != wireless_snap.active_ssid {
-            self.system_status.wifi_ssid = wireless_snap.active_ssid;
-            wireless_changed = true;
-        }
-        if self.system_status.wifi_networks != wireless_snap.networks {
-            self.system_status.wifi_networks = wireless_snap.networks;
-            wireless_changed = true;
-        }
-        if self.system_status.wifi_ssid.is_some() {
-            if self.system_status.wifi_enabled != Some(true) {
-                self.system_status.wifi_enabled = Some(true);
-                wireless_changed = true;
-            }
-            if self.system_status.wifi_state != tessera_desktop::system::WifiLinkState::Connected {
-                self.system_status.wifi_state = tessera_desktop::system::WifiLinkState::Connected;
-                wireless_changed = true;
-            }
-            if self.system_status.network != tessera_desktop::system::NetworkState::Wifi {
-                self.system_status.network = tessera_desktop::system::NetworkState::Wifi;
-                wireless_changed = true;
-            }
-        }
-        if wireless_changed {
+        if network_changed {
             publish_system_status_parts(
                 &self.system_status,
                 &mut self.shell,
@@ -1613,7 +1604,7 @@ impl CompositorRuntime<'_> {
                     &mut self.system_status,
                     &mut self.ipc_idle_inhibits,
                     &mut self.idle_process,
-                    &self.wireless,
+                    &self.network,
                     &self.bluetooth,
                     &self.casting,
                     &*self.host_system,
@@ -1690,7 +1681,7 @@ impl CompositorRuntime<'_> {
                     &mut self.system_status,
                     &mut self.ipc_idle_inhibits,
                     &mut self.idle_process,
-                    &self.wireless,
+                    &self.network,
                     &self.bluetooth,
                     &self.casting,
                     &*self.host_system,

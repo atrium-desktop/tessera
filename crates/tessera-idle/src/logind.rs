@@ -3,6 +3,9 @@
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
+use futures_util::StreamExt;
+use zbus::{Connection, OwnedFd, OwnedObjectPath, Proxy};
+
 const DESTINATION: &str = "org.freedesktop.login1";
 const PATH: &str = "/org/freedesktop/login1";
 const INTERFACE: &str = "org.freedesktop.login1.Manager";
@@ -15,10 +18,10 @@ pub enum SleepEvent {
     Lock,
 }
 
-pub fn acquire_delay_inhibitor() -> Result<zbus::zvariant::OwnedFd, zbus::Error> {
-    let connection = zbus::blocking::Connection::system()?;
-    let proxy = zbus::blocking::Proxy::new(&connection, DESTINATION, PATH, INTERFACE)?;
-    proxy.call(
+pub fn acquire_delay_inhibitor() -> Result<OwnedFd, zbus::Error> {
+    let connection = zbus::block_on(Connection::system())?;
+    let proxy = proxy(&connection, DESTINATION, PATH, INTERFACE)?;
+    zbus::block_on(proxy.call(
         "Inhibit",
         &(
             "sleep",
@@ -26,7 +29,7 @@ pub fn acquire_delay_inhibitor() -> Result<zbus::zvariant::OwnedFd, zbus::Error>
             "Lock the Tessera session before sleep",
             "delay",
         ),
-    )
+    ))
 }
 
 /// Broadcast the freedesktop-standard session lock: call `LockSession()`
@@ -79,37 +82,45 @@ pub fn unlock_session_async() {
 /// fallback covers environments without the variable.
 fn session_call(member: &str) -> Result<(), zbus::Error> {
     let (connection, session_path) = session_proxy_parts()?;
-    let session = zbus::blocking::Proxy::new(
+    let session = proxy(
         &connection,
         DESTINATION,
         session_path.as_str(),
         SESSION_INTERFACE,
     )?;
-    session.call(member, &())
+    zbus::block_on(session.call(member, &()))
 }
 
 /// Set the session's `LockedHint` property (see [`lock_session_async`]).
 fn session_hint(locked: bool) -> Result<(), zbus::Error> {
     let (connection, session_path) = session_proxy_parts()?;
-    let session = zbus::blocking::Proxy::new(
+    let session = proxy(
         &connection,
         DESTINATION,
         session_path.as_str(),
         SESSION_INTERFACE,
     )?;
-    session.call("SetLockedHint", &(locked,))
+    zbus::block_on(session.call("SetLockedHint", &(locked,)))
 }
 
 /// The shared system-bus connection and this session's object path.
-type SessionParts =
-    Result<(zbus::blocking::Connection, zbus::zvariant::OwnedObjectPath), zbus::Error>;
+type SessionParts = Result<(Connection, OwnedObjectPath), zbus::Error>;
+
+fn proxy<'a>(
+    connection: &'a Connection,
+    destination: &'a str,
+    path: &'a str,
+    interface: &'a str,
+) -> Result<Proxy<'a>, zbus::Error> {
+    zbus::block_on(Proxy::new(connection, destination, path, interface))
+}
 
 fn session_proxy_parts() -> SessionParts {
-    let connection = zbus::blocking::Connection::system()?;
-    let manager = zbus::blocking::Proxy::new(&connection, DESTINATION, PATH, INTERFACE)?;
+    let connection = zbus::block_on(Connection::system())?;
+    let manager = proxy(&connection, DESTINATION, PATH, INTERFACE)?;
     let session_path = match std::env::var("XDG_SESSION_ID") {
-        Ok(id) if !id.is_empty() => manager.call("GetSession", &(&id,))?,
-        _ => manager.call("GetSessionByPID", &(std::process::id()))?,
+        Ok(id) if !id.is_empty() => zbus::block_on(manager.call("GetSession", &(&id,)))?,
+        _ => zbus::block_on(manager.call("GetSessionByPID", &(std::process::id())))?,
     };
     Ok((connection, session_path))
 }
@@ -138,9 +149,9 @@ pub fn suspend_async() {
         .name("tessera-idle-suspend".into())
         .spawn(|| {
             let result = (|| -> Result<(), zbus::Error> {
-                let connection = zbus::blocking::Connection::system()?;
-                let proxy = zbus::blocking::Proxy::new(&connection, DESTINATION, PATH, INTERFACE)?;
-                proxy.call("Suspend", &(false,))
+                let connection = zbus::block_on(Connection::system())?;
+                let proxy = proxy(&connection, DESTINATION, PATH, INTERFACE)?;
+                zbus::block_on(proxy.call("Suspend", &(false,)))
             })();
             if let Err(error) = result {
                 log::warn!("idle: logind suspend request failed: {error}");
@@ -151,46 +162,53 @@ pub fn suspend_async() {
 /// Return `false` when the policy process has gone away and the monitor
 /// should terminate; `true` means the D-Bus stream ended and can reconnect.
 fn monitor(events: &Sender<SleepEvent>) -> Result<bool, zbus::Error> {
-    let connection = zbus::blocking::Connection::system()?;
+    let connection = zbus::block_on(Connection::system())?;
     let own_session_path = session_proxy_parts()
         .ok()
         .map(|(_, path)| path.as_str().to_string());
     let rule = format!("type='signal',sender='{DESTINATION}'");
-    let iterator =
-        zbus::blocking::MessageIterator::for_match_rule(rule.as_str(), &connection, Some(8))?;
-    for message in iterator.flatten() {
-        let header = message.header();
-        let interface = header.interface().map(|name| name.as_str());
-        let member = header.member().map(|name| name.as_str());
-        match (interface, member) {
-            (Some(INTERFACE), Some("PrepareForSleep")) => {
-                let Ok(preparing) = message.body().deserialize::<bool>() else {
-                    continue;
-                };
-                if events
-                    .send(if preparing {
-                        SleepEvent::Preparing
-                    } else {
-                        SleepEvent::Resumed
-                    })
-                    .is_err()
-                {
-                    return Ok(false);
+    let mut stream = zbus::block_on(zbus::MessageStream::for_match_rule(
+        rule.as_str(),
+        &connection,
+        std::num::NonZeroUsize::new(8),
+    ))?;
+    let keep_running = zbus::block_on(async {
+        while let Some(message) = stream.next().await {
+            let Ok(message) = message else { continue };
+            let header = message.header();
+            let interface = header.interface().map(|name| name.as_str());
+            let member = header.member().map(|name| name.as_str());
+            match (interface, member) {
+                (Some(INTERFACE), Some("PrepareForSleep")) => {
+                    let Ok(preparing) = message.body().deserialize::<bool>() else {
+                        continue;
+                    };
+                    if events
+                        .send(if preparing {
+                            SleepEvent::Preparing
+                        } else {
+                            SleepEvent::Resumed
+                        })
+                        .is_err()
+                    {
+                        return false;
+                    }
                 }
+                (Some(SESSION_INTERFACE), Some("Lock")) => {
+                    let path = header.path().map(|p| p.as_str());
+                    if let Some(ref own_path) = own_session_path
+                        && path != Some(own_path.as_str())
+                    {
+                        continue;
+                    }
+                    if events.send(SleepEvent::Lock).is_err() {
+                        return false;
+                    }
+                }
+                _ => {}
             }
-            (Some(SESSION_INTERFACE), Some("Lock")) => {
-                let path = header.path().map(|p| p.as_str());
-                if let Some(ref own_path) = own_session_path
-                    && path != Some(own_path.as_str())
-                {
-                    continue;
-                }
-                if events.send(SleepEvent::Lock).is_err() {
-                    return Ok(false);
-                }
-            }
-            _ => {}
         }
-    }
-    Ok(true)
+        true
+    });
+    Ok(keep_running)
 }

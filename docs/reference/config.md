@@ -39,6 +39,7 @@ untouched.
 | `[idle]` | table | dim 5 min, lock 10 min, display off 11 min, suspend 30 min | Ordered inactivity, session-lock, display-power, and suspend policy. See [Idle and Locking](#idle-and-locking). |
 | `[battery]` | table | warn at 20% and 5% | Low-battery warning thresholds. See [Battery](#battery). |
 | `[cast]` | table | validated 720p30 formats, desktop source, source opening, audio off, 30 fps, ports 7236/19000 | Out-of-process Miracast service: formats, source, pacing, ports, audio, and timeouts. See [Cast](#cast). |
+| `[network]` | table | `backend = "auto"` | Station-network service backend: prefer NetworkManager, with iwd as the fallback when NetworkManager is not running. See [Network](#network). |
 | `[[output]]` | array of tables | none | Per-connector display policy: mode, scale, position, transform, primary. See [Outputs](#outputs). |
 | `[[gesture]]` | array of tables | built-in three/four-finger defaults | Touchpad gesture bindings. See [Touchpad Gestures](#touchpad-gestures). |
 | `[accessibility]` | table | no zoom, no inversion, no high contrast, no sticky/slow/bounce keys, accessibility bus off | Visual, keyboard, and screen-reader assistance. See [Accessibility](#accessibility). |
@@ -476,6 +477,32 @@ stereo, and interleaves it into the same MPEG-TS/RTP flow. The default sink must
 not be muted; the capture target is resolved at session start. See
 [Miracast Source §7.5](../explanation/miracast-source.md#75-audio) for the
 capture, grouping, pre-roll, and validation details.
+
+## Network
+
+The station-network service (ADR-0242). The compositor supervises
+`tessera-networkd`, which owns the system D-Bus connection, and renders the
+service's backend-neutral snapshot. The compositor itself never opens
+NetworkManager or iwd.
+
+```toml
+[network]
+# "auto" prefers NetworkManager and falls back to iwd only when
+# NetworkManager is not running. Neither daemon is D-Bus-activated: a stopped
+# service is reported as unavailable. "networkmanager" and "iwd" are absolute:
+# a missing service is reported as unavailable, never silently replaced by the
+# other.
+backend = "auto"
+```
+
+| Field | Default | Validation |
+|-------|---------|------------|
+| `backend` | `"auto"` | `"auto"`, `"networkmanager"`, or `"iwd"`. `mock` is not a configuration value; it is reachable only through the explicit preview path. |
+
+`auto` never starts a radio manager: a stopped or broken NetworkManager is
+reported as unavailable with a reason, and the service does not fall through
+to iwd unless NetworkManager is genuinely not running. The choice is read at
+session start, so changing it takes effect on the next session.
 
 ## Compositor Scheduling
 

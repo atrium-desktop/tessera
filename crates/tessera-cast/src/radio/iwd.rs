@@ -22,12 +22,12 @@
 //! ([ADR-0192](../../../docs/adr/0192-first-party-miracast-caster.md) §8). No sink
 //! has been in range on the machine this was written on.
 
-use zbus::blocking::Connection;
-use zbus::zvariant::Value;
+use zbus::{Connection, Variant};
 
 use super::{DiscoveredPeer, DisplayCapabilities, P2pRadio};
 use crate::iwd::{
     self, IwdError, P2P_DEVICE, P2P_DISPLAY, P2P_PEER, P2P_SERVICE_MANAGER, SIMPLE_CONFIGURATION,
+    blocking_call,
 };
 
 /// A caster's radio, backed by one iwd adapter.
@@ -61,6 +61,10 @@ impl IwdRadio {
         &self.adapter
     }
 
+    pub(crate) fn connection(&self) -> &Connection {
+        &self.connection
+    }
+
     /// Build and send the display-service dictionary.
     ///
     /// `include_optional` is what makes the degradation explicit: the core keys
@@ -71,39 +75,39 @@ impl IwdRadio {
         advertisement: &DisplayCapabilities,
         include_optional: bool,
     ) -> Result<(), IwdError> {
-        let mut properties: std::collections::HashMap<&str, Value<'_>> =
+        let mut properties: std::collections::HashMap<&str, Variant<'_>> =
             std::collections::HashMap::new();
         // Source-only is the deliberate dual-role mitigation (ADR-0192 §4), so
         // `Sink` is sent as an explicit `false` rather than omitted — the core
         // keys are exactly what every iwd release accepts.
-        properties.insert("Source", Value::Bool(advertisement.source));
-        properties.insert("Sink", Value::Bool(advertisement.sink));
+        properties.insert("Source", Variant::Bool(advertisement.source));
+        properties.insert("Sink", Variant::Bool(advertisement.sink));
         if let Some(port) = advertisement.port {
-            properties.insert("Port", Value::U16(port));
+            properties.insert("Port", Variant::U16(port));
         }
         if include_optional {
             // Only advertised capabilities are named: a `false` is the daemon's
             // default, and an unrecognised key fails the whole call.
             if advertisement.has_audio {
-                properties.insert("HasAudio", Value::Bool(true));
+                properties.insert("HasAudio", Variant::Bool(true));
             }
             if advertisement.has_uibc {
-                properties.insert("HasUIBC", Value::Bool(true));
+                properties.insert("HasUIBC", Variant::Bool(true));
             }
             if advertisement.has_content_protection {
-                properties.insert("HasContentProtection", Value::Bool(true));
+                properties.insert("HasContentProtection", Variant::Bool(true));
             }
         }
 
-        self.connection
-            .call_method(
-                Some(iwd::IWD_SERVICE),
-                iwd::IWD_ROOT,
-                Some(P2P_SERVICE_MANAGER),
-                "RegisterDisplayService",
-                &properties,
-            )
-            .map_err(|error| iwd::classify(error, "RegisterDisplayService"))?;
+        blocking_call(
+            &self.connection,
+            Some(iwd::IWD_SERVICE),
+            iwd::IWD_ROOT,
+            Some(P2P_SERVICE_MANAGER),
+            "RegisterDisplayService",
+            &properties,
+        )
+        .map_err(|error| iwd::classify(error, "RegisterDisplayService"))?;
         // Measured against iwd: the method returns no object path. The
         // registration is owned by this connection and unregistered without an
         // argument, so a flag is the whole state.
@@ -140,6 +144,10 @@ impl IwdRadio {
 }
 
 impl P2pRadio for IwdRadio {
+    fn authority(&self) -> &'static str {
+        "iwd"
+    }
+
     fn enable_p2p(&self) -> Result<(), IwdError> {
         if !iwd::has_interface(&self.connection, &self.adapter, P2P_DEVICE)? {
             return Err(IwdError::Unsupported(format!(
@@ -186,17 +194,16 @@ impl P2pRadio for IwdRadio {
     fn unregister_source(&self) -> Result<(), IwdError> {
         // Measured against iwd: this method takes no arguments and returns
         // nothing; the registration belongs to this connection.
-        let result = self
-            .connection
-            .call_method(
-                Some(iwd::IWD_SERVICE),
-                iwd::IWD_ROOT,
-                Some(P2P_SERVICE_MANAGER),
-                "UnregisterDisplayService",
-                &(),
-            )
-            .map(|_| ())
-            .map_err(|error| iwd::classify(error, "UnregisterDisplayService"));
+        let result = blocking_call(
+            &self.connection,
+            Some(iwd::IWD_SERVICE),
+            iwd::IWD_ROOT,
+            Some(P2P_SERVICE_MANAGER),
+            "UnregisterDisplayService",
+            &(),
+        )
+        .map(|_| ())
+        .map_err(|error| iwd::classify(error, "UnregisterDisplayService"));
         if result.is_ok() {
             *self.registered.lock().unwrap_or_else(|e| e.into_inner()) = false;
         }
@@ -204,16 +211,16 @@ impl P2pRadio for IwdRadio {
     }
 
     fn request_discovery(&self) -> Result<(), IwdError> {
-        self.connection
-            .call_method(
-                Some(iwd::IWD_SERVICE),
-                self.adapter.as_str(),
-                Some(P2P_DEVICE),
-                "RequestDiscovery",
-                &(),
-            )
-            .map(|_| ())
-            .map_err(|error| iwd::classify(error, "RequestDiscovery"))
+        blocking_call(
+            &self.connection,
+            Some(iwd::IWD_SERVICE),
+            self.adapter.as_str(),
+            Some(P2P_DEVICE),
+            "RequestDiscovery",
+            &(),
+        )
+        .map(|_| ())
+        .map_err(|error| iwd::classify(error, "RequestDiscovery"))
     }
 
     fn peers(&self) -> Result<Vec<DiscoveredPeer>, IwdError> {
@@ -265,29 +272,29 @@ impl P2pRadio for IwdRadio {
     }
 
     fn form_group(&self, peer_path: &str) -> Result<(), IwdError> {
-        self.connection
-            .call_method(
-                Some(iwd::IWD_SERVICE),
-                peer_path,
-                Some(SIMPLE_CONFIGURATION),
-                "PushButton",
-                &(),
-            )
-            .map(|_| ())
-            .map_err(|error| iwd::classify(error, "PushButton"))
+        blocking_call(
+            &self.connection,
+            Some(iwd::IWD_SERVICE),
+            peer_path,
+            Some(SIMPLE_CONFIGURATION),
+            "PushButton",
+            &(),
+        )
+        .map(|_| ())
+        .map_err(|error| iwd::classify(error, "PushButton"))
     }
 
     fn disconnect_peer(&self, peer_path: &str) -> Result<(), IwdError> {
-        self.connection
-            .call_method(
-                Some(iwd::IWD_SERVICE),
-                peer_path,
-                Some(P2P_PEER),
-                "Disconnect",
-                &(),
-            )
-            .map(|_| ())
-            .map_err(|error| iwd::classify(error, "Disconnect"))
+        blocking_call(
+            &self.connection,
+            Some(iwd::IWD_SERVICE),
+            peer_path,
+            Some(P2P_PEER),
+            "Disconnect",
+            &(),
+        )
+        .map(|_| ())
+        .map_err(|error| iwd::classify(error, "Disconnect"))
     }
 }
 

@@ -23,7 +23,8 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use zbus::zvariant::{OwnedObjectPath, Value};
+use futures_util::StreamExt;
+use zbus::{Connection, OwnedObjectPath, Proxy, Variant};
 
 use super::{
     LayoutReply, MenuState, TrayCommand, TrayHandle, TrayIcon, TrayItem, TrayPixmap, TraySnapshot,
@@ -220,32 +221,32 @@ impl WatcherIface {
         // implementations make this call synchronously on the same thread
         // that serves their properties; awaiting GetAll/Get there deadlocks
         // the item until its registration call times out.
-        let conn = self.conn.clone();
-        let refresh_conn = conn.clone();
+        let refresh_conn = self.conn.clone();
         let shared = Arc::clone(&self.shared);
         let refresh_key = key.clone();
-        conn.executor()
-            .spawn(
-                async move {
-                    let mut props = fetch_props_async(&refresh_conn, &destination, &path).await;
-                    let menu_path = props.menu_path.clone();
-                    let mut shared = shared.lock().unwrap_or_else(|e| e.into_inner());
-                    resolve_named_icon(&mut props.icon, &mut shared.icon_cache);
-                    let Some(entry) = shared.items.get_mut(&refresh_key) else {
-                        return;
-                    };
-                    // Ignore a stale read that completed after a new owner
-                    // re-registered the same well-known name.
-                    if entry.unique_name != sender || entry.path != path {
-                        return;
-                    }
-                    entry.menu_path = menu_path;
-                    apply_props(&mut entry.item, props);
-                    shared.republish();
-                },
-                "sni-initial-properties",
-            )
-            .detach();
+        // Registration must return before querying the item. Several SNI
+        // implementations make this call synchronously on the same thread that
+        // serves their properties, so the read runs on its own thread rather
+        // than inside the served method.
+        let _ = thread::Builder::new()
+            .name("sni-initial-properties".into())
+            .spawn(move || {
+                let mut props = fetch_props_blocking(&refresh_conn, &destination, &path);
+                let menu_path = props.menu_path.clone();
+                let mut shared = shared.lock().unwrap_or_else(|e| e.into_inner());
+                resolve_named_icon(&mut props.icon, &mut shared.icon_cache);
+                let Some(entry) = shared.items.get_mut(&refresh_key) else {
+                    return;
+                };
+                // Ignore a stale read that completed after a new owner
+                // re-registered the same well-known name.
+                if entry.unique_name != sender || entry.path != path {
+                    return;
+                }
+                entry.menu_path = menu_path;
+                apply_props(&mut entry.item, props);
+                shared.republish();
+            });
 
         log::info!("tray: registered {key}");
         if let Err(error) = emitter.status_notifier_item_registered(service).await {
@@ -296,67 +297,32 @@ impl WatcherIface {
     ) -> zbus::Result<()>;
 }
 
-/// Item proxies disable zbus's property cache: the watcher reads each
-/// property explicitly, and the cache's lazily-populated GetAll races item
-/// teardown, making zbus log a spurious warning from its caching task.
-async fn item_proxy<'a>(
-    conn: &'a zbus::Connection,
-    destination: &'a str,
-    path: &'a str,
-) -> zbus::Result<zbus::Proxy<'a>> {
-    zbus::proxy::Builder::new(conn)
-        .destination(destination)?
-        .path(path)?
-        .interface(ITEM_IFACE)?
-        .cache_properties(zbus::proxy::CacheProperties::No)
-        .build()
-        .await
-}
-
-/// Read an item's `Title`/`Id`, icon, `Status`, and `Menu` asynchronously
-/// (inside a served watcher method).
-async fn fetch_props_async(conn: &zbus::Connection, destination: &str, path: &str) -> ItemProps {
-    let Ok(proxy) = item_proxy(conn, destination, path).await else {
-        return ItemProps::default();
-    };
-    let id: Option<String> = proxy.get_property("Id").await.ok();
-    let title: Option<String> = proxy.get_property("Title").await.ok();
-    let status: Option<String> = proxy.get_property("Status").await.ok();
-    let icon_name: Option<String> = proxy.get_property("IconName").await.ok();
-    let icon_pixmap: Option<Vec<(i32, i32, Vec<u8>)>> = proxy.get_property("IconPixmap").await.ok();
-    let menu: Option<OwnedObjectPath> = proxy.get_property("Menu").await.ok();
-    build_props(id, title, status, icon_name, icon_pixmap, menu)
-}
-
 /// Blocking counterpart of [`item_proxy`] for the signal thread.
 fn item_proxy_blocking<'a>(
-    conn: &'a zbus::blocking::Connection,
+    conn: &'a Connection,
     destination: &'a str,
     path: &'a str,
-) -> zbus::Result<zbus::blocking::Proxy<'a>> {
-    zbus::blocking::proxy::Builder::new(conn)
-        .destination(destination)?
-        .path(path)?
-        .interface(ITEM_IFACE)?
-        .cache_properties(zbus::proxy::CacheProperties::No)
-        .build()
+) -> zbus::Result<Proxy<'a>> {
+    let builder = zbus::proxy::Builder::new(conn)
+        .destination(destination)
+        .path(path)
+        .interface(ITEM_IFACE)
+        .cache_properties(zbus::proxy::CacheProperties::No);
+    zbus::block_on(builder.build())
 }
 
 /// Same read through the blocking proxy (signal thread).
-fn fetch_props_blocking(
-    conn: &zbus::blocking::Connection,
-    destination: &str,
-    path: &str,
-) -> ItemProps {
+fn fetch_props_blocking(conn: &Connection, destination: &str, path: &str) -> ItemProps {
     let Ok(proxy) = item_proxy_blocking(conn, destination, path) else {
         return ItemProps::default();
     };
-    let id: Option<String> = proxy.get_property("Id").ok();
-    let title: Option<String> = proxy.get_property("Title").ok();
-    let status: Option<String> = proxy.get_property("Status").ok();
-    let icon_name: Option<String> = proxy.get_property("IconName").ok();
-    let icon_pixmap: Option<Vec<(i32, i32, Vec<u8>)>> = proxy.get_property("IconPixmap").ok();
-    let menu: Option<OwnedObjectPath> = proxy.get_property("Menu").ok();
+    let id: Option<String> = zbus::block_on(proxy.get_property("Id")).ok();
+    let title: Option<String> = zbus::block_on(proxy.get_property("Title")).ok();
+    let status: Option<String> = zbus::block_on(proxy.get_property("Status")).ok();
+    let icon_name: Option<String> = zbus::block_on(proxy.get_property("IconName")).ok();
+    let icon_pixmap: Option<Vec<(i32, i32, Vec<u8>)>> =
+        zbus::block_on(proxy.get_property("IconPixmap")).ok();
+    let menu: Option<OwnedObjectPath> = zbus::block_on(proxy.get_property("Menu")).ok();
     build_props(id, title, status, icon_name, icon_pixmap, menu)
 }
 
@@ -407,14 +373,8 @@ fn build_props(
 
 /// Start the watcher and both worker threads. See [`super::spawn`].
 pub(super) fn spawn() -> Option<TrayHandle> {
-    let builder = match zbus::blocking::connection::Builder::session() {
-        Ok(builder) => builder,
-        Err(error) => {
-            log::info!("tray: no session bus ({error}); SNI tray disabled");
-            return None;
-        }
-    };
-    let conn = match builder.build() {
+    let builder = zbus::connection::Builder::session();
+    let conn = match zbus::block_on(builder.build()) {
         Ok(conn) => conn,
         Err(error) => {
             log::warn!("tray: could not connect to session bus ({error}); SNI tray disabled");
@@ -423,28 +383,28 @@ pub(super) fn spawn() -> Option<TrayHandle> {
     };
     let shared = Arc::new(Mutex::new(Shared::default()));
     let iface = WatcherIface {
-        conn: conn.inner().clone(),
+        conn: conn.clone(),
         shared: Arc::clone(&shared),
     };
     // Serve the interface before requesting the name so no registration can
     // arrive at a name we own but do not serve yet.
-    if let Err(error) = conn.object_server().at(WATCHER_PATH, iface) {
+    if let Err(error) = zbus::block_on(conn.object_server().at(WATCHER_PATH, iface)) {
         log::warn!("tray: could not serve watcher interface ({error}); SNI tray disabled");
         return None;
     }
-    if let Err(error) = conn.request_name(WATCHER_NAME) {
+    if let Err(error) = zbus::block_on(conn.request_name(WATCHER_NAME)) {
         log::info!("tray: {WATCHER_NAME} unavailable ({error}); SNI tray disabled");
         return None;
     }
     // Advertise that a host (this compositor) is present; items that
     // registered before we started would re-register now.
-    if let Err(error) = conn.emit_signal(
+    if let Err(error) = zbus::block_on(conn.emit_signal(
         None::<&str>,
         WATCHER_PATH,
         WATCHER_IFACE,
         "StatusNotifierHostRegistered",
         &(),
-    ) {
+    )) {
         log::warn!("tray: could not emit StatusNotifierHostRegistered: {error}");
     }
 
@@ -472,31 +432,32 @@ pub(super) fn spawn() -> Option<TrayHandle> {
 
 /// Consume bus signals: drop items whose name vanished, refresh items whose
 /// icon/title/status changed.
-fn signal_loop(conn: zbus::blocking::Connection, shared: Arc<Mutex<Shared>>) {
+fn signal_loop(conn: Connection, shared: Arc<Mutex<Shared>>) {
     // One broad rule keeps a single iterator; traffic is filtered locally.
     // SNI signals are rare, so the volume is negligible on a session bus.
-    let iter = match zbus::blocking::MessageIterator::for_match_rule(
+    let mut stream = match zbus::block_on(zbus::MessageStream::for_match_rule(
         "type='signal'",
         &conn,
-        Some(SIGNAL_QUEUE_DEPTH),
-    ) {
-        Ok(iter) => iter,
+        std::num::NonZeroUsize::new(SIGNAL_QUEUE_DEPTH),
+    )) {
+        Ok(stream) => stream,
         Err(error) => {
             log::warn!("tray: could not subscribe to bus signals: {error}");
             return;
         }
     };
-    for message in iter.flatten() {
-        handle_signal(&conn, &shared, &message);
+    loop {
+        let message = zbus::block_on(stream.next());
+        match message {
+            Some(Ok(message)) => handle_signal(&conn, &shared, &message),
+            Some(Err(error)) => log::warn!("tray: signal stream error: {error}"),
+            None => break,
+        }
     }
     log::info!("tray: signal stream ended; SNI tray stopped");
 }
 
-fn handle_signal(
-    conn: &zbus::blocking::Connection,
-    shared: &Arc<Mutex<Shared>>,
-    message: &zbus::Message,
-) {
+fn handle_signal(conn: &Connection, shared: &Arc<Mutex<Shared>>, message: &zbus::Message) {
     let header = message.header();
     let interface = header.interface().map(|name| name.as_str());
     let member = header.member().map(|name| name.as_str());
@@ -530,13 +491,13 @@ fn handle_signal(
             };
             for key in removed {
                 log::info!("tray: unregistered {key}");
-                if let Err(error) = conn.emit_signal(
+                if let Err(error) = zbus::block_on(conn.emit_signal(
                     None::<&str>,
                     WATCHER_PATH,
                     WATCHER_IFACE,
                     "StatusNotifierItemUnregistered",
                     &key,
-                ) {
+                )) {
                     log::warn!("tray: could not emit StatusNotifierItemUnregistered: {error}");
                 }
             }
@@ -598,7 +559,7 @@ fn handle_signal(
 /// Re-fetch the layout for the currently open menu (called from the signal
 /// thread when `LayoutUpdated` arrives). Holds the lock only briefly to look
 /// up the target; the `GetLayout` round-trip happens unlocked.
-fn refresh_open_menu(conn: &zbus::blocking::Connection, shared: &Arc<Mutex<Shared>>) {
+fn refresh_open_menu(conn: &Connection, shared: &Arc<Mutex<Shared>>) {
     let target = {
         let shared = shared.lock().unwrap_or_else(|e| e.into_inner());
         let Some(menu) = &shared.menu else {
@@ -630,12 +591,17 @@ fn refresh_open_menu(conn: &zbus::blocking::Connection, shared: &Arc<Mutex<Share
     shared.republish();
 }
 
+fn proxy<'a>(
+    conn: &'a Connection,
+    destination: &'a str,
+    path: &'a str,
+    interface: &'a str,
+) -> zbus::Result<Proxy<'a>> {
+    zbus::block_on(Proxy::new(conn, destination, path, interface))
+}
+
 /// Invoke activation methods on items as the shell's clicks come in.
-fn command_loop(
-    conn: zbus::blocking::Connection,
-    shared: Arc<Mutex<Shared>>,
-    rx: mpsc::Receiver<TrayCommand>,
-) {
+fn command_loop(conn: Connection, shared: Arc<Mutex<Shared>>, rx: mpsc::Receiver<TrayCommand>) {
     while let Ok(command) = rx.recv() {
         match command {
             TrayCommand::Activate { key, x, y } => {
@@ -655,7 +621,7 @@ fn command_loop(
 }
 
 fn invoke_item_method(
-    conn: &zbus::blocking::Connection,
+    conn: &Connection,
     shared: &Arc<Mutex<Shared>>,
     key: &str,
     method: &str,
@@ -678,8 +644,8 @@ fn invoke_item_method(
     let Some((destination, path)) = target else {
         return;
     };
-    let result = zbus::blocking::Proxy::new(conn, destination.as_str(), path.as_str(), ITEM_IFACE)
-        .and_then(|proxy| proxy.call::<_, _, ()>(method, &(x, y)));
+    let result = proxy(conn, destination.as_str(), path.as_str(), ITEM_IFACE)
+        .and_then(|proxy| zbus::block_on(proxy.call::<_, _, ()>(method, &(x, y))));
     if let Err(error) = result {
         log::warn!("tray: {method} on {key} failed: {error}");
     }
@@ -688,7 +654,7 @@ fn invoke_item_method(
 /// `FetchMenu` handler: look up the item's dbusmenu path, call `GetLayout`,
 /// parse the reply, and stash the [`MenuState`] in `Shared`. Replaces any
 /// menu already open.
-fn fetch_menu_command(conn: &zbus::blocking::Connection, shared: &Arc<Mutex<Shared>>, key: &str) {
+fn fetch_menu_command(conn: &Connection, shared: &Arc<Mutex<Shared>>, key: &str) {
     let target = shared
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -721,12 +687,7 @@ fn fetch_menu_command(conn: &zbus::blocking::Connection, shared: &Arc<Mutex<Shar
 /// `MenuEvent` handler: send `Event(id, "clicked", u32 variant, timestamp)`
 /// on the item's dbusmenu proxy. The spec leaves `data` unused for `clicked`;
 /// a zero `u32` variant matches what most toolkits send.
-fn menu_event_command(
-    conn: &zbus::blocking::Connection,
-    shared: &Arc<Mutex<Shared>>,
-    key: &str,
-    id: i32,
-) {
+fn menu_event_command(conn: &Connection, shared: &Arc<Mutex<Shared>>, key: &str, id: i32) {
     let target = shared
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -743,18 +704,20 @@ fn menu_event_command(
     let Some((destination, Some(menu_path))) = target else {
         return;
     };
-    let data = Value::U32(0);
+    let data = Variant::U32(0);
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as u32)
         .unwrap_or(0);
-    let result = zbus::blocking::Proxy::new(
+    let result = proxy(
         conn,
         destination.as_str(),
         menu_path.as_str(),
         DBUSMENU_IFACE,
     )
-    .and_then(|proxy| proxy.call::<_, _, ()>("Event", &(id, "clicked", &data, timestamp)));
+    .and_then(|proxy| {
+        zbus::block_on(proxy.call::<_, _, ()>("Event", &(id, "clicked", &data, timestamp)))
+    });
     if let Err(error) = result {
         log::warn!("tray: Event(clicked) on {key}:{id} failed: {error}");
     }
@@ -781,19 +744,18 @@ fn close_menu_command(shared: &Arc<Mutex<Shared>>, key: &str) {
 /// Returns the parsed root and revision, or `None` on any D-Bus or parse
 /// failure (the caller falls back to the legacy `ContextMenu` behavior).
 fn fetch_menu_layout(
-    conn: &zbus::blocking::Connection,
+    conn: &Connection,
     destination: &str,
     menu_path: &str,
 ) -> Option<(super::MenuNode, u32)> {
-    let proxy = zbus::blocking::Proxy::new(conn, destination, menu_path, DBUSMENU_IFACE).ok()?;
+    let proxy = proxy(conn, destination, menu_path, DBUSMENU_IFACE).ok()?;
     // `AboutToShow(0)` is the spec-recommended refresh hint before reading
     // the layout; the return signals whether the layout changed since the
     // last call. We ignore it (a redundant `GetLayout` is cheap).
-    let _ = proxy.call::<_, _, bool>("AboutToShow", &0_i32);
+    let _ = zbus::block_on(proxy.call::<_, _, bool>("AboutToShow", &0_i32));
     let property_names: Vec<&str> = super::MENU_PROPERTY_NAMES.to_vec();
-    let reply: LayoutReply = proxy
-        .call("GetLayout", &(0_i32, -1_i32, &property_names))
-        .ok()?;
+    let reply: LayoutReply =
+        zbus::block_on(proxy.call("GetLayout", &(0_i32, -1_i32, &property_names))).ok()?;
     let (root, revision) = parse_layout_reply(reply)?;
     Some((root, revision))
 }

@@ -1,4 +1,3 @@
-use crate::wireless::WirelessBackend as _;
 use crate::*;
 use tessera_authority::authority::{ActorBinding, ObservationLeaseRegistry as ObservationRegistry};
 use tessera_protocol::CommandScopePolicy as _;
@@ -326,7 +325,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // control center reads it with command access.
     #[cfg(feature = "chrome-control-center")]
     let tray = tessera_shell::tray::spawn();
-    // Transient system readings (battery, volume, wireless). A reading is not a
+    // Transient system readings (battery, volume, network). A reading is not a
     // notification: it acknowledges a change the user just made or should
     // notice, lives for a couple of seconds, and takes no input. Notifications
     // stay in the toast strip; anything worth keeping belongs to the command
@@ -554,12 +553,13 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // One normalized status snapshot feeds compositor chrome and IPC. Host
     // probes run on a helper thread so the compositor never blocks a frame;
     // the main loop applies the latest snapshot it finds on the channel,
-    // combined with real-time events from the wireless subsystem (ADR-0162).
+    // combined with real-time events from the network service (ADR-0242).
     //
     // The poll is split into two cadences. The cheap poll reads only `/sys`
     // (battery, brightness, charging, network link) every few seconds to keep
     // the HUD fresh. Audio probes (`wpctl get-volume`) run on a longer interval
-    // or on user action, while Wi-Fi radio and AP states stream from `crate::wireless`.
+    // or on user action, while Wi-Fi radio and AP states stream from
+    // `crate::network`.
     const SYSTEM_STATUS_INTERVAL: std::time::Duration = std::time::Duration::from_secs(3);
     const FORKED_STATUS_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
     let host_system: std::sync::Arc<dyn crate::host_system::HostSystem> = if is_preview {
@@ -568,16 +568,22 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         std::sync::Arc::new(crate::host_system::LiveHostSystem::new())
     };
-    let wireless = if is_preview {
-        log::info!("wireless subsystem: running preview session; using mock backend");
-        let mock = crate::wireless::MockWirelessBackend::new();
-        let _ = mock.connect("Home-WiFi-5G", None);
-        crate::wireless::WirelessHandle::spawn_with_backend(mock)
+    let network_config = config
+        .as_ref()
+        .map(|config| config.network.clone())
+        .unwrap_or_default();
+    let network = if is_preview {
+        log::info!("network service: running preview session; using mock backend");
+        crate::network::NetworkHandle::spawn_auto(crate::network::NetworkServiceOptions {
+            backend: crate::network::NetworkServiceBackend::Mock,
+        })
     } else {
-        crate::wireless::WirelessHandle::spawn_auto()
+        crate::network::NetworkHandle::spawn_auto(crate::network::NetworkServiceOptions {
+            backend: crate::network::NetworkServiceBackend::Config(network_config.backend),
+        })
     };
     let mut system_status = host_system.detect_status();
-    system_status.wifi_networks = wireless.snapshot().networks;
+    apply_network_snapshot(&mut system_status, &network.snapshot());
     let bluetooth = if is_preview {
         log::info!("bluetooth subsystem: running preview session; using mock backend");
         let mock = crate::bluetooth::MockBluetoothBackend::new();
@@ -1191,7 +1197,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         keyboard_capture,
         keymap,
         system_status,
-        wireless,
+        network,
         bluetooth,
         casting,
         status_rx,

@@ -29,6 +29,7 @@ name = "debug_avatar"
 required-features = ["persona"]
 
 [dependencies]
+futures-util.workspace = true
 tessera-launch-services = { workspace = true, optional = true }
 tessera-assets = { workspace = true, optional = true }
 zbus = { workspace = true, optional = true }

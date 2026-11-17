@@ -8,6 +8,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+futures-util.workspace = true
 tessera-desktop.workspace = true
 tessera-ipc.workspace = true
 tessera-protocol.workspace = true

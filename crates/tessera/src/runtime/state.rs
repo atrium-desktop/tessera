@@ -187,7 +187,7 @@ pub(super) struct CompositorRuntime<'engine> {
     pub(super) keyboard_capture: tessera_primitives::input::KeyboardCaptureState,
     pub(super) keymap: tessera_desktop::keybind::Keymap,
     pub(super) system_status: tessera_shell::component::SystemStatus,
-    pub(super) wireless: crate::wireless::WirelessHandle,
+    pub(super) network: crate::network::NetworkHandle,
     pub(super) bluetooth: crate::bluetooth::BluetoothHandle,
     pub(super) casting: crate::casting::CastHandle,
     pub(super) status_rx: std::sync::mpsc::Receiver<tessera_shell::component::SystemStatus>,

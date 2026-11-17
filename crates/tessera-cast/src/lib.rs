@@ -51,5 +51,6 @@ pub mod observe;
 pub mod probe;
 pub mod radio;
 pub mod session;
+pub mod signals;
 pub mod sink;
 pub mod wfd;

@@ -46,25 +46,39 @@ pub fn probe() -> CastReport {
 }
 
 fn probe_radio() -> RadioReport {
+    let networkmanager_p2p = observe_networkmanager_p2p();
+    // `system_connection` refuses to D-Bus-activate iwd, so a stopped iwd is
+    // reported as absent instead of being started by a read-only probe.
     let connection = match iwd::system_connection() {
         Ok(connection) => connection,
         Err(error) => {
-            let reason = error.to_string();
             return RadioReport {
-                wfd_registration: Verdict::Unverified(reason.clone()),
-                p2p_device: Verdict::Unverified(reason),
+                wfd_registration: verdict_from_error(error.clone()),
+                p2p_device: verdict_from_error(error),
+                networkmanager_p2p,
             };
         }
     };
     RadioReport {
         wfd_registration: observe_wfd_registration(&connection),
         p2p_device: observe_p2p_device(&connection),
+        networkmanager_p2p,
+    }
+}
+
+/// Whether NetworkManager has a ready `wifi-p2p` device. Read-only: it lists
+/// devices and reads their state; it never starts a find.
+fn observe_networkmanager_p2p() -> Verdict<()> {
+    match crate::radio::networkmanager::observe_p2p_device() {
+        Ok(true) => Verdict::Observed(()),
+        Ok(false) => Verdict::Absent,
+        Err(error) => verdict_from_error(error),
     }
 }
 
 /// Whether iwd offers `RegisterDisplayService`. Its presence is what makes iwd a
 /// usable *radio* for a caster.
-fn observe_wfd_registration(connection: &zbus::blocking::Connection) -> Verdict<()> {
+fn observe_wfd_registration(connection: &zbus::Connection) -> Verdict<()> {
     match iwd::has_interface(connection, iwd::IWD_ROOT, P2P_SERVICE_MANAGER) {
         Ok(true) => Verdict::Observed(()),
         Ok(false) => Verdict::Absent,
@@ -74,7 +88,7 @@ fn observe_wfd_registration(connection: &zbus::blocking::Connection) -> Verdict<
 
 /// Read the first adapter's P2P device facts. iwd exposes one `p2p.Device` per
 /// adapter; a caster needs one it can use.
-fn observe_p2p_device(connection: &zbus::blocking::Connection) -> Verdict<P2pDeviceFacts> {
+fn observe_p2p_device(connection: &zbus::Connection) -> Verdict<P2pDeviceFacts> {
     let adapter = match iwd::first_adapter(connection) {
         Ok(adapter) => adapter,
         Err(error) => return verdict_from_error(error),
@@ -149,18 +163,18 @@ fn observe_pipewire() -> Verdict<()> {
 /// Whether the session bus offers the desktop portal, which is how the caster
 /// obtains a virtual source without a compositor scope.
 fn observe_screencast_portal() -> Verdict<()> {
-    let session = match zbus::blocking::Connection::session() {
+    let session = match zbus::block_on(zbus::Connection::session()) {
         Ok(connection) => connection,
         Err(error) => return Verdict::Unverified(format!("session bus unavailable: {error}")),
     };
     // Asking the bus rather than activating the portal keeps the probe inert.
-    let reply = match session.call_method(
+    let reply = match zbus::block_on(session.call_method(
         Some("org.freedesktop.DBus"),
         "/org/freedesktop/DBus",
         Some("org.freedesktop.DBus"),
         "NameHasOwner",
         &("org.freedesktop.portal.Desktop",),
-    ) {
+    )) {
         Ok(reply) => reply,
         Err(error) => return Verdict::Unverified(format!("session bus query failed: {error}")),
     };

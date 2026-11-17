@@ -112,6 +112,7 @@ inside the package build root.
 | `target/release/tessera-lock` | `/usr/bin/tessera-lock` | core |
 | `target/release/tessera-settings` | `/usr/bin/tessera-settings` | core |
 | `target/release/tessera-mcp` | `/usr/bin/tessera-mcp` | agent integration |
+| `target/release/tessera-networkd` | `/usr/bin/tessera-networkd` | core |
 | `system/bin/tessera-session` | `/usr/bin/tessera-session` | core |
 | `system/lib/systemd/user/tessera.service` | `/usr/lib/systemd/user/tessera.service` | core |
 | `system/lib/systemd/user/tessera-shutdown.target` | `/usr/lib/systemd/user/tessera-shutdown.target` | core |
@@ -125,6 +126,11 @@ inside the package build root.
 under `system/bin/` are executable (`0755`); every other file is `0644`.
 `cargo run -p xtask -- check-system-files` keeps this table, the tree, and every
 `system/` path quoted in the documentation in agreement.
+
+`tessera-networkd` is the out-of-process station-network service (ADR-0242).
+It must be installed beside `tessera`: the compositor locates it as a trusted
+sibling and supervises it. Without it, the Control Center reports the network
+service as unavailable rather than fabricating state (ADR-0190).
 
 The Portal package installs from the
 [xdg-desktop-portal-atrium repository](https://github.com/aegis-shell/xdg-desktop-portal-atrium);
@@ -165,6 +171,8 @@ install -Dm0755 target/release/tessera-lock \
   "$package_root/usr/bin/tessera-lock"
 install -Dm0755 target/release/tessera-mcp \
   "$package_root/usr/bin/tessera-mcp"
+install -Dm0755 target/release/tessera-networkd \
+  "$package_root/usr/bin/tessera-networkd"
 ```
 
 Stage the portal executable and all portal-owned data files from the separate
@@ -344,6 +352,7 @@ package() {
   install -Dm0755 target/release/tessera-lock     "$dest/bin/tessera-lock"
   install -Dm0755 target/release/tessera-settings "$dest/bin/tessera-settings"
   install -Dm0755 target/release/tessera-mcp "$dest/bin/tessera-mcp"
+  install -Dm0755 target/release/tessera-networkd "$dest/bin/tessera-networkd"
 
   # system/ mirrors the installed tree; see the Install Manifest.
   install -Dm0755 system/bin/tessera-session "$dest/bin/tessera-session"

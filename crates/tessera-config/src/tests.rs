@@ -69,6 +69,39 @@ fn cast_defaults_and_validation() {
 }
 
 #[test]
+fn network_backend_defaults_to_auto_and_accepts_explicit_choices() {
+    use tessera_network::BackendChoice;
+
+    let defaults = Config::parse("schema_version = 2\n").unwrap();
+    assert_eq!(defaults.network, NetworkConfig::default());
+    assert_eq!(defaults.network.backend, BackendChoice::Auto);
+
+    for (text, expected) in [
+        ("auto", BackendChoice::Auto),
+        ("networkmanager", BackendChoice::NetworkManager),
+        ("iwd", BackendChoice::Iwd),
+    ] {
+        let config = Config::parse(&format!(
+            "schema_version = 2\n[network]\nbackend = \"{text}\"\n"
+        ))
+        .unwrap();
+        assert_eq!(config.network.backend, expected);
+    }
+
+    for body in [
+        "backend = \"mock\"",
+        "backend = \"NetworkManager\"",
+        "backend = \"network-manager\"",
+        "bogus = true",
+    ] {
+        assert!(
+            Config::parse(&format!("schema_version = 2\n[network]\n{body}\n")).is_err(),
+            "invalid network policy was accepted: {body}"
+        );
+    }
+}
+
+#[test]
 fn compositor_realtime_defaults_and_validation() {
     let defaults = Config::parse("schema_version = 2\n").unwrap();
     // Realtime scheduling is on by default (graceful degradation when the

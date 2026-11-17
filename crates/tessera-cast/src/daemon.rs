@@ -26,7 +26,7 @@ use tessera_desktop::system::{
     CastSink, CastStatus,
 };
 
-use crate::session::{self, MediaSource, SessionEvent, SessionOptions};
+use crate::session::{self, MediaSource, Radio, SessionEvent, SessionOptions};
 
 /// Bumped whenever [`Request`] or [`Event`] changes shape.
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -156,10 +156,16 @@ struct DaemonState {
     next_session: u64,
 }
 
-/// Run the service until the socket is closed or a client sends `Shutdown`.
+/// Run the service until the socket is closed, a client sends `Shutdown`, or
+/// the process receives SIGINT/SIGTERM.
 pub fn run(options: DaemonOptions) -> Result<(), String> {
+    let shutdown = crate::signals::install()
+        .map_err(|error| format!("could not install signal handlers: {error}"))?;
     let listener = bind_socket(&options.socket)
         .map_err(|error| format!("could not bind {}: {error}", options.socket.display()))?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|error| format!("could not configure {}: {error}", options.socket.display()))?;
 
     let mut status = CastStatus {
         service: CastServiceState::Available,
@@ -191,8 +197,22 @@ pub fn run(options: DaemonOptions) -> Result<(), String> {
     }));
     let options = Arc::new(options);
 
-    for connection in listener.incoming() {
-        let Ok(stream) = connection else {
+    for connection in std::iter::from_fn(|| {
+        loop {
+            if shutdown.load(Ordering::Relaxed) {
+                return None;
+            }
+            match listener.accept() {
+                Ok(connection) => return Some(Ok(connection)),
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(50));
+                }
+                Err(error) => return Some(Err(error)),
+            }
+        }
+    }) {
+        let Ok((stream, _)) = connection else {
+            thread::sleep(Duration::from_millis(50));
             continue;
         };
         // The socket is mode 0600 inside the user's XDG_RUNTIME_DIR (0700), so
@@ -201,12 +221,44 @@ pub fn run(options: DaemonOptions) -> Result<(), String> {
         // nothing the user could not do by running the CLI directly.
         let state = state.clone();
         let options = options.clone();
-        thread::spawn(move || handle_client(stream, state, options));
+        let shutdown = shutdown.clone();
+        thread::spawn(move || handle_client(stream, state, options, shutdown));
     }
+
+    // Stop the workers before returning: an active session must unwind through
+    // its group guard, or the sink keeps a P2P group after the service exits.
+    stop_discovery(&state);
+    if let Some(handle) = state
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .session
+        .as_ref()
+    {
+        handle.stop.store(true, Ordering::Relaxed);
+    }
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    while state
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .session
+        .is_some()
+    {
+        if std::time::Instant::now() >= deadline {
+            log::warn!("cast service: session did not stop within 60s; exiting anyway");
+            break;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    let _ = std::fs::remove_file(&options.socket);
     Ok(())
 }
 
-fn handle_client(stream: UnixStream, state: Arc<Mutex<DaemonState>>, options: Arc<DaemonOptions>) {
+fn handle_client(
+    stream: UnixStream,
+    state: Arc<Mutex<DaemonState>>,
+    options: Arc<DaemonOptions>,
+    shutdown: Arc<AtomicBool>,
+) {
     let Ok(mut writer) = stream.try_clone() else {
         return;
     };
@@ -260,6 +312,7 @@ fn handle_client(stream: UnixStream, state: Arc<Mutex<DaemonState>>, options: Ar
             }
             Request::Disconnect { session } => disconnect(&state, session),
             Request::Shutdown => {
+                shutdown.store(true, Ordering::Relaxed);
                 stop_discovery(&state);
                 if let Some(handle) = state
                     .lock()
@@ -269,10 +322,9 @@ fn handle_client(stream: UnixStream, state: Arc<Mutex<DaemonState>>, options: Ar
                 {
                     handle.stop.store(true, Ordering::Relaxed);
                 }
-                // The accept loop is blocked in `incoming()`; terminating here
-                // is the explicit service stop, and the supervisor restarts us
-                // only if the session still wants a service.
-                std::process::exit(0);
+                // The accept loop observes the flag and performs the graceful
+                // teardown, including waiting for the session's group guard.
+                break;
             }
         }
     }
@@ -354,8 +406,8 @@ fn stop_discovery(state: &Arc<Mutex<DaemonState>>) {
 }
 
 fn discover_sinks(control_port: u16, settle: Duration) -> Result<Vec<CastSink>, String> {
-    let radio = crate::radio::iwd::IwdRadio::open().map_err(|error| error.to_string())?;
-    let report = crate::discover::discover(&radio, control_port, settle)
+    let radio = crate::radio::open_system().map_err(|error| error.to_string())?;
+    let report = crate::discover::discover(radio.as_ref(), control_port, settle)
         .map_err(|error| error.to_string())?;
     Ok(report
         .peers
@@ -459,6 +511,7 @@ fn connect(
         bind: "0.0.0.0".to_owned(),
         control_port: options.control_port,
         peer: Some(sink.id),
+        radio: Radio::System,
         settle: options.settle,
         video_formats: options.video_formats.clone(),
         rtp_port: options.rtp_port,
@@ -475,6 +528,8 @@ fn connect(
         audio_source: options.audio_source,
         audio_bitrate_kbps: options.audio_bitrate_kbps,
         stop: Some(stop),
+        group_attempts: session::DEFAULT_GROUP_ATTEMPTS,
+        group_retry_delay: session::DEFAULT_GROUP_RETRY_DELAY,
     };
     let state = state.clone();
     thread::spawn(move || {
@@ -520,7 +575,9 @@ fn connect(
                     SessionEvent::MediaFallback(error) => {
                         guard.status.last_error = Some(error);
                     }
-                    SessionEvent::MediaEndpoint { .. } => {}
+                    SessionEvent::MediaEndpoint { .. }
+                    | SessionEvent::RadioAuthority(_)
+                    | SessionEvent::GroupFormed(_) => {}
                     SessionEvent::Trace(_) => {}
                 }
             }

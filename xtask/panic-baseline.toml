@@ -3,7 +3,7 @@
 # Poisonable-lock panics are a hard zero and are not listed here.
 
 [counts]
-tessera = 31
+tessera = 30
 tessera-assets = 0
 tessera-audit = 5
 tessera-authority = 11
@@ -21,6 +21,8 @@ tessera-ipc = 15
 tessera-launch-services = 0
 tessera-lock = 4
 tessera-mcp = 6
+tessera-network = 0
+tessera-network-system = 0
 tessera-platform = 8
 tessera-primitives = 0
 tessera-protocol = 11

@@ -18,4 +18,6 @@ mod launch_services;
 mod mcp_bridge;
 
 #[cfg(feature = "native")]
+mod cast;
+#[cfg(feature = "native")]
 mod composite_overlay;

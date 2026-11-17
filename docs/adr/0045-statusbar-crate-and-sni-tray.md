@@ -85,10 +85,11 @@ registry or a config flag in `ass` covers it without an ABI").
 
 The compositor becomes the session's StatusNotifierWatcher and Host.
 The D-Bus work lives in `aegis-statusbar::tray` on two dedicated
-`std::thread`s using `zbus` v5 with `default-features = false` and the
-`async-io` + `blocking-api` features — pure Rust, no libdbus system
-dependency, no tokio/async-std in the dependency graph (verified with
-`cargo tree`). The threading model mirrors the existing notification
+`std::thread`s using `zbus` (v5 originally; v6 since 2026-11-17) with
+`default-features = false` and the `default-rt` + `proxy` + `service`
+features — pure Rust, no libdbus system dependency, no tokio/async-std in
+the dependency graph (verified with `cargo tree`). Synchronous workers drive
+the async API through `zbus::block_on`; no runtime is owned by the caller. The threading model mirrors the existing notification
 queue and status poller: state crosses the thread boundary only as
 plain values through `Arc<Mutex<_>>`; the render thread reads a
 `TraySnapshot` once per frame and sends `TrayCommand`s back over a
@@ -161,9 +162,9 @@ This is the workspace's first D-Bus dependency and the first chrome
 component that runs background threads. The implementation deliberately
 preserves the project's existing discipline:
 
-- No async runtime. zbus's blocking API runs on `std::thread`s; no
-  `tokio` / `async-std` / `smol` / `calloop` enters the dependency
-  graph.
+- No caller-owned async runtime. `zbus::block_on` drives the connection on
+  the same `std::thread`s; no `tokio` / `async-std` / `smol` / `calloop`
+  enters the caller's dependency graph as a runtime choice.
 - The render thread never blocks on D-Bus. It reads `TraySnapshot`
   under a brief lock, uploads icons synchronously into the borrowed
   flux device (the same thread that created the device), and sends
@@ -183,9 +184,9 @@ preserves the project's existing discipline:
 - **Async runtime (`tokio` or `smol`) for the D-Bus work.** Rejected:
   the project has been synchronous since inception by design
   (`libc::poll` over backend fds in the main loop, `std::thread` for
-  workers). zbus v5's blocking API on its internal `async-io` executor
-  fits the worker-thread pattern without introducing a runtime the
-  rest of the project would have to reason about.
+  workers). zbus's `block_on` adapter over its internal zruntime fits the
+  worker-thread pattern without introducing a runtime the rest of the
+  project would have to reason about.
 - **`dbus` (libdbus) bindings instead of `zbus`.** Rejected: libdbus
   is a C system dependency the project would have to declare on every
   target; `zbus` is pure Rust and adds no system-package requirement.
@@ -220,7 +221,7 @@ preserves the project's existing discipline:
   pattern is a flat `enabled: bool` on a per-component config struct
   consumed by the composition root — no dynamic plugin registry.
 - The workspace gains its first `zbus` dependency. `cargo tree` for
-  `aegis-statusbar` shows `zbus` and `async-io` (zbus's internal
+  `aegis-statusbar` shows `zbus` and `zruntime` (zbus's internal
   executor); no other crate is affected because no other crate depends
   on `aegis-statusbar`.
 - The bar owns SNI textures and a borrowed flux device reference; the

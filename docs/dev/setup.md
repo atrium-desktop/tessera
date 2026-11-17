@@ -6,7 +6,7 @@ How to build and run tessera for development.
 
 | Requirement | Notes |
 |-------------|-------|
-| Rust toolchain | `rustc` and `cargo`, edition 2024 (1.88+) |
+| Rust toolchain | `rustc` and `cargo`, edition 2024 (1.89+) |
 | Optics `<OPTICS_VERSION>` | Use a sibling checkout for cross-repository development or installed native libraries for the canonical build |
 | meson and a C23 compiler | To build the optics libraries |
 | Slang compiler | `slangc` 2026.17+ (CI pins 2026.21; recent Vulkan SDKs bundle it) compiles Optics shaders |

@@ -8,6 +8,8 @@ default-members = [
     "crates/tessera-lock",
     "crates/tessera-idle",
     "crates/tessera-cast",
+    "crates/tessera-network",
+    "crates/tessera-network-system",
     "crates/tessera-settings",
     "tests",
 ]
@@ -18,7 +20,7 @@ edition = "2024"
 # Workspace crates contain MIT-licensed source, including the bundled cursor
 # art under assets/cursors (original, generated in-tree).
 license = "MIT"
-rust-version = "1.88"
+rust-version = "1.89"
 repository = "https://github.com/atrium-desktop/tessera"
 
 [workspace.dependencies]
@@ -87,13 +89,25 @@ sha2 = "0.10"
 
 # Session D-Bus for the StatusNotifierItem system tray (internal to tessera-shell,
 # shared by HUD and control-center).
-# Pure-Rust zbus (no libdbus system dep) with the blocking API so the tray
-# worker stays a plain `std::thread`; `async-io` is zbus's smol-based
-# internal executor — tokio stays out of the dependency graph.
-zbus = { version = "5", default-features = false, features = [
-    "async-io",
-    "blocking-api",
+# Pure-Rust zbus (no libdbus system dep). zbus 6 folded the zvariant derive
+# macros into the main crate and removed the blocking module; synchronous
+# workers drive the async API through `zbus::block_on` and stay plain
+# `std::thread`s. `default-rt` keeps zbus's built-in zruntime, and
+# `proxy`/`service` cover the D-Bus client and object-server surfaces.
+zbus = { version = "6", default-features = false, features = [
+    "default-rt",
+    "proxy",
+    "service",
 ] }
+
+# zbus 6 exposes signal subscriptions as async `MessageStream`s. Synchronous
+# workers drive them through `zbus::block_on`; `StreamExt` is the minimal
+# stream adapter used by those threads.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+
+# SIGINT/SIGTERM handling for the caster so a session's `Drop` guard can leave
+# a P2P group instead of exiting between destructors.
+signal-hook = "0.3"
 
 # Typed errors without handwritten Display/From impls.
 thiserror = "2"
@@ -144,6 +158,12 @@ tessera-idle = { path = "crates/tessera-idle" }
 # It is a ScreenCast portal client and holds no compositor scope; the
 # compositor never links it.
 tessera-cast = { path = "crates/tessera-cast" }
+# Backend-neutral network vocabulary and the compositor <-> network service
+# protocol (ADR-0242). Pure: no zbus, no system daemon access.
+tessera-network = { path = "crates/tessera-network" }
+# The network service: NetworkManager and iwd backends plus `tessera-networkd`.
+# The compositor never links this package.
+tessera-network-system = { path = "crates/tessera-network-system" }
 # Configuration: versioned TOML schema, loader, and live reload (ADR-0026).
 tessera-config = { path = "crates/tessera-config" }
 # Domain-oriented native command implementation used by the `tessera` binary.

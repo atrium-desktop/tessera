@@ -39,7 +39,7 @@ Every claim needs the right evidence:
 | P2P | TV is GO `192.168.49.1`; source is a client `192.168.49.x` |
 | Sink quirk | exits Screen Mirroring after a failed/ended session; re-enable before every test |
 | Sink audio sanity | phone → TV casting **does** play audio |
-| Host Wi-Fi | iwd, no NetworkManager/wpa_supplicant; `iw` is installed and used for the concurrency check |
+| Host Wi-Fi | iwd, no NetworkManager/wpa_supplicant; `iw` is installed and used for the concurrency check. Station networking may be NetworkManager with its **iwd backend** (ADR-0242); NetworkManager with wpa_supplicant has no iwd P2P path |
 
 The reference TV's phone-cast audio is the control experiment that proved the
 sink's audio path itself is functional. Without that, every source-side audio
@@ -73,6 +73,10 @@ experiment is uninterpretable.
 | L-022 | The Control Center must not fabricate state |
 | L-023 | Shell quoting creates fake protocol failures |
 | L-024 | Low frame rate: measure the layer before tuning |
+| L-025 | A read-only probe started iwd |
+| L-026 | The WFD Device Information bits were misread |
+| L-027 | A system-wide P2P profile is refused |
+| L-028 | Failure paths leaked the P2P group |
 
 ## Case files
 
@@ -379,6 +383,56 @@ experiment is uninterpretable.
   tune the caster's `fps` while the source is still on a 10 fps diagnostic, and
   do not blame the TV before the phone baseline.
 
+### L-025 — A read-only probe started iwd
+
+- **Symptom:** on a NetworkManager + wpa_supplicant host, `tessera-cast probe`
+  left `iwd.service` running; iwd then auto-connected `wlan0` to saved networks
+  against wpa_supplicant (`SCAN-FAILED ret=-16`, `SME: Authentication request to
+  the driver failed`, ~10 station drops in 15 min) and P2P group formation
+  never authenticated.
+- **Root cause:** iwd ships a D-Bus activation file; the first method call to
+  `net.connman.iwd` starts it.
+- **Fix:** `iwd::system_connection` asks `NameHasOwner` first and reports
+  `ServiceUnavailable` when iwd is not already running.
+- **Recovery:** `sudo systemctl stop iwd` (it was never enabled).
+- **Guardrail:** no diagnostic may call a D-Bus-activatable name it has not
+  confirmed is running.
+
+### L-026 — The WFD Device Information bits were misread
+
+- **Symptom:** none on iwd (iwd decodes peer IEs itself); on NetworkManager the
+  raw `WfdIEs` of the reference TV would have been rejected.
+- **Root cause:** `wfd::ie` read subelement lengths little-endian and the device
+  role from bits 1–2 of the first octet. The field is a big-endian 16-bit
+  bitmap: role in bits 1:0 (`00` source, `01` primary sink, `11` dual-role),
+  session availability in bits 5:4.
+- **Evidence:** the TV advertises `00 0006 0011 1c44 0032` — primary sink,
+  available, port 7236, 50 Mbit/s. Kept as a test fixture.
+
+### L-027 — A system-wide P2P profile is refused
+
+- **Symptom:** `AddAndActivateConnection2: Settings.PermissionDenied:
+  Insufficient privileges`, retried three times with advice to toggle the TV.
+- **Root cause:** a profile without `connection.permissions` needs
+  `settings.modify.system` (an admin prompt). `USER`/`LOGNAME` can be empty in a
+  service environment, so the owner must come from the real uid.
+- **Fix:** a volatile, user-owned profile (`settings.modify.own`); the owner is
+  resolved from `/proc/self/status` + `/etc/passwd`. `NotAuthorized` is never
+  retried and never blamed on the sink.
+
+### L-028 — Failure paths leaked the P2P group
+
+- **Symptom:** after a failed cast the sink's group could stay up.
+- **Root cause:** each failure branch called `disconnect_peer` by hand; `?`
+  returns after group formation (sink address, media socket, TS file) did not.
+- **Fix:** a guard tears down a group the session formed on every exit path,
+  and leaves a pre-existing group alone. `session::tests` covers each path.
+- **Signals:** `SIGINT`/`SIGTERM` now set the session stop flag (signal-hook)
+  for both the CLI and `tessera-castd`; the session unwinds through the guard
+  instead of terminating between destructors.
+  `tests/e2e/cast_networkmanager.rs::sigterm_after_group_formation_leaves_the_group`
+  verifies the group is deactivated after the signal.
+
 ## Diagnostic playbook
 
 ### Local, no hardware
@@ -386,6 +440,13 @@ experiment is uninterpretable.
 ```bash
 # protocol and media unit tests
 cargo nextest run -p tessera-cast
+
+# NetworkManager radio, session, and two-process cast against a fake
+# NetworkManager on a private bus (needs dbus-daemon; no radio, no TV)
+cargo nextest run -p tessera-tests -E 'test(cast)'
+
+# SIGTERM after group formation must deactivate the group
+cargo nextest run -p tessera-tests -E 'test(sigterm_after_group_formation)'
 
 # real source ↔ scripted sink over a socketpair/loopback
 # (the test suite does this; for a manual run use two shells)
@@ -426,6 +487,13 @@ settled.
 ### Live hardware
 
 ```bash
+# Real NetworkManager station snapshot/scan and P2P discovery. These are
+# ignored by default because they need a running service and radio.
+cargo nextest run -p tessera-network-system --run-ignored only \
+  -E 'test(live_)' --no-capture
+cargo nextest run -p tessera-tests --run-ignored only \
+  -E 'test(live_)' --no-capture
+
 # The TV must be in Screen Mirroring; it exits after each session.
 ./target/debug/tessera-cast doctor
 ./target/debug/tessera-cast cast --peer 创维 --opening source \

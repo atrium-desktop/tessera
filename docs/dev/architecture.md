@@ -102,14 +102,19 @@ The `tessera-wayland-protocols` package is a generated C ABI table owned by the
 ### 2.7 Subsystem Modules Inside the Composition Root
 - **Red-Line**: A host-service bridge that (a) links no client library, (b) ships
   no binary, and (c) reaches its service only through short-lived CLI probes is a
-  **module** of the composition root, not a package — `wireless` (ADR-0162),
-  `bluetooth` (ADR-0175), and `audio` (ADR-0216). Each owns a backend trait, one
-  live adapter, one parse seam testable against captured documents, and one
-  contract-faithful mock. Grouping them into a shared "peripheral" package would
-  bundle a frame-path input library, a D-Bus session, and a daemon-owned audio
-  graph behind one manifest.
-- **Enforcement**: `check-boundaries` finds no package for these subsystems, and
-  the composition root's dependency set is unchanged by them
+  **module** of the composition root, not a package — `bluetooth` (ADR-0175) and
+  `audio` (ADR-0216). Each owns a backend trait, one live adapter, one parse seam
+  testable against captured documents, and one contract-faithful mock. Grouping
+  them into a shared "peripheral" package would bundle a frame-path input
+  library, a D-Bus session, and a daemon-owned audio graph behind one manifest.
+- **The network service is the counterexample**: it owns a system D-Bus
+  connection and ships the `tessera-networkd` process, so it is a package pair —
+  `tessera-network` (pure contract and protocol) and
+  `tessera-network-system` (backends and service). The compositor links only the
+  former. See [ADR-0242](../adr/0242-networkmanager-owns-station-networking-behind-a-neutral-service.md).
+- **Enforcement**: `check-boundaries` finds no package for the module
+  subsystems, keeps the compositor's dependency set unchanged by them, and
+  refuses a `tessera -> tessera-network-system` edge
   ([ADR-0159](../adr/0159-package-boundaries-follow-capabilities.md),
   [ADR-0216](../adr/0216-audio-subsystem-owns-both-directions-and-capture-is-a-privacy-reading.md)).
 

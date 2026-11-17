@@ -9,7 +9,7 @@ session.
 
 Install:
 
-- Rust 1.88 or later;
+- Rust 1.89 or later;
 - Meson, Ninja, `pkg-config`, a C23 compiler, libclang, and `slangc` (Slang
   2026.17+; recent Vulkan SDKs bundle it);
 - Vulkan, Wayland, xkbcommon, libinput, and libseat development files; and
@@ -39,12 +39,18 @@ the pre-1.0 bindings and SONAME reject a different native release.
 
 ## Start the Nested Compositor
 
-Build the two supervised session clients, then run:
+Build the supervised session clients and companion services, then run:
 
 ```bash
-cargo build --locked -p tessera-idle -p tessera-lock
+cargo build --locked -p tessera-idle -p tessera-lock \
+  -p tessera-network-system -p tessera-cast
 cargo run --locked --profile release-fast -p tessera
 ```
+
+`tessera-network-system` provides `tessera-networkd`, and `tessera-cast`
+provides `tessera-castd`; the compositor supervises both as trusted siblings.
+Without them the corresponding Control Center pages report the service as
+unavailable rather than fabricating state.
 
 The compositor is a real-time program. The `release-fast` profile keeps full
 symbols but skips LTO, so it builds quickly enough for development while still

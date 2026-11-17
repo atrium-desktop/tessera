@@ -1,6 +1,6 @@
 //! The Control Center: a sheet anchored to the right edge of the output.
 //!
-//! Two cards make up the sheet (see [`layout`]):
+//! Two cards make up the sheet (see the `layout` module):
 //!
 //! - the **controls** card — the persona header with Settings, Lock, and Power
 //!   actions; connectivity and preference tiles; the sound, brightness,

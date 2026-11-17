@@ -28,6 +28,11 @@ case "$profile" in
     *) run_flags="--profile $profile" ;;
 esac
 
+# The compositor supervises companion binaries as trusted siblings. Cargo
+# does not build a dependency package's binaries for `cargo run -p tessera`,
+# so build the network and cast services explicitly.
+cargo build --locked $run_flags -p tessera-network-system -p tessera-cast
+
 printf '%s\n' \
     'run-nested-dev: the outer session composites this window; use ./scripts/run-drm-dev.sh on a spare VT to validate damage/pacing fixes.' >&2
 

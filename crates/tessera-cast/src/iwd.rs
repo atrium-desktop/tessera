@@ -11,7 +11,7 @@
 //! the reference TV. A `NotFound` from a method or interface that iwd has already
 //! removed is classified as `Unsupported`, not a protocol failure.
 
-use zbus::blocking::Connection;
+use zbus::{Connection, OwnedVariant, Variant};
 
 /// iwd's well-known system-bus name.
 pub const IWD_SERVICE: &str = "net.connman.iwd";
@@ -61,16 +61,56 @@ impl std::fmt::Display for IwdError {
             Self::InvalidArguments(what) => {
                 write!(formatter, "iwd rejected the argument shape: {what}")
             }
-            Self::Protocol(reason) => write!(formatter, "unexpected answer from iwd: {reason}"),
+            // The NetworkManager radio shares this vocabulary and names itself
+            // in `reason`, so the prefix stays authority-neutral.
+            Self::Protocol(reason) => write!(formatter, "unexpected answer: {reason}"),
         }
     }
 }
 
 impl std::error::Error for IwdError {}
 
-/// Open the system bus.
+pub(crate) fn blocking_call<B>(
+    connection: &Connection,
+    destination: Option<&str>,
+    path: &str,
+    interface: Option<&str>,
+    method: &str,
+    body: &B,
+) -> zbus::Result<zbus::Message>
+where
+    B: zbus::export::serde::ser::Serialize + zbus::DynamicType,
+{
+    zbus::block_on(connection.call_method(destination, path, interface, method, body))
+}
+
+/// Open the system bus for talking to an **already running** iwd.
+///
+/// iwd ships a D-Bus activation file on many distributions, so the first method
+/// call to `net.connman.iwd` *starts* it. On a NetworkManager + wpa_supplicant
+/// host that is a second Wi-Fi daemon contending for the adapter, started by
+/// what was supposed to be a read-only probe (observed on 2026-11-17). Asking
+/// the bus whether the name has an owner never activates anything, so a
+/// stopped iwd is reported as [`IwdError::ServiceUnavailable`] instead.
 pub fn system_connection() -> Result<Connection, IwdError> {
-    Connection::system().map_err(|error| IwdError::BusUnavailable(error.to_string()))
+    let connection = zbus::block_on(Connection::system())
+        .map_err(|error| IwdError::BusUnavailable(error.to_string()))?;
+    let running: bool = blocking_call(
+        &connection,
+        Some("org.freedesktop.DBus"),
+        "/org/freedesktop/DBus",
+        Some("org.freedesktop.DBus"),
+        "NameHasOwner",
+        &(IWD_SERVICE,),
+    )
+    .map_err(|error| IwdError::BusUnavailable(error.to_string()))?
+    .body()
+    .deserialize()
+    .map_err(|error| IwdError::Protocol(format!("NameHasOwner: {error}")))?;
+    if !running {
+        return Err(IwdError::ServiceUnavailable);
+    }
+    Ok(connection)
 }
 
 /// The numeric `/net/connman/iwd/<n>` adapter paths iwd exposes.
@@ -100,15 +140,15 @@ pub fn first_adapter(connection: &Connection) -> Result<String, IwdError> {
 
 /// Introspect one object path.
 pub fn introspect(connection: &Connection, path: &str) -> Result<String, IwdError> {
-    let reply = connection
-        .call_method(
-            Some(IWD_SERVICE),
-            path,
-            Some("org.freedesktop.DBus.Introspectable"),
-            "Introspect",
-            &(),
-        )
-        .map_err(|error| classify(error, "iwd"))?;
+    let reply = blocking_call(
+        connection,
+        Some(IWD_SERVICE),
+        path,
+        Some("org.freedesktop.DBus.Introspectable"),
+        "Introspect",
+        &(),
+    )
+    .map_err(|error| classify(error, "iwd"))?;
     reply
         .body()
         .deserialize::<String>()
@@ -131,24 +171,24 @@ pub fn property(
     path: &str,
     interface: &str,
     name: &str,
-) -> Result<zbus::zvariant::OwnedValue, IwdError> {
-    let reply = connection
-        .call_method(
-            Some(IWD_SERVICE),
-            path,
-            Some("org.freedesktop.DBus.Properties"),
-            "Get",
-            &(interface, name),
-        )
-        .map_err(|error| match classify(error, "property") {
-            // `Get` on a missing interface surfaces as an unknown-interface
-            // error; for the caller that means the capability is absent.
-            IwdError::Protocol(_) => IwdError::Unsupported(format!("{interface}.{name}")),
-            other => other,
-        })?;
+) -> Result<OwnedVariant, IwdError> {
+    let reply = blocking_call(
+        connection,
+        Some(IWD_SERVICE),
+        path,
+        Some("org.freedesktop.DBus.Properties"),
+        "Get",
+        &(interface, name),
+    )
+    .map_err(|error| match classify(error, "property") {
+        // `Get` on a missing interface surfaces as an unknown-interface
+        // error; for the caller that means the capability is absent.
+        IwdError::Protocol(_) => IwdError::Unsupported(format!("{interface}.{name}")),
+        other => other,
+    })?;
     reply
         .body()
-        .deserialize::<zbus::zvariant::OwnedValue>()
+        .deserialize::<OwnedVariant>()
         .map_err(|error| IwdError::Protocol(format!("{interface}.{name}: {error}")))
 }
 
@@ -160,7 +200,7 @@ pub fn bool_property(
     name: &str,
 ) -> Result<bool, IwdError> {
     match &*property(connection, path, interface, name)? {
-        zbus::zvariant::Value::Bool(value) => Ok(*value),
+        Variant::Bool(value) => Ok(*value),
         other => Err(IwdError::Protocol(format!(
             "{interface}.{name}: expected b, got {}",
             other.value_signature()
@@ -176,7 +216,7 @@ pub fn u16_property(
     name: &str,
 ) -> Result<u16, IwdError> {
     match &*property(connection, path, interface, name)? {
-        zbus::zvariant::Value::U16(value) => Ok(*value),
+        Variant::U16(value) => Ok(*value),
         other => Err(IwdError::Protocol(format!(
             "{interface}.{name}: expected q, got {}",
             other.value_signature()
@@ -192,7 +232,7 @@ pub fn string_property(
     name: &str,
 ) -> Result<String, IwdError> {
     match &*property(connection, path, interface, name)? {
-        zbus::zvariant::Value::Str(value) => Ok(value.to_string()),
+        Variant::Str(value) => Ok(value.to_string()),
         other => Err(IwdError::Protocol(format!(
             "{interface}.{name}: expected s, got {}",
             other.value_signature()
@@ -208,16 +248,16 @@ pub fn set_bool_property(
     name: &str,
     value: bool,
 ) -> Result<(), IwdError> {
-    connection
-        .call_method(
-            Some(IWD_SERVICE),
-            path,
-            Some("org.freedesktop.DBus.Properties"),
-            "Set",
-            &(interface, name, zbus::zvariant::Value::Bool(value)),
-        )
-        .map(|_| ())
-        .map_err(|error| classify(error, &format!("{interface}.{name}")))
+    blocking_call(
+        connection,
+        Some(IWD_SERVICE),
+        path,
+        Some("org.freedesktop.DBus.Properties"),
+        "Set",
+        &(interface, name, Variant::Bool(value)),
+    )
+    .map(|_| ())
+    .map_err(|error| classify(error, &format!("{interface}.{name}")))
 }
 
 /// Classify a zbus failure into the vocabulary callers can act on.

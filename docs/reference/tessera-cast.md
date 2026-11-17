@@ -38,8 +38,36 @@ one without the other:
 
 | Half | Provided by |
 |------|-------------|
-| Radio — a Wi-Fi Display P2P authority | the system's Wi-Fi authority; on the reference configuration **iwd**, with no NetworkManager and no `wpa_supplicant` |
+| Radio — a Wi-Fi Display P2P authority | the system's Wi-Fi authority: **iwd** (reference configuration) or **NetworkManager**'s `wifi-p2p` device |
 | Protocol — the WFD session (RTSP M1–M6 + SETUP/PLAY, MPEG2-TS over RTP, H.264) | this crate |
+
+Station networking and casting are separate roles (ADR-0242). The caster
+selects its P2P authority (`radio::open_system`) without touching the station:
+
+| Host | P2P authority |
+|------|---------------|
+| iwd only | iwd |
+| NetworkManager with its **iwd backend** | iwd (NetworkManager exposes no `wifi-p2p` device) |
+| NetworkManager with **wpa_supplicant** | NetworkManager's `wifi-p2p` device (`p2p-dev-wlan0`) |
+
+NetworkManager is chosen whenever it exposes a ready `wifi-p2p` device,
+because then wpa_supplicant owns the adapter and iwd cannot enable P2P. Neither
+the probe nor the selection **starts** a daemon: iwd and NetworkManager are
+contacted only when they already own their bus names. Both are
+D-Bus-activatable on many distributions, and an activated daemon can fight the
+running authority for the adapter.
+
+On NetworkManager, a group is a **volatile, user-owned** `wifi-p2p` profile
+(`connection.permissions = user:<login>`, so only `settings.modify.own` is
+needed), added with `AddAndActivateConnection2` and deleted when deactivated.
+The source's WFD IEs (role source, session available, control port) travel in
+`wifi-p2p.wfd-ies`. Hardware status: discovery verified against the reference
+TV on a NetworkManager + wpa_supplicant host; group formation and the session
+are covered by the fake-NetworkManager suites but not yet by a TV.
+
+Station connectivity is never treated as evidence that P2P is available. The
+CLI and `tessera-castd` turn `SIGINT`/`SIGTERM` into a graceful session stop, so
+a group formed for the session is deactivated instead of being left on the sink.
 
 ## Commands
 

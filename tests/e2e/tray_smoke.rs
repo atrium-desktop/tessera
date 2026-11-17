@@ -21,6 +21,7 @@ use tessera_shell::tray::{TrayCommand, TrayIcon};
 /// activation methods the watcher invoked.
 struct FakeItem {
     calls: Arc<Mutex<Vec<String>>>,
+    title: Arc<Mutex<String>>,
 }
 
 #[zbus::interface(name = "org.kde.StatusNotifierItem")]
@@ -57,8 +58,8 @@ impl FakeItem {
     }
 
     #[zbus(property)]
-    fn title(&self) -> &str {
-        "Fake Item"
+    fn title(&self) -> String {
+        self.title.lock().unwrap().clone()
     }
 
     #[zbus(property)]
@@ -78,8 +79,8 @@ impl FakeItem {
     }
 
     #[zbus(property)]
-    fn menu(&self) -> zbus::zvariant::ObjectPath<'static> {
-        zbus::zvariant::ObjectPath::from_static_str("/").unwrap()
+    fn menu(&self) -> zbus::ObjectPath<'static> {
+        zbus::ObjectPath::from_static_str("/").unwrap()
     }
 }
 
@@ -104,30 +105,27 @@ fn watcher_registers_item_and_delivers_activate() {
 
     // Client connection serving the fake item at its default path.
     let calls = Arc::new(Mutex::new(Vec::new()));
-    let client = zbus::blocking::connection::Builder::session()
-        .unwrap()
+    let title = Arc::new(Mutex::new("Fake Item".to_string()));
+    let builder = zbus::connection::Builder::session()
         .serve_at(
             "/StatusNotifierItem",
             FakeItem {
                 calls: Arc::clone(&calls),
+                title: Arc::clone(&title),
             },
         )
-        .unwrap()
-        .name("org.example.FakeItem")
-        .unwrap()
-        .build()
-        .unwrap();
+        .name("org.example.FakeItem");
+    let client = zbus::block_on(builder.build()).unwrap();
 
-    let watcher = zbus::blocking::Proxy::new(
+    let watcher = zbus::block_on(zbus::Proxy::new(
         &client,
         "org.kde.StatusNotifierWatcher",
         "/StatusNotifierWatcher",
         "org.kde.StatusNotifierWatcher",
-    )
+    ))
     .unwrap();
     let register_started = Instant::now();
-    watcher
-        .call::<_, _, ()>("RegisterStatusNotifierItem", &"org.example.FakeItem")
+    zbus::block_on(watcher.call::<_, _, ()>("RegisterStatusNotifierItem", &"org.example.FakeItem"))
         .unwrap();
     assert!(
         register_started.elapsed() < Duration::from_millis(500),
@@ -144,10 +142,34 @@ fn watcher_registers_item_and_delivers_activate() {
             .iter()
             .any(|item| item.key == key && item.title == "Fake Item")
     }));
+
+    // A property-change signal must refresh the item on the watcher thread.
+    // This also proves the signal loop can make blocking D-Bus reads without
+    // nesting `block_on`.
+    *title.lock().unwrap() = "Updated Item".to_string();
+    zbus::block_on(client.emit_signal(
+        None::<&str>,
+        "/StatusNotifierItem",
+        "org.kde.StatusNotifierItem",
+        "NewTitle",
+        &(),
+    ))
+    .expect("emit NewTitle");
+    assert!(
+        wait_for(|| {
+            tray.snapshot()
+                .lock()
+                .unwrap()
+                .items
+                .iter()
+                .any(|item| item.key == key && item.title == "Updated Item")
+        }),
+        "the property-change signal did not refresh the item"
+    );
     {
         let snapshot = tray.snapshot().lock().unwrap();
         let item = snapshot.items.iter().find(|item| item.key == key).unwrap();
-        assert_eq!(item.title, "Fake Item");
+        assert_eq!(item.title, "Updated Item");
         assert!(item.is_visible());
         assert!(!item.has_menu);
         match &item.icon {
@@ -161,13 +183,11 @@ fn watcher_registers_item_and_delivers_activate() {
     }
 
     // The watcher's own property lists the registration.
-    let registered: Vec<String> = watcher
-        .get_property("RegisteredStatusNotifierItems")
-        .unwrap();
+    let registered: Vec<String> =
+        zbus::block_on(watcher.get_property("RegisteredStatusNotifierItems")).unwrap();
     assert!(registered.contains(&key.to_string()));
-    let host_registered: bool = watcher
-        .get_property("IsStatusNotifierHostRegistered")
-        .unwrap();
+    let host_registered: bool =
+        zbus::block_on(watcher.get_property("IsStatusNotifierHostRegistered")).unwrap();
     assert!(host_registered);
 
     // A left click from the shell reaches the item as Activate(x, y).

@@ -16,6 +16,32 @@ project cuts a tagged release.
 
 ### Added
 
+- **Casting on NetworkManager + wpa_supplicant hosts.** `tessera-cast` gains a
+  NetworkManager `P2pRadio` (ADR-0242 §6): discovery via the `wifi-p2p` device
+  and group formation as a volatile, user-owned profile.
+  The authority is selected automatically; `probe` reports it. Discovery is
+  verified against the reference TV; group formation awaits a hardware run.
+- **Fake-NetworkManager casting suites.** `tests/integration/cast.rs` and
+  `tests/e2e/cast_networkmanager.rs` drive discovery, group formation, the
+  RTSP session, RTP media, and teardown against a fake NetworkManager on a
+  private bus (`tessera_test_support::dbus::PrivateBus`).
+
+- **NetworkManager is the preferred station-network backend (ADR-0242).**
+  `tessera-networkd` owns the system D-Bus connection and selects
+  NetworkManager or iwd; `[network] backend = "auto" | "networkmanager" | "iwd"`
+  makes the choice explicit. `auto` prefers NetworkManager and falls back to
+  iwd only when NetworkManager is not running; neither daemon is
+  D-Bus-activated. The Control Center gains Wi-Fi scan,
+  connect, disconnect, forget, auto-connect, and radio control on
+  NetworkManager hosts, with NetworkManager's real signal strength and
+  frequency; a missing or broken service is still reported as unavailable.
+- **`tessera-network` and `tessera-network-system` split the neutral contract
+  from the system backends.** The compositor links only `tessera-network` and
+  supervises the service (`crates/tessera/src/network.rs`); NetworkManager/iwd
+  D-Bus and the `tessera-networkd` process live in
+  `crates/tessera-network-system`. This implements the network half of the
+  ADR-0207 process boundary.
+
 - **Settings is a standalone application (ADR-0238).** `tessera-settings
   [PAGE]` opens a resizable window with a categorized sidebar, search, and
   deep links (`tessera-settings display`); a second invocation switches the
@@ -32,8 +58,43 @@ project cuts a tagged release.
   entry are `com.hihusky.Tessera.Settings`; packages install that file and its
   icon from `system/share/`.
 
+### Fixed
+
+- **Read-only probes and backend selection never start a daemon.**
+  `tessera-cast probe` no longer starts iwd through D-Bus activation, and
+  `tessera-networkd` uses only an already-running NetworkManager or iwd. A
+  stopped service is reported as unavailable instead of starting a second radio
+  manager.
+- **WFD IE decoding** now uses the specification's big-endian subelement
+  lengths and Device Information bit layout (it misread real sinks).
+- **A cast session always leaves a P2P group it formed**, including on early
+  error returns and on `SIGINT`/`SIGTERM`; authorization failures are no longer
+  retried.
+
 ### Changed
 
+- **Dependency: zbus 6 and Rust 1.89.** zbus 6 folds the `zvariant` derive
+  macros into the main crate and removes the blocking module, so synchronous
+  workers now drive the async API through `zbus::block_on`. This clears the
+  unmaintained zbus 5 advisories; the workspace MSRV moves from 1.88 to 1.89.
+- **Breaking (contributors): `tessera::wireless` is gone.** The in-process
+  `WirelessBackend`, `IwdBackend`, and `MockWirelessBackend` moved to
+  `tessera-network` / `tessera-network-system` as `NetworkBackend`,
+  `IwdBackend`, and `MockNetworkBackend`. The compositor now consumes pushed
+  `NetworkSnapshot`s through `tessera::network::NetworkHandle`; `SystemAction`
+  and the Control Center surface are unchanged. The network path adds no `zbus`
+  edge; the compositor's existing edges (Bluetooth under `dbus-system`, the cast
+  protocol library, and the session-bus tray) are unchanged and remain separate
+  isolation decisions.
+- **Packaging: `tessera-networkd` is a core installed binary.** It must be a
+  trusted sibling of `tessera`; without it the network service reports
+  unavailable. See `docs/dev/packaging.md`.
+- **Casting keeps its P2P role separate from station networking (ADR-0242).**
+  Station networking may move to NetworkManager; `tessera-castd` selects the
+  P2P authority independently: NetworkManager's `wifi-p2p` device when it is
+  ready (the wpa_supplicant host), or iwd when it already owns the P2P role
+  (including NetworkManager's iwd backend). Neither probe starts a stopped
+  daemon.
 - **The Control Center is a right-anchored sheet (ADR-0239).** Two
   content-sized cards — controls, and the clock over notifications — sit
   against the right edge (stacked on narrow outputs) with the desktop and the

@@ -13,6 +13,7 @@ superseded_by: null
 - Scope: Live system network controls, wireless management, and Control Center UI
 - Amends: [ADR-0060](0060-statusbar-system-controls-and-live-system-ipc.md), [ADR-0114](0114-panel-hosted-settings-and-hud-command-panel.md), [ADR-0115](0115-command-panel-desktop-behavior-scope.md)
 - Amended by: [ADR-0190](0190-wireless-backends-are-selected-and-capability-declared.md) — the trait gains `available()`, `spawn_auto` selects iwd or an inert `UnavailableWirelessBackend` (never the fixture mock), and an unavailable service is reported rather than simulated (`[INV-ARCH-82]`).
+- Amended by: [ADR-0242](0242-networkmanager-owns-station-networking-behind-a-neutral-service.md) — the contract is now `NetworkBackend` in `tessera-network`, NetworkManager is the preferred backend, and the bridge runs in `tessera-networkd`, not the compositor.
 
 ## Context
 

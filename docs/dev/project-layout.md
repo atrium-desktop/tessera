@@ -26,6 +26,8 @@ crates/
   tessera-launch-services desktop application discovery, icon lookup, process launching, and intent search (ADR-0164)
   tessera-lock            standalone session lock client
   tessera-mcp             Model Context Protocol adapter daemon
+  tessera-network         pure network snapshots, backend contract, and service protocol (ADR-0242)
+  tessera-network-system  NetworkManager/iwd backends and the tessera-networkd service (ADR-0242)
   tessera-platform        DRM/KMS, nested display, seat, and input adapters
   tessera-primitives      foundational physical geometry, color, buffer descriptor, identity, and input primitives (ADR-0164)
   tessera-protocol        versioned wire DTOs and audit vocabulary (zero socket/GPU dependencies)

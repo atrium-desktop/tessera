@@ -62,6 +62,35 @@ pub struct RadioReport {
     pub wfd_registration: Verdict<()>,
     /// iwd's `net.connman.iwd.p2p.Device` on at least one adapter.
     pub p2p_device: Verdict<P2pDeviceFacts>,
+    /// NetworkManager's `wifi-p2p` device, ready (state ≥ disconnected). The
+    /// P2P authority on hosts where NetworkManager drives wpa_supplicant.
+    pub networkmanager_p2p: Verdict<()>,
+}
+
+impl RadioReport {
+    /// The iwd half alone: observed only when both its facts are.
+    fn iwd(&self) -> Verdict<()> {
+        if self.wfd_registration.is_absent() || self.p2p_device.is_absent() {
+            Verdict::Absent
+        } else if let (Verdict::Unverified(reason), _) | (_, Verdict::Unverified(reason)) =
+            (&self.wfd_registration, &self.p2p_device)
+        {
+            Verdict::Unverified(reason.clone())
+        } else {
+            Verdict::Observed(())
+        }
+    }
+
+    /// Either authority suffices; the radio is absent only when both are.
+    pub fn authority(&self) -> Verdict<()> {
+        match (&self.iwd(), &self.networkmanager_p2p) {
+            (Verdict::Observed(()), _) | (_, Verdict::Observed(())) => Verdict::Observed(()),
+            (Verdict::Absent, Verdict::Absent) => Verdict::Absent,
+            (Verdict::Unverified(reason), _) | (_, Verdict::Unverified(reason)) => {
+                Verdict::Unverified(reason.clone())
+            }
+        }
+    }
 }
 
 /// Facts read from `net.connman.iwd.p2p.Device`.
@@ -121,8 +150,8 @@ impl CastReport {
     /// actionable and an unknown is not. Only when nothing is definitely
     /// absent does an unknown make the whole answer unknown.
     pub fn blocker(&self) -> Blocker {
-        let radio_absent =
-            self.radio.wfd_registration.is_absent() || self.radio.p2p_device.is_absent();
+        let radio = self.radio.authority();
+        let radio_absent = radio.is_absent();
         let pipeline_absent = self.pipeline.h264_encoder.is_absent()
             || self.pipeline.pipewire.is_absent()
             || self.pipeline.screencast_portal.is_absent();
@@ -135,8 +164,7 @@ impl CastReport {
         if self.inbound.is_blocked() {
             return Blocker::InboundFirewall;
         }
-        let unknown = matches!(self.radio.wfd_registration, Verdict::Unverified(_))
-            || matches!(self.radio.p2p_device, Verdict::Unverified(_))
+        let unknown = matches!(radio, Verdict::Unverified(_))
             || matches!(self.pipeline.h264_encoder, Verdict::Unverified(_))
             || matches!(self.pipeline.pipewire, Verdict::Unverified(_))
             || matches!(self.pipeline.screencast_portal, Verdict::Unverified(_))
@@ -169,6 +197,12 @@ impl CastReport {
                 Verdict::Absent => "no P2P device".to_owned(),
                 Verdict::Unverified(reason) => format!("unverified: {reason}"),
             }
+        ));
+        out.push_str(&format!(
+            "  NetworkManager P2P     {}\n",
+            self.radio
+                .networkmanager_p2p
+                .describe("wifi-p2p device ready", "no wifi-p2p device")
         ));
         out.push_str("pipeline (session + frames)\n");
         out.push_str(&format!(
@@ -220,6 +254,7 @@ mod tests {
                 enabled: false,
                 available_connections: 1,
             }),
+            networkmanager_p2p: Verdict::Absent,
         }
     }
 
@@ -270,6 +305,7 @@ mod tests {
             RadioReport {
                 wfd_registration: Verdict::Absent,
                 p2p_device: Verdict::Absent,
+                networkmanager_p2p: Verdict::Absent,
             },
             observed_pipeline(),
         );
@@ -292,6 +328,7 @@ mod tests {
             RadioReport {
                 wfd_registration: Verdict::Unverified("insufficient privilege".into()),
                 p2p_device: Verdict::Unverified("insufficient privilege".into()),
+                networkmanager_p2p: Verdict::Absent,
             },
             observed_pipeline(),
         );
@@ -319,9 +356,43 @@ mod tests {
             RadioReport {
                 wfd_registration: Verdict::Absent,
                 p2p_device: Verdict::Absent,
+                networkmanager_p2p: Verdict::Absent,
             },
             pipeline,
         );
         assert_eq!(report.blocker(), Blocker::Radio);
+    }
+
+    #[test]
+    fn a_networkmanager_p2p_device_is_a_radio_without_iwd() {
+        // The NetworkManager + wpa_supplicant host this was verified on: no iwd
+        // P2P at all, a ready `p2p-dev-wlan0`.
+        let report = report(
+            RadioReport {
+                wfd_registration: Verdict::Absent,
+                p2p_device: Verdict::Absent,
+                networkmanager_p2p: Verdict::Observed(()),
+            },
+            observed_pipeline(),
+        );
+        assert_eq!(report.blocker(), Blocker::None);
+        assert!(report.render().contains("wifi-p2p device ready"));
+    }
+
+    #[test]
+    fn an_unverified_networkmanager_keeps_an_absent_iwd_indeterminate() {
+        let report = report(
+            RadioReport {
+                wfd_registration: Verdict::Absent,
+                p2p_device: Verdict::Absent,
+                networkmanager_p2p: Verdict::Unverified("bus refused".into()),
+            },
+            observed_pipeline(),
+        );
+        assert_eq!(
+            report.blocker(),
+            Blocker::Unknown,
+            "one authority unverified is not proof that no authority exists"
+        );
     }
 }

@@ -1,0 +1,34 @@
+[package]
+name = "tessera-network-system"
+description = "NetworkManager and iwd backends plus the out-of-process Tessera network service (ADR-0242)"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "tessera_network_system"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tessera-networkd"
+path = "src/bin/tessera-networkd.rs"
+
+[dependencies]
+futures-util.workspace = true
+libc.workspace = true
+log.workspace = true
+signal-hook.workspace = true
+tessera-desktop.workspace = true
+tessera-env.workspace = true
+tessera-network.workspace = true
+tessera-sched.workspace = true
+zbus.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

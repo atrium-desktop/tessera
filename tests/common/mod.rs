@@ -14,6 +14,9 @@ pub use tessera_test_support::poll;
 pub use tessera_test_support::temp;
 pub use tessera_test_support::workspace;
 
+#[cfg(feature = "native")]
+pub mod fake_networkmanager;
+
 /// Shorthand for the shared binary lookup used by end-to-end entry tests.
 pub fn binary(name: &str) -> std::path::PathBuf {
     workspace::binary(name)
