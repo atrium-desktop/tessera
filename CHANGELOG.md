@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.97] - 2026-11-18
+
 ### Added
 
 - **Per-output presentation domains (ADR-0185).** The DRM backend now owns one
