@@ -315,14 +315,32 @@ impl Default for KeyboardConfig {
     }
 }
 
-/// Complete `[input]` policy for the seat: keyboard, mouse, and touchpad.
+/// One absolute input device bound to a physical output.
+///
+/// `device` matches the libinput device name exactly (the name shown in
+/// Settings), or its stable sysname. `output` is the connector identifier.
+/// The binding applies only to absolute events (touch, tablet, absolute
+/// pointer), so a mouse with the same name keeps normal relative motion.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InputMapping {
+    /// libinput device name or sysname.
+    pub device: String,
+    /// Connector whose content rectangle receives normalized coordinates.
+    pub output: String,
+}
+
+/// Complete `[input]` policy for the seat: keyboard, mouse, touchpad, and
+/// absolute-device bindings.
 ///
 /// The settings UI edits and persists this as one domain ("Input"), so a
 /// single transaction always carries a coherent profile for every device
-/// class.
+/// class. The mapping array is written as `[[input.mapping]]`; typed Input
+/// Settings preserve it untouched.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(default, deny_unknown_fields))]
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct InputConfig {
     /// Written as `[input.touchpad]`.
     pub touchpad: TouchpadConfig,
@@ -330,6 +348,9 @@ pub struct InputConfig {
     pub mouse: MouseConfig,
     /// Written as `[input.keyboard]`.
     pub keyboard: KeyboardConfig,
+    /// Written as `[[input.mapping]]`; empty keeps native union mapping.
+    #[cfg_attr(feature = "serde", serde(rename = "mapping", alias = "mappings"))]
+    pub mappings: Vec<InputMapping>,
 }
 
 /// Features supported by the currently attached touchpad set.
@@ -399,6 +420,9 @@ pub struct InputStatus {
     pub touchpad: TouchpadStatus,
     pub mouse: MouseStatus,
     pub keyboard: KeyboardConfig,
+    /// Absolute-device bindings currently applied by the backend.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub mappings: Vec<InputMapping>,
 }
 
 #[derive(Debug, Clone, Copy)]

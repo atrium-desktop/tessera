@@ -98,6 +98,7 @@ pub enum ScanoutRejectReason {
     SurfaceTransition,
     Overview,
     WindowSwitcher,
+    MirrorPresent,
     VisibleShellPixels,
     ClientOverlay,
     SoftwareCursor,
@@ -128,6 +129,7 @@ impl ScanoutRejectReason {
             Self::SurfaceTransition => "surface-transition",
             Self::Overview => "overview",
             Self::WindowSwitcher => "window-switcher",
+            Self::MirrorPresent => "mirror-present",
             Self::VisibleShellPixels => "visible-shell-pixels",
             Self::ClientOverlay => "client-overlay",
             Self::SoftwareCursor => "software-cursor",
@@ -161,6 +163,10 @@ impl std::fmt::Display for ScanoutRejectReason {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ScanoutSceneFacts {
     pub session_locked: bool,
+    /// A mirrored physical output shares this scene. Direct scanout would
+    /// replace the shared framebuffer on the source CRTC only, leaving the
+    /// mirror on a stale composite.
+    pub mirror_present: bool,
     pub capture_pending: bool,
     pub screenshot_freeze: bool,
     pub transition_pending: bool,
@@ -187,6 +193,9 @@ impl ScanoutSceneFacts {
 pub fn evaluate_scene(facts: ScanoutSceneFacts) -> Result<(), ScanoutRejectReason> {
     if facts.session_locked {
         return Err(ScanoutRejectReason::SessionLocked);
+    }
+    if facts.mirror_present {
+        return Err(ScanoutRejectReason::MirrorPresent);
     }
     if facts.capture_pending {
         return Err(ScanoutRejectReason::CapturePending);
@@ -448,6 +457,18 @@ mod tests {
         assert_eq!(
             evaluate_surface(&surface, (3072, 1920), (1536, 960), true),
             Ok(())
+        );
+    }
+
+    #[test]
+    fn mirrored_output_prevents_direct_scanout() {
+        let facts = ScanoutSceneFacts {
+            mirror_present: true,
+            ..eligible_scene()
+        };
+        assert_eq!(
+            evaluate_scene(facts),
+            Err(ScanoutRejectReason::MirrorPresent)
         );
     }
 

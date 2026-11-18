@@ -58,10 +58,13 @@ mod tests {
                     scale: tessera_desktop::output::Scale(1.0),
                     transform: tessera_primitives::Transform::Normal,
                     logical_origin: tessera_primitives::Point { x: 0, y: 0 },
+                    logical_size_override: None,
                 },
                 kind: tessera_desktop::output::OutputKind::External,
                 available_modes: Vec::new(),
                 color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+                role: tessera_desktop::output::OutputRole::Extend,
+                role_source: tessera_desktop::output::OutputRoleSource::Auto,
             },
             tessera_desktop::output::OutputInfo {
                 connector: "DP-1".into(),
@@ -74,10 +77,13 @@ mod tests {
                     scale: tessera_desktop::output::Scale(1.0),
                     transform: tessera_primitives::Transform::Normal,
                     logical_origin: tessera_primitives::Point { x: 1920, y: 0 },
+                    logical_size_override: None,
                 },
                 kind: tessera_desktop::output::OutputKind::External,
                 available_modes: Vec::new(),
                 color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+                role: tessera_desktop::output::OutputRole::Extend,
+                role_source: tessera_desktop::output::OutputRoleSource::Auto,
             },
         ]
     }

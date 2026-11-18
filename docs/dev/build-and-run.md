@@ -26,12 +26,14 @@ cp .cargo/optics-local.toml .cargo/config.toml
 
 ## 2. Compiling the Subsystems
 
-Always compile the session sibling sidecars (`tessera-idle` and `tessera-lock`) into
-the target directory so the compositor discovers them via `trusted_sibling_program`:
+Always compile the session sibling sidecars (`tessera-idle`, `tessera-lock`,
+`tessera-network-system`, `tessera-cast`) and first-party apps
+(`tessera-settings`) into the target directory so the compositor discovers them
+as siblings:
 
 ```bash
-# Compile companion binaries
-cargo build --locked -p tessera-idle -p tessera-lock
+# Compile companion binaries and standalone Settings
+cargo build --locked -p tessera-idle -p tessera-lock -p tessera-network-system -p tessera-cast -p tessera-settings
 
 # Compile core compositor
 cargo build --locked -p tessera
@@ -75,6 +77,10 @@ WAYLAND_DISPLAY=wayland-1 wayland-info
 
 # Launch an inner terminal
 WAYLAND_DISPLAY=wayland-1 foot
+
+# Launch standalone Settings (run the compositor with TESSERA_DEV_PROFILE=debug
+# so the sibling target/debug/tessera-settings is writable without an allowlist)
+WAYLAND_DISPLAY=wayland-1 cargo run --locked -p tessera-settings -- display
 ```
 
 ### C. Direct Bare-Metal DRM/KMS Session
@@ -112,7 +118,7 @@ Verify changes before opening a pull request:
 cargo nextest run --locked \
   -p tessera-desktop -p tessera-primitives -p tessera-authority -p tessera-audit \
   -p tessera-config -p tessera-ipc -p tessera-protocol -p tessera-launch-services \
-  -p tessera-env -p tessera-cli -p tessera-mcp -p tessera-idle -p tessera-wayland
+  -p tessera-env -p tessera-control -p tessera-mcp -p tessera-idle -p tessera-wayland
 
 # Full workspace test suite
 cargo nextest run --locked --workspace

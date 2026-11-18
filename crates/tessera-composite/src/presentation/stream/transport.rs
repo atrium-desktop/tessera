@@ -290,29 +290,29 @@ pub fn enumerate_slot_ring(
             .map_err(|error| format!("capture slot clear: {error}"))?;
         // Blocking export: start-up latency is acceptable, and the ring
         // order is the slot order.
-        let export = surface.export_dmabuf().map_err(|error| {
+        let dmabuf = surface.export_dmabuf_pooled().map_err(|error| {
             format!(
                 "capture slot export: {error}{}",
                 crate::presentation::flux_last_error_detail()
             )
         })?;
-        if export.slot as usize != expected_slot {
+        if dmabuf.slot as usize != expected_slot {
             return Err(format!(
                 "capture ring visited slot {}, expected {expected_slot}",
-                export.slot
+                dmabuf.slot
             ));
         }
-        if export.width != width || export.height != height {
+        if dmabuf.width != width || dmabuf.height != height {
             return Err("capture slot extent mismatch".to_owned());
         }
         match stride {
-            Some(known) if known != export.stride => {
+            Some(known) if known != dmabuf.stride => {
                 return Err("capture slots disagree on row stride".to_owned());
             }
-            None => stride = Some(export.stride),
+            None => stride = Some(dmabuf.stride),
             _ => {}
         }
-        *slot_fd = Some(export.fd);
+        *slot_fd = Some(dmabuf.fd);
     }
     let stride = stride.expect("the slot ring exported at least one slot");
     Ok(DmabufCapture {
@@ -345,24 +345,27 @@ pub fn submit_capture_frame(
     submitted
         .present()
         .map_err(|error| BlitFailure::Submitted(format!("capture present: {error}")))?;
-    let export = dmabuf.surface.export_dmabuf_explicit().map_err(|error| {
-        BlitFailure::Submitted(format!(
-            "capture slot export: {error}{}",
-            crate::presentation::flux_last_error_detail()
-        ))
-    })?;
-    if export.slot as usize >= dmabuf.ring.states.len() {
+    let dmabuf_export = dmabuf
+        .surface
+        .export_dmabuf_pooled_explicit()
+        .map_err(|error| {
+            BlitFailure::Submitted(format!(
+                "capture slot export: {error}{}",
+                crate::presentation::flux_last_error_detail()
+            ))
+        })?;
+    if dmabuf_export.slot as usize >= dmabuf.ring.states.len() {
         return Err(BlitFailure::Submitted(format!(
             "capture export reported out-of-ring slot {}",
-            export.slot
+            dmabuf_export.slot
         )));
     }
-    let Some(fence) = export.acquire_fence else {
+    let Some(fence) = dmabuf_export.acquire_fence else {
         return Err(BlitFailure::Submitted(
             "capture slot export returned no acquire fence".to_owned(),
         ));
     };
-    Ok((export.slot as usize, fence))
+    Ok((dmabuf_export.slot as usize, fence))
 }
 
 /// Import the presented frame and copy it into the capture surface's next
@@ -577,11 +580,11 @@ mod tests {
                 begin_opaque_frame(&mut canvas, &mut frame, flux::rgba(0, 0, 0, 255)).unwrap();
             session.end().unwrap();
             frame.submit().unwrap().present().unwrap();
-            let export = surface.export_dmabuf().unwrap();
-            assert_eq!(export.slot as usize, expected_slot);
-            assert_eq!((export.width, export.height), (64, 48));
-            assert!(export.stride >= 64 * 4);
-            exports.push(export);
+            let dmabuf = surface.export_dmabuf_pooled().unwrap();
+            assert_eq!(dmabuf.slot as usize, expected_slot);
+            assert_eq!((dmabuf.width, dmabuf.height), (64, 48));
+            assert!(dmabuf.stride >= 64 * 4);
+            exports.push(dmabuf);
         }
         // Every slot exported a distinct live descriptor.
         let raw: std::collections::HashSet<_> =
@@ -595,9 +598,9 @@ mod tests {
             begin_opaque_frame(&mut canvas, &mut frame, flux::rgba(10, 20, 30, 255)).unwrap();
         session.end().unwrap();
         frame.submit().unwrap().present().unwrap();
-        let export = surface.export_dmabuf_explicit().unwrap();
-        assert_eq!(export.slot, 0);
-        let fence = export
+        let dmabuf = surface.export_dmabuf_pooled_explicit().unwrap();
+        assert_eq!(dmabuf.slot, 0);
+        let fence = dmabuf
             .acquire_fence
             .expect("explicit export carries a fence");
         let mut pollfd = libc::pollfd {

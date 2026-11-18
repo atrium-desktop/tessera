@@ -23,7 +23,7 @@ and `Ctrl+V` pastes from any other client.
 
 | Page | Category | Apply behavior | Backend |
 |------|----------|----------------|---------|
-| `display` | Hardware | Explicit Apply button | Tessera output model and direct DRM backend |
+| `display` | Hardware | 15-second preview, then explicit Keep changes | Tessera output model and direct DRM backend: default topology, automatic/extend/mirror role, mode, scale, primary, arrangement |
 | `input` | Hardware | Instant | Tessera input policy and libinput backend (keyboard repeat, mouse and touchpad) |
 | `power` | System | Explicit Apply button | Tessera idle policy, session lock, output power, and logind sleep |
 | `appearance` | Personalization | Explicit Apply button | Tessera desktop preferences and portal projection |

@@ -10,14 +10,13 @@ mod error;
 
 pub use cli::{
     AuditCmd, Cli, Command, ConfigCmd, DisplayCmd, InteractionDomainCmd, JournalCmd,
-    NotificationCmd, OnOff, PermissionsCmd, Region, SystemCmd, VirtualDisplayCmd, WindowCmd,
-    WorkspaceCmd, WorkspaceTarget,
+    NotificationCmd, OnOff, ParseError, ParseErrorKind, PermissionsCmd, Region, RoleArg, Shell,
+    SystemCmd, TopologyArg, VirtualDisplayCmd, WindowCmd, WorkspaceCmd, WorkspaceTarget,
 };
 pub use error::CliError;
 
 use std::path::{Path, PathBuf};
 
-use clap::{CommandFactory, Parser};
 use serde::Serialize;
 use tessera_authority::interaction_domain::InteractionDomainId;
 use tessera_authority::interaction_domain::InteractionDomainMutation;
@@ -37,7 +36,7 @@ use self::cli::Command as Cmd;
 /// The executable calls this before initializing logging or either runtime;
 /// keeping the `clap` dependency here preserves the command crate's ownership
 /// of parsing and generated help.
-pub fn parse_env() -> Result<Cli, clap::Error> {
+pub fn parse_env() -> Result<Cli, ParseError> {
     Cli::try_parse()
 }
 
@@ -83,8 +82,8 @@ fn parse_cli(args: &[String]) -> Result<ParseOutcome, CliError> {
     full.extend(args.iter().cloned());
     match Cli::try_parse_from(full) {
         Ok(cli) => Ok(ParseOutcome::Cli(cli)),
-        Err(error) => match error.kind() {
-            clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion => {
+        Err(error) => match error.kind {
+            ParseErrorKind::DisplayHelp | ParseErrorKind::DisplayVersion => {
                 Ok(ParseOutcome::Rendered(error.to_string()))
             }
             _ => Err(CliError::Usage(error)),
@@ -159,8 +158,7 @@ fn dispatch_command(socket: &Path, cli: Cli) -> Result<String, CliError> {
             Ok(String::new())
         }
         Cmd::Completions { shell } => {
-            let mut cmd = Cli::command();
-            clap_complete::generate(shell, &mut cmd, "tessera", &mut std::io::stdout());
+            shell.generate(&mut std::io::stdout());
             Ok(String::new())
         }
         Cmd::Quit => {
@@ -413,12 +411,10 @@ fn dispatch_audit_at(path: &Path, command: AuditCmd, json: bool) -> Result<Strin
         }
         AuditCmd::Prune { keep, force } => {
             if keep == 0 {
-                return Err(CliError::Usage({
-                    <Cli as clap::CommandFactory>::command().error(
-                        clap::error::ErrorKind::InvalidValue,
-                        "keep must be at least 1; use 0 retention in config to disable pruning",
-                    )
-                }));
+                return Err(CliError::Usage(ParseError::new(
+                    ParseErrorKind::InvalidValue,
+                    "keep must be at least 1; use 0 retention in config to disable pruning",
+                )));
             }
             let mut store = open()?;
             let removed = store.prune_segments(keep, !force).map_err(audit_error)?;
@@ -435,8 +431,8 @@ fn dispatch_audit_at(path: &Path, command: AuditCmd, json: bool) -> Result<Strin
 }
 
 fn client_command_required() -> CliError {
-    CliError::Usage(Cli::command().error(
-        clap::error::ErrorKind::MissingSubcommand,
+    CliError::Usage(ParseError::new(
+        ParseErrorKind::MissingSubcommand,
         "a domain command is required when using the IPC client",
     ))
 }
@@ -557,6 +553,120 @@ fn dispatch_display(
                     ))
                 }
             }
+        }
+        DisplayCmd::Confirm => {
+            let mut client = owner_client(socket, control_caps()).map_err(connect_err)?;
+            client
+                .apply_settings(
+                    None,
+                    tessera_desktop::settings::SettingsAction::ConfirmDisplay,
+                )
+                .map_err(io_err)?;
+            Ok(receipt("display settings confirmed", json))
+        }
+        DisplayCmd::Topology { topology } => {
+            let mut client = owner_client(socket, control_caps()).map_err(connect_err)?;
+            client
+                .apply_settings(
+                    None,
+                    tessera_desktop::settings::SettingsAction::SetDisplayTopology {
+                        topology: topology.into(),
+                    },
+                )
+                .map_err(io_err)?;
+            let name = match topology {
+                TopologyArg::Auto => "auto",
+                TopologyArg::Extend => "extend",
+                TopologyArg::Mirror => "mirror",
+            };
+            Ok(receipt(format!("display topology → {name}"), json))
+        }
+        DisplayCmd::Role {
+            connector,
+            role,
+            source,
+        } => {
+            let mut client = owner_client(socket, control_caps()).map_err(connect_err)?;
+            let outputs = client.outputs().map_err(io_err)?;
+            let index = outputs
+                .iter()
+                .position(|output| output.connector == connector)
+                .ok_or_else(|| CliError::Io(format!("display '{connector}' is not connected")))?;
+            let output = &outputs[index];
+            let mode = tessera_desktop::output::ModeSpec {
+                width: output.geometry.mode.width,
+                height: output.geometry.mode.height,
+                refresh_hz: Some(output.geometry.mode.refresh_mhz.saturating_add(500) / 1_000),
+            };
+            // A mirror's `geometry.scale`/`logical_origin` are the source's,
+            // not its own. When leaving the mirror role, let the backend and
+            // policy pick its native scale/position instead of pinning the
+            // source's rectangle onto a second output.
+            let (current_scale, current_position) = if output.role.is_mirror() {
+                (None, None)
+            } else {
+                (
+                    Some(f64::from(output.geometry.scale.as_f32())),
+                    Some(output.geometry.logical_origin),
+                )
+            };
+            let (role, mode, scale, position, primary) = match role {
+                RoleArg::Automatic => (
+                    None,
+                    Some(mode),
+                    current_scale,
+                    current_position,
+                    index == 0,
+                ),
+                RoleArg::Extend => (
+                    Some(tessera_desktop::output::OutputRole::Extend),
+                    Some(mode),
+                    current_scale,
+                    current_position,
+                    index == 0,
+                ),
+                RoleArg::Mirror => {
+                    let source = source.ok_or_else(|| {
+                        CliError::Io("--source is required for a mirror role".into())
+                    })?;
+                    if source == connector {
+                        return Err(CliError::Io("an output cannot mirror itself".into()));
+                    }
+                    if !outputs.iter().any(|candidate| {
+                        candidate.connector == source
+                            && candidate.kind.is_physical()
+                            && !candidate.role.is_mirror()
+                    }) {
+                        return Err(CliError::Io(format!(
+                            "mirror source '{source}' is not a connected extended display"
+                        )));
+                    }
+                    (
+                        Some(tessera_desktop::output::OutputRole::Mirror { source }),
+                        Some(mode),
+                        None,
+                        None,
+                        false,
+                    )
+                }
+            };
+            client
+                .apply_settings(
+                    None,
+                    tessera_desktop::settings::SettingsAction::SetDisplay {
+                        settings: tessera_desktop::settings::DisplaySettings {
+                            connector: connector.clone(),
+                            role,
+                            mode,
+                            scale,
+                            position,
+                            primary,
+                            tentative: true,
+                        },
+                    },
+                )
+                .map_err(io_err)?;
+            Ok(receipt(format!("display {connector} role updated"), json))
         }
     }
 }
@@ -1442,10 +1552,26 @@ fn format_outputs(outs: &[tessera_desktop::output::OutputInfo]) -> String {
             tessera_desktop::output::OutputKind::Internal => " [internal]",
             tessera_desktop::output::OutputKind::Virtual => " [virtual]",
         };
+        let role = match (&o.role, o.role_source) {
+            (tessera_desktop::output::OutputRole::Extend, source)
+                if source.is_auto() && o.kind.is_physical() =>
+            {
+                " [auto]".to_owned()
+            }
+            (tessera_desktop::output::OutputRole::Extend, _) => String::new(),
+            (tessera_desktop::output::OutputRole::Mirror { source }, role_source) => {
+                if role_source.is_auto() {
+                    format!(" [mirror of {source}, auto]")
+                } else {
+                    format!(" [mirror of {source}]")
+                }
+            }
+        };
         out.push_str(&format!(
-            "{}{} {}x{}@{}.{:03}Hz scale {:.2} {:?} → logical {}x{}\n",
+            "{}{}{} {}x{}@{}.{:03}Hz scale {:.2} {:?} → logical {}x{}\n",
             o.connector,
             kind,
+            role,
             g.mode.width,
             g.mode.height,
             g.mode.refresh_mhz / 1000,

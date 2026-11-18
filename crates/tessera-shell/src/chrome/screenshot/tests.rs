@@ -383,10 +383,13 @@ fn test_output(
             scale: tessera_desktop::output::Scale(1.0),
             transform: tessera_primitives::Transform::Normal,
             logical_origin: tessera_primitives::Point { x, y },
+            logical_size_override: None,
         },
         kind: tessera_desktop::output::OutputKind::External,
         available_modes: Vec::new(),
         color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+        role: tessera_desktop::output::OutputRole::Extend,
+        role_source: tessera_desktop::output::OutputRoleSource::Auto,
     }
 }
 
@@ -480,6 +483,7 @@ fn output_mode_status_updates_refresh_the_hit_test_snapshot() {
     let status = crate::SystemStatus {
         display: tessera_desktop::settings::DisplayStatus {
             outputs: vec![test_output("HDMI-A-1", 0, 0, 1920, 1080)],
+            pending_revert_seconds: None,
             ..tessera_desktop::settings::DisplayStatus::default()
         },
         ..crate::SystemStatus::default()

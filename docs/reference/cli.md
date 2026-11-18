@@ -51,7 +51,10 @@ targets. IPC and Wayland schemas retain the internal term `output`.
 | Command | Result |
 |---------|--------|
 | `tessera display` | List displays. |
-| `tessera display list` | List modes, scales, transforms, logical sizes, and advertised connector modes. Internal panels and `VIRTUAL-*` extend displays carry a `[internal]` / `[virtual]` marker so they are distinguishable from an ordinary external monitor ([ADR-0188](../adr/0188-out-of-process-casting-and-discovery-service.md)); an external output is unmarked. |
+| `tessera display list` | List modes, scales, transforms, logical sizes, advertised connector modes, and the output role. Internal panels and `VIRTUAL-*` extend displays carry a `[internal]` / `[virtual]` marker ([ADR-0188](../adr/0188-out-of-process-casting-and-discovery-service.md)); an automatically resolved extend output carries `[auto]`, and a mirrored output carries `[mirror of <connector>]`, with `, auto` when the role came from `[display] topology` rather than an explicit entry ([ADR-0243](../adr/0243-output-roles-and-mirroring.md)). |
+| `tessera display topology <auto\|extend\|mirror>` | Persist the session default topology for connectors without an explicit role. |
+| `tessera display role <connector> <automatic\|extend\|mirror> [--source <connector>]` | Pin or clear one connector's role. `mirror` requires `--source` naming a connected extended display. |
+| `tessera display confirm` | Keep the most recent tentative display edit before its 15-second revert timer expires. |
 | `tessera display capture [path.png] [--region x,y,w,h]` | Capture the focused display. The default path is a timestamped PNG in the screenshot directory. |
 | `tessera display virtual create [--connector VIRTUAL-n] [--mode WxH[@Hz]] [--scale N] [--x N] [--y N]` | Create a persistent virtual extend display (`VIRTUAL-*`) in the human desktop session ([ADR-0186](../adr/0186-session-scoped-virtual-extend-outputs-and-offscreen-output-streaming.md)). Omitting `--connector` auto-allocates the lowest free `VIRTUAL-n`; default mode is `1920x1080@60`. |
 | `tessera display virtual resize <connector> --mode WxH[@Hz] [--scale N] [--x N] [--y N]` | Change a live virtual display's resolution, scale, or logical position. Live streams targeting it freeze with `StreamGeometryChanged` and can renegotiate in place. |

@@ -53,9 +53,10 @@ case "$profile" in
     *) run_flags="--profile $profile" ;;
 esac
 
-# Build the companion daemons as siblings of the compositor binary. A
-# `cargo run -p tessera` alone does not build a dependency package's binaries.
-cargo build --locked $run_flags -p tessera-network-system -p tessera-cast
+# Build the companion daemons and sibling first-party apps alongside the
+# compositor binary. A `cargo run -p tessera` alone does not build other
+# workspace package binaries.
+cargo build --locked $run_flags -p tessera-network-system -p tessera-cast -p tessera-settings
 
 set -- cargo run $run_flags -p tessera "$@"
 

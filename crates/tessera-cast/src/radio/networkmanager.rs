@@ -31,7 +31,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use zbus::{Connection, ObjectPath, OwnedObjectPath, OwnedVariant, Variant};
+use tessera_dbus::{Connection, FromArgs, FromValue, OwnedObjectPath, Value};
 
 use super::{DiscoveredPeer, DisplayCapabilities, P2pRadio};
 use crate::iwd::{IwdError, blocking_call};
@@ -146,27 +146,43 @@ pub fn source_wfd_ies(advertisement: &DisplayCapabilities) -> Vec<u8> {
 /// active session holds. Measured on the NetworkManager host: without an
 /// owner, `AddAndActivateConnection2` fails with
 /// `Settings.PermissionDenied: Insufficient privileges`.
-pub fn group_settings<'a>(
-    peer_address: &'a str,
-    wfd_ies: &'a [u8],
+fn var(v: Value) -> Value {
+    Value::Variant(Box::new(v))
+}
+
+pub fn group_settings(
+    peer_address: &str,
+    wfd_ies: &[u8],
     owner: Option<&str>,
-) -> HashMap<&'static str, HashMap<&'static str, Variant<'a>>> {
+) -> HashMap<&'static str, HashMap<&'static str, Value>> {
     let mut connection = HashMap::new();
-    connection.insert("type", Variant::from("wifi-p2p"));
-    connection.insert("id", Variant::from("Tessera cast"));
-    connection.insert("autoconnect", Variant::from(false));
+    connection.insert("type", var(Value::String("wifi-p2p".into())));
+    connection.insert("id", var(Value::String("Tessera cast".into())));
+    connection.insert("autoconnect", var(Value::Bool(false)));
     if let Some(owner) = owner {
-        connection.insert("permissions", Variant::from(vec![format!("user:{owner}")]));
+        connection.insert(
+            "permissions",
+            var(Value::Array(
+                "s".into(),
+                vec![Value::String(format!("user:{owner}"))],
+            )),
+        );
     }
 
     let mut p2p = HashMap::new();
-    p2p.insert("peer", Variant::from(peer_address));
-    p2p.insert("wfd-ies", Variant::from(wfd_ies));
+    p2p.insert("peer", var(Value::String(peer_address.to_string())));
+    p2p.insert(
+        "wfd-ies",
+        var(Value::Array(
+            "y".into(),
+            wfd_ies.iter().copied().map(Value::Byte).collect(),
+        )),
+    );
 
     let mut ipv4 = HashMap::new();
-    ipv4.insert("method", Variant::from("auto"));
+    ipv4.insert("method", var(Value::String("auto".into())));
     let mut ipv6 = HashMap::new();
-    ipv6.insert("method", Variant::from("disabled"));
+    ipv6.insert("method", var(Value::String("disabled".into())));
 
     let mut settings = HashMap::new();
     settings.insert("connection", connection);
@@ -211,7 +227,7 @@ fn user_name_for(status: &str, passwd: &str) -> Option<String> {
 
 /// Map a NetworkManager D-Bus failure into the port's error vocabulary,
 /// naming NetworkManager rather than iwd.
-fn classify(error: zbus::Error, what: &str) -> IwdError {
+fn classify(error: tessera_dbus::Error, what: &str) -> IwdError {
     if let Some((name, detail)) = error_name(&error) {
         return match name.as_str() {
             "org.freedesktop.DBus.Error.ServiceUnknown"
@@ -240,18 +256,11 @@ fn classify(error: zbus::Error, what: &str) -> IwdError {
     IwdError::Protocol(format!("NetworkManager {what}: {error}"))
 }
 
-/// The D-Bus error name and description, including errors zbus promotes to
-/// `fdo::Error` (`AccessDenied`, `ServiceUnknown`, …).
-fn error_name(error: &zbus::Error) -> Option<(String, String)> {
-    use zbus::DBusError as _;
+fn error_name(error: &tessera_dbus::Error) -> Option<(String, String)> {
     match error {
-        zbus::Error::MethodError(name, detail, _) => {
-            Some((name.to_string(), detail.clone().unwrap_or_default()))
+        tessera_dbus::Error::MethodError { name, detail } => {
+            Some((name.clone(), detail.clone().unwrap_or_default()))
         }
-        zbus::Error::FDO(error) => Some((
-            error.name().to_string(),
-            error.description().unwrap_or_default().to_owned(),
-        )),
         _ => None,
     }
 }
@@ -263,7 +272,7 @@ fn error_name(error: &zbus::Error) -> Option<(String, String)> {
 /// intentionally stopped, that would start a second radio manager from a
 /// read-only probe. `NameHasOwner` never activates anything.
 fn name_has_owner(connection: &Connection, name: &str) -> Result<bool, IwdError> {
-    blocking_call(
+    let reply = blocking_call(
         connection,
         Some(DBUS_SERVICE),
         DBUS_PATH,
@@ -271,10 +280,9 @@ fn name_has_owner(connection: &Connection, name: &str) -> Result<bool, IwdError>
         "NameHasOwner",
         &(name,),
     )
-    .map_err(|error| classify(error, "NameHasOwner"))?
-    .body()
-    .deserialize()
-    .map_err(|error| IwdError::Protocol(format!("NameHasOwner: {error}")))
+    .map_err(|error| classify(error, "NameHasOwner"))?;
+    FromArgs::from_args(reply.body)
+        .map_err(|error| IwdError::Protocol(format!("NameHasOwner: {error}")))
 }
 
 /// Read-only: whether NetworkManager has a `wifi-p2p` device that is ready.
@@ -308,14 +316,14 @@ impl NmRadio {
     /// NetworkManager must already be running: the caster never activates it,
     /// for the same reason the probe never activates iwd.
     pub fn open() -> Result<Self, IwdError> {
-        let connection = zbus::block_on(Connection::system())
-            .map_err(|error| IwdError::BusUnavailable(error.to_string()))?;
+        let connection =
+            Connection::system().map_err(|error| IwdError::BusUnavailable(error.to_string()))?;
         if !name_has_owner(&connection, NM_SERVICE)? {
             return Err(IwdError::Unsupported(
                 "NetworkManager is not running".to_owned(),
             ));
         }
-        let devices: Vec<OwnedObjectPath> = blocking_call(
+        let reply = blocking_call(
             &connection,
             Some(NM_SERVICE),
             NM_PATH,
@@ -323,10 +331,9 @@ impl NmRadio {
             "GetDevices",
             &(),
         )
-        .map_err(|error| classify(error, "GetDevices"))?
-        .body()
-        .deserialize()
-        .map_err(|error| IwdError::Protocol(format!("GetDevices: {error}")))?;
+        .map_err(|error| classify(error, "GetDevices"))?;
+        let devices: Vec<OwnedObjectPath> = FromArgs::from_args(reply.body)
+            .map_err(|error| IwdError::Protocol(format!("GetDevices: {error}")))?;
         for device in devices {
             let kind: Option<u32> = get(&connection, device.as_str(), NM_DEVICE, "DeviceType").ok();
             if kind == Some(DEVICE_TYPE_WIFI_P2P) {
@@ -391,7 +398,7 @@ impl NmRadio {
     }
 
     fn deactivate(&self, active: &OwnedObjectPath) -> Result<(), IwdError> {
-        let path = ObjectPath::try_from(active.as_str())
+        let path = OwnedObjectPath::try_from(active.as_str())
             .map_err(|error| IwdError::Protocol(error.to_string()))?;
         blocking_call(
             &self.connection,
@@ -407,12 +414,13 @@ impl NmRadio {
 }
 
 /// Read one property and convert it.
-fn get<T>(connection: &Connection, path: &str, interface: &str, name: &str) -> Result<T, IwdError>
-where
-    T: TryFrom<OwnedVariant>,
-    <T as TryFrom<OwnedVariant>>::Error: std::fmt::Display,
-{
-    let value: OwnedVariant = blocking_call(
+fn get<T: FromValue>(
+    connection: &Connection,
+    path: &str,
+    interface: &str,
+    name: &str,
+) -> Result<T, IwdError> {
+    let reply = blocking_call(
         connection,
         Some(NM_SERVICE),
         path,
@@ -420,11 +428,10 @@ where
         "Get",
         &(interface, name),
     )
-    .map_err(|error| classify(error, &format!("{interface}.{name}")))?
-    .body()
-    .deserialize()
-    .map_err(|error| IwdError::Protocol(format!("{interface}.{name}: {error}")))?;
-    T::try_from(value).map_err(|error| IwdError::Protocol(format!("{interface}.{name}: {error}")))
+    .map_err(|error| classify(error, &format!("{interface}.{name}")))?;
+    let value: Value = FromArgs::from_args(reply.body)
+        .map_err(|error| IwdError::Protocol(format!("{interface}.{name}: {error}")))?;
+    T::from_value(value).map_err(|error| IwdError::Protocol(format!("{interface}.{name}: {error}")))
 }
 
 impl P2pRadio for NmRadio {
@@ -457,8 +464,8 @@ impl P2pRadio for NmRadio {
     }
 
     fn request_discovery(&self) -> Result<(), IwdError> {
-        let mut options: HashMap<&str, Variant<'_>> = HashMap::new();
-        options.insert("timeout", Variant::I32(FIND_TIMEOUT_SECONDS));
+        let mut options: HashMap<&str, Value> = HashMap::new();
+        options.insert("timeout", var(Value::Int32(FIND_TIMEOUT_SECONDS)));
         blocking_call(
             &self.connection,
             Some(NM_SERVICE),
@@ -519,17 +526,13 @@ impl P2pRadio for NmRadio {
             });
         let owner = current_user_name();
         let settings = group_settings(&address, &wfd_ies, owner.as_deref());
-        let device = ObjectPath::try_from(self.device.as_str())
+        let device = OwnedObjectPath::try_from(self.device.as_str())
             .map_err(|error| IwdError::Protocol(error.to_string()))?;
-        let peer = ObjectPath::try_from(peer_path)
+        let peer = OwnedObjectPath::try_from(peer_path)
             .map_err(|error| IwdError::Protocol(error.to_string()))?;
-        let mut options: HashMap<&str, Variant<'_>> = HashMap::new();
-        options.insert("persist", Variant::from("volatile"));
-        let (_profile, active, _result): (
-            OwnedObjectPath,
-            OwnedObjectPath,
-            HashMap<String, OwnedVariant>,
-        ) = blocking_call(
+        let mut options: HashMap<&str, Value> = HashMap::new();
+        options.insert("persist", var(Value::String("volatile".into())));
+        let reply = blocking_call(
             &self.connection,
             Some(NM_SERVICE),
             NM_PATH,
@@ -537,10 +540,14 @@ impl P2pRadio for NmRadio {
             "AddAndActivateConnection2",
             &(settings, device, peer, options),
         )
-        .map_err(|error| classify(error, "AddAndActivateConnection2"))?
-        .body()
-        .deserialize()
-        .map_err(|error| IwdError::Protocol(format!("AddAndActivateConnection2: {error}")))?;
+        .map_err(|error| classify(error, "AddAndActivateConnection2"))?;
+        if reply.body.len() < 2 {
+            return Err(IwdError::Protocol(
+                "AddAndActivateConnection2: missing object paths in reply".into(),
+            ));
+        }
+        let active = OwnedObjectPath::from_value(reply.body[1].clone())
+            .map_err(|error| IwdError::Protocol(format!("AddAndActivateConnection2: {error}")))?;
 
         let deadline = Instant::now() + self.activation_timeout;
         loop {
@@ -688,21 +695,39 @@ mod tests {
     fn the_group_profile_is_a_dhcp_client_p2p_connection() {
         let ies = source_wfd_ies(&DisplayCapabilities::source_only(7236));
         let settings = group_settings("9E:1F:E6:7C:8B:CE", &ies, Some("ming"));
-        assert_eq!(settings["connection"]["type"], Variant::from("wifi-p2p"));
-        assert_eq!(settings["connection"]["autoconnect"], Variant::from(false));
+        assert_eq!(
+            settings["connection"]["type"],
+            var(Value::String("wifi-p2p".into()))
+        );
+        assert_eq!(
+            settings["connection"]["autoconnect"],
+            var(Value::Bool(false))
+        );
         assert_eq!(
             settings["wifi-p2p"]["peer"],
-            Variant::from("9E:1F:E6:7C:8B:CE")
+            var(Value::String("9E:1F:E6:7C:8B:CE".into()))
         );
         assert_eq!(
             settings["wifi-p2p"]["wfd-ies"],
-            Variant::from(ies.as_slice())
+            var(Value::Array(
+                "y".into(),
+                ies.iter().copied().map(Value::Byte).collect()
+            ))
         );
-        assert_eq!(settings["ipv4"]["method"], Variant::from("auto"));
-        assert_eq!(settings["ipv6"]["method"], Variant::from("disabled"));
+        assert_eq!(
+            settings["ipv4"]["method"],
+            var(Value::String("auto".into()))
+        );
+        assert_eq!(
+            settings["ipv6"]["method"],
+            var(Value::String("disabled".into()))
+        );
         assert_eq!(
             settings["connection"]["permissions"],
-            Variant::from(vec!["user:ming".to_owned()]),
+            var(Value::Array(
+                "s".into(),
+                vec![Value::String("user:ming".to_owned())]
+            )),
             "a user-owned profile needs only settings.modify.own"
         );
         let system = group_settings("9E:1F:E6:7C:8B:CE", &ies, None);
@@ -720,16 +745,10 @@ mod tests {
 
     #[test]
     fn permission_failures_are_authorization_not_protocol() {
-        let error = zbus::Error::MethodError(
-            zbus::names::OwnedErrorName::try_from(
-                "org.freedesktop.NetworkManager.Settings.PermissionDenied",
-            )
-            .expect("name"),
-            Some("Insufficient privileges".to_owned()),
-            zbus::message::Message::method_call("/", "x")
-                .build(&())
-                .expect("message"),
-        );
+        let error = tessera_dbus::Error::MethodError {
+            name: "org.freedesktop.NetworkManager.Settings.PermissionDenied".to_owned(),
+            detail: Some("Insufficient privileges".to_owned()),
+        };
         assert!(matches!(
             classify(error, "AddAndActivateConnection2"),
             IwdError::NotAuthorized(reason) if reason.contains("Insufficient privileges")

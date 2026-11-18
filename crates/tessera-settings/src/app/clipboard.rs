@@ -26,8 +26,7 @@ use std::slice;
 use std::thread;
 use std::time::Duration;
 
-use smithay_client_toolkit::data_device_manager::ReadPipe;
-use smithay_client_toolkit::reexports::calloop::channel::Sender as LoopSender;
+use tessera_wl_client::WakeSender as LoopSender;
 
 /// Largest clipboard payload accepted, matching Lens's staging buffer. Text
 /// fields cannot use more, and an unbounded peer must not grow our heap.
@@ -145,8 +144,8 @@ pub(crate) fn pick_text_mime(mime_types: &[String]) -> Option<String> {
 
 /// Read an offer's pipe on a worker thread and wake the window with the
 /// UTF-8 payload. The thread is detached; the window may close first.
-pub(crate) fn spawn_read(pipe: ReadPipe, done: LoopSender<ReadFinished>) {
-    let reader = File::from(OwnedFd::from(pipe));
+pub(crate) fn spawn_read(pipe: OwnedFd, done: LoopSender<ReadFinished>) {
+    let reader = File::from(pipe);
     let spawned = thread::Builder::new()
         .name("settings-clipboard-read".into())
         .spawn(move || {
@@ -230,7 +229,8 @@ mod tests {
 
     #[test]
     fn lens_callbacks_become_loop_events() {
-        let (events, received) = smithay_client_toolkit::reexports::calloop::channel::channel();
+        let wake = tessera_wl_client::WakeSignal::new().unwrap();
+        let (events, received) = tessera_wl_client::wake_channel(wake);
         let host = Host::new(events);
         let user = host.as_user_data();
         // SAFETY: `host` owns the user pointer for both calls.

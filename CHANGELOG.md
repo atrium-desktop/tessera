@@ -16,6 +16,62 @@ project cuts a tagged release.
 
 ### Added
 
+- **Per-output presentation domains (ADR-0185).** The DRM backend now owns one
+  primary-plane slot per CRTC with independent framebuffer retirement, accepts
+  composite targets (`present_to`) and direct-scanout targets, and retires each
+  page flip on its own CRTC instead of treating every output as one batch.
+  Direct scanout is evaluated against the target output's mode rather than the
+  union framebuffer, and other outputs keep presenting the composite while one
+  output is client-owned. Composite targets skip outputs whose own flip is
+  still pending; exported Flux images carry a lease (optics ADR-0168) so the
+  ring cannot reuse an image a slow CRTC is still scanning. When every
+  physical output has its own covering opaque client, all outputs can enter
+  direct scanout simultaneously with target-scoped callbacks and damage. Frame callbacks,
+  presentation feedback, and damage acknowledgement are scoped to the outputs
+  that actually flipped. Flux is pinned at v0.0.81 (ADR-0168). Two-output
+  hardware verification remains pending.
+- **Presentation groups and per-output pacing (ADR-0249).** Outputs that share
+  a mirror source, touch at the same refresh, or are touched by one spanning
+  window form an atomic presentation group. Disjoint groups flip independently
+  and the frame loop paces at the fastest group; `wp_presentation_feedback`
+  follows each target output's refresh. A spanning mixed-refresh window
+  temporarily runs at the slower group's cadence instead of tearing.
+- **Per-output DRM presentation targets (ADR-0247).** Each physical output
+  now owns a mode-sized target, Flux ring, damage scope, and page flip.
+  Extended outputs render their local logical region; mirrors blit their source
+  target with letterboxing. Overview, window switcher, live previews, soft
+  shadows, 3D wallpaper, and workspace slides also render per output. Capture,
+  screenshot freeze, active streams, session lock, and overlay fallback compose
+  one dedicated capture image, then upload it into every output target; the
+  union image is no longer scanned as the presentation swapchain.
+- **Mirrors present through a compositor-owned native target (ADR-0246).**
+  DRM mirror outputs now blit the accepted union frame into a mode-sized
+  target and commit it 1:1, so they no longer depend on KMS primary-plane
+  scaling. The source ring lease is retained until the target frame is
+  replaced. Extended outputs and captures still use the union composite.
+- **Absolute input devices bind to outputs (ADR-0245).** `[[input.mapping]]`
+  maps a touchscreen, tablet, or absolute pointer to a connector. Coordinates
+  use the mirror's fitted content rectangle, so letterbox bars clamp to the
+  visible edge instead of redirecting touch to a desktop corner. Input Settings
+  preserves the bindings; relative motion is untouched.
+- **Tentative display edits revert automatically (ADR-0244).** A display
+  Apply is now a 15-second preview: Settings shows a countdown and **Keep
+  changes**, `tessera display confirm` keeps a CLI role edit, and the
+  compositor restores the previous role/mode/scale/position if the deadline
+  expires. The timer lives in the compositor, not the Settings client.
+- **Mirror or extend physical displays (ADR-0243).** `[[output]]` gains
+  `role = "extend" | "mirror"` and `mirror_of`; `[display] topology` defaults
+  to `auto`, which mirrors the first smaller external display and extends
+  larger ones. The Settings Display page gains a default-topology selector, an
+  Automatic/Extend/Mirror output-role selector, and a mirror-source selector;
+  `tessera display` reports the effective role and whether it is automatic;
+  `tessera display topology` and `tessera display role` expose the same
+  operations from the CLI.
+  A mirror shares the source's workspace, logical rect, input mapping, and
+  capture geometry; the DRM backend scans the source framebuffer rectangle
+  and scales it to the mirror's native mode instead of allocating a second
+  desktop framebuffer, preserving aspect ratio with centered bars when the
+  target aspect differs.
 - **Casting on NetworkManager + wpa_supplicant hosts.** `tessera-cast` gains a
   NetworkManager `P2pRadio` (ADR-0242 §6): discovery via the `wifi-p2p` device
   and group formation as a volatile, user-owned profile.

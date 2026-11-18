@@ -4,7 +4,7 @@
 //! globs or hand-parsed manifests: Cargo resolves members, renames, targets,
 //! and platform-specific edges, so a check cannot disagree with the build.
 
-use anyhow::{Context, Result, bail};
+use crate::error::{Context, Result, bail};
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};

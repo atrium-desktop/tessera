@@ -40,8 +40,6 @@
 //!   bluetooth, casting, tray, status probes). **De-prioritized** to keep it
 //!   off the frame thread's pinned CPU.
 
-#![cfg_attr(not(target_os = "linux"), allow(dead_code))]
-
 use std::sync::OnceLock;
 
 /// The process-wide scheduling plan, armed once at compositor startup by
@@ -181,16 +179,6 @@ impl SchedPlan {
             frame_nice,
             rest,
         }
-    }
-
-    /// Every logical CPU the plan discovered as available to this process.
-    ///
-    /// Empty when the plan is disabled or the platform has no affinity query.
-    /// Callers that need to reason about the whole topology (a launch path
-    /// widening a child's mask, a diagnostic) read this instead of re-querying
-    /// the kernel and racing the ambient affinity.
-    pub fn available_cpus(&self) -> Vec<usize> {
-        self.available.clone().unwrap_or_default()
     }
 
     /// The logical CPU reserved for the frame loop, if any.
@@ -552,23 +540,6 @@ fn apply_pin(pin: &Pin, role: ThreadRole) {
             let err = std::io::Error::last_os_error();
             log::warn!("sched[{role}]: sched_setaffinity rejected: {err}");
         }
-    }
-}
-
-/// Pin the calling thread (the frame loop) to the plan's dedicated CPU.
-pub fn pin_current_thread(plan: &SchedPlan, role: ThreadRole) {
-    if !plan.enabled {
-        return;
-    }
-    #[cfg(target_os = "linux")]
-    {
-        if let Some(pin) = plan.pin_for(role) {
-            apply_pin(&pin, role);
-        }
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = (plan, role);
     }
 }
 

@@ -1277,26 +1277,24 @@ pub(crate) unsafe extern "C" fn surface_commit(
             geometry_revision_changed,
         );
 
-        if tracing::enabled!(target: "tessera.damage.commit", tracing::Level::TRACE) {
-            tracing::trace!(
+        if log::log_enabled!(target: "tessera.damage.commit", log::Level::Trace) {
+            log::trace!(
                 target: "tessera.damage.commit",
-                metric = "commit.decision",
-                count = 1u64,
-                surface = (*rec).resource as usize,
-                window = ?(*rec).window.id,
-                generation = (*rec).generation,
+                "commit damage decision metric=commit.decision count=1 surface={} window={:?} generation={} buffer_set={} damage_reported={} geometry_revision={} damage_space_changed={} unknown_full={} buffer_extent={:?} frame_damage={:?} surface_damage={:?} buffer_damage={:?} committed_damage={:?} committed_full={}",
+                (*rec).resource as usize,
+                (*rec).window.id,
+                (*rec).generation,
                 buffer_set,
                 damage_reported,
-                geometry_revision = geometry_revision_changed,
+                geometry_revision_changed,
                 damage_space_changed,
                 unknown_full,
-                buffer_extent = ?buffer_dims,
-                frame_damage = ?frame_damage,
-                surface_damage = ?surface_damage,
-                buffer_damage = ?pending_buffer_damage,
-                committed_damage = ?(*rec).committed_damage,
-                committed_full = (*rec).committed_damage_full,
-                "commit damage decision"
+                buffer_dims,
+                frame_damage,
+                surface_damage,
+                pending_buffer_damage,
+                (*rec).committed_damage,
+                (*rec).committed_damage_full,
             );
         }
 
@@ -2249,7 +2247,7 @@ unsafe fn apply_committed_buffer(
                         (*rec).generation = (*rec).generation.wrapping_add(1);
                         (*rec).mapped = true;
 
-                        if tracing::enabled!(target: "tessera.damage.shm", tracing::Level::TRACE) {
+                        if log::log_enabled!(target: "tessera.damage.shm", log::Level::Trace) {
                             let (surface_rects, buffer_rects) = match repair {
                                 SnapshotRepair::Rects { surface, buffer } => (surface, buffer),
                                 SnapshotRepair::Full => (&[][..], &[][..]),
@@ -2268,28 +2266,26 @@ unsafe fn apply_committed_buffer(
                             } else {
                                 "incremental"
                             };
-                            tracing::trace!(
+                            log::trace!(
                                 target: "tessera.damage.shm",
-                                metric = "shm.snapshot",
-                                count = 1u64,
-                                surface = (*rec).resource as usize,
-                                window = ?(*rec).window.id,
-                                generation = (*rec).generation,
-                                width = w,
-                                height = h,
-                                transform = ?(*rec).buffer_transform,
-                                buffer_scale = (*rec).buffer_scale,
-                                viewport_src = ?(*rec).viewport_src,
-                                viewport_dst = ?(*rec).viewport_dst,
-                                surface_extent = ?(surface_width, surface_height),
+                                "shm snapshot repair metric=shm.snapshot count=1 surface={} window={:?} generation={} width={} height={} transform={:?} buffer_scale={} viewport_src={:?} viewport_dst={:?} surface_extent={:?} damage_reported={} unknown_full={} geometry_revision={} reason={} surface_commit_rects={:?} buffer_commit_rects={:?} mapped={:?}",
+                                (*rec).resource as usize,
+                                (*rec).window.id,
+                                (*rec).generation,
+                                w,
+                                h,
+                                (*rec).buffer_transform,
+                                (*rec).buffer_scale,
+                                (*rec).viewport_src,
+                                (*rec).viewport_dst,
+                                (surface_width, surface_height),
                                 damage_reported,
                                 unknown_full,
-                                geometry_revision = geometry_revision_changed,
+                                geometry_revision_changed,
                                 reason,
-                                surface_commit_rects = ?surface_rects,
-                                buffer_commit_rects = ?buffer_rects,
-                                mapped = ?mapped,
-                                "shm snapshot repair"
+                                surface_rects,
+                                buffer_rects,
+                                mapped,
                             );
                         }
                     }

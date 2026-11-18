@@ -81,7 +81,7 @@ impl CastHandle {
             .name("tessera-cast".into())
             .spawn(move || {
                 // Background cast client: de-prioritized off the frame CPU.
-                tessera_sched::mark_background();
+                crate::runtime::sched::mark_background();
                 run_client(socket, options, thread_snapshot, command_rx)
             })
         {
@@ -161,7 +161,7 @@ fn run_client(
         let (events_tx, events_rx) = mpsc::channel();
         let mut reader = stream;
         let reader_thread = std::thread::spawn(move || {
-            tessera_sched::mark_background();
+            crate::runtime::sched::mark_background();
             while let Ok(Some(event)) = daemon::read_frame::<_, Event>(&mut reader) {
                 if events_tx.send(event).is_err() {
                     break;

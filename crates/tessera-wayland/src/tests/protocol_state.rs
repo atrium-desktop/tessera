@@ -578,6 +578,7 @@ fn fullscreen_reconfigure_covers_the_output_and_restores_the_floating_rect() {
             height: 1080,
             refresh_mhz: 60_000,
         },
+        logical_size_override: None,
         ..Default::default()
     };
     let mut rec = SurfaceRec::new(std::ptr::null_mut());
@@ -634,6 +635,7 @@ fn stale_commit_during_restore_does_not_latch_the_maximized_size() {
             height: 1080,
             refresh_mhz: 60_000,
         },
+        logical_size_override: None,
         ..Default::default()
     };
     let mut rec = SurfaceRec::new(std::ptr::null_mut());
@@ -708,6 +710,7 @@ fn explicit_size_configure_supersedes_a_pending_restore() {
             height: 1080,
             refresh_mhz: 60_000,
         },
+        logical_size_override: None,
         ..Default::default()
     };
     let mut rec = SurfaceRec::new(std::ptr::null_mut());
@@ -752,6 +755,7 @@ fn replacing_floating_geometry_consumes_the_saved_restore_rect() {
             height: 1080,
             refresh_mhz: 60_000,
         },
+        logical_size_override: None,
         ..Default::default()
     };
     let mut rec = SurfaceRec::new(std::ptr::null_mut());
@@ -807,6 +811,7 @@ fn restore_of_a_zero_sized_capture_does_not_arm_the_commit_guard() {
             height: 1080,
             refresh_mhz: 60_000,
         },
+        logical_size_override: None,
         ..Default::default()
     };
     let mut rec = SurfaceRec::new(std::ptr::null_mut());
@@ -843,6 +848,7 @@ fn maximized_tear_off_drag_reanchors_to_cursor() {
             height: 1080,
             refresh_mhz: 60_000,
         },
+        logical_size_override: None,
         ..Default::default()
     };
     let mut rec = SurfaceRec::new(std::ptr::null_mut());
@@ -899,6 +905,7 @@ fn fullscreen_tear_off_drag_reanchors_to_cursor() {
             height: 1080,
             refresh_mhz: 60_000,
         },
+        logical_size_override: None,
         ..Default::default()
     };
     let mut rec = SurfaceRec::new(std::ptr::null_mut());
@@ -995,6 +1002,7 @@ fn set_toplevel_fullscreen_guards_follow_window_authority() {
             height: 1080,
             refresh_mhz: 60_000,
         },
+        logical_size_override: None,
         ..Default::default()
     };
     let mut rec = SurfaceRec::new(std::ptr::null_mut());

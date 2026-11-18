@@ -37,7 +37,17 @@ The composition root selects a target through `host::Host` from `TESSERA_BACKEND
 use tessera_platform::host::{BackendKind, Host};
 use tessera_platform::Backend;
 
-let mut host = Host::open(BackendKind::Auto, "tessera", 1280, 720, Default::default())?;
+let mut host = Host::open(
+    BackendKind::Auto,
+    "tessera",
+    1280,
+    720,
+    Default::default(),
+    Default::default(),
+    Default::default(),
+    Default::default(),
+    Default::default(),
+)?;
 let device = host.create_device()?;
 let mut surface = host.create_surface(&device)?;
 while host.dispatch_timeout(std::time::Duration::from_secs(1)) {

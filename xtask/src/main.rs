@@ -5,48 +5,84 @@
 //!
 //! Tests are not run from here; use `cargo nextest run`.
 
+mod error;
 mod tasks;
 mod workspace;
 
-use anyhow::Result;
-use clap::{Parser, Subcommand};
+use crate::error::{Result, bail};
 
-#[derive(Parser, Debug)]
-#[command(name = "cargo xtask", about = "Tessera workspace architecture gates")]
-struct Cli {
-    #[command(subcommand)]
-    command: Command,
-}
-
-#[derive(Subcommand, Debug)]
-enum Command {
-    /// Every member inherits workspace lints and workspace dependency declarations
-    PackageConformity(tasks::package_conformity::Args),
-    /// Every dependency edge is allowed by dependency-policy.toml (ADR-0159)
-    CheckBoundaries,
-    /// Every tessera-env item serves at least two process entry points (ADR-0147)
-    CheckBootstrapAdmission,
-    /// Every Wayland vtable is admitted and no resource bypasses admission (ADR-0193)
-    CheckVtables,
-    /// ADR registry: unique ids, frontmatter, index sync, lineage links
-    CheckAdrs,
-    /// system/ mirrors the install tree, the manifest, and the docs (ADR-0241)
-    CheckSystemFiles,
-    /// No poisonable-lock panics and no new panic sites (ADR-0195)
-    CheckPanics(tasks::check_panics::Args),
-    /// Read or move the pinned Optics release tag
-    Optics(tasks::optics::Args),
+fn print_usage() {
+    println!(
+        "Tessera workspace architecture gates\n\n\
+         Usage: cargo xtask <COMMAND>\n\n\
+         Commands:\n  \
+           package-conformity [--fix]\n  \
+           check-boundaries\n  \
+           check-bootstrap-admission\n  \
+           check-vtables\n  \
+           check-adrs\n  \
+           check-system-files\n  \
+           check-panics [--update]\n  \
+           optics [--tag-only | --set <TAG>]"
+    );
 }
 
 fn main() -> Result<()> {
-    match Cli::parse().command {
-        Command::PackageConformity(args) => tasks::package_conformity::run(args),
-        Command::CheckBoundaries => tasks::check_boundaries::run(),
-        Command::CheckBootstrapAdmission => tasks::check_bootstrap_admission::run(),
-        Command::CheckVtables => tasks::check_vtables::run(),
-        Command::CheckAdrs => tasks::check_adrs::run(),
-        Command::CheckSystemFiles => tasks::check_system_files::run(),
-        Command::CheckPanics(args) => tasks::check_panics::run(args),
-        Command::Optics(args) => tasks::optics::run(args),
+    let mut args = std::env::args().skip(1);
+    let Some(cmd) = args.next() else {
+        print_usage();
+        return Ok(());
+    };
+    match cmd.as_str() {
+        "-h" | "--help" | "help" => {
+            print_usage();
+            Ok(())
+        }
+        "package-conformity" => {
+            let mut parsed = tasks::package_conformity::Args::default();
+            for arg in args {
+                match arg.as_str() {
+                    "--fix" => parsed.fix = true,
+                    other => bail!("unknown argument for package-conformity: {other}"),
+                }
+            }
+            tasks::package_conformity::run(parsed)
+        }
+        "check-boundaries" => tasks::check_boundaries::run(),
+        "check-bootstrap-admission" => tasks::check_bootstrap_admission::run(),
+        "check-vtables" => tasks::check_vtables::run(),
+        "check-adrs" => tasks::check_adrs::run(),
+        "check-system-files" => tasks::check_system_files::run(),
+        "check-panics" => {
+            let mut parsed = tasks::check_panics::Args::default();
+            for arg in args {
+                match arg.as_str() {
+                    "--update" => parsed.update = true,
+                    other => bail!("unknown argument for check-panics: {other}"),
+                }
+            }
+            tasks::check_panics::run(parsed)
+        }
+        "optics" => {
+            let mut parsed = tasks::optics::Args::default();
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "-t" | "--tag-only" => parsed.tag_only = true,
+                    "--set" => {
+                        let tag = args.next().ok_or("--set requires TAG")?;
+                        parsed.set = Some(tag);
+                    }
+                    s if s.starts_with("--set=") => {
+                        parsed.set = Some(s["--set=".len()..].to_string());
+                    }
+                    other => bail!("unknown argument for optics: {other}"),
+                }
+            }
+            if parsed.tag_only && parsed.set.is_some() {
+                bail!("--tag-only conflicts with --set");
+            }
+            tasks::optics::run(parsed)
+        }
+        other => bail!("unknown xtask command: {other}"),
     }
 }

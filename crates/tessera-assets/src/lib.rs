@@ -16,14 +16,14 @@
 //! GPU resources, so the compositor, the shell, and any future surface decode
 //! an asset the same way without sharing a renderer.
 
+pub mod cursors;
 pub mod vector;
 
 pub use vector::{SourceError, decompress_if_gzip, read_vector_source};
 
 use std::path::{Path, PathBuf};
 
-use image::{RgbaImage, imageops::FilterType};
-use thiserror::Error;
+use tessera_image::{Filter, ImageError, RgbaImage};
 
 /// Raster formats the `image` decoder is compiled to handle.
 ///
@@ -44,30 +44,71 @@ pub const VECTOR_EXTENSIONS: &[&str] = &["svg", "svgz"];
 pub const MAX_EXTENT: u32 = 4096;
 
 /// Why an asset could not be decoded.
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum DecodeError {
     /// The file extension names no decoder this crate implements.
-    #[error("unsupported theme asset extension {0:?}")]
     Unsupported(String),
     /// The file could not be read.
-    #[error("cannot read {path}: {source}")]
     Io {
         path: PathBuf,
-        #[source]
         source: std::io::Error,
     },
     /// The raster decoder rejected the bytes.
-    #[error(transparent)]
-    Raster(#[from] image::ImageError),
+    Raster(ImageError),
     /// The vector source could not be read or decompressed.
-    #[error(transparent)]
-    Source(#[from] SourceError),
+    Source(SourceError),
     /// The vector compiler rejected the document.
-    #[error("vector document rejected: {0}")]
-    Vector(#[from] reticle::Error),
+    Vector(reticle::Error),
     /// A buffer's extent does not match its pixel byte length.
-    #[error("raster extent {width}x{height} does not match {len} pixel bytes")]
     Extent { width: u32, height: u32, len: usize },
+}
+
+impl std::fmt::Display for DecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unsupported(ext) => write!(f, "unsupported theme asset extension {ext:?}"),
+            Self::Io { path, source } => write!(f, "cannot read {}: {source}", path.display()),
+            Self::Raster(err) => write!(f, "{err}"),
+            Self::Source(err) => write!(f, "{err}"),
+            Self::Vector(err) => write!(f, "vector document rejected: {err}"),
+            Self::Extent { width, height, len } => {
+                write!(
+                    f,
+                    "raster extent {width}x{height} does not match {len} pixel bytes"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for DecodeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io { source, .. } => Some(source),
+            Self::Raster(err) => Some(err),
+            Self::Source(err) => Some(err),
+            Self::Vector(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+impl From<ImageError> for DecodeError {
+    fn from(err: ImageError) -> Self {
+        Self::Raster(err)
+    }
+}
+
+impl From<SourceError> for DecodeError {
+    fn from(err: SourceError) -> Self {
+        Self::Source(err)
+    }
+}
+
+impl From<reticle::Error> for DecodeError {
+    fn from(err: reticle::Error) -> Self {
+        Self::Vector(err)
+    }
 }
 
 /// One decoded asset in the renderer's native CPU layout.
@@ -235,12 +276,12 @@ pub fn premultiply_bgra_in_place(bgra: &mut [u8]) {
 /// `extent` by `extent` (aspect is not preserved; icon cells are square).
 pub fn decode_bytes(bytes: &[u8], extent: u32) -> Result<RasterImage, DecodeError> {
     let extent = clamp_extent(extent);
-    let mut rgba = image::load_from_memory(bytes)?.to_rgba8();
+    let mut rgba = tessera_image::decode_memory(bytes)?;
     premultiply_rgba_in_place(&mut rgba);
     let scaled = if rgba.width() == extent && rgba.height() == extent {
         rgba
     } else {
-        image::imageops::resize(&rgba, extent, extent, FilterType::Triangle)
+        tessera_image::resize(&rgba, extent, extent, Filter::Triangle)
     };
     Ok(premultiplied_rgba_to_bgra(scaled))
 }
@@ -307,7 +348,7 @@ fn premultiply_channel(channel: u8, alpha: u8) -> u8 {
 }
 
 fn premultiply_rgba_in_place(rgba: &mut RgbaImage) {
-    for pixel in rgba.pixels_mut() {
+    for pixel in rgba.as_mut_raw().chunks_exact_mut(4) {
         let alpha = pixel[3];
         pixel[0] = premultiply_channel(pixel[0], alpha);
         pixel[1] = premultiply_channel(pixel[1], alpha);
@@ -373,17 +414,12 @@ fn raster_from_pixmap(pixmap: &reticle::Pixmap) -> Result<RasterImage, DecodeErr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
 
     const RED_SVG: &[u8] =
         b"<svg viewBox=\"0 0 24 24\"><rect width=\"24\" height=\"24\" fill=\"#FF0000\"/></svg>";
 
-    fn png(pixel: image::Rgba<u8>) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        image::RgbaImage::from_pixel(1, 1, pixel)
-            .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
-            .expect("encode fixture");
-        bytes
+    fn png(pixel: [u8; 4]) -> Vec<u8> {
+        tessera_image::encode_png_rgba(1, 1, &pixel, false).expect("encode fixture")
     }
 
     #[test]
@@ -415,7 +451,7 @@ mod tests {
     fn raster_alpha_is_premultiplied_at_the_boundary() {
         // Half-transparent red has to arrive as half-red, not full red with a
         // separate alpha: flux samples premultiplied texels.
-        let raster = decode_bytes(&png(image::Rgba([255, 0, 0, 128])), 1).expect("png decodes");
+        let raster = decode_bytes(&png([255, 0, 0, 128]), 1).expect("png decodes");
         assert_eq!(raster.as_bgra(), &[0, 0, 128, 128]);
     }
 

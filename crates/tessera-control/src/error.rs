@@ -9,26 +9,42 @@
 /// `clap::Error` is wrapped verbatim because clap already renders an
 /// appropriate `error: ... \n\nUsage: ...` message; we just need to forward
 /// its choice of stdout vs stderr and exit code.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum CliError {
     /// Argument parsing or unknown subcommand. Exit code 2.
-    #[error("{0}")]
-    Usage(#[from] clap::Error),
+    Usage(crate::cli::ParseError),
     /// Could not open the IPC socket or negotiate capabilities.
-    #[error("connect: {0}")]
     Connect(String),
     /// IPC read/write failure or server-side protocol error.
-    #[error("{0}")]
     Io(String),
     /// Filesystem error writing a capture or creating a directory.
-    #[error("{0}")]
     Fs(String),
     /// An Interaction Domain id of `0` was supplied; the protocol reserves it.
-    #[error("Interaction Domain id zero is invalid")]
     ZeroInteractionDomainId,
     /// An Interaction Domain argument referenced an unknown id in a fallback slot.
-    #[error("fallback Interaction Domain {0} is invalid")]
     InvalidFallbackInteractionDomain(u64),
+}
+
+impl std::fmt::Display for CliError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Usage(err) => write!(f, "{err}"),
+            Self::Connect(msg) => write!(f, "connect: {msg}"),
+            Self::Io(msg) | Self::Fs(msg) => f.write_str(msg),
+            Self::ZeroInteractionDomainId => f.write_str("Interaction Domain id zero is invalid"),
+            Self::InvalidFallbackInteractionDomain(id) => {
+                write!(f, "fallback Interaction Domain {id} is invalid")
+            }
+        }
+    }
+}
+
+impl std::error::Error for CliError {}
+
+impl From<crate::cli::ParseError> for CliError {
+    fn from(err: crate::cli::ParseError) -> Self {
+        Self::Usage(err)
+    }
 }
 
 impl CliError {

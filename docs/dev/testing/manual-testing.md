@@ -44,7 +44,7 @@ parsing without installing or building the native C23/Meson Optics stack (`flux`
 cargo nextest run --locked \
   -p tessera-desktop -p tessera-primitives -p tessera-authority -p tessera-audit \
   -p tessera-config -p tessera-ipc -p tessera-protocol -p tessera-launch-services \
-  -p tessera-env -p tessera-cli -p tessera-mcp -p tessera-idle \
+  -p tessera-env -p tessera-control -p tessera-mcp -p tessera-idle \
   -p tessera-wayland
 
 # Root integration/e2e suites with native modules filtered out

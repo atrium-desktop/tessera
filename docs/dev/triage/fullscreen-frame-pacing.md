@@ -241,10 +241,14 @@ opaque surface covering an output.
   is false *and* scanout is blocked by a shell/backdrop reason, ownership
   resolution is the suspect, not the client.
 
-## 10. Multi-Output: One Union Presentation Domain (ADR-0185, draft)
+## 10. Multi-Output: Per-Output Scanout (ADR-0185)
 
-The DRM backend renders one framebuffer spanning the union of all outputs and
-commits every CRTC in one atomic batch.
+**Implemented.** The composited canvas still spans the union, but each CRTC
+owns a primary-plane slot, direct scanout is evaluated against the target
+output, and page flips retire per CRTC. Composite frames still gate on any
+composite slot pending because the Flux ring is shared; direct flips are
+independent. The historical failure modes below remain useful as regression
+markers.
 
 - **Owner**: `crates/tessera-platform/src/drm/output.rs` (`DisplaySet::size`,
   horizontal layout), `crates/tessera-platform/src/drm/device.rs`

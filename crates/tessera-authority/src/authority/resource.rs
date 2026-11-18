@@ -178,8 +178,12 @@ impl ResourceGrantRegistry {
         }
         let id = loop {
             let mut bytes = [0u8; 32];
-            getrandom::fill(&mut bytes)
-                .map_err(|error| format!("generate resource grant id: {error}"))?;
+            std::io::Read::read_exact(
+                &mut std::fs::File::open("/dev/urandom")
+                    .map_err(|error| format!("generate resource grant id: {error}"))?,
+                &mut bytes,
+            )
+            .map_err(|error| format!("generate resource grant id: {error}"))?;
             let id = ResourceGrantId(hex(&bytes));
             if !self.grants.contains_key(&id) {
                 break id;

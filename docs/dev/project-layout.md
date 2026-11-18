@@ -14,7 +14,7 @@ crates/
   tessera-authority       actor identity, credentials, grants, ceilings, capabilities, and observation leases
   tessera-avatar          profile contract, portrait assets, and VRM runtime
   tessera-cast            out-of-process Miracast caster and cast capability probe (ADR-0192)
-  tessera-cli             domain-oriented management command library and headless tessera-ctl tool
+  tessera-control         domain-oriented session control and command dispatch library for tessera
   tessera-composite       GPU composition, damage tracking, scanout, streams, and capture encoding
   tessera-config          declarative configuration schema, loader, and live reload
   tessera-design          product design tokens, themes, and glass materials

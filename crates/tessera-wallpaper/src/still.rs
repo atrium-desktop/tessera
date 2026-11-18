@@ -1,4 +1,4 @@
-//! Still and animated image sources, decoded via the `image` crate.
+//! Still and animated image sources, decoded via `tessera-image`.
 //!
 //! Each emitted frame is tightly packed premultiplied BGRA8 at the source's
 //! full canvas size. Animated GIF/WebP frames that cover only a sub-rect of the
@@ -6,14 +6,10 @@
 //! decode, so consumers always see uniformly-sized buffers and can pass
 //! them straight to `flux::Image::from_bytes`.
 
-use std::fs::File;
-use std::io::BufReader;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use image::codecs::gif::GifDecoder;
-use image::codecs::webp::WebPDecoder;
-use image::{AnimationDecoder, ImageDecoder};
+use tessera_image::{AnimFrame, ImageFormat, RgbaImage};
 
 use crate::{Error, Source};
 
@@ -71,38 +67,22 @@ impl StillSource {
     }
 
     pub(super) fn load(path: &Path) -> Result<Self, Error> {
-        let format = image::ImageReader::open(path)
-            .map_err(|e| Error::Open(path.to_path_buf(), e))?
-            .with_guessed_format()
-            .map_err(|e| Error::Open(path.to_path_buf(), e))?
-            .format();
-
-        match format {
-            Some(image::ImageFormat::Gif) => Self::load_gif(path),
-            Some(image::ImageFormat::WebP) => Self::load_webp(path),
-            _ => Self::load_static(path),
+        let bytes = std::fs::read(path).map_err(|e| Error::Open(path.to_path_buf(), e))?;
+        match tessera_image::detect_format(&bytes) {
+            Some(ImageFormat::Gif) => Self::load_gif(path, &bytes),
+            Some(ImageFormat::Webp) => Self::load_webp(path, &bytes),
+            _ => Self::load_static_bytes(&bytes, path),
         }
     }
 
     pub(super) fn load_static_bytes(bytes: &[u8], label: &Path) -> Result<Self, Error> {
-        let img = image::load_from_memory(bytes)
+        let img = tessera_image::decode_memory(bytes)
             .map_err(|e| Error::Decode(label.to_path_buf(), e.to_string()))?;
-        Ok(Self::from_dynamic_image(img))
+        Ok(Self::from_rgba_image(img))
     }
 
-    fn load_static(path: &Path) -> Result<Self, Error> {
-        let img = image::ImageReader::open(path)
-            .map_err(|e| Error::Open(path.to_path_buf(), e))?
-            .with_guessed_format()
-            .map_err(|e| Error::Open(path.to_path_buf(), e))?
-            .decode()
-            .map_err(|e| Error::Decode(path.to_path_buf(), e.to_string()))?;
-        Ok(Self::from_dynamic_image(img))
-    }
-
-    fn from_dynamic_image(img: image::DynamicImage) -> Self {
-        let rgba = img.to_rgba8();
-        let (w, h) = (rgba.width(), rgba.height());
+    fn from_rgba_image(rgba: RgbaImage) -> Self {
+        let (w, h) = rgba.dimensions();
         let mut pixels = rgba.into_raw();
         rgba_to_premultiplied_bgra_inplace(&mut pixels);
         StillSource {
@@ -118,36 +98,38 @@ impl StillSource {
         }
     }
 
-    fn load_gif(path: &Path) -> Result<Self, Error> {
-        let file = File::open(path).map_err(|e| Error::Open(path.to_path_buf(), e))?;
-        let dec = GifDecoder::new(BufReader::new(file))
-            .map_err(|e| Error::Decode(path.to_path_buf(), e.to_string()))?;
-        let (w, h) = dec.dimensions();
-        let raw = dec
-            .into_frames()
-            .collect_frames()
+    fn load_gif(path: &Path, bytes: &[u8]) -> Result<Self, Error> {
+        let (w, h, raw) = tessera_image::decode_gif_frames(bytes)
             .map_err(|e| Error::Decode(path.to_path_buf(), e.to_string()))?;
         Self::from_animation(path, raw, w, h, "Gif")
     }
 
-    fn load_webp(path: &Path) -> Result<Self, Error> {
-        let file = File::open(path).map_err(|e| Error::Open(path.to_path_buf(), e))?;
-        let dec = WebPDecoder::new(BufReader::new(file))
+    fn load_webp(path: &Path, bytes: &[u8]) -> Result<Self, Error> {
+        let (w, h, mut raw) = tessera_image::decode_webp_frames(bytes)
             .map_err(|e| Error::Decode(path.to_path_buf(), e.to_string()))?;
-        if !dec.has_animation() {
-            return Self::load_static(path);
+        if raw.len() == 1
+            && let Some(frame) = raw.pop()
+        {
+            let mut pixels = frame.rgba;
+            rgba_to_premultiplied_bgra_inplace(&mut pixels);
+            return Ok(StillSource {
+                frames: vec![Frame {
+                    pixels,
+                    duration: FOREVER,
+                }],
+                width: w,
+                height: h,
+                current: 0,
+                last_advance: Instant::now(),
+                r#gen: 0,
+            });
         }
-        let (w, h) = dec.dimensions();
-        let raw = dec
-            .into_frames()
-            .collect_frames()
-            .map_err(|e| Error::Decode(path.to_path_buf(), e.to_string()))?;
         Self::from_animation(path, raw, w, h, "WebP")
     }
 
     fn from_animation(
         path: &Path,
-        raw: Vec<image::Frame>,
+        raw: Vec<AnimFrame>,
         canvas_w: u32,
         canvas_h: u32,
         label: &str,
@@ -186,7 +168,7 @@ impl StillSource {
 /// seamlessly, with fewer intermediate steps. Consuming `raw` by value lets
 /// each decoded frame's memory be freed as soon as it is composited, so the
 /// transient decode peak tracks the retained set rather than the full source.
-fn composite_frames(raw: Vec<image::Frame>, canvas_w: u32, canvas_h: u32) -> Vec<Frame> {
+fn composite_frames(raw: Vec<AnimFrame>, canvas_w: u32, canvas_h: u32) -> Vec<Frame> {
     let canvas_bytes = (canvas_w as usize) * (canvas_h as usize) * 4;
     let max_frames = (MAX_RETAINED_BYTES / canvas_bytes.max(1))
         .clamp(1, MAX_RETAINED_FRAMES)
@@ -195,12 +177,11 @@ fn composite_frames(raw: Vec<image::Frame>, canvas_w: u32, canvas_h: u32) -> Vec
     let mut out: Vec<Frame> = Vec::new();
 
     for f in raw {
-        let buf = f.buffer();
-        let fw = buf.width();
-        let fh = buf.height();
-        let left = f.left();
-        let top = f.top();
-        let src = buf.as_raw();
+        let fw = f.width;
+        let fh = f.height;
+        let left = f.left;
+        let top = f.top;
+        let src = &f.rgba;
 
         for y in 0..fh {
             for x in 0..fw {
@@ -241,7 +222,7 @@ fn composite_frames(raw: Vec<image::Frame>, canvas_w: u32, canvas_h: u32) -> Vec
             }
         }
 
-        let duration = frame_duration(&f);
+        let duration = frame_duration(f.delay);
         if out.len() < max_frames {
             out.push(Frame {
                 pixels: accum.clone(),
@@ -259,18 +240,9 @@ fn composite_frames(raw: Vec<image::Frame>, canvas_w: u32, canvas_h: u32) -> Vec
     out
 }
 
-fn frame_duration(f: &image::Frame) -> Duration {
-    // `Delay::numer_denom_ms` exposes the frame's duration as a
-    // millisecond ratio. Convert to nanoseconds for sub-ms fidelity,
-    // clamped to a 60fps minimum so malformed zero-delay frames don't
-    // spin the advance loop.
-    let (numer, denom) = f.delay().numer_denom_ms();
-    let nanos = if denom == 0 {
-        100_000_000
-    } else {
-        (numer as u64 * 1_000_000) / denom as u64
-    };
-    Duration::from_nanos(nanos).max(Duration::from_millis(16))
+fn frame_duration(delay: Duration) -> Duration {
+    // Clamp to a 60fps minimum so malformed zero-delay frames don't spin the advance loop.
+    delay.max(Duration::from_millis(16))
 }
 
 /// Convert tightly packed straight RGBA8 to premultiplied BGRA8. Flux canvas
@@ -323,15 +295,9 @@ impl Source for StillSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
 
     fn write_png(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
-        let img = image::RgbaImage::from_raw(w, h, rgba.to_vec()).unwrap();
-        let mut buf = Cursor::new(Vec::new());
-        image::DynamicImage::from(img)
-            .write_to(&mut buf, image::ImageFormat::Png)
-            .unwrap();
-        buf.into_inner()
+        tessera_image::encode_png_rgba(w, h, rgba, false).unwrap()
     }
 
     #[test]
@@ -380,14 +346,14 @@ mod tests {
         // frames' durations into the final retained frame. The surviving
         // animation must still span the same total wall-clock time so the
         // loop cadence is unchanged.
-        let frames: Vec<image::Frame> = (0..600)
-            .map(|i| {
-                image::Frame::from_parts(
-                    image::RgbaImage::from_pixel(8, 1, image::Rgba([i as u8, 0, 0, 255])),
-                    0,
-                    0,
-                    image::Delay::from_numer_denom_ms(16, 1),
-                )
+        let frames: Vec<AnimFrame> = (0..600)
+            .map(|i| AnimFrame {
+                left: 0,
+                top: 0,
+                width: 8,
+                height: 1,
+                rgba: [i as u8, 0, 0, 255].repeat(8),
+                delay: Duration::from_millis(16),
             })
             .collect();
         let out = composite_frames(frames, 8, 1);
@@ -404,14 +370,14 @@ mod tests {
 
     #[test]
     fn animation_under_budget_retains_every_frame() {
-        let frames: Vec<image::Frame> = (0..8)
-            .map(|i| {
-                image::Frame::from_parts(
-                    image::RgbaImage::from_pixel(4, 1, image::Rgba([i as u8, 0, 0, 255])),
-                    0,
-                    0,
-                    image::Delay::from_numer_denom_ms(40, 1),
-                )
+        let frames: Vec<AnimFrame> = (0..8)
+            .map(|i| AnimFrame {
+                left: 0,
+                top: 0,
+                width: 4,
+                height: 1,
+                rgba: [i as u8, 0, 0, 255].repeat(4),
+                delay: Duration::from_millis(40),
             })
             .collect();
         let out = composite_frames(frames, 4, 1);

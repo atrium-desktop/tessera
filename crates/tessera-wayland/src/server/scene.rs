@@ -62,7 +62,7 @@ fn background_frame_callback_due(now_ms: u32, previous_ms: u32) -> bool {
 /// computation instead of each recomputing it (an O(windows × surfaces) walk
 /// with per-window allocations) inside the same iteration.
 pub struct DesktopFrameSets<'a> {
-    /// Presentation-visible toplevel ids (see [`Server::render_visible`]).
+    /// Presentation-visible toplevel ids (see `Server::render_visible`).
     pub visible: std::collections::HashSet<tessera_desktop::window::WindowId>,
     /// Toplevel ids fully covered by opaque windows above them.
     pub occluded: std::collections::HashSet<tessera_desktop::window::WindowId>,
@@ -175,10 +175,6 @@ impl Server {
                 continue;
             }
 
-            if root.window.state.fullscreen {
-                opaque_coverage.push(output);
-                continue;
-            }
             for surface in tree {
                 let surface = unsafe { &*surface };
                 let surface_rect = tessera_primitives::Rect {
@@ -796,7 +792,13 @@ impl Server {
         // Per-output capture builds a fresh frame list for this connector, so
         // the caller cannot name the individual ids; `All` is the conservative
         // "this frame rendered the connector's whole scene" claim.
-        self.complete_presentation_feedback(&visible, &occluded, false, PresentedSurfaces::All);
+        self.complete_presentation_feedback(
+            &visible,
+            &occluded,
+            false,
+            PresentedSurfaces::All,
+            None,
+        );
         let transition_now_ms = self.now_ms();
         let mut sent = 0;
         for &p in &self.state.surfaces {
@@ -2236,6 +2238,27 @@ impl Server {
             .map_or(0, |period| period.min(u64::from(u32::MAX)) as u32)
     }
 
+    /// Refresh period for one output, falling back to the session-wide
+    /// slowest period when the connector is unknown or rate-less.
+    fn presentation_refresh_ns_for(&self, connector: Option<&str>) -> u32 {
+        let output = connector
+            .and_then(|connector| {
+                self.state
+                    .physical_outputs
+                    .iter()
+                    .find(|output| output.connector == connector)
+            })
+            .or_else(|| self.state.physical_outputs.first());
+        output
+            .and_then(|output| {
+                (output.geometry.mode.refresh_mhz > 0).then(|| {
+                    (1_000_000_000_000_u64 / u64::from(output.geometry.mode.refresh_mhz))
+                        .min(u64::from(u32::MAX)) as u32
+                })
+            })
+            .unwrap_or_else(|| self.presentation_refresh_ns())
+    }
+
     /// Complete every `wp_presentation_feedback` queued on a surface whose frame
     /// just reached the display (ADR-0122). Feedback for surfaces the presented
     /// frame did not sample stays queued until it is presented or the surface is
@@ -2251,6 +2274,7 @@ impl Server {
         occluded: &std::collections::HashSet<tessera_desktop::window::WindowId>,
         session_locked: bool,
         presented: PresentedSurfaces<'_>,
+        outputs: Option<&[&str]>,
     ) -> usize {
         if matches!(presented, PresentedSurfaces::Nothing) {
             return 0;
@@ -2261,7 +2285,6 @@ impl Server {
         // One presentation event covers the whole presented frame, so every
         // feedback completed here shares one timestamp and one sequence number.
         let now_ns = crate::monotonic_ns();
-        let refresh_ns = self.presentation_refresh_ns();
         let seq = self.state.presentation_seq;
         let transition_now_ms = self.now_ms();
         let sampled = presented.enumerated();
@@ -2271,7 +2294,9 @@ impl Server {
                 continue;
             }
             let rec = unsafe { &mut *p };
-            if rec.presentation_feedback.is_empty() {
+            if rec.presentation_feedback.is_empty()
+                || !self.surface_in_presented_outputs(rec, outputs)
+            {
                 continue;
             }
             let output_visible = unsafe {
@@ -2294,6 +2319,8 @@ impl Server {
                 // surface, so its first content frame is still ahead of it.
                 continue;
             }
+            let connector = human_output_connector_for_window(&self.state, rec.window.id);
+            let refresh_ns = self.presentation_refresh_ns_for(connector);
             let pending = std::mem::take(&mut rec.presentation_feedback);
             for fb in pending {
                 if fb.is_null() {
@@ -2328,6 +2355,17 @@ impl Server {
             .any(|p| !p.is_null() && unsafe { !(*p).frame_callbacks.is_empty() })
     }
 
+    /// Whether a surface belongs to one of the explicitly presented outputs.
+    /// A surface with no workspace connection (cursor/IME or a transient
+    /// compositor-owned surface) is always in scope.
+    fn surface_in_presented_outputs(&self, rec: &SurfaceRec, outputs: Option<&[&str]>) -> bool {
+        let Some(outputs) = outputs else {
+            return true;
+        };
+        human_output_connector_for_window(&self.state, rec.window.id)
+            .is_none_or(|connector| outputs.contains(&connector))
+    }
+
     /// Fire pending frame callbacks for surfaces that are actually visible on
     /// the physical output. Covered, minimized, off-workspace and unmapped
     /// surfaces receive only a low-rate compatibility heartbeat.
@@ -2342,12 +2380,30 @@ impl Server {
         time_ms: u32,
         presented: PresentedSurfaces<'_>,
     ) -> usize {
+        self.send_frame_callbacks_on_outputs(time_ms, presented, None)
+    }
+
+    /// Fire frame callbacks and presentation feedback only for surfaces on
+    /// the outputs this frame actually presented. `None` means the whole
+    /// physical desktop (nested/single-output and full-target frames).
+    pub fn send_frame_callbacks_on_outputs(
+        &mut self,
+        time_ms: u32,
+        presented: PresentedSurfaces<'_>,
+        outputs: Option<&[&str]>,
+    ) -> usize {
         let visible = self.visible();
         let occluded = self.occluded_window_ids();
         let session_locked = self.state.session_lock_phase.is_active();
         // Presentation feedback shares the frame-callback completion point: both
         // report the frame that just reached the display (ADR-0122).
-        self.complete_presentation_feedback(&visible, &occluded, session_locked, presented);
+        self.complete_presentation_feedback(
+            &visible,
+            &occluded,
+            session_locked,
+            presented,
+            outputs,
+        );
         let transition_now_ms = self.now_ms();
         let background_due =
             background_frame_callback_due(time_ms, self.state.last_background_frame_callback_ms);
@@ -2358,7 +2414,7 @@ impl Server {
                 continue;
             }
             let rec = unsafe { &mut *p };
-            if !rec.mapped {
+            if !rec.mapped || !self.surface_in_presented_outputs(rec, outputs) {
                 continue;
             }
             let physically_visible = unsafe {
@@ -2425,10 +2481,23 @@ impl Server {
         sampled: impl IntoIterator<Item = &'a usize>,
         drew_preview_sources: bool,
     ) {
+        self.acknowledge_presented_surface_damage_on_outputs(sampled, drew_preview_sources, None);
+    }
+
+    /// Acknowledge only surfaces sampled on the outputs that actually flipped.
+    /// Untargeted outputs keep their committed damage for the frame that does
+    /// present them.
+    pub fn acknowledge_presented_surface_damage_on_outputs<'a>(
+        &mut self,
+        sampled: impl IntoIterator<Item = &'a usize>,
+        drew_preview_sources: bool,
+        outputs: Option<&[&str]>,
+    ) {
         if drew_preview_sources {
             self.acknowledge_all_presented_surfaces();
             return;
         }
+        let scoped = outputs.is_some();
         let mut marked_any = false;
         for id in sampled {
             let resource = *id as *mut ffi::wl_resource;
@@ -2439,11 +2508,14 @@ impl Server {
             if rec.is_null() {
                 continue;
             }
-            marked_any = true;
             let rec = unsafe { &mut *rec };
+            if !self.surface_in_presented_outputs(rec, outputs) {
+                continue;
+            }
+            marked_any = true;
             Self::acknowledge_surface_presented(rec);
         }
-        if !marked_any {
+        if !marked_any && !scoped {
             self.acknowledge_all_presented_surfaces();
         }
     }

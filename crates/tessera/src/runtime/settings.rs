@@ -20,7 +20,22 @@ impl CompositorRuntime<'_> {
         expected_revision: Option<u64>,
         action: tessera_protocol::SettingsAction,
     ) -> Result<tessera_protocol::SettingsReceipt, String> {
-        commit_settings_parts(
+        if matches!(action, tessera_protocol::SettingsAction::ConfirmDisplay) {
+            self.pending_display_revert = None;
+            self.system_status.display.pending_revert_seconds = None;
+            self.publish_settings();
+            return Ok(tessera_protocol::SettingsReceipt {
+                revision: self.settings_revision,
+            });
+        }
+        let snapshot = action.clone();
+        let previous = match &snapshot {
+            tessera_protocol::SettingsAction::SetDisplay { settings } if settings.tentative => {
+                display_settings_for_status(&self.system_status.display, &settings.connector)
+            }
+            _ => None,
+        };
+        let result = commit_settings_parts(
             expected_revision,
             action,
             &mut self.settings_revision,
@@ -39,8 +54,95 @@ impl CompositorRuntime<'_> {
             &mut self.system_status,
             &mut self.input_acc,
             &self.ipc,
-        )
+        );
+        if result.is_ok()
+            && let tessera_protocol::SettingsAction::SetDisplay { settings } = &snapshot
+        {
+            if settings.tentative {
+                self.pending_display_revert = previous.map(|settings| PendingDisplayRevert {
+                    settings,
+                    deadline: std::time::Instant::now()
+                        + std::time::Duration::from_secs(DISPLAY_REVERT_SECONDS),
+                });
+                self.system_status.display.pending_revert_seconds = self
+                    .pending_display_revert
+                    .is_some()
+                    .then_some(DISPLAY_REVERT_SECONDS as u32);
+                self.publish_settings();
+            } else {
+                self.pending_display_revert = None;
+                self.system_status.display.pending_revert_seconds = None;
+            }
+        }
+        result
     }
+
+    /// Advance the display-preview countdown; revert when it expires.
+    pub(super) fn tick_display_revert(&mut self) {
+        let Some(pending) = self.pending_display_revert.as_ref() else {
+            return;
+        };
+        let now = std::time::Instant::now();
+        if now >= pending.deadline {
+            let Some(settings) = self
+                .pending_display_revert
+                .take()
+                .map(|pending| pending.settings)
+            else {
+                return;
+            };
+            self.system_status.display.pending_revert_seconds = None;
+            log::warn!("display settings were not confirmed; reverting to the previous geometry");
+            if let Err(error) = self.commit_settings(
+                None,
+                tessera_protocol::SettingsAction::SetDisplay { settings },
+            ) {
+                log::error!("display preview revert failed: {error}");
+            }
+            return;
+        }
+        let remaining = pending
+            .deadline
+            .saturating_duration_since(now)
+            .as_secs()
+            .max(1) as u32;
+        if self.system_status.display.pending_revert_seconds != Some(remaining) {
+            self.system_status.display.pending_revert_seconds = Some(remaining);
+            self.publish_settings();
+        }
+    }
+}
+
+const DISPLAY_REVERT_SECONDS: u64 = 15;
+
+fn display_settings_for_status(
+    status: &tessera_desktop::settings::DisplayStatus,
+    connector: &str,
+) -> Option<tessera_desktop::settings::DisplaySettings> {
+    let index = status
+        .outputs
+        .iter()
+        .position(|output| output.connector == connector)?;
+    let output = &status.outputs[index];
+    let role = if output.role_source.is_auto() {
+        None
+    } else {
+        Some(output.role.clone())
+    };
+    let mirror = output.role.is_mirror();
+    Some(tessera_desktop::settings::DisplaySettings {
+        connector: connector.to_owned(),
+        role,
+        mode: Some(tessera_desktop::output::ModeSpec {
+            width: output.geometry.mode.width,
+            height: output.geometry.mode.height,
+            refresh_hz: Some(output.geometry.mode.refresh_mhz.saturating_add(500) / 1_000),
+        }),
+        scale: (!mirror).then_some(f64::from(output.geometry.scale.as_f32())),
+        position: (!mirror).then_some(output.geometry.logical_origin),
+        primary: !mirror && index == 0,
+        tentative: false,
+    })
 }
 
 pub(super) fn publish_settings_parts(
@@ -116,7 +218,11 @@ pub(super) fn commit_settings_parts(
         ));
     }
     action.validate().map_err(str::to_owned)?;
-    let display_action = matches!(&action, tessera_protocol::SettingsAction::SetDisplay { .. });
+    let display_action = matches!(
+        &action,
+        tessera_protocol::SettingsAction::SetDisplay { .. }
+            | tessera_protocol::SettingsAction::SetDisplayTopology { .. }
+    );
 
     let result = match action {
         tessera_protocol::SettingsAction::SetInput { config: input } => {
@@ -128,15 +234,16 @@ pub(super) fn commit_settings_parts(
                     touchpad: input.touchpad,
                     mouse: input.mouse,
                     keyboard: input.keyboard,
+                    mappings: input.mappings.clone(),
                 })
                 .map_err(|error| format!("failed to persist input settings: {error}"))?;
             if let Some(current) = config.as_mut() {
-                current.input = input;
+                current.input = input.clone();
             }
             // Keyboard repeat is a server-side advertisement; push it to the
             // compositor so bound clients re-learn the rate.
             server.set_keyboard_repeat(input.keyboard);
-            status.input = host.set_input_config(input);
+            status.input = host.set_input_config(input.clone());
             // Backends without a keyboard device model cannot know the
             // persisted profile; the runtime is authoritative for it.
             status.input.keyboard = input.keyboard;
@@ -158,6 +265,20 @@ pub(super) fn commit_settings_parts(
             status,
             input_acc,
         ),
+        tessera_protocol::SettingsAction::ConfirmDisplay => Ok(()),
+        tessera_protocol::SettingsAction::SetDisplayTopology { topology } => {
+            apply_display_topology(
+                topology,
+                config_path,
+                config_writer,
+                config,
+                server,
+                host,
+                reload,
+                live,
+                status,
+            )
+        }
         tessera_protocol::SettingsAction::SetDesktopPreferences { preferences } => {
             apply_desktop_preferences(
                 preferences,

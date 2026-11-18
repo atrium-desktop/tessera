@@ -76,17 +76,40 @@ impl VrmCamera {
 }
 
 /// Invalid caller-provided VRM camera parameters.
-#[derive(Clone, Copy, Debug, PartialEq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CameraError {
-    #[error("vertical FOV must be finite and between 1 and 179 degrees, got {0}")]
     VerticalFov(f32),
-    #[error("visible-height ratio must be finite and positive, got {0}")]
     VisibleHeight(f32),
-    #[error("center-from-top ratio must be finite, got {0}")]
     CenterFromTop(f32),
-    #[error("horizontal-offset ratio must be finite, got {0}")]
     HorizontalOffset(f32),
 }
+
+impl std::fmt::Display for CameraError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::VerticalFov(v) => {
+                write!(
+                    f,
+                    "vertical FOV must be finite and between 1 and 179 degrees, got {v}"
+                )
+            }
+            Self::VisibleHeight(v) => {
+                write!(
+                    f,
+                    "visible-height ratio must be finite and positive, got {v}"
+                )
+            }
+            Self::CenterFromTop(v) => {
+                write!(f, "center-from-top ratio must be finite, got {v}")
+            }
+            Self::HorizontalOffset(v) => {
+                write!(f, "horizontal-offset ratio must be finite, got {v}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for CameraError {}
 
 /// What the loaded VRM model can do regarding VRMA animation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,34 +124,72 @@ pub enum AnimationSupport {
 }
 
 /// Errors specific to loading or rendering a VRM model.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum VrmError {
-    #[error("invalid VRM camera: {0}")]
-    Camera(#[from] CameraError),
-    #[error("read {0:?}")]
-    Io(PathBuf, #[source] std::io::Error),
-    #[error("vrm model {0:?}")]
-    Gltf(PathBuf, #[source] vista::LoadError),
+    Camera(CameraError),
+    Io(PathBuf, std::io::Error),
+    Gltf(PathBuf, vista::LoadError),
     /// The model has no measurable bounding box, so a framing camera cannot
     /// be computed. Usually an empty or corrupt glTF.
-    #[error("vrm model {0:?} has no measurable bounds")]
     NoBounds(PathBuf),
-    #[error("vrma clip {0:?}")]
-    Animation(PathBuf, #[source] vista::Error),
-    #[error("avatar motion path {0:?} must be a directory")]
+    Animation(PathBuf, vista::Error),
     MotionDirectory(PathBuf),
-    #[error("avatar motion path {0:?} must be a regular file")]
     MotionFile(PathBuf),
-    #[error("avatar motion {0:?} must use a lowercase ASCII name beginning with a letter")]
     MotionName(PathBuf),
-    #[error("duplicate avatar motion {0:?}: {1:?} and {2:?}")]
     DuplicateMotion(String, PathBuf, PathBuf),
-    #[error("avatar motion {0:?} has invalid duration {1}")]
     MotionDuration(PathBuf, f32),
-    #[error("avatar motion {0:?} has no retargetable channels")]
     MotionChannels(PathBuf),
-    #[error("render vrm model {0:?}")]
-    Render(PathBuf, #[source] flux::Error),
+    Render(PathBuf, flux::Error),
+}
+
+impl std::fmt::Display for VrmError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Camera(err) => write!(f, "invalid VRM camera: {err}"),
+            Self::Io(path, _) => write!(f, "read {path:?}"),
+            Self::Gltf(path, _) => write!(f, "vrm model {path:?}"),
+            Self::NoBounds(path) => write!(f, "vrm model {path:?} has no measurable bounds"),
+            Self::Animation(path, _) => write!(f, "vrma clip {path:?}"),
+            Self::MotionDirectory(path) => {
+                write!(f, "avatar motion path {path:?} must be a directory")
+            }
+            Self::MotionFile(path) => {
+                write!(f, "avatar motion path {path:?} must be a regular file")
+            }
+            Self::MotionName(path) => write!(
+                f,
+                "avatar motion {path:?} must use a lowercase ASCII name beginning with a letter"
+            ),
+            Self::DuplicateMotion(name, a, b) => {
+                write!(f, "duplicate avatar motion {name:?}: {a:?} and {b:?}")
+            }
+            Self::MotionDuration(path, d) => {
+                write!(f, "avatar motion {path:?} has invalid duration {d}")
+            }
+            Self::MotionChannels(path) => {
+                write!(f, "avatar motion {path:?} has no retargetable channels")
+            }
+            Self::Render(path, _) => write!(f, "render vrm model {path:?}"),
+        }
+    }
+}
+
+impl std::error::Error for VrmError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(_, err) => Some(err),
+            Self::Gltf(_, err) => Some(err),
+            Self::Animation(_, err) => Some(err),
+            Self::Render(_, err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+impl From<CameraError> for VrmError {
+    fn from(err: CameraError) -> Self {
+        Self::Camera(err)
+    }
 }
 
 /// A loaded VRM model with persistent animation and offscreen render state.
@@ -367,10 +428,11 @@ impl Model {
             let mut pixels = vec![0u8; (ATLAS_SIZE as usize) * (ATLAS_SIZE as usize) * 4];
             if let Err(error) = self.surface.read_pixels(&mut pixels) {
                 log::warn!("avatar: could not read debug preview {path:?}: {error}");
-            } else if let Some(square) = image::RgbaImage::from_raw(ATLAS_SIZE, ATLAS_SIZE, pixels)
+            } else if let Some(square) =
+                tessera_image::RgbaImage::from_raw(ATLAS_SIZE, ATLAS_SIZE, pixels)
             {
                 let masked = circle_mask_premultiplied(&square);
-                if let Err(error) = masked.save(&path) {
+                if let Err(error) = masked.save_png(&path) {
                     log::warn!("avatar: could not write debug preview {path:?}: {error}");
                 }
             }

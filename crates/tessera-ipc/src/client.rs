@@ -626,6 +626,8 @@ impl Client {
                     // The lean IPC shape carries no EDID color capabilities;
                     // the model field defaults for pre-field IPC peers.
                     color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+                    role: output.role,
+                    role_source: output.role_source,
                 })
                 .collect()),
             Response::Error { message } => Err(io::Error::other(message)),

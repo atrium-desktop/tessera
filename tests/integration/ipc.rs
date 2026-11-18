@@ -403,9 +403,14 @@ impl Handler for TestHandler {
                         ..Default::default()
                     },
                     keyboard: config.keyboard,
+                    mappings: config.mappings,
                 }
             }
             SettingsAction::SetDisplay { .. } => {}
+            SettingsAction::ConfirmDisplay => {}
+            SettingsAction::SetDisplayTopology { topology } => {
+                snapshot.display.topology = topology;
+            }
             SettingsAction::SetDesktopPreferences { preferences } => {
                 snapshot.preferences = preferences;
             }
@@ -686,8 +691,11 @@ impl Handler for TestHandler {
                 logical_origin: spec
                     .logical_origin
                     .unwrap_or(tessera_primitives::Point { x: 1920, y: 0 }),
+                logical_size_override: None,
             }),
             available_modes: Some(vec![spec.mode]),
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
         })
     }
     fn resize_virtual_output(
@@ -709,8 +717,11 @@ impl Handler for TestHandler {
                 transform: tessera_primitives::Transform::Normal,
                 logical_origin: logical_origin
                     .unwrap_or(tessera_primitives::Point { x: 1920, y: 0 }),
+                logical_size_override: None,
             }),
             available_modes: Some(vec![mode]),
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
         })
     }
     fn destroy_virtual_output(&self, _conn_id: u64, connector: String) -> Result<String, String> {
@@ -1041,6 +1052,7 @@ fn sample_outputs() -> Vec<tessera_protocol::OutputInfo> {
                     height: 1080,
                     refresh_mhz: 60_000,
                 },
+                logical_size_override: None,
                 ..tessera_desktop::output::OutputGeometry::default()
             }),
             available_modes: Some(vec![tessera_desktop::output::OutputMode {
@@ -1048,6 +1060,8 @@ fn sample_outputs() -> Vec<tessera_protocol::OutputInfo> {
                 height: 1080,
                 refresh_mhz: 60_000,
             }]),
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
         },
         tessera_protocol::OutputInfo {
             connector: "DP-1".into(),
@@ -1060,6 +1074,7 @@ fn sample_outputs() -> Vec<tessera_protocol::OutputInfo> {
                     height: 1440,
                     refresh_mhz: 60_000,
                 },
+                logical_size_override: None,
                 ..tessera_desktop::output::OutputGeometry::default()
             }),
             available_modes: Some(vec![tessera_desktop::output::OutputMode {
@@ -1067,6 +1082,8 @@ fn sample_outputs() -> Vec<tessera_protocol::OutputInfo> {
                 height: 1440,
                 refresh_mhz: 60_000,
             }]),
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
         },
     ]
 }

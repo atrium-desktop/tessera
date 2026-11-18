@@ -21,8 +21,8 @@ pub use schema::{
     JournalCursor, LOCAL_AGENT_ADMIN_SCOPE, LOCAL_INTERACTION_DOMAIN_ADMIN_SCOPE,
     LOCAL_OWNER_ADMIN_SCOPE, LOCAL_PORTAL_SCOPE, LOCAL_SETTINGS_SCOPE, LeaseGrant, LeaseRequest,
     MAX_TRANSACT_OPS, ObservationSnapshot, ObservationToken, ObserveSnapshot, ObservedWindow,
-    OutputInfo, OutputKind, PROTOCOL_VERSION, PickKind, PickResult, Request, Response, Scope,
-    SecretPromptResult, SettingsAction, SettingsReceipt, SettingsSnapshot, StreamCursorMode,
+    OutputInfo, OutputKind, OutputRole, PROTOCOL_VERSION, PickKind, PickResult, Request, Response,
+    Scope, SecretPromptResult, SettingsAction, SettingsReceipt, SettingsSnapshot, StreamCursorMode,
     StreamPixelFormat, StreamTarget, SystemAction, SystemStatus, TransactOp, TransactOpResult,
     TransactPrecondition, TransactReceipt, TransactResult, VirtualOutputSpec, WindowCapture,
 };

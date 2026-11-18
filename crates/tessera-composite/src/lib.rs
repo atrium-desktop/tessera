@@ -1662,21 +1662,18 @@ impl Renderer {
                     // still put this surface inside the frame's render area.
                     let damage_box = match plan {
                         ShmUploadPlan::None => {
-                            if tracing::enabled!(
+                            if log::log_enabled!(
                                 target: "tessera.damage.upload",
-                                tracing::Level::TRACE
+                                log::Level::Trace
                             ) {
-                                tracing::trace!(
+                                log::trace!(
                                     target: "tessera.damage.upload",
-                                    metric = "shm.upload",
-                                    count = 1u64,
-                                    id = f.id,
-                                    window = ?f.window,
-                                    generation = f.generation,
-                                    full = f.damage_full,
-                                    damage_rects = f.damage.len(),
-                                    mode = "none",
-                                    "shm texture upload"
+                                    "shm texture upload metric=shm.upload count=1 id={} window={:?} generation={} full={} damage_rects={} mode=none",
+                                    f.id,
+                                    f.window,
+                                    f.generation,
+                                    f.damage_full,
+                                    f.damage.len(),
                                 );
                             }
                             if let Some(cached) = self.cache.get_mut(&f.id) {
@@ -1698,28 +1695,25 @@ impl Renderer {
                         && y0 < y1
                         && let Some(entry) = self.cache.get(&f.id)
                     {
-                        if tracing::enabled!(target: "tessera.damage.upload", tracing::Level::TRACE)
-                        {
+                        if log::log_enabled!(target: "tessera.damage.upload", log::Level::Trace) {
                             let mode = if x0 == 0 && y0 == 0 && x1 == f.width && y1 == f.height {
                                 "full"
                             } else {
                                 "partial"
                             };
-                            tracing::trace!(
+                            log::trace!(
                                 target: "tessera.damage.upload",
-                                metric = "shm.upload",
-                                count = 1u64,
-                                id = f.id,
-                                window = ?f.window,
-                                generation = f.generation,
-                                full = f.damage_full,
-                                damage_rects = f.damage.len(),
+                                "shm texture upload metric=shm.upload count=1 id={} window={:?} generation={} full={} damage_rects={} mode={} box_x={} box_y={} box_width={} box_height={}",
+                                f.id,
+                                f.window,
+                                f.generation,
+                                f.damage_full,
+                                f.damage.len(),
                                 mode,
-                                box_x = x0,
-                                box_y = y0,
-                                box_width = x1 - x0,
-                                box_height = y1 - y0,
-                                "shm texture upload"
+                                x0,
+                                y0,
+                                x1 - x0,
+                                y1 - y0,
                             );
                         }
                         let img = &entry.image;

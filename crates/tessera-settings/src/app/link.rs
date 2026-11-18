@@ -19,10 +19,10 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use smithay_client_toolkit::reexports::calloop::channel::Sender as LoopSender;
 use tessera_desktop::settings::{SettingsAction, SettingsSnapshot};
 use tessera_ipc::{Client, is_transport_failure};
 use tessera_protocol::{ConnectionCapabilities, Event};
+use tessera_wl_client::WakeSender as LoopSender;
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(3);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);

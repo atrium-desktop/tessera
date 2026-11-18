@@ -4,8 +4,8 @@
 //! Edges come from `cargo metadata`, so renamed, platform-specific, build, and
 //! dev dependencies are all seen exactly as Cargo resolves them.
 
+use crate::error::{Context, Result, bail};
 use crate::workspace::{self, Package};
-use anyhow::{Context, Result, bail};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Allowed dependencies per package, keyed by edge kind (`normal`/`build`/`dev`).

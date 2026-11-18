@@ -554,7 +554,9 @@ fn sha256_file(path: &Path) -> Result<String, AuditError> {
 
 fn write_private_atomic(parent: &Path, path: &Path, bytes: &[u8]) -> Result<(), AuditError> {
     let mut random = [0u8; 8];
-    getrandom::fill(&mut random).map_err(|source| AuditError::Entropy(source.to_string()))?;
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut random))
+        .map_err(|source| AuditError::Entropy(source.to_string()))?;
     let name = path
         .file_name()
         .ok_or(AuditError::NoParent)?

@@ -267,9 +267,13 @@ impl BatterySettings {
 pub struct DisplayStatus {
     /// Whether this session owns physical display configuration.
     pub configurable: bool,
+    /// Session default for connectors without an explicit role.
+    pub topology: crate::output::DisplayTopology,
     pub outputs: Vec<OutputInfo>,
     /// Last persistence/application failure, cleared by a successful edit.
     pub error: Option<String>,
+    /// Seconds left before a tentative display edit is automatically reverted.
+    pub pending_revert_seconds: Option<u32>,
 }
 
 /// Compositor-owned dock preferences exposed to System Settings.
@@ -284,15 +288,69 @@ pub struct DockSettings {
     pub minimize_animation: crate::dock::MinimizeAnimationStyle,
 }
 
-/// One complete, validated output edit.
+/// One complete, validated output edit (ADR-0243).
+///
+/// A mirrored output has no independent scale or position: both are `None`
+/// and follow the source. Its optional `mode` selects the mirror connector's
+/// own native scanout mode. An extended output sends its explicit geometry.
+/// `role: None` clears an explicit role and returns the connector to the
+/// `[display] topology` policy; `Some` pins the role.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct DisplaySettings {
     pub connector: String,
-    pub mode: ModeSpec,
-    pub scale: f64,
-    pub position: Point,
+    /// `None` restores the automatic topology policy; `Some` pins the role.
+    pub role: Option<crate::output::OutputRole>,
+    pub mode: Option<ModeSpec>,
+    pub scale: Option<f64>,
+    pub position: Option<Point>,
     pub primary: bool,
+    /// Apply as a preview: the compositor starts a revert timer and only a
+    /// matching [`SettingsAction::ConfirmDisplay`] keeps the change.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub tentative: bool,
+}
+
+impl DisplaySettings {
+    /// Validate transport-level shape. Hardware membership is checked by the
+    /// compositor main loop against the live connector list.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.connector.trim().is_empty() || self.connector.len() > 128 {
+            return Err("display connector is empty or too long");
+        }
+        match &self.role {
+            None | Some(crate::output::OutputRole::Extend) => {}
+            Some(crate::output::OutputRole::Mirror { source }) => {
+                if source.trim().is_empty() || source.len() > 128 {
+                    return Err("mirror source is empty or too long");
+                }
+                if source == &self.connector {
+                    return Err("an output cannot mirror itself");
+                }
+                if self.primary {
+                    return Err("a mirrored output cannot be primary");
+                }
+                if self.scale.is_some() || self.position.is_some() {
+                    return Err("a mirrored output follows its source's scale and position");
+                }
+            }
+        }
+        if let Some(scale) = self.scale
+            && (!scale.is_finite() || !(0.25..=4.0).contains(&scale))
+        {
+            return Err("display scale is outside 0.25..=4.0");
+        }
+        if let Some(mode) = self.mode
+            && (mode.width <= 0
+                || mode.height <= 0
+                || mode.width > 32_768
+                || mode.height > 32_768
+                || mode.refresh_hz.is_some_and(|hz| !(1..=1_000).contains(&hz)))
+        {
+            return Err("display mode is outside the supported range");
+        }
+        Ok(())
+    }
 }
 
 /// User-facing desktop wallpaper configuration.
@@ -338,6 +396,11 @@ pub enum SettingsAction {
     SetDisplay {
         settings: DisplaySettings,
     },
+    SetDisplayTopology {
+        topology: crate::output::DisplayTopology,
+    },
+    /// Keep the most recent tentative display edit.
+    ConfirmDisplay,
     SetDesktopPreferences {
         preferences: DesktopPreferences,
     },
@@ -391,28 +454,8 @@ impl SettingsAction {
                 }
                 Ok(())
             }
-            Self::SetDisplay { settings }
-                if settings.connector.trim().is_empty() || settings.connector.len() > 128 =>
-            {
-                Err("display connector is empty or too long")
-            }
-            Self::SetDisplay { settings }
-                if !settings.scale.is_finite() || !(0.25..=4.0).contains(&settings.scale) =>
-            {
-                Err("display scale is outside 0.25..=4.0")
-            }
-            Self::SetDisplay { settings }
-                if settings.mode.width <= 0
-                    || settings.mode.height <= 0
-                    || settings.mode.width > 32_768
-                    || settings.mode.height > 32_768
-                    || settings
-                        .mode
-                        .refresh_hz
-                        .is_some_and(|hz| !(1..=1_000).contains(&hz)) =>
-            {
-                Err("display mode is outside the supported range")
-            }
+            Self::SetDisplay { settings } => settings.validate(),
+            Self::SetDisplayTopology { .. } | Self::ConfirmDisplay => Ok(()),
             Self::SetDesktopPreferences { preferences } => preferences.validate(),
             Self::SetIdle { settings } => settings.validate(),
             Self::SetWallpaper { settings } => {
@@ -495,14 +538,16 @@ mod tests {
 
         let display = DisplaySettings {
             connector: "DP-1".into(),
-            mode: ModeSpec {
+            role: Some(crate::output::OutputRole::Extend),
+            mode: Some(ModeSpec {
                 width: 2560,
                 height: 1440,
                 refresh_hz: Some(144),
-            },
-            scale: 1.5,
-            position: Point { x: 0, y: 0 },
+            }),
+            scale: Some(1.5),
+            position: Some(Point { x: 0, y: 0 }),
             primary: true,
+            tentative: false,
         };
         assert!(
             SettingsAction::SetDisplay { settings: display }

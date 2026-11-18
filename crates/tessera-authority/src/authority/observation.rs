@@ -228,8 +228,12 @@ impl ObservationLeaseRegistry {
 
         let token = loop {
             let mut bytes = [0u8; 32];
-            getrandom::fill(&mut bytes)
-                .map_err(|error| format!("generate observation token: {error}"))?;
+            std::io::Read::read_exact(
+                &mut std::fs::File::open("/dev/urandom")
+                    .map_err(|error| format!("generate observation token: {error}"))?,
+                &mut bytes,
+            )
+            .map_err(|error| format!("generate observation token: {error}"))?;
             let mut encoded = String::with_capacity(bytes.len() * 2);
             use std::fmt::Write as _;
             for byte in bytes {

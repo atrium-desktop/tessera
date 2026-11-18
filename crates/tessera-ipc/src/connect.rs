@@ -120,17 +120,48 @@ pub fn read_credential_from_stdin() -> io::Result<String> {
     Ok(credential)
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum ConnectError {
-    #[error("cannot connect to Tessera IPC socket {socket:?} as agent {label:?}: {source}")]
     Ipc {
         socket: PathBuf,
         label: String,
-        #[source]
         source: io::Error,
     },
-    #[error("the compositor handshake did not bind an authenticated agent identity")]
     MissingIdentity,
-    #[error("agent identity continuity failed: {0}")]
-    Identity(#[from] IdentityError),
+    Identity(IdentityError),
+}
+
+impl std::fmt::Display for ConnectError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ipc {
+                socket,
+                label,
+                source,
+            } => write!(
+                f,
+                "cannot connect to Tessera IPC socket {socket:?} as agent {label:?}: {source}"
+            ),
+            Self::MissingIdentity => {
+                f.write_str("the compositor handshake did not bind an authenticated agent identity")
+            }
+            Self::Identity(err) => write!(f, "agent identity continuity failed: {err}"),
+        }
+    }
+}
+
+impl std::error::Error for ConnectError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Ipc { source, .. } => Some(source),
+            Self::Identity(err) => Some(err),
+            Self::MissingIdentity => None,
+        }
+    }
+}
+
+impl From<IdentityError> for ConnectError {
+    fn from(err: IdentityError) -> Self {
+        Self::Identity(err)
+    }
 }

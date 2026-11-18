@@ -795,6 +795,9 @@ impl CompositorRuntime<'_> {
     /// delivering at a stale geometry. The registry decides; this applies
     /// the decisions to the IPC lane and the shell indicator.
     pub(super) fn handle_output_geometry_change(&mut self) {
+        // A topology or modeset change invalidates any direct client scanout;
+        // the next frame must reclaim every CRTC with the composite.
+        self.direct_outputs.clear();
         let Some(ipc) = self.ipc.as_ref() else {
             return;
         };

@@ -57,7 +57,7 @@ struct PowerRetry {
 enum SleepInhibitor {
     Disabled,
     Held {
-        _fd: zbus::OwnedFd,
+        _fd: tessera_dbus::OwnedFd,
     },
     AwaitingResume,
     Retry {

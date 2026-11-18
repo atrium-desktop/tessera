@@ -266,11 +266,49 @@ impl CompositorRuntime<'_> {
         // Report the output scale so lens rasterises chrome crisply on a
         // HiDPI host; layout and input stay in logical pixels.
         self.shell.set_scale(scale);
+        // Create/destroy mirror targets before the union frame decides which
+        // outputs it presents. A target that exists takes its mirror out of
+        // the scaled union commit; a failed target re-enters this map only
+        // after the topology or mode changes.
+        self.sync_output_targets();
         // Resolve chrome's next-frame geometry before damage assessment and
         // plane assignment. An input-only hidden Dock can therefore turn a
         // bottom-edge entry into visible animation even while the previous
         // frames were direct-scanned-out and no canvas pass was running.
         self.shell.prepare_frame(&input);
+        // The switcher is the one chrome surface that also needs the server's
+        // frozen MRU order and live window list. Resolve it here, before damage
+        // assessment, so `anim_pending`, hover, and the panel's damage footprint
+        // describe the frame that is about to be painted instead of trailing it
+        // by one frame.
+        let switcher_state = self.server.window_switcher_snapshot();
+        // Only clone the window list when the switcher can actually present:
+        // `windows()` walks every live surface and clones each `Window`
+        // (title/app_id Strings included) — pure per-frame heap churn in the
+        // common no-switcher case. The shell check covers the closing
+        // animation, which outlives the server-side session and still needs the
+        // live set to keep its fading cards.
+        let switcher_windows = if switcher_state.is_some() || self.shell.window_switcher_active() {
+            self.server.windows()
+        } else {
+            Vec::new()
+        };
+        let (switcher_order, switcher_selected) = switcher_state
+            .as_ref()
+            .map(|(order, selected)| (order.as_slice(), *selected))
+            .unwrap_or((&[], None));
+        // Shell chrome lives in the output-local render frame, while the
+        // window model keeps desktop-global coordinates. Use the server's
+        // output-local view so a configured non-zero origin cannot shift the
+        // switcher off the surface it is composited into.
+        let switcher_display = self.shell.reserved().inset(self.server.output_local_rect());
+        let window_switcher = self.shell.prepare_window_switcher(
+            &input,
+            switcher_display,
+            &switcher_windows,
+            switcher_order,
+            switcher_selected,
+        );
         let assessed_damage = self.assess_frame_damage(DamageAssessment {
             had_input,
             input_pointer_only,
@@ -290,6 +328,7 @@ impl CompositorRuntime<'_> {
                 || (!cursor_hidden
                     && self.damage.last_presented_cursor_position != Some(cursor_position)));
         let cursor_only_eligible = matches!(damage, FrameDamage::None)
+            && self.output_targets.is_empty()
             && cursor_plane_changed
             && frame_capture.is_none()
             && !stream_forcing_due
@@ -348,6 +387,14 @@ impl CompositorRuntime<'_> {
                 Err(error) => return Err(error.into()),
             }
         }
+        // Cursor-only KMS commits are not enough when each output has its own
+        // compositor target: the source targets need no repaint (the cursor
+        // plane moves independently), but a mirror target has no cursor plane
+        // and must redraw its cursor. Force a full target frame so both
+        // classes of output remain correct.
+        if cursor_plane_changed && !self.output_targets.is_empty() {
+            damage = FrameDamage::Full;
+        }
         if matches!(damage, FrameDamage::None)
             && frame_capture.is_none()
             && !stream_forcing_due
@@ -401,7 +448,16 @@ impl CompositorRuntime<'_> {
             self.overlay_telemetry
                 .record(self.host.name(), &overlay.plan);
         }
-        let wanted_overlay = if self.overlay_offload_enabled {
+        let mirror_present = self
+            .server
+            .output_infos()
+            .iter()
+            .any(|output| output.role.is_mirror());
+        let wanted_overlay = if self.overlay_offload_enabled
+            && !mirror_present
+            && self.direct_outputs.is_empty()
+            && !self.output_targets_cover_all_physical()
+        {
             output_layer_plans.overlay.as_ref().and_then(|audit| {
                 tessera_composite::presentation::OverlayPlacement::from_plan(
                     &audit.plan,
@@ -435,9 +491,90 @@ impl CompositorRuntime<'_> {
                 );
             }
         }
+        if output_layer_plans.direct_targets.len() > 1 {
+            let mut last_fence = None;
+            let mut all_ok = true;
+            for (target, plan) in &output_layer_plans.direct_targets {
+                let Some(candidate) = plan.direct_candidate() else {
+                    all_ok = false;
+                    break;
+                };
+                match self
+                    .host
+                    .present_scanout(candidate, target, damage.area_rects())
+                {
+                    Ok(fence) => last_fence = fence.or(last_fence),
+                    Err(error) => {
+                        log::warn!(
+                            "{}: multi-target direct scanout to {target} failed: {error}",
+                            self.host.name()
+                        );
+                        all_ok = false;
+                        break;
+                    }
+                }
+            }
+            if all_ok {
+                if let Some((_, plan)) = output_layer_plans.direct_targets.first()
+                    && let Some(candidate) = plan.direct_candidate()
+                {
+                    self.primary_plane_state.commit_direct(candidate.id);
+                }
+                let targets = output_layer_plans
+                    .direct_targets
+                    .iter()
+                    .map(|(target, _)| target.clone())
+                    .collect::<std::collections::BTreeSet<_>>();
+                let target_refs = targets.iter().map(String::as_str).collect::<Vec<_>>();
+                self.direct_outputs = targets.clone();
+                self.overlay_state.deactivate();
+                self.streams.accumulate_damage(&damage);
+                self.server.acknowledge_presented_surface_damage_on_outputs(
+                    sampled_surface_ids.iter(),
+                    false,
+                    Some(&target_refs),
+                );
+                if self.server.retired_buffers_pending() {
+                    self.server
+                        .release_retired_buffers(last_fence.as_ref().map(AsRawFd::as_raw_fd));
+                }
+                self.server.send_frame_callbacks_on_outputs(
+                    self.server.monotonic_ms(),
+                    PresentedSurfaces::Sampled {
+                        ids: &sampled_surface_ids,
+                        drew_preview_sources: false,
+                    },
+                    Some(&target_refs),
+                );
+                self.damage.last_present_minute = Some(wall_clock_minute());
+                self.damage.last_presented_cursor = Some((cursor_shape, cursor_hidden));
+                self.damage.last_presented_cursor_position = Some(cursor_position);
+                self.damage.last_presented_cursor_hotspot =
+                    (!cursor_hidden).then_some(last_committed_hotspot);
+                self.damage.last_presented_cursor_pixels =
+                    (!cursor_hidden).then_some(last_committed_sprite_size);
+                self.damage.force_full_redraw = false;
+                self.renderer.gc(self.server.live_surface_ids());
+                self.renderer.begin_frame();
+                self.frame_count += 1;
+                self.scanout_telemetry.record_success();
+                return Ok(PresentationOutcome::Submitted);
+            }
+            // Some targets may already be direct. Composite all on the
+            // fallback; that reclaims every primary plane coherently.
+            self.direct_outputs.clear();
+        }
+
         let primary_plane_plan = &output_layer_plans.primary;
         if let Some(candidate) = primary_plane_plan.direct_candidate() {
-            match self.host.present_scanout(candidate, damage.area_rects()) {
+            let scanout_target = output_layer_plans
+                .scanout_target
+                .clone()
+                .unwrap_or_default();
+            match self
+                .host
+                .present_scanout(candidate, &scanout_target, damage.area_rects())
+            {
                 Ok(completion_fence) => {
                     let entered_scanout = self.primary_plane_state.commit_direct(candidate.id);
                     self.scanout_telemetry.record_success();
@@ -459,23 +596,30 @@ impl CompositorRuntime<'_> {
                     // (ADR-0130), so this path never runs while one exists;
                     // a stopped stream's leftover damage still accumulates
                     // for the next captured frame (ADR-0127).
+                    self.direct_outputs.insert(scanout_target.clone());
+                    self.overlay_state.deactivate();
                     self.streams.accumulate_damage(&damage);
                     // Direct scanout samples exactly one buffer — the
                     // candidate that is now on the primary plane — so the
                     // damage pass's sampled set is authoritative here.
-                    self.server
-                        .acknowledge_presented_surface_damage(sampled_surface_ids.iter(), false);
+                    let direct_outputs = [scanout_target.as_str()];
+                    self.server.acknowledge_presented_surface_damage_on_outputs(
+                        sampled_surface_ids.iter(),
+                        false,
+                        Some(&direct_outputs),
+                    );
                     if self.server.retired_buffers_pending() {
                         self.server.release_retired_buffers(
                             completion_fence.as_ref().map(AsRawFd::as_raw_fd),
                         );
                     }
-                    self.server.send_frame_callbacks(
+                    self.server.send_frame_callbacks_on_outputs(
                         self.server.monotonic_ms(),
                         PresentedSurfaces::Sampled {
                             ids: &sampled_surface_ids,
                             drew_preview_sources: false,
                         },
+                        Some(&direct_outputs),
                     );
                     self.damage.last_present_minute = Some(wall_clock_minute());
                     self.damage.last_presented_cursor = Some((cursor_shape, cursor_hidden));
@@ -568,6 +712,35 @@ impl CompositorRuntime<'_> {
             self.surface.invalidate_damage();
             damage = FrameDamage::Full;
         }
+        // Normal DRM frames use one native target per physical output. The
+        // union path remains for capture/screenshot frames and for complex
+        // chrome states that still own union-coupled state.
+        let target_live_previews = if window_switcher.is_none() {
+            self.shell.live_preview_presentations()
+        } else {
+            Vec::new()
+        };
+        if frame_capture.is_none()
+            && self.pending_capture.is_none()
+            && self.pending_interaction_domain_capture.is_none()
+            && self.pending_window_capture.is_none()
+            && self.pending_pick.is_none()
+            && !session_locked
+            && !self.screenshot_freeze.armed
+            && !stream_forcing_due
+            && !self.streams.any_output_live()
+            && self.can_render_output_targets()
+        {
+            return self.render_output_targets(
+                &damage,
+                &sampled_surface_ids,
+                cursor_shape,
+                cursor_hidden,
+                window_switcher.as_ref(),
+                &target_live_previews,
+            );
+        }
+
         // Opportunistic stream capture: this frame composites for real
         // damage, so every due SHM stream may piggyback on it with the
         // shared readback — between the forced frames its cadence already
@@ -637,35 +810,6 @@ impl CompositorRuntime<'_> {
                     logical_size,
                     scale,
                 };
-                let switcher_state = self.server.window_switcher_snapshot();
-                // Only clone the window list when the switcher can actually
-                // present: `windows()` walks every live surface and clones
-                // each `Window` (title/app_id Strings included) — pure
-                // per-frame heap churn in the common no-switcher case. The
-                // shell check covers the closing animation, which outlives
-                // the server-side session and still needs the live set to
-                // keep its fading cards.
-                let switcher_windows =
-                    if switcher_state.is_some() || self.shell.window_switcher_active() {
-                        self.server.windows()
-                    } else {
-                        Vec::new()
-                    };
-                let (switcher_order, switcher_selected) = switcher_state
-                    .as_ref()
-                    .map(|(order, selected)| (order.as_slice(), *selected))
-                    .unwrap_or((&[], None));
-                let switcher_display = self
-                    .shell
-                    .reserved()
-                    .inset(self.server.output_logical_rect());
-                let window_switcher = self.shell.prepare_window_switcher(
-                    &input,
-                    switcher_display,
-                    &switcher_windows,
-                    switcher_order,
-                    switcher_selected,
-                );
                 let live_previews = if window_switcher.is_none() {
                     self.shell.live_preview_presentations()
                 } else {
@@ -734,6 +878,7 @@ impl CompositorRuntime<'_> {
                             &windows,
                             scale,
                             shadow_style,
+                            0,
                         )
                     } else {
                         Vec::new()
@@ -2060,13 +2205,68 @@ impl CompositorRuntime<'_> {
                 // ledger includes every submitted-but-abandoned frame, so a
                 // Busy retry cannot under-report changed pixels.
                 let scanout_damage = FrameDamage::from_flux_damage(self.surface.scanout_damage()?);
-                let present_result = if let (Some(active), Some(overlay_surface)) =
-                    (self.overlay_state.active(), overlay_frame.as_ref())
-                {
+                let damage_rects = scanout_damage.area_rects();
+                let render_scale = self
+                    .server
+                    .output_infos()
+                    .first()
+                    .map(|output| output.geometry.scale.as_f32())
+                    .filter(|scale| *scale > 0.0)
+                    .unwrap_or(1.0);
+                let frame_size = self.surface.size();
+                let direct_outputs = self.direct_outputs.clone();
+                let direct_damaged = matches!(scanout_damage, FrameDamage::Full)
+                    || direct_outputs.iter().any(|connector| {
+                        self.server
+                            .output_infos()
+                            .iter()
+                            .find(|output| output.connector == *connector)
+                            .is_some_and(|output| {
+                                let rect =
+                                    tessera_composite::presentation::logical_rect_to_physical(
+                                        output.geometry.logical_rect(),
+                                        render_scale,
+                                        frame_size.0,
+                                        frame_size.1,
+                                    );
+                                damage_rects
+                                    .unwrap_or(&[])
+                                    .iter()
+                                    .any(|damage| damage.intersect(rect).is_some())
+                            })
+                    });
+                let present_targets = if direct_outputs.is_empty() || direct_damaged {
+                    None
+                } else {
+                    let targets = self
+                        .server
+                        .output_infos()
+                        .iter()
+                        .filter(|output| {
+                            output.kind.is_physical()
+                                && !direct_outputs.contains(&output.connector)
+                                && !(output.role.is_mirror()
+                                    && self.output_targets.contains_key(&output.connector))
+                                && !self.host.output_presentation_pending(&output.connector)
+                        })
+                        .map(|output| output.connector.clone())
+                        .collect::<Vec<_>>();
+                    (!targets.is_empty()).then_some(targets)
+                };
+                let target_presentation = self.can_present_union_targets();
+                let present_result = if target_presentation {
+                    self.direct_outputs.clear();
+                    self.host
+                        .compose_only(self.surface, submitted, damage_rects)
+                } else if let (Some(active), Some(overlay_surface), None) = (
+                    self.overlay_state.active(),
+                    overlay_frame.as_ref(),
+                    present_targets.as_deref(),
+                ) {
                     self.host.present_with_overlay(
                         self.surface,
                         submitted,
-                        scanout_damage.area_rects(),
+                        damage_rects,
                         tessera_platform::host::OverlayLayer {
                             surface: overlay_surface,
                             output: &active.output,
@@ -2074,9 +2274,13 @@ impl CompositorRuntime<'_> {
                             zpos: active.zpos,
                         },
                     )
-                } else {
+                } else if let Some(targets) = present_targets.as_deref() {
+                    let target_refs = targets.iter().map(String::as_str).collect::<Vec<_>>();
                     self.host
-                        .present(self.surface, submitted, scanout_damage.area_rects())
+                        .present_to(self.surface, submitted, damage_rects, &target_refs)
+                } else {
+                    self.direct_outputs.clear();
+                    self.host.present(self.surface, submitted, damage_rects)
                 };
                 let completion_fence = match present_result {
                     Ok(fence) => fence,
@@ -2206,9 +2410,33 @@ impl CompositorRuntime<'_> {
                     // flip retires.
                     sampled_surface_ids.push(overlay.surface_id);
                 }
-                self.server.acknowledge_presented_surface_damage(
+                let target_outputs = if target_presentation {
+                    let outputs = self.present_union_to_targets(cursor_shape, cursor_hidden)?;
+                    if outputs.is_empty() {
+                        self.damage.pending_damage = Some(FrameDamage::Full);
+                        return Ok(PresentationOutcome::Retry {
+                            wait: RetryWait::BackendEvent,
+                        });
+                    }
+                    Some(outputs)
+                } else {
+                    None
+                };
+                let presented_outputs = target_outputs
+                    .as_ref()
+                    .map(|targets| targets.iter().map(String::as_str).collect::<Vec<_>>())
+                    .or_else(|| {
+                        present_targets
+                            .as_ref()
+                            .map(|targets| targets.iter().map(String::as_str).collect::<Vec<_>>())
+                    });
+                if target_presentation && target_outputs.as_ref().is_some_and(|o| !o.is_empty()) {
+                    self.independent_target_flips = true;
+                }
+                self.server.acknowledge_presented_surface_damage_on_outputs(
                     sampled_surface_ids.iter(),
                     drew_preview_sources,
+                    presented_outputs.as_deref(),
                 );
                 if self.server.lock_confirmation_pending() {
                     match self.host.wait_presented(self.device) {
@@ -2241,12 +2469,13 @@ impl CompositorRuntime<'_> {
                 // Pace clients: fire frame callbacks for this presentation and
                 // complete `wp_presentation_feedback` for exactly the surfaces
                 // this frame sampled (ADR-0122, `[INV-ARCH-84]`).
-                self.server.send_frame_callbacks(
+                self.server.send_frame_callbacks_on_outputs(
                     self.server.monotonic_ms(),
                     PresentedSurfaces::Sampled {
                         ids: &sampled_surface_ids,
                         drew_preview_sources,
                     },
+                    presented_outputs.as_deref(),
                 );
 
                 // The frame landed: re-anchor the present-side damage
@@ -2260,6 +2489,7 @@ impl CompositorRuntime<'_> {
                     (!cursor_hidden).then_some(last_committed_sprite_size);
                 self.damage.force_full_redraw = false;
 
+                self.present_output_targets(cursor_shape, cursor_hidden);
                 self.frame_count += 1;
                 if self.frame_count == 1 {
                     log::info!(
@@ -2267,6 +2497,25 @@ impl CompositorRuntime<'_> {
                         self.host.name()
                     );
                 }
+            }
+            Err(error) if error.0 == flux_sys::flux_result::FLUX_ERROR_BUSY => {
+                log::trace!("frame acquire deferred: image lease still held: {error}");
+                if let Some(capture) = frame_capture.take() {
+                    refuse_capture_target(
+                        &self.capture_worker,
+                        capture.target,
+                        "image lease pending before capture".to_owned(),
+                        &self.journal,
+                        &self.ipc,
+                    );
+                }
+                self.damage.pending_damage = Some(match self.damage.pending_damage.take() {
+                    Some(pending) => union_frame_damage(pending, damage.clone()),
+                    None => damage.clone(),
+                });
+                return Ok(PresentationOutcome::Retry {
+                    wait: RetryWait::BackendEvent,
+                });
             }
             Err(error) if error.0 == flux_sys::flux_result::FLUX_ERROR_TIMEOUT => {
                 // A capture bound by the pre-pass never got its frame; refuse
@@ -2306,7 +2555,23 @@ impl CompositorRuntime<'_> {
                     );
                 }
                 let (nw, nh) = self.host.physical_size();
-                self.surface.resize(nw, nh)?;
+                match self.surface.resize(nw, nh) {
+                    Ok(()) => {}
+                    Err(error) if error.0 == flux_sys::flux_result::FLUX_ERROR_BUSY => {
+                        // A scanout lease still owns the old ring image. Keep
+                        // the pending damage and retry once the corresponding
+                        // page flip releases it.
+                        self.damage.pending_damage =
+                            Some(match self.damage.pending_damage.take() {
+                                Some(pending) => union_frame_damage(pending, damage.clone()),
+                                None => damage.clone(),
+                            });
+                        return Ok(PresentationOutcome::Retry {
+                            wait: RetryWait::BackendEvent,
+                        });
+                    }
+                    Err(error) => return Err(error.into()),
+                }
                 // The frame size a stream negotiated at start no longer
                 // matches the output: freeze each affected stream with
                 // `StreamGeometryChanged` so consumers renegotiate at the

@@ -55,10 +55,8 @@ struct DaemonState {
 /// Run the service until the socket is closed or a client sends `Shutdown`.
 pub fn run(options: DaemonOptions) -> Result<(), String> {
     let shutdown = Arc::new(AtomicBool::new(false));
-    for signal in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
-        signal_hook::flag::register(signal, shutdown.clone())
-            .map_err(|error| format!("could not install signal handlers: {error}"))?;
-    }
+    tessera_env::signals::install_shutdown_flag_into(&shutdown)
+        .map_err(|error| format!("could not install signal handlers: {error}"))?;
     let listener = bind_socket(&options.socket)
         .map_err(|error| format!("could not bind {}: {error}", options.socket.display()))?;
     listener
@@ -119,7 +117,6 @@ fn spawn_worker(
     let handle = thread::Builder::new()
         .name("tessera-network".into())
         .spawn(move || {
-            tessera_sched::mark_background();
             let mut reopen_at = (backend.kind() == BackendKind::Unavailable)
                 .then(|| Instant::now() + BACKEND_RETRY);
             let mut refresh_at: Option<Instant> = None;

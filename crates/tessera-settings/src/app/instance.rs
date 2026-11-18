@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 
-use smithay_client_toolkit::reexports::calloop::channel::Sender as LoopSender;
+use tessera_wl_client::WakeSender as LoopSender;
 
 /// Longest deep-link line accepted from a peer.
 const MAX_TARGET_LEN: u64 = 128;
@@ -94,7 +94,7 @@ impl Listener {
 mod tests {
     use std::time::Duration;
 
-    use smithay_client_toolkit::reexports::calloop::channel;
+    use tessera_wl_client::{WakeSignal, wake_channel as channel_fn};
 
     use super::*;
 
@@ -115,7 +115,7 @@ mod tests {
         let Claim::Primary(listener) = claim(&path, None).unwrap() else {
             panic!("the first claim must become the instance");
         };
-        let (tx, rx) = channel::channel();
+        let (tx, rx) = channel_fn(WakeSignal::new().unwrap());
         let guard = listener.serve(tx).unwrap();
         assert!(matches!(
             claim(&path, Some("power")).unwrap(),

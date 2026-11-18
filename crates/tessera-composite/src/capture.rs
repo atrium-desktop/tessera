@@ -333,9 +333,13 @@ pub fn read_picked_pixel(capture: CapturedPixels) -> Result<[u8; 3], String> {
     Ok([full_rgba[at], full_rgba[at + 1], full_rgba[at + 2]])
 }
 
-fn encode_png(width: u32, height: u32, mut rgba: Vec<u8>) -> Result<Vec<u8>, String> {
-    use image::ImageEncoder;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PngColorType {
+    Rgb8,
+    Rgba8,
+}
 
+fn encode_png(width: u32, height: u32, mut rgba: Vec<u8>) -> Result<Vec<u8>, String> {
     let expected = usize::try_from(width)
         .ok()
         .and_then(|width| {
@@ -355,34 +359,25 @@ fn encode_png(width: u32, height: u32, mut rgba: Vec<u8>) -> Result<Vec<u8>, Str
         ));
     }
 
-    let color = compact_opaque_rgba(&mut rgba);
-    let mut out = Vec::new();
-    // Fast+Paeth substantially reduces generated UI/gradient size versus Up
-    // without Adaptive's per-row search or Default's texture latency. The
-    // png_profiles example compares filters and RGB/RGBA on generated scenes.
-    // File persistence and clipboard publication still share this byte stream.
-    image::codecs::png::PngEncoder::new_with_quality(
-        &mut out,
-        image::codecs::png::CompressionType::Fast,
-        image::codecs::png::FilterType::Paeth,
-    )
-    .write_image(&rgba, width, height, color)
-    .map_err(|error| format!("png encode: {error}"))?;
-    Ok(out)
+    match compact_opaque_rgba(&mut rgba) {
+        PngColorType::Rgb8 => tessera_image::encode_png_rgb(width, height, &rgba, true),
+        PngColorType::Rgba8 => tessera_image::encode_png_rgba(width, height, &rgba, true),
+    }
+    .map_err(|error| format!("png encode: {error}"))
 }
 
 // Only call after validating tightly packed RGBA dimensions. Inspect every
 // alpha before changing any bytes: transparent pixels may contain hidden RGB.
-fn compact_opaque_rgba(rgba: &mut Vec<u8>) -> image::ExtendedColorType {
+fn compact_opaque_rgba(rgba: &mut Vec<u8>) -> PngColorType {
     if !rgba.chunks_exact(4).all(|pixel| pixel[3] == 255) {
-        return image::ExtendedColorType::Rgba8;
+        return PngColorType::Rgba8;
     }
     let pixels = rgba.len() / 4;
     for i in 0..pixels {
         rgba.copy_within(i * 4..i * 4 + 3, i * 3);
     }
     rgba.truncate(pixels * 3);
-    image::ExtendedColorType::Rgb8
+    PngColorType::Rgb8
 }
 
 /// Convert a readback to one raw stream frame (ADR-0052): the flux/Wayland
@@ -524,9 +519,7 @@ mod tests {
             77, 66,
         ];
         let png = encode_png(3, 2, rgba.to_vec()).expect("encode low-latency PNG");
-        let decoded = image::load_from_memory_with_format(&png, image::ImageFormat::Png)
-            .expect("decode PNG")
-            .into_rgba8();
+        let decoded = tessera_image::decode_memory(&png).expect("decode PNG");
         assert_eq!(decoded.dimensions(), (3, 2));
         assert_eq!(decoded.as_raw(), &rgba);
 
@@ -547,16 +540,13 @@ mod tests {
             let mut compact = rgba.clone();
             let pointer = compact.as_ptr();
             let capacity = compact.capacity();
-            assert_eq!(
-                compact_opaque_rgba(&mut compact),
-                image::ExtendedColorType::Rgb8
-            );
+            assert_eq!(compact_opaque_rgba(&mut compact), PngColorType::Rgb8);
             assert_eq!(pointer, compact.as_ptr());
             assert_eq!(capacity, compact.capacity());
             assert_eq!(compact.len(), rgba.len() / 4 * 3);
             let png = encode_png(width, height, rgba.clone()).unwrap();
             assert_eq!(png[25], 2); // PNG IHDR: RGB.
-            let decoded = image::load_from_memory(&png).unwrap().into_rgba8();
+            let decoded = tessera_image::decode_memory(&png).unwrap();
             assert_eq!(decoded.dimensions(), (width, height));
             assert_eq!(decoded.as_raw(), &rgba);
         }
@@ -569,10 +559,7 @@ mod tests {
                 let mut rgba = [19, 83, 201, 255].repeat(6);
                 rgba[index * 4 + 3] = alpha;
                 let original = rgba.clone();
-                assert_eq!(
-                    compact_opaque_rgba(&mut rgba),
-                    image::ExtendedColorType::Rgba8
-                );
+                assert_eq!(compact_opaque_rgba(&mut rgba), PngColorType::Rgba8);
                 assert_eq!(rgba, original);
             }
         }
@@ -585,7 +572,7 @@ mod tests {
             encode_rgba_capture(3, 1, rgba, Some(tessera_primitives::Rect::new(1, 0, 2, 1)))
                 .unwrap();
         assert_eq!((w, h), (2, 1));
-        let decoded = image::load_from_memory(&png).unwrap().into_rgba8();
+        let decoded = tessera_image::decode_memory(&png).unwrap();
         assert_eq!(decoded.as_raw(), &[64, 128, 255, 128, 77, 88, 99, 0]);
     }
 }

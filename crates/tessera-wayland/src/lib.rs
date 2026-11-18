@@ -1762,6 +1762,8 @@ pub(crate) struct State {
     /// (ADR-0028). Applied to every backend-reported output set in
     /// `set_outputs`.
     output_policies: std::collections::HashMap<String, tessera_desktop::output::OutputPolicy>,
+    /// Session policy for connectors without an explicit role (ADR-0243).
+    display_topology: tessera_desktop::output::DisplayTopology,
     /// The session color pipeline actually in effect (reported by the
     /// backend through `Server::set_color_pipeline`). The output image
     /// description advertised over `wp_color_management_v1` derives from it.
@@ -2286,35 +2288,77 @@ fn random_portal_token() -> std::io::Result<String> {
 }
 
 /// Errors bringing up the server.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum ServerError {
-    #[error("wl_display_create failed")]
     DisplayCreate,
-    #[error("wl_display_add_socket_auto failed")]
     Socket,
-    #[error("wl_display_init_shm failed")]
     Shm,
-    #[error("wl_global_create failed for the bootstrap seat")]
     SeatGlobal,
 }
 
+impl std::fmt::Display for ServerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DisplayCreate => f.write_str("wl_display_create failed"),
+            Self::Socket => f.write_str("wl_display_add_socket_auto failed"),
+            Self::Shm => f.write_str("wl_display_init_shm failed"),
+            Self::SeatGlobal => f.write_str("wl_global_create failed for the bootstrap seat"),
+        }
+    }
+}
+
+impl std::error::Error for ServerError {}
+
 /// Errors changing live interaction domain/seat topology after server startup.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum InteractionDomainRuntimeError {
-    #[error(transparent)]
-    Model(#[from] InteractionDomainError),
-    #[error("failed to initialize independent XKB state: {0}")]
+    Model(InteractionDomainError),
     Keyboard(String),
-    #[error("wl_global_create failed for the agent seat")]
     SeatGlobal,
-    #[error("wl_global_create failed for the InteractionDomain virtual output")]
     OutputGlobal,
-    #[error("seat {} is unknown, paused, or revoked", .0.0)]
     SeatUnavailable(SeatId),
-    #[error("interaction_domain {} has no logical seat", .0.0)]
     InteractionDomainHasNoSeat(InteractionDomainId),
-    #[error("InteractionDomain accessibility observation exceeds the {limit}-object safety bound")]
     AccessibilityObservationTooLarge { limit: usize },
-    #[error("failed to create InteractionDomain launch portal: {0}")]
     Portal(String),
+}
+
+impl std::fmt::Display for InteractionDomainRuntimeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Model(err) => write!(f, "{err}"),
+            Self::Keyboard(msg) => write!(f, "failed to initialize independent XKB state: {msg}"),
+            Self::SeatGlobal => f.write_str("wl_global_create failed for the agent seat"),
+            Self::OutputGlobal => {
+                f.write_str("wl_global_create failed for the InteractionDomain virtual output")
+            }
+            Self::SeatUnavailable(seat) => {
+                write!(f, "seat {} is unknown, paused, or revoked", seat.0)
+            }
+            Self::InteractionDomainHasNoSeat(id) => {
+                write!(f, "interaction_domain {} has no logical seat", id.0)
+            }
+            Self::AccessibilityObservationTooLarge { limit } => write!(
+                f,
+                "InteractionDomain accessibility observation exceeds the {limit}-object safety bound"
+            ),
+            Self::Portal(msg) => {
+                write!(f, "failed to create InteractionDomain launch portal: {msg}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for InteractionDomainRuntimeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Model(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+impl From<InteractionDomainError> for InteractionDomainRuntimeError {
+    fn from(err: InteractionDomainError) -> Self {
+        Self::Model(err)
+    }
 }

@@ -797,17 +797,15 @@ impl ClientDamageTracker {
                 damage_full: frame.damage_full(),
                 placement: frame.placement(),
             };
-            if tracing::enabled!(target: "tessera.damage.assess", tracing::Level::TRACE) {
-                tracing::trace!(
+            if log::log_enabled!(target: "tessera.damage.assess", log::Level::Trace) {
+                log::trace!(
                     target: "tessera.damage.assess",
-                    metric = "damage.surface",
-                    count = 1u64,
-                    id = sample.id,
-                    generation = sample.generation,
-                    damage_full = sample.damage_full,
-                    damage_rects = sample.damage.len(),
-                    placement = ?sample.placement,
-                    "surface damage sample"
+                    "surface damage sample metric=damage.surface count=1 id={} generation={} damage_full={} damage_rects={} placement={:?}",
+                    sample.id,
+                    sample.generation,
+                    sample.damage_full,
+                    sample.damage.len(),
+                    sample.placement,
                 );
             }
             accumulate_surface(old, new, sample, &mut rects);
@@ -824,7 +822,7 @@ impl ClientDamageTracker {
         } else {
             ClientDamage::Area(rects)
         };
-        if tracing::enabled!(target: "tessera.damage.assess", tracing::Level::TRACE) {
+        if log::log_enabled!(target: "tessera.damage.assess", log::Level::Trace) {
             let (rect_count, area) = match &damage {
                 ClientDamage::None => (0usize, 0i64),
                 ClientDamage::Area(rects) => (
@@ -835,14 +833,12 @@ impl ClientDamageTracker {
                         .sum(),
                 ),
             };
-            tracing::trace!(
+            log::trace!(
                 target: "tessera.damage.assess",
-                metric = "damage.assess",
-                count = 1u64,
+                "client damage assessment metric=damage.assess count=1 surfaces={} rects={} area={}",
                 surfaces,
-                rects = rect_count,
+                rect_count,
                 area,
-                "client damage assessment"
             );
         }
         damage

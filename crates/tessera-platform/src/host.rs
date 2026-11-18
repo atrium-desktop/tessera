@@ -61,24 +61,71 @@ impl FromStr for BackendKind {
 }
 
 /// Errors selecting, creating, or presenting through a host.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum HostError {
-    #[error("unknown backend {0:?}; expected auto, drm, or nested")]
     InvalidBackend(String),
-    #[error(transparent)]
-    Nested(#[from] NestedError),
-    #[error(transparent)]
-    Drm(#[from] DrmError),
-    #[error(transparent)]
-    Flux(#[from] flux::Error),
-    #[error("cannot create a Vulkan renderer for KMS device {path} ({major}:{minor}): {source}")]
+    Nested(NestedError),
+    Drm(DrmError),
+    Flux(flux::Error),
     DrmRenderer {
         path: PathBuf,
         major: u32,
         minor: u32,
-        #[source]
         source: flux::Error,
     },
+}
+
+impl std::fmt::Display for HostError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidBackend(name) => {
+                write!(f, "unknown backend {name:?}; expected auto, drm, or nested")
+            }
+            Self::Nested(err) => write!(f, "{err}"),
+            Self::Drm(err) => write!(f, "{err}"),
+            Self::Flux(err) => write!(f, "{err}"),
+            Self::DrmRenderer {
+                path,
+                major,
+                minor,
+                source,
+            } => write!(
+                f,
+                "cannot create a Vulkan renderer for KMS device {} ({major}:{minor}): {source}",
+                path.display()
+            ),
+        }
+    }
+}
+
+impl std::error::Error for HostError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Nested(err) => Some(err),
+            Self::Drm(err) => Some(err),
+            Self::Flux(err) => Some(err),
+            Self::DrmRenderer { source, .. } => Some(source),
+            Self::InvalidBackend(_) => None,
+        }
+    }
+}
+
+impl From<NestedError> for HostError {
+    fn from(err: NestedError) -> Self {
+        Self::Nested(err)
+    }
+}
+
+impl From<DrmError> for HostError {
+    fn from(err: DrmError) -> Self {
+        Self::Drm(err)
+    }
+}
+
+impl From<flux::Error> for HostError {
+    fn from(err: flux::Error) -> Self {
+        Self::Flux(err)
+    }
 }
 
 /// A duplicate descriptor of the composited frame most recently presented to
@@ -91,6 +138,15 @@ pub struct PresentedDmabuf {
     pub height: u32,
     pub stride: u32,
     pub modifier: u64,
+    /// DRM fourcc of the composed image (for a zero-copy blit import).
+    pub fourcc: u32,
+    /// Color encoding of the composed image.
+    pub color_pipeline: tessera_desktop::output::ColorPipeline,
+    /// Producer fence for this image, when explicit sync is active.
+    pub acquire_fence: Option<OwnedFd>,
+    /// Flux lease keeping the ring slot alive while a mirror target samples
+    /// the image. The lease is released with the target's next replacement.
+    pub lease: std::rc::Rc<flux::DmabufLease>,
 }
 
 /// Format/modifier pair accepted by an overlay plane.
@@ -160,6 +216,8 @@ impl Host {
         configured_modes: HashMap<String, ModeSpec>,
         configured_color: HashMap<String, tessera_desktop::output::ColorPolicy>,
         configured_icc: HashMap<String, String>,
+        configured_topology: tessera_desktop::output::DisplayTopology,
+        configured_policies: HashMap<String, tessera_desktop::output::OutputPolicy>,
     ) -> Result<Self, HostError> {
         match kind {
             BackendKind::Nested => Ok(Self::Nested(NestedHost::open(title, width, height)?)),
@@ -167,6 +225,8 @@ impl Host {
                 configured_modes,
                 configured_color,
                 configured_icc,
+                configured_topology,
+                configured_policies,
             )?)),
             BackendKind::Auto => {
                 let outer_wayland =
@@ -180,6 +240,8 @@ impl Host {
                         configured_modes,
                         configured_color,
                         configured_icc,
+                        configured_topology,
+                        configured_policies,
                     )?))
                 }
             }
@@ -297,6 +359,55 @@ impl Host {
         }
     }
 
+    /// Record and submit a composite frame without a KMS scanout commit.
+    ///
+    /// Capture/stream frames use the composed image as a source while their
+    /// per-output targets perform the actual presentation. The retained
+    /// descriptor and lease keep the composed image alive for those consumers.
+    pub fn compose_only(
+        &mut self,
+        surface: &flux::Surface,
+        frame: flux::SubmittedFrame<'_>,
+        damage: Option<&[tessera_primitives::Rect]>,
+    ) -> Result<Option<OwnedFd>, HostError> {
+        match self {
+            Self::Nested(host) => {
+                let _ = damage;
+                host.arm_frame_callback();
+                if let Err(error) = frame.present() {
+                    host.cancel_frame_callback();
+                    return Err(error.into());
+                }
+                Ok(None)
+            }
+            Self::Drm(host) => Ok(host.compose_only(surface, frame)?),
+        }
+    }
+
+    /// Present the composed desktop to an explicit subset of outputs.
+    /// Outputs not named keep their current scanout; nested presentation owns
+    /// a single host surface and ignores the target list.
+    pub fn present_to(
+        &mut self,
+        surface: &flux::Surface,
+        frame: flux::SubmittedFrame<'_>,
+        damage: Option<&[tessera_primitives::Rect]>,
+        targets: &[&str],
+    ) -> Result<Option<OwnedFd>, HostError> {
+        match self {
+            Self::Nested(host) => {
+                let _ = targets;
+                host.arm_frame_callback();
+                if let Err(error) = frame.present() {
+                    host.cancel_frame_callback();
+                    return Err(error.into());
+                }
+                Ok(None)
+            }
+            Self::Drm(host) => Ok(host.present_to(surface, frame, damage, targets)?),
+        }
+    }
+
     /// Present the composed desktop and one overlay client buffer together.
     /// Nested presentation owns no overlay plane and rejects the request; the
     /// runtime then composites normally.
@@ -325,6 +436,56 @@ impl Host {
         }
     }
 
+    /// Create an exportable offscreen surface for a compositor-owned output
+    /// target. Only the DRM backend owns such targets; nested presentation
+    /// keeps its single host swapchain.
+    pub fn create_render_target(
+        &self,
+        device: &flux::Device,
+        width: u32,
+        height: u32,
+    ) -> Result<flux::Surface, HostError> {
+        match self {
+            Self::Nested(_) => Err(HostError::Drm(DrmError::ScanoutUnsupported)),
+            Self::Drm(host) => Ok(host.create_render_target(device, width, height)?),
+        }
+    }
+
+    /// Present an exported compositor target at its native extent, with no
+    /// KMS plane scaling. The target surface is already mode-sized.
+    pub fn present_render_target(
+        &mut self,
+        exported: flux::ExportedDmabuf,
+        target: &str,
+    ) -> Result<Option<OwnedFd>, HostError> {
+        match self {
+            Self::Nested(_) => Err(HostError::Drm(DrmError::ScanoutUnsupported)),
+            Self::Drm(host) => Ok(host.present_render_target(exported, target)?),
+        }
+    }
+
+    /// Present a coherent group of mode-sized compositor targets in one
+    /// atomic commit. All CRTCs in the group flip together; groups remain
+    /// independent of one another.
+    pub fn present_render_targets(
+        &mut self,
+        targets: Vec<(String, flux::ExportedDmabuf)>,
+    ) -> Result<(), HostError> {
+        match self {
+            Self::Nested(_) => Err(HostError::Drm(DrmError::ScanoutUnsupported)),
+            Self::Drm(host) => Ok(host.present_render_targets(targets)?),
+        }
+    }
+
+    /// Source rectangle of one output inside the composed union framebuffer.
+    /// Used to crop a mirror target from the source output's slice.
+    pub fn output_source_rect(&self, connector: &str) -> Option<tessera_primitives::Rect> {
+        match self {
+            Self::Nested(_) => None,
+            Self::Drm(host) => host.output_source_rect(connector),
+        }
+    }
+
     /// Page-flip one compositor-selected full-output client buffer directly,
     /// bypassing the composite. Eligibility is based on physical coverage and
     /// opacity rather than an xdg fullscreen state bit.
@@ -333,11 +494,22 @@ impl Host {
     pub fn present_scanout(
         &mut self,
         candidate: &tessera_primitives::SurfaceDmabuf,
+        target: &str,
         damage: Option<&[tessera_primitives::Rect]>,
     ) -> Result<Option<OwnedFd>, HostError> {
         match self {
             Self::Nested(_) => Err(HostError::Drm(DrmError::ScanoutUnsupported)),
-            Self::Drm(host) => Ok(host.present_scanout(candidate, damage)?),
+            Self::Drm(host) => Ok(host.present_scanout(candidate, target, damage)?),
+        }
+    }
+
+    /// Whether one output's primary-plane slot is still waiting for its page
+    /// flip. The runtime skips that target for composite presentation instead
+    /// of blocking every other output.
+    pub fn output_presentation_pending(&self, connector: &str) -> bool {
+        match self {
+            Self::Nested(_) => false,
+            Self::Drm(host) => host.output_presentation_pending(connector),
         }
     }
 
@@ -572,6 +744,17 @@ impl Backend for Host {
         match self {
             Self::Nested(host) => host.output_infos(),
             Self::Drm(host) => host.output_infos(),
+        }
+    }
+
+    fn set_configured_topology(
+        &mut self,
+        topology: tessera_desktop::output::DisplayTopology,
+        policies: HashMap<String, tessera_desktop::output::OutputPolicy>,
+    ) {
+        match self {
+            Self::Nested(host) => host.set_configured_topology(topology, policies),
+            Self::Drm(host) => host.set_configured_topology(topology, policies),
         }
     }
 

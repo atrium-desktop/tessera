@@ -1,12 +1,14 @@
 use super::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
 enum FlipProgress {
     Unrelated,
     Pending,
     Complete,
 }
 
+#[cfg(test)]
 fn retire_page_flip(pending_flips: &mut HashSet<crtc::Handle>, crtc: crtc::Handle) -> FlipProgress {
     if !pending_flips.remove(&crtc) {
         FlipProgress::Unrelated
@@ -42,6 +44,48 @@ fn relative_motion_event(
         dx_unaccel,
         dy_unaccel,
     }
+}
+
+/// Map a normalized absolute-device position onto one output's logical
+/// content rectangle.
+///
+/// `destination` is the fitted KMS destination in output-mode pixels; the
+/// source occupies the whole logical source rect, with black bars outside it.
+/// A coordinate inside a bar clamps to the nearest content edge. Keeping this
+/// arithmetic pure makes the letterbox contract testable without a GPU.
+fn map_absolute_to_content(
+    x_fraction: f32,
+    y_fraction: f32,
+    mode: (u32, u32),
+    destination: (i32, i32, u32, u32),
+    source_size: (u32, u32),
+    source_origin: (u32, u32),
+    source_scale: f32,
+) -> Option<(f32, f32)> {
+    let (mode_width, mode_height) = mode;
+    if mode_width == 0 || mode_height == 0 {
+        return None;
+    }
+    let (dest_x, dest_y, dest_w, dest_h) = destination;
+    let content_x = dest_x as f32 / mode_width as f32;
+    let content_y = dest_y as f32 / mode_height as f32;
+    let content_w = (dest_w as f32 / mode_width as f32).clamp(0.0, 1.0);
+    let content_h = (dest_h as f32 / mode_height as f32).clamp(0.0, 1.0);
+    if content_w <= 0.0 || content_h <= 0.0 {
+        return None;
+    }
+    let u = ((x_fraction.clamp(0.0, 1.0) - content_x) / content_w).clamp(0.0, 1.0);
+    let v = ((y_fraction.clamp(0.0, 1.0) - content_y) / content_h).clamp(0.0, 1.0);
+    let scale = if source_scale.is_finite() && source_scale > 0.0 {
+        source_scale
+    } else {
+        1.0
+    };
+    let logical_w = source_size.0 as f32 / scale;
+    let logical_h = source_size.1 as f32 / scale;
+    let origin_x = source_origin.0 as f32 / scale;
+    let origin_y = source_origin.1 as f32 / scale;
+    Some((origin_x + u * logical_w, origin_y + v * logical_h))
 }
 
 impl DrmBackend {
@@ -142,29 +186,34 @@ impl DrmBackend {
         if self.active && fds[1].revents & (libc::POLLIN | libc::POLLERR) != 0 {
             match self.card().receive_events() {
                 Ok(events) => {
-                    let mut batch_completed = false;
                     for event in events {
                         if let control::Event::PageFlip(event) = event {
-                            match retire_page_flip(&mut self.pending_flips, event.crtc) {
-                                FlipProgress::Complete => batch_completed = true,
-                                FlipProgress::Pending => {}
-                                FlipProgress::Unrelated => {
-                                    log::trace!(
-                                        "drm: ignoring page flip for unowned CRTC {:?}",
-                                        event.crtc
-                                    );
-                                }
+                            let mut retired = None;
+                            if let Some(slot) =
+                                self.slots.iter_mut().find(|slot| slot.crtc == event.crtc)
+                            {
+                                slot.pending = false;
+                                retired = slot.retiring.take();
+                                self.pending_flips.remove(&event.crtc);
+                            } else {
+                                log::trace!(
+                                    "drm: ignoring page flip for unowned CRTC {:?}",
+                                    event.crtc
+                                );
                             }
-                        }
-                    }
-                    if batch_completed {
-                        if let Some(retired) = self.retiring.take() {
-                            log::trace!("drm: releasing Flux scanout slot {}", retired.slot);
-                            self.release_scanout(retired);
-                        }
-                        if let Some(retired) = self.retiring_overlay.take() {
-                            log::trace!("drm: releasing retired overlay scanout");
-                            self.release_overlay_scanout(retired);
+                            if let Some(retired) = retired {
+                                log::trace!("drm: releasing Flux scanout slot {}", retired.slot);
+                                self.release_scanout(retired);
+                            }
+                            if self.retiring_overlay.as_ref().is_some_and(|overlay| {
+                                self.displays.outputs.iter().any(|output| {
+                                    output.name == overlay.output && output.crtc == event.crtc
+                                })
+                            }) && let Some(retired) = self.retiring_overlay.take()
+                            {
+                                log::trace!("drm: releasing retired overlay scanout");
+                                self.release_overlay_scanout(retired);
+                            }
                         }
                     }
                 }
@@ -253,9 +302,7 @@ impl DrmBackend {
                         card.path.display()
                     );
                 }
-                self.current = None;
-                self.retiring = None;
-                self.current_source = None;
+                self.clear_plane_slots(false);
                 self.current_overlay = None;
                 self.retiring_overlay = None;
                 self.pending_flips.clear();
@@ -266,6 +313,8 @@ impl DrmBackend {
                     &self.configured_modes,
                     &self.configured_color,
                     &self.configured_icc,
+                    self.configured_topology,
+                    &self.configured_policies,
                 ) {
                     Ok((card, displays)) => {
                         self.card = Some(card);
@@ -275,6 +324,7 @@ impl DrmBackend {
                             h: displays.size.1 as i32,
                         });
                         self.displays = displays;
+                        self.rebuild_plane_slots();
                         self.modeset_done = false;
                         // A VT/suspend round-trip always wakes to a freshly
                         // rendered frame. This also closes the edge where the
@@ -515,6 +565,7 @@ impl DrmBackend {
             // The DRM backend does not track keyboards as configurable
             // devices; the runtime overlays the persisted keyboard profile.
             keyboard: tessera_primitives::input::KeyboardConfig::default(),
+            mappings: self.input_mappings.clone(),
         }
     }
 
@@ -651,6 +702,57 @@ impl DrmBackend {
         });
     }
 
+    /// Resolve a normalized absolute device position through the output it
+    /// is bound to. Returns `None` when the device has no binding, so callers
+    /// keep the historical full-union mapping.
+    ///
+    /// The binding is intentionally resolved on every event: hotplug and a
+    /// mode/topology change can alter the destination rectangle while the
+    /// libinput device handle stays live. The content inset comes from the
+    /// fitted mirror destination, so a touch inside a letterbox bar clamps to
+    /// the visible edge instead of jumping to a desktop corner.
+    fn mapped_absolute_position(
+        &self,
+        device: &Device,
+        x_fraction: f32,
+        y_fraction: f32,
+    ) -> Option<(f32, f32)> {
+        if self.input_mappings.is_empty() {
+            return None;
+        }
+        let name = device.name();
+        let sysname = device.sysname();
+        let binding = self
+            .input_mappings
+            .iter()
+            .find(|mapping| mapping.device == name || mapping.device == sysname)?;
+        let output = self
+            .displays
+            .outputs
+            .iter()
+            .find(|output| output.name == binding.output)?;
+        let (mode_width, mode_height) = output.mode.size();
+        let source_scale = output
+            .role
+            .mirror_source()
+            .and_then(|source| {
+                self.displays
+                    .outputs
+                    .iter()
+                    .find(|candidate| candidate.name == source)
+            })
+            .map_or(output.scale.as_f32(), |source| source.scale.as_f32());
+        map_absolute_to_content(
+            x_fraction,
+            y_fraction,
+            (u32::from(mode_width), u32::from(mode_height)),
+            output.destination,
+            output.source_size,
+            (output.x, 0),
+            source_scale,
+        )
+    }
+
     pub(super) fn push_pointer_event(&mut self, event: PointerEvent) {
         let (width, height) = self.physical_size();
         match event {
@@ -667,8 +769,15 @@ impl DrmBackend {
                 self.input_events.push(motion);
             }
             PointerEvent::MotionAbsolute(event) => {
-                let x = event.absolute_x_transformed(width) as f32;
-                let y = event.absolute_y_transformed(height) as f32;
+                let raw_x = event.absolute_x_transformed(width) as f32;
+                let raw_y = event.absolute_y_transformed(height) as f32;
+                let (x, y) = self
+                    .mapped_absolute_position(
+                        &event.device(),
+                        raw_x / width.max(1) as f32,
+                        raw_y / height.max(1) as f32,
+                    )
+                    .unwrap_or((raw_x, raw_y));
                 // Absolute devices report no delta channel; difference
                 // successive positions so relative-pointer clients still see
                 // motion. There is no unaccelerated source either.
@@ -783,17 +892,40 @@ impl DrmBackend {
 
     pub(super) fn push_touch_event(&mut self, event: TouchEvent) {
         let (width, height) = self.physical_size();
+        let device = event.device();
         match event {
-            TouchEvent::Down(event) => self.input_events.push(InputEvent::TouchDown {
-                id: event.seat_slot() as i32,
-                x: event.x_transformed(width) as f32,
-                y: event.y_transformed(height) as f32,
-            }),
-            TouchEvent::Motion(event) => self.input_events.push(InputEvent::TouchMotion {
-                id: event.seat_slot() as i32,
-                x: event.x_transformed(width) as f32,
-                y: event.y_transformed(height) as f32,
-            }),
+            TouchEvent::Down(event) => {
+                let raw_x = event.x_transformed(width) as f32;
+                let raw_y = event.y_transformed(height) as f32;
+                let (x, y) = self
+                    .mapped_absolute_position(
+                        &device,
+                        raw_x / width.max(1) as f32,
+                        raw_y / height.max(1) as f32,
+                    )
+                    .unwrap_or((raw_x, raw_y));
+                self.input_events.push(InputEvent::TouchDown {
+                    id: event.seat_slot() as i32,
+                    x,
+                    y,
+                });
+            }
+            TouchEvent::Motion(event) => {
+                let raw_x = event.x_transformed(width) as f32;
+                let raw_y = event.y_transformed(height) as f32;
+                let (x, y) = self
+                    .mapped_absolute_position(
+                        &device,
+                        raw_x / width.max(1) as f32,
+                        raw_y / height.max(1) as f32,
+                    )
+                    .unwrap_or((raw_x, raw_y));
+                self.input_events.push(InputEvent::TouchMotion {
+                    id: event.seat_slot() as i32,
+                    x,
+                    y,
+                });
+            }
             TouchEvent::Up(event) => self.input_events.push(InputEvent::TouchUp {
                 id: event.seat_slot() as i32,
             }),
@@ -921,6 +1053,61 @@ mod tests {
         // edge clamp, with the unaccelerated channel left untouched.
         assert_eq!((dx, dy), (30.0, 25.0));
         assert_eq!((dx_unaccel, dy_unaccel), (12.0, 10.0));
+    }
+
+    #[test]
+    fn mapped_absolute_input_insets_letterbox_bars() {
+        // 1920x1080 source content in a 1280x1024 panel: destination is
+        // 1280x720 at y=152. A touch at the panel center maps to the source
+        // center; a touch in the top bar clamps to y=0.
+        let map = |x: f32, y: f32| {
+            map_absolute_to_content(
+                x,
+                y,
+                (1280, 1024),
+                (0, 152, 1280, 720),
+                (1920, 1080),
+                (0, 0),
+                1.0,
+            )
+            .unwrap()
+        };
+        let (x, y) = map(0.5, 0.5);
+        assert!((x - 960.0).abs() < 0.01);
+        assert!((y - 540.0).abs() < 0.01);
+        let (_, top) = map(0.5, 0.01);
+        assert_eq!(top, 0.0);
+        let (_, bottom) = map(0.5, 0.99);
+        assert_eq!(bottom, 1080.0);
+    }
+
+    #[test]
+    fn mapped_absolute_input_respects_pillarbox_and_scale() {
+        // 16:10 source on a wider panel: 0.9 width centered, source scale 2
+        // turns 2560 source pixels into a 1280-wide logical desktop at x=320.
+        let (x, y) = map_absolute_to_content(
+            0.5,
+            0.5,
+            (1920, 1080),
+            (96, 0, 1728, 1080),
+            (2560, 1600),
+            (640, 0),
+            2.0,
+        )
+        .unwrap();
+        assert!((x - 960.0).abs() < 0.01);
+        assert!((y - 400.0).abs() < 0.01);
+        let (left, _) = map_absolute_to_content(
+            0.01,
+            0.5,
+            (1920, 1080),
+            (96, 0, 1728, 1080),
+            (2560, 1600),
+            (640, 0),
+            2.0,
+        )
+        .unwrap();
+        assert_eq!(left, 320.0);
     }
 
     #[test]

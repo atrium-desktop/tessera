@@ -94,12 +94,27 @@ fn participates_in_shell_pass(
 /// prints the binding's `Error` enum structurally and hides the one field a
 /// reader needs: the flux entry point, its source line, and the message that
 /// says *which* argument or state was wrong. `Display` forwards to it.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum ShellError {
-    #[error("shell create: {0}")]
-    Create(#[source] lens::Error),
-    #[error("shell render: {0}")]
-    Render(#[source] lens::Error),
+    Create(lens::Error),
+    Render(lens::Error),
+}
+
+impl std::fmt::Display for ShellError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Create(err) => write!(f, "shell create: {err}"),
+            Self::Render(err) => write!(f, "shell render: {err}"),
+        }
+    }
+}
+
+impl std::error::Error for ShellError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Create(err) | Self::Render(err) => Some(err),
+        }
+    }
 }
 
 /// The core chrome host.

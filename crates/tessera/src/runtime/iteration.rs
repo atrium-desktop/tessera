@@ -819,13 +819,20 @@ impl CompositorRuntime<'_> {
             // a live re-modeset after its in-flight page flip retires.
             self.host
                 .set_configured_modes(configured_output_modes(self.config.as_ref()));
+            self.host.set_configured_topology(
+                configured_display_topology(self.config.as_ref()),
+                configured_output_policies(self.config.as_ref()),
+            );
             self.host
                 .set_configured_color_policies(configured_color_policies(self.config.as_ref()));
             self.host
                 .set_configured_icc_profiles(configured_icc_profiles(self.config.as_ref()));
-            let mut input_status = self
-                .host
-                .set_input_config(self.config.as_ref().map(|c| c.input).unwrap_or_default());
+            let mut input_status = self.host.set_input_config(
+                self.config
+                    .as_ref()
+                    .map(|c| c.input.clone())
+                    .unwrap_or_default(),
+            );
             input_status.keyboard = self
                 .config
                 .as_ref()
@@ -850,8 +857,10 @@ impl CompositorRuntime<'_> {
             }
             self.system_status.display = tessera_desktop::settings::DisplayStatus {
                 configurable: self.host.name() == "drm",
+                topology: configured_display_topology(self.config.as_ref()),
                 outputs: self.server.output_infos(),
                 error: None,
+                pending_revert_seconds: None,
             };
             self.settings_revision = self.settings_revision.saturating_add(1);
             self.idle_process.reconfigure(
@@ -1585,7 +1594,7 @@ impl CompositorRuntime<'_> {
             // Correlate every event produced while applying this live-system
             // control request. `debug_span` is elided at the default `info`
             // level, so it is free in production and active under RUST_LOG.
-            let _span = tracing::debug_span!("ipc", kind = "system_control", ?action).entered();
+            log::debug!("ipc kind=system_control action={action:?}");
             let command = tessera_protocol::Command::System {
                 action: action.clone(),
             };
@@ -1949,8 +1958,13 @@ impl CompositorRuntime<'_> {
             return Err("glTF wallpapers are not supported over IPC".into());
         }
         let (width, height) = self.host.physical_size();
-        let wallpaper = wallpaper::Wallpaper::from_path(path, width, height)
-            .map_err(|error| format!("could not decode {}: {error}", path.display()))?;
+        let wallpaper = wallpaper::Wallpaper::from_path_with_worker_init(
+            path,
+            width,
+            height,
+            Some(super::sched::mark_frame_feeder),
+        )
+        .map_err(|error| format!("could not decode {}: {error}", path.display()))?;
         self.wallpaper = Some(wallpaper);
         // Full-output repaint for the swap: the damage path has no dedicated
         // wallpaper hook, so the out-of-band mutation signal stands in (the

@@ -9,7 +9,6 @@ use lens::{CursorHint, Input, Ui};
 use tessera_design::{Design, themes};
 use tessera_i18n::Localizer;
 use tessera_settings::SettingsHost;
-use thiserror::Error;
 use wayland_client::{Connection, Proxy, protocol::wl_surface};
 
 use super::clipboard;
@@ -17,14 +16,43 @@ use super::clipboard;
 const INSTANCE_EXTENSIONS: [&CStr; 2] = [c"VK_KHR_surface", c"VK_KHR_wayland_surface"];
 const DEVICE_EXTENSIONS: [&CStr; 1] = [c"VK_KHR_swapchain"];
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum RenderError {
-    #[error("Vulkan is unavailable")]
     Vulkan,
-    #[error(transparent)]
-    Flux(#[from] flux::Error),
-    #[error(transparent)]
-    Lens(#[from] lens::Error),
+    Flux(flux::Error),
+    Lens(lens::Error),
+}
+
+impl std::fmt::Display for RenderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Vulkan => f.write_str("Vulkan is unavailable"),
+            Self::Flux(err) => write!(f, "{err}"),
+            Self::Lens(err) => write!(f, "{err}"),
+        }
+    }
+}
+
+impl std::error::Error for RenderError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Flux(err) => Some(err),
+            Self::Lens(err) => Some(err),
+            Self::Vulkan => None,
+        }
+    }
+}
+
+impl From<flux::Error> for RenderError {
+    fn from(err: flux::Error) -> Self {
+        Self::Flux(err)
+    }
+}
+
+impl From<lens::Error> for RenderError {
+    fn from(err: lens::Error) -> Self {
+        Self::Lens(err)
+    }
 }
 
 /// What one rendered frame asks of the event loop.

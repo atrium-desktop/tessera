@@ -1351,7 +1351,8 @@ fn load_or_create_checkpoint_key(
             if source.kind() == std::io::ErrorKind::NotFound && !checkpoint_exists =>
         {
             let mut key = Zeroizing::new([0u8; CHECKPOINT_KEY_BYTES]);
-            getrandom::fill(key.as_mut())
+            std::fs::File::open("/dev/urandom")
+                .and_then(|mut f| std::io::Read::read_exact(&mut f, key.as_mut()))
                 .map_err(|source| AuditError::Entropy(source.to_string()))?;
             let mut options = OpenOptions::new();
             options
@@ -1466,7 +1467,9 @@ fn write_checkpoint(
     }
 
     let mut random = [0u8; 8];
-    getrandom::fill(&mut random).map_err(|source| AuditError::Entropy(source.to_string()))?;
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut random))
+        .map_err(|source| AuditError::Entropy(source.to_string()))?;
     let name = path
         .file_name()
         .ok_or(AuditError::NoParent)?
@@ -1635,74 +1638,136 @@ fn validate_private_file(path: &Path, file: &File) -> Result<(), AuditError> {
     Ok(())
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum AuditError {
-    #[error("audit path has no parent directory")]
     NoParent,
-    #[error("invalid audit store options: {0}")]
     InvalidOptions(&'static str),
-    #[error("unsafe audit path ownership, permissions, or file type: {0}")]
     UnsafePath(PathBuf),
-    #[error("audit I/O failed for {path}: {source}")]
     Io {
         path: PathBuf,
-        #[source]
         source: std::io::Error,
     },
-    #[error("audit event encoding failed: {0}")]
     Encode(serde_json::Error),
-    #[error("audit event decoding failed: {0}")]
     Decode(serde_json::Error),
-    #[error("unsupported audit store version {0}")]
     Version(u32),
-    #[error("audit store is locked by another live instance: {0}")]
     Locked(PathBuf),
-    #[error("audit checkpoint authentication failed")]
     CheckpointAuthentication,
-    #[error("audit checkpoint decoding failed: {0}")]
     CheckpointDecode(serde_json::Error),
-    #[error("invalid audit checkpoint: {0}")]
     CheckpointState(&'static str),
-    #[error("audit history verification failed: {0}")]
     BackgroundVerification(String),
-    #[error("audit history verification was cancelled")]
     VerificationCancelled,
-    #[error("audit history verification worker panicked")]
     VerificationWorkerPanicked,
-    #[error("invalid audit segment state: {0}")]
     SegmentState(&'static str),
-    #[error("sealed audit segment {index} failed integrity verification")]
-    SegmentVerification { index: u64 },
-    #[error("audit checkpoint entropy failed: {0}")]
+    SegmentVerification {
+        index: u64,
+    },
     Entropy(String),
-    #[error(
-        "audit quota exceeded for {path}: maximum {max_bytes} bytes, attempted {attempted_bytes} bytes"
-    )]
     QuotaExceeded {
         path: PathBuf,
         max_bytes: u64,
         attempted_bytes: u64,
     },
-    #[error(
-        "audit filesystem reserve reached for {path}: {available_bytes} bytes available, {required_bytes} bytes required"
-    )]
     LowSpace {
         path: PathBuf,
         available_bytes: u64,
         required_bytes: u64,
     },
-    #[error("audit sequence mismatch: expected {expected}, got {actual}")]
-    Sequence { expected: u64, actual: u64 },
-    #[error("audit sequence space exhausted")]
+    Sequence {
+        expected: u64,
+        actual: u64,
+    },
     SequenceExhausted,
-    #[error("audit event is too large: {0} bytes")]
     Oversized(usize),
-    #[error("audit event {0} is incomplete")]
     IncompleteRecord(u64),
-    #[error("audit event {0} does not extend the previous hash")]
     PreviousHash(u64),
-    #[error("audit event {0} failed content-hash verification")]
     Hash(u64),
+}
+
+impl std::fmt::Display for AuditError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoParent => f.write_str("audit path has no parent directory"),
+            Self::InvalidOptions(msg) => write!(f, "invalid audit store options: {msg}"),
+            Self::UnsafePath(path) => {
+                write!(
+                    f,
+                    "unsafe audit path ownership, permissions, or file type: {}",
+                    path.display()
+                )
+            }
+            Self::Io { path, source } => {
+                write!(f, "audit I/O failed for {}: {source}", path.display())
+            }
+            Self::Encode(err) => write!(f, "audit event encoding failed: {err}"),
+            Self::Decode(err) => write!(f, "audit event decoding failed: {err}"),
+            Self::Version(v) => write!(f, "unsupported audit store version {v}"),
+            Self::Locked(path) => {
+                write!(
+                    f,
+                    "audit store is locked by another live instance: {}",
+                    path.display()
+                )
+            }
+            Self::CheckpointAuthentication => f.write_str("audit checkpoint authentication failed"),
+            Self::CheckpointDecode(err) => write!(f, "audit checkpoint decoding failed: {err}"),
+            Self::CheckpointState(msg) => write!(f, "invalid audit checkpoint: {msg}"),
+            Self::BackgroundVerification(msg) => {
+                write!(f, "audit history verification failed: {msg}")
+            }
+            Self::VerificationCancelled => f.write_str("audit history verification was cancelled"),
+            Self::VerificationWorkerPanicked => {
+                f.write_str("audit history verification worker panicked")
+            }
+            Self::SegmentState(msg) => write!(f, "invalid audit segment state: {msg}"),
+            Self::SegmentVerification { index } => {
+                write!(
+                    f,
+                    "sealed audit segment {index} failed integrity verification"
+                )
+            }
+            Self::Entropy(msg) => write!(f, "audit checkpoint entropy failed: {msg}"),
+            Self::QuotaExceeded {
+                path,
+                max_bytes,
+                attempted_bytes,
+            } => write!(
+                f,
+                "audit quota exceeded for {}: maximum {max_bytes} bytes, attempted {attempted_bytes} bytes",
+                path.display()
+            ),
+            Self::LowSpace {
+                path,
+                available_bytes,
+                required_bytes,
+            } => write!(
+                f,
+                "audit filesystem reserve reached for {}: {available_bytes} bytes available, {required_bytes} bytes required",
+                path.display()
+            ),
+            Self::Sequence { expected, actual } => {
+                write!(
+                    f,
+                    "audit sequence mismatch: expected {expected}, got {actual}"
+                )
+            }
+            Self::SequenceExhausted => f.write_str("audit sequence space exhausted"),
+            Self::Oversized(len) => write!(f, "audit event is too large: {len} bytes"),
+            Self::IncompleteRecord(seq) => write!(f, "audit event {seq} is incomplete"),
+            Self::PreviousHash(seq) => {
+                write!(f, "audit event {seq} does not extend the previous hash")
+            }
+            Self::Hash(seq) => write!(f, "audit event {seq} failed content-hash verification"),
+        }
+    }
+}
+
+impl std::error::Error for AuditError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io { source, .. } => Some(source),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]

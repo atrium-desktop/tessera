@@ -2,52 +2,60 @@
 # Review changes here alongside the owning package manifest.
 
 [tessera]
-normal = ["flux", "flux-sys", "include_dir", "lens", "lens-sys", "libc", "log", "reticle-sys", "serde", "serde_json", "sha2", "tessera-assets", "tessera-audit", "tessera-authority", "tessera-cast", "tessera-cli", "tessera-composite", "tessera-config", "tessera-design", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-launch-services", "tessera-network", "tessera-platform", "tessera-primitives", "tessera-protocol", "tessera-sched", "tessera-shell", "tessera-wallpaper", "tessera-wayland", "tracing", "vista-sys", "zbus", "zeroize"]
+normal = ["flux", "flux-sys", "lens", "lens-sys", "libc", "log", "reticle-sys", "serde", "serde_json", "sha2", "tessera-assets", "tessera-audit", "tessera-authority", "tessera-cast", "tessera-control", "tessera-composite", "tessera-config", "tessera-dbus", "tessera-design", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-launch-services", "tessera-network", "tessera-platform", "tessera-primitives", "tessera-protocol", "tessera-shell", "tessera-wallpaper", "tessera-wayland", "vista-sys", "zeroize"]
 build = []
-dev = ["flate2", "image", "tempfile", "tessera-desktop", "tessera-ipc", "tessera-protocol", "tessera-shell"]
+dev = ["flate2", "tessera-image", "tempfile", "tessera-desktop", "tessera-ipc", "tessera-protocol", "tessera-shell"]
 
 [tessera-assets]
-normal = ["flate2", "image", "reticle", "reticle-sys", "thiserror"]
+normal = ["flate2", "tessera-image", "reticle", "reticle-sys"]
 build = []
 dev = []
 
 [tessera-launch-services]
-normal = ["libc", "log", "tessera-desktop", "tessera-i18n", "tessera-sched", "thiserror"]
+normal = ["libc", "log", "tessera-desktop", "tessera-i18n"]
 build = []
 dev = ["tempfile"]
 
 [tessera-audit]
-normal = ["flate2", "getrandom", "hmac", "libc", "serde", "serde_json", "sha2", "tessera-protocol", "thiserror", "zeroize"]
+normal = ["flate2", "hmac", "libc", "serde", "serde_json", "sha2", "tessera-protocol", "zeroize"]
 build = []
 dev = ["tempfile"]
 
 [tessera-authority]
-normal = ["getrandom", "serde", "serde_json", "tessera-desktop", "tessera-primitives", "zeroize"]
+normal = ["serde", "serde_json", "tessera-desktop", "tessera-primitives", "zeroize"]
 build = []
 dev = []
 
 [tessera-avatar]
-normal = ["flux", "flux-sys", "image", "libc", "log", "notify", "tessera-launch-services", "thiserror", "vista", "vista-sys"]
+normal = ["flux", "flux-sys", "tessera-image", "libc", "log", "tessera-launch-services", "vista", "vista-sys"]
 build = []
 dev = ["tempfile"]
 
 [tessera-platform]
-normal = ["ash", "drm", "flux", "flux-sys", "input", "libc", "libseat", "log", "tessera-desktop", "tessera-primitives", "tessera-wayland-protocols", "thiserror", "udev"]
+normal = ["ash", "drm", "flux", "flux-sys", "input", "libc", "libseat", "log", "tessera-desktop", "tessera-primitives", "tessera-wayland-protocols", "udev"]
 build = ["pkg-config"]
 dev = []
 
 [tessera-env]
-normal = ["log", "thiserror", "tracing-log", "tracing-subscriber"]
+normal = ["libc", "log"]
+
+[tessera-dbus]
+normal = ["libc"]
 build = []
 dev = []
 
-[tessera-cli]
-normal = ["clap", "clap_complete", "serde", "serde_json", "tessera-audit", "tessera-authority", "tessera-config", "tessera-desktop", "tessera-env", "tessera-i18n", "tessera-ipc", "tessera-launch-services", "tessera-primitives", "tessera-protocol", "thiserror", "zeroize"]
+[tessera-wl-client]
+normal = ["libc", "wayland-client", "xkbcommon"]
+build = []
+dev = []
+
+[tessera-control]
+normal = ["serde", "serde_json", "tessera-audit", "tessera-authority", "tessera-config", "tessera-desktop", "tessera-env", "tessera-i18n", "tessera-ipc", "tessera-launch-services", "tessera-primitives", "tessera-protocol", "zeroize"]
 build = []
 dev = ["tempfile"]
 
 [tessera-config]
-normal = ["libc", "serde", "tessera-desktop", "tessera-network", "tessera-primitives", "thiserror", "toml", "toml_edit"]
+normal = ["libc", "serde", "tessera-desktop", "tessera-network", "tessera-primitives", "toml", "toml_edit"]
 build = []
 dev = ["tempfile"]
 
@@ -67,41 +75,41 @@ build = []
 dev = []
 
 [tessera-idle]
-normal = ["futures-util", "libc", "log", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-protocol", "wayland-client", "wayland-protocols", "zbus"]
+normal = ["libc", "log", "tessera-dbus", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-protocol", "wayland-client", "wayland-protocols"]
 build = []
 dev = []
 
 [tessera-cast]
-normal = ["futures-util", "libc", "log", "serde", "serde_json", "signal-hook", "tessera-desktop", "tessera-env", "zbus"]
+normal = ["libc", "log", "serde", "serde_json", "tessera-dbus", "tessera-desktop", "tessera-env"]
 build = []
 dev = []
 
 # Backend-neutral network vocabulary and the compositor <-> service protocol
 # (ADR-0242). Pure: zbus and system D-Bus are deliberately absent.
 [tessera-network]
-normal = ["libc", "serde", "serde_json", "tessera-desktop", "thiserror", "zeroize"]
+normal = ["libc", "serde", "serde_json", "tessera-desktop", "zeroize"]
 build = []
 dev = ["tempfile"]
 
 # The system-side network service. The compositor never depends on this package;
 # `check-boundaries` enforces that only the daemon and its tests see it.
 [tessera-network-system]
-normal = ["futures-util", "libc", "log", "signal-hook", "tessera-desktop", "tessera-env", "tessera-network", "tessera-sched", "zbus", "zeroize"]
+normal = ["libc", "log", "tessera-dbus", "tessera-desktop", "tessera-env", "tessera-network", "zeroize"]
 build = []
 dev = ["tempfile"]
 
 [tessera-ipc]
-normal = ["libc", "serde", "serde_json", "tessera-authority", "tessera-desktop", "tessera-primitives", "tessera-protocol", "thiserror", "zeroize"]
+normal = ["libc", "serde", "serde_json", "tessera-authority", "tessera-desktop", "tessera-primitives", "tessera-protocol", "zeroize"]
 build = []
 dev = ["tempfile"]
 
 [tessera-lock]
-normal = ["ash", "flux", "flux-sys", "lens", "lens-sys", "libc", "log", "smithay-client-toolkit", "tessera-avatar", "tessera-config", "tessera-design", "tessera-env", "tessera-wallpaper", "thiserror", "vista-sys", "wayland-client", "wayland-protocols", "xkbcommon", "zeroize"]
+normal = ["ash", "flux", "flux-sys", "lens", "lens-sys", "libc", "log", "tessera-avatar", "tessera-config", "tessera-design", "tessera-env", "tessera-wallpaper", "tessera-wl-client", "vista-sys", "wayland-client", "wayland-protocols", "xkbcommon", "zeroize"]
 build = ["pkg-config"]
 dev = []
 
 [tessera-mcp]
-normal = ["clap", "serde", "serde_json", "tessera-authority", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-launch-services", "tessera-primitives", "tessera-protocol", "thiserror"]
+normal = ["serde", "serde_json", "tessera-authority", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-launch-services", "tessera-primitives", "tessera-protocol"]
 build = []
 dev = []
 
@@ -113,7 +121,7 @@ dev = ["proptest", "tessera-audit"]
 [tessera-composite]
 # Structured damage diagnostics are emitted with tracing; the binary installs
 # the subscriber (ADR-0079, ADR-0230, ADR-0232).
-normal = ["flux", "flux-sys", "image", "libc", "log", "tessera-desktop", "tessera-primitives", "tracing"]
+normal = ["flux", "flux-sys", "tessera-image", "libc", "log", "tessera-desktop", "tessera-primitives"]
 build = []
 dev = ["proptest"]
 
@@ -122,30 +130,25 @@ normal = ["serde"]
 build = []
 dev = ["proptest"]
 
-[tessera-sched]
-normal = ["libc", "log"]
-build = []
-dev = []
-
 [tessera-settings]
-normal = ["ash", "flux", "flux-sys", "lens", "lens-sys", "libc", "log", "smithay-client-toolkit", "tessera-design", "tessera-desktop", "tessera-env", "tessera-i18n", "tessera-ipc", "tessera-primitives", "tessera-protocol", "thiserror", "vista-sys", "wayland-client", "wayland-protocols"]
+normal = ["ash", "flux", "flux-sys", "lens", "lens-sys", "libc", "log", "tessera-design", "tessera-desktop", "tessera-env", "tessera-i18n", "tessera-ipc", "tessera-primitives", "tessera-protocol", "tessera-wl-client", "vista-sys", "wayland-client", "wayland-protocols"]
 build = ["pkg-config"]
 dev = []
 
 [tessera-shell]
-normal = ["futures-util", "flux", "flux-sys", "include_dir", "lens", "lens-sys", "libc", "log", "reticle-sys", "tessera-assets", "tessera-authority", "tessera-avatar", "tessera-design", "tessera-desktop", "tessera-i18n", "tessera-launch-services", "tessera-primitives", "thiserror", "transit", "vista-sys", "zbus", "zeroize"]
+normal = ["flux", "flux-sys", "lens", "lens-sys", "libc", "log", "reticle-sys", "tessera-assets", "tessera-authority", "tessera-avatar", "tessera-dbus", "tessera-design", "tessera-desktop", "tessera-i18n", "tessera-launch-services", "tessera-primitives", "transit", "vista-sys", "zeroize"]
 build = []
 dev = ["flate2"]
 
 [tessera-wallpaper]
-normal = ["flux", "flux-sys", "image", "log", "tessera-sched", "thiserror", "transit", "vista", "vista-sys"]
+normal = ["flux", "flux-sys", "tessera-image", "log", "transit", "vista", "vista-sys"]
 build = []
 dev = ["tessera-composite"]
 
 [tessera-wayland]
 # Structured damage diagnostics are emitted with tracing; the binary installs
 # the subscriber (ADR-0079, ADR-0230, ADR-0232).
-normal = ["getrandom", "log", "serde", "serde_json", "tessera-authority", "tessera-desktop", "tessera-primitives", "tessera-wayland-protocols", "thiserror", "tracing", "xkbcommon"]
+normal = ["log", "serde", "serde_json", "tessera-authority", "tessera-desktop", "tessera-primitives", "tessera-wayland-protocols", "xkbcommon"]
 build = ["pkg-config"]
 dev = ["proptest", "tempfile", "tessera-test-support"]
 
@@ -165,11 +168,16 @@ dev = []
 # dependencies are optional and gated by the `native` feature so flux-free CI
 # can compile the logical suites with --no-default-features.
 [tessera-tests]
-normal = ["clap", "libc", "serde_json", "tempfile", "tessera", "tessera-audit", "tessera-authority", "tessera-cast", "tessera-cli", "tessera-composite", "tessera-config", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-launch-services", "tessera-mcp", "tessera-primitives", "tessera-protocol", "tessera-sched", "tessera-shell", "tessera-test-support", "flux-sys", "lens-sys", "reticle-sys", "vista-sys", "zbus"]
+normal = ["libc", "serde_json", "tempfile", "tessera", "tessera-audit", "tessera-authority", "tessera-cast", "tessera-control", "tessera-composite", "tessera-config", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-launch-services", "tessera-mcp", "tessera-primitives", "tessera-protocol", "tessera-shell", "tessera-test-support", "flux-sys", "lens-sys", "reticle-sys", "vista-sys", "tessera-dbus"]
 build = []
 dev = []
 
 [xtask]
-normal = ["anyhow", "clap", "serde", "serde_json", "toml", "toml_edit"]
+normal = ["serde", "serde_json", "toml", "toml_edit"]
 build = []
 dev = ["tempfile"]
+
+[tessera-image]
+build = []
+dev = []
+normal = []

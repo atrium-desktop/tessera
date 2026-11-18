@@ -1,10 +1,9 @@
 //! End-to-end exercise of native `tessera` commands against a loopback IPC server. Each
-//! test starts a server with a fixed handler, invokes `tessera_cli::run` with a
+//! test starts a server with a fixed handler, invokes `tessera_control::run` with a
 //! command, and asserts on the output or the recorded command.
 
 use std::sync::{Arc, Mutex};
 
-use clap::Parser;
 use tessera_desktop::window::Window;
 use tessera_desktop::window::WindowId;
 use tessera_desktop::window::WindowState;
@@ -143,6 +142,7 @@ impl Handler for CtlHandler {
                     scale: tessera_desktop::output::Scale::IDENTITY,
                     transform: tessera_primitives::Transform::Normal,
                     logical_origin: tessera_primitives::Point::default(),
+                    logical_size_override: None,
                 },
                 kind: tessera_desktop::output::OutputKind::External,
                 available_modes: vec![
@@ -158,6 +158,8 @@ impl Handler for CtlHandler {
                     },
                 ],
                 color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+                role: tessera_desktop::output::OutputRole::Extend,
+                role_source: tessera_desktop::output::OutputRoleSource::Auto,
             },
             // A live virtual extend display (ADR-0188) so the list surface's
             // class marker is exercised.
@@ -172,6 +174,7 @@ impl Handler for CtlHandler {
                     scale: tessera_desktop::output::Scale::IDENTITY,
                     transform: tessera_primitives::Transform::Normal,
                     logical_origin: tessera_primitives::Point { x: 1280, y: 0 },
+                    logical_size_override: None,
                 },
                 kind: tessera_desktop::output::OutputKind::Virtual,
                 available_modes: vec![tessera_desktop::output::OutputMode {
@@ -180,6 +183,8 @@ impl Handler for CtlHandler {
                     refresh_mhz: 60000,
                 }],
                 color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+                role: tessera_desktop::output::OutputRole::Extend,
+                role_source: tessera_desktop::output::OutputRoleSource::Auto,
             },
         ]
     }
@@ -419,7 +424,7 @@ impl Handler for CtlHandler {
 fn window_domain_lists_the_fixed_window() {
     let path = scratch();
     let _s = Server::start(&path, Arc::new(CtlHandler::new())).unwrap();
-    let out = tessera_cli::run(&path, &["window".into()]).unwrap();
+    let out = tessera_control::run(&path, &["window".into()]).unwrap();
     assert!(out.contains("foot"), "{out}");
     assert!(out.contains("(foot)"), "{out}");
 }
@@ -428,7 +433,7 @@ fn window_domain_lists_the_fixed_window() {
 fn json_flag_emits_parseable_json_for_window_domain() {
     let path = scratch();
     let _s = Server::start(&path, Arc::new(CtlHandler::new())).unwrap();
-    let out = tessera_cli::run(&path, &["window".into(), "--json".into()]).unwrap();
+    let out = tessera_control::run(&path, &["window".into(), "--json".into()]).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
     let arr = parsed.as_array().expect("a JSON array");
     assert_eq!(arr.len(), 1);
@@ -440,7 +445,7 @@ fn json_flag_emits_parseable_json_for_window_domain() {
 fn json_flag_emits_parseable_json_for_display_domain() {
     let path = scratch();
     let _s = Server::start(&path, Arc::new(CtlHandler::new())).unwrap();
-    let out = tessera_cli::run(&path, &["display".into(), "--json".into()]).unwrap();
+    let out = tessera_control::run(&path, &["display".into(), "--json".into()]).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
     let arr = parsed.as_array().expect("a JSON array");
     assert_eq!(arr.len(), 2);
@@ -466,7 +471,7 @@ fn json_flag_emits_parseable_json_for_display_domain() {
 fn workspace_domain_shows_display_and_workspace() {
     let path = scratch();
     let _s = Server::start(&path, Arc::new(CtlHandler::new())).unwrap();
-    let out = tessera_cli::run(&path, &["workspace".into()]).unwrap();
+    let out = tessera_control::run(&path, &["workspace".into()]).unwrap();
     assert!(out.contains("nested"), "{out}");
     assert!(out.contains("1 window"), "{out}");
 }
@@ -475,8 +480,8 @@ fn workspace_domain_shows_display_and_workspace() {
 fn display_domain_lists_advertised_modes_and_marks_current() {
     let path = scratch();
     let _s = Server::start(&path, Arc::new(CtlHandler::new())).unwrap();
-    let out = tessera_cli::run(&path, &["display".into()]).unwrap();
-    assert!(out.contains("nested 1280x720@60.000Hz"), "{out}");
+    let out = tessera_control::run(&path, &["display".into()]).unwrap();
+    assert!(out.contains("nested [auto] 1280x720@60.000Hz"), "{out}");
     assert!(out.contains("1280x720@60.000Hz (current)"), "{out}");
     assert!(out.contains("1920x1080@60.000Hz"), "{out}");
     // A virtual extend display is distinguishable from a physical connector,
@@ -492,7 +497,7 @@ fn display_domain_lists_advertised_modes_and_marks_current() {
 fn notification_domain_lists_active_notifications() {
     let path = scratch();
     let _s = Server::start(&path, Arc::new(CtlHandler::new())).unwrap();
-    let out = tessera_cli::run(&path, &["notification".into()]).unwrap();
+    let out = tessera_control::run(&path, &["notification".into()]).unwrap();
     assert!(out.contains("Build complete"), "{out}");
     assert!(out.contains("All checks passed"), "{out}");
 }
@@ -501,7 +506,7 @@ fn notification_domain_lists_active_notifications() {
 fn system_status_command_formats_human_and_json_snapshots() {
     let path = scratch();
     let _s = Server::start(&path, Arc::new(CtlHandler::new())).unwrap();
-    let out = tessera_cli::run(&path, &["system".into()]).unwrap();
+    let out = tessera_control::run(&path, &["system".into()]).unwrap();
     assert!(out.contains("audio: 42% (muted)"), "{out}");
     assert!(out.contains("wifi: on; bluetooth: off"), "{out}");
     assert!(out.contains("battery: 81% charging"), "{out}");
@@ -524,7 +529,7 @@ fn system_status_command_formats_human_and_json_snapshots() {
     );
     assert!(out.contains("bluez_input.AA.1 — WH-1000XM5"), "{out}");
 
-    let json = tessera_cli::run(&path, &["--json".into(), "system".into()]).unwrap();
+    let json = tessera_control::run(&path, &["--json".into(), "system".into()]).unwrap();
     let value: serde_json::Value = serde_json::from_str(&json).expect("system status JSON");
     assert_eq!(value["volume"], 42);
     assert_eq!(value["brightness"], 73);
@@ -540,7 +545,7 @@ fn system_control_commands_send_typed_actions() {
     let path = scratch();
     let handler = Arc::new(CtlHandler::new());
     let _s = Server::start(&path, Arc::clone(&handler)).unwrap();
-    let receipt = tessera_cli::run(
+    let receipt = tessera_control::run(
         &path,
         &[
             "--json".into(),
@@ -552,9 +557,9 @@ fn system_control_commands_send_typed_actions() {
     .unwrap();
     let receipt: serde_json::Value = serde_json::from_str(&receipt).unwrap();
     assert_eq!(receipt["ok"], true);
-    tessera_cli::run(&path, &["system".into(), "step-volume".into(), "-2".into()]).unwrap();
-    tessera_cli::run(&path, &["system".into(), "wifi".into(), "off".into()]).unwrap();
-    tessera_cli::run(
+    tessera_control::run(&path, &["system".into(), "step-volume".into(), "-2".into()]).unwrap();
+    tessera_control::run(&path, &["system".into(), "wifi".into(), "off".into()]).unwrap();
+    tessera_control::run(
         &path,
         &["system".into(), "power-mode".into(), "awake".into()],
     )
@@ -562,7 +567,7 @@ fn system_control_commands_send_typed_actions() {
     // Outputs are addressed by name, never by the number `tessera system
     // status` also prints: a node number is reassigned across sound-server
     // restarts, so a script holding one would route to the wrong device.
-    tessera_cli::run(
+    tessera_control::run(
         &path,
         &[
             "system".into(),
@@ -599,7 +604,7 @@ fn system_control_commands_send_typed_actions() {
 
 #[test]
 fn system_control_cli_rejects_out_of_range_levels() {
-    let error = tessera_cli::run(
+    let error = tessera_control::run(
         std::path::Path::new(""),
         &["system".into(), "brightness".into(), "0".into()],
     )
@@ -613,7 +618,7 @@ fn system_audio_output_requires_a_name() {
     // The name is the whole identity of the request; an empty or missing
     // argument must be a usage error at the CLI, never a `SetAudioOutput` that
     // reaches the compositor and is refused there (ADR-0215).
-    let error = tessera_cli::run(
+    let error = tessera_control::run(
         std::path::Path::new(""),
         &["system".into(), "audio-output".into()],
     )
@@ -631,7 +636,7 @@ fn system_microphone_commands_send_typed_actions() {
         vec!["system", "mic-volume", "30"],
         vec!["system", "audio-input", "alsa_input.pci-mic"],
     ] {
-        tessera_cli::run(
+        tessera_control::run(
             &path,
             &args.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
         )
@@ -661,7 +666,7 @@ fn system_audio_input_requires_a_name() {
     // request, so a missing argument is a usage error at the CLI, never a
     // `SetAudioInput` that reaches the compositor and is refused there
     // (ADR-0216).
-    let error = tessera_cli::run(
+    let error = tessera_control::run(
         std::path::Path::new(""),
         &["system".into(), "audio-input".into()],
     )
@@ -673,7 +678,7 @@ fn system_audio_input_requires_a_name() {
 fn journal_command_lists_entries() {
     let path = scratch();
     let _s = Server::start(&path, Arc::new(CtlHandler::new())).unwrap();
-    let out = tessera_cli::run(
+    let out = tessera_control::run(
         &path,
         &[
             "journal".into(),
@@ -691,7 +696,7 @@ fn journal_command_lists_entries() {
 fn interaction_domain_domain_uses_admin_scope_and_lists_agent_interaction_domain() {
     let path = scratch();
     let _s = Server::start(&path, Arc::new(CtlHandler::new())).unwrap();
-    let out = tessera_cli::run(&path, &["interaction-domain".into(), "list".into()]).unwrap();
+    let out = tessera_control::run(&path, &["interaction-domain".into(), "list".into()]).unwrap();
     assert!(out.contains("Test Agent"), "{out}");
     assert!(out.contains("agent-2"), "{out}");
 }
@@ -701,7 +706,7 @@ fn interaction_domain_create_and_transfer_use_optimistic_actions() {
     let path = scratch();
     let handler = Arc::new(CtlHandler::new());
     let _s = Server::start(&path, Arc::clone(&handler)).unwrap();
-    let created = tessera_cli::run(
+    let created = tessera_control::run(
         &path,
         &[
             "interaction-domain".into(),
@@ -714,7 +719,7 @@ fn interaction_domain_create_and_transfer_use_optimistic_actions() {
         created.contains("created Interaction Domain 2"),
         "{created}"
     );
-    let transferred = tessera_cli::run(
+    let transferred = tessera_control::run(
         &path,
         &[
             "interaction-domain".into(),
@@ -752,7 +757,7 @@ fn interaction_domain_capture_is_committed_atomically_to_requested_path() {
     let _s = Server::start(&path, Arc::new(CtlHandler::new())).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let capture = dir.path().join("interaction_domain.png");
-    let out = tessera_cli::run(
+    let out = tessera_control::run(
         &path,
         &[
             "interaction-domain".into(),
@@ -772,7 +777,7 @@ fn interaction_domain_capture_json_exposes_pixel_to_input_mapping() {
     let _s = Server::start(&path, Arc::new(CtlHandler::new())).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let capture = dir.path().join("interaction_domain.png");
-    let out = tessera_cli::run(
+    let out = tessera_control::run(
         &path,
         &[
             "--json".into(),
@@ -797,7 +802,7 @@ fn window_focus_sends_focus() {
     let path = scratch();
     let h = Arc::new(CtlHandler::new());
     let _s = Server::start(&path, Arc::clone(&h)).unwrap();
-    let out = tessera_cli::run(&path, &["window".into(), "focus".into(), "1".into()]).unwrap();
+    let out = tessera_control::run(&path, &["window".into(), "focus".into(), "1".into()]).unwrap();
     assert!(out.contains("focused 1"), "{out}");
     assert!(
         h.commands.lock().unwrap().iter().any(|c| matches!(
@@ -817,7 +822,8 @@ fn window_minimize_sends_minimize() {
     let path = scratch();
     let h = Arc::new(CtlHandler::new());
     let _s = Server::start(&path, Arc::clone(&h)).unwrap();
-    let out = tessera_cli::run(&path, &["window".into(), "minimize".into(), "1".into()]).unwrap();
+    let out =
+        tessera_control::run(&path, &["window".into(), "minimize".into(), "1".into()]).unwrap();
     assert!(out.contains("minimized 1"), "{out}");
     assert!(
         h.commands
@@ -832,7 +838,7 @@ fn window_geometry_sends_logical_rectangle() {
     let path = scratch();
     let h = Arc::new(CtlHandler::new());
     let _s = Server::start(&path, Arc::clone(&h)).unwrap();
-    let out = tessera_cli::run(
+    let out = tessera_control::run(
         &path,
         &[
             "window".into(),
@@ -862,7 +868,7 @@ fn workspace_switch_relative_sends_workspace_switch() {
     let path = scratch();
     let h = Arc::new(CtlHandler::new());
     let _s = Server::start(&path, Arc::clone(&h)).unwrap();
-    tessera_cli::run(&path, &["workspace".into(), "switch".into(), "next".into()]).unwrap();
+    tessera_control::run(&path, &["workspace".into(), "switch".into(), "next".into()]).unwrap();
     assert!(
         h.commands
             .lock()
@@ -877,7 +883,8 @@ fn workspace_switch_id_sends_direct_workspace_switch() {
     let path = scratch();
     let h = Arc::new(CtlHandler::new());
     let _s = Server::start(&path, Arc::clone(&h)).unwrap();
-    let out = tessera_cli::run(&path, &["workspace".into(), "switch".into(), "9".into()]).unwrap();
+    let out =
+        tessera_control::run(&path, &["workspace".into(), "switch".into(), "9".into()]).unwrap();
     assert!(out.contains("workspace 9"), "{out}");
     assert!(h.commands.lock().unwrap().iter().any(|c| matches!(
         c,
@@ -887,13 +894,13 @@ fn workspace_switch_id_sends_direct_workspace_switch() {
 
 #[test]
 fn bare_and_explicit_run_invocations_select_the_compositor() {
-    let bare = tessera_cli::Cli::try_parse_from(["tessera"]).unwrap();
+    let bare = tessera_control::Cli::try_parse_from(["tessera"]).unwrap();
     assert!(bare.runs_compositor());
 
-    let explicit = tessera_cli::Cli::try_parse_from(["tessera", "run"]).unwrap();
+    let explicit = tessera_control::Cli::try_parse_from(["tessera", "run"]).unwrap();
     assert!(explicit.runs_compositor());
 
-    let display = tessera_cli::Cli::try_parse_from(["tessera", "display"]).unwrap();
+    let display = tessera_control::Cli::try_parse_from(["tessera", "display"]).unwrap();
     assert!(!display.runs_compositor());
 }
 
@@ -902,7 +909,7 @@ fn notification_send_sends_notify_with_body() {
     let path = scratch();
     let h = Arc::new(CtlHandler::new());
     let _s = Server::start(&path, Arc::clone(&h)).unwrap();
-    tessera_cli::run(
+    tessera_control::run(
         &path,
         &[
             "notification".into(),
@@ -927,7 +934,7 @@ fn notification_dismiss_sends_dismiss_notification() {
     let path = scratch();
     let h = Arc::new(CtlHandler::new());
     let _s = Server::start(&path, Arc::clone(&h)).unwrap();
-    let out = tessera_cli::run(
+    let out = tessera_control::run(
         &path,
         &["notification".into(), "dismiss".into(), "7".into()],
     )
@@ -949,7 +956,7 @@ fn workspace_move_window_sends_move_to_workspace() {
     let path = scratch();
     let h = Arc::new(CtlHandler::new());
     let _s = Server::start(&path, Arc::clone(&h)).unwrap();
-    let out = tessera_cli::run(
+    let out = tessera_control::run(
         &path,
         &[
             "workspace".into(),
@@ -974,7 +981,7 @@ fn workspace_move_window_sends_move_to_workspace() {
 fn unknown_command_errors_with_usage() {
     let path = scratch();
     let _s = Server::start(&path, Arc::new(CtlHandler::new())).unwrap();
-    let err = tessera_cli::run(&path, &["bogus".into()]).unwrap_err();
+    let err = tessera_control::run(&path, &["bogus".into()]).unwrap_err();
     let rendered = err.to_string();
     assert!(
         rendered.contains("unrecognized subcommand 'bogus'"),
@@ -988,7 +995,7 @@ fn unknown_command_errors_with_usage() {
 fn help_command_returns_usage() {
     let path = scratch();
     let _s = Server::start(&path, Arc::new(CtlHandler::new())).unwrap();
-    let out = tessera_cli::run(&path, &["help".into()]).unwrap();
+    let out = tessera_control::run(&path, &["help".into()]).unwrap();
     assert!(out.contains("Commands:"), "{out}");
 }
 
@@ -996,7 +1003,7 @@ fn help_command_returns_usage() {
 fn permissions_list_renders_principals_and_grants() {
     let path = scratch();
     let _s = Server::start(&path, Arc::new(CtlHandler::new())).unwrap();
-    let out = tessera_cli::run(&path, &["permissions".into(), "list".into()]).unwrap();
+    let out = tessera_control::run(&path, &["permissions".into(), "list".into()]).unwrap();
     assert!(out.contains("Codex (prin_1)"), "{out}");
     assert!(out.contains("ceiling: Focus (gated: Close)"), "{out}");
     assert!(out.contains("Close: Allow"), "{out}");
@@ -1006,7 +1013,7 @@ fn permissions_list_renders_principals_and_grants() {
 fn permissions_list_json_emits_parseable_json() {
     let path = scratch();
     let _s = Server::start(&path, Arc::new(CtlHandler::new())).unwrap();
-    let out = tessera_cli::run(
+    let out = tessera_control::run(
         &path,
         &["permissions".into(), "list".into(), "--json".into()],
     )
@@ -1023,7 +1030,7 @@ fn permissions_revoke_parses_op_names_and_confirms() {
     let path = scratch();
     let handler = Arc::new(CtlHandler::new());
     let _s = Server::start(&path, Arc::clone(&handler)).unwrap();
-    let out = tessera_cli::run(
+    let out = tessera_control::run(
         &path,
         &[
             "permissions".into(),
@@ -1047,7 +1054,7 @@ fn permissions_revoke_parses_op_names_and_confirms() {
 fn permissions_revoke_rejects_unknown_op_names() {
     let path = scratch();
     let _s = Server::start(&path, Arc::new(CtlHandler::new())).unwrap();
-    let error = tessera_cli::run(
+    let error = tessera_control::run(
         &path,
         &[
             "permissions".into(),
@@ -1057,7 +1064,7 @@ fn permissions_revoke_rejects_unknown_op_names() {
         ],
     )
     .expect_err("unknown op is a usage error");
-    assert!(matches!(error, tessera_cli::CliError::Usage(_)));
+    assert!(matches!(error, tessera_control::CliError::Usage(_)));
 }
 
 #[test]
@@ -1066,7 +1073,7 @@ fn permissions_forget_rename_and_ceiling_confirm() {
     let handler = Arc::new(CtlHandler::new());
     let _s = Server::start(&path, Arc::clone(&handler)).unwrap();
 
-    let out = tessera_cli::run(
+    let out = tessera_control::run(
         &path,
         &[
             "permissions".into(),
@@ -1078,14 +1085,14 @@ fn permissions_forget_rename_and_ceiling_confirm() {
     .unwrap();
     assert!(out.contains("renamed prin_1 to 'OpenCode'"), "{out}");
 
-    let out = tessera_cli::run(
+    let out = tessera_control::run(
         &path,
         &["permissions".into(), "forget".into(), "prin_2".into()],
     )
     .unwrap();
     assert!(out.contains("forgot principal prin_2"), "{out}");
 
-    let out = tessera_cli::run(
+    let out = tessera_control::run(
         &path,
         &[
             "permissions".into(),
@@ -1115,7 +1122,7 @@ fn permissions_forget_rename_and_ceiling_confirm() {
 fn permissions_register_prints_the_issued_credential() {
     let path = scratch();
     let _s = Server::start(&path, Arc::new(CtlHandler::new())).unwrap();
-    let out = tessera_cli::run(
+    let out = tessera_control::run(
         &path,
         &[
             "permissions".into(),
@@ -1135,7 +1142,7 @@ fn config_validate_is_local_and_reports_the_schema() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("config.toml");
     std::fs::write(&path, "schema_version = 2\n").unwrap();
-    let out = tessera_cli::run(
+    let out = tessera_control::run(
         std::path::Path::new(""),
         &[
             "config".into(),
@@ -1157,7 +1164,7 @@ fn config_migrate_is_explicit_and_reports_the_backup() {
         "schema_version = 1 # retained\n[ui]\nreduced_motion = true\n",
     )
     .unwrap();
-    let out = tessera_cli::run(
+    let out = tessera_control::run(
         std::path::Path::new(""),
         &[
             "config".into(),

@@ -15,8 +15,5 @@ use std::sync::atomic::AtomicBool;
 /// call in the same process replaces the handlers and returns a fresh flag;
 /// callers install once at process start.
 pub fn install() -> io::Result<Arc<AtomicBool>> {
-    let flag = Arc::new(AtomicBool::new(false));
-    signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&flag))?;
-    signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&flag))?;
-    Ok(flag)
+    tessera_env::signals::install_shutdown_flag()
 }

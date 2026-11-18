@@ -64,7 +64,7 @@ survive; its execution session cannot.
 | `GetWorkspaces` | `Workspaces` | `query`; Actor: `ObserveWorkspaces` |
 | `GetNotifications` | `Notifications` | `query`; Actor: `ObserveNotifications` |
 | `GetOutputs` | `Outputs` | `query`; Actor: `ObserveOutputs` |
-| `EnumerateOutputs` | `Outputs` (lean: connector, primary, physical rect only) | `query`; Actor: `ObserveOutputs` (protocol 29) |
+| `EnumerateOutputs` | `Outputs` (lean: connector, primary, physical rect, and role) | `query`; Actor: `ObserveOutputs` (protocol 29; role since 34) |
 | `GetJournal { since }` | `Journal` | `query`; Actor: `ObserveJournal` |
 | `GetInteractionDomains` | `InteractionDomains` | `query`; Actor: `ObserveInteractionDomains` |
 | `GetSettings` | `Settings` with a revisioned snapshot | `query`; Actor: `ObserveSettings` |
@@ -372,8 +372,8 @@ compositor configuration.
 | Field | Type | Meaning |
 |-------|------|---------|
 | `revision` | unsigned integer | Monotonic settings revision. |
-| `input` | `InputStatus` | Effective keyboard profile plus touchpad and mouse status: profile, detected devices, capabilities, and configurability. |
-| `display` | `DisplayStatus` | Connected outputs, advertised modes, configurability, and the last apply error. |
+| `input` | `InputStatus` | Effective keyboard profile plus touchpad/mouse status: profile, detected devices, capabilities, configurability, and active absolute-device output mappings. |
+| `display` | `DisplayStatus` | Default topology, connected outputs (`role`, `role_source`, advertised modes, geometry), configurability, and the last apply error. |
 | `preferences` | `DesktopPreferences` | Complete effective desktop profile after configuration defaults and explicit startup overrides. |
 | `idle` | `IdleSettings` | Complete validated inactivity, lock, output-power, and suspend policy. |
 
@@ -407,8 +407,9 @@ Nonzero stage times must be strictly increasing in the order shown.
 
 | Action | Payload | Effect |
 |--------|---------|--------|
-| `SetInput` | complete `InputConfig` (keyboard, mouse, touchpad) | Validate, persist `[input]`, apply the mouse and touchpad profiles to live libinput devices, and advertise the keyboard repeat rate to clients. |
-| `SetDisplay` | connector, mode, scale, position, and primary flag | Validate, atomically persist the output entry, and reconcile the live direct-DRM output. |
+| `SetInput` | complete `InputConfig` (keyboard, mouse, touchpad, absolute-device mappings) | Validate, persist `[input]`, apply the mouse and touchpad profiles to live libinput devices, install absolute-device output bindings, and advertise the keyboard repeat rate to clients. |
+| `SetDisplay` | connector, optional role (`extend` or `mirror` + source; omitted = automatic), optional mode, scale, and position, and primary flag | Validate, atomically persist the output entry, and reconcile the live direct-DRM output. A mirror rejects scale/position/primary and follows its source's logical geometry (ADR-0243). |
+| `SetDisplayTopology` | `auto`, `extend`, or `mirror` | Persist `[display] topology` and re-resolve connectors without an explicit role. |
 | `SetDesktopPreferences` | complete `DesktopPreferences` | Validate, atomically persist the `[appearance]` and preference-related `[ui]` fields, apply chrome and cursor policy, and refresh application icons. |
 | `SetIdle` | complete `IdleSettings` | Validate and atomically persist `[idle]`, then replace the supervised idle policy client. |
 | `SetDock` | complete `DockSettings` | Validate, atomically persist the `[dock]` presentation fields, and apply the minimize flight style to the compositor. |
@@ -706,7 +707,8 @@ to 1–240 since protocol 29 (1–60 before).
 (`{"type":"Output"}`, the default), one connector's physical rectangle of
 it (`{"type":"Output","output":"HDMI-A-1"}`, protocol 29; an unknown
 connector is refused, and `Request::EnumerateOutputs` reports the
-selectable connectors with their rectangles), or one window
+selectable connectors with their rectangles; a mirrored connector reports the
+same rectangle as its source and streams that shared content), or one window
 (`{"type":"Window","window":...}`, protocol 6). A window stream renders
 the window's complete surface tree into its own offscreen target
 ([ADR-0127](../adr/0127-occlusion-safe-window-streams-and-cursor-compositing.md)),

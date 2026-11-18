@@ -9,21 +9,37 @@ const MAX_CLIPBOARD_MIME_LEN: usize = 255;
 const CLIPBOARD_WRITE_QUEUE_DEPTH: usize = 8;
 
 /// Errors installing compositor-owned clipboard data.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ClipboardError {
-    #[error("seat {} is unknown, paused, or revoked", .0.0)]
     SeatUnavailable(SeatId),
-    #[error("clipboard data must contain at least one MIME payload")]
     Empty,
-    #[error("clipboard data contains too many MIME payloads")]
     TooManyMimeTypes,
-    #[error("invalid clipboard MIME type {0:?}")]
     InvalidMime(String),
-    #[error("duplicate clipboard MIME type {0:?}")]
     DuplicateMime(String),
-    #[error("clipboard data exceeds the {MAX_OWNED_CLIPBOARD_BYTES}-byte limit")]
     TooLarge,
 }
+
+impl std::fmt::Display for ClipboardError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SeatUnavailable(seat) => {
+                write!(f, "seat {} is unknown, paused, or revoked", seat.0)
+            }
+            Self::Empty => f.write_str("clipboard data must contain at least one MIME payload"),
+            Self::TooManyMimeTypes => f.write_str("clipboard data contains too many MIME payloads"),
+            Self::InvalidMime(mime) => write!(f, "invalid clipboard MIME type {mime:?}"),
+            Self::DuplicateMime(mime) => write!(f, "duplicate clipboard MIME type {mime:?}"),
+            Self::TooLarge => {
+                write!(
+                    f,
+                    "clipboard data exceeds the {MAX_OWNED_CLIPBOARD_BYTES}-byte limit"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for ClipboardError {}
 
 impl Server {
     /// Replace one seat's clipboard with immutable compositor-owned data.

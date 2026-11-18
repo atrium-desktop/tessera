@@ -1,16 +1,17 @@
 //! A fake NetworkManager for casting tests, served on a private bus.
 //!
 //! It models exactly the slice of NetworkManager's D-Bus API that
-//! `tessera_cast::radio::networkmanager::NmRadio` uses, with the peers that
-//! were in range of the reference host on 2026-11-17: the Skyworth TV (its real
-//! `WfdIEs`) and two printers that advertise no Wi-Fi Display at all. Group
-//! formation is scripted per test through [`Activation`], and every call is
-//! recorded so a test can assert what the caster asked for.
+//! `tessera_cast::radio::networkmanager::NmRadio` uses.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
+use std::time::Duration;
 
-use zbus::{OwnedObjectPath, OwnedVariant};
+use tessera_dbus::{
+    Connection, FromValue, Message, ObjectHandler, OwnedObjectPath, ToValue, Value,
+};
 
 pub use tessera_test_support::dbus::PrivateBus;
 
@@ -42,8 +43,8 @@ pub struct FakeState {
     /// `NMActiveConnectionState` of the one active connection; 0 = none.
     pub active_state: u32,
     pub calls: Vec<String>,
-    pub settings: Option<HashMap<String, HashMap<String, OwnedVariant>>>,
-    pub options: Option<HashMap<String, OwnedVariant>>,
+    pub settings: Option<HashMap<String, HashMap<String, Value>>>,
+    pub options: Option<HashMap<String, Value>>,
 }
 
 pub type Shared = Arc<Mutex<FakeState>>;
@@ -51,9 +52,19 @@ pub type Shared = Arc<Mutex<FakeState>>;
 /// A running fake: its bus, its connection, and its state.
 pub struct FakeNetworkManager {
     pub state: Shared,
-    // Field order matters: the connection must close before the bus dies.
-    _connection: zbus::Connection,
+    stop: Arc<AtomicBool>,
+    worker: Option<JoinHandle<()>>,
+    _connection: Connection,
     bus: PrivateBus,
+}
+
+impl Drop for FakeNetworkManager {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
 }
 
 impl FakeNetworkManager {
@@ -68,64 +79,84 @@ impl FakeNetworkManager {
             settings: None,
             options: None,
         }));
-        let peer = |name: &str, address: &str, wfd_ies: &[u8], strength: u8| Peer {
-            name: name.to_owned(),
-            hw_address: address.to_owned(),
-            wfd_ies: wfd_ies.to_vec(),
-            strength,
+        let peer = |name: &str, address: &str, wfd_ies: &[u8], strength: u8| {
+            Arc::new(Peer {
+                name: name.to_owned(),
+                hw_address: address.to_owned(),
+                wfd_ies: wfd_ies.to_vec(),
+                strength,
+            })
         };
-        let builder = zbus::connection::Builder::address(bus.address())
-            .serve_at(
-                "/org/freedesktop/NetworkManager",
-                Manager {
-                    state: Arc::clone(&state),
-                },
-            )
-            .serve_at(
-                "/org/freedesktop/NetworkManager/Devices/3",
-                Device {
-                    state: Arc::clone(&state),
-                    device_type: 2,
-                    device_state: 100,
-                    interface: "wlan0".to_owned(),
-                    carries_group: false,
-                },
-            )
-            .serve_at(
-                P2P_DEVICE,
-                Device {
-                    state: Arc::clone(&state),
-                    device_type: 30,
-                    device_state: 30,
-                    interface: "p2p-wlan0-0".to_owned(),
-                    carries_group: true,
-                },
-            )
-            .serve_at(
-                P2P_DEVICE,
-                WifiP2P {
-                    state: Arc::clone(&state),
-                },
-            )
-            .serve_at(TV_PEER, peer(TV_NAME, TV_ADDRESS, &TV_WFD_IES, 85))
-            .serve_at(
-                "/org/freedesktop/NetworkManager/WifiP2PPeer/2",
-                peer("DIRECT-e8-HP M233 LaserJet", "0A:A1:36:45:AE:E8", &[], 80),
-            )
-            .serve_at(
-                "/org/freedesktop/NetworkManager/WifiP2PPeer/3",
-                peer("DIRECT-2F-EPSON-ECE1A4", "DE:CD:2F:EC:61:A4", &[], 74),
-            )
-            .serve_at(
-                ACTIVE,
-                Active {
-                    state: Arc::clone(&state),
-                },
-            )
-            .name("org.freedesktop.NetworkManager");
-        let connection = zbus::block_on(builder.build()).expect("serve the fake NetworkManager");
+
+        let connection = Connection::address(bus.address()).expect("connect fake NetworkManager");
+        connection.register_object(
+            "/org/freedesktop/NetworkManager",
+            Arc::new(Manager {
+                state: Arc::clone(&state),
+            }),
+        );
+        connection.register_object(
+            "/org/freedesktop/NetworkManager/Devices/3",
+            Arc::new(Device {
+                state: Arc::clone(&state),
+                device_type: 2,
+                device_state: 100,
+                interface: "wlan0".to_owned(),
+                carries_group: false,
+                wifi_p2p: false,
+            }),
+        );
+        connection.register_object(
+            P2P_DEVICE,
+            Arc::new(Device {
+                state: Arc::clone(&state),
+                device_type: 30,
+                device_state: 30,
+                interface: "p2p-wlan0-0".to_owned(),
+                carries_group: true,
+                wifi_p2p: true,
+            }),
+        );
+        connection.register_object(TV_PEER, peer(TV_NAME, TV_ADDRESS, &TV_WFD_IES, 85));
+        connection.register_object(
+            "/org/freedesktop/NetworkManager/WifiP2PPeer/2",
+            peer("DIRECT-e8-HP M233 LaserJet", "0A:A1:36:45:AE:E8", &[], 80),
+        );
+        connection.register_object(
+            "/org/freedesktop/NetworkManager/WifiP2PPeer/3",
+            peer("DIRECT-2F-EPSON-ECE1A4", "DE:CD:2F:EC:61:A4", &[], 74),
+        );
+        connection.register_object(
+            ACTIVE,
+            Arc::new(Active {
+                state: Arc::clone(&state),
+            }),
+        );
+        connection
+            .request_name("org.freedesktop.NetworkManager")
+            .expect("request NetworkManager name");
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_conn = connection.clone();
+        let worker_stop = Arc::clone(&stop);
+        let worker = std::thread::Builder::new()
+            .name("fake-nm-dbus".into())
+            .spawn(move || {
+                while !worker_stop.load(Ordering::Acquire) {
+                    if worker_conn
+                        .process_once(Some(Duration::from_millis(20)))
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            })
+            .expect("spawn fake-nm-dbus");
+
         Some(Self {
             state,
+            stop,
+            worker: Some(worker),
             _connection: connection,
             bus,
         })
@@ -145,10 +176,9 @@ impl FakeNetworkManager {
     }
 
     /// A value from the last activated profile, as `section.key`.
-    pub fn setting(&self, section: &str, key: &str) -> Option<OwnedVariant> {
+    pub fn setting(&self, section: &str, key: &str) -> Option<Value> {
         let state = self.state.lock().unwrap();
-        let value = state.settings.as_ref()?.get(section)?.get(key)?;
-        value.try_clone().ok()
+        state.settings.as_ref()?.get(section)?.get(key).cloned()
     }
 }
 
@@ -160,61 +190,114 @@ fn path(value: &str) -> OwnedObjectPath {
     OwnedObjectPath::try_from(value).expect("object path")
 }
 
+fn unknown_method(msg: &Message) -> (String, String) {
+    (
+        "org.freedesktop.DBus.Error.UnknownMethod".into(),
+        format!("unknown method {:?}.{:?}", msg.interface, msg.member),
+    )
+}
+
+fn unknown_prop(prop: &str) -> (String, String) {
+    (
+        "org.freedesktop.DBus.Error.UnknownProperty".into(),
+        format!("unknown property {prop}"),
+    )
+}
+
 struct Manager {
     state: Shared,
 }
 
-#[zbus::interface(name = "org.freedesktop.NetworkManager")]
-impl Manager {
-    fn get_devices(&self) -> Vec<OwnedObjectPath> {
-        vec![
-            path("/org/freedesktop/NetworkManager/Devices/3"),
-            path(P2P_DEVICE),
-        ]
-    }
-
-    #[zbus(name = "AddAndActivateConnection2")]
-    fn add_and_activate_connection2(
+impl ObjectHandler for Manager {
+    fn handle_method_call(
         &self,
-        settings: HashMap<String, HashMap<String, OwnedVariant>>,
-        device: OwnedObjectPath,
-        specific_object: OwnedObjectPath,
-        options: HashMap<String, OwnedVariant>,
-    ) -> zbus::fdo::Result<(
-        OwnedObjectPath,
-        OwnedObjectPath,
-        HashMap<String, OwnedVariant>,
-    )> {
-        let mut state = self.state.lock().unwrap();
-        state.calls.push(format!(
-            "AddAndActivateConnection2 {} {}",
-            device.as_str(),
-            specific_object.as_str()
-        ));
-        if state.activation == Activation::Deny {
-            return Err(zbus::fdo::Error::AccessDenied(
-                "Insufficient privileges".to_owned(),
-            ));
-        }
-        state.settings = Some(settings);
-        state.options = Some(options);
-        state.active_state = match state.activation {
-            Activation::Activate => 2,
-            _ => 4,
-        };
-        Ok((
-            path("/org/freedesktop/NetworkManager/Settings/1"),
-            path(ACTIVE),
-            HashMap::new(),
-        ))
-    }
+        _conn: &Connection,
+        msg: &Message,
+    ) -> Result<Vec<Value>, (String, String)> {
+        match (msg.interface.as_deref(), msg.member.as_deref()) {
+            (Some("org.freedesktop.NetworkManager"), Some("GetDevices")) => Ok(vec![Value::Array(
+                "o".into(),
+                vec![
+                    Value::ObjectPath(path("/org/freedesktop/NetworkManager/Devices/3")),
+                    Value::ObjectPath(path(P2P_DEVICE)),
+                ],
+            )]),
+            (Some("org.freedesktop.NetworkManager"), Some("AddAndActivateConnection2")) => {
+                if msg.body.len() < 4 {
+                    return Err((
+                        "org.freedesktop.DBus.Error.InvalidArgs".into(),
+                        "expected 4 args".into(),
+                    ));
+                }
+                let settings =
+                    HashMap::<String, HashMap<String, Value>>::from_value(msg.body[0].clone())
+                        .map_err(|e| {
+                            (
+                                "org.freedesktop.DBus.Error.InvalidArgs".into(),
+                                e.to_string(),
+                            )
+                        })?;
+                let device = OwnedObjectPath::from_value(msg.body[1].clone()).map_err(|e| {
+                    (
+                        "org.freedesktop.DBus.Error.InvalidArgs".into(),
+                        e.to_string(),
+                    )
+                })?;
+                let specific_object =
+                    OwnedObjectPath::from_value(msg.body[2].clone()).map_err(|e| {
+                        (
+                            "org.freedesktop.DBus.Error.InvalidArgs".into(),
+                            e.to_string(),
+                        )
+                    })?;
+                let options =
+                    HashMap::<String, Value>::from_value(msg.body[3].clone()).map_err(|e| {
+                        (
+                            "org.freedesktop.DBus.Error.InvalidArgs".into(),
+                            e.to_string(),
+                        )
+                    })?;
 
-    fn deactivate_connection(&self, active: OwnedObjectPath) {
-        let mut state = self.state.lock().unwrap();
-        state
-            .calls
-            .push(format!("DeactivateConnection {}", active.as_str()));
-        state.active_state = 4;
+                let mut state = self.state.lock().unwrap();
+                state.calls.push(format!(
+                    "AddAndActivateConnection2 {} {}",
+                    device.as_str(),
+                    specific_object.as_str()
+                ));
+                if state.activation == Activation::Deny {
+                    return Err((
+                        "org.freedesktop.DBus.Error.AccessDenied".into(),
+                        "Insufficient privileges".to_owned(),
+                    ));
+                }
+                state.settings = Some(settings);
+                state.options = Some(options);
+                state.active_state = match state.activation {
+                    Activation::Activate => 2,
+                    _ => 4,
+                };
+                Ok(vec![
+                    Value::ObjectPath(path("/org/freedesktop/NetworkManager/Settings/1")),
+                    Value::ObjectPath(path(ACTIVE)),
+                    HashMap::<String, Value>::new().to_value(),
+                ])
+            }
+            (Some("org.freedesktop.NetworkManager"), Some("DeactivateConnection")) => {
+                if let Some(active) = msg
+                    .body
+                    .first()
+                    .and_then(|v| OwnedObjectPath::from_value(v.clone()).ok())
+                {
+                    let mut state = self.state.lock().unwrap();
+                    state
+                        .calls
+                        .push(format!("DeactivateConnection {}", active.as_str()));
+                    state.active_state = 4;
+                }
+                Ok(Vec::new())
+            }
+            _ => Err(unknown_method(msg)),
+        }
     }
 }
 
@@ -223,67 +306,76 @@ struct Device {
     device_type: u32,
     device_state: u32,
     interface: String,
-    /// Whether an activated group shows up on this device.
     carries_group: bool,
+    wifi_p2p: bool,
 }
 
-#[zbus::interface(name = "org.freedesktop.NetworkManager.Device")]
-impl Device {
-    #[zbus(property)]
-    fn device_type(&self) -> u32 {
-        self.device_type
-    }
-
-    #[zbus(property)]
-    fn state(&self) -> u32 {
-        self.device_state
-    }
-
-    #[zbus(property)]
-    fn active_connection(&self) -> OwnedObjectPath {
-        if self.carries_group && self.state.lock().unwrap().active_state == 2 {
-            path(ACTIVE)
-        } else {
-            path("/")
+impl ObjectHandler for Device {
+    fn handle_method_call(
+        &self,
+        _conn: &Connection,
+        msg: &Message,
+    ) -> Result<Vec<Value>, (String, String)> {
+        match (msg.interface.as_deref(), msg.member.as_deref()) {
+            (Some("org.freedesktop.DBus.Properties"), Some("Get")) => {
+                let iface = msg.body.first().and_then(Value::as_str).unwrap_or("");
+                let prop = msg.body.get(1).and_then(Value::as_str).unwrap_or("");
+                let val = match (iface, prop) {
+                    ("org.freedesktop.NetworkManager.Device", "DeviceType") => {
+                        Value::Uint32(self.device_type)
+                    }
+                    ("org.freedesktop.NetworkManager.Device", "State") => {
+                        Value::Uint32(self.device_state)
+                    }
+                    ("org.freedesktop.NetworkManager.Device", "ActiveConnection") => {
+                        if self.carries_group && self.state.lock().unwrap().active_state == 2 {
+                            Value::ObjectPath(path(ACTIVE))
+                        } else {
+                            Value::ObjectPath(path("/"))
+                        }
+                    }
+                    ("org.freedesktop.NetworkManager.Device", "IpInterface") => {
+                        let s =
+                            if self.carries_group && self.state.lock().unwrap().active_state != 2 {
+                                String::new()
+                            } else {
+                                self.interface.clone()
+                            };
+                        Value::String(s)
+                    }
+                    ("org.freedesktop.NetworkManager.Device.WifiP2P", "Peers") if self.wifi_p2p => {
+                        let peers = (1..=3)
+                            .map(|i| {
+                                Value::ObjectPath(path(&format!(
+                                    "/org/freedesktop/NetworkManager/WifiP2PPeer/{i}"
+                                )))
+                            })
+                            .collect();
+                        Value::Array("o".into(), peers)
+                    }
+                    _ => return Err(unknown_prop(prop)),
+                };
+                Ok(vec![Value::Variant(Box::new(val))])
+            }
+            (Some("org.freedesktop.NetworkManager.Device.WifiP2P"), Some("StartFind"))
+                if self.wifi_p2p =>
+            {
+                let timeout = msg
+                    .body
+                    .first()
+                    .and_then(|v| HashMap::<String, Value>::from_value(v.clone()).ok())
+                    .and_then(|opts| opts.get("timeout").and_then(Value::as_i32));
+                record(&self.state, format!("StartFind timeout={timeout:?}"));
+                Ok(Vec::new())
+            }
+            (Some("org.freedesktop.NetworkManager.Device.WifiP2P"), Some("StopFind"))
+                if self.wifi_p2p =>
+            {
+                record(&self.state, "StopFind");
+                Ok(Vec::new())
+            }
+            _ => Err(unknown_method(msg)),
         }
-    }
-
-    #[zbus(property)]
-    fn ip_interface(&self) -> String {
-        if self.carries_group && self.state.lock().unwrap().active_state != 2 {
-            String::new()
-        } else {
-            self.interface.clone()
-        }
-    }
-}
-
-struct WifiP2P {
-    state: Shared,
-}
-
-#[zbus::interface(name = "org.freedesktop.NetworkManager.Device.WifiP2P")]
-impl WifiP2P {
-    fn start_find(&self, options: HashMap<String, OwnedVariant>) {
-        let timeout = options
-            .get("timeout")
-            .and_then(|value| i32::try_from(value).ok());
-        record(&self.state, format!("StartFind timeout={timeout:?}"));
-    }
-
-    fn stop_find(&self) {
-        record(&self.state, "StopFind");
-    }
-
-    #[zbus(property)]
-    fn peers(&self) -> Vec<OwnedObjectPath> {
-        (1..=3)
-            .map(|index| {
-                path(&format!(
-                    "/org/freedesktop/NetworkManager/WifiP2PPeer/{index}"
-                ))
-            })
-            .collect()
     }
 }
 
@@ -294,26 +386,29 @@ struct Peer {
     strength: u8,
 }
 
-#[zbus::interface(name = "org.freedesktop.NetworkManager.WifiP2PPeer")]
-impl Peer {
-    #[zbus(property)]
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
-    #[zbus(property)]
-    fn hw_address(&self) -> String {
-        self.hw_address.clone()
-    }
-
-    #[zbus(property, name = "WfdIEs")]
-    fn wfd_ies(&self) -> Vec<u8> {
-        self.wfd_ies.clone()
-    }
-
-    #[zbus(property)]
-    fn strength(&self) -> u8 {
-        self.strength
+impl ObjectHandler for Peer {
+    fn handle_method_call(
+        &self,
+        _conn: &Connection,
+        msg: &Message,
+    ) -> Result<Vec<Value>, (String, String)> {
+        match (msg.interface.as_deref(), msg.member.as_deref()) {
+            (Some("org.freedesktop.DBus.Properties"), Some("Get")) => {
+                let prop = msg.body.get(1).and_then(Value::as_str).unwrap_or("");
+                let val = match prop {
+                    "Name" => Value::String(self.name.clone()),
+                    "HwAddress" => Value::String(self.hw_address.clone()),
+                    "WfdIEs" => Value::Array(
+                        "y".into(),
+                        self.wfd_ies.iter().copied().map(Value::Byte).collect(),
+                    ),
+                    "Strength" => Value::Byte(self.strength),
+                    _ => return Err(unknown_prop(prop)),
+                };
+                Ok(vec![Value::Variant(Box::new(val))])
+            }
+            _ => Err(unknown_method(msg)),
+        }
     }
 }
 
@@ -321,15 +416,23 @@ struct Active {
     state: Shared,
 }
 
-#[zbus::interface(name = "org.freedesktop.NetworkManager.Connection.Active")]
-impl Active {
-    #[zbus(property)]
-    fn state(&self) -> u32 {
-        self.state.lock().unwrap().active_state
-    }
-
-    #[zbus(property)]
-    fn specific_object(&self) -> OwnedObjectPath {
-        path(TV_PEER)
+impl ObjectHandler for Active {
+    fn handle_method_call(
+        &self,
+        _conn: &Connection,
+        msg: &Message,
+    ) -> Result<Vec<Value>, (String, String)> {
+        match (msg.interface.as_deref(), msg.member.as_deref()) {
+            (Some("org.freedesktop.DBus.Properties"), Some("Get")) => {
+                let prop = msg.body.get(1).and_then(Value::as_str).unwrap_or("");
+                let val = match prop {
+                    "State" => Value::Uint32(self.state.lock().unwrap().active_state),
+                    "SpecificObject" => Value::ObjectPath(path(TV_PEER)),
+                    _ => return Err(unknown_prop(prop)),
+                };
+                Ok(vec![Value::Variant(Box::new(val))])
+            }
+            _ => Err(unknown_method(msg)),
+        }
     }
 }

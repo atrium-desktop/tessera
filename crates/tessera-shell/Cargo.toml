@@ -12,12 +12,12 @@ build = "build.rs"
 default = ["full-chrome"]
 full-chrome = ["chrome-dock", "chrome-pivot", "chrome-control-center", "chrome-accessibility"]
 chrome-dock = []
-chrome-accessibility = ["dep:zbus"]
+chrome-accessibility = ["dep:tessera-dbus"]
 chrome-pivot = ["dep:tessera-launch-services"]
 # Theme-asset decoding for Agent feedback sprites and tray icons. Its own
 # feature because the sprites are not a tray concern (ADR-0233).
 agent-sprites = ["dep:tessera-assets"]
-chrome-tray = ["agent-sprites", "dep:tessera-launch-services", "dep:zbus", "dep:tessera-assets"]
+chrome-tray = ["agent-sprites", "dep:tessera-launch-services", "dep:tessera-dbus", "dep:tessera-assets"]
 chrome-control-center = ["chrome-tray", "persona"]
 # Full personalized portrait runtime preview example.
 persona = [
@@ -29,10 +29,9 @@ name = "debug_avatar"
 required-features = ["persona"]
 
 [dependencies]
-futures-util.workspace = true
 tessera-launch-services = { workspace = true, optional = true }
 tessera-assets = { workspace = true, optional = true }
-zbus = { workspace = true, optional = true }
+tessera-dbus = { workspace = true, optional = true }
 vista-sys.workspace = true
 tessera-authority.workspace = true
 tessera-desktop.workspace = true
@@ -49,12 +48,10 @@ lens-sys = { workspace = true }
 reticle-sys = { workspace = true }
 transit = { workspace = true }
 log.workspace = true
-thiserror.workspace = true
 # statvfs for the resource probe's root-filesystem usage sample.
 libc.workspace = true
 # The secret prompt's edit buffer is zeroized on close (password hygiene).
 zeroize = { workspace = true }
-include_dir = { workspace = true }
 
 [dev-dependencies]
 # `.svgz` fixtures are gzip streams, built in process by the tests.

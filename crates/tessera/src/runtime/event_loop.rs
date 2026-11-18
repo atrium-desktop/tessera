@@ -71,6 +71,7 @@ impl CompositorRuntime<'_> {
             }
         }
         if availability == PresentationAvailability::Available {
+            self.tick_display_revert();
             self.presentation
                 .reconcile_backend(self.host.presentation_pending());
             if let Some(elapsed) = self.presentation.take_stall_warning(now) {
@@ -86,6 +87,7 @@ impl CompositorRuntime<'_> {
                     self.host.name()
                 );
                 self.host.recover_lost_presentation();
+                self.direct_outputs.clear();
                 self.damage.force_full_redraw = true;
                 self.surface.invalidate_damage();
             }
@@ -230,14 +232,41 @@ impl CompositorRuntime<'_> {
     /// per-frame pacing path and a hotplug is the only event that can move
     /// it.
     fn presentation_interval(&mut self) -> std::time::Duration {
-        let revision = self.server.outputs_revision();
-        let (cached_revision, cached) = self.cached_presentation_interval;
-        if cached_revision == revision {
-            return cached;
-        }
-        let interval = presentation_domain_interval(self.server.output_infos().iter());
-        self.cached_presentation_interval = (revision, interval);
+        let groups = self.presentation_groups();
+        let interval = groups
+            .iter()
+            .filter_map(tessera_desktop::output::PresentationGroup::period_ns)
+            .min()
+            .map(std::time::Duration::from_nanos)
+            .unwrap_or(FALLBACK_REFRESH_INTERVAL);
+        self.cached_presentation_interval = (self.server.outputs_revision(), interval);
         interval
+    }
+
+    /// Cached presentation-group plan for the current output generation.
+    pub(super) fn presentation_groups(&mut self) -> &[tessera_desktop::output::PresentationGroup] {
+        let revision = self.server.outputs_revision();
+        let windows = self.server.windows_signature();
+        if self.cached_presentation_groups.0 != revision
+            || self.cached_presentation_groups.1 != windows
+        {
+            let groups = tessera_desktop::output::presentation_groups_for_windows(
+                &self.server.output_infos(),
+                &self.server.windows(),
+            );
+            self.cached_presentation_groups = (revision, windows, groups);
+            if let Some(fastest) = self
+                .cached_presentation_groups
+                .2
+                .iter()
+                .filter_map(tessera_desktop::output::PresentationGroup::period_ns)
+                .min()
+            {
+                self.cached_presentation_interval =
+                    (revision, std::time::Duration::from_nanos(fastest));
+            }
+        }
+        &self.cached_presentation_groups.2
     }
 
     fn update_animation_state(&mut self) {
@@ -378,7 +407,8 @@ impl CompositorRuntime<'_> {
 
             match outcome {
                 PresentationOutcome::Submitted => {
-                    let presentation_pending = self.host.presentation_pending();
+                    let presentation_pending =
+                        !self.independent_target_flips && self.host.presentation_pending();
                     let pacing_anchor =
                         submission_pacing_anchor(presentation_pending, render_at, now);
                     self.presentation.submitted(
@@ -432,6 +462,7 @@ fn merge_wakes(
     }
 }
 
+#[cfg(test)]
 fn presentation_domain_interval<'a>(
     outputs: impl IntoIterator<Item = &'a tessera_desktop::output::OutputInfo>,
 ) -> std::time::Duration {
@@ -478,11 +509,14 @@ mod tests {
                     height: 1080,
                     refresh_mhz,
                 },
+                logical_size_override: None,
                 ..Default::default()
             },
             kind,
             available_modes: Vec::new(),
             color_caps: Default::default(),
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
         }
     }
 

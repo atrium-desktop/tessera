@@ -1,4 +1,4 @@
-use image::RgbaImage;
+use tessera_image::RgbaImage;
 
 const EDGE_AA: f32 = 1.5;
 
@@ -20,12 +20,12 @@ pub fn circle_mask_premultiplied(source: &RgbaImage) -> RgbaImage {
             out.put_pixel(
                 x,
                 y,
-                image::Rgba([
+                [
                     (pixel[0] as f32 * c).round() as u8,
                     (pixel[1] as f32 * c).round() as u8,
                     (pixel[2] as f32 * c).round() as u8,
                     (pixel[3] as f32 * c).round() as u8,
-                ]),
+                ],
             );
         }
     }
@@ -40,7 +40,7 @@ mod tests {
     fn outside_the_disc_is_transparent() {
         let solid = RgbaImage::from_raw(8, 8, vec![255; 8 * 8 * 4]).unwrap();
         let masked = circle_mask_premultiplied(&solid);
-        assert_eq!(masked.get_pixel(0, 0).0, [0, 0, 0, 0]);
-        assert_eq!(masked.get_pixel(4, 4).0, [255, 255, 255, 255]);
+        assert_eq!(masked.get_pixel(0, 0), [0, 0, 0, 0]);
+        assert_eq!(masked.get_pixel(4, 4), [255, 255, 255, 255]);
     }
 }

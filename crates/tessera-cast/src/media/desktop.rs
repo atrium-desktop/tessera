@@ -58,7 +58,7 @@ impl DesktopCaptureSource {
                 "mirroring"
             }
         );
-        let connection = zbus::block_on(zbus::Connection::session())
+        let connection = tessera_dbus::Connection::session()
             .map_err(|err| DesktopCaptureError::Portal(PortalError::Bus(err)))?;
 
         let session = ScreenCastSession::open(&connection, virtual_source)?;

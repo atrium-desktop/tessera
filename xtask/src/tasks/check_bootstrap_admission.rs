@@ -8,8 +8,8 @@
 //! An item with a single consumer is the leading indicator of the
 //! junk-drawer decay the gate exists to prevent: it belongs in its owner.
 
+use crate::error::{Context, Result, bail};
 use crate::workspace;
-use anyhow::{Context, Result, bail};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};

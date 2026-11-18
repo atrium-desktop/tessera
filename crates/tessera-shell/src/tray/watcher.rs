@@ -23,12 +23,13 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use futures_util::StreamExt;
-use zbus::{Connection, OwnedObjectPath, Proxy, Variant};
+use tessera_dbus::{
+    Connection, FromValue, Message, MessageStream, ObjectHandler, OwnedObjectPath, Proxy, Value,
+};
 
 use super::{
-    LayoutReply, MenuState, TrayCommand, TrayHandle, TrayIcon, TrayItem, TrayPixmap, TraySnapshot,
-    TrayStatus, argb32_to_premultiplied_bgra, parse_layout_reply, select_pixmap,
+    MenuState, TrayCommand, TrayHandle, TrayIcon, TrayItem, TrayPixmap, TraySnapshot, TrayStatus,
+    argb32_to_premultiplied_bgra, parse_layout_reply, select_pixmap,
 };
 
 const WATCHER_NAME: &str = "org.kde.StatusNotifierWatcher";
@@ -42,8 +43,6 @@ const DBUSMENU_IFACE: &str = "com.canonical.dbusmenu";
 /// Preferred icon size: the shell renders 18px cells, so 48 covers 2x output
 /// scales with headroom; the closest available size wins.
 const PIXMAP_TARGET: i32 = 48;
-/// Upper bound for the signal queue before the bus starts dropping for us.
-const SIGNAL_QUEUE_DEPTH: usize = 2048;
 
 /// Properties mirrored from one StatusNotifierItem.
 #[derive(Default)]
@@ -157,28 +156,13 @@ fn apply_props(item: &mut TrayItem, props: ItemProps) {
 
 /// The served `org.kde.StatusNotifierWatcher` interface.
 struct WatcherIface {
-    /// Async handle onto the same connection; only used inside served
-    /// methods, which already run on zbus's executor.
-    conn: zbus::Connection,
     shared: Arc<Mutex<Shared>>,
 }
 
-#[zbus::interface(name = "org.kde.StatusNotifierWatcher")]
 impl WatcherIface {
-    /// Items register with either their bus name (object then lives at
-    /// `/StatusNotifierItem`) or an object path on the sender's connection.
-    async fn register_status_notifier_item(
-        &self,
-        service: &str,
-        #[zbus(header)] header: zbus::message::Header<'_>,
-        #[zbus(signal_emitter)] emitter: zbus::object_server::SignalEmitter<'_>,
-    ) {
-        let sender = header
-            .sender()
-            .map(|name| name.to_string())
-            .unwrap_or_default();
+    fn register_item(&self, conn: &Connection, service: &str, sender: &str) {
         let (bus_name, path) = if service.starts_with('/') {
-            (sender.clone(), service.to_string())
+            (sender.to_string(), service.to_string())
         } else {
             (service.to_string(), DEFAULT_ITEM_PATH.to_string())
         };
@@ -186,7 +170,7 @@ impl WatcherIface {
         let destination = if sender.is_empty() {
             bus_name.clone()
         } else {
-            sender.clone()
+            sender.to_string()
         };
 
         {
@@ -199,8 +183,6 @@ impl WatcherIface {
                 has_menu: false,
                 icon_generation: 0,
             };
-            // Re-registration keeps the generation counter so unchanged
-            // icons do not force a texture re-upload.
             if let Some(previous) = shared.items.get(&key) {
                 item.icon_generation = previous.item.icon_generation;
             }
@@ -208,7 +190,7 @@ impl WatcherIface {
                 key.clone(),
                 ItemEntry {
                     bus_name,
-                    unique_name: sender.clone(),
+                    unique_name: sender.to_string(),
                     path: path.clone(),
                     menu_path: None,
                     item,
@@ -217,17 +199,10 @@ impl WatcherIface {
             shared.republish();
         }
 
-        // Registration must return before querying the item. Several SNI
-        // implementations make this call synchronously on the same thread
-        // that serves their properties; awaiting GetAll/Get there deadlocks
-        // the item until its registration call times out.
-        let refresh_conn = self.conn.clone();
+        let refresh_conn = conn.clone();
         let shared = Arc::clone(&self.shared);
         let refresh_key = key.clone();
-        // Registration must return before querying the item. Several SNI
-        // implementations make this call synchronously on the same thread that
-        // serves their properties, so the read runs on its own thread rather
-        // than inside the served method.
+        let sender_owned = sender.to_string();
         let _ = thread::Builder::new()
             .name("sni-initial-properties".into())
             .spawn(move || {
@@ -238,9 +213,7 @@ impl WatcherIface {
                 let Some(entry) = shared.items.get_mut(&refresh_key) else {
                     return;
                 };
-                // Ignore a stale read that completed after a new owner
-                // re-registered the same well-known name.
-                if entry.unique_name != sender || entry.path != path {
+                if entry.unique_name != sender_owned || entry.path != path {
                     return;
                 }
                 entry.menu_path = menu_path;
@@ -249,80 +222,99 @@ impl WatcherIface {
             });
 
         log::info!("tray: registered {key}");
-        if let Err(error) = emitter.status_notifier_item_registered(service).await {
+        if let Err(error) = conn.emit_signal(
+            None,
+            WATCHER_PATH,
+            WATCHER_IFACE,
+            "StatusNotifierItemRegistered",
+            &(service,),
+        ) {
             log::warn!("tray: could not emit StatusNotifierItemRegistered: {error}");
         }
     }
 
-    /// The compositor itself is the host; external host registrations are
-    /// accepted and ignored (the property already reports a host present).
-    async fn register_status_notifier_host(&self, _service: &str) {}
-
-    #[zbus(property)]
-    fn registered_status_notifier_items(&self) -> Vec<String> {
-        self.shared
+    fn registered_items(&self) -> Value {
+        let items: Vec<Value> = self
+            .shared
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .items
             .keys()
             .cloned()
-            .collect()
+            .map(Value::String)
+            .collect();
+        Value::Array("s".into(), items)
     }
-
-    #[zbus(property)]
-    fn is_status_notifier_host_registered(&self) -> bool {
-        true
-    }
-
-    #[zbus(property)]
-    fn protocol_version(&self) -> i32 {
-        0
-    }
-
-    #[zbus(signal)]
-    async fn status_notifier_item_registered(
-        emitter: &zbus::object_server::SignalEmitter<'_>,
-        service: &str,
-    ) -> zbus::Result<()>;
-
-    #[zbus(signal)]
-    async fn status_notifier_item_unregistered(
-        emitter: &zbus::object_server::SignalEmitter<'_>,
-        service: &str,
-    ) -> zbus::Result<()>;
-
-    #[zbus(signal)]
-    async fn status_notifier_host_registered(
-        emitter: &zbus::object_server::SignalEmitter<'_>,
-    ) -> zbus::Result<()>;
 }
 
-/// Blocking counterpart of [`item_proxy`] for the signal thread.
-fn item_proxy_blocking<'a>(
-    conn: &'a Connection,
-    destination: &'a str,
-    path: &'a str,
-) -> zbus::Result<Proxy<'a>> {
-    let builder = zbus::proxy::Builder::new(conn)
-        .destination(destination)
-        .path(path)
-        .interface(ITEM_IFACE)
-        .cache_properties(zbus::proxy::CacheProperties::No);
-    zbus::block_on(builder.build())
+impl ObjectHandler for WatcherIface {
+    fn handle_method_call(
+        &self,
+        conn: &Connection,
+        msg: &Message,
+    ) -> Result<Vec<Value>, (String, String)> {
+        match (msg.interface.as_deref(), msg.member.as_deref()) {
+            (Some(WATCHER_IFACE), Some("RegisterStatusNotifierItem")) => {
+                let service = msg
+                    .body
+                    .first()
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let sender = msg.sender.as_deref().unwrap_or("");
+                self.register_item(conn, &service, sender);
+                Ok(Vec::new())
+            }
+            (Some(WATCHER_IFACE), Some("RegisterStatusNotifierHost")) => Ok(Vec::new()),
+            (Some(PROPERTIES_IFACE), Some("Get")) => {
+                let prop = msg.body.get(1).and_then(Value::as_str).unwrap_or("");
+                let val = match prop {
+                    "RegisteredStatusNotifierItems" => self.registered_items(),
+                    "IsStatusNotifierHostRegistered" => Value::Bool(true),
+                    "ProtocolVersion" => Value::Int32(0),
+                    _ => {
+                        return Err((
+                            "org.freedesktop.DBus.Error.UnknownProperty".into(),
+                            format!("unknown property {prop}"),
+                        ));
+                    }
+                };
+                Ok(vec![Value::Variant(Box::new(val))])
+            }
+            (Some(PROPERTIES_IFACE), Some("GetAll")) => {
+                let entries = vec![
+                    Value::DictEntry(
+                        Box::new(Value::String("RegisteredStatusNotifierItems".into())),
+                        Box::new(Value::Variant(Box::new(self.registered_items()))),
+                    ),
+                    Value::DictEntry(
+                        Box::new(Value::String("IsStatusNotifierHostRegistered".into())),
+                        Box::new(Value::Variant(Box::new(Value::Bool(true)))),
+                    ),
+                    Value::DictEntry(
+                        Box::new(Value::String("ProtocolVersion".into())),
+                        Box::new(Value::Variant(Box::new(Value::Int32(0)))),
+                    ),
+                ];
+                Ok(vec![Value::Array("{sv}".into(), entries)])
+            }
+            _ => Err((
+                "org.freedesktop.DBus.Error.UnknownMethod".into(),
+                format!("unknown method {:?}.{:?}", msg.interface, msg.member),
+            )),
+        }
+    }
 }
 
 /// Same read through the blocking proxy (signal thread).
 fn fetch_props_blocking(conn: &Connection, destination: &str, path: &str) -> ItemProps {
-    let Ok(proxy) = item_proxy_blocking(conn, destination, path) else {
-        return ItemProps::default();
-    };
-    let id: Option<String> = zbus::block_on(proxy.get_property("Id")).ok();
-    let title: Option<String> = zbus::block_on(proxy.get_property("Title")).ok();
-    let status: Option<String> = zbus::block_on(proxy.get_property("Status")).ok();
-    let icon_name: Option<String> = zbus::block_on(proxy.get_property("IconName")).ok();
-    let icon_pixmap: Option<Vec<(i32, i32, Vec<u8>)>> =
-        zbus::block_on(proxy.get_property("IconPixmap")).ok();
-    let menu: Option<OwnedObjectPath> = zbus::block_on(proxy.get_property("Menu")).ok();
+    let proxy = Proxy::new(conn, destination, path, ITEM_IFACE);
+    let id: Option<String> = proxy.get_property("Id").ok();
+    let title: Option<String> = proxy.get_property("Title").ok();
+    let status: Option<String> = proxy.get_property("Status").ok();
+    let icon_name: Option<String> = proxy.get_property("IconName").ok();
+    let icon_pixmap: Option<Vec<(i32, i32, Vec<u8>)>> = proxy.get_property("IconPixmap").ok();
+    let menu: Option<OwnedObjectPath> = proxy.get_property("Menu").ok();
     build_props(id, title, status, icon_name, icon_pixmap, menu)
 }
 
@@ -373,8 +365,7 @@ fn build_props(
 
 /// Start the watcher and both worker threads. See [`super::spawn`].
 pub(super) fn spawn() -> Option<TrayHandle> {
-    let builder = zbus::connection::Builder::session();
-    let conn = match zbus::block_on(builder.build()) {
+    let conn = match Connection::session() {
         Ok(conn) => conn,
         Err(error) => {
             log::warn!("tray: could not connect to session bus ({error}); SNI tray disabled");
@@ -382,29 +373,25 @@ pub(super) fn spawn() -> Option<TrayHandle> {
         }
     };
     let shared = Arc::new(Mutex::new(Shared::default()));
-    let iface = WatcherIface {
-        conn: conn.clone(),
+    let iface = Arc::new(WatcherIface {
         shared: Arc::clone(&shared),
-    };
+    });
     // Serve the interface before requesting the name so no registration can
     // arrive at a name we own but do not serve yet.
-    if let Err(error) = zbus::block_on(conn.object_server().at(WATCHER_PATH, iface)) {
-        log::warn!("tray: could not serve watcher interface ({error}); SNI tray disabled");
-        return None;
-    }
-    if let Err(error) = zbus::block_on(conn.request_name(WATCHER_NAME)) {
+    conn.register_object(WATCHER_PATH, iface);
+    if let Err(error) = conn.request_name(WATCHER_NAME) {
         log::info!("tray: {WATCHER_NAME} unavailable ({error}); SNI tray disabled");
         return None;
     }
     // Advertise that a host (this compositor) is present; items that
     // registered before we started would re-register now.
-    if let Err(error) = zbus::block_on(conn.emit_signal(
-        None::<&str>,
+    if let Err(error) = conn.emit_signal(
+        None,
         WATCHER_PATH,
         WATCHER_IFACE,
         "StatusNotifierHostRegistered",
         &(),
-    )) {
+    ) {
         log::warn!("tray: could not emit StatusNotifierHostRegistered: {error}");
     }
 
@@ -433,41 +420,33 @@ pub(super) fn spawn() -> Option<TrayHandle> {
 /// Consume bus signals: drop items whose name vanished, refresh items whose
 /// icon/title/status changed.
 fn signal_loop(conn: Connection, shared: Arc<Mutex<Shared>>) {
-    // One broad rule keeps a single iterator; traffic is filtered locally.
-    // SNI signals are rare, so the volume is negligible on a session bus.
-    let mut stream = match zbus::block_on(zbus::MessageStream::for_match_rule(
-        "type='signal'",
-        &conn,
-        std::num::NonZeroUsize::new(SIGNAL_QUEUE_DEPTH),
-    )) {
+    let stream = match MessageStream::for_match_rule(&conn, "type='signal'") {
         Ok(stream) => stream,
         Err(error) => {
             log::warn!("tray: could not subscribe to bus signals: {error}");
             return;
         }
     };
-    loop {
-        let message = zbus::block_on(stream.next());
-        match message {
-            Some(Ok(message)) => handle_signal(&conn, &shared, &message),
-            Some(Err(error)) => log::warn!("tray: signal stream error: {error}"),
-            None => break,
-        }
+    while let Some(message) = stream.next() {
+        handle_signal(&conn, &shared, &message);
     }
     log::info!("tray: signal stream ended; SNI tray stopped");
 }
 
-fn handle_signal(conn: &Connection, shared: &Arc<Mutex<Shared>>, message: &zbus::Message) {
-    let header = message.header();
-    let interface = header.interface().map(|name| name.as_str());
-    let member = header.member().map(|name| name.as_str());
-    let sender = header.sender().map(|name| name.to_string());
+fn handle_signal(conn: &Connection, shared: &Arc<Mutex<Shared>>, message: &Message) {
+    let interface = message.interface.as_deref();
+    let member = message.member.as_deref();
+    let sender = message.sender.clone();
 
     match (interface, member) {
         (Some(DBUS_IFACE), Some("NameOwnerChanged")) => {
-            let Ok((name, _old, new_owner)) =
-                message.body().deserialize::<(String, String, String)>()
-            else {
+            if message.body.len() < 3 {
+                return;
+            }
+            let Some(name) = message.body[0].as_str().map(str::to_string) else {
+                return;
+            };
+            let Some(new_owner) = message.body[2].as_str() else {
                 return;
             };
             if !new_owner.is_empty() {
@@ -491,13 +470,13 @@ fn handle_signal(conn: &Connection, shared: &Arc<Mutex<Shared>>, message: &zbus:
             };
             for key in removed {
                 log::info!("tray: unregistered {key}");
-                if let Err(error) = zbus::block_on(conn.emit_signal(
-                    None::<&str>,
+                if let Err(error) = conn.emit_signal(
+                    None,
                     WATCHER_PATH,
                     WATCHER_IFACE,
                     "StatusNotifierItemUnregistered",
-                    &key,
-                )) {
+                    &(key.as_str(),),
+                ) {
                     log::warn!("tray: could not emit StatusNotifierItemUnregistered: {error}");
                 }
             }
@@ -505,7 +484,7 @@ fn handle_signal(conn: &Connection, shared: &Arc<Mutex<Shared>>, message: &zbus:
         (Some(ITEM_IFACE), Some("NewIcon" | "NewTitle" | "NewStatus" | "NewAttentionIcon"))
         | (Some(PROPERTIES_IFACE), Some("PropertiesChanged")) => {
             let Some(sender) = sender else { return };
-            let path = header.path().map(|path| path.to_string());
+            let path = message.path.as_ref().map(ToString::to_string);
             let key = {
                 let shared = shared.lock().unwrap_or_else(|e| e.into_inner());
                 shared
@@ -533,7 +512,7 @@ fn handle_signal(conn: &Connection, shared: &Arc<Mutex<Shared>>, message: &zbus:
             // The signal carries `(revision, parent)`; we only need to know
             // whether it belongs to the currently open menu so the render
             // thread sees fresh rows on the next frame.
-            let path = header.path().map(|path| path.to_string());
+            let path = message.path.as_ref().map(ToString::to_string);
             let needs_refresh = match path {
                 None => false,
                 Some(path) => {
@@ -591,15 +570,6 @@ fn refresh_open_menu(conn: &Connection, shared: &Arc<Mutex<Shared>>) {
     shared.republish();
 }
 
-fn proxy<'a>(
-    conn: &'a Connection,
-    destination: &'a str,
-    path: &'a str,
-    interface: &'a str,
-) -> zbus::Result<Proxy<'a>> {
-    zbus::block_on(Proxy::new(conn, destination, path, interface))
-}
-
 /// Invoke activation methods on items as the shell's clicks come in.
 fn command_loop(conn: Connection, shared: Arc<Mutex<Shared>>, rx: mpsc::Receiver<TrayCommand>) {
     while let Ok(command) = rx.recv() {
@@ -644,9 +614,8 @@ fn invoke_item_method(
     let Some((destination, path)) = target else {
         return;
     };
-    let result = proxy(conn, destination.as_str(), path.as_str(), ITEM_IFACE)
-        .and_then(|proxy| zbus::block_on(proxy.call::<_, _, ()>(method, &(x, y))));
-    if let Err(error) = result {
+    let proxy = Proxy::new(conn, destination.as_str(), path.as_str(), ITEM_IFACE);
+    if let Err(error) = proxy.call::<_, ()>(method, &(x, y)) {
         log::warn!("tray: {method} on {key} failed: {error}");
     }
 }
@@ -704,21 +673,18 @@ fn menu_event_command(conn: &Connection, shared: &Arc<Mutex<Shared>>, key: &str,
     let Some((destination, Some(menu_path))) = target else {
         return;
     };
-    let data = Variant::U32(0);
+    let data = Value::Variant(Box::new(Value::Uint32(0)));
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as u32)
         .unwrap_or(0);
-    let result = proxy(
+    let proxy = Proxy::new(
         conn,
         destination.as_str(),
         menu_path.as_str(),
         DBUSMENU_IFACE,
-    )
-    .and_then(|proxy| {
-        zbus::block_on(proxy.call::<_, _, ()>("Event", &(id, "clicked", &data, timestamp)))
-    });
-    if let Err(error) = result {
+    );
+    if let Err(error) = proxy.call::<_, ()>("Event", &(id, "clicked", data, timestamp)) {
         log::warn!("tray: Event(clicked) on {key}:{id} failed: {error}");
     }
 }
@@ -748,14 +714,24 @@ fn fetch_menu_layout(
     destination: &str,
     menu_path: &str,
 ) -> Option<(super::MenuNode, u32)> {
-    let proxy = proxy(conn, destination, menu_path, DBUSMENU_IFACE).ok()?;
-    // `AboutToShow(0)` is the spec-recommended refresh hint before reading
-    // the layout; the return signals whether the layout changed since the
-    // last call. We ignore it (a redundant `GetLayout` is cheap).
-    let _ = zbus::block_on(proxy.call::<_, _, bool>("AboutToShow", &0_i32));
+    let proxy = Proxy::new(conn, destination, menu_path, DBUSMENU_IFACE);
+    let _ = proxy.call::<_, bool>("AboutToShow", &(0_i32,));
     let property_names: Vec<&str> = super::MENU_PROPERTY_NAMES.to_vec();
-    let reply: LayoutReply =
-        zbus::block_on(proxy.call("GetLayout", &(0_i32, -1_i32, &property_names))).ok()?;
-    let (root, revision) = parse_layout_reply(reply)?;
+    let msg = conn
+        .call_method(
+            Some(destination),
+            menu_path,
+            Some(DBUSMENU_IFACE),
+            "GetLayout",
+            &(0_i32, -1_i32, property_names),
+        )
+        .ok()?;
+    if msg.body.len() < 2 {
+        return None;
+    }
+    let revision = u32::from_value(msg.body[0].clone()).ok()?;
+    let root_node =
+        <(i32, HashMap<String, Value>, Vec<Value>)>::from_value(msg.body[1].clone()).ok()?;
+    let (root, revision) = parse_layout_reply((revision, root_node))?;
     Some((root, revision))
 }

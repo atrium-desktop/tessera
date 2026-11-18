@@ -33,21 +33,34 @@ pub const INSTANCE_EXTENSIONS: [&CStr; 2] = [c"VK_KHR_surface", c"VK_KHR_wayland
 pub const DEVICE_EXTENSIONS: [&CStr; 1] = [c"VK_KHR_swapchain"];
 
 /// Errors bringing up the nested backend.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum NestedError {
     /// Could not connect to the host Wayland display (`$WAYLAND_DISPLAY`).
-    #[error("cannot connect to host Wayland display (is WAYLAND_DISPLAY set?)")]
     Connect,
     /// A required global was not advertised by the host.
-    #[error("host does not advertise required global: {0}")]
     MissingGlobal(&'static str),
     /// A `wl_display_roundtrip` failed.
-    #[error("wl_display_roundtrip failed")]
     Roundtrip,
     /// Vulkan surface creation failed.
-    #[error("VkSurfaceKHR creation failed")]
     Vulkan,
 }
+
+impl std::fmt::Display for NestedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Connect => {
+                f.write_str("cannot connect to host Wayland display (is WAYLAND_DISPLAY set?)")
+            }
+            Self::MissingGlobal(global) => {
+                write!(f, "host does not advertise required global: {global}")
+            }
+            Self::Roundtrip => f.write_str("wl_display_roundtrip failed"),
+            Self::Vulkan => f.write_str("VkSurfaceKHR creation failed"),
+        }
+    }
+}
+
+impl std::error::Error for NestedError {}
 
 /// Mutable state shared with the C event callbacks via a stable heap pointer.
 struct State {

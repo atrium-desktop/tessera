@@ -73,13 +73,22 @@ Run `tessera-settings display` (or open Settings from the Control Center's ⚙
 button) to:
 
 1. Select a connected monitor.
-2. Choose one of its advertised resolution and refresh-rate modes.
-3. Keep the automatically detected logical scale, or override it when the
+2. Choose **Extend desktop** or **Mirror another display** (ADR-0243). A mirror
+   follows the source's mode, scale, position, and workspaces; choose its
+   source from the other extended displays.
+3. For an extended display, choose one of its advertised resolution and
+   refresh-rate modes.
+4. Keep the automatically detected logical scale, or override it when the
    physical-size metadata is wrong or a different UI size is preferred.
-4. Select the primary display when needed.
-5. Place an extended display relative to the primary display, or enter custom
+5. Select the primary display when needed.
+6. Place an extended display relative to the primary display, or enter custom
    logical X and Y coordinates.
-6. Select **Apply Display Settings**.
+7. Select **Apply Display Settings**.
+
+With the default `[display] topology = "auto"`, the first smaller external
+display mirrors the primary panel and a larger one extends. The resolved role
+is shown in Settings and in `tessera display`; applying it writes an explicit
+role so later hotplugs keep the user's choice.
 
 The change is written atomically to `~/.config/tessera/config.toml`. Direct DRM
 sessions apply it after the current page flip retires. In a nested session the

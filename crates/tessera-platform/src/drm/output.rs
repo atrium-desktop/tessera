@@ -48,6 +48,8 @@ impl DrmBackend {
             &self.configured_modes,
             &self.configured_color,
             &self.configured_icc,
+            self.configured_topology,
+            &self.configured_policies,
         ) {
             Ok(displays) => displays,
             Err(DrmError::NoConnector) => {
@@ -57,19 +59,13 @@ impl DrmBackend {
                 }
                 self.modeset_done = false;
                 self.pending_flips.clear();
-                if let Some(scanout) = self.retiring.take() {
-                    self.release_scanout(scanout);
-                }
-                if let Some(scanout) = self.current.take() {
-                    self.release_scanout(scanout);
-                }
+                self.clear_plane_slots(true);
                 if let Some(overlay) = self.current_overlay.take() {
                     self.release_overlay_scanout(overlay);
                 }
                 if let Some(overlay) = self.retiring_overlay.take() {
                     self.release_overlay_scanout(overlay);
                 }
-                self.current_source = None;
                 self.render_ready = false;
                 return;
             }
@@ -97,23 +93,26 @@ impl DrmBackend {
         }
         self.modeset_done = false;
         self.pending_flips.clear();
-        if let Some(scanout) = self.retiring.take() {
-            self.release_scanout(scanout);
-        }
-        if let Some(scanout) = self.current.take() {
-            self.release_scanout(scanout);
-        }
+        self.clear_plane_slots(true);
         if let Some(overlay) = self.current_overlay.take() {
             self.release_overlay_scanout(overlay);
         }
         if let Some(overlay) = self.retiring_overlay.take() {
             self.release_overlay_scanout(overlay);
         }
-        self.current_source = None;
 
         let old = std::mem::replace(&mut self.displays, selected);
         for output in old.outputs {
             destroy_output_blobs(self.card(), &output);
+        }
+        self.rebuild_plane_slots();
+        if !self.hardware_cursor_supported() {
+            // A mirror removes one output's cursor plane, so the session falls
+            // back to the software cursor. Drop any sprite committed before
+            // the topology change; otherwise the source CRTC would keep a
+            // hardware cursor that the mirror's framebuffer never contains.
+            self.cursor_state = None;
+            self.cursor_plane_active = false;
         }
         if self.displays.modifiers != self.surface_modifiers
             || self.displays.color_mode != self.surface_color_mode
@@ -149,8 +148,60 @@ impl DrmBackend {
         );
     }
 
+    /// Drop every per-output primary slot and optionally release the
+    /// framebuffers they reference. `release = false` is the revoked-fd path:
+    /// the card is gone, so handles are leaked rather than used.
+    pub(super) fn clear_plane_slots(&mut self, release: bool) {
+        let slots = std::mem::take(&mut self.slots);
+        for mut slot in slots {
+            let scanouts = slot.retiring.take().into_iter().chain(slot.current.take());
+            for scanout in scanouts {
+                if release {
+                    self.release_scanout(scanout);
+                } else {
+                    log::debug!(
+                        "drm: forgetting scanout slot {} after device loss",
+                        scanout.slot
+                    );
+                }
+            }
+        }
+    }
+
+    /// Rebuild the primary-plane slots after a display-set change. Callers
+    /// must clear the old slots first so their references are dropped.
+    pub(super) fn rebuild_plane_slots(&mut self) {
+        self.slots = self
+            .displays
+            .outputs
+            .iter()
+            .map(|output| PlaneSlot {
+                crtc: output.crtc,
+                current: None,
+                retiring: None,
+                source: None,
+                pending: false,
+            })
+            .collect();
+    }
+
+    pub(super) fn slot_index_for_connector(&self, connector: &str) -> Option<usize> {
+        self.displays
+            .outputs
+            .iter()
+            .position(|output| output.name == connector)
+    }
+
     pub(super) fn release_scanout(&mut self, scanout: PrimaryScanout) {
         self.release_scanout_parts(scanout.framebuffer, scanout.gem, scanout.ownership);
+    }
+
+    pub(super) fn release_scanout_options(&mut self, scanouts: &mut [Option<PrimaryScanout>]) {
+        for scanout in scanouts.iter_mut() {
+            if let Some(scanout) = scanout.take() {
+                self.release_scanout(scanout);
+            }
+        }
     }
 
     pub(super) fn release_overlay_scanout(&mut self, overlay: OverlayScanout) {
@@ -279,6 +330,8 @@ pub(super) fn open_card_and_outputs(
     configured_modes: &HashMap<String, ModeSpec>,
     configured_color: &HashMap<String, ColorPolicy>,
     configured_icc: &HashMap<String, String>,
+    configured_topology: tessera_desktop::output::DisplayTopology,
+    configured_policies: &HashMap<String, tessera_desktop::output::OutputPolicy>,
 ) -> Result<(Card, DisplaySet), DrmError> {
     let candidates = candidate_cards();
     let tried = candidates
@@ -295,7 +348,14 @@ pub(super) fn open_card_and_outputs(
                     .and_then(|()| card.set_client_capability(drm::ClientCapability::Atomic, true))
                     .map_err(DrmError::from)
                     .and_then(|()| {
-                        select_outputs(&card, configured_modes, configured_color, configured_icc)
+                        select_outputs(
+                            &card,
+                            configured_modes,
+                            configured_color,
+                            configured_icc,
+                            configured_topology,
+                            configured_policies,
+                        )
                     });
                 match result {
                     Ok(output) => return Ok((card, output)),
@@ -335,6 +395,8 @@ pub(super) struct OutputCandidate {
     pub(super) choices: Vec<OutputChoice>,
     pub(super) available_modes: Vec<OutputMode>,
     pub(super) color_caps: tessera_primitives::edid::EdidColorCapabilities,
+    pub(super) role: tessera_desktop::output::OutputRole,
+    pub(super) role_source: tessera_desktop::output::OutputRoleSource,
 }
 
 #[derive(Debug, Clone)]
@@ -349,6 +411,8 @@ pub(super) fn select_outputs(
     configured_modes: &HashMap<String, ModeSpec>,
     configured_color: &HashMap<String, ColorPolicy>,
     configured_icc: &HashMap<String, String>,
+    configured_topology: tessera_desktop::output::DisplayTopology,
+    configured_policies: &HashMap<String, tessera_desktop::output::OutputPolicy>,
 ) -> Result<DisplaySet, DrmError> {
     let resources = card.resource_handles()?;
     let mut connectors = resources
@@ -517,6 +581,8 @@ pub(super) fn select_outputs(
                 choices,
                 available_modes: advertised_modes(connector),
                 color_caps: caps,
+                role: tessera_desktop::output::OutputRole::Extend,
+                role_source: tessera_desktop::output::OutputRoleSource::Auto,
             });
         }
         if candidates
@@ -525,6 +591,7 @@ pub(super) fn select_outputs(
         {
             continue;
         }
+        apply_candidate_roles(&mut candidates, configured_topology, configured_policies);
         if let Some((choices, modifiers)) = assign_outputs(&candidates) {
             assignment = Some((*format, attempted, candidates, choices, modifiers));
             break;
@@ -539,15 +606,23 @@ pub(super) fn select_outputs(
             "drm: {requested_mode:?} requested but no 10-bit plane assignment exists; falling back to SDR"
         );
     }
-    let mut desktop_width = 0_u32;
-    let mut desktop_height = 0_u32;
-    for candidate in &candidates {
-        let size = candidate.mode.size();
-        desktop_width = desktop_width
-            .checked_add(size.0 as u32)
-            .ok_or(DrmError::DesktopTooLarge(u32::MAX, desktop_height))?;
-        desktop_height = desktop_height.max(size.1 as u32);
-    }
+    // Extended outputs own disjoint horizontal slices of the shared
+    // framebuffer. A mirror is not a slice of its own: it scans the same
+    // source rectangle, optionally scaled by its plane to the mirror's native
+    // mode (ADR-0243). Only extended outputs consume desktop width, and the
+    // height is bounded by them.
+    let placement_inputs = candidates
+        .iter()
+        .map(|candidate| PlacementInput {
+            name: candidate.name.as_str(),
+            size: (
+                u32::from(candidate.mode.size().0),
+                u32::from(candidate.mode.size().1),
+            ),
+            mirror: candidate.role.mirror_source(),
+        })
+        .collect::<Vec<_>>();
+    let (layout, desktop_width, desktop_height) = layout_outputs(&placement_inputs)?;
     if !resources.supported_fb_width().contains(&desktop_width)
         || !resources.supported_fb_height().contains(&desktop_height)
     {
@@ -555,9 +630,21 @@ pub(super) fn select_outputs(
     }
 
     let mut outputs: Vec<Output> = Vec::with_capacity(candidates.len());
-    let mut x = 0_u32;
     for (candidate, choice) in candidates.into_iter().zip(choices) {
-        let result = build_output(card, candidate, choice, x);
+        let Some(&(x, source_size)) = layout.get(&candidate.name) else {
+            // The resolver cannot emit a dangling mirror, but the backend is
+            // the last boundary: degrade to the candidate's own slice.
+            for output in &outputs {
+                destroy_output_blobs(card, output);
+            }
+            return Err(DrmError::NoPlane);
+        };
+        let mode_size = candidate.mode.size();
+        let destination = fitted_destination(
+            (u32::from(mode_size.0), u32::from(mode_size.1)),
+            source_size,
+        );
+        let result = build_output(card, candidate, choice, x, source_size, destination);
         let output = match result {
             Ok(output) => output,
             Err(error) => {
@@ -567,8 +654,6 @@ pub(super) fn select_outputs(
                 return Err(error);
             }
         };
-        let size = output.mode.size();
-        x += size.0 as u32;
         outputs.push(output);
     }
     // Cursor and overlay are independent of the primary-plane matching above.
@@ -578,6 +663,13 @@ pub(super) fn select_outputs(
     // (ADR-0234, ADR-0235).
     assign_cursor_planes(card, &mut outputs, &plane_inventory);
     for output in &mut outputs {
+        if output.role.is_mirror() {
+            // The mirror's cursor is composited into the source rectangle and
+            // arrives through the shared framebuffer. A second hardware
+            // cursor plane would need independent coordinate scaling and
+            // would visibly duplicate the pointer.
+            output.planes.cursor = None;
+        }
         let discovered = plane_inventory
             .overlay
             .iter()
@@ -655,6 +747,126 @@ fn scanout_format_intersection(
     Ok(result)
 }
 
+fn apply_candidate_roles(
+    candidates: &mut [OutputCandidate],
+    topology: tessera_desktop::output::DisplayTopology,
+    configured_policies: &HashMap<String, tessera_desktop::output::OutputPolicy>,
+) {
+    let infos = candidates
+        .iter()
+        .map(|candidate| {
+            let (width, height) = candidate.mode.size();
+            tessera_desktop::output::OutputInfo {
+                connector: candidate.name.clone(),
+                geometry: tessera_desktop::output::OutputGeometry {
+                    mode: tessera_desktop::output::OutputMode {
+                        width: width as i32,
+                        height: height as i32,
+                        refresh_mhz: candidate.mode.vrefresh().saturating_mul(1_000),
+                    },
+                    scale: candidate.scale,
+                    transform: tessera_primitives::Transform::Normal,
+                    logical_origin: tessera_primitives::Point::default(),
+                    logical_size_override: None,
+                },
+                kind: candidate.kind,
+                available_modes: candidate.available_modes.clone(),
+                color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+                role: tessera_desktop::output::OutputRole::Extend,
+                role_source: tessera_desktop::output::OutputRoleSource::Auto,
+            }
+        })
+        .collect::<Vec<_>>();
+    let resolved =
+        tessera_desktop::output::resolve_output_roles(&infos, configured_policies, topology);
+    for (candidate, role) in candidates.iter_mut().zip(resolved) {
+        candidate.role = role;
+        candidate.role_source = tessera_desktop::output::OutputRoleSource::from_policy(
+            configured_policies.get(&candidate.name),
+        );
+    }
+    // Backend boundary: a mirror source must be one of the live candidates and
+    // must itself be extended. The resolver already enforces this for the
+    // list it was given; keep the check because a caller could pass a partial
+    // policy map.
+    let sources: std::collections::HashMap<String, bool> = candidates
+        .iter()
+        .map(|candidate| (candidate.name.clone(), !candidate.role.is_mirror()))
+        .collect();
+    for candidate in candidates.iter_mut() {
+        if let tessera_desktop::output::OutputRole::Mirror { source } = &candidate.role
+            && !sources.get(source).copied().unwrap_or(false)
+        {
+            candidate.role = tessera_desktop::output::OutputRole::Extend;
+        }
+    }
+}
+
+type OutputPlacement = (u32, (u32, u32));
+type OutputLayout = (HashMap<String, OutputPlacement>, u32, u32);
+
+/// One connector's contribution to the shared framebuffer layout.
+pub(super) struct PlacementInput<'a> {
+    pub(super) name: &'a str,
+    pub(super) size: (u32, u32),
+    pub(super) mirror: Option<&'a str>,
+}
+
+/// Resolve every connector's source rectangle `(x, source_size)` and the union
+/// framebuffer extent. Extended outputs get disjoint horizontal slices in
+/// connector order; mirrors scan their source's slice and contribute no width.
+pub(super) fn layout_outputs(inputs: &[PlacementInput<'_>]) -> Result<OutputLayout, DrmError> {
+    let mut layout = HashMap::<String, OutputPlacement>::new();
+    let mut desktop_width = 0_u32;
+    let mut desktop_height = 0_u32;
+    for input in inputs {
+        if input.mirror.is_some() {
+            continue;
+        }
+        layout.insert(input.name.to_owned(), (desktop_width, input.size));
+        desktop_width = desktop_width
+            .checked_add(input.size.0)
+            .ok_or(DrmError::DesktopTooLarge(u32::MAX, desktop_height))?;
+        desktop_height = desktop_height.max(input.size.1);
+    }
+    if desktop_width == 0 {
+        // A session with only mirrors is invalid; treat the first connector as
+        // the source rather than failing to light any display.
+        if let Some(first) = inputs.first() {
+            layout.insert(first.name.to_owned(), (0, first.size));
+            desktop_width = first.size.0;
+            desktop_height = first.size.1;
+        }
+    }
+    for input in inputs {
+        let Some(source) = input.mirror else {
+            continue;
+        };
+        if let Some(&(x, source_size)) = layout.get(source) {
+            layout.insert(input.name.to_owned(), (x, source_size));
+        }
+    }
+    Ok((layout, desktop_width, desktop_height))
+}
+
+/// Fit `source` into `mode` while preserving the source aspect ratio, centered.
+/// Equal aspects produce the full destination; a mismatch produces black bars
+/// on the shorter axis instead of a stretched desktop.
+pub(super) fn fitted_destination(mode: (u32, u32), source: (u32, u32)) -> (i32, i32, u32, u32) {
+    if mode.0 == 0 || mode.1 == 0 || source.0 == 0 || source.1 == 0 {
+        return (0, 0, mode.0.max(1), mode.1.max(1));
+    }
+    let scale = (mode.0 as f32 / source.0 as f32).min(mode.1 as f32 / source.1 as f32);
+    let width = ((source.0 as f32 * scale).round() as u32).clamp(1, mode.0);
+    let height = ((source.1 as f32 * scale).round() as u32).clamp(1, mode.1);
+    (
+        ((mode.0 - width) / 2) as i32,
+        ((mode.1 - height) / 2) as i32,
+        width,
+        height,
+    )
+}
+
 pub(super) fn assign_outputs(
     candidates: &[OutputCandidate],
 ) -> Option<(Vec<OutputChoice>, Vec<u64>)> {
@@ -719,6 +931,8 @@ pub(super) fn build_output(
     candidate: OutputCandidate,
     choice: OutputChoice,
     x: u32,
+    source_size: (u32, u32),
+    destination: (i32, i32, u32, u32),
 ) -> Result<Output, DrmError> {
     let connector_props = property_map(card, candidate.connector)?;
     let crtc_props = property_map(card, choice.crtc)?;
@@ -754,14 +968,11 @@ pub(super) fn build_output(
     // A reusable clip covering this output's whole framebuffer rectangle for
     // commits whose damage is unknown or spans the output. The blob layout is
     // an array of `drm_mode_rect` — four native i32 values (x1, y1, x2, y2).
-    let (width, height) = candidate.mode.size();
+    // A mirrored output covers its *source* rectangle, not its own native
+    // mode: the plane scales that source to the mirror's CRTC size.
+    let (width, height) = source_size;
     let full_damage_blob = if primary_props.fb_damage_clips.is_some() {
-        let rect = [[
-            x as i32,
-            0,
-            (x + u32::from(width)) as i32,
-            i32::from(height),
-        ]];
+        let rect = [[x as i32, 0, (x + width) as i32, height as i32]];
         let blob = card
             .create_property_blob(&rect[..])
             .ok()
@@ -790,6 +1001,10 @@ pub(super) fn build_output(
             overlay: OverlayPlaneAllocation::disabled(Vec::new()),
         },
         mode: candidate.mode,
+        source_size,
+        destination,
+        role: candidate.role,
+        role_source: candidate.role_source,
         mode_blob,
         mode_blob_id,
         x,
@@ -878,17 +1093,22 @@ pub(super) fn display_signature(displays: &DisplaySet) -> DisplaySignature {
             .iter()
             .map(|output| {
                 let (width, height) = output.mode.size();
-                (
-                    output.name.clone(),
-                    width as u32,
-                    height as u32,
-                    output.mode.vrefresh(),
-                    output.scale.as_f32().to_bits(),
-                    output.x,
-                    output.y,
-                    output.planes.cursor.is_some(),
-                    output.planes.overlay.clone(),
-                )
+                OutputSignature {
+                    name: output.name.clone(),
+                    width: width as u32,
+                    height: height as u32,
+                    refresh: output.mode.vrefresh(),
+                    scale_bits: output.scale.as_f32().to_bits(),
+                    x: output.x,
+                    y: output.y,
+                    cursor: output.planes.cursor.is_some(),
+                    mirror: output.role.is_mirror(),
+                    role_source: output.role_source,
+                    source_width: output.source_size.0,
+                    source_height: output.source_size.1,
+                    destination: output.destination,
+                    overlay: output.planes.overlay.clone(),
+                }
             })
             .collect(),
     )

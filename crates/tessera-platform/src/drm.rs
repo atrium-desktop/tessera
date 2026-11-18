@@ -12,7 +12,7 @@
 //! KMS planes are *output layers*, not scene layers (ADR-0234). The background
 //! and always-on-top are compositor z-order semantics; only primary, cursor,
 //! and a policy-enabled, `TEST_ONLY`-proven overlay may allocate a plane
-//! (ADR-0235). Plane discovery and allocation live in [`planes`].
+//! (ADR-0235). Plane discovery and allocation live in `planes`.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -87,46 +87,87 @@ use tessera_primitives::input::TouchpadStatus;
 use crate::Backend;
 
 /// Errors that prevent direct-display operation.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum DrmError {
-    #[error("libseat: {0}")]
     Seat(String),
-    #[error("no usable DRM card was found (tried {0})")]
     NoCard(String),
-    #[error("DRM/KMS: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("no connected DRM connector with a display mode")]
+    Io(std::io::Error),
     NoConnector,
-    #[error("connector has no compatible CRTC")]
     NoCrtc,
-    #[error("CRTC has no compatible primary plane supporting XRGB8888/ARGB8888 dma-buf scanout")]
     NoPlane,
-    #[error("DRM IN_FORMATS blob is malformed: {0}")]
     MalformedFormats(&'static str),
-    #[error("combined output framebuffer {0}x{1} exceeds DRM limits")]
     DesktopTooLarge(u32, u32),
-    #[error("DRM object is missing required atomic property {0}")]
     MissingProperty(&'static str),
-    #[error("libinput could not bind seat {0}")]
     InputSeat(String),
-    #[error("Flux: {0}")]
-    Flux(#[from] flux::Error),
-    #[error("Flux could not create exportable dma-buf render targets")]
+    Flux(flux::Error),
     DmabufUnsupported,
-    #[error("DRM session is inactive")]
     Inactive,
-    #[error("previous DRM atomic commit is still being cleaned up")]
     Busy,
-    #[error("timed out waiting for a KMS page flip")]
     FlipTimeout,
-    #[error("display set changed during presentation; frame skipped")]
     Reconfigured,
-    #[error("client buffer cannot be scanned out directly")]
     ScanoutUnsupported,
-    #[error("hardware cursor unsupported: {0}")]
     CursorUnsupported(&'static str),
-    #[error("hardware cursor atomic commit was rejected; retry with software composition")]
     CursorFallback,
+}
+
+impl std::fmt::Display for DrmError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Seat(msg) => write!(f, "libseat: {msg}"),
+            Self::NoCard(tried) => write!(f, "no usable DRM card was found (tried {tried})"),
+            Self::Io(err) => write!(f, "DRM/KMS: {err}"),
+            Self::NoConnector => f.write_str("no connected DRM connector with a display mode"),
+            Self::NoCrtc => f.write_str("connector has no compatible CRTC"),
+            Self::NoPlane => f.write_str(
+                "CRTC has no compatible primary plane supporting XRGB8888/ARGB8888 dma-buf scanout",
+            ),
+            Self::MalformedFormats(msg) => write!(f, "DRM IN_FORMATS blob is malformed: {msg}"),
+            Self::DesktopTooLarge(w, h) => {
+                write!(f, "combined output framebuffer {w}x{h} exceeds DRM limits")
+            }
+            Self::MissingProperty(prop) => {
+                write!(f, "DRM object is missing required atomic property {prop}")
+            }
+            Self::InputSeat(seat) => write!(f, "libinput could not bind seat {seat}"),
+            Self::Flux(err) => write!(f, "Flux: {err}"),
+            Self::DmabufUnsupported => {
+                f.write_str("Flux could not create exportable dma-buf render targets")
+            }
+            Self::Inactive => f.write_str("DRM session is inactive"),
+            Self::Busy => f.write_str("previous DRM atomic commit is still being cleaned up"),
+            Self::FlipTimeout => f.write_str("timed out waiting for a KMS page flip"),
+            Self::Reconfigured => {
+                f.write_str("display set changed during presentation; frame skipped")
+            }
+            Self::ScanoutUnsupported => f.write_str("client buffer cannot be scanned out directly"),
+            Self::CursorUnsupported(msg) => write!(f, "hardware cursor unsupported: {msg}"),
+            Self::CursorFallback => f.write_str(
+                "hardware cursor atomic commit was rejected; retry with software composition",
+            ),
+        }
+    }
+}
+
+impl std::error::Error for DrmError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(err) => Some(err),
+            Self::Flux(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+impl From<std::io::Error> for DrmError {
+    fn from(err: std::io::Error) -> Self {
+        Self::Io(err)
+    }
+}
+
+impl From<flux::Error> for DrmError {
+    fn from(err: flux::Error) -> Self {
+        Self::Flux(err)
+    }
 }
 
 /// Map an atomic-commit failure to a backend error. EBUSY is an allowed result
@@ -528,6 +569,18 @@ struct Output {
     /// complete set passes `TEST_ONLY` (ADR-0234, ADR-0235).
     planes: OutputPlanes,
     mode: Mode,
+    /// Rectangle of the shared framebuffer this output scans. For an extended
+    /// output this is its own mode; for a mirror it is the source output's
+    /// rectangle, scaled by the plane to this output's destination rectangle.
+    source_size: (u32, u32),
+    /// Plane destination in CRTC coordinates `(x, y, w, h)`. Extended outputs
+    /// fill the mode; a mirror preserves the source aspect ratio and leaves
+    /// black bars when the two aspects differ.
+    destination: (i32, i32, u32, u32),
+    /// Extended output or presentation alias (ADR-0243).
+    role: tessera_desktop::output::OutputRole,
+    /// Whether `role` came from explicit configuration or the session policy.
+    role_source: tessera_desktop::output::OutputRoleSource,
     mode_blob: property::Value<'static>,
     mode_blob_id: u64,
     x: u32,
@@ -596,17 +649,23 @@ struct DisplaySet {
     icc_profile: Option<String>,
 }
 
-type OutputSignature = (
-    String,
-    u32,
-    u32,
-    u32,
-    u32,
-    u32,
-    u32,
-    bool,
-    OverlayPlaneAllocation,
-);
+#[derive(Debug, Clone, PartialEq)]
+struct OutputSignature {
+    name: String,
+    width: u32,
+    height: u32,
+    refresh: u32,
+    scale_bits: u32,
+    x: u32,
+    y: u32,
+    cursor: bool,
+    mirror: bool,
+    role_source: tessera_desktop::output::OutputRoleSource,
+    source_width: u32,
+    source_height: u32,
+    destination: (i32, i32, u32, u32),
+    overlay: OverlayPlaneAllocation,
+}
 type DisplaySignature = (
     DrmFourcc,
     Vec<u64>,
@@ -623,6 +682,23 @@ struct PrimaryScanout {
     slot: u32,
     acquire_fence: Option<OwnedFd>,
     ownership: PrimaryScanoutOwnership,
+    /// Flux image lease shared by every CRTC scanning this composited frame.
+    /// The ring slot becomes reusable only when the last slot referencing the
+    /// image retires and drops its lease (ADR-0185).
+    lease: Option<std::rc::Rc<flux::DmabufLease>>,
+}
+
+#[derive(Debug)]
+struct PlaneSlot {
+    crtc: crtc::Handle,
+    /// Framebuffer currently programmed on this CRTC's primary plane.
+    current: Option<PrimaryScanout>,
+    /// Previous framebuffer whose page-flip event has not arrived.
+    retiring: Option<PrimaryScanout>,
+    /// Semantic source of `current`.
+    source: Option<PrimaryPlaneSource>,
+    /// A flip is committed and its page-flip event has not arrived.
+    pending: bool,
 }
 
 /// A client buffer scanned out by one overlay plane. The buffer shares the
@@ -892,9 +968,11 @@ impl LibinputInterface for SeatInputInterface {
 }
 
 /// Atomic KMS presentation and libinput event source for all connected outputs
-/// on one DRM card. Outputs form one horizontal logical desktop and scan out
-/// disjoint source rectangles of a shared dma-buf framebuffer in one atomic
-/// commit, so a frame is visually coherent across CRTCs.
+/// on one DRM card. Extended outputs scan disjoint source rectangles of a
+/// shared dma-buf framebuffer; mirrored outputs scan the same rectangle as
+/// their source, scaled by the plane to their native CRTC mode. Every CRTC is
+/// committed in one atomic batch, so a frame is visually coherent across
+/// outputs.
 pub struct DrmBackend {
     seat: Rc<RefCell<libseat::Seat>>,
     seat_event: Rc<Cell<Option<PendingSeatEvent>>>,
@@ -907,12 +985,11 @@ pub struct DrmBackend {
     failed: bool,
     modeset_done: bool,
     pending_flips: HashSet<crtc::Handle>,
-    current: Option<PrimaryScanout>,
-    retiring: Option<PrimaryScanout>,
-    /// Semantic source of `current`. A complete-set overlay probe is only
-    /// meaningful while the compositor framebuffer owns Primary; a direct
-    /// client owns the full output and leaves no desktop underneath.
-    current_source: Option<PrimaryPlaneSource>,
+    /// One primary-plane slot per output. A slot owns the framebuffer it is
+    /// scanning until its own page-flip event retires it, so a partially
+    /// committed batch can release one CRTC without invalidating another
+    /// CRTC's scanout (ADR-0185).
+    slots: Vec<PlaneSlot>,
     /// Overlay plane currently scanning out a client buffer. Kept separate
     /// from Primary because its buffer lifetime and disable path are its own.
     current_overlay: Option<OverlayScanout>,
@@ -987,6 +1064,12 @@ pub struct DrmBackend {
     /// entries (ADR-0028). Consulted on every output (re)selection: startup,
     /// hotplug, and session resume.
     configured_modes: HashMap<String, ModeSpec>,
+    /// Session topology policy for connectors without an explicit role
+    /// (ADR-0243).
+    configured_topology: tessera_desktop::output::DisplayTopology,
+    /// Per-connector output policies from `[[output]]` (ADR-0243): explicit
+    /// role and primary flag participate in topology resolution.
+    configured_policies: HashMap<String, tessera_desktop::output::OutputPolicy>,
     /// Per-connector color policy (`hdr` / `deep_color`) from the config's
     /// `[[output]]` entries. Same consultation cadence as `configured_modes`.
     configured_color: HashMap<String, ColorPolicy>,
@@ -1000,6 +1083,10 @@ pub struct DrmBackend {
     /// Retained libinput handles for plain mice (non-touchpad pointers).
     mice: HashMap<String, Device>,
     mouse_config: MouseConfig,
+    /// Absolute input-device bindings from `[[input.mapping]]`. Resolved
+    /// against the live DisplaySet on every event, so a topology change
+    /// cannot leave a stale rectangle behind.
+    input_mappings: Vec<tessera_primitives::input::InputMapping>,
     /// The compositor's Wayland server event-loop fd, registered via
     /// `Backend::set_wakeup_fd`. Polled for readability only — the main loop
     /// dispatches the server itself once the wait wakes.
@@ -1026,7 +1113,7 @@ impl DrmBackend {
 
     /// Overlay planes discovered on every active output, with the
     /// format/modifier and zpos facts an overlay planner needs. Allocation
-    /// remains governed by [`OverlayPlanePolicy`].
+    /// remains governed by `OverlayPlanePolicy`.
     pub fn overlay_planes(&self) -> Vec<crate::host::OverlayPlaneInfo> {
         self.displays
             .outputs
@@ -1259,10 +1346,13 @@ impl Backend for DrmBackend {
                             x: output.x as i32,
                             y: output.y as i32,
                         },
+                        logical_size_override: None,
                     },
                     kind: output.kind,
                     available_modes: output.available_modes.clone(),
                     color_caps: output.color_caps,
+                    role: output.role.clone(),
+                    role_source: output.role_source,
                 }
             })
             .collect()
@@ -1277,6 +1367,7 @@ impl Backend for DrmBackend {
         for device in self.mice.values_mut() {
             Self::apply_mouse_profile(device, config.mouse);
         }
+        self.input_mappings = config.mappings;
         let mut status = self.current_input_status();
         status.keyboard = config.keyboard;
         status
@@ -1284,6 +1375,22 @@ impl Backend for DrmBackend {
 
     fn input_status(&self) -> InputStatus {
         self.current_input_status()
+    }
+
+    fn set_configured_topology(
+        &mut self,
+        topology: tessera_desktop::output::DisplayTopology,
+        policies: HashMap<String, tessera_desktop::output::OutputPolicy>,
+    ) {
+        if self.configured_topology == topology && self.configured_policies == policies {
+            return;
+        }
+        self.configured_topology = topology;
+        self.configured_policies = policies;
+        // A topology change is a scanout-layout change: re-probe through the
+        // hotplug path so the union framebuffer and the plane source rects
+        // move only after every in-flight page flip retires.
+        self.hotplug_pending = true;
     }
 
     fn set_configured_modes(&mut self, modes: HashMap<String, ModeSpec>) {
@@ -1440,8 +1547,29 @@ impl Backend for DrmBackend {
             .map_err(|error| error.to_string())
     }
 
+    fn output_presentation_pending(&self, connector: &str) -> bool {
+        self.slot_index_for_connector(connector)
+            .is_some_and(|index| self.slots[index].pending)
+    }
+
     fn presentation_pending(&self) -> bool {
-        !self.pending_flips.is_empty()
+        // Only a composite flip blocks the next composite frame: the Flux
+        // ring image is shared by every composite output. A direct client
+        // flip owns an independent buffer and may remain in flight while the
+        // next composite targets other CRTCs (ADR-0185 §3).
+        // Pending is only a scheduler gate when *no* composite output can
+        // advance. If a fast output is idle, the runtime may present it while
+        // a slower output still retires its own flip; Flux leases protect the
+        // ring image that the slow CRTC is reading.
+        let mut any_composite = false;
+        let mut any_ready = false;
+        for slot in &self.slots {
+            if matches!(slot.source, Some(PrimaryPlaneSource::Composited)) {
+                any_composite = true;
+                any_ready |= !slot.pending;
+            }
+        }
+        any_composite && !any_ready
     }
 
     fn switch_vt(&mut self, vt: i32) {
@@ -1481,19 +1609,13 @@ impl Drop for DrmBackend {
         debug_assert!(self.input_devices.borrow().is_empty());
 
         if self.active {
-            if let Some(scanout) = self.retiring.take() {
-                self.release_scanout(scanout);
-            }
-            if let Some(scanout) = self.current.take() {
-                self.release_scanout(scanout);
-            }
+            self.clear_plane_slots(true);
             if let Some(overlay) = self.current_overlay.take() {
                 self.release_overlay_scanout(overlay);
             }
             if let Some(overlay) = self.retiring_overlay.take() {
                 self.release_overlay_scanout(overlay);
             }
-            self.current_source = None;
             // Cache owns compositor-output framebuffer/GEM resources; release
             // all of them exactly once while the originating card fd is live.
             if self.card.is_some() {
@@ -1502,9 +1624,7 @@ impl Drop for DrmBackend {
         } else {
             // libseat has revoked this fd. Kernel resources died with it, and
             // cleanup ioctls must not be sent to a future/reused handle.
-            self.retiring = None;
-            self.current = None;
-            self.current_source = None;
+            self.clear_plane_slots(false);
             self.current_overlay = None;
             self.retiring_overlay = None;
             self.forget_composite_fb_cache();

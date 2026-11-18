@@ -5,24 +5,20 @@
 //! checked here: a build without the local `[patch]` (canonical CI) compiles
 //! against the tag and is the authoritative answer.
 
+use crate::error::{Context, Result, bail};
 use crate::workspace;
-use anyhow::{Context, Result, bail};
-use clap::Parser;
 use std::collections::BTreeSet;
 use std::fs;
 use toml_edit::{DocumentMut, Item, value};
 
 const OPTICS_GIT: &str = "github.com/ming2k/optics";
 
-#[derive(Parser, Debug)]
+#[derive(Debug, Default)]
 pub struct Args {
     /// Print only the pinned tag (for CI and scripts).
-    #[arg(long, short, conflicts_with = "set")]
-    tag_only: bool,
-
+    pub tag_only: bool,
     /// Re-pin every Optics dependency in the workspace manifest to TAG.
-    #[arg(long, value_name = "TAG")]
-    set: Option<String>,
+    pub set: Option<String>,
 }
 
 /// `(name, tag)` for every Optics entry in `[workspace.dependencies]`.

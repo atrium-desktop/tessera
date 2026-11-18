@@ -25,7 +25,7 @@ use tessera_authority::interaction_domain::InteractionDomainWindowPlacement;
 use tessera_authority::interaction_domain::SeatCapabilities;
 use tessera_authority::interaction_domain::VirtualOutput;
 use tessera_desktop::notify::Notification;
-pub use tessera_desktop::output::{OutputKind, VirtualOutputSpec};
+pub use tessera_desktop::output::{OutputKind, OutputRole, VirtualOutputSpec};
 pub use tessera_desktop::settings::SettingsAction;
 pub use tessera_desktop::settings::SettingsReceipt;
 pub use tessera_desktop::settings::SettingsSnapshot;
@@ -46,7 +46,9 @@ use crate::journal::{JournalEntry, JournalSnapshot};
 
 /// The protocol major version this build speaks. A client offering a newer
 /// major version is refused at the [`Request::Hello`] handshake; an older
-/// client is answered at its own version. Version 33 adds the audio **capture**
+/// client is answered at its own version. Version 34 adds physical output roles
+/// (`OutputInfo::role`, `DisplaySettings::role`) and the extend-or-mirror
+/// topology (ADR-0243). Version 33 adds the audio **capture**
 /// half (`SystemAction::SetAudioInput`, `SetMicrophoneVolume`,
 /// `ToggleMicrophoneMute`) and the `SystemStatus` capture readings (ADR-0216).
 ///
@@ -131,7 +133,7 @@ use crate::journal::{JournalEntry, JournalSnapshot};
 /// `Event::StreamFrame`, `Event::StreamEnded`, `StreamOutputStop`,
 /// ADR-0052). Version 4 adds revisioned desktop-settings snapshots,
 /// subscriptions, and confirmed settings transactions.
-pub const PROTOCOL_VERSION: u32 = 33;
+pub const PROTOCOL_VERSION: u32 = 34;
 /// Built-in owner-only scope used by native `tessera` commands for Interaction Domain
 /// recovery and administration. The Unix socket remains user-private; naming
 /// this scope opts the connection into the high-risk Interaction Domain operation allowlist
@@ -1024,8 +1026,9 @@ pub struct JournalCursor {
 /// rectangle in desktop (framebuffer) coordinates. `geometry` and
 /// `available_modes` carry the rich pre-29 form and are populated only for
 /// `GetOutputs`/[`Request::Observe`] replies; `EnumerateOutputs` omits
-/// them, so its reply is exactly
-/// `{"connector":...,"primary":...,"rect":...}` per output.
+/// them. `role` and `role_source` (version 34) separate an extended output
+/// from a mirror and say whether the role was explicit or automatic; a
+/// mirror's `rect` is exactly its source's.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct OutputInfo {
     pub connector: String,
@@ -1050,6 +1053,14 @@ pub struct OutputInfo {
     /// [`Request::Observe`] replies only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub available_modes: Option<Vec<tessera_desktop::output::OutputMode>>,
+    /// Whether this output extends the desktop or presents another output
+    /// (version 34, ADR-0243). A mirror's `rect` is exactly its source's.
+    #[serde(default)]
+    pub role: OutputRole,
+    /// Whether `role` was pinned by configuration or chosen by the automatic
+    /// topology policy. Settings uses this to offer and restore `Automatic`.
+    #[serde(default)]
+    pub role_source: tessera_desktop::output::OutputRoleSource,
 }
 
 impl OutputInfo {
@@ -1107,6 +1118,8 @@ impl OutputInfo {
                     kind: output.kind,
                     geometry: Some(output.geometry),
                     available_modes: Some(output.available_modes.clone()),
+                    role: output.role.clone(),
+                    role_source: output.role_source,
                 }
             })
             .collect();

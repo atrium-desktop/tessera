@@ -110,7 +110,6 @@ fn env_binary(name: &str) -> Option<PathBuf> {
 fn package_for_binary(name: &str) -> Option<&'static str> {
     Some(match name {
         "tessera" => "tessera",
-        "tessera-ctl" => "tessera-cli",
         "tessera-mcp" => "tessera-mcp",
         "tessera-lock" | "tessera-lock-preview" => "tessera-lock",
         "tessera-idle" => "tessera-idle",

@@ -21,16 +21,48 @@ use std::path::PathBuf;
 use flux::{Device, Image};
 
 /// Errors raised while resolving or preparing shared portrait content.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum Error {
-    #[error("persona portrait: decode {0:?}")]
-    Decode(PathBuf, #[source] image::ImageError),
-    #[error("persona portrait: {0}")]
-    Avatar(#[from] VrmError),
-    #[error("persona portrait: texture upload failed: {0}")]
-    Flux(#[from] flux::Error),
-    #[error("persona portrait: configured sources exist but none could be decoded")]
+    Decode(PathBuf, tessera_image::ImageError),
+    Avatar(VrmError),
+    Flux(flux::Error),
     NoUsableSource,
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Decode(path, _) => write!(f, "persona portrait: decode {path:?}"),
+            Self::Avatar(err) => write!(f, "persona portrait: {err}"),
+            Self::Flux(err) => write!(f, "persona portrait: texture upload failed: {err}"),
+            Self::NoUsableSource => {
+                f.write_str("persona portrait: configured sources exist but none could be decoded")
+            }
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Decode(_, err) => Some(err),
+            Self::Avatar(err) => Some(err),
+            Self::Flux(err) => Some(err),
+            Self::NoUsableSource => None,
+        }
+    }
+}
+
+impl From<VrmError> for Error {
+    fn from(err: VrmError) -> Self {
+        Self::Avatar(err)
+    }
+}
+
+impl From<flux::Error> for Error {
+    fn from(err: flux::Error) -> Self {
+        Self::Flux(err)
+    }
 }
 
 /// Selected portrait representation after applying [`PortraitConfig`].

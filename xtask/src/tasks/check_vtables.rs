@@ -20,8 +20,8 @@
 //!    must be created through `checked_resource_create`, or the admission
 //!    check is skipped for that object.
 
+use crate::error::{Context, Result, bail};
 use crate::workspace;
-use anyhow::{Context, Result, bail};
 use std::collections::BTreeSet;
 use std::fs;
 

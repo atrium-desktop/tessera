@@ -118,7 +118,7 @@ fn capture_encoding_crops_and_unpremultiplies_worker_payload() {
     )
     .unwrap();
     assert_eq!((width, height), (1, 1));
-    let decoded = image::load_from_memory(&png).unwrap().into_rgba8();
+    let decoded = tessera_image::decode_memory(&png).unwrap();
     assert_eq!(decoded.into_raw(), vec![100, 50, 0, 128]);
 }
 

@@ -17,10 +17,8 @@ flux = { workspace = true }
 flux-sys = { workspace = true, optional = true }
 vista = { workspace = true, optional = true }
 vista-sys = { workspace = true, optional = true }
-image = { workspace = true, optional = true }
-notify = { workspace = true, optional = true }
+tessera-image = { workspace = true, optional = true }
 log.workspace = true
-thiserror.workspace = true
 
 [features]
 default = []
@@ -30,8 +28,7 @@ persona = [
     "dep:flux-sys",
     "dep:vista",
     "dep:vista-sys",
-    "dep:image",
-    "dep:notify",
+    "dep:tessera-image",
 ]
 
 [package.metadata.cargo-machete]

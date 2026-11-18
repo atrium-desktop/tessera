@@ -101,8 +101,11 @@ fn settings_query_and_confirmed_transaction_round_trip() {
             repeat_rate: 40,
             ..before.input.keyboard
         },
+        mappings: before.input.mappings.clone(),
     };
-    let action = SettingsAction::SetInput { config };
+    let action = SettingsAction::SetInput {
+        config: config.clone(),
+    };
     let receipt = client
         .apply_settings(Some(before.revision), action.clone())
         .expect("confirmed apply");
@@ -117,6 +120,7 @@ fn settings_query_and_confirmed_transaction_round_trip() {
     );
     assert_eq!(client.settings().unwrap().input.mouse.config, config.mouse);
     assert_eq!(client.settings().unwrap().input.keyboard, config.keyboard);
+    assert_eq!(client.settings().unwrap().input.mappings, config.mappings);
 
     let preferences = tessera_desktop::settings::DesktopPreferences {
         color_scheme: tessera_desktop::settings::ColorScheme::Dark,

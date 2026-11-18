@@ -30,17 +30,18 @@ untouched.
 | `schema_version` | integer | required | Schema major version. Must be `2`. A different value is rejected with a diagnostic; supported migrations are explicit through `tessera config migrate`. |
 | `[[keybind]]` | array of tables | built-in defaults | Global key bindings. See [Key Bindings](#key-bindings) and [System Shortcuts](keyboard-shortcuts.md). |
 | `[[window_rule]]` | array of tables | none | Placement rules applied to newly-mapped toplevels. See [Window Rules](#window-rules). |
+| `[display]` | table | `topology = "auto"` | Default extend-or-mirror policy for connectors without an explicit role. See [Displays](#displays). |
 | `[layout]` | table | gaps `8`, master_ratio `0.5` | Tiling policy parameters. See [Layout](#layout). |
 | `[dock]` | table | automatic pins | Applications pinned to the dock. See [Dock](#dock). |
 | `[ui]` | table | `hicolor` icons, `default` 24 px cursor, borderless windows, full motion | Desktop-wide UI and window-presentation policy. See [UI](#ui). |
-| `[input.keyboard]`, `[input.mouse]`, `[input.touchpad]` | tables | repeat 25/250 ms, neutral mouse, natural touchpad | Keyboard repeat, and mouse and touchpad motion and scrolling. See [Input](#input). |
+| `[input.keyboard]`, `[input.mouse]`, `[input.touchpad]`, `[[input.mapping]]` | tables | repeat 25/250 ms, neutral mouse, natural touchpad, no bindings | Keyboard repeat, mouse/touchpad motion, and absolute-device output bindings. See [Input](#input). |
 | `[wallpaper]` | table | built-in image | Image, video, 3D, or multi-plane parallax wallpaper. See [Wallpaper](#wallpaper). |
 | `[lock_screen]` | table | cinematic layout, built-in lock artwork | Lock-screen composition and independently selected background. See [Lock Screen](#lock-screen). |
 | `[idle]` | table | dim 5 min, lock 10 min, display off 11 min, suspend 30 min | Ordered inactivity, session-lock, display-power, and suspend policy. See [Idle and Locking](#idle-and-locking). |
 | `[battery]` | table | warn at 20% and 5% | Low-battery warning thresholds. See [Battery](#battery). |
 | `[cast]` | table | validated 720p30 formats, desktop source, source opening, audio off, 30 fps, ports 7236/19000 | Out-of-process Miracast service: formats, source, pacing, ports, audio, and timeouts. See [Cast](#cast). |
 | `[network]` | table | `backend = "auto"` | Station-network service backend: prefer NetworkManager, with iwd as the fallback when NetworkManager is not running. See [Network](#network). |
-| `[[output]]` | array of tables | none | Per-connector display policy: mode, scale, position, transform, primary. See [Outputs](#outputs). |
+| `[[output]]` | array of tables | none | Per-connector display policy: extend or mirror, source, mode, scale, position, transform, primary. See [Outputs](#outputs). |
 | `[[gesture]]` | array of tables | built-in three/four-finger defaults | Touchpad gesture bindings. See [Touchpad Gestures](#touchpad-gestures). |
 | `[accessibility]` | table | no zoom, no inversion, no high contrast, no sticky/slow/bounce keys, accessibility bus off | Visual, keyboard, and screen-reader assistance. See [Accessibility](#accessibility). |
 | `[screenshot]` | table | XDG Pictures directory, cursor included | Screenshot output policy. See [Screenshots](#screenshots). |
@@ -278,6 +279,25 @@ natural_scroll = false
 pointer_speed = 0.0
 scroll_speed = 1.0
 ```
+
+### Absolute input mappings
+
+Touchscreens, graphics tablets, and absolute pointers normalize their range
+across the whole output before compositing. Bind a device to a connector when
+that is wrong, especially for a mirrored TV with letterbox bars:
+
+```toml
+[[input.mapping]]
+device = "Wacom One by Wacom S"   # libinput name, or stable sysname
+output = "HDMI-A-1"               # connector from `tessera display`
+```
+
+The binding is resolved against the live output set on every event. Coordinates
+inside a letterbox bar clamp to the nearest visible edge. Relative pointer
+motion is never remapped, even for a device that also emits absolute events.
+Without a binding, absolute devices keep the historical whole-union mapping.
+Input Settings preserves these entries when it saves pointer or keyboard
+preferences; it does not yet provide a visual device picker.
 
 ### Touchpad
 
@@ -599,10 +619,31 @@ monospace_font_name = "Iosevka 11"
 text_scale = 1.0
 ```
 
+## Displays
+
+The `[display]` table chooses how connectors without an explicit
+`[[output]] role` join the desktop (ADR-0243):
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `topology` | string | `"auto"` | `"auto"` mirrors the first external display smaller than the primary panel (or equal-sized when the primary is internal) and extends larger ones or equal-sized external pairs; `"extend"` always extends; `"mirror"` makes every non-primary physical output a mirror of the primary. Explicit per-connector roles always win. |
+
+```toml
+[display]
+topology = "auto"
+```
+
+`auto` is a first-connect heuristic, not a policy that re-evaluates a
+connector the user has already configured: applying a role in Settings writes
+an explicit `[[output]]` entry, which then wins on every later connection. Select
+**Automatic** in Settings (or remove the `role`/`mirror_of` keys) to return the
+connector to the policy.
+
 ## Outputs
 
 Each `[[output]]` table overrides one aspect of a connector's
-backend-reported geometry (ADR-0028). Only `connector` is required; an
+backend-reported geometry or its topology role (ADR-0028, ADR-0243). Only
+`connector` is required; an
 entry that sets no override is rejected as having no effect. An entry
 whose connector is not currently plugged in is ignored until the
 connector appears. Duplicate entries for one connector resolve
@@ -629,6 +670,8 @@ never engage for them.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `connector` | string | required | The backend's connector name, as shown by `tessera display` (e.g. `"DP-1"`, `"HDMI-A-1"`, `"nested"`). |
+| `role` | string | follows `[display] topology` | `"extend"` or `"mirror"`. A mirror shares its source output's workspace, logical rect, input mapping, and capture geometry. |
+| `mirror_of` | string | required with `role = "mirror"` | Source connector. The source must be a live physical output with role `"extend"`; self-mirrors and mirror chains are rejected. |
 | `scale` | float | automatic on DRM; host-reported when nested | Output scale override, 0.25–4.0. Integer scales advertise through `wl_output`; fractional scales through `wp_fractional_scale_v1`. A fractional override logs a warning: clients without `wp_fractional_scale_v1` render at `ceil(scale)` and cannot be scanned out directly. Applied live on reload. |
 | `mode` | string | highest pixel count and refresh rate | Requested display mode, `"WxH"` or `"WxH@Hz"` (e.g. `"2560x1440@144"`). Without `@Hz` the highest-refresh mode of that size is used. A mode the connector does not advertise falls back to the highest-pixel mode at its highest refresh rate with a log warning. Direct DRM sessions apply changes live after the current page flip retires; nested sessions remain host-managed. |
 | `position` | table | backend arrangement | Top-left of the output in the global logical layout, written `position = { x = 1920, y = 0 }`. Applied live on reload. |
@@ -646,20 +689,28 @@ primary = true
 
 [[output]]
 connector = "HDMI-A-1"
-mode = "1920x1080"
-position = { x = 2560, y = 0 }
+role = "mirror"
+mirror_of = "DP-1"
 ```
+
+A mirror has no independent `scale` or `position`: it follows the source's
+logical extent. `mode` still selects the mirror connector's own native mode,
+and the KMS plane scales the source region into that mode while preserving
+aspect ratio (centered black bars on a mismatched aspect). Remove
+`role`/`mirror_of` to return the connector to the `[display] topology` policy,
+or set `role = "extend"` to pin extension.
 
 Run `tessera display` to see the modes each connector advertises; the
 `mode` value must match one of them (resolution exactly, refresh to the
 nearest whole hertz).
 
 The Settings Display page (`tessera-settings display`) submits edits for
-these same `[[output]]` entries through the compositor. It can select a connected output, choose an
-advertised resolution and refresh rate, set fractional scale, select the
-primary output, and place an extended output to the right, left, above, below,
-or at custom logical coordinates. Existing comments, unrelated settings, and
-`transform` values are preserved.
+these same `[[output]]` entries through the compositor. It can select a
+connected output, choose **Automatic**, **Extend desktop**, or
+**Mirror another display**, choose an advertised resolution and refresh rate, set fractional scale, select
+the primary output, and place an extended output to the right, left, above,
+below, or at custom logical coordinates. Existing comments, unrelated
+settings, and `transform` values are preserved.
 
 ## Dock
 

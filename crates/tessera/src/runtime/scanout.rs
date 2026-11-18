@@ -22,6 +22,13 @@ pub(super) use tessera_composite::presentation::{
 /// scanout excludes overlay for that frame.
 pub(super) struct OutputLayerPlans {
     pub(super) primary: PrimaryPlanePlan,
+    /// Connector whose CRTC is the direct scanout target when `primary` is a
+    /// direct plan. `None` for a composited plan.
+    pub(super) scanout_target: Option<String>,
+    /// Per-output direct plans when *every* physical output has its own
+    /// covering opaque client for this frame. Empty for the ordinary one-target
+    /// or composite path.
+    pub(super) direct_targets: Vec<(String, PrimaryPlanePlan)>,
     /// `Some` only for a composited Primary while overlay presentation is
     /// enabled or debug audit logging is active. Production does not pay a
     /// per-frame window-clone cost for a plan it cannot present.
@@ -66,8 +73,14 @@ impl CompositorRuntime<'_> {
         let candidate_matches_scene = dmabuf_surface_count == 1
             && toplevel_dmabufs.len() == 1
             && sets.dmabuf[0].id == toplevel_dmabufs[0].id;
+        let mirror_present = self
+            .server
+            .output_infos()
+            .iter()
+            .any(|output| output.role.is_mirror());
         let facts = tessera_composite::presentation::ScanoutSceneFacts {
             session_locked: self.server.session_locked(),
+            mirror_present,
             capture_pending: frame_capture_pending
                 || self.pending_capture.is_some()
                 || self.pending_interaction_domain_capture.is_some(),
@@ -84,20 +97,139 @@ impl CompositorRuntime<'_> {
             toplevel_dmabuf_count: toplevel_dmabufs.len(),
             candidate_matches_scene,
         };
-        let candidate = (candidate_matches_scene && dmabuf_surface_count == 1)
+        let mut candidate = (candidate_matches_scene && dmabuf_surface_count == 1)
             .then(|| toplevel_dmabufs.pop())
             .flatten();
+        let outputs = self.server.output_infos();
+        // Scanout eligibility is per output, not against the union canvas
+        // (ADR-0185 §4). A candidate belongs to the output whose logical rect
+        // contains its top-left; fullscreen clients are anchored at that
+        // output's origin.
+        let target_output = candidate
+            .as_ref()
+            .and_then(|candidate| {
+                outputs
+                    .iter()
+                    .filter(|output| output.kind.is_physical())
+                    .find(|output| {
+                        output
+                            .geometry
+                            .logical_rect()
+                            .contains(candidate.geometry.position)
+                    })
+            })
+            .or_else(|| outputs.iter().find(|output| output.kind.is_physical()));
+        if let (Some(candidate), Some(output)) = (candidate.as_mut(), target_output) {
+            candidate.geometry.position.x = candidate
+                .geometry
+                .position
+                .x
+                .saturating_sub(output.geometry.logical_origin.x);
+            candidate.geometry.position.y = candidate
+                .geometry
+                .position
+                .y
+                .saturating_sub(output.geometry.logical_origin.y);
+        }
+        let (scanout_physical, scanout_logical) = target_output
+            .map(|output| {
+                (
+                    (
+                        output.geometry.mode.width.max(1) as u32,
+                        output.geometry.mode.height.max(1) as u32,
+                    ),
+                    (
+                        output.geometry.logical_size().w.max(1) as u32,
+                        output.geometry.logical_size().h.max(1) as u32,
+                    ),
+                )
+            })
+            .unwrap_or((physical_size, logical_size));
         let plane_supported = candidate.as_ref().is_some_and(|candidate| {
             self.host
                 .supports_scanout(candidate.drm_format, candidate.modifier)
         });
         let primary = tessera_composite::presentation::plan_scanout(
             facts,
-            physical_size,
-            logical_size,
+            scanout_physical,
+            scanout_logical,
             candidate,
             plane_supported,
         );
+        let scanout_target = primary
+            .direct_candidate()
+            .and_then(|_| target_output.map(|output| output.connector.clone()));
+        // Multiple simultaneous direct scanouts are only planned for the
+        // all-outputs case: every physical output must be covered by its own
+        // opaque client and no shell/overlay/transition may need composition.
+        // Mixed direct+composite remains the single-target path above.
+        let mut direct_targets = Vec::new();
+        if outputs.len() > 1
+            && !facts.mirror_present
+            && !facts.session_locked
+            && !facts.capture_pending
+            && !facts.screenshot_freeze
+            && !facts.transition_pending
+            && !facts.overview_active
+            && !facts.window_switcher_active
+            && !facts.shell_visible_pixels
+            && facts.client_overlay_count == 0
+            && !facts.software_cursor_visible
+            && sets.shm.is_empty()
+            && sets.dmabuf.len() == outputs.len()
+            && toplevel_dmabufs.len() == outputs.len()
+        {
+            let mut used = std::collections::HashSet::new();
+            let mut complete = true;
+            for output in outputs.iter().filter(|output| output.kind.is_physical()) {
+                let Some(index) = toplevel_dmabufs.iter().position(|candidate| {
+                    !used.contains(&candidate.id)
+                        && candidate.geometry.position == output.geometry.logical_origin
+                }) else {
+                    complete = false;
+                    break;
+                };
+                let mut candidate = toplevel_dmabufs[index].clone();
+                candidate.geometry.position.x = 0;
+                candidate.geometry.position.y = 0;
+                let physical = (
+                    output.geometry.mode.width.max(1) as u32,
+                    output.geometry.mode.height.max(1) as u32,
+                );
+                let logical = (
+                    output.geometry.logical_size().w.max(1) as u32,
+                    output.geometry.logical_size().h.max(1) as u32,
+                );
+                let supported = self
+                    .host
+                    .supports_scanout(candidate.drm_format, candidate.modifier);
+                let mut one = facts;
+                one.shm_surface_count = 0;
+                one.dmabuf_surface_count = 1;
+                one.toplevel_dmabuf_count = 1;
+                one.candidate_matches_scene = true;
+                one.shell_visible_pixels = false;
+                one.client_overlay_count = 0;
+                one.software_cursor_visible = false;
+                let plan = tessera_composite::presentation::plan_scanout(
+                    one,
+                    physical,
+                    logical,
+                    Some(candidate),
+                    supported,
+                );
+                if plan.direct_candidate().is_none() {
+                    complete = false;
+                    break;
+                }
+                used.insert(toplevel_dmabufs[index].id);
+                direct_targets.push((output.connector.clone(), plan));
+            }
+            if !complete || direct_targets.len() != outputs.len() {
+                direct_targets.clear();
+            }
+        }
+
         let overlay = (tessera_composite::presentation::overlay_plan_permitted(&primary)
             && (self.overlay_offload_enabled || log::log_enabled!(log::Level::Debug)))
         .then(|| {
@@ -138,7 +270,12 @@ impl CompositorRuntime<'_> {
                 }
             }
         }
-        OutputLayerPlans { primary, overlay }
+        OutputLayerPlans {
+            primary,
+            scanout_target,
+            direct_targets,
+            overlay,
+        }
     }
 
     fn plan_overlay_layer(

@@ -9,14 +9,13 @@ rust-version.workspace = true
 build = "build.rs"
 
 [dependencies]
-image.workspace = true
+tessera-image.workspace = true
 tessera-desktop.workspace = true
 tessera-primitives.workspace = true
 flux = { workspace = true }
 flux-sys = { workspace = true }
 libc.workspace = true
 log.workspace = true
-tracing.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

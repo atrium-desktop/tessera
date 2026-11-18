@@ -5,16 +5,14 @@
 //! [`NetworkBackend`] contract as NetworkManager; consumers cannot tell which
 //! service answered.
 
-use std::borrow::Borrow;
 use std::collections::HashMap;
-use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 
-use futures_util::StreamExt;
+use tessera_dbus::{
+    Connection, FromArgs, Message, MessageStream, ObjectHandler, OwnedObjectPath, ToArgs, Value,
+};
 use tessera_desktop::system::{NetworkState, WifiLinkState, WifiNetwork, WifiSecurity};
 use tessera_network::{BackendKind, NetworkBackend, NetworkError, NetworkSnapshot};
-use zbus::Connection;
-use zbus::{OwnedVariant, Variant};
 use zeroize::Zeroize;
 
 const IWD_SERVICE: &str = "net.connman.iwd";
@@ -26,46 +24,36 @@ const KNOWN_NETWORK_IFACE: &str = "net.connman.iwd.KnownNetwork";
 const AGENT_MANAGER_IFACE: &str = "net.connman.iwd.AgentManager";
 const AGENT_PATH: &str = "/io/github/ming2k/tessera/iwd_agent";
 
-fn get_str<'a>(props: &'a HashMap<String, OwnedVariant>, key: &str) -> Option<&'a str> {
-    props.get(key).and_then(|value| {
-        let value: &Variant = Borrow::<Variant>::borrow(value);
-        value.downcast_ref::<&str>().ok()
-    })
+fn get_str<'a>(props: &'a HashMap<String, Value>, key: &str) -> Option<&'a str> {
+    props.get(key).and_then(Value::as_str)
 }
 
-fn get_bool(props: &HashMap<String, OwnedVariant>, key: &str) -> Option<bool> {
-    props.get(key).and_then(|value| {
-        let value: &Variant = Borrow::<Variant>::borrow(value);
-        value.downcast_ref::<bool>().ok()
-    })
+fn get_bool(props: &HashMap<String, Value>, key: &str) -> Option<bool> {
+    props.get(key).and_then(Value::as_bool)
 }
 
-fn get_object_path(props: &HashMap<String, OwnedVariant>, key: &str) -> Option<String> {
-    props.get(key).and_then(|value| {
-        let value: &Variant = Borrow::<Variant>::borrow(value);
-        value
-            .downcast_ref::<zbus::ObjectPath>()
-            .ok()
-            .map(|path| path.as_str().to_string())
-    })
+fn get_object_path(props: &HashMap<String, Value>, key: &str) -> Option<String> {
+    props
+        .get(key)
+        .and_then(|value| match value.unwrap_variant() {
+            Value::ObjectPath(path) => Some(path.as_str().to_string()),
+            _ => None,
+        })
 }
 
 fn service_error(context: impl std::fmt::Display) -> NetworkError {
     NetworkError::Service(context.to_string())
 }
 
-fn blocking_call<B>(
+fn blocking_call<B: ToArgs>(
     connection: &Connection,
     destination: Option<&str>,
     path: &str,
     interface: Option<&str>,
     method: &str,
     body: &B,
-) -> zbus::Result<zbus::Message>
-where
-    B: zbus::export::serde::ser::Serialize + zbus::DynamicType,
-{
-    zbus::block_on(connection.call_method(destination, path, interface, method, body))
+) -> tessera_dbus::Result<Message> {
+    connection.call_method(destination, path, interface, method, body)
 }
 
 /// D-Bus authentication agent for iwd passphrase callbacks.
@@ -73,33 +61,47 @@ struct IwdAgent {
     pending_passphrase: Arc<Mutex<Option<String>>>,
 }
 
-#[zbus::interface(name = "net.connman.iwd.Agent")]
-impl IwdAgent {
-    async fn request_passphrase(
+impl ObjectHandler for IwdAgent {
+    fn handle_method_call(
         &self,
-        _network: zbus::ObjectPath<'_>,
-    ) -> zbus::fdo::Result<String> {
-        let mut guard = self
-            .pending_passphrase
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        if let Some(passphrase) = guard.take() {
-            Ok(passphrase)
-        } else {
-            Err(zbus::fdo::Error::Failed(
-                "no passphrase provided for wireless authentication".to_string(),
-            ))
-        }
-    }
-
-    async fn cancel(&self, reason: String) {
-        log::debug!("iwd agent authentication cancelled: {reason}");
-        let mut guard = self
-            .pending_passphrase
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        if let Some(mut passphrase) = guard.take() {
-            passphrase.zeroize();
+        _conn: &Connection,
+        msg: &Message,
+    ) -> Result<Vec<Value>, (String, String)> {
+        match (msg.interface.as_deref(), msg.member.as_deref()) {
+            (Some("net.connman.iwd.Agent"), Some("RequestPassphrase")) => {
+                let mut guard = self
+                    .pending_passphrase
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                if let Some(passphrase) = guard.take() {
+                    Ok(vec![Value::String(passphrase)])
+                } else {
+                    Err((
+                        "org.freedesktop.DBus.Error.Failed".to_string(),
+                        "no passphrase provided for wireless authentication".to_string(),
+                    ))
+                }
+            }
+            (Some("net.connman.iwd.Agent"), Some("Cancel")) => {
+                let reason = msg.body.first().and_then(Value::as_str).unwrap_or("");
+                log::debug!("iwd agent authentication cancelled: {reason}");
+                let mut guard = self
+                    .pending_passphrase
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                if let Some(mut passphrase) = guard.take() {
+                    passphrase.zeroize();
+                }
+                Ok(Vec::new())
+            }
+            _ => Err((
+                "org.freedesktop.DBus.Error.UnknownMethod".to_string(),
+                format!(
+                    "unknown method {:?} on {:?}",
+                    msg.member.as_deref(),
+                    msg.interface.as_deref()
+                ),
+            )),
         }
     }
 }
@@ -150,18 +152,19 @@ impl IwdBackend {
     /// D-Bus-activates it. Registering the agent with a stopped iwd would
     /// start it, and on a NetworkManager host that is a second radio manager.
     pub fn open() -> Result<Self, NetworkError> {
-        let conn = zbus::block_on(Connection::system()).map_err(|_| NetworkError::Unavailable)?;
-        let running: bool = blocking_call(
-            &conn,
-            Some("org.freedesktop.DBus"),
-            "/org/freedesktop/DBus",
-            Some("org.freedesktop.DBus"),
-            "NameHasOwner",
-            &(IWD_SERVICE,),
+        let conn = Connection::system().map_err(|_| NetworkError::Unavailable)?;
+        let running: bool = FromArgs::from_args(
+            blocking_call(
+                &conn,
+                Some("org.freedesktop.DBus"),
+                "/org/freedesktop/DBus",
+                Some("org.freedesktop.DBus"),
+                "NameHasOwner",
+                &(IWD_SERVICE,),
+            )
+            .map_err(|error| NetworkError::Service(format!("iwd NameHasOwner failed: {error}")))?
+            .body,
         )
-        .map_err(|error| NetworkError::Service(format!("iwd NameHasOwner failed: {error}")))?
-        .body()
-        .deserialize()
         .map_err(|error| NetworkError::Service(format!("iwd NameHasOwner body: {error}")))?;
         if !running {
             return Err(NetworkError::Unavailable);
@@ -169,13 +172,13 @@ impl IwdBackend {
         let pending_passphrase = Arc::new(Mutex::new(None));
 
         // Serve the native iwd Agent on the D-Bus connection.
-        let agent = IwdAgent {
+        let agent = Arc::new(IwdAgent {
             pending_passphrase: pending_passphrase.clone(),
-        };
-        let _ = zbus::block_on(conn.object_server().at(AGENT_PATH, agent));
+        });
+        conn.register_object(AGENT_PATH, agent);
 
         // Register the agent with iwd's AgentManager.
-        if let Ok(path) = zbus::ObjectPath::try_from(AGENT_PATH) {
+        if let Ok(path) = OwnedObjectPath::try_from(AGENT_PATH) {
             let _ = blocking_call(
                 &conn,
                 Some(IWD_SERVICE),
@@ -193,36 +196,27 @@ impl IwdBackend {
         };
         backend.refresh()?;
 
-        // Subscribe to asynchronous iwd signals. The signal thread is a
-        // dirty-flag setter, not a refetcher: the message stream blocks on the
-        // next message, and doing a `GetManagedObjects` here would serialize
-        // behind the daemon's signal flood during scans/association.
+        // Subscribe to asynchronous iwd signals.
         let signal_conn = conn;
         let signal_cache = backend.cache.clone();
         std::thread::Builder::new()
             .name("tessera-iwd-signals".into())
             .spawn(move || {
-                tessera_sched::mark_background();
-                let mut stream = match zbus::block_on(zbus::MessageStream::for_match_rule(
-                    "type='signal',sender='net.connman.iwd'",
+                let stream = match MessageStream::for_match_rule(
                     &signal_conn,
-                    NonZeroUsize::new(64),
-                )) {
+                    "type='signal',sender='net.connman.iwd'",
+                ) {
                     Ok(stream) => stream,
                     Err(error) => {
                         log::warn!("network service: could not subscribe to iwd signals: {error}");
                         return;
                     }
                 };
-                zbus::block_on(async {
-                    while let Some(message) = stream.next().await {
-                        if message.is_ok()
-                            && let Ok(mut cache) = signal_cache.lock()
-                        {
-                            cache.dirty = true;
-                        }
+                while stream.next().is_some() {
+                    if let Ok(mut cache) = signal_cache.lock() {
+                        cache.dirty = true;
                     }
-                });
+                }
             })
             .ok();
 
@@ -239,7 +233,7 @@ impl IwdBackend {
             &(),
         )
         .map_err(|error| match &error {
-            zbus::Error::MethodError(name, _, _)
+            tessera_dbus::Error::MethodError { name, .. }
                 if name.as_str() == "org.freedesktop.DBus.Error.ServiceUnknown" =>
             {
                 // iwd is not on the bus: the backend is unreachable, not
@@ -249,9 +243,8 @@ impl IwdBackend {
             _ => service_error(format!("iwd ObjectManager call failed: {error}")),
         })?;
 
-        type ManagedObjects =
-            HashMap<zbus::OwnedObjectPath, HashMap<String, HashMap<String, OwnedVariant>>>;
-        let objects: ManagedObjects = reply.body().deserialize().map_err(|error| {
+        type ManagedObjects = HashMap<OwnedObjectPath, HashMap<String, HashMap<String, Value>>>;
+        let objects: ManagedObjects = FromArgs::from_args(reply.body).map_err(|error| {
             service_error(format!("failed to parse iwd managed objects: {error}"))
         })?;
 
@@ -497,8 +490,8 @@ impl NetworkBackend for IwdBackend {
         )
         .map_err(|error| service_error(format!("GetOrderedNetworks failed: {error}")))?;
 
-        type OrderedNetwork = (zbus::OwnedObjectPath, HashMap<String, OwnedVariant>);
-        let ordered: Vec<OrderedNetwork> = reply.body().deserialize().map_err(|error| {
+        type OrderedNetwork = (OwnedObjectPath, HashMap<String, Value>);
+        let ordered: Vec<OrderedNetwork> = FromArgs::from_args(reply.body).map_err(|error| {
             service_error(format!("failed to deserialize ordered networks: {error}"))
         })?;
 
@@ -511,8 +504,8 @@ impl NetworkBackend for IwdBackend {
                 Some("org.freedesktop.DBus.Properties"),
                 "Get",
                 &(NETWORK_IFACE, "Name"),
-            ) && let Ok(value) = reply.body().deserialize::<zbus::OwnedVariant>()
-                && let Ok(name) = <&str>::try_from(&value)
+            ) && let Ok(value) = Value::from_args(reply.body)
+                && let Some(name) = value.as_str()
                 && name == ssid
             {
                 network_path = Some(path.as_str().to_string());
@@ -587,7 +580,11 @@ impl NetworkBackend for IwdBackend {
             device.as_str(),
             Some("org.freedesktop.DBus.Properties"),
             "Set",
-            &(DEVICE_IFACE, "Powered", zbus::Variant::Bool(enabled)),
+            &(
+                DEVICE_IFACE,
+                "Powered",
+                Value::Variant(Box::new(Value::Bool(enabled))),
+            ),
         )
         .map_err(|error| service_error(format!("failed to set device powered state: {error}")))?;
 
@@ -637,7 +634,7 @@ impl NetworkBackend for IwdBackend {
             &(
                 KNOWN_NETWORK_IFACE,
                 "AutoConnect",
-                Variant::new(auto_connect),
+                Value::Variant(Box::new(Value::Bool(auto_connect))),
             ),
         )
         .map_err(|error| service_error(format!("iwd Set AutoConnect failed: {error}")))?;

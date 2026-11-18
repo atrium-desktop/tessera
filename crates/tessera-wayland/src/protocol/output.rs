@@ -27,10 +27,13 @@ fn interaction_domain_output_info(
             scale: tessera_desktop::output::Scale(output.scale_milli as f32 / 1000.0),
             transform: tessera_primitives::Transform::Normal,
             logical_origin: tessera_primitives::Point::default(),
+            logical_size_override: None,
         },
         kind: tessera_desktop::output::OutputKind::Virtual,
         available_modes: Vec::new(),
         color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+        role: tessera_desktop::output::OutputRole::Extend,
+        role_source: tessera_desktop::output::OutputRoleSource::Auto,
     }
 }
 

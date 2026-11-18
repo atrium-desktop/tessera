@@ -6,36 +6,26 @@ use std::os::fd::{FromRawFd, OwnedFd};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use smithay_client_toolkit::{
-    compositor::{CompositorHandler, CompositorState},
-    output::{OutputHandler, OutputState},
-    reexports::{
-        calloop::{EventLoop, LoopHandle},
-        calloop_wayland_source::WaylandSource,
-    },
-    registry::{ProvidesRegistryState, RegistryState},
-    registry_handlers,
-    seat::{
-        Capability, SeatHandler, SeatState,
-        keyboard::{
-            KeyEvent, KeyboardHandler, Keymap, Keysym, Modifiers, RawModifiers, RepeatInfo,
-        },
-        pointer::{PointerEvent, PointerEventKind, PointerHandler},
-        touch::TouchHandler,
-    },
-    shell::{
-        WaylandSurface,
-        xdg::{
-            XdgShell,
-            window::{Window, WindowConfigure, WindowDecorations, WindowHandler},
-        },
+use tessera_lock::{AuthResult, LockAction, LockScreenStyle, LockState, PresentationMode, Secret};
+use tessera_wl_client::{KeyEvent, Keysym, Modifiers, XkbKeyboard, run_event_loop};
+use wayland_client::{
+    Connection, Dispatch, QueueHandle, WEnum,
+    globals::{GlobalListContents, registry_queue_init},
+    protocol::{
+        wl_compositor::{self, WlCompositor},
+        wl_keyboard::{self, KeyState, WlKeyboard},
+        wl_output::{self, WlOutput},
+        wl_pointer::{self, ButtonState, WlPointer},
+        wl_registry::{self, WlRegistry},
+        wl_seat::{self, Capability, WlSeat},
+        wl_surface::{self, WlSurface},
+        wl_touch::{self, WlTouch},
     },
 };
-use tessera_lock::{AuthResult, LockAction, LockScreenStyle, LockState, PresentationMode, Secret};
-use wayland_client::{
-    Connection, QueueHandle,
-    globals::registry_queue_init,
-    protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_surface, wl_touch},
+use wayland_protocols::xdg::shell::client::{
+    xdg_surface::{self, XdgSurface},
+    xdg_toplevel::{self, XdgToplevel},
+    xdg_wm_base::{self, XdgWmBase},
 };
 
 use crate::profile::Profile;
@@ -143,20 +133,20 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         libc::setlocale(libc::LC_TIME, c"".as_ptr());
     }
     let connection = Connection::connect_to_env()?;
-    let (globals, event_queue) = registry_queue_init::<PreviewApp>(&connection)?;
+    let (globals, mut event_queue) = registry_queue_init::<PreviewApp>(&connection)?;
     let qh = event_queue.handle();
-    let mut event_loop: EventLoop<PreviewApp> = EventLoop::try_new()?;
-    let loop_handle = event_loop.handle();
 
-    let compositor_state = CompositorState::bind(&globals, &qh)?;
-    let xdg_shell = XdgShell::bind(&globals, &qh)?;
-    let surface = compositor_state.create_surface(&qh);
-    let window = xdg_shell.create_window(surface, WindowDecorations::RequestServer, &qh);
-    window.set_title(TITLE);
-    window.set_app_id(APP_ID);
-    window.set_min_size(Some(options.size));
-    window.set_max_size(Some(options.size));
-    window.commit();
+    let compositor: WlCompositor = globals.bind(&qh, 4..=6, ())?;
+    let wm_base: XdgWmBase = globals.bind(&qh, 1..=6, ())?;
+    let _seat: Option<WlSeat> = globals.bind(&qh, 1..=9, ()).ok();
+    let wl_surface = compositor.create_surface(&qh, ());
+    let xdg_surface = wm_base.get_xdg_surface(&wl_surface, &qh, ());
+    let xdg_toplevel = xdg_surface.get_toplevel(&qh, ());
+    xdg_toplevel.set_title(TITLE.to_string());
+    xdg_toplevel.set_app_id(APP_ID.to_string());
+    xdg_toplevel.set_min_size(options.size.0 as i32, options.size.1 as i32);
+    xdg_toplevel.set_max_size(options.size.0 as i32, options.size.1 as i32);
+    wl_surface.commit();
 
     let now = Instant::now();
     let (lock_state, visual_progress, advance_deadlines) = initial_lock_state(options.state, now);
@@ -177,14 +167,16 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         )?
     };
     let mut app = PreviewApp {
-        loop_handle,
-        registry_state: RegistryState::new(&globals),
-        _compositor_state: compositor_state,
-        output_state: OutputState::new(&globals, &qh),
-        seat_state: SeatState::new(&globals, &qh),
-        window,
+        connection: connection.clone(),
+        _compositor: compositor,
+        wl_surface,
+        _wm_base: wm_base,
+        _xdg_surface: xdg_surface,
+        _xdg_toplevel: xdg_toplevel,
         keyboards: Vec::new(),
+        xkb: XkbKeyboard::new(),
         pointers: Vec::new(),
+        pointer_pos: (0.0, 0.0),
         touches: Vec::new(),
         graphics,
         render: None,
@@ -194,6 +186,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         expected_password: options.password,
         pending_auth: None,
         logical_size: options.size,
+        pending_configure_size: None,
         scale: 1,
         modifiers: Modifiers::default(),
         active_layout: 0,
@@ -210,19 +203,26 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         fatal: None,
     };
 
-    WaylandSource::new(connection, event_queue).insert(event_loop.handle())?;
-    while !app.exit {
-        let timeout = if app.dirty || app.is_animating() {
-            Duration::from_millis(16)
-        } else {
-            Duration::from_secs(1)
-        };
-        event_loop.dispatch(timeout, &mut app)?;
-        app.advance();
-        if app.dirty {
-            app.render();
-        }
-    }
+    run_event_loop(
+        &connection,
+        &mut event_queue,
+        &mut app,
+        None,
+        |app| {
+            app.advance();
+            if app.dirty {
+                app.render();
+            }
+        },
+        |app| app.exit,
+        |app| {
+            Some(if app.dirty || app.is_animating() {
+                Duration::from_millis(16)
+            } else {
+                Duration::from_secs(1)
+            })
+        },
+    )?;
     if let Some(error) = app.fatal.take() {
         return Err(error.into());
     }
@@ -230,15 +230,17 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 struct PreviewApp {
-    loop_handle: LoopHandle<'static, Self>,
-    registry_state: RegistryState,
-    _compositor_state: CompositorState,
-    output_state: OutputState,
-    seat_state: SeatState,
-    window: Window,
-    keyboards: Vec<wl_keyboard::WlKeyboard>,
-    pointers: Vec<wl_pointer::WlPointer>,
-    touches: Vec<wl_touch::WlTouch>,
+    connection: Connection,
+    _compositor: WlCompositor,
+    wl_surface: WlSurface,
+    _wm_base: XdgWmBase,
+    _xdg_surface: XdgSurface,
+    _xdg_toplevel: XdgToplevel,
+    keyboards: Vec<WlKeyboard>,
+    xkb: XkbKeyboard,
+    pointers: Vec<WlPointer>,
+    pointer_pos: (f64, f64),
+    touches: Vec<WlTouch>,
     graphics: Graphics,
     render: Option<LockRenderSurface>,
     profile: Profile,
@@ -247,6 +249,7 @@ struct PreviewApp {
     expected_password: Option<Secret>,
     pending_auth: Option<PendingAuth>,
     logical_size: (u32, u32),
+    pending_configure_size: Option<(u32, u32)>,
     scale: i32,
     modifiers: Modifiers,
     active_layout: u32,
@@ -269,25 +272,20 @@ struct PendingAuth {
 }
 
 impl PreviewApp {
-    fn configure(&mut self, connection: &Connection, configure: WindowConfigure) {
-        let size = (
-            configure
-                .new_size
-                .0
-                .map_or(self.logical_size.0, |value| value.get()),
-            configure
-                .new_size
-                .1
-                .map_or(self.logical_size.1, |value| value.get()),
-        );
+    fn configure(&mut self) {
+        let size = self
+            .pending_configure_size
+            .take()
+            .unwrap_or(self.logical_size);
         self.logical_size = (size.0.max(1), size.1.max(1));
+        let connection = &self.connection;
         let result = if let Some(render) = &mut self.render {
             render.resize(self.logical_size, self.scale as f32)
         } else {
             self.graphics
                 .create_surface(
                     connection,
-                    self.window.wl_surface(),
+                    &self.wl_surface,
                     self.logical_size,
                     self.scale as f32,
                 )
@@ -485,418 +483,281 @@ impl Drop for PreviewApp {
     }
 }
 
-impl WindowHandler for PreviewApp {
-    fn request_close(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _window: &Window,
+impl Dispatch<WlRegistry, GlobalListContents> for PreviewApp {
+    fn event(
+        _: &mut Self,
+        _: &WlRegistry,
+        _: wl_registry::Event,
+        _: &GlobalListContents,
+        _: &Connection,
+        _: &QueueHandle<Self>,
     ) {
-        self.exit = true;
-    }
-
-    fn configure(
-        &mut self,
-        connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _window: &Window,
-        configure: WindowConfigure,
-        _serial: u32,
-    ) {
-        self.configure(connection, configure);
     }
 }
 
-impl CompositorHandler for PreviewApp {
-    fn scale_factor_changed(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        surface: &wl_surface::WlSurface,
-        factor: i32,
+impl Dispatch<WlCompositor, ()> for PreviewApp {
+    fn event(
+        _: &mut Self,
+        _: &WlCompositor,
+        _: wl_compositor::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
     ) {
-        if surface != self.window.wl_surface() {
-            return;
-        }
-        self.scale = factor.max(1);
-        self.window.wl_surface().set_buffer_scale(self.scale);
-        if let Some(render) = &mut self.render
-            && let Err(error) = render.resize(self.logical_size, self.scale as f32)
+    }
+}
+
+impl Dispatch<WlSurface, ()> for PreviewApp {
+    fn event(
+        state: &mut Self,
+        surface: &WlSurface,
+        event: wl_surface::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let wl_surface::Event::PreferredBufferScale { factor } = event
+            && surface == &state.wl_surface
         {
-            self.fail(error.to_string());
-            return;
+            state.scale = factor.max(1);
+            state.wl_surface.set_buffer_scale(state.scale);
+            if let Some(render) = &mut state.render
+                && let Err(error) = render.resize(state.logical_size, state.scale as f32)
+            {
+                state.fail(error.to_string());
+                return;
+            }
+            state.dirty = true;
         }
-        self.dirty = true;
     }
+}
 
-    fn transform_changed(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _surface: &wl_surface::WlSurface,
-        _transform: wl_output::Transform,
-    ) {
-        self.dirty = true;
-    }
-
-    fn frame(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _surface: &wl_surface::WlSurface,
-        _time: u32,
-    ) {
-    }
-
-    fn surface_enter(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _surface: &wl_surface::WlSurface,
-        _output: &wl_output::WlOutput,
-    ) {
-    }
-
-    fn surface_leave(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _surface: &wl_surface::WlSurface,
-        _output: &wl_output::WlOutput,
+impl Dispatch<WlOutput, ()> for PreviewApp {
+    fn event(
+        _: &mut Self,
+        _: &WlOutput,
+        _: wl_output::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
     ) {
     }
 }
 
-impl OutputHandler for PreviewApp {
-    fn output_state(&mut self) -> &mut OutputState {
-        &mut self.output_state
-    }
-
-    fn new_output(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _output: wl_output::WlOutput,
+impl Dispatch<XdgWmBase, ()> for PreviewApp {
+    fn event(
+        _: &mut Self,
+        wm: &XdgWmBase,
+        event: xdg_wm_base::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
     ) {
-    }
-
-    fn update_output(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _output: wl_output::WlOutput,
-    ) {
-    }
-
-    fn output_destroyed(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _output: wl_output::WlOutput,
-    ) {
+        if let xdg_wm_base::Event::Ping { serial } = event {
+            wm.pong(serial);
+        }
     }
 }
 
-impl SeatHandler for PreviewApp {
-    fn seat_state(&mut self) -> &mut SeatState {
-        &mut self.seat_state
-    }
-
-    fn new_seat(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _seat: wl_seat::WlSeat,
+impl Dispatch<XdgSurface, ()> for PreviewApp {
+    fn event(
+        state: &mut Self,
+        xdg_surface: &XdgSurface,
+        event: xdg_surface::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
     ) {
+        if let xdg_surface::Event::Configure { serial } = event {
+            xdg_surface.ack_configure(serial);
+            state.configure();
+        }
     }
+}
 
-    fn new_capability(
-        &mut self,
-        _connection: &Connection,
+impl Dispatch<XdgToplevel, ()> for PreviewApp {
+    fn event(
+        state: &mut Self,
+        _: &XdgToplevel,
+        event: xdg_toplevel::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match event {
+            xdg_toplevel::Event::Configure { width, height, .. } => {
+                let w = if width > 0 {
+                    width as u32
+                } else {
+                    state.logical_size.0
+                };
+                let h = if height > 0 {
+                    height as u32
+                } else {
+                    state.logical_size.1
+                };
+                state.pending_configure_size = Some((w, h));
+            }
+            xdg_toplevel::Event::Close => {
+                state.exit = true;
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<WlSeat, ()> for PreviewApp {
+    fn event(
+        state: &mut Self,
+        seat: &WlSeat,
+        event: wl_seat::Event,
+        _: &(),
+        _: &Connection,
         qh: &QueueHandle<Self>,
-        seat: wl_seat::WlSeat,
-        capability: Capability,
     ) {
-        match capability {
-            Capability::Keyboard => {
-                let keyboard = self.seat_state.get_keyboard_with_repeat(
-                    qh,
-                    &seat,
-                    None,
-                    self.loop_handle.clone(),
-                    Box::new(|state, _keyboard, event| state.handle_key(event)),
-                );
-                match keyboard {
-                    Ok(keyboard) => self.keyboards.push(keyboard),
-                    Err(error) => self.fail(format!("keyboard initialization failed: {error}")),
+        if let wl_seat::Event::Capabilities {
+            capabilities: WEnum::Value(caps),
+        } = event
+        {
+            if caps.contains(Capability::Keyboard) && state.keyboards.is_empty() {
+                state.keyboards.push(seat.get_keyboard(qh, ()));
+            }
+            if caps.contains(Capability::Pointer) && state.pointers.is_empty() {
+                state.pointers.push(seat.get_pointer(qh, ()));
+            }
+            if caps.contains(Capability::Touch) && state.touches.is_empty() {
+                state.touches.push(seat.get_touch(qh, ()));
+            }
+        }
+    }
+}
+
+impl Dispatch<WlKeyboard, ()> for PreviewApp {
+    fn event(
+        state: &mut Self,
+        _: &WlKeyboard,
+        event: wl_keyboard::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match event {
+            wl_keyboard::Event::Keymap {
+                format: WEnum::Value(wl_keyboard::KeymapFormat::XkbV1),
+                fd,
+                size,
+            } => {
+                use std::os::fd::AsFd;
+                state.xkb.load_keymap(fd.as_fd(), size);
+                state.layout_names = state.xkb.layout_names.clone();
+                let layout = state
+                    .layout_names
+                    .get(state.active_layout as usize)
+                    .cloned();
+                state
+                    .lock_state
+                    .set_keyboard_status(state.modifiers.caps_lock, layout);
+                state.dirty = true;
+            }
+            wl_keyboard::Event::Enter { surface, .. } => {
+                if surface == state.wl_surface && state.lock_state.reveal(Instant::now()) {
+                    state.dirty = true;
                 }
             }
-            Capability::Pointer => match self.seat_state.get_pointer(qh, &seat) {
-                Ok(pointer) => self.pointers.push(pointer),
-                Err(error) => self.fail(format!("pointer initialization failed: {error}")),
-            },
-            Capability::Touch => match self.seat_state.get_touch(qh, &seat) {
-                Ok(touch) => self.touches.push(touch),
-                Err(error) => self.fail(format!("touch initialization failed: {error}")),
-            },
+            wl_keyboard::Event::Key {
+                time,
+                key,
+                state: WEnum::Value(KeyState::Pressed),
+                ..
+            } => {
+                let ev = state.xkb.key_event(key, time);
+                state.handle_key(ev);
+            }
+            wl_keyboard::Event::Modifiers {
+                mods_depressed,
+                mods_latched,
+                mods_locked,
+                group,
+                ..
+            } => {
+                state
+                    .xkb
+                    .update_modifiers(mods_depressed, mods_latched, mods_locked, group);
+                state.modifiers = state.xkb.modifiers;
+                state.active_layout = group;
+                let layout = state.layout_names.get(group as usize).cloned();
+                state
+                    .lock_state
+                    .set_keyboard_status(state.modifiers.caps_lock, layout);
+                state.dirty = true;
+            }
             _ => {}
         }
     }
+}
 
-    fn remove_capability(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _seat: wl_seat::WlSeat,
-        capability: Capability,
+impl Dispatch<WlPointer, ()> for PreviewApp {
+    fn event(
+        state: &mut Self,
+        _: &WlPointer,
+        event: wl_pointer::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
     ) {
-        match capability {
-            Capability::Keyboard => self.keyboards.clear(),
-            Capability::Pointer => self.pointers.clear(),
-            Capability::Touch => self.touches.clear(),
+        match event {
+            wl_pointer::Event::Enter {
+                surface,
+                surface_x,
+                surface_y,
+                ..
+            } if surface == state.wl_surface => {
+                state.pointer_pos = (surface_x, surface_y);
+                state.pointer_activity(state.pointer_pos, false);
+            }
+            wl_pointer::Event::Motion {
+                surface_x,
+                surface_y,
+                ..
+            } => {
+                state.pointer_pos = (surface_x, surface_y);
+                state.pointer_activity(state.pointer_pos, false);
+            }
+            wl_pointer::Event::Button {
+                button,
+                state: WEnum::Value(ButtonState::Pressed),
+                ..
+            } => {
+                state.pointer_activity(state.pointer_pos, button == 0x110);
+            }
+            wl_pointer::Event::Axis { value, .. } if value != 0.0 => {
+                state.pointer_activity(state.pointer_pos, false);
+            }
             _ => {}
         }
     }
-
-    fn remove_seat(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _seat: wl_seat::WlSeat,
-    ) {
-    }
 }
 
-impl KeyboardHandler for PreviewApp {
-    fn enter(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _keyboard: &wl_keyboard::WlKeyboard,
-        surface: &wl_surface::WlSurface,
-        _serial: u32,
-        _raw: &[u32],
-        _keysyms: &[Keysym],
+impl Dispatch<WlTouch, ()> for PreviewApp {
+    fn event(
+        state: &mut Self,
+        _: &WlTouch,
+        event: wl_touch::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
     ) {
-        if surface == self.window.wl_surface() && self.lock_state.reveal(Instant::now()) {
-            self.dirty = true;
-        }
-    }
-
-    fn leave(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _keyboard: &wl_keyboard::WlKeyboard,
-        _surface: &wl_surface::WlSurface,
-        _serial: u32,
-    ) {
-    }
-
-    fn press_key(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _keyboard: &wl_keyboard::WlKeyboard,
-        _serial: u32,
-        event: KeyEvent,
-    ) {
-        self.handle_key(event);
-    }
-
-    fn repeat_key(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _keyboard: &wl_keyboard::WlKeyboard,
-        _serial: u32,
-        event: KeyEvent,
-    ) {
-        self.handle_key(event);
-    }
-
-    fn release_key(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _keyboard: &wl_keyboard::WlKeyboard,
-        _serial: u32,
-        _event: KeyEvent,
-    ) {
-    }
-
-    fn update_modifiers(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _keyboard: &wl_keyboard::WlKeyboard,
-        _serial: u32,
-        modifiers: Modifiers,
-        _raw_modifiers: RawModifiers,
-        layout: u32,
-    ) {
-        self.modifiers = modifiers;
-        self.active_layout = layout;
-        let layout = self.layout_names.get(layout as usize).cloned();
-        self.lock_state
-            .set_keyboard_status(modifiers.caps_lock, layout);
-        self.dirty = true;
-    }
-
-    fn update_repeat_info(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _keyboard: &wl_keyboard::WlKeyboard,
-        _info: RepeatInfo,
-    ) {
-    }
-
-    fn update_keymap(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _keyboard: &wl_keyboard::WlKeyboard,
-        keymap: Keymap<'_>,
-    ) {
-        let context = xkbcommon::xkb::Context::new(xkbcommon::xkb::CONTEXT_NO_FLAGS);
-        let Some(keymap) = xkbcommon::xkb::Keymap::new_from_string(
-            &context,
-            keymap.as_string(),
-            xkbcommon::xkb::KEYMAP_FORMAT_TEXT_V1,
-            xkbcommon::xkb::KEYMAP_COMPILE_NO_FLAGS,
-        ) else {
-            self.layout_names.clear();
-            self.lock_state
-                .set_keyboard_status(self.modifiers.caps_lock, None);
-            self.dirty = true;
-            return;
-        };
-        self.layout_names = (0..keymap.num_layouts())
-            .map(|index| keymap.layout_get_name(index).to_owned())
-            .collect();
-        let layout = self.layout_names.get(self.active_layout as usize).cloned();
-        self.lock_state
-            .set_keyboard_status(self.modifiers.caps_lock, layout);
-        self.dirty = true;
-    }
-}
-
-impl PointerHandler for PreviewApp {
-    fn pointer_frame(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _pointer: &wl_pointer::WlPointer,
-        events: &[PointerEvent],
-    ) {
-        for event in events {
-            if &event.surface != self.window.wl_surface() {
-                continue;
+        match event {
+            wl_touch::Event::Down { surface, x, y, .. } if surface == state.wl_surface => {
+                state.pointer_activity((x, y), true);
             }
-            match &event.kind {
-                PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
-                    self.pointer_activity(event.position, false);
-                }
-                PointerEventKind::Press { button, .. } => {
-                    self.pointer_activity(event.position, *button == 0x110);
-                }
-                PointerEventKind::Axis {
-                    horizontal,
-                    vertical,
-                    ..
-                } if !horizontal.is_none() || !vertical.is_none() => {
-                    self.pointer_activity(event.position, false);
-                }
-                PointerEventKind::Leave { .. }
-                | PointerEventKind::Release { .. }
-                | PointerEventKind::Axis { .. } => {}
+            wl_touch::Event::Motion { x, y, .. } => {
+                state.pointer_activity((x, y), false);
             }
+            _ => {}
         }
     }
 }
-
-impl TouchHandler for PreviewApp {
-    fn down(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _touch: &wl_touch::WlTouch,
-        _serial: u32,
-        _time: u32,
-        surface: wl_surface::WlSurface,
-        _id: i32,
-        position: (f64, f64),
-    ) {
-        if surface == *self.window.wl_surface() {
-            self.pointer_activity(position, true);
-        }
-    }
-
-    fn up(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _touch: &wl_touch::WlTouch,
-        _serial: u32,
-        _time: u32,
-        _id: i32,
-    ) {
-    }
-
-    fn motion(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _touch: &wl_touch::WlTouch,
-        _time: u32,
-        _id: i32,
-        position: (f64, f64),
-    ) {
-        self.pointer_activity(position, false);
-    }
-
-    fn shape(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _touch: &wl_touch::WlTouch,
-        _id: i32,
-        _major: f64,
-        _minor: f64,
-    ) {
-    }
-
-    fn orientation(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _touch: &wl_touch::WlTouch,
-        _id: i32,
-        _orientation: f64,
-    ) {
-    }
-
-    fn cancel(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _touch: &wl_touch::WlTouch,
-    ) {
-    }
-}
-
-smithay_client_toolkit::delegate_registry!(PreviewApp);
-
-impl ProvidesRegistryState for PreviewApp {
-    fn registry(&mut self) -> &mut RegistryState {
-        &mut self.registry_state
-    }
-
-    registry_handlers![OutputState, SeatState];
-}
-
-smithay_client_toolkit::delegate_dispatch2!(PreviewApp);
 
 fn initial_lock_state(state: InitialState, now: Instant) -> (LockState, f32, bool) {
     let mut lock = LockState::new(now);

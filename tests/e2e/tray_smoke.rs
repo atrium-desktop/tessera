@@ -12,9 +12,11 @@
 //! delivery back to the item. Not run by default (needs a session bus with
 //! a free `org.kde.StatusNotifierWatcher` name).
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use tessera_dbus::{Connection, Message, ObjectHandler, OwnedObjectPath, Proxy, Value};
 use tessera_shell::tray::{TrayCommand, TrayIcon};
 
 /// A minimal fake StatusNotifierItem: fixed properties, and a record of the
@@ -24,63 +26,80 @@ struct FakeItem {
     title: Arc<Mutex<String>>,
 }
 
-#[zbus::interface(name = "org.kde.StatusNotifierItem")]
-impl FakeItem {
-    async fn activate(&self, x: i32, y: i32) {
-        self.calls
-            .lock()
-            .unwrap()
-            .push(format!("Activate({x},{y})"));
-    }
-
-    async fn secondary_activate(&self, x: i32, y: i32) {
-        self.calls
-            .lock()
-            .unwrap()
-            .push(format!("SecondaryActivate({x},{y})"));
-    }
-
-    async fn context_menu(&self, x: i32, y: i32) {
-        self.calls
-            .lock()
-            .unwrap()
-            .push(format!("ContextMenu({x},{y})"));
-    }
-
-    #[zbus(property)]
-    fn id(&self) -> &str {
-        // A synchronous item may not dispatch property requests until its
-        // RegisterStatusNotifierItem call returns. A slow getter models that
-        // shape and guards the watcher from putting property I/O on the
-        // registration reply path.
-        std::thread::sleep(Duration::from_millis(750));
-        "fake-item"
-    }
-
-    #[zbus(property)]
-    fn title(&self) -> String {
-        self.title.lock().unwrap().clone()
-    }
-
-    #[zbus(property)]
-    fn status(&self) -> &str {
-        "Active"
-    }
-
-    #[zbus(property)]
-    fn icon_name(&self) -> &str {
-        "fake-icon"
-    }
-
-    /// A single 2x2 red pixmap (ARGB32, network byte order).
-    #[zbus(property)]
-    fn icon_pixmap(&self) -> Vec<(i32, i32, Vec<u8>)> {
-        vec![(2, 2, [0xff, 0xff, 0x00, 0x00].repeat(4))]
-    }
-
-    #[zbus(property)]
-    fn menu(&self) -> zbus::ObjectPath<'static> {
-        zbus::ObjectPath::from_static_str("/").unwrap()
+impl ObjectHandler for FakeItem {
+    fn handle_method_call(
+        &self,
+        _conn: &Connection,
+        msg: &Message,
+    ) -> Result<Vec<Value>, (String, String)> {
+        match (msg.interface.as_deref(), msg.member.as_deref()) {
+            (Some("org.kde.StatusNotifierItem"), Some("Activate")) => {
+                let x = msg.body.first().and_then(Value::as_i32).unwrap_or(0);
+                let y = msg.body.get(1).and_then(Value::as_i32).unwrap_or(0);
+                self.calls
+                    .lock()
+                    .unwrap()
+                    .push(format!("Activate({x},{y})"));
+                Ok(Vec::new())
+            }
+            (Some("org.kde.StatusNotifierItem"), Some("SecondaryActivate")) => {
+                let x = msg.body.first().and_then(Value::as_i32).unwrap_or(0);
+                let y = msg.body.get(1).and_then(Value::as_i32).unwrap_or(0);
+                self.calls
+                    .lock()
+                    .unwrap()
+                    .push(format!("SecondaryActivate({x},{y})"));
+                Ok(Vec::new())
+            }
+            (Some("org.kde.StatusNotifierItem"), Some("ContextMenu")) => {
+                let x = msg.body.first().and_then(Value::as_i32).unwrap_or(0);
+                let y = msg.body.get(1).and_then(Value::as_i32).unwrap_or(0);
+                self.calls
+                    .lock()
+                    .unwrap()
+                    .push(format!("ContextMenu({x},{y})"));
+                Ok(Vec::new())
+            }
+            (Some("org.freedesktop.DBus.Properties"), Some("Get")) => {
+                let prop = msg.body.get(1).and_then(Value::as_str).unwrap_or("");
+                let val = match prop {
+                    "Id" => {
+                        std::thread::sleep(Duration::from_millis(750));
+                        Value::String("fake-item".into())
+                    }
+                    "Title" => Value::String(self.title.lock().unwrap().clone()),
+                    "Status" => Value::String("Active".into()),
+                    "IconName" => Value::String("fake-icon".into()),
+                    "IconPixmap" => Value::Array(
+                        "(iiay)".into(),
+                        vec![Value::Struct(vec![
+                            Value::Int32(2),
+                            Value::Int32(2),
+                            Value::Array(
+                                "y".into(),
+                                [0xffu8, 0xff, 0x00, 0x00]
+                                    .repeat(4)
+                                    .into_iter()
+                                    .map(Value::Byte)
+                                    .collect(),
+                            ),
+                        ])],
+                    ),
+                    "Menu" => Value::ObjectPath(OwnedObjectPath::try_from("/").unwrap()),
+                    _ => {
+                        return Err((
+                            "org.freedesktop.DBus.Error.UnknownProperty".into(),
+                            format!("unknown property {prop}"),
+                        ));
+                    }
+                };
+                Ok(vec![Value::Variant(Box::new(val))])
+            }
+            _ => Err((
+                "org.freedesktop.DBus.Error.UnknownMethod".into(),
+                format!("unknown method {:?}.{:?}", msg.interface, msg.member),
+            )),
+        }
     }
 }
 
@@ -106,26 +125,39 @@ fn watcher_registers_item_and_delivers_activate() {
     // Client connection serving the fake item at its default path.
     let calls = Arc::new(Mutex::new(Vec::new()));
     let title = Arc::new(Mutex::new("Fake Item".to_string()));
-    let builder = zbus::connection::Builder::session()
-        .serve_at(
-            "/StatusNotifierItem",
-            FakeItem {
-                calls: Arc::clone(&calls),
-                title: Arc::clone(&title),
-            },
-        )
-        .name("org.example.FakeItem");
-    let client = zbus::block_on(builder.build()).unwrap();
+    let client = Connection::session().unwrap();
+    client.register_object(
+        "/StatusNotifierItem",
+        Arc::new(FakeItem {
+            calls: Arc::clone(&calls),
+            title: Arc::clone(&title),
+        }),
+    );
+    client.request_name("org.example.FakeItem").unwrap();
 
-    let watcher = zbus::block_on(zbus::Proxy::new(
+    let stop = Arc::new(AtomicBool::new(false));
+    let worker_conn = client.clone();
+    let worker_stop = Arc::clone(&stop);
+    let _worker = std::thread::spawn(move || {
+        while !worker_stop.load(Ordering::Acquire) {
+            if worker_conn
+                .process_once(Some(Duration::from_millis(20)))
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
+
+    let watcher = Proxy::new(
         &client,
         "org.kde.StatusNotifierWatcher",
         "/StatusNotifierWatcher",
         "org.kde.StatusNotifierWatcher",
-    ))
-    .unwrap();
+    );
     let register_started = Instant::now();
-    zbus::block_on(watcher.call::<_, _, ()>("RegisterStatusNotifierItem", &"org.example.FakeItem"))
+    watcher
+        .call::<_, ()>("RegisterStatusNotifierItem", &("org.example.FakeItem",))
         .unwrap();
     assert!(
         register_started.elapsed() < Duration::from_millis(500),
@@ -147,14 +179,15 @@ fn watcher_registers_item_and_delivers_activate() {
     // This also proves the signal loop can make blocking D-Bus reads without
     // nesting `block_on`.
     *title.lock().unwrap() = "Updated Item".to_string();
-    zbus::block_on(client.emit_signal(
-        None::<&str>,
-        "/StatusNotifierItem",
-        "org.kde.StatusNotifierItem",
-        "NewTitle",
-        &(),
-    ))
-    .expect("emit NewTitle");
+    client
+        .emit_signal(
+            None,
+            "/StatusNotifierItem",
+            "org.kde.StatusNotifierItem",
+            "NewTitle",
+            &(),
+        )
+        .expect("emit NewTitle");
     assert!(
         wait_for(|| {
             tray.snapshot()
@@ -183,11 +216,13 @@ fn watcher_registers_item_and_delivers_activate() {
     }
 
     // The watcher's own property lists the registration.
-    let registered: Vec<String> =
-        zbus::block_on(watcher.get_property("RegisteredStatusNotifierItems")).unwrap();
+    let registered: Vec<String> = watcher
+        .get_property("RegisteredStatusNotifierItems")
+        .unwrap();
     assert!(registered.contains(&key.to_string()));
-    let host_registered: bool =
-        zbus::block_on(watcher.get_property("IsStatusNotifierHostRegistered")).unwrap();
+    let host_registered: bool = watcher
+        .get_property("IsStatusNotifierHostRegistered")
+        .unwrap();
     assert!(host_registered);
 
     // A left click from the shell reaches the item as Activate(x, y).

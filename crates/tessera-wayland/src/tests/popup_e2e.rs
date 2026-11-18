@@ -196,6 +196,7 @@ fn new_test_server_scaled(scale: f32) -> Option<Server> {
             refresh_mhz: 60_000,
         },
         scale: tessera_desktop::output::Scale(scale),
+        logical_size_override: None,
         ..Default::default()
     });
     Some(server)
@@ -544,6 +545,7 @@ fn chrome_tooltips_keep_their_requested_size() {
             refresh_mhz: 120_000,
         },
         scale: tessera_desktop::output::Scale(2.0),
+        logical_size_override: None,
         ..Default::default()
     });
     let profile_arg = format!("--user-data-dir={profile}");

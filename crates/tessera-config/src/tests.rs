@@ -688,14 +688,16 @@ fn config_store_rejects_an_invalid_edit_without_replacing_a_valid_document() {
         .apply(ConfigEdit::SetOutput {
             settings: tessera_desktop::settings::DisplaySettings {
                 connector: String::new(),
-                mode: tessera_desktop::output::ModeSpec {
+                role: Some(tessera_desktop::output::OutputRole::Extend),
+                mode: Some(tessera_desktop::output::ModeSpec {
                     width: 1920,
                     height: 1080,
                     refresh_hz: Some(60),
-                },
-                scale: 5.0,
-                position: tessera_primitives::Point::default(),
+                }),
+                scale: Some(5.0),
+                position: Some(tessera_primitives::Point::default()),
                 primary: true,
+                tentative: false,
             },
         })
         .unwrap_err();
@@ -733,20 +735,23 @@ fn config_store_composes_typed_edits_without_losing_fields() {
             touchpad,
             mouse,
             keyboard,
+            mappings: Vec::new(),
         })
         .unwrap();
     store
         .apply(ConfigEdit::SetOutput {
             settings: tessera_desktop::settings::DisplaySettings {
                 connector: "DP-1".into(),
-                mode: tessera_desktop::output::ModeSpec {
+                role: Some(tessera_desktop::output::OutputRole::Extend),
+                mode: Some(tessera_desktop::output::ModeSpec {
                     width: 1920,
                     height: 1080,
                     refresh_hz: Some(60),
-                },
-                scale: 1.0,
-                position: tessera_primitives::Point::default(),
+                }),
+                scale: Some(1.0),
+                position: Some(tessera_primitives::Point::default()),
                 primary: true,
+                tentative: false,
             },
         })
         .unwrap();
@@ -851,9 +856,58 @@ fn mouse_and_keyboard_tables_parse_and_validate() {
 }
 
 #[test]
+fn absolute_input_mappings_parse_and_validate() {
+    let cfg = Config::parse(
+        "schema_version = 2\n\
+         [[input.mapping]]\n\
+         device = \"Wacom One by Wacom S\"\n\
+         output = \"HDMI-A-1\"\n\
+         [[input.mapping]]\n\
+         device = \"ELAN Touchscreen\"\n\
+         output = \"eDP-1\"\n",
+    )
+    .unwrap();
+    assert_eq!(cfg.input.mappings.len(), 2);
+    assert_eq!(cfg.input.mappings[0].device, "Wacom One by Wacom S");
+    assert_eq!(cfg.input.mappings[0].output, "HDMI-A-1");
+
+    let duplicate = Config::parse(
+        "schema_version = 2\n\
+         [[input.mapping]]\n\
+         device = \"Touch\"\n\
+         output = \"DP-1\"\n\
+         [[input.mapping]]\n\
+         device = \"Touch\"\n\
+         output = \"DP-2\"\n",
+    )
+    .unwrap_err();
+    assert!(
+        duplicate
+            .iter()
+            .any(|d| d.message.contains("duplicate device binding"))
+    );
+
+    let empty = Config::parse(
+        "schema_version = 2\n\
+         [[input.mapping]]\n\
+         device = \"\"\n\
+         output = \"\"\n",
+    )
+    .unwrap_err();
+    assert!(empty.iter().any(|d| {
+        d.field
+            .as_deref()
+            .is_some_and(|field| field.ends_with(".device"))
+    }));
+}
+
+#[test]
 fn config_store_sets_input_profile_and_preserves_other_content() {
     let path = temp_config_path("input");
-    let original = "schema_version = 2\n\n# keep this\n[ui]\nreduced_motion = true\n";
+    let original = "schema_version = 2\n\n# keep this\n[ui]\nreduced_motion = true\n\
+                    [[input.mapping]]\n\
+                    device = \"Wacom One\"\n\
+                    output = \"HDMI-A-1\"\n";
     std::fs::write(&path, original).unwrap();
     let profile = TouchpadConfig {
         natural_scroll: true,
@@ -879,6 +933,10 @@ fn config_store_sets_input_profile_and_preserves_other_content() {
             touchpad: profile,
             mouse,
             keyboard,
+            mappings: vec![tessera_primitives::input::InputMapping {
+                device: "Wacom One".into(),
+                output: "HDMI-A-1".into(),
+            }],
         })
         .unwrap();
     let text = std::fs::read_to_string(&path).unwrap();
@@ -888,6 +946,8 @@ fn config_store_sets_input_profile_and_preserves_other_content() {
     assert_eq!(cfg.input.mouse, mouse);
     assert_eq!(cfg.input.keyboard, keyboard);
     assert!(cfg.ui.reduced_motion);
+    assert_eq!(cfg.input.mappings.len(), 1);
+    assert_eq!(cfg.input.mappings[0].device, "Wacom One");
     let _ = std::fs::remove_file(&path);
 }
 
@@ -1687,14 +1747,16 @@ fn config_store_persists_output_atomically_and_keeps_unrelated_fields() {
         .apply(ConfigEdit::SetOutput {
             settings: tessera_desktop::settings::DisplaySettings {
                 connector: "HDMI-A-1".into(),
-                mode: tessera_desktop::output::ModeSpec {
+                role: Some(tessera_desktop::output::OutputRole::Extend),
+                mode: Some(tessera_desktop::output::ModeSpec {
                     width: 2560,
                     height: 1440,
                     refresh_hz: Some(144),
-                },
-                scale: 1.5,
-                position: tessera_primitives::Point { x: 120, y: -40 },
+                }),
+                scale: Some(1.5),
+                position: Some(tessera_primitives::Point { x: 120, y: -40 }),
                 primary: true,
+                tentative: false,
             },
         })
         .unwrap();
@@ -1705,7 +1767,7 @@ fn config_store_persists_output_atomically_and_keeps_unrelated_fields() {
     assert!(!text.contains("connector = \"DP-1\""));
     let config = load(&path).unwrap().unwrap();
     assert_eq!(config.outputs.len(), 1);
-    let policy = config.output_policies()["HDMI-A-1"];
+    let policy = &config.output_policies()["HDMI-A-1"];
     assert_eq!(policy.scale, Some(1.5));
     assert_eq!(policy.mode.unwrap().refresh_hz, Some(144));
     assert_eq!(
@@ -1724,6 +1786,140 @@ fn config_store_persists_output_atomically_and_keeps_unrelated_fields() {
             .all(|entry| !entry.file_name().to_string_lossy().ends_with(".tmp"))
     );
     std::fs::remove_dir_all(directory).ok();
+}
+
+#[test]
+fn output_role_and_display_topology_parse_and_resolve() {
+    let cfg = Config::parse(
+        "schema_version = 2\n\
+         [display]\ntopology = \"mirror\"\n\
+         [[output]]\nconnector = \"eDP-1\"\nprimary = true\n\
+         [[output]]\nconnector = \"HDMI-A-1\"\nrole = \"mirror\"\nmirror_of = \"eDP-1\"\n",
+    )
+    .unwrap();
+    assert_eq!(
+        cfg.display_topology(),
+        tessera_desktop::output::DisplayTopology::Mirror
+    );
+    let policies = cfg.output_policies();
+    assert_eq!(
+        policies["HDMI-A-1"].role,
+        Some(tessera_desktop::output::OutputRole::Mirror {
+            source: "eDP-1".into()
+        })
+    );
+    assert_eq!(
+        policies["eDP-1"].role, None,
+        "an omitted role follows [display]"
+    );
+}
+
+#[test]
+fn mirror_role_requires_a_source_and_rejects_self_reference() {
+    for body in [
+        "[[output]]\nconnector = \"HDMI-A-1\"\nrole = \"mirror\"\n",
+        "[[output]]\nconnector = \"HDMI-A-1\"\nrole = \"mirror\"\nmirror_of = \"HDMI-A-1\"\n",
+        "[[output]]\nconnector = \"HDMI-A-1\"\nrole = \"extend\"\nmirror_of = \"eDP-1\"\n",
+        "[[output]]\nconnector = \"HDMI-A-1\"\nrole = \"mirror\"\nmirror_of = \"eDP-1\"\nscale = 2.0\n",
+        "[[output]]\nconnector = \"HDMI-A-1\"\nrole = \"mirror\"\nmirror_of = \"eDP-1\"\nprimary = true\n",
+    ] {
+        assert!(
+            Config::parse(&format!("schema_version = 2\n{body}")).is_err(),
+            "invalid role body must be rejected: {body}"
+        );
+    }
+}
+
+#[test]
+fn applying_a_mirror_settings_edit_round_trips_through_the_schema() {
+    let path = temp_config_path("mirror-edit");
+    let _ = std::fs::remove_file(&path);
+    ConfigStore::new(&path)
+        .apply(ConfigEdit::SetOutput {
+            settings: tessera_desktop::settings::DisplaySettings {
+                connector: "HDMI-A-1".into(),
+                role: Some(tessera_desktop::output::OutputRole::Mirror {
+                    source: "eDP-1".into(),
+                }),
+                mode: None,
+                scale: None,
+                position: None,
+                primary: false,
+                tentative: false,
+            },
+        })
+        .unwrap();
+
+    let config = load(&path).unwrap().unwrap();
+    let policy = &config.output_policies()["HDMI-A-1"];
+    assert_eq!(
+        policy.role,
+        Some(tessera_desktop::output::OutputRole::Mirror {
+            source: "eDP-1".into()
+        })
+    );
+    assert!(policy.mode.is_none());
+    assert!(policy.scale.is_none());
+    assert!(policy.position.is_none());
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn display_topology_edit_round_trips() {
+    let path = temp_config_path("display-topology");
+    let _ = std::fs::remove_file(&path);
+    ConfigStore::new(&path)
+        .apply(ConfigEdit::SetDisplayTopology {
+            topology: tessera_desktop::output::DisplayTopology::Mirror,
+        })
+        .unwrap();
+    assert_eq!(
+        load(&path).unwrap().unwrap().display_topology(),
+        tessera_desktop::output::DisplayTopology::Mirror
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn applying_automatic_role_removes_the_last_override() {
+    let path = temp_config_path("automatic-role");
+    let _ = std::fs::remove_file(&path);
+    let store = ConfigStore::new(&path);
+    store
+        .apply(ConfigEdit::SetOutput {
+            settings: tessera_desktop::settings::DisplaySettings {
+                connector: "HDMI-A-1".into(),
+                role: Some(tessera_desktop::output::OutputRole::Mirror {
+                    source: "eDP-1".into(),
+                }),
+                mode: None,
+                scale: None,
+                position: None,
+                primary: false,
+                tentative: false,
+            },
+        })
+        .unwrap();
+    store
+        .apply(ConfigEdit::SetOutput {
+            settings: tessera_desktop::settings::DisplaySettings {
+                connector: "HDMI-A-1".into(),
+                role: None,
+                mode: None,
+                scale: None,
+                position: None,
+                primary: false,
+                tentative: false,
+            },
+        })
+        .unwrap();
+
+    let config = load(&path).unwrap().unwrap();
+    assert!(
+        config.outputs.is_empty(),
+        "an automatic edit with no remaining override removes the entry"
+    );
+    let _ = std::fs::remove_file(&path);
 }
 
 #[test]

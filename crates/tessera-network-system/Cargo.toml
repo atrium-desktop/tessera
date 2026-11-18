@@ -16,15 +16,12 @@ name = "tessera-networkd"
 path = "src/bin/tessera-networkd.rs"
 
 [dependencies]
-futures-util.workspace = true
 libc.workspace = true
 log.workspace = true
-signal-hook.workspace = true
+tessera-dbus.workspace = true
 tessera-desktop.workspace = true
 tessera-env.workspace = true
 tessera-network.workspace = true
-tessera-sched.workspace = true
-zbus.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]

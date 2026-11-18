@@ -433,16 +433,49 @@ fn read_request_line(reader: &mut dyn BufRead) -> Result<Option<Vec<u8>>, McpErr
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum McpError {
-    #[error("MCP stdio failed: {0}")]
-    Io(#[from] io::Error),
-    #[error("MCP response encoding failed: {0}")]
-    Json(#[from] serde_json::Error),
-    #[error("MCP request exceeds the {0}-byte limit")]
+    Io(io::Error),
+    Json(serde_json::Error),
     RequestTooLarge(usize),
-    #[error("graceful Interaction Domain shutdown failed; recovery state was retained: {0}")]
     Shutdown(PlatformError),
+}
+
+impl std::fmt::Display for McpError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(err) => write!(f, "MCP stdio failed: {err}"),
+            Self::Json(err) => write!(f, "MCP response encoding failed: {err}"),
+            Self::RequestTooLarge(max) => write!(f, "MCP request exceeds the {max}-byte limit"),
+            Self::Shutdown(err) => write!(
+                f,
+                "graceful Interaction Domain shutdown failed; recovery state was retained: {err}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for McpError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(err) => Some(err),
+            Self::Json(err) => Some(err),
+            Self::Shutdown(err) => Some(err),
+            Self::RequestTooLarge(_) => None,
+        }
+    }
+}
+
+impl From<io::Error> for McpError {
+    fn from(err: io::Error) -> Self {
+        Self::Io(err)
+    }
+}
+
+impl From<serde_json::Error> for McpError {
+    fn from(err: serde_json::Error) -> Self {
+        Self::Json(err)
+    }
 }
 
 #[cfg(test)]

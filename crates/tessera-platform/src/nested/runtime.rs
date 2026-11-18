@@ -403,6 +403,7 @@ impl Backend for NestedHost {
                 scale: tessera_desktop::output::Scale(self.scale()),
                 transform: tessera_primitives::Transform::Normal,
                 logical_origin: tessera_primitives::Point::default(),
+                logical_size_override: None,
             },
             kind: tessera_desktop::output::OutputKind::External,
             // The outer compositor owns modesetting; there is nothing to
@@ -410,6 +411,8 @@ impl Backend for NestedHost {
             available_modes: Vec::new(),
             // The outer compositor owns color management likewise.
             color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
         }]
     }
 
@@ -435,6 +438,7 @@ impl Backend for NestedHost {
                 ..tessera_primitives::input::MouseStatus::default()
             },
             keyboard: self.input_config.keyboard,
+            mappings: self.input_config.mappings.clone(),
         }
     }
 

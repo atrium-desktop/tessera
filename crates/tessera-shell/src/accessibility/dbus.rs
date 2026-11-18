@@ -5,12 +5,12 @@
 //! - `[INV-A11Y-04] Kernel-Authenticated A11y Peers` via caller PID check (`SO_PEERCRED`).
 
 use std::sync::{Arc, RwLock};
-use zbus::fdo;
-use zbus::message::Header;
+
+use tessera_dbus::{Connection, FromArgs, FromValue, Message, ObjectHandler, Value};
+use tessera_primitives::accessibility::AccessibleRole;
 
 use super::auth::PeerAuthenticator;
 use super::tree::ShellSemanticTree;
-use tessera_primitives::accessibility::AccessibleRole;
 
 /// Core D-Bus accessible object for the shell hierarchy.
 pub struct ShellA11yService {
@@ -32,23 +32,33 @@ impl ShellA11yService {
     }
 
     /// Authenticate the caller using D-Bus sender's kernel PID (`SO_PEERCRED`).
-    async fn authenticate_caller(
+    fn authenticate_caller(
         &self,
-        conn: &zbus::Connection,
-        header: &Header<'_>,
-    ) -> fdo::Result<()> {
-        let Some(sender) = header.sender() else {
-            return Err(fdo::Error::AccessDenied("missing sender header".into()));
+        conn: &Connection,
+        msg: &Message,
+    ) -> Result<(), (String, String)> {
+        let Some(sender) = msg.sender.as_deref() else {
+            return Err((
+                "org.freedesktop.DBus.Error.AccessDenied".into(),
+                "missing sender header".into(),
+            ));
         };
 
-        // Resolve Unix PID of sender via org.freedesktop.DBus
-        let dbus_proxy = fdo::DBusProxy::new(conn).await?;
-        let pid = dbus_proxy
-            .get_connection_unix_process_id(sender.as_str().try_into()?)
-            .await?;
+        let reply = conn
+            .call_method(
+                Some("org.freedesktop.DBus"),
+                "/org/freedesktop/DBus",
+                Some("org.freedesktop.DBus"),
+                "GetConnectionUnixProcessID",
+                &(sender,),
+            )
+            .map_err(|e| ("org.freedesktop.DBus.Error.Failed".into(), e.to_string()))?;
+        let pid: u32 = FromArgs::from_args(reply.body)
+            .map_err(|e| ("org.freedesktop.DBus.Error.Failed".into(), e.to_string()))?;
 
         if !self.authenticator.is_authorized_pid(pid) {
-            return Err(fdo::Error::AccessDenied(
+            return Err((
+                "org.freedesktop.DBus.Error.AccessDenied".into(),
                 "caller is not an authorized accessibility peer".into(),
             ));
         }
@@ -57,135 +67,137 @@ impl ShellA11yService {
     }
 }
 
-#[zbus::interface(name = "org.a11y.atspi.Accessible")]
-impl ShellA11yService {
-    /// User-facing label or name. Redacts credentials per `[INV-A11Y-03]`.
-    async fn get_name(
+impl ObjectHandler for ShellA11yService {
+    fn handle_method_call(
         &self,
-        #[zbus(connection)] conn: &zbus::Connection,
-        #[zbus(header)] header: Header<'_>,
-    ) -> fdo::Result<String> {
-        self.authenticate_caller(conn, &header).await?;
+        conn: &Connection,
+        msg: &Message,
+    ) -> Result<Vec<Value>, (String, String)> {
+        self.authenticate_caller(conn, msg)?;
 
-        let tree = self
-            .tree
-            .read()
-            .map_err(|_| fdo::Error::Failed("lock poisoned".into()))?;
-        let root = tree.get_node(tree.root_id());
-        Ok(root.and_then(|n| n.safe_name()).unwrap_or("").to_string())
-    }
-
-    /// User-facing description.
-    async fn get_description(
-        &self,
-        #[zbus(connection)] conn: &zbus::Connection,
-        #[zbus(header)] header: Header<'_>,
-    ) -> fdo::Result<String> {
-        self.authenticate_caller(conn, &header).await?;
-
-        let tree = self
-            .tree
-            .read()
-            .map_err(|_| fdo::Error::Failed("lock poisoned".into()))?;
-        let root = tree.get_node(tree.root_id());
-        Ok(root
-            .and_then(|n| n.description.as_deref())
-            .unwrap_or("")
-            .to_string())
-    }
-
-    /// Mapped numeric AT-SPI role.
-    async fn get_role(
-        &self,
-        #[zbus(connection)] conn: &zbus::Connection,
-        #[zbus(header)] header: Header<'_>,
-    ) -> fdo::Result<u32> {
-        self.authenticate_caller(conn, &header).await?;
-
-        let tree = self
-            .tree
-            .read()
-            .map_err(|_| fdo::Error::Failed("lock poisoned".into()))?;
-        let role = tree
-            .get_node(tree.root_id())
-            .map(|n| n.role)
-            .unwrap_or(AccessibleRole::Unknown);
-        Ok(role as u32)
-    }
-
-    /// Direct children count.
-    async fn get_child_count(
-        &self,
-        #[zbus(connection)] conn: &zbus::Connection,
-        #[zbus(header)] header: Header<'_>,
-    ) -> fdo::Result<i32> {
-        self.authenticate_caller(conn, &header).await?;
-
-        let tree = self
-            .tree
-            .read()
-            .map_err(|_| fdo::Error::Failed("lock poisoned".into()))?;
-        let count = tree
-            .get_node(tree.root_id())
-            .map(|n| n.children.len())
-            .unwrap_or(0);
-        Ok(count as i32)
-    }
-}
-
-#[zbus::interface(name = "org.a11y.atspi.Action")]
-impl ShellA11yService {
-    /// Number of available actions on the root node.
-    async fn get_n_actions(
-        &self,
-        #[zbus(connection)] conn: &zbus::Connection,
-        #[zbus(header)] header: Header<'_>,
-    ) -> fdo::Result<i32> {
-        self.authenticate_caller(conn, &header).await?;
-        Ok(1)
-    }
-
-    /// Name of action at index.
-    async fn get_action_name(
-        &self,
-        index: i32,
-        #[zbus(connection)] conn: &zbus::Connection,
-        #[zbus(header)] header: Header<'_>,
-    ) -> fdo::Result<String> {
-        self.authenticate_caller(conn, &header).await?;
-        if index == 0 {
-            Ok("activate".into())
-        } else {
-            Err(fdo::Error::InvalidArgs("action index out of range".into()))
+        match (msg.interface.as_deref(), msg.member.as_deref()) {
+            (Some("org.a11y.atspi.Accessible"), Some("GetName")) => {
+                let tree = self.tree.read().map_err(|_| {
+                    (
+                        "org.freedesktop.DBus.Error.Failed".into(),
+                        "lock poisoned".into(),
+                    )
+                })?;
+                let root = tree.get_node(tree.root_id());
+                Ok(vec![Value::String(
+                    root.and_then(|n| n.safe_name()).unwrap_or("").to_string(),
+                )])
+            }
+            (Some("org.a11y.atspi.Accessible"), Some("GetDescription")) => {
+                let tree = self.tree.read().map_err(|_| {
+                    (
+                        "org.freedesktop.DBus.Error.Failed".into(),
+                        "lock poisoned".into(),
+                    )
+                })?;
+                let root = tree.get_node(tree.root_id());
+                Ok(vec![Value::String(
+                    root.and_then(|n| n.description.as_deref())
+                        .unwrap_or("")
+                        .to_string(),
+                )])
+            }
+            (Some("org.a11y.atspi.Accessible"), Some("GetRole")) => {
+                let tree = self.tree.read().map_err(|_| {
+                    (
+                        "org.freedesktop.DBus.Error.Failed".into(),
+                        "lock poisoned".into(),
+                    )
+                })?;
+                let role = tree
+                    .get_node(tree.root_id())
+                    .map(|n| n.role)
+                    .unwrap_or(AccessibleRole::Unknown);
+                Ok(vec![Value::Uint32(role as u32)])
+            }
+            (Some("org.a11y.atspi.Accessible"), Some("GetChildCount")) => {
+                let tree = self.tree.read().map_err(|_| {
+                    (
+                        "org.freedesktop.DBus.Error.Failed".into(),
+                        "lock poisoned".into(),
+                    )
+                })?;
+                let count = tree
+                    .get_node(tree.root_id())
+                    .map(|n| n.children.len())
+                    .unwrap_or(0);
+                Ok(vec![Value::Int32(count as i32)])
+            }
+            (Some("org.a11y.atspi.Action"), Some("GetNActions")) => Ok(vec![Value::Int32(1)]),
+            (Some("org.a11y.atspi.Action"), Some("GetActionName")) => {
+                let index = msg
+                    .body
+                    .first()
+                    .cloned()
+                    .ok_or_else(|| {
+                        (
+                            "org.freedesktop.DBus.Error.InvalidArgs".into(),
+                            "missing index".into(),
+                        )
+                    })
+                    .and_then(|v| {
+                        i32::from_value(v).map_err(|e| {
+                            (
+                                "org.freedesktop.DBus.Error.InvalidArgs".into(),
+                                e.to_string(),
+                            )
+                        })
+                    })?;
+                if index == 0 {
+                    Ok(vec![Value::String("activate".into())])
+                } else {
+                    Err((
+                        "org.freedesktop.DBus.Error.InvalidArgs".into(),
+                        "action index out of range".into(),
+                    ))
+                }
+            }
+            (Some("org.a11y.atspi.Action"), Some("DoAction")) => {
+                let index = msg
+                    .body
+                    .first()
+                    .cloned()
+                    .ok_or_else(|| {
+                        (
+                            "org.freedesktop.DBus.Error.InvalidArgs".into(),
+                            "missing index".into(),
+                        )
+                    })
+                    .and_then(|v| {
+                        i32::from_value(v).map_err(|e| {
+                            (
+                                "org.freedesktop.DBus.Error.InvalidArgs".into(),
+                                e.to_string(),
+                            )
+                        })
+                    })?;
+                if index != 0 {
+                    return Ok(vec![Value::Bool(false)]);
+                }
+                let tree = self.tree.read().map_err(|_| {
+                    (
+                        "org.freedesktop.DBus.Error.Failed".into(),
+                        "lock poisoned".into(),
+                    )
+                })?;
+                let root_id = tree.root_id();
+                if !tree.can_execute_action(root_id) {
+                    return Err((
+                        "org.freedesktop.DBus.Error.AccessDenied".into(),
+                        "action barrier: node is disabled or sensitive".into(),
+                    ));
+                }
+                Ok(vec![Value::Bool(true)])
+            }
+            _ => Err((
+                "org.freedesktop.DBus.Error.UnknownMethod".into(),
+                format!("unknown method {:?}.{:?}", msg.interface, msg.member),
+            )),
         }
-    }
-
-    /// Perform action, guarded by focus and sensitivity barrier.
-    async fn do_action(
-        &self,
-        index: i32,
-        #[zbus(connection)] conn: &zbus::Connection,
-        #[zbus(header)] header: Header<'_>,
-    ) -> fdo::Result<bool> {
-        self.authenticate_caller(conn, &header).await?;
-
-        if index != 0 {
-            return Ok(false);
-        }
-
-        let tree = self
-            .tree
-            .read()
-            .map_err(|_| fdo::Error::Failed("lock poisoned".into()))?;
-        let root_id = tree.root_id();
-
-        // Enforce action barrier
-        if !tree.can_execute_action(root_id) {
-            return Err(fdo::Error::AccessDenied(
-                "action barrier: node is disabled or sensitive".into(),
-            ));
-        }
-
-        Ok(true)
     }
 }

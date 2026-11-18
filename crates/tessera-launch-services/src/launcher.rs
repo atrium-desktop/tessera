@@ -432,23 +432,54 @@ fn validate_resource_limits(limits: InteractionDomainResourceLimits) -> Result<(
 }
 
 /// Errors from [`launch`].
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum LaunchError {
-    #[error("entry {0} has no Exec to launch")]
     NoExec(String),
-    #[error("spawn: {0}")]
-    Spawn(#[from] std::io::Error),
-    #[error("entry {entry} exited with {status}")]
+    Spawn(std::io::Error),
     Exit {
         entry: String,
         status: std::process::ExitStatus,
     },
-    #[error("Interaction Domain sandbox is unavailable: {0}")]
     SandboxUnavailable(String),
-    #[error("Interaction Domain cgroup isolation is unavailable: {0}")]
     CgroupUnavailable(String),
-    #[error("invalid Interaction Domain sandbox policy: {0}")]
     InvalidSandbox(String),
+}
+
+impl std::fmt::Display for LaunchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoExec(entry) => write!(f, "entry {entry} has no Exec to launch"),
+            Self::Spawn(err) => write!(f, "spawn: {err}"),
+            Self::Exit { entry, status } => write!(f, "entry {entry} exited with {status}"),
+            Self::SandboxUnavailable(msg) => {
+                write!(f, "Interaction Domain sandbox is unavailable: {msg}")
+            }
+            Self::CgroupUnavailable(msg) => {
+                write!(
+                    f,
+                    "Interaction Domain cgroup isolation is unavailable: {msg}"
+                )
+            }
+            Self::InvalidSandbox(msg) => {
+                write!(f, "invalid Interaction Domain sandbox policy: {msg}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for LaunchError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Spawn(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+impl From<std::io::Error> for LaunchError {
+    fn from(err: std::io::Error) -> Self {
+        Self::Spawn(err)
+    }
 }
 
 /// Release any CPU affinity this process's forking thread inherited from the
@@ -463,8 +494,23 @@ pub enum LaunchError {
 /// Async-signal-safe: one `sched_setaffinity(2)`, no allocation. Called from
 /// `pre_exec` closures, hence the `unsafe` at the `pre_exec` site rather than
 /// here.
+#[cfg(target_os = "linux")]
 fn release_inherited_affinity() -> std::io::Result<()> {
-    tessera_sched::release_inherited_affinity_to_global_plan()
+    // SAFETY: `set` is a fully initialised `cpu_set_t` and `sched_setaffinity(2)`
+    // is async-signal-safe, so this is safe to run in `pre_exec`. Setting all
+    // bits lets the kernel intersect with the online / cpuset-allowed CPUs.
+    let mut set: libc::cpu_set_t = unsafe { std::mem::zeroed() };
+    unsafe { libc::CPU_ZERO(&mut set) };
+    for cpu in 0..libc::CPU_SETSIZE as usize {
+        unsafe { libc::CPU_SET(cpu, &mut set) };
+    }
+    let _ = unsafe { libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &set) };
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn release_inherited_affinity() -> std::io::Result<()> {
+    Ok(())
 }
 
 /// Attach the affinity release to a command about to spawn a client.

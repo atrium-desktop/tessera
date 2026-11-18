@@ -1769,7 +1769,7 @@ fn enumerate_outputs_request_and_reply_match_the_wire_fixture() {
     assert_eq!(json, r#"{"type":"EnumerateOutputs"}"#);
     assert_eq!(serde_json::from_str::<Request>(&json).unwrap(), req);
 
-    // The EnumerateOutputs reply carries exactly connector/primary/rect.
+    // The EnumerateOutputs reply carries connector/primary/rect/role.
     let lean = Response::Outputs {
         outputs: vec![OutputInfo {
             connector: "HDMI-A-1".into(),
@@ -1778,12 +1778,14 @@ fn enumerate_outputs_request_and_reply_match_the_wire_fixture() {
             kind: OutputKind::External,
             geometry: None,
             available_modes: None,
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
         }],
     };
     let json = serde_json::to_string(&lean).unwrap();
     assert_eq!(
         json,
-        r#"{"type":"Outputs","outputs":[{"connector":"HDMI-A-1","primary":true,"rect":{"origin":{"x":0,"y":0},"size":{"w":1920,"h":1080}}}]}"#
+        r#"{"type":"Outputs","outputs":[{"connector":"HDMI-A-1","primary":true,"rect":{"origin":{"x":0,"y":0},"size":{"w":1920,"h":1080}},"role":{"mode":"extend"},"role_source":"auto"}]}"#
     );
     let Response::Outputs { outputs } = serde_json::from_str::<Response>(&json).unwrap() else {
         panic!("expected Outputs");
@@ -1797,6 +1799,8 @@ fn enumerate_outputs_request_and_reply_match_the_wire_fixture() {
             kind: OutputKind::External,
             geometry: None,
             available_modes: None,
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
         }]
     );
 
@@ -1814,6 +1818,8 @@ fn enumerate_outputs_request_and_reply_match_the_wire_fixture() {
                 height: 1080,
                 refresh_mhz: 60_000,
             }]),
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
         }],
     };
     let json = serde_json::to_string(&rich).unwrap();
@@ -1853,10 +1859,13 @@ fn output_info_project_marks_primary_and_scales_rectangles() {
                 scale: tessera_desktop::output::Scale(2.0),
                 transform: tessera_primitives::Transform::Normal,
                 logical_origin: tessera_primitives::Point { x: 0, y: 0 },
+                logical_size_override: None,
             },
             kind: tessera_desktop::output::OutputKind::External,
             available_modes: Vec::new(),
             color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
         },
         tessera_desktop::output::OutputInfo {
             connector: "DP-1".into(),
@@ -1869,10 +1878,13 @@ fn output_info_project_marks_primary_and_scales_rectangles() {
                 scale: tessera_desktop::output::Scale(2.0),
                 transform: tessera_primitives::Transform::Normal,
                 logical_origin: tessera_primitives::Point { x: 960, y: 0 },
+                logical_size_override: None,
             },
             kind: tessera_desktop::output::OutputKind::External,
             available_modes: Vec::new(),
             color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
         },
     ];
     let projected = OutputInfo::project(&infos);
@@ -1885,6 +1897,60 @@ fn output_info_project_marks_primary_and_scales_rectangles() {
     assert_eq!(projected[0].rect, Rect::new(1920, 0, 2560, 1440));
     assert_eq!(projected[1].rect, Rect::new(0, 0, 1920, 1080));
     assert!(projected.iter().all(|output| output.geometry.is_some()));
+}
+
+#[test]
+fn output_info_projects_a_mirror_at_its_source_rectangle() {
+    let geometry = |origin: tessera_primitives::Point, size_override| {
+        tessera_desktop::output::OutputGeometry {
+            mode: tessera_desktop::output::OutputMode {
+                width: 1920,
+                height: 1080,
+                refresh_mhz: 60_000,
+            },
+            scale: tessera_desktop::output::Scale(1.0),
+            transform: tessera_primitives::Transform::Normal,
+            logical_origin: origin,
+            logical_size_override: size_override,
+        }
+    };
+    let infos = vec![
+        tessera_desktop::output::OutputInfo {
+            connector: "eDP-1".into(),
+            geometry: geometry(tessera_primitives::Point { x: 0, y: 0 }, None),
+            kind: tessera_desktop::output::OutputKind::Internal,
+            available_modes: Vec::new(),
+            color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
+        },
+        tessera_desktop::output::OutputInfo {
+            connector: "HDMI-A-1".into(),
+            geometry: geometry(
+                tessera_primitives::Point { x: 0, y: 0 },
+                Some(tessera_primitives::Size { w: 1920, h: 1080 }),
+            ),
+            kind: tessera_desktop::output::OutputKind::External,
+            available_modes: Vec::new(),
+            color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+            role: tessera_desktop::output::OutputRole::Mirror {
+                source: "eDP-1".into(),
+            },
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
+        },
+    ];
+    let projected = OutputInfo::project(&infos);
+    let mirror = projected
+        .iter()
+        .find(|output| output.connector == "HDMI-A-1")
+        .unwrap();
+    assert_eq!(
+        mirror.role,
+        tessera_desktop::output::OutputRole::Mirror {
+            source: "eDP-1".into()
+        }
+    );
+    assert_eq!(mirror.rect, Rect::new(0, 0, 1920, 1080));
 }
 
 #[test]
@@ -2057,10 +2123,13 @@ fn virtual_output_and_renegotiate_requests_round_trip_and_project_kind() {
                 scale: tessera_desktop::output::Scale(2.0),
                 transform: tessera_primitives::Transform::Normal,
                 logical_origin: tessera_primitives::Point { x: 0, y: 0 },
+                logical_size_override: None,
             },
             kind: OutputKind::Internal,
             available_modes: Vec::new(),
             color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
         },
         tessera_desktop::output::OutputInfo {
             connector: "VIRTUAL-1".into(),
@@ -2073,10 +2142,13 @@ fn virtual_output_and_renegotiate_requests_round_trip_and_project_kind() {
                 scale: tessera_desktop::output::Scale(1.0),
                 transform: tessera_primitives::Transform::Normal,
                 logical_origin: tessera_primitives::Point { x: 1536, y: 0 },
+                logical_size_override: None,
             },
             kind: OutputKind::Virtual,
             available_modes: Vec::new(),
             color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
         },
     ];
     let projected = OutputInfo::project(&infos);

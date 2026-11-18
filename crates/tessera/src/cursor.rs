@@ -29,23 +29,8 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use include_dir::{Dir, include_dir};
+use tessera_assets::cursors::{self, EmbeddedDir};
 use tessera_primitives::cursor_shape::xdg_names;
-
-/// The cursor art shipped with the binary, used as the universal fallback when no
-/// filesystem theme resolves a shape. Original MIT-licensed art; see
-/// `scripts/prepare-tessera-cursors.py`.
-static BUNDLED_THEME: Dir<'static> =
-    include_dir!("$CARGO_MANIFEST_DIR/../../assets/cursors/tessera-user-light");
-
-static BUNDLED_DARK_THEME: Dir<'static> =
-    include_dir!("$CARGO_MANIFEST_DIR/../../assets/cursors/tessera-user-dark");
-
-static BUNDLED_AI_THEME: Dir<'static> =
-    include_dir!("$CARGO_MANIFEST_DIR/../../assets/cursors/tessera-ai-light");
-
-static BUNDLED_AI_DARK_THEME: Dir<'static> =
-    include_dir!("$CARGO_MANIFEST_DIR/../../assets/cursors/tessera-ai-dark");
 
 /// The largest sprite any cursor theme may produce.
 ///
@@ -166,15 +151,15 @@ enum Source {
 }
 
 impl Source {
-    fn files(&self) -> &'static Dir<'static> {
+    fn files(&self) -> &'static EmbeddedDir {
         match self {
-            Source::Bundled => &BUNDLED_THEME,
-            Source::BundledDark => &BUNDLED_DARK_THEME,
-            Source::BundledAiLight => &BUNDLED_AI_THEME,
-            Source::BundledAiDark => &BUNDLED_AI_DARK_THEME,
+            Source::Bundled => &cursors::USER_LIGHT,
+            Source::BundledDark => &cursors::USER_DARK,
+            Source::BundledAiLight => &cursors::AI_LIGHT,
+            Source::BundledAiDark => &cursors::AI_DARK,
             // A directory has no embedded table; callers reach it through
             // `read` below.
-            Source::Dir(_) => &BUNDLED_THEME,
+            Source::Dir(_) => &cursors::USER_LIGHT,
         }
     }
 
@@ -187,7 +172,7 @@ impl Source {
             _ => self
                 .files()
                 .get_file(format!("cursors/{name}.{ext}"))
-                .map(|file| Cow::Borrowed(file.contents())),
+                .map(Cow::Borrowed),
         }
     }
 
@@ -669,13 +654,8 @@ mod tests {
         let cursors = tmp.join("cursors");
         std::fs::create_dir_all(&cursors).unwrap();
         std::fs::write(cursors.join("default.svgz"), b"\x1f\x8bnot really gzip").unwrap();
-        let png = {
-            let mut buf = Vec::new();
-            image::RgbaImage::from_pixel(1, 1, image::Rgba([10, 200, 30, 255]))
-                .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
-                .expect("encode png");
-            buf
-        };
+        let png =
+            tessera_image::encode_png_rgba(1, 1, &[10, 200, 30, 255], false).expect("encode png");
         std::fs::write(cursors.join("default.png"), &png).unwrap();
 
         let theme = CursorTheme {
@@ -706,14 +686,8 @@ mod tests {
         )
         .unwrap();
         // A 1x1 opaque white PNG: distinguishable from the red square above.
-        let png = {
-            let mut buf = Vec::new();
-            let image = image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 255, 255, 255]));
-            image
-                .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
-                .expect("encode png");
-            buf
-        };
+        let png =
+            tessera_image::encode_png_rgba(1, 1, &[255, 255, 255, 255], false).expect("encode png");
         std::fs::write(cursors.join("default.png"), &png).unwrap();
 
         let theme = CursorTheme {

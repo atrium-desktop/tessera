@@ -18,8 +18,8 @@
 //! 5. **Lineage links** — every `NNNN-slug.md` link in the corpus resolves to an
 //!    existing record, so `Amends:`/`superseded_by` references cannot rot.
 
+use crate::error::{Context, Result, bail};
 use crate::workspace;
-use anyhow::{Context, Result, bail};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;

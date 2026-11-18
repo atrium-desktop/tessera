@@ -13,7 +13,6 @@ use tessera_config::{
 };
 use tessera_design::{Design, themes};
 use tessera_lock::LockState;
-use thiserror::Error;
 use wayland_client::{Connection, Proxy, protocol::wl_surface};
 
 use crate::profile::{Profile, clock_strings};
@@ -24,18 +23,54 @@ const DEVICE_EXTENSIONS: [&CStr; 1] = [c"VK_KHR_swapchain"];
 const AVATAR_CAMERA: tessera_avatar::persona::VrmCamera =
     tessera_avatar::persona::VrmCamera::new(28.0, 0.25, 0.48, 0.0);
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum RenderError {
-    #[error("Vulkan is unavailable")]
     Vulkan,
-    #[error(transparent)]
-    Flux(#[from] flux::Error),
-    #[error(transparent)]
-    Lens(#[from] lens::Error),
-    #[error(transparent)]
-    Wallpaper(#[from] tessera_wallpaper::Error),
-    #[error("avatar image could not be prepared: {0}")]
+    Flux(flux::Error),
+    Lens(lens::Error),
+    Wallpaper(tessera_wallpaper::Error),
     Avatar(String),
+}
+
+impl std::fmt::Display for RenderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Vulkan => f.write_str("Vulkan is unavailable"),
+            Self::Flux(err) => write!(f, "{err}"),
+            Self::Lens(err) => write!(f, "{err}"),
+            Self::Wallpaper(err) => write!(f, "{err}"),
+            Self::Avatar(msg) => write!(f, "avatar image could not be prepared: {msg}"),
+        }
+    }
+}
+
+impl std::error::Error for RenderError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Flux(err) => Some(err),
+            Self::Lens(err) => Some(err),
+            Self::Wallpaper(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+impl From<flux::Error> for RenderError {
+    fn from(err: flux::Error) -> Self {
+        Self::Flux(err)
+    }
+}
+
+impl From<lens::Error> for RenderError {
+    fn from(err: lens::Error) -> Self {
+        Self::Lens(err)
+    }
+}
+
+impl From<tessera_wallpaper::Error> for RenderError {
+    fn from(err: tessera_wallpaper::Error) -> Self {
+        Self::Wallpaper(err)
+    }
 }
 
 impl RenderError {

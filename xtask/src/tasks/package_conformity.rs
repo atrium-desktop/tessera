@@ -2,17 +2,15 @@
 //! dependency through `[workspace.dependencies]`, so versions, features, and
 //! sources have a single owner.
 
+use crate::error::{Context, Result, bail};
 use crate::workspace;
-use anyhow::{Context, Result, bail};
-use clap::Parser;
 use std::fs;
 use toml::Value;
 
-#[derive(Parser, Debug)]
+#[derive(Debug, Default)]
 pub struct Args {
     /// Append `[lints] workspace = true` to members that lack it.
-    #[arg(long)]
-    fix: bool,
+    pub fix: bool,
 }
 
 const SECTIONS: [&str; 3] = ["dependencies", "dev-dependencies", "build-dependencies"];

@@ -20,25 +20,69 @@ use tessera_authority::interaction_domain::InteractionDomainId;
 const STATE_SCHEMA: u32 = 2;
 
 /// Errors from state recovery and the managed Interaction Domain lifecycle.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum SessionError {
-    #[error("another agent process already owns scope {0:?}")]
     AlreadyRunning(String),
-    #[error(
-        "multiple live Agent Interaction Domains use label {label:?}: {interaction_domains:?}; choose a unique Interaction Domain label or revoke the stale Interaction Domains"
-    )]
     Ambiguous {
         label: String,
         interaction_domains: Vec<u64>,
     },
-    #[error("Interaction Domain recovery record is invalid or from an unsupported schema")]
     InvalidState,
-    #[error("Tessera returned an unexpected Interaction Domain action response")]
     UnexpectedResponse,
-    #[error("Interaction Domain recovery I/O failed: {0}")]
-    Io(#[from] io::Error),
-    #[error("Interaction Domain recovery record could not be decoded: {0}")]
-    Json(#[from] serde_json::Error),
+    Io(io::Error),
+    Json(serde_json::Error),
+}
+
+impl std::fmt::Display for SessionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AlreadyRunning(scope) => {
+                write!(f, "another agent process already owns scope {scope:?}")
+            }
+            Self::Ambiguous {
+                label,
+                interaction_domains,
+            } => write!(
+                f,
+                "multiple live Agent Interaction Domains use label {label:?}: {interaction_domains:?}; choose a unique Interaction Domain label or revoke the stale Interaction Domains"
+            ),
+            Self::InvalidState => f.write_str(
+                "Interaction Domain recovery record is invalid or from an unsupported schema",
+            ),
+            Self::UnexpectedResponse => {
+                f.write_str("Tessera returned an unexpected Interaction Domain action response")
+            }
+            Self::Io(err) => write!(f, "Interaction Domain recovery I/O failed: {err}"),
+            Self::Json(err) => {
+                write!(
+                    f,
+                    "Interaction Domain recovery record could not be decoded: {err}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for SessionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(err) => Some(err),
+            Self::Json(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+impl From<io::Error> for SessionError {
+    fn from(err: io::Error) -> Self {
+        Self::Io(err)
+    }
+}
+
+impl From<serde_json::Error> for SessionError {
+    fn from(err: serde_json::Error) -> Self {
+        Self::Json(err)
+    }
 }
 
 /// A filesystem-safe key for one agent instance scope: readable, short, and

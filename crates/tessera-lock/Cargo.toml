@@ -35,10 +35,9 @@ lens.workspace = true
 lens-sys.workspace = true
 libc.workspace = true
 log.workspace = true
-smithay-client-toolkit.workspace = true
+tessera-wl-client.workspace = true
 # wayland-backend stays out of the manifest: wayland-client's "system"
 # feature already enables wayland-backend/client_system.
-thiserror.workspace = true
 wayland-client.workspace = true
 wayland-protocols.workspace = true
 xkbcommon.workspace = true

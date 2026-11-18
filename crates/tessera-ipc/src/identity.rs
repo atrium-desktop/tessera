@@ -16,9 +16,16 @@ const IDENTITY_VERSION: u32 = 1;
 
 /// Identity persistence or continuity failure. The message is safe to
 /// surface to the user; it never contains credential material.
-#[derive(Debug, thiserror::Error)]
-#[error("{0}")]
+#[derive(Debug)]
 pub struct IdentityError(String);
+
+impl std::fmt::Display for IdentityError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for IdentityError {}
 
 impl From<String> for IdentityError {
     fn from(message: String) -> Self {

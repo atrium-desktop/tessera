@@ -181,12 +181,34 @@ impl PersistentConnection {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum PersistentError<E> {
-    #[error(transparent)]
-    Connect(#[from] ConnectError),
-    #[error("Tessera IPC request failed: {0}")]
+    Connect(ConnectError),
     Call(E),
+}
+
+impl<E: std::fmt::Display> std::fmt::Display for PersistentError<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Connect(err) => write!(f, "{err}"),
+            Self::Call(err) => write!(f, "Tessera IPC request failed: {err}"),
+        }
+    }
+}
+
+impl<E: std::error::Error + 'static> std::error::Error for PersistentError<E> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Connect(err) => Some(err),
+            Self::Call(_) => None,
+        }
+    }
+}
+
+impl<E> From<ConnectError> for PersistentError<E> {
+    fn from(err: ConnectError) -> Self {
+        Self::Connect(err)
+    }
 }
 
 #[cfg(test)]

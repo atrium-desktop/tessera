@@ -18,11 +18,13 @@ mod input;
 mod interaction_domain;
 mod ipc;
 mod iteration;
+mod output_target;
+mod output_target_render;
 mod pick;
 mod presentation;
 mod rendering;
 mod scanout;
-mod sched;
+pub(crate) mod sched;
 mod scheme;
 mod secret_prompt;
 mod session;
@@ -162,6 +164,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         configured_output_modes(config.as_ref()),
         configured_color_policies(config.as_ref()),
         configured_icc_profiles(config.as_ref()),
+        configured_display_topology(config.as_ref()),
+        configured_output_policies(config.as_ref()),
     )?;
     let is_nested = host_bootstrap.name() == "nested";
 
@@ -175,7 +179,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let sched_watchdog = watchdog_from_config(config.as_ref());
     // Publish the process-wide plan so worker threads tagged `mark_*` in this
     // and helper crates read one coherent frame/feeder/background split.
-    tessera_sched::arm_global_plan(sched_plan.clone());
+    sched::arm_global_plan(sched_plan.clone());
     // Lock the process's memory so background-IO swap latency can never push
     // the frame path to disk. Best-effort (needs the unit's CAP_IPC_LOCK).
     if sched_plan.realtime_enabled() {
@@ -198,7 +202,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .is_ok_and(|value| matches!(value.as_str(), "1" | "true" | "yes"));
     host.set_overlay_offload_enabled(overlay_offload_enabled);
     let mut input_status =
-        host.set_input_config(config.as_ref().map(|c| c.input).unwrap_or_default());
+        host.set_input_config(config.as_ref().map(|c| c.input.clone()).unwrap_or_default());
     // The backend has no keyboard device model; the runtime owns the
     // persisted repeat profile.
     input_status.keyboard = config
@@ -274,6 +278,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(c) = config.as_ref() {
         server.set_output_policies(c.output_policies());
     }
+    server.set_display_topology(configured_display_topology(config.as_ref()));
     // The effective scale the whole frame renders at: the primary output's
     // geometry after overrides, falling back to the host's own scale
     // (nested, where the host compositor owns scaling).
@@ -465,6 +470,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         server.set_remember_window_positions(c.layout.remember_window_positions);
         server.set_decoration_policy(c.ui.window_decorations);
         server.set_output_policies(c.output_policies());
+        server.set_display_topology(c.display_topology());
         server.set_allow_quit_while_locked(c.dev.allow_quit_while_locked);
         server.set_minimize_animation(c.dock.minimize_animation);
         server.set_keyboard_repeat(c.input.keyboard);
@@ -637,8 +643,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     system_status.input = input_status;
     system_status.display = tessera_desktop::settings::DisplayStatus {
         configurable: host.name() == "drm",
+        topology: configured_display_topology(config.as_ref()),
         outputs: server.output_infos(),
         error: None,
+        pending_revert_seconds: None,
     };
     system_status.do_not_disturb = notif_queue
         .lock()
@@ -662,7 +670,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .spawn(move || {
             // Background status polling: de-prioritized and pinned off the
             // frame CPU so probes never compete with presentation.
-            tessera_sched::mark_background();
+            sched::mark_background();
             // Last-known values for the forked fields; carried across cheap
             // polls so the snapshot stays coherent between full probes.
             struct StatusProbe {
@@ -754,7 +762,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .spawn(move || {
             // Background serialized TOML writer: de-prioritized so a config
             // write never competes with the frame loop.
-            tessera_sched::mark_background();
+            sched::mark_background();
             while let Ok(job) = config_write_rx.recv() {
                 let result = job.store.apply(job.edit).map_err(|error| error.to_string());
                 let _ = job.receipt.send(result);
@@ -1067,6 +1075,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // on the first call (state starts at 0), forcing a first-frame compute.
     let cached_presentation_interval: (u64, std::time::Duration) =
         (u64::MAX, std::time::Duration::from_secs(1));
+    let cached_presentation_groups: (u64, u64, Vec<tessera_desktop::output::PresentationGroup>) =
+        (u64::MAX, u64::MAX, Vec::new());
+    let independent_target_flips = false;
     let previous_agent_suspended = false;
     let automatically_paused_interaction_domains = std::collections::BTreeSet::new();
     // Whether chrome reported a multi-frame animation in flight last frame.
@@ -1101,7 +1112,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             // Background icon/catalog scan and decode: de-prioritized and
             // pinned off the frame CPU so a large app catalog never steals
             // the render core.
-            tessera_sched::mark_background();
+            sched::mark_background();
             let mut last_theme = String::new();
             let mut last_scale = 0u32;
             let mut last_catalog = Vec::new();
@@ -1145,7 +1156,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         },
         sched_plan.frame_cpu(),
         sched_plan.rt_priority(),
-        sched_plan.nice_for(tessera_sched::ThreadRole::Frame),
+        sched_plan.nice_for(sched::ThreadRole::Frame),
     );
 
     CompositorRuntime {
@@ -1190,6 +1201,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         frame_count,
         retired_defer,
         primary_plane_state: PrimaryPlaneState::default(),
+        direct_outputs: std::collections::BTreeSet::new(),
+        output_targets: std::collections::BTreeMap::new(),
+        output_target_failures: std::collections::BTreeMap::new(),
+        pending_display_revert: None,
         scanout_telemetry: ScanoutTelemetry::new(),
         overlay_telemetry: tessera_composite::presentation::OverlayTelemetry::new(),
         overlay_offload_enabled,
@@ -1251,6 +1266,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         last_interaction_domain_revision,
         last_outputs_revision,
         cached_presentation_interval,
+        cached_presentation_groups,
+        independent_target_flips,
         damage: DamageTracking::default(),
         presentation: PresentationScheduler::new(),
         pending_frame: None,

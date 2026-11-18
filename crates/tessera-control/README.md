@@ -1,7 +1,7 @@
-# tessera-cli
+# tessera-control
 
-`tessera-cli` implements the domain-oriented management command library and the
-headless `tessera-ctl` binary.
+`tessera-control` implements the domain-oriented session control and command
+dispatch library for the unified `tessera` binary.
 
 ## Responsibilities
 
@@ -11,7 +11,6 @@ headless `tessera-ctl` binary.
 - Format query results for humans or as JSON.
 - Stream compositor and mutation-journal events.
 - Generate shell completions for the unified `tessera` command.
-- Provide the standalone `tessera-ctl` headless CLI tool.
 - Keep command dispatch testable without Flux, Lens, Vulkan, or Wayland server
   dependencies.
 
@@ -26,7 +25,7 @@ commands into typed IPC requests; it is not a second control plane.
 Run the tests from the repository root:
 
 ```bash
-cargo nextest run -p tessera-cli
+cargo nextest run -p tessera-control
 ```
 
 ## Related Documentation

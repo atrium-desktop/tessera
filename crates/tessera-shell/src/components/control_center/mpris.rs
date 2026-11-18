@@ -4,13 +4,12 @@
 //! selects the active `org.mpris.MediaPlayer2.*` name, publishes a compact
 //! snapshot, and dispatches transport commands received over `mpsc`.
 
-use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Duration;
 
-use zbus::{Connection, OwnedVariant, Proxy, Variant};
+use tessera_dbus::{Connection, Proxy, Value, fdo};
 
 const MPRIS_PREFIX: &str = "org.mpris.MediaPlayer2.";
 const MPRIS_PATH: &str = "/org/mpris/MediaPlayer2";
@@ -91,17 +90,8 @@ impl MediaHandle {
     }
 }
 
-fn proxy<'a>(
-    connection: &'a Connection,
-    destination: &'a str,
-    path: &'a str,
-    interface: &'a str,
-) -> Result<Proxy<'a>, zbus::Error> {
-    zbus::block_on(Proxy::new(connection, destination, path, interface))
-}
-
 pub(super) fn spawn() -> Option<MediaHandle> {
-    let connection = match zbus::block_on(Connection::session()) {
+    let connection = match Connection::session() {
         Ok(connection) => connection,
         Err(error) => {
             log::info!("mpris: no session bus ({error}); media card is read-only empty state");
@@ -150,13 +140,10 @@ fn worker_loop(
 /// subsequent commands. Playing beats paused/stopped; otherwise stable bus
 /// order prevents the card from jumping between idle players.
 fn refresh(connection: &Connection, shared: &Arc<Mutex<MediaSnapshot>>) -> Option<String> {
-    let Ok(dbus) = zbus::block_on(zbus::fdo::DBusProxy::new(connection)) else {
+    let Ok(mut names) = fdo::list_names(connection) else {
         return None;
     };
-    let Ok(mut names) = zbus::block_on(dbus.list_names()) else {
-        return None;
-    };
-    names.sort_by(|left, right| left.as_str().cmp(right.as_str()));
+    names.sort();
 
     let mut selected: Option<(String, MediaSnapshot)> = None;
     for name in names {
@@ -189,13 +176,13 @@ fn refresh(connection: &Connection, shared: &Arc<Mutex<MediaSnapshot>>) -> Optio
 }
 
 fn read_player(connection: &Connection, destination: &str) -> Option<MediaSnapshot> {
-    let player = proxy(connection, destination, MPRIS_PATH, PLAYER_IFACE).ok()?;
-    let playback_status: String = zbus::block_on(player.get_property("PlaybackStatus")).ok()?;
-    let metadata: HashMap<String, OwnedVariant> =
-        zbus::block_on(player.get_property("Metadata")).unwrap_or_default();
-    let root = proxy(connection, destination, MPRIS_PATH, ROOT_IFACE).ok();
+    let player = Proxy::new(connection, destination, MPRIS_PATH, PLAYER_IFACE);
+    let playback_status: String = player.get_property("PlaybackStatus").ok()?;
+    let metadata: HashMap<String, Value> = player.get_property("Metadata").unwrap_or_default();
+    let root = Proxy::new(connection, destination, MPRIS_PATH, ROOT_IFACE);
     let identity = root
-        .and_then(|proxy| zbus::block_on(proxy.get_property::<String>("Identity")).ok())
+        .get_property::<String>("Identity")
+        .ok()
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| {
             destination
@@ -210,42 +197,35 @@ fn read_player(connection: &Connection, destination: &str) -> Option<MediaSnapsh
         identity,
         title: metadata_string(&metadata, "xesam:title").unwrap_or_default(),
         artist: metadata_artists(&metadata).join(", "),
-        can_previous: zbus::block_on(player.get_property("CanGoPrevious")).unwrap_or(false),
-        can_next: zbus::block_on(player.get_property("CanGoNext")).unwrap_or(false),
+        can_previous: player.get_property("CanGoPrevious").unwrap_or(false),
+        can_next: player.get_property("CanGoNext").unwrap_or(false),
     })
 }
 
 fn invoke(connection: &Connection, destination: &str, command: MediaCommand) {
-    let Ok(player) = proxy(connection, destination, MPRIS_PATH, PLAYER_IFACE) else {
-        return;
-    };
+    let player = Proxy::new(connection, destination, MPRIS_PATH, PLAYER_IFACE);
     let method = match command {
         MediaCommand::Previous => "Previous",
         MediaCommand::PlayPause => "PlayPause",
         MediaCommand::Next => "Next",
     };
-    if let Err(error) = zbus::block_on(player.call::<_, _, ()>(method, &())) {
+    if let Err(error) = player.call::<_, ()>(method, &()) {
         log::debug!("mpris: {method} on {destination} failed: {error}");
     }
 }
 
-fn metadata_string(metadata: &HashMap<String, OwnedVariant>, key: &str) -> Option<String> {
-    metadata.get(key).and_then(|value| {
-        Borrow::<Variant>::borrow(value)
-            .downcast_ref::<&str>()
-            .ok()
-            .map(str::to_string)
-    })
+fn metadata_string(metadata: &HashMap<String, Value>, key: &str) -> Option<String> {
+    metadata.get(key)?.as_str().map(str::to_string)
 }
 
-fn metadata_artists(metadata: &HashMap<String, OwnedVariant>) -> Vec<String> {
+fn metadata_artists(metadata: &HashMap<String, Value>) -> Vec<String> {
     let Some(value) = metadata.get("xesam:artist") else {
         return Vec::new();
     };
-    match Borrow::<Variant>::borrow(value) {
-        Variant::Array(values) => values
+    match value.unwrap_variant() {
+        Value::Array(_, values) => values
             .iter()
-            .filter_map(|value| value.downcast_ref::<&str>().ok().map(str::to_string))
+            .filter_map(|value| value.as_str().map(str::to_string))
             .collect(),
         _ => Vec::new(),
     }

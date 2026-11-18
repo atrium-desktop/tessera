@@ -12,6 +12,7 @@ superseded_by: null
 - Date: 2026-06-23
 - Amended by: [ADR-0184](0184-integral-automatic-output-scale.md) — the automatic output scale is now integral, because a fractional recommendation forces `ceil(scale)`-sized client buffers off the physical grid.
 - Amended by: [ADR-0186](0186-session-scoped-virtual-extend-outputs-and-offscreen-output-streaming.md) — `OutputKind::Virtual` and `VirtualOutputSpec` extend the output model with session-scoped headless connectors in the human interaction domain.
+- Amended by: [ADR-0243](0243-output-roles-and-mirroring.md) — `OutputRole::Mirror` is now a first-class presentation alias, and `[display] topology` resolves the default extend-or-mirror choice.
 
 ## Context
 

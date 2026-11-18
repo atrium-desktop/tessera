@@ -65,7 +65,12 @@ pub(super) struct VideoSource {
 impl VideoSource {
     /// Spawn ffmpeg pointing at `path`, scaled to `target_w`×`target_h`,
     /// and block until the first frame lands in the slot.
-    pub(super) fn open(path: &Path, target_w: u32, target_h: u32) -> Result<Self, Error> {
+    pub(super) fn open(
+        path: &Path,
+        target_w: u32,
+        target_h: u32,
+        on_worker_start: Option<fn()>,
+    ) -> Result<Self, Error> {
         if target_w == 0 || target_h == 0 {
             return Err(Error::UnsupportedFormat(path.to_path_buf(), None));
         }
@@ -82,10 +87,9 @@ impl VideoSource {
                 let slot = slot.clone();
                 let shutdown = shutdown.clone();
                 move || {
-                    // Feeds every rendered frame: elevated below the frame
-                    // thread and pinned off the frame CPU so decode never
-                    // competes with presentation.
-                    tessera_sched::mark_frame_feeder();
+                    if let Some(init) = on_worker_start {
+                        init();
+                    }
                     reader_loop(path, target_w, target_h, slot, shutdown)
                 }
             })

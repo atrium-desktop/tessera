@@ -39,6 +39,7 @@ fn backend_outputs_reconcile_workspace_connectors_and_geometry() {
         scale: tessera_desktop::output::Scale::IDENTITY,
         transform: tessera_primitives::Transform::Normal,
         logical_origin: tessera_primitives::Point { x, y: 0 },
+        logical_size_override: None,
     };
     server.set_outputs(vec![
         tessera_desktop::output::OutputInfo {
@@ -47,6 +48,8 @@ fn backend_outputs_reconcile_workspace_connectors_and_geometry() {
             kind: tessera_desktop::output::OutputKind::External,
             available_modes: Vec::new(),
             color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
         },
         tessera_desktop::output::OutputInfo {
             connector: "HDMI-A-1".into(),
@@ -54,6 +57,8 @@ fn backend_outputs_reconcile_workspace_connectors_and_geometry() {
             kind: tessera_desktop::output::OutputKind::External,
             available_modes: Vec::new(),
             color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
         },
     ]);
 
@@ -88,6 +93,7 @@ fn output_policies_apply_scale_position_and_primary() {
         return;
     }
     let mut server = Server::new().expect("Server::new");
+    server.set_display_topology(tessera_desktop::output::DisplayTopology::Extend);
     let geometry = |x, width| tessera_desktop::output::OutputGeometry {
         mode: tessera_desktop::output::OutputMode {
             width,
@@ -97,6 +103,7 @@ fn output_policies_apply_scale_position_and_primary() {
         scale: tessera_desktop::output::Scale::IDENTITY,
         transform: tessera_primitives::Transform::Normal,
         logical_origin: tessera_primitives::Point { x, y: 0 },
+        logical_size_override: None,
     };
     server.set_outputs(vec![
         tessera_desktop::output::OutputInfo {
@@ -105,6 +112,8 @@ fn output_policies_apply_scale_position_and_primary() {
             kind: tessera_desktop::output::OutputKind::External,
             available_modes: Vec::new(),
             color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
         },
         tessera_desktop::output::OutputInfo {
             connector: "HDMI-A-1".into(),
@@ -112,6 +121,8 @@ fn output_policies_apply_scale_position_and_primary() {
             kind: tessera_desktop::output::OutputKind::External,
             available_modes: Vec::new(),
             color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
         },
     ]);
 
@@ -143,6 +154,11 @@ fn output_policies_apply_scale_position_and_primary() {
         server.output_logical_rect().origin,
         tessera_primitives::Point { x: 1920, y: 0 },
         "the focused output geometry follows the primary policy"
+    );
+    assert_eq!(
+        server.output_local_rect(),
+        tessera_primitives::Rect::new(0, 0, 1280, 540),
+        "chrome and canvas passes address the output-local frame, origin 0"
     );
     // The other output keeps its backend-reported geometry.
     assert_eq!(infos[1].geometry.scale.as_f32(), 1.0);
@@ -471,6 +487,7 @@ fn committed_opaque_region_culls_a_fully_covered_window_tree() {
             height: 80,
             refresh_mhz: 60_000,
         },
+        logical_size_override: None,
         ..Default::default()
     };
     let background_id = tessera_desktop::window::WindowId(301);
@@ -745,10 +762,13 @@ fn test_inv_arch_74_physical_output_always_outranks_virtual_primary() {
             scale: tessera_desktop::output::Scale::IDENTITY,
             transform: tessera_primitives::Transform::Normal,
             logical_origin: tessera_primitives::Point { x: 0, y: 0 },
+            logical_size_override: None,
         },
         kind: tessera_desktop::output::OutputKind::Internal,
         available_modes: Vec::new(),
         color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+        role: tessera_desktop::output::OutputRole::Extend,
+        role_source: tessera_desktop::output::OutputRoleSource::Auto,
     }]);
     let virt = server
         .create_virtual_output(
@@ -807,10 +827,13 @@ fn test_inv_arch_76_virtual_output_does_not_evict_the_physical_scene() {
             scale: tessera_desktop::output::Scale::IDENTITY,
             transform: tessera_primitives::Transform::Normal,
             logical_origin: tessera_primitives::Point { x: 0, y: 0 },
+            logical_size_override: None,
         },
         kind: tessera_desktop::output::OutputKind::Internal,
         available_modes: Vec::new(),
         color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+        role: tessera_desktop::output::OutputRole::Extend,
+        role_source: tessera_desktop::output::OutputRoleSource::Auto,
     }]);
     server
         .create_virtual_output(
@@ -934,10 +957,13 @@ fn test_inv_arch_75_connection_disconnect_reclaims_virtual_outputs_and_relocates
             scale: tessera_desktop::output::Scale::IDENTITY,
             transform: tessera_primitives::Transform::Normal,
             logical_origin: tessera_primitives::Point { x: 0, y: 0 },
+            logical_size_override: None,
         },
         kind: tessera_desktop::output::OutputKind::Internal,
         available_modes: Vec::new(),
         color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+        role: tessera_desktop::output::OutputRole::Extend,
+        role_source: tessera_desktop::output::OutputRoleSource::Auto,
     }]);
     server
         .create_virtual_output(
@@ -1021,10 +1047,13 @@ fn test_inv_arch_78_output_scoped_input_rejects_out_of_bounds_and_locked_session
             scale: tessera_desktop::output::Scale::IDENTITY,
             transform: tessera_primitives::Transform::Normal,
             logical_origin: tessera_primitives::Point { x: 0, y: 0 },
+            logical_size_override: None,
         },
         kind: tessera_desktop::output::OutputKind::Internal,
         available_modes: Vec::new(),
         color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+        role: tessera_desktop::output::OutputRole::Extend,
+        role_source: tessera_desktop::output::OutputRoleSource::Auto,
     }]);
     server
         .create_virtual_output(
@@ -1304,5 +1333,147 @@ mod damage_sequence_properties {
                 prop_assert_eq!(surface.committed_damage_full, full);
             }
         }
+    }
+
+    #[test]
+    fn mixed_scale_outputs_use_logical_widths_for_auto_placement() {
+        if std::env::var_os("XDG_RUNTIME_DIR").is_none() {
+            eprintln!("skipping: XDG_RUNTIME_DIR not set");
+            return;
+        }
+        let mut server = Server::new().expect("Server::new");
+        server.set_display_topology(tessera_desktop::output::DisplayTopology::Extend);
+        let output =
+            |connector: &str, width, height, scale, x, kind| tessera_desktop::output::OutputInfo {
+                connector: connector.into(),
+                geometry: tessera_desktop::output::OutputGeometry {
+                    mode: tessera_desktop::output::OutputMode {
+                        width,
+                        height,
+                        refresh_mhz: 60_000,
+                    },
+                    scale: tessera_desktop::output::Scale(scale),
+                    transform: tessera_primitives::Transform::Normal,
+                    logical_origin: tessera_primitives::Point { x, y: 0 },
+                    logical_size_override: None,
+                },
+                kind,
+                available_modes: Vec::new(),
+                color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+                role: tessera_desktop::output::OutputRole::Extend,
+                role_source: tessera_desktop::output::OutputRoleSource::Auto,
+            };
+        server.set_outputs(vec![
+            output(
+                "eDP-1",
+                2560,
+                1440,
+                2.0,
+                0,
+                tessera_desktop::output::OutputKind::Internal,
+            ),
+            output(
+                "HDMI-A-1",
+                1920,
+                1080,
+                1.0,
+                2560,
+                tessera_desktop::output::OutputKind::External,
+            ),
+        ]);
+        let infos = server.output_infos();
+        assert_eq!(infos[0].geometry.logical_origin.x, 0);
+        assert_eq!(
+            infos[1].geometry.logical_origin.x, 1280,
+            "the second output follows the first output's logical width, not its physical x"
+        );
+    }
+
+    #[test]
+    fn mirror_output_shares_the_source_rect_and_owns_no_workspace() {
+        if std::env::var_os("XDG_RUNTIME_DIR").is_none() {
+            eprintln!("skipping: XDG_RUNTIME_DIR not set");
+            return;
+        }
+        let mut server = Server::new().expect("Server::new");
+        let geometry = |x, width| tessera_desktop::output::OutputGeometry {
+            mode: tessera_desktop::output::OutputMode {
+                width,
+                height: 1080,
+                refresh_mhz: 60_000,
+            },
+            scale: tessera_desktop::output::Scale::IDENTITY,
+            transform: tessera_primitives::Transform::Normal,
+            logical_origin: tessera_primitives::Point { x, y: 0 },
+            logical_size_override: None,
+        };
+        server.set_display_topology(tessera_desktop::output::DisplayTopology::Extend);
+        server.set_outputs(vec![
+            tessera_desktop::output::OutputInfo {
+                connector: "eDP-1".into(),
+                geometry: geometry(0, 1920),
+                kind: tessera_desktop::output::OutputKind::Internal,
+                available_modes: Vec::new(),
+                color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+                role: tessera_desktop::output::OutputRole::Extend,
+                role_source: tessera_desktop::output::OutputRoleSource::Auto,
+            },
+            tessera_desktop::output::OutputInfo {
+                connector: "HDMI-A-1".into(),
+                geometry: geometry(1920, 1280),
+                kind: tessera_desktop::output::OutputKind::External,
+                available_modes: Vec::new(),
+                color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+                role: tessera_desktop::output::OutputRole::Extend,
+                role_source: tessera_desktop::output::OutputRoleSource::Auto,
+            },
+        ]);
+        server.set_output_policies(std::collections::HashMap::from([(
+            "HDMI-A-1".to_owned(),
+            tessera_desktop::output::OutputPolicy {
+                role: Some(tessera_desktop::output::OutputRole::Mirror {
+                    source: "eDP-1".into(),
+                }),
+                ..Default::default()
+            },
+        )]));
+
+        let infos = server.output_infos();
+        let source = infos
+            .iter()
+            .find(|output| output.connector == "eDP-1")
+            .unwrap();
+        let mirror = infos
+            .iter()
+            .find(|output| output.connector == "HDMI-A-1")
+            .unwrap();
+        assert!(mirror.role.is_mirror());
+        assert_eq!(
+            mirror.role_source,
+            tessera_desktop::output::OutputRoleSource::Explicit
+        );
+        assert_eq!(
+            mirror.geometry.logical_rect(),
+            source.geometry.logical_rect()
+        );
+        assert_eq!(
+            mirror.geometry.logical_size(),
+            source.geometry.logical_size()
+        );
+
+        let snapshot = server.workspace_snapshot();
+        assert!(
+            snapshot
+                .outputs
+                .iter()
+                .any(|output| output.connector == "eDP-1")
+        );
+        assert!(
+            !snapshot
+                .outputs
+                .iter()
+                .any(|output| output.connector == "HDMI-A-1"),
+            "a mirror must not own a workspace strip"
+        );
     }
 }

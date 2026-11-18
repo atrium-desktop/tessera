@@ -4,7 +4,7 @@ resolver = "3"
 members = ["crates/*", "tests", "xtask"]
 default-members = [
     "crates/tessera",
-    "crates/tessera-cli",
+    "crates/tessera-control",
     "crates/tessera-lock",
     "crates/tessera-idle",
     "crates/tessera-cast",
@@ -28,39 +28,40 @@ repository = "https://github.com/atrium-desktop/tessera"
 # which exercises its binary entry points.
 tessera = { path = "crates/tessera" }
 tessera-primitives = { path = "crates/tessera-primitives" }
+tessera-image = { path = "crates/tessera-image" }
 tessera-assets = { path = "crates/tessera-assets" }
 tessera-launch-services = { path = "crates/tessera-launch-services" }
 tessera-desktop = { path = "crates/tessera-desktop" }
 tessera-ipc = { path = "crates/tessera-ipc" }
+tessera-dbus = { path = "crates/tessera-dbus" }
+tessera-wl-client = { path = "crates/tessera-wl-client" }
 tessera-protocol = { path = "crates/tessera-protocol" }
 tessera-audit = { path = "crates/tessera-audit" }
-# Realtime scheduling and CPU-pinning for the compositor frame loop.
-tessera-sched = { path = "crates/tessera-sched" }
 # flux (rendering engine) + lens (immediate-mode UI engine) Rust bindings.
 # The canonical build resolves the binding sources from the tagged optics
 # monorepo and links the C libraries discovered by pkg-config. A linked
 # development worktree can patch these sources through
 # .cargo/optics-local.toml without making a sibling checkout mandatory for CI
 # or downstream packagers.
-flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
-flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
-vista = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
-vista-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
+flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
+flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
+vista = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
+vista-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
 # Renderer-neutral offscreen DAG planning above Flux image operators.
-lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
-lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
+lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
+lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
 # transit (motion vocabulary; ADR-0172) provides analytic springs and easing;
 # v0.0.53 adds the explicit `reduced_motion` flag to every advance entry point.
 # Optics v0.0.79 makes transit a header-only vocabulary on the C side and pure
 # Safe Rust here (Optics ADR-0158), so there is no transit-sys FFI crate and no
 # native library to discover or rpath.
-transit = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
+transit = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
 # reticle (vector-document compiler; ADR-0220, renamed from svg in Optics
 # ADR-0161) is the single SVG implementation in the stack: cursors, application
 # icons and tray icons all compile through it instead of shelling out to
 # rsvg-convert or shipping pre-baked bitmaps.
-reticle = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
-reticle-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
+reticle = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
+reticle-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
 
 # Observability: crates emit through the `log` facade; each binary installs a
 # `tracing`-based subscriber through the shared `tessera-env` crate, which
@@ -68,49 +69,13 @@ reticle-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
 # Long-term this seam is also how the AI-adaptation phase subscribes to
 # compositor events.
 log = "0.4"
-tracing = "0.1"
-tracing-log = "0.2"
-tracing-subscriber = { version = "0.3", default-features = false, features = [
-    "env-filter",
-    "fmt",
-    "ansi",
-    "json",
-    "registry",
-] }
 
 # tessera-mcp is the platform's MCP bridge. tessera exposes the bridge so any
 # agent can discover scoped desktop and Interaction Domain tools without
 # linking an agent stack into the compositor (ADR-0047, ADR-0087).
 flate2 = "1"
-getrandom = "0.4"
 hmac = "0.12"
-notify = "8.2"
 sha2 = "0.10"
-
-# Session D-Bus for the StatusNotifierItem system tray (internal to tessera-shell,
-# shared by HUD and control-center).
-# Pure-Rust zbus (no libdbus system dep). zbus 6 folded the zvariant derive
-# macros into the main crate and removed the blocking module; synchronous
-# workers drive the async API through `zbus::block_on` and stay plain
-# `std::thread`s. `default-rt` keeps zbus's built-in zruntime, and
-# `proxy`/`service` cover the D-Bus client and object-server surfaces.
-zbus = { version = "6", default-features = false, features = [
-    "default-rt",
-    "proxy",
-    "service",
-] }
-
-# zbus 6 exposes signal subscriptions as async `MessageStream`s. Synchronous
-# workers drive them through `zbus::block_on`; `StreamExt` is the minimal
-# stream adapter used by those threads.
-futures-util = { version = "0.3", default-features = false, features = ["std"] }
-
-# SIGINT/SIGTERM handling for the caster so a session's `Drop` guard can leave
-# a P2P group instead of exiting between destructors.
-signal-hook = "0.3"
-
-# Typed errors without handwritten Display/From impls.
-thiserror = "2"
 
 # Direct-display backend: drm-rs provides atomic KMS, libseat mediates
 # privileged device access/session switching, and input is the maintained
@@ -166,8 +131,8 @@ tessera-network = { path = "crates/tessera-network" }
 tessera-network-system = { path = "crates/tessera-network-system" }
 # Configuration: versioned TOML schema, loader, and live reload (ADR-0026).
 tessera-config = { path = "crates/tessera-config" }
-# Domain-oriented native command implementation used by the `tessera` binary.
-tessera-cli = { path = "crates/tessera-cli" }
+# Domain-oriented session control and command dispatch used by the `tessera` binary.
+tessera-control = { path = "crates/tessera-control" }
 # tessera-mcp: the scoped Tessera platform bridge over MCP — the standard agent
 # access point (ADR-0047, ADR-0087). It is an out-of-process adapter any MCP
 # client can spawn; the compositor never links it.
@@ -186,20 +151,6 @@ serde = { version = "1", features = ["derive"] }
 toml = "1"
 serde_json = "1"
 
-# Image decode for the wallpaper crate. default-features off so the
-# avif decoder (which needs dav1d on the host) does not gate the build;
-# the enabled set covers still and animated formats used by wallpaper/chrome.
-image = { version = "0.25", default-features = false, features = [
-    "png",
-    "jpeg",
-    "gif",
-    "webp",
-] }
-
-# Embed the bundled Tessera cursor theme into the binary so a
-# sane default exists even with no XCURSOR_THEME and a bare TTY.
-include_dir = "0.7"
-
 # Standalone first-party Wayland clients. The system backend is required by
 # tessera-lock because Vulkan needs the native wl_display/wl_surface pointers.
 wayland-client = { version = "0.31.14", features = ["system"] }
@@ -208,15 +159,11 @@ wayland-protocols = { version = "0.32.13", features = [
     "staging",
     "unstable",
 ] }
-smithay-client-toolkit = { version = "0.21.1", features = ["calloop", "xkbcommon"] }
 ash = "0.38"
 xkbcommon = "0.8"
 zeroize = "1.8"
 
 # CLI, automation, and shared utility tooling
-clap = { version = "4", features = ["derive"] }
-clap_complete = "4"
-anyhow = "1"
 tempfile = "3"
 # Property-based testing for the wire schema. The IPC wire is a versioned
 # serde surface with strict tags and serde-defaulted fields; generated
@@ -238,7 +185,7 @@ codegen-units = 256
 # builds to prevent frame drops, while macro crates stay unoptimized so they
 # do not serialize Cargo's dependency graph during compilation (ADR-0206).
 [profile.dev.package]
-image = { opt-level = 2 }
+tessera-image = { opt-level = 2 }
 
 # Dependencies change infrequently; opt-level 1 provides sufficient inlining
 # and performance without incurring LLVM -O2 compilation pauses (ADR-0206).

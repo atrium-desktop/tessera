@@ -366,6 +366,7 @@ fn window_shadows_are_materialized_before_they_are_composited() {
         std::slice::from_ref(&window),
         1.0,
         WindowShadowStyle::Soft,
+        0,
     );
     assert_eq!(shadows.len(), 1, "a soft shadow is rendered per window");
 

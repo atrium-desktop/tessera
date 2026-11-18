@@ -1,7 +1,7 @@
 ---
 id: ADR-0185
 title: "Per-Output Presentation Domains"
-status: draft
+status: accepted
 date: 2026-10-20
 scope: platform/drm, composite/presentation, runtime/presentation, wayland/server
 superseded_by: null
@@ -10,10 +10,35 @@ negative_knowledge: true
 
 # 0185. Per-Output Presentation Domains
 
-- Status: Draft (proposal under deliberation; not implemented)
+- Status: Accepted (implementation landed; two-output hardware verification pending)
 - Date: 2026-10-20
 - Deciders: Tessera Maintainers
-- Amends (on acceptance): [ADR-0101](0101-dual-presentation-paths-and-conservative-kms-plane-allocation.md), [ADR-0130](0130-stream-paced-presentation-and-scanout-exclusion.md), [ADR-0182](0182-fullscreen-frame-pacing-and-direct-scanout-fidelity.md)
+- Implementation: per-CRTC `PlaneSlot` ownership with per-output framebuffer
+  references, explicit composite targets (`present_to`), target-scoped direct
+  scanout (`present_scanout(..., target)`), per-CRTC page-flip retirement,
+  per-output scanout eligibility, and Flux dma-buf image leases (optics
+  ADR-0168) shared by every CRTC scanning the same composited image. Logical
+  origins and the fullscreen occlusion proxy landed with
+  [ADR-0243](0243-output-roles-and-mirroring.md).
+- The runtime filters composite targets to outputs whose slot is not pending,
+  so a fast output can advance while a slow output retires its own flip.
+  Frame callbacks, `wp_presentation_feedback`, and damage acknowledgement are
+  filtered to the surfaces on those outputs; an untargeted output keeps its
+  damage for the frame that actually presents it. A
+  Flux image lease prevents the ring from reusing an image still scanned by a
+  slow CRTC; ring exhaustion surfaces as `FLUX_ERROR_BUSY` and is retried on a
+  backend event.
+- Multiple simultaneous direct targets are supported when every physical
+  output has its own covering opaque client and no composition is required:
+  the runtime issues one target-scoped commit per CRTC and scopes callbacks,
+  presentation feedback, and damage acknowledgement to those outputs.
+  Mixed direct+composite remains the single-target path. Normal DRM desktop
+  frames now render one mode-sized target per physical output (ADR-0247);
+  mirrors sample their source target, and capture/stream frames retain a
+  dedicated union capture composition. True capture-side target selection
+  remains pending. Two-output hardware
+  verification is pending.
+- Amends: [ADR-0101](0101-dual-presentation-paths-and-conservative-kms-plane-allocation.md), [ADR-0130](0130-stream-paced-presentation-and-scanout-exclusion.md), [ADR-0182](0182-fullscreen-frame-pacing-and-direct-scanout-fidelity.md)
 
 ---
 
@@ -95,7 +120,7 @@ neither can be validated without a physical two-output KMS session.
   partial commit destroys that argument.
 - **No visual regression for the single-output case**, which is the majority.
 
-## Decision Outcome (proposed)
+## Decision Outcome
 
 ### 1. Per-output plane slots with reference-counted framebuffers
 

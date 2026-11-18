@@ -11,7 +11,7 @@
 //! the reference TV. A `NotFound` from a method or interface that iwd has already
 //! removed is classified as `Unsupported`, not a protocol failure.
 
-use zbus::{Connection, OwnedVariant, Variant};
+use tessera_dbus::{Connection, FromArgs, Message, ToArgs, Value};
 
 /// iwd's well-known system-bus name.
 pub const IWD_SERVICE: &str = "net.connman.iwd";
@@ -70,18 +70,15 @@ impl std::fmt::Display for IwdError {
 
 impl std::error::Error for IwdError {}
 
-pub(crate) fn blocking_call<B>(
+pub(crate) fn blocking_call<B: ToArgs>(
     connection: &Connection,
     destination: Option<&str>,
     path: &str,
     interface: Option<&str>,
     method: &str,
     body: &B,
-) -> zbus::Result<zbus::Message>
-where
-    B: zbus::export::serde::ser::Serialize + zbus::DynamicType,
-{
-    zbus::block_on(connection.call_method(destination, path, interface, method, body))
+) -> tessera_dbus::Result<Message> {
+    connection.call_method(destination, path, interface, method, body)
 }
 
 /// Open the system bus for talking to an **already running** iwd.
@@ -93,19 +90,20 @@ where
 /// the bus whether the name has an owner never activates anything, so a
 /// stopped iwd is reported as [`IwdError::ServiceUnavailable`] instead.
 pub fn system_connection() -> Result<Connection, IwdError> {
-    let connection = zbus::block_on(Connection::system())
-        .map_err(|error| IwdError::BusUnavailable(error.to_string()))?;
-    let running: bool = blocking_call(
-        &connection,
-        Some("org.freedesktop.DBus"),
-        "/org/freedesktop/DBus",
-        Some("org.freedesktop.DBus"),
-        "NameHasOwner",
-        &(IWD_SERVICE,),
+    let connection =
+        Connection::system().map_err(|error| IwdError::BusUnavailable(error.to_string()))?;
+    let running: bool = FromArgs::from_args(
+        blocking_call(
+            &connection,
+            Some("org.freedesktop.DBus"),
+            "/org/freedesktop/DBus",
+            Some("org.freedesktop.DBus"),
+            "NameHasOwner",
+            &(IWD_SERVICE,),
+        )
+        .map_err(|error| IwdError::BusUnavailable(error.to_string()))?
+        .body,
     )
-    .map_err(|error| IwdError::BusUnavailable(error.to_string()))?
-    .body()
-    .deserialize()
     .map_err(|error| IwdError::Protocol(format!("NameHasOwner: {error}")))?;
     if !running {
         return Err(IwdError::ServiceUnavailable);
@@ -149,9 +147,7 @@ pub fn introspect(connection: &Connection, path: &str) -> Result<String, IwdErro
         &(),
     )
     .map_err(|error| classify(error, "iwd"))?;
-    reply
-        .body()
-        .deserialize::<String>()
+    FromArgs::from_args(reply.body)
         .map_err(|error| IwdError::Protocol(format!("introspection of {path}: {error}")))
 }
 
@@ -171,7 +167,7 @@ pub fn property(
     path: &str,
     interface: &str,
     name: &str,
-) -> Result<OwnedVariant, IwdError> {
+) -> Result<Value, IwdError> {
     let reply = blocking_call(
         connection,
         Some(IWD_SERVICE),
@@ -186,9 +182,7 @@ pub fn property(
         IwdError::Protocol(_) => IwdError::Unsupported(format!("{interface}.{name}")),
         other => other,
     })?;
-    reply
-        .body()
-        .deserialize::<OwnedVariant>()
+    FromArgs::from_args(reply.body)
         .map_err(|error| IwdError::Protocol(format!("{interface}.{name}: {error}")))
 }
 
@@ -199,11 +193,11 @@ pub fn bool_property(
     interface: &str,
     name: &str,
 ) -> Result<bool, IwdError> {
-    match &*property(connection, path, interface, name)? {
-        Variant::Bool(value) => Ok(*value),
+    match property(connection, path, interface, name)?.unwrap_variant() {
+        Value::Bool(value) => Ok(*value),
         other => Err(IwdError::Protocol(format!(
             "{interface}.{name}: expected b, got {}",
-            other.value_signature()
+            other.signature()
         ))),
     }
 }
@@ -215,11 +209,11 @@ pub fn u16_property(
     interface: &str,
     name: &str,
 ) -> Result<u16, IwdError> {
-    match &*property(connection, path, interface, name)? {
-        Variant::U16(value) => Ok(*value),
+    match property(connection, path, interface, name)?.unwrap_variant() {
+        Value::Uint16(value) => Ok(*value),
         other => Err(IwdError::Protocol(format!(
             "{interface}.{name}: expected q, got {}",
-            other.value_signature()
+            other.signature()
         ))),
     }
 }
@@ -231,11 +225,11 @@ pub fn string_property(
     interface: &str,
     name: &str,
 ) -> Result<String, IwdError> {
-    match &*property(connection, path, interface, name)? {
-        Variant::Str(value) => Ok(value.to_string()),
+    match property(connection, path, interface, name)?.unwrap_variant() {
+        Value::String(value) => Ok(value.clone()),
         other => Err(IwdError::Protocol(format!(
             "{interface}.{name}: expected s, got {}",
-            other.value_signature()
+            other.signature()
         ))),
     }
 }
@@ -254,19 +248,23 @@ pub fn set_bool_property(
         path,
         Some("org.freedesktop.DBus.Properties"),
         "Set",
-        &(interface, name, Variant::Bool(value)),
+        &(
+            interface,
+            name,
+            Value::Variant(Box::new(Value::Bool(value))),
+        ),
     )
     .map(|_| ())
     .map_err(|error| classify(error, &format!("{interface}.{name}")))
 }
 
-/// Classify a zbus failure into the vocabulary callers can act on.
+/// Classify a D-Bus failure into the vocabulary callers can act on.
 ///
 /// `AccessDenied` is separated from every other failure on purpose: "you are not
 /// privileged" and "this hardware cannot" are different problems with different
 /// fixes, and collapsing them is how a deployment issue gets mistaken for a bug.
-pub fn classify(error: zbus::Error, what: &str) -> IwdError {
-    if let zbus::Error::MethodError(name, detail, _) = &error
+pub fn classify(error: tessera_dbus::Error, what: &str) -> IwdError {
+    if let tessera_dbus::Error::MethodError { name, detail } = &error
         && let Some(mapped) = classify_error_name(name.as_str(), detail.as_deref(), what)
     {
         return mapped;

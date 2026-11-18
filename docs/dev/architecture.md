@@ -30,7 +30,7 @@ layer boundaries are prohibited.
 │  - GPU composition: `tessera-composite`                       │
 │  - Hardware: `tessera-platform`, `tessera-wayland`            │
 │  - Services & management: `tessera-launch-services`,          │
-│    `tessera-assets`, `tessera-cli`, `tessera-mcp`,            │
+│    `tessera-assets`, `tessera-control`, `tessera-mcp`,            │
 │    `tessera-idle`, `tessera-config`, `tessera-design`,        │
 │    `tessera-env`                                              │
 ├───────────────────────────────────────────────────────────────┤

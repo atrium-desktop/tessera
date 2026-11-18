@@ -23,6 +23,9 @@ pub(crate) struct InputModule {
     touchpad: TouchpadStatus,
     mouse: MouseStatus,
     keyboard: KeyboardConfig,
+    /// Absolute-device bindings are file-only; Input Settings carries them
+    /// through unchanged so applying pointer preferences never erases them.
+    mappings: Vec<tessera_primitives::input::InputMapping>,
 }
 
 impl InputModule {
@@ -31,6 +34,7 @@ impl InputModule {
             touchpad: TouchpadStatus::default(),
             mouse: MouseStatus::default(),
             keyboard: KeyboardConfig::default(),
+            mappings: Vec::new(),
         }
     }
 }
@@ -391,6 +395,7 @@ impl SettingsModule for InputModule {
                     touchpad,
                     mouse,
                     keyboard,
+                    mappings: self.mappings.clone(),
                 },
             });
         }
@@ -400,6 +405,7 @@ impl SettingsModule for InputModule {
         self.touchpad = snapshot.input.touchpad.clone();
         self.mouse = snapshot.input.mouse.clone();
         self.keyboard = snapshot.input.keyboard;
+        self.mappings = snapshot.input.mappings.clone();
     }
 }
 

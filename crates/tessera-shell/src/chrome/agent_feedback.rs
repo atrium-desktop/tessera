@@ -24,9 +24,9 @@
 use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant};
 
-#[cfg(feature = "agent-sprites")]
-use include_dir::{Dir, include_dir};
 use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
+#[cfg(feature = "agent-sprites")]
+use tessera_assets::cursors::{self, EmbeddedDir};
 use tessera_authority::interaction_domain::InteractionDomainId;
 use tessera_authority::interaction_domain::InteractionDomainSnapshot;
 use tessera_authority::interaction_domain::InteractionDomainState;
@@ -56,14 +56,6 @@ const LABEL_HEIGHT: f32 = 28.0;
 const BACKGROUND_HEIGHT: f32 = 34.0;
 const CURSOR_SIZE: f32 = 24.0;
 
-#[cfg(feature = "agent-sprites")]
-static AI_THEME_LIGHT: Dir<'static> =
-    include_dir!("$CARGO_MANIFEST_DIR/../../assets/cursors/tessera-ai-light");
-
-#[cfg(feature = "agent-sprites")]
-static AI_THEME_DARK: Dir<'static> =
-    include_dir!("$CARGO_MANIFEST_DIR/../../assets/cursors/tessera-ai-dark");
-
 /// Where an applied Agent operation is projected for the human observer.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum OperationRegion {
@@ -86,7 +78,7 @@ struct AgentCursorSet {
 
 impl AgentCursorSet {
     #[cfg(feature = "agent-sprites")]
-    fn upload(device: &flux::Device, theme: &Dir<'static>) -> Option<Self> {
+    fn upload(device: &flux::Device, theme: &EmbeddedDir) -> Option<Self> {
         let load_cursor = |shape: u32| -> Option<LoadedCursor> {
             for candidate in tessera_primitives::cursor_shape::xdg_names(shape) {
                 // The theme's own SVG is the source of truth: it carries both the
@@ -95,11 +87,11 @@ impl AgentCursorSet {
                 // because that is the artist's own pre-rendered sprite.
                 let document = theme
                     .get_file(format!("cursors/{candidate}.svg"))
-                    .and_then(|file| tessera_assets::VectorDocument::parse(file.contents()).ok());
+                    .and_then(|bytes| tessera_assets::VectorDocument::parse(bytes).ok());
                 let sprite = theme.get_file(format!("cursors/{candidate}.png"));
                 let (image, hotspot) = match (sprite, document.as_ref()) {
                     (Some(sprite), document) => {
-                        let image = upload_sprite(device, sprite.contents(), 96)?;
+                        let image = upload_sprite(device, sprite, 96)?;
                         (image, normalized_hotspot(document))
                     }
                     (None, Some(document)) => {
@@ -211,8 +203,8 @@ impl AgentFeedback {
     #[must_use]
     pub fn new(device: &flux::Device) -> Self {
         #[cfg(feature = "agent-sprites")]
-        let sets = AgentCursorSet::upload(device, &AI_THEME_LIGHT)
-            .zip(AgentCursorSet::upload(device, &AI_THEME_DARK))
+        let sets = AgentCursorSet::upload(device, &cursors::AI_LIGHT)
+            .zip(AgentCursorSet::upload(device, &cursors::AI_DARK))
             .map(|(light, dark)| [light, dark]);
         #[cfg(not(feature = "agent-sprites"))]
         let sets = {
@@ -1199,10 +1191,10 @@ mod tests {
     fn ai_polarities_rasterize_with_identical_coverage() {
         let shapes = ["default", "pointer", "text", "crosshair", "wait"];
         for shape in shapes {
-            let light_file = AI_THEME_LIGHT
+            let light_file = cursors::AI_LIGHT
                 .get_file(format!("cursors/{shape}.png"))
                 .expect("light shape exists");
-            let dark_file = AI_THEME_DARK
+            let dark_file = cursors::AI_DARK
                 .get_file(format!("cursors/{shape}.png"))
                 .expect("dark shape exists");
 
@@ -1211,8 +1203,8 @@ mod tests {
                     .expect("sprite decodes")
                     .into_bgra()
             };
-            let a = render(light_file.contents());
-            let b = render(dark_file.contents());
+            let a = render(light_file);
+            let b = render(dark_file);
             assert_ne!(a, b);
             assert!(a.chunks_exact(4).any(|pixel| pixel[3] > 0));
             assert!(

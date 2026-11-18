@@ -22,12 +22,34 @@ pub use tessera_desktop::app::Entry;
 use crate::icons::xdg_data_dirs;
 
 /// Errors returned by application discovery.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum AppsError {
-    #[error("io: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("parse {0}: {1}")]
+    Io(std::io::Error),
     Parse(PathBuf, String),
+}
+
+impl std::fmt::Display for AppsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(err) => write!(f, "io: {err}"),
+            Self::Parse(path, msg) => write!(f, "parse {}: {msg}", path.display()),
+        }
+    }
+}
+
+impl std::error::Error for AppsError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(err) => Some(err),
+            Self::Parse(_, _) => None,
+        }
+    }
+}
+
+impl From<std::io::Error> for AppsError {
+    fn from(err: std::io::Error) -> Self {
+        Self::Io(err)
+    }
 }
 
 /// Enumerate all user-launchable applications found on the host.

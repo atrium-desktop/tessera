@@ -1,8 +1,7 @@
 //! Wayland seat events folded into one Lens input snapshot per frame.
 
 use lens::{Input, MouseButton};
-use smithay_client_toolkit::seat::keyboard::{KeyEvent, Keysym, Modifiers};
-use smithay_client_toolkit::seat::pointer::{AxisScroll, BTN_LEFT, BTN_MIDDLE, BTN_RIGHT};
+use tessera_wl_client::{AxisScroll, BTN_LEFT, BTN_MIDDLE, BTN_RIGHT, KeyEvent, Keysym, Modifiers};
 
 /// Pixels one discrete wheel notch scrolls when the device reports only
 /// notches.

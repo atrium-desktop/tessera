@@ -10,7 +10,7 @@ use std::process::ExitCode;
 fn main() -> ExitCode {
     // Parse before logging or backend initialization so help, version, and
     // client commands never touch compositor runtime state.
-    let cli = match tessera_cli::parse_env() {
+    let cli = match tessera_control::parse_env() {
         Ok(cli) => cli,
         Err(error) => {
             let use_stderr = error.use_stderr();
@@ -46,10 +46,10 @@ fn run_compositor() -> ExitCode {
     }
 }
 
-fn run_session_command(cli: tessera_cli::Cli) -> ExitCode {
+fn run_session_command(cli: tessera_control::Cli) -> ExitCode {
     // One-shot commands print results, not a log stream.
     tessera_env::init("warn");
-    match tessera_cli::execute(cli) {
+    match tessera_control::execute(cli) {
         Ok(output) if !output.is_empty() => {
             println!("{output}");
             ExitCode::SUCCESS

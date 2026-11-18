@@ -366,6 +366,56 @@ fn rejects_out_of_bounds_in_formats_blob() {
 }
 
 #[test]
+fn mirror_layout_excludes_width_and_scans_the_source_slice() {
+    let inputs = [
+        super::output::PlacementInput {
+            name: "eDP-1",
+            size: (1920, 1080),
+            mirror: None,
+        },
+        super::output::PlacementInput {
+            name: "HDMI-A-1",
+            size: (1280, 720),
+            mirror: Some("eDP-1"),
+        },
+        super::output::PlacementInput {
+            name: "DP-1",
+            size: (2560, 1440),
+            mirror: None,
+        },
+    ];
+    let (layout, width, height) = super::output::layout_outputs(&inputs).unwrap();
+    assert_eq!(layout["eDP-1"], (0, (1920, 1080)));
+    assert_eq!(layout["DP-1"], (1920, (2560, 1440)));
+    assert_eq!(
+        layout["HDMI-A-1"],
+        (0, (1920, 1080)),
+        "the mirror scans its source rectangle, not its own mode"
+    );
+    assert_eq!(width, 4480, "only extended outputs consume union width");
+    assert_eq!(height, 1440);
+}
+
+#[test]
+fn mirror_destination_preserves_aspect_with_centered_bars() {
+    assert_eq!(
+        super::output::fitted_destination((1920, 1080), (1920, 1080)),
+        (0, 0, 1920, 1080)
+    );
+    // 16:10 source on a 16:9 target: pillarbox 1728x1080 centered at x=96.
+    assert_eq!(
+        super::output::fitted_destination((1920, 1080), (1920, 1200)),
+        (96, 0, 1728, 1080)
+    );
+    // A zero-sized mode/source degrades to the full mode rather than dividing
+    // by zero.
+    assert_eq!(
+        super::output::fitted_destination((0, 0), (1920, 1080)),
+        (0, 0, 1, 1)
+    );
+}
+
+#[test]
 fn output_assignment_backtracks_and_intersects_modifiers() {
     let raw = |value| std::num::NonZeroU32::new(value).unwrap();
     // Mode is a transparent kernel modeinfo value and assignment never
@@ -394,6 +444,8 @@ fn output_assignment_backtracks_and_intersects_modifiers() {
             ],
             available_modes: Vec::new(),
             color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
         },
         OutputCandidate {
             connector: connector::Handle::from(raw(2)),
@@ -410,6 +462,8 @@ fn output_assignment_backtracks_and_intersects_modifiers() {
             }],
             available_modes: Vec::new(),
             color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
         },
     ];
 

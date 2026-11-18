@@ -97,6 +97,18 @@ fn composite_fb_slot_conflicts(existing: CompositeFbKey, candidate: CompositeFbK
     existing.epoch == candidate.epoch && existing.slot == candidate.slot && existing != candidate
 }
 
+/// Cache epoch for a compositor-owned mirror target. The high bit separates
+/// target rings from the union surface's epoch, and the connector hash keeps
+/// two mirror targets with overlapping slot 0 from invalidating each other.
+fn target_composite_epoch(connector: &str) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in connector.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    0x8000_0000_0000_0000 | (hash & 0x7fff_ffff_ffff_ffff)
+}
+
 /// The retained dma-buf descriptor of the currently scanned-out composited
 /// frame (see [`DrmBackend::presented_dmabuf`]).
 pub(super) struct PresentedComposite {
@@ -105,6 +117,10 @@ pub(super) struct PresentedComposite {
     height: u32,
     stride: u32,
     modifier: u64,
+    fourcc: u32,
+    color_pipeline: tessera_desktop::output::ColorPipeline,
+    acquire_fence: Option<OwnedFd>,
+    lease: std::rc::Rc<flux::DmabufLease>,
 }
 
 impl DrmBackend {
@@ -121,6 +137,13 @@ impl DrmBackend {
             height: presented.height,
             stride: presented.stride,
             modifier: presented.modifier,
+            fourcc: presented.fourcc,
+            color_pipeline: presented.color_pipeline,
+            acquire_fence: presented
+                .acquire_fence
+                .as_ref()
+                .and_then(|fence| fence.try_clone().ok()),
+            lease: std::rc::Rc::clone(&presented.lease),
         })
     }
 
@@ -270,6 +293,8 @@ impl DrmBackend {
         configured_modes: HashMap<String, ModeSpec>,
         configured_color: HashMap<String, ColorPolicy>,
         configured_icc: HashMap<String, String>,
+        configured_topology: tessera_desktop::output::DisplayTopology,
+        configured_policies: HashMap<String, tessera_desktop::output::OutputPolicy>,
     ) -> Result<Self, DrmError> {
         // libseat's logind backend calls `SetType("wayland")` on the session
         // only when XDG_SESSION_TYPE says wayland (the wlroots precedent):
@@ -302,8 +327,14 @@ impl DrmBackend {
                 .map_err(|error| DrmError::Seat(format!("initial dispatch: {error:?}")))?;
         }
 
-        let (card, displays) =
-            open_card_and_outputs(&seat, &configured_modes, &configured_color, &configured_icc)?;
+        let (card, displays) = open_card_and_outputs(
+            &seat,
+            &configured_modes,
+            &configured_color,
+            &configured_icc,
+            configured_topology,
+            &configured_policies,
+        )?;
         let size = displays.size;
         let cursor_extent = (
             card.get_driver_capability(DriverCapability::CursorWidth)
@@ -423,6 +454,17 @@ impl DrmBackend {
             );
         }
 
+        let slots = displays
+            .outputs
+            .iter()
+            .map(|output| PlaneSlot {
+                crtc: output.crtc,
+                current: None,
+                retiring: None,
+                source: None,
+                pending: false,
+            })
+            .collect();
         let mut backend = Self {
             seat,
             seat_event: pending,
@@ -435,9 +477,7 @@ impl DrmBackend {
             failed: false,
             modeset_done: false,
             pending_flips: HashSet::new(),
-            current: None,
-            retiring: None,
-            current_source: None,
+            slots,
             current_overlay: None,
             retiring_overlay: None,
             overlay_offload_enabled: false,
@@ -472,12 +512,15 @@ impl DrmBackend {
             hdr_metadata_blob: None,
             surface_stale: false,
             configured_modes,
+            configured_topology,
+            configured_policies,
             configured_color,
             configured_icc,
             touchpads: HashMap::new(),
             touchpad_config: TouchpadConfig::default(),
             mice: HashMap::new(),
             mouse_config: MouseConfig::default(),
+            input_mappings: Vec::new(),
             wakeup_fd: None,
         };
         // udev_assign_seat + dispatch queues the initial DeviceAdded events
@@ -525,15 +568,16 @@ impl DrmBackend {
             .find_map(|policy| policy.sdr_white_nits)
     }
 
-    pub fn create_surface(&mut self, device: &flux::Device) -> Result<flux::Surface, DrmError> {
-        // A recreated Flux surface reuses slot numbers for different VkImages.
-        // Advance the epoch before allocating it so an equal-size recreation
-        // can never hit a framebuffer imported from the previous surface.
-        self.invalidate_composite_fb_cache();
-        // The retained presented descriptor belongs to the previous surface's
-        // images; a recreated surface never reuses them.
-        self.presented_composite = None;
-        let (width, height) = self.physical_size();
+    /// Build an exportable surface with the session's color format, modifier
+    /// intersection, and ICC/HDR content space. Shared by the union surface
+    /// and by compositor-owned mirror targets so a target cannot silently use
+    /// a different pixel encoding from the image it samples.
+    fn create_exportable_surface(
+        &self,
+        device: &flux::Device,
+        width: u32,
+        height: u32,
+    ) -> Result<(flux::Surface, DisplayColorMode), DrmError> {
         let color_mode = self.displays.color_mode;
         let icc_space = match color_mode {
             DisplayColorMode::Sdr | DisplayColorMode::SdrDeepColor => self.configured_icc_space(),
@@ -595,6 +639,19 @@ impl DrmBackend {
         if !surface.is_exportable() {
             return Err(DrmError::DmabufUnsupported);
         }
+        Ok((surface, color_mode))
+    }
+
+    pub fn create_surface(&mut self, device: &flux::Device) -> Result<flux::Surface, DrmError> {
+        // A recreated Flux surface reuses slot numbers for different VkImages.
+        // Advance the epoch before allocating it so an equal-size recreation
+        // can never hit a framebuffer imported from the previous surface.
+        self.invalidate_composite_fb_cache();
+        // The retained presented descriptor belongs to the previous surface's
+        // images; a recreated surface never reuses them.
+        self.presented_composite = None;
+        let (width, height) = self.physical_size();
+        let (surface, color_mode) = self.create_exportable_surface(device, width, height)?;
         let info = surface.info();
         log::info!(
             "drm: compositor output {color_mode:?}: {}x{} {:?} content {:?}",
@@ -742,7 +799,10 @@ impl DrmBackend {
             self.pending_flips.len()
         );
         self.pending_flips.clear();
-        self.current_source = None;
+        for slot in &mut self.slots {
+            slot.pending = false;
+            slot.source = None;
+        }
     }
 
     pub fn set_hardware_cursor(
@@ -900,6 +960,7 @@ impl DrmBackend {
                 slot: 0,
                 acquire_fence,
                 ownership: PrimaryScanoutOwnership::CachedClient(key),
+                lease: None,
             });
         }
 
@@ -951,6 +1012,7 @@ impl DrmBackend {
                             slot: 0,
                             acquire_fence,
                             ownership: PrimaryScanoutOwnership::CachedClient(key),
+                            lease: None,
                         });
                     }
                 }
@@ -960,6 +1022,7 @@ impl DrmBackend {
                     slot: 0,
                     acquire_fence,
                     ownership: PrimaryScanoutOwnership::TransientClient,
+                    lease: None,
                 })
             }
             Err(error) => {
@@ -980,10 +1043,9 @@ impl DrmBackend {
         if self.pending_resize.is_some() {
             return Err(DrmError::Reconfigured);
         }
-        if !matches!(self.current_source, Some(PrimaryPlaneSource::Composited)) {
-            return Err(DrmError::ScanoutUnsupported);
-        }
-        if self.current.is_none() {
+        if !self.slots.iter().all(|slot| {
+            matches!(slot.source, Some(PrimaryPlaneSource::Composited)) && slot.current.is_some()
+        }) {
             return Err(DrmError::ScanoutUnsupported);
         }
         let format = DrmFourcc::try_from(layer.surface.drm_format)
@@ -1048,7 +1110,10 @@ impl DrmBackend {
         let result = (|| {
             let output = &self.displays.outputs[output_index];
             let primary = &output.planes.primary;
-            let current = self.current.as_ref().ok_or(DrmError::ScanoutUnsupported)?;
+            let current = self.slots[output_index]
+                .current
+                .as_ref()
+                .ok_or(DrmError::ScanoutUnsupported)?;
             let plane = &output.planes.overlay.discovered[plane_index];
             let mut request = atomic::AtomicModeReq::new();
             add_cursor_plane_to_commit(
@@ -1137,6 +1202,16 @@ impl DrmBackend {
         &mut self,
         layer: &crate::host::OverlayLayer<'_>,
     ) -> Result<OverlayScanout, DrmError> {
+        if self
+            .displays
+            .outputs
+            .iter()
+            .any(|output| output.role.is_mirror())
+        {
+            // Overlay content bypasses the shared composite, so a mirror
+            // would not contain it. Mirrors disable overlay offload.
+            return Err(DrmError::ScanoutUnsupported);
+        }
         let format = DrmFourcc::try_from(layer.surface.drm_format)
             .map_err(|_| DrmError::ScanoutUnsupported)?;
         let modifier = DrmModifier::from(layer.surface.modifier);
@@ -1224,7 +1299,82 @@ impl DrmBackend {
         frame: flux::SubmittedFrame<'_>,
         damage: Option<&[tessera_primitives::Rect]>,
     ) -> Result<Option<OwnedFd>, DrmError> {
-        self.present_inner(surface, frame, damage, None)
+        let targets = (0..self.displays.outputs.len()).collect::<Vec<_>>();
+        self.present_inner(surface, frame, damage, &targets, None)
+    }
+
+    /// Submit a composed frame and retain its exported descriptor without a
+    /// KMS commit. Capture/stream consumers sample this image while the
+    /// per-output targets present their own mode-sized surfaces.
+    pub fn compose_only(
+        &mut self,
+        surface: &flux::Surface,
+        frame: flux::SubmittedFrame<'_>,
+    ) -> Result<Option<OwnedFd>, DrmError> {
+        if !self.active || !self.render_ready || !self.outputs_powered {
+            return Err(DrmError::Inactive);
+        }
+        let exported = if self.explicit_sync {
+            surface.export_dmabuf_explicit()?
+        } else {
+            surface.export_dmabuf()?
+        };
+        let dmabuf = exported.dmabuf;
+        let lease = std::rc::Rc::new(exported.lease);
+        let completion_fence = dmabuf
+            .acquire_fence
+            .as_ref()
+            .map(OwnedFd::try_clone)
+            .transpose()?;
+        let presented_composite = match dmabuf.fd.try_clone() {
+            Ok(fd) => Some(PresentedComposite {
+                fd,
+                width: dmabuf.width,
+                height: dmabuf.height,
+                stride: dmabuf.stride,
+                modifier: dmabuf.modifier,
+                fourcc: self.displays.format as u32,
+                color_pipeline: match self.displays.color_mode {
+                    DisplayColorMode::Sdr => tessera_desktop::output::ColorPipeline::Sdr,
+                    DisplayColorMode::SdrDeepColor => {
+                        tessera_desktop::output::ColorPipeline::SdrDeepColor
+                    }
+                    DisplayColorMode::Hdr => tessera_desktop::output::ColorPipeline::Hdr,
+                },
+                acquire_fence: dmabuf
+                    .acquire_fence
+                    .as_ref()
+                    .and_then(|fence| fence.try_clone().ok()),
+                lease: std::rc::Rc::clone(&lease),
+            }),
+            Err(error) => {
+                log::warn!("drm: cannot retain composed dma-buf for capture: {error}");
+                None
+            }
+        };
+        frame.present()?;
+        self.presented_composite = presented_composite;
+        Ok(completion_fence)
+    }
+
+    /// Present the composite to an explicit subset of outputs. Outputs not
+    /// named keep their current primary-plane contents and their own pending
+    /// flip state (ADR-0185).
+    pub fn present_to(
+        &mut self,
+        surface: &flux::Surface,
+        frame: flux::SubmittedFrame<'_>,
+        damage: Option<&[tessera_primitives::Rect]>,
+        targets: &[&str],
+    ) -> Result<Option<OwnedFd>, DrmError> {
+        let mut indices = Vec::with_capacity(targets.len());
+        for target in targets {
+            indices.push(
+                self.slot_index_for_connector(target)
+                    .ok_or(DrmError::ScanoutUnsupported)?,
+            );
+        }
+        self.present_inner(surface, frame, damage, &indices, None)
     }
 
     /// Present the compositor framebuffer and one overlay client buffer in the
@@ -1238,7 +1388,8 @@ impl DrmBackend {
         damage: Option<&[tessera_primitives::Rect]>,
         overlay: crate::host::OverlayLayer<'_>,
     ) -> Result<Option<OwnedFd>, DrmError> {
-        self.present_inner(surface, frame, damage, Some(overlay))
+        let targets = (0..self.displays.outputs.len()).collect::<Vec<_>>();
+        self.present_inner(surface, frame, damage, &targets, Some(overlay))
     }
 
     fn present_inner(
@@ -1246,22 +1397,36 @@ impl DrmBackend {
         surface: &flux::Surface,
         frame: flux::SubmittedFrame<'_>,
         damage: Option<&[tessera_primitives::Rect]>,
+        targets: &[usize],
         overlay: Option<crate::host::OverlayLayer<'_>>,
     ) -> Result<Option<OwnedFd>, DrmError> {
         if !self.active || !self.render_ready || !self.outputs_powered {
             return Err(DrmError::Inactive);
         }
-        if !self.pending_flips.is_empty() {
+        if targets.is_empty() {
+            return Err(DrmError::ScanoutUnsupported);
+        }
+        if targets.iter().any(|&index| self.slots[index].pending) {
             return Err(DrmError::Busy);
+        }
+        if let Some(overlay) = self.current_overlay.as_ref()
+            && self
+                .slot_index_for_connector(&overlay.output)
+                .is_some_and(|index| !targets.contains(&index))
+        {
+            // A subset commit cannot disable an overlay on another CRTC.
+            return Err(DrmError::ScanoutUnsupported);
         }
         if self.pending_resize.is_some() {
             return Err(DrmError::Reconfigured);
         }
-        let dmabuf = if self.explicit_sync {
+        let exported = if self.explicit_sync {
             surface.export_dmabuf_explicit()?
         } else {
             surface.export_dmabuf()?
         };
+        let dmabuf = exported.dmabuf;
+        let lease = std::rc::Rc::new(exported.lease);
         let presented_composite = match dmabuf.fd.try_clone() {
             Ok(fd) => Some(PresentedComposite {
                 fd,
@@ -1269,6 +1434,19 @@ impl DrmBackend {
                 height: dmabuf.height,
                 stride: dmabuf.stride,
                 modifier: dmabuf.modifier,
+                fourcc: self.displays.format as u32,
+                color_pipeline: match self.displays.color_mode {
+                    DisplayColorMode::Sdr => tessera_desktop::output::ColorPipeline::Sdr,
+                    DisplayColorMode::SdrDeepColor => {
+                        tessera_desktop::output::ColorPipeline::SdrDeepColor
+                    }
+                    DisplayColorMode::Hdr => tessera_desktop::output::ColorPipeline::Hdr,
+                },
+                acquire_fence: dmabuf
+                    .acquire_fence
+                    .as_ref()
+                    .and_then(|fence| fence.try_clone().ok()),
+                lease: std::rc::Rc::clone(&lease),
             }),
             Err(error) => {
                 log::warn!("drm: cannot retain presented dma-buf for streaming: {error}");
@@ -1280,15 +1458,36 @@ impl DrmBackend {
             .as_ref()
             .map(OwnedFd::try_clone)
             .transpose()?;
-        let scanout = self.import_scanout(dmabuf)?;
+        let mut scanouts = (0..self.displays.outputs.len())
+            .map(|_| None)
+            .collect::<Vec<_>>();
+        for &index in targets {
+            let clone = match Self::clone_dmabuf(&dmabuf) {
+                Ok(clone) => clone,
+                Err(error) => {
+                    self.release_scanout_options(&mut scanouts);
+                    return Err(error);
+                }
+            };
+            match self.import_scanout(clone) {
+                Ok(mut scanout) => {
+                    scanout.lease = Some(std::rc::Rc::clone(&lease));
+                    scanouts[index] = Some(scanout);
+                }
+                Err(error) => {
+                    self.release_scanout_options(&mut scanouts);
+                    return Err(error);
+                }
+            }
+        }
         self.commit_scanout(
-            scanout,
+            &mut scanouts,
+            targets,
             damage,
             PrimaryPlaneSource::Composited,
             false,
             overlay,
         )?;
-        self.current_source = Some(PrimaryPlaneSource::Composited);
         // Advance the offscreen ring slot only after KMS accepts the atomic flip;
         // if commit_scanout returns EBUSY or fails, SubmittedFrame::drop abandons
         // the frame without advancing current_frame so the next retry reuses this
@@ -1296,6 +1495,132 @@ impl DrmBackend {
         frame.present()?;
         self.presented_composite = presented_composite;
         Ok(completion_fence)
+    }
+
+    /// Create an exportable compositor-owned surface at a mirror's native
+    /// mode. The target is blitted from the shared composite, so KMS never
+    /// has to scale the union framebuffer for this output.
+    pub fn create_render_target(
+        &self,
+        device: &flux::Device,
+        width: u32,
+        height: u32,
+    ) -> Result<flux::Surface, DrmError> {
+        if width == 0 || height == 0 || self.displays.modifiers.is_empty() {
+            return Err(DrmError::DmabufUnsupported);
+        }
+        let (surface, _) = self.create_exportable_surface(device, width, height)?;
+        Ok(surface)
+    }
+
+    /// Present a mode-sized compositor target with a 1:1 source rectangle.
+    ///
+    /// The mirror target already contains the fitted letterbox, so the KMS
+    /// primary plane performs no scaling. The union framebuffer's source
+    /// rectangle is restored after the commit, keeping the next composite
+    /// path unchanged.
+    pub fn present_render_target(
+        &mut self,
+        exported: flux::ExportedDmabuf,
+        target: &str,
+    ) -> Result<Option<OwnedFd>, DrmError> {
+        self.present_render_targets(vec![(target.to_owned(), exported)])?;
+        Ok(None)
+    }
+
+    /// Present a coherent output group in one atomic commit.
+    ///
+    /// Every target is imported with its own target cache epoch, the output's
+    /// source/destination is temporarily replaced with the target's full mode,
+    /// and the complete group is committed once. KMS therefore flips the group
+    /// at one atomic boundary without reintroducing a union framebuffer.
+    pub fn present_render_targets(
+        &mut self,
+        targets: Vec<(String, flux::ExportedDmabuf)>,
+    ) -> Result<(), DrmError> {
+        if targets.is_empty() {
+            return Err(DrmError::ScanoutUnsupported);
+        }
+        if !self.active || !self.render_ready || !self.outputs_powered {
+            return Err(DrmError::Inactive);
+        }
+        if self.pending_resize.is_some() {
+            return Err(DrmError::Reconfigured);
+        }
+        let mut indices = Vec::with_capacity(targets.len());
+        for (target, _) in &targets {
+            let index = self
+                .slot_index_for_connector(target)
+                .ok_or(DrmError::ScanoutUnsupported)?;
+            if indices.contains(&index) {
+                return Err(DrmError::ScanoutUnsupported);
+            }
+            if self.slots[index].pending {
+                return Err(DrmError::Busy);
+            }
+            indices.push(index);
+        }
+        let mut scanouts = (0..self.displays.outputs.len())
+            .map(|_| None)
+            .collect::<Vec<_>>();
+        for (index, (connector, exported)) in indices.iter().zip(targets) {
+            let epoch = target_composite_epoch(&connector);
+            let mut scanout = self.import_scanout_with_epoch(exported.dmabuf, epoch)?;
+            scanout.lease = Some(std::rc::Rc::new(exported.lease));
+            scanouts[*index] = Some(scanout);
+        }
+        let saved = indices
+            .iter()
+            .map(|&index| {
+                let output = &self.displays.outputs[index];
+                (
+                    index,
+                    output.x,
+                    output.y,
+                    output.source_size,
+                    output.destination,
+                )
+            })
+            .collect::<Vec<_>>();
+        for &index in &indices {
+            let (mode_width, mode_height) = self.displays.outputs[index].mode.size();
+            let output = &mut self.displays.outputs[index];
+            output.x = 0;
+            output.y = 0;
+            output.source_size = (u32::from(mode_width), u32::from(mode_height));
+            output.destination = (0, 0, u32::from(mode_width), u32::from(mode_height));
+        }
+        let result = self.commit_scanout(
+            &mut scanouts,
+            &indices,
+            Some(&[]),
+            PrimaryPlaneSource::Composited,
+            false,
+            None,
+        );
+        for (index, x, y, source_size, destination) in saved {
+            let output = &mut self.displays.outputs[index];
+            output.x = x;
+            output.y = y;
+            output.source_size = source_size;
+            output.destination = destination;
+        }
+        result.map(|_| ())
+    }
+
+    /// Source rectangle of one output inside the shared composite framebuffer.
+    pub fn output_source_rect(&self, connector: &str) -> Option<tessera_primitives::Rect> {
+        let output = self
+            .displays
+            .outputs
+            .iter()
+            .find(|output| output.name == connector)?;
+        Some(tessera_primitives::Rect::new(
+            output.x as i32,
+            output.y as i32,
+            output.source_size.0 as i32,
+            output.source_size.1 as i32,
+        ))
     }
 
     /// Page-flip a single client dma-buf directly onto the primary plane,
@@ -1310,12 +1635,33 @@ impl DrmBackend {
     pub fn present_scanout(
         &mut self,
         client: &tessera_primitives::SurfaceDmabuf,
+        target: &str,
         damage: Option<&[tessera_primitives::Rect]>,
     ) -> Result<Option<OwnedFd>, DrmError> {
         if !self.active || !self.render_ready || !self.outputs_powered {
             return Err(DrmError::Inactive);
         }
-        if !self.pending_flips.is_empty() {
+        if self
+            .displays
+            .outputs
+            .iter()
+            .any(|output| output.role.is_mirror())
+        {
+            // A direct-scanned client exists on the source CRTC only; the
+            // mirror would keep showing the composite. The runtime already
+            // rejects this plan, but the backend is the final boundary.
+            return Err(DrmError::ScanoutUnsupported);
+        }
+        if self.current_overlay.is_some() {
+            // A partial primary commit cannot disable an overlay that lives on
+            // a different CRTC. Let the runtime composite once to clear it;
+            // the next frame can enter direct scanout cleanly.
+            return Err(DrmError::ScanoutUnsupported);
+        }
+        let target_index = self
+            .slot_index_for_connector(target)
+            .ok_or(DrmError::ScanoutUnsupported)?;
+        if self.slots[target_index].pending {
             return Err(DrmError::Busy);
         }
         if self.pending_resize.is_some() {
@@ -1324,11 +1670,12 @@ impl DrmBackend {
         let format =
             DrmFourcc::try_from(client.drm_format).map_err(|_| DrmError::ScanoutUnsupported)?;
         let modifier = DrmModifier::from(client.modifier);
-        let all_planes_support_in_fence = self
-            .displays
-            .outputs
-            .iter()
-            .all(|output| output.planes.primary.props.in_fence_fd.is_some());
+        let all_planes_support_in_fence = self.displays.outputs[target_index]
+            .planes
+            .primary
+            .props
+            .in_fence_fd
+            .is_some();
         if !scanout_acquire_fence_supported(client.acquire_fence >= 0, all_planes_support_in_fence)
         {
             // Never guess that implicit synchronization also covers an
@@ -1364,14 +1711,18 @@ impl DrmBackend {
             dup_fence,
         )?;
         let allow_async = client.presentation_hint.is_async();
+        let mut scanouts = (0..self.displays.outputs.len())
+            .map(|_| None)
+            .collect::<Vec<_>>();
+        scanouts[target_index] = Some(scanout);
         let completion_fence = self.commit_scanout(
-            scanout,
+            &mut scanouts,
+            &[target_index],
             damage,
             PrimaryPlaneSource::DirectClient,
             allow_async,
             None,
         )?;
-        self.current_source = Some(PrimaryPlaneSource::DirectClient);
         // A client buffer now owns the primary plane; the retained composited
         // descriptor no longer describes what is on screen.
         self.presented_composite = None;
@@ -1427,12 +1778,7 @@ impl DrmBackend {
         // A cursor-only commit needs a live primary framebuffer only as a
         // precondition that scanout exists at all; the request below never
         // touches the primary plane, so the handle itself is not restated.
-        if self
-            .current
-            .as_ref()
-            .map(|scanout| scanout.framebuffer)
-            .is_none()
-        {
+        if self.slots.iter().all(|slot| slot.current.is_none()) {
             return Err(DrmError::ScanoutUnsupported);
         }
         let mut request = atomic::AtomicModeReq::new();
@@ -1491,9 +1837,38 @@ impl DrmBackend {
         self.card.as_ref().expect("DRM card exists until drop")
     }
 
+    fn clone_dmabuf(dmabuf: &flux::SurfaceDmabuf) -> Result<flux::SurfaceDmabuf, DrmError> {
+        Ok(flux::SurfaceDmabuf {
+            fd: dmabuf.fd.try_clone()?,
+            acquire_fence: dmabuf
+                .acquire_fence
+                .as_ref()
+                .map(OwnedFd::try_clone)
+                .transpose()?,
+            width: dmabuf.width,
+            height: dmabuf.height,
+            stride: dmabuf.stride,
+            modifier: dmabuf.modifier,
+            slot: dmabuf.slot,
+        })
+    }
+
     pub(super) fn import_scanout(
         &mut self,
         dmabuf: flux::SurfaceDmabuf,
+    ) -> Result<PrimaryScanout, DrmError> {
+        self.import_scanout_with_epoch(dmabuf, self.composite_fb_epoch)
+    }
+
+    /// Import a composited scanout image under an explicit cache epoch.
+    ///
+    /// Composer-owned mirror targets are separate Flux rings whose slot
+    /// numbers overlap the union surface's slots. A distinct epoch keeps
+    /// their framebuffer cache entries from invalidating the union image.
+    fn import_scanout_with_epoch(
+        &mut self,
+        dmabuf: flux::SurfaceDmabuf,
+        epoch: u64,
     ) -> Result<PrimaryScanout, DrmError> {
         let modifier = DrmModifier::from(dmabuf.modifier);
         let format = self.displays.format;
@@ -1511,7 +1886,7 @@ impl DrmBackend {
         };
 
         let key = identity.map(|identity| CompositeFbKey {
-            epoch: self.composite_fb_epoch,
+            epoch,
             slot: dmabuf.slot,
             identity,
             width: dmabuf.width,
@@ -1544,6 +1919,7 @@ impl DrmBackend {
                     slot: dmabuf.slot,
                     acquire_fence: dmabuf.acquire_fence,
                     ownership: PrimaryScanoutOwnership::Cached(key),
+                    lease: None,
                 });
             }
 
@@ -1570,6 +1946,7 @@ impl DrmBackend {
                 slot: dmabuf.slot,
                 acquire_fence: dmabuf.acquire_fence,
                 ownership: PrimaryScanoutOwnership::Cached(key),
+                lease: None,
             })
         } else {
             let (framebuffer, gem) = self.import_composite_framebuffer(
@@ -1586,6 +1963,7 @@ impl DrmBackend {
                 slot: dmabuf.slot,
                 acquire_fence: dmabuf.acquire_fence,
                 ownership: PrimaryScanoutOwnership::TransientCompositor,
+                lease: None,
             })
         }
     }
@@ -1628,44 +2006,52 @@ impl DrmBackend {
 
     pub(super) fn commit_scanout(
         &mut self,
-        mut scanout: PrimaryScanout,
+        scanouts: &mut [Option<PrimaryScanout>],
+        targets: &[usize],
         damage: Option<&[tessera_primitives::Rect]>,
         source: PrimaryPlaneSource,
         allow_async: bool,
         overlay: Option<crate::host::OverlayLayer<'_>>,
     ) -> Result<Option<OwnedFd>, DrmError> {
-        if overlay.is_some() && !overlay_source_supported(source) {
-            self.release_scanout(scanout);
+        if overlay.is_some()
+            && (!overlay_source_supported(source) || targets.len() != self.displays.outputs.len())
+        {
+            self.release_scanout_options(scanouts);
             return Err(DrmError::ScanoutUnsupported);
         }
-        if !scanout.ownership.matches_source(source) {
-            // Source and lifetime are one contract. Reject a mismatched future
-            // caller before it can request client release fences for a
-            // compositor image or omit them for a client buffer.
-            self.release_scanout(scanout);
-            return Err(DrmError::ScanoutUnsupported);
-        }
-        let all_planes_support_in_fence = self
-            .displays
-            .outputs
-            .iter()
-            .all(|output| output.planes.primary.props.in_fence_fd.is_some());
-        if !scanout_acquire_fence_supported(
-            scanout.acquire_fence.is_some(),
-            all_planes_support_in_fence,
-        ) {
-            // Keep the invariant at the shared commit boundary as well as the
-            // direct-scanout preflight, so future callers cannot accidentally
-            // submit an unfinished producer buffer to a plane that cannot wait
-            // for it.
-            self.release_scanout(scanout);
-            return Err(DrmError::ScanoutUnsupported);
+        let all_planes_support_in_fence = targets.iter().all(|&index| {
+            self.displays.outputs[index]
+                .planes
+                .primary
+                .props
+                .in_fence_fd
+                .is_some()
+        });
+        for &index in targets {
+            let Some(scanout) = scanouts[index].as_ref() else {
+                self.release_scanout_options(scanouts);
+                return Err(DrmError::ScanoutUnsupported);
+            };
+            if !scanout.ownership.matches_source(source) {
+                // Source and lifetime are one contract. Reject a mismatched
+                // future caller before it can request client release fences for
+                // a compositor image or omit them for a client buffer.
+                self.release_scanout_options(scanouts);
+                return Err(DrmError::ScanoutUnsupported);
+            }
+            if !scanout_acquire_fence_supported(
+                scanout.acquire_fence.is_some(),
+                all_planes_support_in_fence,
+            ) {
+                self.release_scanout_options(scanouts);
+                return Err(DrmError::ScanoutUnsupported);
+            }
         }
         let overlay_scanout = match overlay {
             Some(layer) => match self.import_overlay_scanout(&layer) {
                 Ok(overlay) => Some(overlay),
                 Err(error) => {
-                    self.release_scanout(scanout);
+                    self.release_scanout_options(scanouts);
                     return Err(error);
                 }
             },
@@ -1673,26 +2059,34 @@ impl DrmBackend {
         };
         let overlay_transition = overlay_scanout.is_some() || self.current_overlay.is_some();
         let mut request = atomic::AtomicModeReq::new();
-        let acquire_fd = scanout
-            .acquire_fence
-            .as_ref()
-            .map(AsRawFd::as_raw_fd)
-            .unwrap_or(-1);
         // Per-commit FB_DAMAGE_CLIPS blobs, destroyed once the commit ioctl
         // has run (the kernel references the blob, it does not borrow ours).
         let mut damage_blobs: Vec<u64> = Vec::new();
         let use_out_fences = (source.needs_kms_completion_fence() || overlay_transition)
-            && self
-                .displays
-                .outputs
-                .iter()
-                .all(|output| output.props.crtc_out_fence_ptr.is_some());
+            && targets.iter().all(|&index| {
+                self.displays.outputs[index]
+                    .props
+                    .crtc_out_fence_ptr
+                    .is_some()
+            });
         let mut out_fence_fds = vec![-1_i32; self.displays.outputs.len()];
-        for output in &self.displays.outputs {
+        for &output_index in targets {
+            let output = &self.displays.outputs[output_index];
+            let Some(scanout) = scanouts[output_index].as_ref() else {
+                self.release_scanout_options(scanouts);
+                return Err(DrmError::ScanoutUnsupported);
+            };
+            let acquire_fd = scanout
+                .acquire_fence
+                .as_ref()
+                .map(AsRawFd::as_raw_fd)
+                .unwrap_or(-1);
             let props = output.props;
             let primary = &output.planes.primary;
             let plane_props = primary.props;
-            let (width, height) = output.mode.size();
+            let (source_width, source_height) = output.source_size;
+            let (destination_x, destination_y, destination_width, destination_height) =
+                output.destination;
             add_cursor_plane_to_commit(
                 &mut request,
                 output,
@@ -1775,32 +2169,32 @@ impl DrmBackend {
             request.add_property(
                 primary.handle,
                 plane_props.src_w,
-                property::Value::UnsignedRange((width as u64) << 16),
+                property::Value::UnsignedRange((source_width as u64) << 16),
             );
             request.add_property(
                 primary.handle,
                 plane_props.src_h,
-                property::Value::UnsignedRange((height as u64) << 16),
+                property::Value::UnsignedRange((source_height as u64) << 16),
             );
             request.add_property(
                 primary.handle,
                 plane_props.crtc_x,
-                property::Value::SignedRange(0),
+                property::Value::SignedRange(i64::from(destination_x)),
             );
             request.add_property(
                 primary.handle,
                 plane_props.crtc_y,
-                property::Value::SignedRange(0),
+                property::Value::SignedRange(i64::from(destination_y)),
             );
             request.add_property(
                 primary.handle,
                 plane_props.crtc_w,
-                property::Value::UnsignedRange(width as u64),
+                property::Value::UnsignedRange(u64::from(destination_width)),
             );
             request.add_property(
                 primary.handle,
                 plane_props.crtc_h,
-                property::Value::UnsignedRange(height as u64),
+                property::Value::UnsignedRange(u64::from(destination_height)),
             );
             if let Some(in_fence) = plane_props.in_fence_fd {
                 request.add_property(
@@ -1815,7 +2209,7 @@ impl DrmBackend {
             // damage information", which drivers must read as full damage),
             // never an empty clip list.
             if let Some(clips_prop) = plane_props.fb_damage_clips {
-                let (w32, h32) = (u32::from(width), u32::from(height));
+                let (w32, h32) = (source_width, source_height);
                 let clips = damage_clip_for_output(damage, output.x, output.y, w32, h32);
                 let full = [
                     output.x as i32,
@@ -1909,10 +2303,10 @@ impl DrmBackend {
                         "drm: cursor-plane TEST_ONLY commit rejected ({error}); disabling hardware cursor"
                     );
                     self.disable_hardware_cursor();
-                    self.release_scanout(scanout);
+                    self.release_scanout_options(scanouts);
                     return Err(DrmError::CursorFallback);
                 }
-                self.release_scanout(scanout);
+                self.release_scanout_options(scanouts);
                 return Err(commit_error(error));
             }
         }
@@ -1920,7 +2314,8 @@ impl DrmBackend {
         // Add it only after TEST_ONLY so the preflight never allocates or
         // mutates sync-file storage.
         if use_out_fences {
-            for (output_index, output) in self.displays.outputs.iter().enumerate() {
+            for &output_index in targets {
+                let output = &self.displays.outputs[output_index];
                 let pointer = (&mut out_fence_fds[output_index] as *mut i32) as usize as u64;
                 request.add_property(
                     output.crtc,
@@ -1959,10 +2354,10 @@ impl DrmBackend {
                     "drm: cursor-plane atomic commit rejected ({error}); disabling hardware cursor"
                 );
                 self.disable_hardware_cursor();
-                self.release_scanout(scanout);
+                self.release_scanout_options(scanouts);
                 return Err(DrmError::CursorFallback);
             }
-            self.release_scanout(scanout);
+            self.release_scanout_options(scanouts);
             return Err(commit_error(error));
         }
         for blob in damage_blobs {
@@ -1976,19 +2371,30 @@ impl DrmBackend {
 
         // The ioctl imported the sync_file; userspace retains and closes its
         // descriptor immediately after atomic_commit returns.
-        scanout.acquire_fence = None;
-
-        if let Some(unretired) = self.retiring.take() {
-            // Only reachable after recover_lost_presentation: the buffer may
-            // still be scanned out, so its handles are deliberately leaked
-            // rather than freed under live scanout.
-            log::warn!(
-                "drm: leaking scanout slot {} framebuffer; its page-flip event was lost",
-                unretired.slot
-            );
+        for &index in targets {
+            if let Some(scanout) = scanouts[index].as_mut() {
+                scanout.acquire_fence = None;
+            }
         }
-        self.retiring = self.current.take();
-        self.current = Some(scanout);
+        for &index in targets {
+            let Some(scanout) = scanouts[index].take() else {
+                continue;
+            };
+            let slot = &mut self.slots[index];
+            if let Some(unretired) = slot.retiring.take() {
+                // Only reachable after recover_lost_presentation: the buffer
+                // may still be scanned out, so its handles are deliberately
+                // leaked rather than freed under live scanout.
+                log::warn!(
+                    "drm: leaking scanout slot {} framebuffer; its page-flip event was lost",
+                    unretired.slot
+                );
+            }
+            slot.retiring = slot.current.take();
+            slot.current = Some(scanout);
+            slot.source = Some(source);
+            slot.pending = true;
+        }
         let mut overlay_scanout = overlay_scanout;
         if let Some(overlay) = overlay_scanout.as_mut() {
             overlay.acquire_fence = None;
@@ -2005,12 +2411,11 @@ impl DrmBackend {
         }
         self.retiring_overlay = self.current_overlay.take();
         self.current_overlay = overlay_scanout;
-        self.pending_flips = self
-            .displays
-            .outputs
-            .iter()
-            .map(|output| output.crtc)
-            .collect();
+        self.pending_flips.extend(
+            targets
+                .iter()
+                .map(|&index| self.displays.outputs[index].crtc),
+        );
         self.modeset_done = true;
         if overlay_transition && !use_out_fences {
             // Overlay scans out a live client buffer. Without OUT_FENCE_PTR
@@ -2153,5 +2558,23 @@ mod tests {
         // plane can import it into the same atomic commit.
         assert!(scanout_acquire_fence_supported(true, true));
         assert!(!scanout_acquire_fence_supported(true, false));
+    }
+}
+
+#[cfg(test)]
+mod target_cache_tests {
+    use super::target_composite_epoch;
+
+    #[test]
+    fn mirror_targets_use_distinct_cache_epochs() {
+        assert!(target_composite_epoch("HDMI-A-1") & (1 << 63) != 0);
+        assert_ne!(
+            target_composite_epoch("HDMI-A-1"),
+            target_composite_epoch("DP-1")
+        );
+        assert_ne!(
+            target_composite_epoch("HDMI-A-1"),
+            target_composite_epoch("HDMI-A-2")
+        );
     }
 }

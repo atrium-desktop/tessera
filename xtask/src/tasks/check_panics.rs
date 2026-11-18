@@ -17,9 +17,8 @@
 //! is everything *before* the first `#[cfg(test)]` item, and the `tests/`
 //! directories and `tests.rs` modules are never production.
 
+use crate::error::{Context, Result, bail};
 use crate::workspace;
-use anyhow::{Context, Result, bail};
-use clap::Parser;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
@@ -27,12 +26,11 @@ use std::path::Path;
 /// Dev-only package whose helpers may panic: it never ships in a binary.
 const TEST_SUPPORT: &str = "tessera-test-support";
 
-#[derive(Parser, Debug)]
+#[derive(Debug, Default)]
 pub struct Args {
     /// Rewrite the baseline from the current tree (use when deliberately
     /// lowering it, or after a change that removes panic sites).
-    #[arg(long)]
-    update: bool,
+    pub update: bool,
 }
 
 /// Production-code panic counters for one crate.

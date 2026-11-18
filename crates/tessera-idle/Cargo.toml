@@ -8,7 +8,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-futures-util.workspace = true
+tessera-dbus.workspace = true
 tessera-desktop.workspace = true
 tessera-ipc.workspace = true
 tessera-protocol.workspace = true
@@ -17,7 +17,6 @@ tessera-env.workspace = true
 libc.workspace = true
 wayland-client.workspace = true
 wayland-protocols.workspace = true
-zbus.workspace = true
 
 [lints]
 workspace = true

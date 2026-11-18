@@ -359,7 +359,8 @@ fn fresh_handle(
 ) -> Option<String> {
     for _ in 0..16 {
         let mut bytes = [0u8; 16];
-        getrandom::fill(&mut bytes).ok()?;
+        let mut urandom = std::fs::File::open("/dev/urandom").ok()?;
+        std::io::Read::read_exact(&mut urandom, &mut bytes).ok()?;
         let mut handle = String::with_capacity(32);
         for byte in bytes {
             write!(&mut handle, "{byte:02x}").expect("writing to a String cannot fail");

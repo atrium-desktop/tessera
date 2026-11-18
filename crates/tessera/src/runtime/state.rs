@@ -89,6 +89,39 @@ pub(super) struct DamageTracking {
     pub(super) last_focused_window: Option<tessera_desktop::window::WindowId>,
 }
 
+/// A compositor-owned presentation target for one physical output.
+///
+/// `canvas` is declared before `surface` so its raw pass state is destroyed
+/// first. A mirror target is blitted from its source target; an extended
+/// target owns its output-local scene pass.
+pub(super) struct OutputTarget {
+    pub(super) canvas: flux::Canvas,
+    pub(super) surface: flux::Surface,
+    pub(super) mode: (u32, u32),
+    /// Flux format of the target surface, shared with the union framing.
+    pub(super) format: flux::Format,
+    pub(super) color_pipeline: tessera_desktop::output::ColorPipeline,
+    /// The source connector for a mirror, or this connector for an extended
+    /// output.
+    pub(super) source: String,
+    /// Number of completed frames, saturating at the ring depth. Until every
+    /// ring slot has a full image, a target must render full frames; after
+    /// that its canvas damage scope can be partial.
+    pub(super) initialized: u8,
+    /// The target missed a presentation group cycle and must repaint full
+    /// before resuming its normal damage scope.
+    pub(super) force_full: bool,
+    /// Lease on the last union image sampled by this target. It keeps the
+    /// source ring slot alive until the next target frame replaces it.
+    pub(super) source_lease: Option<std::rc::Rc<flux::DmabufLease>>,
+}
+
+/// A display edit applied as a preview with an automatic revert deadline.
+pub(super) struct PendingDisplayRevert {
+    pub(super) settings: tessera_desktop::settings::DisplaySettings,
+    pub(super) deadline: std::time::Instant,
+}
+
 /// Owns the mutable composition state used by the compositor event loop.
 ///
 /// Startup builds this value once, after which event-loop phases borrow only
@@ -102,11 +135,11 @@ pub(super) struct CompositorRuntime<'engine> {
     /// The scheduling plan applied to the frame loop and its background
     /// threads. Resolved once at startup from `[compositor]`; coherent across
     /// the frame/feeder/background split.
-    pub(super) sched_plan: tessera_sched::SchedPlan,
+    pub(super) sched_plan: crate::runtime::sched::SchedPlan,
     /// Deadline watchdog for the frame loop, armed if `[compositor]` realtime
     /// scheduling is enabled. Observes frame stalls so a starved loop is
     /// never silent.
-    pub(super) sched_watchdog: Option<tessera_sched::DeadlineWatchdog>,
+    pub(super) sched_watchdog: Option<crate::runtime::sched::DeadlineWatchdog>,
     // Rust drops fields in declaration order. The canvas and its Vulkan
     // surface must disappear before a nested host tears down the Wayland
     // display that owns the swapchain's wl_buffers. Flux resources retain the
@@ -170,6 +203,21 @@ pub(super) struct CompositorRuntime<'engine> {
     /// Content owner of the primary plane after the last successful present.
     /// Failed submissions never advance this state.
     pub(super) primary_plane_state: PrimaryPlaneState,
+    /// Outputs currently owned by direct client scanouts. Other outputs keep
+    /// presenting the composite; the next composite that changes one of these
+    /// outputs reclaims it (ADR-0185).
+    pub(super) direct_outputs: std::collections::BTreeSet<String>,
+    /// Physical outputs with a mode-sized compositor target. A mirror not in
+    /// this map falls back to the union framebuffer's plane scaling; an
+    /// extended output without a target falls back to the union path.
+    pub(super) output_targets: std::collections::BTreeMap<String, OutputTarget>,
+    /// Mode for which target creation last failed, to avoid a per-frame
+    /// allocation storm. A topology/mode change clears the entry.
+    pub(super) output_target_failures: std::collections::BTreeMap<String, (u32, u32)>,
+    /// A tentative display edit awaiting confirmation. On deadline the
+    /// compositor re-applies the previous geometry without starting a new
+    /// preview (ADR-0244).
+    pub(super) pending_display_revert: Option<PendingDisplayRevert>,
     /// Bounded primary-plane rejection counters and rate-limited diagnostics.
     /// Kept independently from `primary_plane_state` so a persistent video client
     /// explains why it is composited instead of failing silently every frame.
@@ -288,6 +336,13 @@ pub(super) struct CompositorRuntime<'engine> {
     /// outputs only change on hotplug/mode switches, so the interval is
     /// recomputed only when the revision moves.
     pub(super) cached_presentation_interval: (u64, std::time::Duration),
+    /// Cached presentation-group plan keyed by output revision.
+    pub(super) cached_presentation_groups:
+        (u64, u64, Vec<tessera_desktop::output::PresentationGroup>),
+    /// Whether the last submitted frame used independent target flips. The
+    /// event loop then paces by the fastest group instead of waiting for every
+    /// CRTC page flip as one atomic batch.
+    pub(super) independent_target_flips: bool,
     /// Output damage baselines and buffer-age carry-over (runtime/damage.rs).
     pub(super) damage: DamageTracking,
     /// Explicit redraw/presentation lifecycle for the host's atomic commit

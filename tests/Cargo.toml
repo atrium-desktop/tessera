@@ -24,19 +24,18 @@ native = [
     "dep:lens-sys",
     "dep:reticle-sys",
     "dep:vista-sys",
-    "dep:zbus",
+    "dep:tessera-dbus",
     "dep:tessera-cast",
 ]
 
 [dependencies]
-clap.workspace = true
 libc.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 
 tessera-audit.workspace = true
 tessera-authority.workspace = true
-tessera-cli.workspace = true
+tessera-control.workspace = true
 tessera-config.workspace = true
 tessera-desktop.workspace = true
 tessera-env.workspace = true
@@ -45,7 +44,6 @@ tessera-launch-services.workspace = true
 tessera-mcp.workspace = true
 tessera-primitives.workspace = true
 tessera-protocol.workspace = true
-tessera-sched.workspace = true
 tessera-test-support.workspace = true
 
 tessera = { workspace = true, optional = true }
@@ -62,7 +60,7 @@ flux-sys = { workspace = true, optional = true }
 lens-sys = { workspace = true, optional = true }
 reticle-sys = { workspace = true, optional = true }
 vista-sys = { workspace = true, optional = true }
-zbus = { workspace = true, optional = true }
+tessera-dbus = { workspace = true, optional = true }
 
 [[test]]
 name = "integration"

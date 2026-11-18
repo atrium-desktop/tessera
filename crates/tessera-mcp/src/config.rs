@@ -255,16 +255,41 @@ fn invalid(name: &'static str, message: impl Into<String>) -> ConfigError {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum ConfigError {
-    #[error("required environment variable {0} is unset")]
     Missing(&'static str),
-    #[error("invalid {name}: {message}")]
-    Invalid { name: &'static str, message: String },
+    Invalid {
+        name: &'static str,
+        message: String,
+    },
     /// The XDG runtime directory failed validation (unset or relative).
     /// The message carries the underlying bootstrap error.
-    #[error("runtime environment: {0}")]
-    RuntimeEnvironment(#[from] tessera_env::RuntimeDirError),
+    RuntimeEnvironment(tessera_env::RuntimeDirError),
+}
+
+impl std::fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Missing(name) => write!(f, "required environment variable {name} is unset"),
+            Self::Invalid { name, message } => write!(f, "invalid {name}: {message}"),
+            Self::RuntimeEnvironment(err) => write!(f, "runtime environment: {err}"),
+        }
+    }
+}
+
+impl std::error::Error for ConfigError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::RuntimeEnvironment(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+impl From<tessera_env::RuntimeDirError> for ConfigError {
+    fn from(err: tessera_env::RuntimeDirError) -> Self {
+        Self::RuntimeEnvironment(err)
+    }
 }
 
 #[cfg(test)]

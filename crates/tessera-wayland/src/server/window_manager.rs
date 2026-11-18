@@ -1,4 +1,5 @@
 use crate::*;
+use tessera_desktop::output::OutputRole;
 
 /// Whether `rec` is an independent window-switcher candidate (ADR-0148): a
 /// mapped, unminimized toplevel that the seat controls and that is not a
@@ -131,6 +132,13 @@ impl Server {
     }
 
     fn refresh_window_switcher(&mut self) {
+        // The snapshot accessor is polled every presentation attempt (the
+        // switcher's geometry is resolved before damage assessment). There is
+        // no order to reconcile when no session is held, so do not walk every
+        // live surface to build a candidate set nobody consumes.
+        if self.state.window_switcher.is_none() {
+            return;
+        }
         let eligible: std::collections::HashSet<_> =
             self.switcher_candidates().into_iter().collect();
         let Some(session) = self.state.window_switcher.as_mut() else {
@@ -764,23 +772,122 @@ impl Server {
             .collect();
 
         let mut physical = self.state.physical_outputs.clone();
+        let mut backend_physical = physical.clone();
         for output in &mut physical {
             Self::apply_output_policy_to_info(&self.state.output_policies, output);
         }
+        // Resolve the effective role before any geometry is interpreted: a
+        // mirror has no independent workspace or logical rectangle. The same
+        // pure resolver runs in the DRM backend so scanout and the server
+        // agree on the topology (ADR-0243).
+        let roles = tessera_desktop::output::resolve_output_roles(
+            &physical,
+            &self.state.output_policies,
+            self.state.display_topology,
+        );
+        for (output, role) in physical.iter_mut().zip(roles) {
+            output.role = role;
+            output.role_source = tessera_desktop::output::OutputRoleSource::from_policy(
+                self.state.output_policies.get(&output.connector),
+            );
+        }
+
+        // Logical layout is per output, not the backend's physical x offset
+        // (ADR-0185 item 4). Explicit positions win; every unpositioned
+        // extended output is placed to the right of the current right edge
+        // using its logical width, so a 2x output no longer starts at twice
+        // its neighbour's logical coordinate.
+        let mut right_edge = 0_i32;
+        for output in physical
+            .iter_mut()
+            .filter(|output| !output.role.is_mirror())
+        {
+            let has_position = self
+                .state
+                .output_policies
+                .get(&output.connector)
+                .and_then(|policy| policy.position)
+                .is_some();
+            if !has_position {
+                output.geometry.logical_origin = tessera_primitives::Point {
+                    x: right_edge,
+                    y: 0,
+                };
+            }
+            let rect = output.geometry.logical_rect();
+            right_edge = right_edge.max(rect.origin.x.saturating_add(rect.size.w));
+        }
+
+        // A mirror source must be a live, extended physical output. Degrade a
+        // dangling mirror to an extended output rather than leaving a
+        // black-hole connector; the server is the last validation boundary.
+        for index in 0..physical.len() {
+            let OutputRole::Mirror { source } = physical[index].role.clone() else {
+                continue;
+            };
+            let Some(source_output) = physical
+                .iter()
+                .find(|output| output.connector == source && !output.role.is_mirror())
+                .cloned()
+            else {
+                physical[index].role = OutputRole::Extend;
+                continue;
+            };
+            let source_size = source_output.geometry.logical_size();
+            if source_size.w <= 0 || source_size.h <= 0 {
+                physical[index].role = OutputRole::Extend;
+                continue;
+            }
+            physical[index].geometry.logical_origin = source_output.geometry.logical_origin;
+            physical[index].geometry.logical_size_override = Some(source_size);
+            // A mirror shares the source's logical pixels, so it advertises
+            // the source's UI scale. The KMS plane separately scales that
+            // source rectangle to the mirror's native mode. Advertising the
+            // physical ratio here would make clients allocate sub-1x buffers
+            // for a lower-resolution TV.
+            physical[index].geometry.scale = source_output.geometry.scale;
+        }
+        for output in &mut physical {
+            if !output.role.is_mirror() {
+                // A connector that used to be a mirror must not carry the
+                // source's logical-size or scale override into extension.
+                output.geometry.logical_size_override = None;
+            }
+        }
+
         // `[INV-ARCH-74]`: A `primary` policy moves its output to index 0 only
-        // within the physical output set; a virtual output can never displace a
-        // physical output as primary.
-        if let Some(primary) = physical.iter().position(|output| {
+        // within the extended physical output set; a virtual output can never
+        // displace a physical output as primary, and a mirror is never primary.
+        let primary_policy = |output: &tessera_desktop::output::OutputInfo| {
             self.state
                 .output_policies
                 .get(&output.connector)
                 .is_some_and(|policy| policy.primary)
-        }) {
+        };
+        if let Some(primary) = physical
+            .iter()
+            .position(|output| !output.role.is_mirror() && primary_policy(output))
+        {
             let output = physical.remove(primary);
+            physical.insert(0, output);
+        } else if physical
+            .first()
+            .is_none_or(|output| output.role.is_mirror())
+            && let Some(extended) = physical.iter().position(|output| !output.role.is_mirror())
+        {
+            let output = physical.remove(extended);
             physical.insert(0, output);
         }
 
-        let mut outputs = physical;
+        let mut outputs = Vec::with_capacity(physical.len());
+        let mut mirrors = Vec::new();
+        for output in physical {
+            if output.role.is_mirror() {
+                mirrors.push(output);
+            } else {
+                outputs.push(output);
+            }
+        }
         for record in &self.state.virtual_outputs {
             if outputs
                 .iter()
@@ -790,6 +897,8 @@ impl Server {
             }
             let mut virt = record.info.clone();
             virt.kind = tessera_desktop::output::OutputKind::Virtual;
+            virt.role = OutputRole::Extend;
+            virt.role_source = tessera_desktop::output::OutputRoleSource::Auto;
             let has_policy_position = self
                 .state
                 .output_policies
@@ -817,12 +926,16 @@ impl Server {
         if outputs.is_empty() {
             return;
         }
+        // Presentation aliases stay in the advertised output list so clients
+        // can bind their wl_output, but they own no workspace strip.
+        outputs.extend(mirrors);
 
         let desired = outputs
             .iter()
+            .filter(|output| !output.role.is_mirror())
             .map(|output| output.connector.as_str())
             .collect::<std::collections::HashSet<_>>();
-        for output in &outputs {
+        for output in outputs.iter().filter(|output| !output.role.is_mirror()) {
             if !self
                 .state
                 .workspaces
@@ -843,14 +956,48 @@ impl Server {
             .collect();
         let primary = outputs[0].clone();
         let primary_rect = primary.geometry.logical_rect();
+        let mirror_sources: std::collections::HashMap<String, String> = outputs
+            .iter()
+            .filter_map(|output| match &output.role {
+                OutputRole::Mirror { source } => Some((output.connector.clone(), source.clone())),
+                OutputRole::Extend => None,
+            })
+            .collect();
+        // A mirror changes the union layout: extended outputs after it shift
+        // left, and removing it shifts them back. Carry their existing
+        // windows with the connector before relocating a vanished output's
+        // windows into these final rectangles (relocation already targets the
+        // new geometry and must not be shifted a second time).
+        for output in outputs.iter().filter(|output| !output.role.is_mirror()) {
+            if let Some(previous) = previous_rects.get(&output.connector) {
+                let current = output.geometry.logical_rect();
+                self.translate_windows_on_output(
+                    &output.connector,
+                    current.origin.x.saturating_sub(previous.origin.x),
+                    current.origin.y.saturating_sub(previous.origin.y),
+                );
+            }
+        }
         for (output_id, removed_connector) in removed_outputs {
             self.state.workspaces.remove_output(output_id);
             if let Some(&removed_rect) = previous_rects.get(&removed_connector) {
+                // A connector that became a mirror should hand its windows to
+                // the screen it now duplicates, not to the primary. Fall back
+                // to the primary for a genuinely removed output.
+                let survivor = mirror_sources
+                    .get(&removed_connector)
+                    .and_then(|source| {
+                        outputs
+                            .iter()
+                            .find(|output| output.connector == *source && !output.role.is_mirror())
+                    })
+                    .map(|output| (output.connector.clone(), output.geometry.logical_rect()))
+                    .unwrap_or_else(|| (primary.connector.clone(), primary_rect));
                 self.relocate_windows_from_removed_output(
                     &removed_connector,
                     removed_rect,
-                    &primary.connector,
-                    primary_rect,
+                    &survivor.0,
+                    survivor.1,
                 );
             }
         }
@@ -865,6 +1012,19 @@ impl Server {
             self.state.output = output.id;
         }
         unsafe { reconcile_output_globals(self.state.as_mut(), &outputs) };
+        // Keep the backend-reported geometry as the base for the next
+        // reconcile; only the resolved role is server-owned. Persisting the
+        // mirror's derived origin/scale here would make an unmirror keep the
+        // source's geometry after the role changes back.
+        for output in &mut backend_physical {
+            if let Some(resolved) = outputs
+                .iter()
+                .find(|candidate| candidate.connector == output.connector)
+            {
+                output.role = resolved.role.clone();
+            }
+        }
+        self.state.physical_outputs = backend_physical;
         self.state.output_infos = outputs;
         self.state.outputs_revision = self.state.outputs_revision.wrapping_add(1);
         self.set_output_geometry(primary.geometry);
@@ -928,10 +1088,13 @@ impl Server {
                 scale: spec.scale,
                 transform: tessera_primitives::Transform::Normal,
                 logical_origin: spec.logical_origin.unwrap_or_default(),
+                logical_size_override: None,
             },
             kind: tessera_desktop::output::OutputKind::Virtual,
             available_modes: vec![spec.mode],
             color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+            role: OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
         };
         self.state.virtual_outputs.push(VirtualOutputRecord {
             owner_conn_id,
@@ -1143,6 +1306,50 @@ impl Server {
         }
     }
 
+    /// Move every window that still belongs to `connector` by the output's
+    /// logical delta. Enabling or removing a mirror changes the horizontal
+    /// layout of every extended output after it; without this, a workspace
+    /// keeps its windows at stale global coordinates and they appear on the
+    /// wrong panel.
+    fn translate_windows_on_output(&mut self, connector: &str, dx: i32, dy: i32) {
+        if dx == 0 && dy == 0 {
+            return;
+        }
+        let candidate_ids: Vec<tessera_desktop::window::WindowId> = self
+            .state
+            .live_surfaces()
+            .filter_map(|pointer| unsafe {
+                let s = &*pointer;
+                (!s.xdg_toplevel.is_null() && s.mapped).then_some(s.window.id)
+            })
+            .collect();
+        for window_id in candidate_ids {
+            if !self.human_controls_window(window_id)
+                || human_output_connector_for_window(&self.state, window_id) != Some(connector)
+            {
+                continue;
+            }
+            let rec = self.find_surface_by_window_id(window_id);
+            if rec.is_null() {
+                continue;
+            }
+            unsafe {
+                let pos = (*rec).position;
+                reposition_toplevel_with_popups(
+                    rec,
+                    tessera_primitives::Point {
+                        x: pos.x.saturating_add(dx),
+                        y: pos.y.saturating_add(dy),
+                    },
+                );
+                if let Some(saved) = (*rec).saved_floating_rect.as_mut() {
+                    saved.origin.x = saved.origin.x.saturating_add(dx);
+                    saved.origin.y = saved.origin.y.saturating_add(dy);
+                }
+            }
+        }
+    }
+
     fn relocate_windows_from_removed_output(
         &mut self,
         removed_connector: &str,
@@ -1305,16 +1512,39 @@ impl Server {
         }
     }
 
+    /// Replace the session topology policy for connectors without an explicit
+    /// role (ADR-0243) and re-resolve the current output set.
+    pub fn set_display_topology(&mut self, topology: tessera_desktop::output::DisplayTopology) {
+        if self.state.display_topology == topology {
+            return;
+        }
+        self.state.display_topology = topology;
+        if !self.state.physical_outputs.is_empty() || !self.state.virtual_outputs.is_empty() {
+            self.reconcile_outputs();
+        }
+    }
+
     /// Replace the focused output's geometry (ADR-0028). The backend calls
     /// this on resize; the tiling work-area is the geometry's logical rect.
     /// Re-sends the wl_output geometry/mode/scale/done sequence to every bound
     /// client so they update their scale and surface buffer scale.
     pub fn set_output_geometry(&mut self, geo: tessera_desktop::output::OutputGeometry) {
         self.state.output_geometry = geo;
+        let connector = self
+            .state
+            .output_infos
+            .first()
+            .map(|output| output.connector.clone());
         if let Some(primary) = self.state.output_infos.first_mut() {
             primary.geometry = geo;
         }
-        if let Some(primary) = self.state.physical_outputs.first_mut() {
+        if let Some(connector) = connector
+            && let Some(primary) = self
+                .state
+                .physical_outputs
+                .iter_mut()
+                .find(|output| output.connector == connector)
+        {
             primary.geometry = geo;
         }
         self.state.outputs_revision = self.state.outputs_revision.wrapping_add(1);
@@ -1345,6 +1575,19 @@ impl Server {
     /// tiling work-area is this inset by the chrome's reserved edges.
     pub fn output_logical_rect(&self) -> tessera_primitives::Rect {
         self.state.output_geometry.logical_rect()
+    }
+
+    /// The focused output's extent in the compositor's output-local render
+    /// frame: same size, origin at `(0, 0)`.
+    ///
+    /// The window model keeps desktop-global coordinates (a configured
+    /// output can sit at a non-zero origin), but every canvas pass, cursor
+    /// position, and chrome panel is expressed relative to the output being
+    /// rendered. Chrome that positions itself from a window-model rect must
+    /// use this view, or a non-zero primary origin shifts it off the surface.
+    pub fn output_local_rect(&self) -> tessera_primitives::Rect {
+        let rect = self.output_logical_rect();
+        tessera_primitives::Rect::new(0, 0, rect.size.w.max(1), rect.size.h.max(1))
     }
 
     /// Resend the `zxdg_output_v1` logical geometry events to every bound

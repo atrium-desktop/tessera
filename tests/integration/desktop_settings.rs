@@ -26,6 +26,10 @@ fn set_input_action_round_trips_with_the_expected_tag() {
             repeat_rate: 45,
             repeat_delay_ms: 180,
         },
+        mappings: vec![tessera_primitives::input::InputMapping {
+            device: "Wacom One".into(),
+            output: "HDMI-A-1".into(),
+        }],
     };
     let action = SettingsAction::SetInput { config };
     let json = serde_json::to_string(&action).unwrap();

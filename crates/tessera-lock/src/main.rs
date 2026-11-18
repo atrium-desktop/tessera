@@ -12,33 +12,27 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use profile::Profile;
 use render::{Graphics, LockRenderSurface};
-use smithay_client_toolkit::{
-    compositor::{CompositorHandler, CompositorState},
-    output::{OutputHandler, OutputState},
-    reexports::{
-        calloop::{EventLoop, LoopHandle},
-        calloop_wayland_source::WaylandSource,
-    },
-    registry::{ProvidesRegistryState, RegistryState},
-    registry_handlers,
-    seat::{
-        Capability, SeatHandler, SeatState,
-        keyboard::{
-            KeyEvent, KeyboardHandler, Keymap, Keysym, Modifiers, RawModifiers, RepeatInfo,
-        },
-        pointer::{PointerEvent, PointerEventKind, PointerHandler},
-        touch::TouchHandler,
-    },
-    session_lock::{
-        SessionLock, SessionLockHandler, SessionLockState, SessionLockSurface,
-        SessionLockSurfaceConfigure,
+use tessera_lock::{AuthResult, LockAction, LockState, PresentationMode};
+use tessera_wl_client::{KeyEvent, Keysym, Modifiers, XkbKeyboard, run_event_loop};
+use wayland_client::{
+    Connection, Dispatch, Proxy, QueueHandle, WEnum,
+    backend::ObjectId,
+    globals::{GlobalListContents, registry_queue_init},
+    protocol::{
+        wl_compositor::{self, WlCompositor},
+        wl_keyboard::{self, KeyState, WlKeyboard},
+        wl_output::{self, WlOutput},
+        wl_pointer::{self, ButtonState, WlPointer},
+        wl_registry::{self, WlRegistry},
+        wl_seat::{self, Capability, WlSeat},
+        wl_surface::{self, WlSurface},
+        wl_touch::{self, WlTouch},
     },
 };
-use tessera_lock::{AuthResult, LockAction, LockState, PresentationMode};
-use wayland_client::{
-    Connection, Dispatch, Proxy, QueueHandle,
-    globals::registry_queue_init,
-    protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_surface, wl_touch},
+use wayland_protocols::ext::session_lock::v1::client::{
+    ext_session_lock_manager_v1::{self, ExtSessionLockManagerV1},
+    ext_session_lock_surface_v1::{self, ExtSessionLockSurfaceV1},
+    ext_session_lock_v1::{self, ExtSessionLockV1},
 };
 use wayland_protocols::wp::{
     fractional_scale::v1::client::{
@@ -52,8 +46,9 @@ use wayland_protocols::wp::{
 };
 
 struct OutputSurface {
-    output: wl_output::WlOutput,
-    lock: SessionLockSurface,
+    output: WlOutput,
+    wl_surface: WlSurface,
+    lock_surface: ExtSessionLockSurfaceV1,
     render: Option<LockRenderSurface>,
     viewport: Option<WpViewport>,
     fractional_scale: Option<WpFractionalScaleV1>,
@@ -71,21 +66,21 @@ impl OutputSurface {
 }
 
 struct AppData {
-    loop_handle: LoopHandle<'static, Self>,
     connection: Connection,
-    registry_state: RegistryState,
-    compositor_state: CompositorState,
-    output_state: OutputState,
-    seat_state: SeatState,
-    _session_lock_state: SessionLockState,
-    session_lock: Option<SessionLock>,
+    compositor: WlCompositor,
+    _lock_manager: ExtSessionLockManagerV1,
+    session_lock: Option<ExtSessionLockV1>,
+    is_locked: bool,
     fractional_scale_manager: Option<WpFractionalScaleManagerV1>,
     viewporter: Option<WpViewporter>,
+    output_scales: HashMap<ObjectId, i32>,
+    output_names: HashMap<u32, WlOutput>,
     outputs: Vec<OutputSurface>,
-    keyboards: Vec<wl_keyboard::WlKeyboard>,
-    pointers: Vec<wl_pointer::WlPointer>,
-    pointer_positions: HashMap<u32, (wl_surface::WlSurface, (f64, f64))>,
-    touches: Vec<wl_touch::WlTouch>,
+    keyboards: Vec<WlKeyboard>,
+    xkb: XkbKeyboard,
+    pointers: Vec<WlPointer>,
+    pointer_positions: HashMap<u32, (WlSurface, (f64, f64))>,
+    touches: Vec<WlTouch>,
     graphics: Graphics,
     profile: Profile,
     lock_state: LockState,
@@ -95,7 +90,7 @@ struct AppData {
     modifiers: Modifiers,
     active_layout: u32,
     layout_names: Vec<String>,
-    touch_points: HashMap<i32, (wl_surface::WlSurface, (f64, f64))>,
+    touch_points: HashMap<i32, (WlSurface, (f64, f64))>,
     visual_progress: f32,
     feedback_was_animating: bool,
     last_update: Instant,
@@ -121,19 +116,29 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         libc::setlocale(libc::LC_TIME, c"".as_ptr());
     }
     let connection = Connection::connect_to_env()?;
-    let (globals, event_queue) = registry_queue_init::<AppData>(&connection)?;
+    let (globals, mut event_queue) = registry_queue_init::<AppData>(&connection)?;
     let qh = event_queue.handle();
-    let mut event_loop: EventLoop<AppData> = EventLoop::try_new()?;
-    let loop_handle = event_loop.handle();
     let (auth_tx, auth_rx) = mpsc::channel();
     let now = Instant::now();
 
-    let session_lock_state = SessionLockState::new(&globals, &qh);
-    let session_lock = session_lock_state.lock(&qh)?;
-    // Fractional scaling needs both protocols: the manager carries the
-    // compositor's exact per-output scale hint and the viewport maps the
-    // physical-pixel buffer onto the logical surface size. Either missing
-    // keeps every surface on the integer `wl_output.scale` fallback.
+    let compositor: WlCompositor = globals.bind(&qh, 4..=6, ())?;
+    let lock_manager: ExtSessionLockManagerV1 = globals.bind(&qh, 1..=1, ())?;
+    let session_lock = lock_manager.lock(&qh, ());
+    let _seat: Option<WlSeat> = globals.bind(&qh, 1..=9, ()).ok();
+
+    let mut initial_outputs = Vec::new();
+    let mut output_names = HashMap::new();
+    globals.contents().with_list(|list| {
+        for global in list {
+            if global.interface == "wl_output" {
+                let version = global.version.min(4);
+                let out: WlOutput = globals.registry().bind(global.name, version, &qh, ());
+                output_names.insert(global.name, out.clone());
+                initial_outputs.push(out);
+            }
+        }
+    });
+
     let fractional_scale_manager: Option<WpFractionalScaleManagerV1> =
         globals.bind(&qh, 1..=1, ()).ok();
     let viewporter: Option<WpViewporter> = globals.bind(&qh, 1..=1, ()).ok();
@@ -141,18 +146,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         log::info!("lock: fractional scaling unavailable; using integer buffer scale");
     }
     let mut app = AppData {
-        loop_handle,
         connection: connection.clone(),
-        registry_state: RegistryState::new(&globals),
-        compositor_state: CompositorState::bind(&globals, &qh)?,
-        output_state: OutputState::new(&globals, &qh),
-        seat_state: SeatState::new(&globals, &qh),
-        _session_lock_state: session_lock_state,
+        compositor,
+        _lock_manager: lock_manager,
         session_lock: Some(session_lock),
+        is_locked: false,
         fractional_scale_manager,
         viewporter,
+        output_scales: HashMap::new(),
+        output_names,
         outputs: Vec::new(),
         keyboards: Vec::new(),
+        xkb: XkbKeyboard::new(),
         pointers: Vec::new(),
         pointer_positions: HashMap::new(),
         touches: Vec::new(),
@@ -176,25 +181,31 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         fatal: None,
     };
 
-    let initial_outputs: Vec<_> = app.output_state.outputs().collect();
     for output in initial_outputs {
         app.ensure_output(output, &qh);
     }
-    WaylandSource::new(connection, event_queue).insert(event_loop.handle())?;
 
-    while !app.exit {
-        let timeout = if app.dirty || app.is_animating() {
-            Duration::from_millis(16)
-        } else {
-            Duration::from_secs(1)
-        };
-        event_loop.dispatch(timeout, &mut app)?;
-        app.advance();
-        if app.dirty {
-            app.render_all();
-        }
-        app.maybe_unlock();
-    }
+    run_event_loop(
+        &connection,
+        &mut event_queue,
+        &mut app,
+        None,
+        |app| {
+            app.advance();
+            if app.dirty {
+                app.render_all();
+            }
+            app.maybe_unlock();
+        },
+        |app| app.exit,
+        |app| {
+            Some(if app.dirty || app.is_animating() {
+                Duration::from_millis(16)
+            } else {
+                Duration::from_secs(1)
+            })
+        },
+    )?;
     if let Some(error) = app.fatal.take() {
         return Err(error.into());
     }
@@ -202,49 +213,37 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 impl AppData {
-    fn ensure_output(&mut self, output: wl_output::WlOutput, qh: &QueueHandle<Self>) {
+    fn ensure_output(&mut self, output: WlOutput, qh: &QueueHandle<Self>) {
         if self.outputs.iter().any(|entry| entry.output == output) {
             return;
         }
         let Some(lock) = self.session_lock.clone() else {
             return;
         };
-        let surface = self.compositor_state.create_surface(qh);
-        let lock_surface = lock.create_lock_surface(surface, &output, qh);
+        let surface = self.compositor.create_surface(qh, ());
+        let lock_surface = lock.get_lock_surface(&surface, &output, qh, surface.clone());
         let integer_scale = self
-            .output_state
-            .info(&output)
-            .map(|info| info.scale_factor.max(1))
-            .unwrap_or(1);
-        // Density negotiation: with fractional scaling the buffer scale stays
-        // at 1, the compositor's `preferred_scale` event carries the exact
-        // (possibly fractional) output scale, and a `wp_viewport` destination
-        // pins the surface's logical size. Without protocol support, fall
-        // back to the integer `wl_output.scale` as the buffer scale.
+            .output_scales
+            .get(&output.id())
+            .copied()
+            .unwrap_or(1)
+            .max(1);
         let (viewport, fractional_scale) = match (&self.viewporter, &self.fractional_scale_manager)
         {
             (Some(viewporter), Some(manager)) => {
-                let viewport = viewporter.get_viewport(lock_surface.wl_surface(), qh, ());
-                let fractional = manager.get_fractional_scale(
-                    lock_surface.wl_surface(),
-                    qh,
-                    lock_surface.wl_surface().clone(),
-                );
+                let viewport = viewporter.get_viewport(&surface, qh, ());
+                let fractional = manager.get_fractional_scale(&surface, qh, surface.clone());
                 (Some(viewport), Some(fractional))
             }
             _ => {
-                lock_surface.wl_surface().set_buffer_scale(integer_scale);
+                surface.set_buffer_scale(integer_scale);
                 (None, None)
             }
         };
-        // ext-session-lock configures immediately after the role is created.
-        // Unlike xdg-shell, an empty initial commit is forbidden: the first
-        // commit must follow ack_configure and already carry a full-size
-        // buffer. `configure_surface` creates that target and `render_all`
-        // performs the first legal commit.
         self.outputs.push(OutputSurface {
             output,
-            lock: lock_surface,
+            wl_surface: surface,
+            lock_surface,
             render: None,
             viewport,
             fractional_scale,
@@ -254,7 +253,7 @@ impl AppData {
         self.dirty = true;
     }
 
-    fn remove_output(&mut self, output: &wl_output::WlOutput) {
+    fn remove_output(&mut self, output: &WlOutput) {
         let Some(index) = self
             .outputs
             .iter()
@@ -272,24 +271,26 @@ impl AppData {
         if let Some(viewport) = removed.viewport.take() {
             viewport.destroy();
         }
+        removed.lock_surface.destroy();
+        removed.wl_surface.destroy();
     }
 
-    fn update_output(&mut self, output: &wl_output::WlOutput) {
+    fn update_output(&mut self, output: &WlOutput) {
         let scale = self
-            .output_state
-            .info(output)
-            .map(|info| info.scale_factor.max(1))
-            .unwrap_or(1);
+            .output_scales
+            .get(&output.id())
+            .copied()
+            .unwrap_or(1)
+            .max(1);
         if let Some(entry) = self
             .outputs
             .iter_mut()
             .find(|entry| &entry.output == output)
-            // Fractional-scale surfaces follow `preferred_scale` instead.
             && entry.fractional_scale.is_none()
             && entry.scale_120 != scale as u32 * 120
         {
             entry.scale_120 = scale as u32 * 120;
-            entry.lock.wl_surface().set_buffer_scale(scale);
+            entry.wl_surface.set_buffer_scale(scale);
             let factor = entry.scale_factor();
             if let Some(render) = &mut entry.render
                 && let Err(error) = render.resize(entry.logical_size, factor)
@@ -304,20 +305,18 @@ impl AppData {
     fn configure_surface(
         &mut self,
         connection: &Connection,
-        surface: &SessionLockSurface,
+        surface: &WlSurface,
         size: (u32, u32),
     ) {
         let Some(entry) = self
             .outputs
             .iter_mut()
-            .find(|entry| entry.lock.wl_surface() == surface.wl_surface())
+            .find(|entry| &entry.wl_surface == surface)
         else {
             self.fail("received configure for an unknown lock surface".into());
             return;
         };
         entry.logical_size = (size.0.max(1), size.1.max(1));
-        // The viewport destination pins the surface's logical size so the
-        // buffer can carry physical pixels at any fractional density.
         if let Some(viewport) = &entry.viewport {
             viewport.set_destination(entry.logical_size.0 as i32, entry.logical_size.1 as i32);
         }
@@ -326,12 +325,7 @@ impl AppData {
             render.resize(entry.logical_size, scale)
         } else {
             self.graphics
-                .create_surface(
-                    connection,
-                    entry.lock.wl_surface(),
-                    entry.logical_size,
-                    scale,
-                )
+                .create_surface(connection, &entry.wl_surface, entry.logical_size, scale)
                 .map(|render| {
                     entry.render = Some(render);
                 })
@@ -403,9 +397,7 @@ impl AppData {
     }
 
     fn securely_presented(&self) -> bool {
-        self.session_lock
-            .as_ref()
-            .is_some_and(SessionLock::is_locked)
+        self.is_locked
     }
 
     fn advance(&mut self) {
@@ -508,15 +500,12 @@ impl AppData {
     }
 
     fn maybe_unlock(&mut self) {
-        if !self.unlock_pending {
+        if !self.unlock_pending || !self.is_locked {
             return;
         }
-        let Some(lock) = self.session_lock.as_ref() else {
-            return;
-        };
-        if lock.is_locked() {
+        if let Some(lock) = self.session_lock.take() {
             log::info!("lock: authentication succeeded; unlocking session");
-            lock.unlock();
+            lock.unlock_and_destroy();
             let _ = self.connection.flush();
             self.exit = true;
         }
@@ -550,193 +539,205 @@ impl Drop for AppData {
     }
 }
 
-impl SessionLockHandler for AppData {
-    fn locked(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _session_lock: SessionLock,
+impl Dispatch<WlRegistry, GlobalListContents> for AppData {
+    fn event(
+        state: &mut Self,
+        registry: &WlRegistry,
+        event: wl_registry::Event,
+        _: &GlobalListContents,
+        _: &Connection,
+        qh: &QueueHandle<Self>,
     ) {
-        log::info!("lock: compositor confirmed secure presentation on all outputs");
-        self.signal_ready();
-        self.dirty = true;
-    }
-
-    fn finished(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _session_lock: SessionLock,
-    ) {
-        if !self.exit {
-            self.fail("compositor denied or terminated the session lock".into());
+        match event {
+            wl_registry::Event::Global {
+                name,
+                interface,
+                version,
+            } if interface == "wl_output" => {
+                let output: WlOutput = registry.bind(name, version.min(4), qh, ());
+                state.output_names.insert(name, output.clone());
+                state.ensure_output(output, qh);
+            }
+            wl_registry::Event::GlobalRemove { name } => {
+                if let Some(output) = state.output_names.remove(&name) {
+                    state.remove_output(&output);
+                }
+            }
+            _ => {}
         }
     }
+}
 
-    fn configure(
-        &mut self,
-        connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        surface: SessionLockSurface,
-        configure: SessionLockSurfaceConfigure,
-        _serial: u32,
+impl Dispatch<WlCompositor, ()> for AppData {
+    fn event(
+        _: &mut Self,
+        _: &WlCompositor,
+        _: wl_compositor::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
     ) {
-        self.configure_surface(connection, &surface, configure.new_size);
     }
 }
 
-impl OutputHandler for AppData {
-    fn output_state(&mut self) -> &mut OutputState {
-        &mut self.output_state
-    }
-
-    fn new_output(
-        &mut self,
-        _connection: &Connection,
-        qh: &QueueHandle<Self>,
-        output: wl_output::WlOutput,
+impl Dispatch<WlSurface, ()> for AppData {
+    fn event(
+        state: &mut Self,
+        surface: &WlSurface,
+        event: wl_surface::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
     ) {
-        self.ensure_output(output, qh);
-    }
-
-    fn update_output(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        output: wl_output::WlOutput,
-    ) {
-        self.update_output(&output);
-    }
-
-    fn output_destroyed(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        output: wl_output::WlOutput,
-    ) {
-        self.remove_output(&output);
-    }
-}
-
-impl CompositorHandler for AppData {
-    fn scale_factor_changed(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        surface: &wl_surface::WlSurface,
-        factor: i32,
-    ) {
-        if let Some(entry) = self
-            .outputs
-            .iter_mut()
-            .find(|entry| entry.lock.wl_surface() == surface)
-            // Fractional-scale surfaces follow `preferred_scale` instead.
+        if let wl_surface::Event::PreferredBufferScale { factor } = event
+            && let Some(entry) = state
+                .outputs
+                .iter_mut()
+                .find(|entry| &entry.wl_surface == surface)
             && entry.fractional_scale.is_none()
         {
             entry.scale_120 = factor.max(1) as u32 * 120;
-            entry.lock.wl_surface().set_buffer_scale(factor.max(1));
+            entry.wl_surface.set_buffer_scale(factor.max(1));
             let scale = entry.scale_factor();
             if let Some(render) = &mut entry.render
                 && let Err(error) = render.resize(entry.logical_size, scale)
             {
-                self.fail(error.to_string());
+                state.fail(error.to_string());
             }
-            self.dirty = true;
+            state.dirty = true;
         }
     }
+}
 
-    fn transform_changed(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _surface: &wl_surface::WlSurface,
-        _transform: wl_output::Transform,
+impl Dispatch<WlOutput, ()> for AppData {
+    fn event(
+        state: &mut Self,
+        output: &WlOutput,
+        event: wl_output::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
     ) {
-        self.dirty = true;
+        match event {
+            wl_output::Event::Scale { factor } => {
+                state.output_scales.insert(output.id(), factor);
+            }
+            wl_output::Event::Done => {
+                state.update_output(output);
+            }
+            _ => {}
+        }
     }
+}
 
-    fn frame(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _surface: &wl_surface::WlSurface,
-        _time: u32,
+impl Dispatch<ExtSessionLockManagerV1, ()> for AppData {
+    fn event(
+        _: &mut Self,
+        _: &ExtSessionLockManagerV1,
+        _: ext_session_lock_manager_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
     ) {
     }
+}
 
-    fn surface_enter(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _surface: &wl_surface::WlSurface,
-        _output: &wl_output::WlOutput,
+impl Dispatch<ExtSessionLockV1, ()> for AppData {
+    fn event(
+        state: &mut Self,
+        _: &ExtSessionLockV1,
+        event: ext_session_lock_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
     ) {
+        match event {
+            ext_session_lock_v1::Event::Locked => {
+                log::info!("lock: compositor confirmed secure presentation on all outputs");
+                state.is_locked = true;
+                state.signal_ready();
+                state.dirty = true;
+            }
+            ext_session_lock_v1::Event::Finished if !state.exit => {
+                state.fail("compositor denied or terminated the session lock".into());
+            }
+            _ => {}
+        }
     }
+}
 
-    fn surface_leave(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _surface: &wl_surface::WlSurface,
-        _output: &wl_output::WlOutput,
+impl Dispatch<ExtSessionLockSurfaceV1, WlSurface> for AppData {
+    fn event(
+        state: &mut Self,
+        lock_surface: &ExtSessionLockSurfaceV1,
+        event: ext_session_lock_surface_v1::Event,
+        wl_surface: &WlSurface,
+        connection: &Connection,
+        _: &QueueHandle<Self>,
     ) {
+        if let ext_session_lock_surface_v1::Event::Configure {
+            serial,
+            width,
+            height,
+        } = event
+        {
+            lock_surface.ack_configure(serial);
+            state.configure_surface(connection, wl_surface, (width, height));
+        }
     }
 }
 
 impl Dispatch<WpFractionalScaleManagerV1, ()> for AppData {
     fn event(
-        _state: &mut Self,
-        _proxy: &WpFractionalScaleManagerV1,
-        _event: wp_fractional_scale_manager_v1::Event,
-        _data: &(),
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
+        _: &mut Self,
+        _: &WpFractionalScaleManagerV1,
+        _: wp_fractional_scale_manager_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
     ) {
-        // The manager has no events.
     }
 }
 
 impl Dispatch<WpViewporter, ()> for AppData {
     fn event(
-        _state: &mut Self,
-        _proxy: &WpViewporter,
-        _event: wp_viewporter::Event,
-        _data: &(),
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
+        _: &mut Self,
+        _: &WpViewporter,
+        _: wp_viewporter::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
     ) {
-        // The viewporter has no events.
     }
 }
 
 impl Dispatch<WpViewport, ()> for AppData {
     fn event(
-        _state: &mut Self,
-        _proxy: &WpViewport,
-        _event: wp_viewport::Event,
-        _data: &(),
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
+        _: &mut Self,
+        _: &WpViewport,
+        _: wp_viewport::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
     ) {
-        // The viewport has no events.
     }
 }
 
-impl Dispatch<WpFractionalScaleV1, wl_surface::WlSurface> for AppData {
+impl Dispatch<WpFractionalScaleV1, WlSurface> for AppData {
     fn event(
         state: &mut Self,
-        _proxy: &WpFractionalScaleV1,
+        _: &WpFractionalScaleV1,
         event: wp_fractional_scale_v1::Event,
-        surface: &wl_surface::WlSurface,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
+        surface: &WlSurface,
+        _: &Connection,
+        _: &QueueHandle<Self>,
     ) {
         if let wp_fractional_scale_v1::Event::PreferredScale { scale } = event {
             let scale_120 = scale.max(1);
             let Some(entry) = state
                 .outputs
                 .iter_mut()
-                .find(|entry| entry.lock.wl_surface() == surface)
+                .find(|entry| &entry.wl_surface == surface)
             else {
                 return;
             };
@@ -756,330 +757,191 @@ impl Dispatch<WpFractionalScaleV1, wl_surface::WlSurface> for AppData {
     }
 }
 
-impl SeatHandler for AppData {
-    fn seat_state(&mut self) -> &mut SeatState {
-        &mut self.seat_state
-    }
-
-    fn new_seat(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _seat: wl_seat::WlSeat,
-    ) {
-    }
-
-    fn new_capability(
-        &mut self,
-        _connection: &Connection,
+impl Dispatch<WlSeat, ()> for AppData {
+    fn event(
+        state: &mut Self,
+        seat: &WlSeat,
+        event: wl_seat::Event,
+        _: &(),
+        _: &Connection,
         qh: &QueueHandle<Self>,
-        seat: wl_seat::WlSeat,
-        capability: Capability,
     ) {
-        match capability {
-            Capability::Keyboard => {
-                let loop_handle = self.loop_handle.clone();
-                let keyboard = self.seat_state.get_keyboard_with_repeat(
-                    qh,
-                    &seat,
-                    None,
-                    loop_handle,
-                    Box::new(|state, _keyboard, event| state.handle_key(event)),
-                );
-                match keyboard {
-                    Ok(keyboard) => self.keyboards.push(keyboard),
-                    Err(error) => self.fail(format!("keyboard initialization failed: {error}")),
+        if let wl_seat::Event::Capabilities {
+            capabilities: WEnum::Value(caps),
+        } = event
+        {
+            if caps.contains(Capability::Keyboard) && state.keyboards.is_empty() {
+                state.keyboards.push(seat.get_keyboard(qh, ()));
+            }
+            if caps.contains(Capability::Pointer) && state.pointers.is_empty() {
+                state.pointers.push(seat.get_pointer(qh, ()));
+            }
+            if caps.contains(Capability::Touch) && state.touches.is_empty() {
+                state.touches.push(seat.get_touch(qh, ()));
+            }
+        }
+    }
+}
+
+impl Dispatch<WlKeyboard, ()> for AppData {
+    fn event(
+        state: &mut Self,
+        _: &WlKeyboard,
+        event: wl_keyboard::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match event {
+            wl_keyboard::Event::Keymap {
+                format: WEnum::Value(wl_keyboard::KeymapFormat::XkbV1),
+                fd,
+                size,
+            } => {
+                use std::os::fd::AsFd;
+                state.xkb.load_keymap(fd.as_fd(), size);
+                state.layout_names = state.xkb.layout_names.clone();
+                let layout = state
+                    .layout_names
+                    .get(state.active_layout as usize)
+                    .cloned();
+                state
+                    .lock_state
+                    .set_keyboard_status(state.modifiers.caps_lock, layout);
+                state.dirty = true;
+            }
+            wl_keyboard::Event::Enter { .. } => {
+                if state.lock_state.reveal(Instant::now()) {
+                    state.dirty = true;
                 }
             }
-            Capability::Pointer => match self.seat_state.get_pointer(qh, &seat) {
-                Ok(pointer) => self.pointers.push(pointer),
-                Err(error) => self.fail(format!("pointer initialization failed: {error}")),
-            },
-            Capability::Touch => match self.seat_state.get_touch(qh, &seat) {
-                Ok(touch) => self.touches.push(touch),
-                Err(error) => self.fail(format!("touch initialization failed: {error}")),
-            },
-            _ => {}
-        }
-    }
-
-    fn remove_capability(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _seat: wl_seat::WlSeat,
-        capability: Capability,
-    ) {
-        match capability {
-            Capability::Keyboard => self.keyboards.clear(),
-            Capability::Pointer => {
-                self.pointers.clear();
-                self.pointer_positions.clear();
+            wl_keyboard::Event::Key {
+                time,
+                key,
+                state: WEnum::Value(KeyState::Pressed),
+                ..
+            } => {
+                let ev = state.xkb.key_event(key, time);
+                state.handle_key(ev);
             }
-            Capability::Touch => self.touches.clear(),
+            wl_keyboard::Event::Modifiers {
+                mods_depressed,
+                mods_latched,
+                mods_locked,
+                group,
+                ..
+            } => {
+                state
+                    .xkb
+                    .update_modifiers(mods_depressed, mods_latched, mods_locked, group);
+                state.modifiers = state.xkb.modifiers;
+                state.active_layout = group;
+                let layout = state.layout_names.get(group as usize).cloned();
+                state
+                    .lock_state
+                    .set_keyboard_status(state.modifiers.caps_lock, layout);
+                state.dirty = true;
+            }
             _ => {}
         }
     }
-
-    fn remove_seat(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _seat: wl_seat::WlSeat,
-    ) {
-    }
 }
 
-impl KeyboardHandler for AppData {
-    fn enter(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _keyboard: &wl_keyboard::WlKeyboard,
-        _surface: &wl_surface::WlSurface,
-        _serial: u32,
-        _raw: &[u32],
-        _keysyms: &[Keysym],
-    ) {
-        if self.lock_state.reveal(Instant::now()) {
-            self.dirty = true;
-        }
-    }
-
-    fn leave(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _keyboard: &wl_keyboard::WlKeyboard,
-        _surface: &wl_surface::WlSurface,
-        _serial: u32,
-    ) {
-    }
-
-    fn press_key(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _keyboard: &wl_keyboard::WlKeyboard,
-        _serial: u32,
-        event: KeyEvent,
-    ) {
-        self.handle_key(event);
-    }
-
-    fn repeat_key(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _keyboard: &wl_keyboard::WlKeyboard,
-        _serial: u32,
-        event: KeyEvent,
-    ) {
-        self.handle_key(event);
-    }
-
-    fn release_key(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _keyboard: &wl_keyboard::WlKeyboard,
-        _serial: u32,
-        _event: KeyEvent,
-    ) {
-    }
-
-    fn update_modifiers(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _keyboard: &wl_keyboard::WlKeyboard,
-        _serial: u32,
-        modifiers: Modifiers,
-        _raw_modifiers: RawModifiers,
-        layout: u32,
-    ) {
-        self.modifiers = modifiers;
-        self.active_layout = layout;
-        let layout = self.layout_names.get(layout as usize).cloned();
-        self.lock_state
-            .set_keyboard_status(modifiers.caps_lock, layout);
-        self.dirty = true;
-    }
-
-    fn update_repeat_info(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _keyboard: &wl_keyboard::WlKeyboard,
-        _info: RepeatInfo,
-    ) {
-    }
-
-    fn update_keymap(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _keyboard: &wl_keyboard::WlKeyboard,
-        keymap: Keymap<'_>,
-    ) {
-        let context = xkbcommon::xkb::Context::new(xkbcommon::xkb::CONTEXT_NO_FLAGS);
-        let Some(keymap) = xkbcommon::xkb::Keymap::new_from_string(
-            &context,
-            keymap.as_string(),
-            xkbcommon::xkb::KEYMAP_FORMAT_TEXT_V1,
-            xkbcommon::xkb::KEYMAP_COMPILE_NO_FLAGS,
-        ) else {
-            self.layout_names.clear();
-            self.lock_state
-                .set_keyboard_status(self.modifiers.caps_lock, None);
-            self.dirty = true;
-            return;
-        };
-        self.layout_names = (0..keymap.num_layouts())
-            .map(|index| keymap.layout_get_name(index).to_owned())
-            .collect();
-        let layout = self.layout_names.get(self.active_layout as usize).cloned();
-        self.lock_state
-            .set_keyboard_status(self.modifiers.caps_lock, layout);
-        self.dirty = true;
-    }
-}
-
-impl PointerHandler for AppData {
-    fn pointer_frame(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        pointer: &wl_pointer::WlPointer,
-        events: &[PointerEvent],
+impl Dispatch<WlPointer, ()> for AppData {
+    fn event(
+        state: &mut Self,
+        pointer: &WlPointer,
+        event: wl_pointer::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
     ) {
         let pointer_id = pointer.id().protocol_id();
-        for event in events {
-            match &event.kind {
-                PointerEventKind::Enter { .. } => {
-                    self.pointer_positions
-                        .insert(pointer_id, (event.surface.clone(), event.position));
-                    self.pointer_activity(&event.surface, event.position, false);
-                }
-                PointerEventKind::Leave { .. } => {
-                    self.pointer_positions.remove(&pointer_id);
-                }
-                PointerEventKind::Motion { .. } => {
-                    let changed = self.pointer_positions.get(&pointer_id).is_none_or(
-                        |(surface, position)| {
-                            surface != &event.surface || *position != event.position
-                        },
-                    );
-                    self.pointer_positions
-                        .insert(pointer_id, (event.surface.clone(), event.position));
+        match event {
+            wl_pointer::Event::Enter {
+                surface,
+                surface_x,
+                surface_y,
+                ..
+            } => {
+                let pos = (surface_x, surface_y);
+                state
+                    .pointer_positions
+                    .insert(pointer_id, (surface.clone(), pos));
+                state.pointer_activity(&surface, pos, false);
+            }
+            wl_pointer::Event::Leave { .. } => {
+                state.pointer_positions.remove(&pointer_id);
+            }
+            wl_pointer::Event::Motion {
+                surface_x,
+                surface_y,
+                ..
+            } => {
+                let pos = (surface_x, surface_y);
+                if let Some((surface, prev)) = state.pointer_positions.get_mut(&pointer_id) {
+                    let changed = *prev != pos;
+                    *prev = pos;
+                    let surface = surface.clone();
                     if changed {
-                        self.pointer_activity(&event.surface, event.position, false);
+                        state.pointer_activity(&surface, pos, false);
                     }
                 }
-                PointerEventKind::Press { button, .. } => {
-                    self.pointer_activity(&event.surface, event.position, *button == 0x110);
-                }
-                PointerEventKind::Axis {
-                    horizontal,
-                    vertical,
-                    ..
-                } if !horizontal.is_none() || !vertical.is_none() => {
-                    self.pointer_activity(&event.surface, event.position, false);
-                }
-                PointerEventKind::Release { .. } | PointerEventKind::Axis { .. } => {}
             }
+            wl_pointer::Event::Button {
+                button,
+                state: WEnum::Value(ButtonState::Pressed),
+                ..
+            } => {
+                if let Some((surface, pos)) = state.pointer_positions.get(&pointer_id).cloned() {
+                    state.pointer_activity(&surface, pos, button == 0x110);
+                }
+            }
+            wl_pointer::Event::Axis { value, .. } if value != 0.0 => {
+                if let Some((surface, pos)) = state.pointer_positions.get(&pointer_id).cloned() {
+                    state.pointer_activity(&surface, pos, false);
+                }
+            }
+            _ => {}
         }
     }
 }
 
-impl TouchHandler for AppData {
-    fn down(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _touch: &wl_touch::WlTouch,
-        _serial: u32,
-        _time: u32,
-        surface: wl_surface::WlSurface,
-        id: i32,
-        position: (f64, f64),
+impl Dispatch<WlTouch, ()> for AppData {
+    fn event(
+        state: &mut Self,
+        _: &WlTouch,
+        event: wl_touch::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
     ) {
-        self.touch_points.insert(id, (surface.clone(), position));
-        self.pointer_activity(&surface, position, true);
-    }
-
-    fn up(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _touch: &wl_touch::WlTouch,
-        _serial: u32,
-        _time: u32,
-        id: i32,
-    ) {
-        self.touch_points.remove(&id);
-    }
-
-    fn motion(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _touch: &wl_touch::WlTouch,
-        _time: u32,
-        id: i32,
-        position: (f64, f64),
-    ) {
-        let surface = self
-            .touch_points
-            .get(&id)
-            .map(|(surface, _)| surface.clone());
-        if let Some(surface) = surface {
-            self.touch_points.insert(id, (surface.clone(), position));
-            self.pointer_activity(&surface, position, false);
+        match event {
+            wl_touch::Event::Down {
+                surface, id, x, y, ..
+            } => {
+                let pos = (x, y);
+                state.touch_points.insert(id, (surface.clone(), pos));
+                state.pointer_activity(&surface, pos, true);
+            }
+            wl_touch::Event::Up { id, .. } => {
+                state.touch_points.remove(&id);
+            }
+            wl_touch::Event::Motion { id, x, y, .. } => {
+                let pos = (x, y);
+                let surface = state.touch_points.get(&id).map(|(s, _)| s.clone());
+                if let Some(surface) = surface {
+                    state.touch_points.insert(id, (surface.clone(), pos));
+                    state.pointer_activity(&surface, pos, false);
+                }
+            }
+            wl_touch::Event::Cancel => {
+                state.touch_points.clear();
+            }
+            _ => {}
         }
     }
-
-    fn shape(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _touch: &wl_touch::WlTouch,
-        _id: i32,
-        _major: f64,
-        _minor: f64,
-    ) {
-    }
-
-    fn orientation(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _touch: &wl_touch::WlTouch,
-        _id: i32,
-        _orientation: f64,
-    ) {
-    }
-
-    fn cancel(
-        &mut self,
-        _connection: &Connection,
-        _qh: &QueueHandle<Self>,
-        _touch: &wl_touch::WlTouch,
-    ) {
-        self.touch_points.clear();
-    }
 }
-
-impl ProvidesRegistryState for AppData {
-    fn registry(&mut self) -> &mut RegistryState {
-        &mut self.registry_state
-    }
-
-    registry_handlers![OutputState, SeatState];
-}
-
-smithay_client_toolkit::delegate_registry!(AppData);
-smithay_client_toolkit::delegate_dispatch2!(AppData);
 
 fn parse_args() -> Result<Option<OwnedFd>, Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);

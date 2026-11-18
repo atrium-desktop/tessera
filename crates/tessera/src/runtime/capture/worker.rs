@@ -313,7 +313,7 @@ impl CaptureWorker {
                 // Feed the frame loop: elevated below the frame thread and
                 // pinned off the frame CPU so screenshot/stream encode never
                 // competes with presentation.
-                tessera_sched::mark_frame_feeder();
+                crate::runtime::sched::mark_frame_feeder();
                 while let Ok(job) = job_rx.recv() {
                     match job {
                         CaptureJob::Screenshot {

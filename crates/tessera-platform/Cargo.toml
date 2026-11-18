@@ -21,7 +21,6 @@ input.workspace = true
 udev.workspace = true
 libc.workspace = true
 log.workspace = true
-thiserror.workspace = true
 
 [build-dependencies]
 pkg-config.workspace = true

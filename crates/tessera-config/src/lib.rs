@@ -78,6 +78,10 @@ pub struct Config {
     #[serde(default, rename = "window_rule")]
     pub window_rules: Vec<tessera_desktop::window_rule::WindowRule>,
 
+    /// Display topology policy (ADR-0243), written as a `[display]` table.
+    #[serde(default)]
+    pub display: DisplayConfig,
+
     /// Tiling policy parameters (ADR-0024), written as a `[layout]` table.
     #[serde(default)]
     pub layout: LayoutConfig,
@@ -1083,6 +1087,12 @@ pub struct OutputConfig {
     /// "HDMI-A-1", "nested"). Unmatched names are ignored with a diagnostic
     /// at load time by the caller, not by the schema.
     pub connector: String,
+    /// Explicit role. Omit to let `[display] topology` decide.
+    #[serde(default)]
+    pub role: Option<OutputRoleConfig>,
+    /// The connector this output mirrors when `role = "mirror"`.
+    #[serde(default)]
+    pub mirror_of: Option<String>,
     /// Output scale factor. Integer scales advertise through `wl_output`;
     /// fractional scales through `wp_fractional_scale_v1`.
     ///
@@ -1142,6 +1152,27 @@ pub struct OutputConfig {
 pub struct OutputPosition {
     pub x: i32,
     pub y: i32,
+}
+
+/// The `[display]` section: how connectors without an explicit
+/// `[[output]] role` join the desktop (ADR-0243).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DisplayConfig {
+    /// `auto` (default), `extend`, or `mirror`. Explicit per-connector roles
+    /// always win; `auto` mirrors the first smaller external display and
+    /// extends larger ones.
+    #[serde(default)]
+    pub topology: tessera_desktop::output::DisplayTopology,
+}
+
+/// The `[[output]] role` value. Absence means "use the `[display]`
+/// topology"; `mirror` requires a `mirror_of` connector.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputRoleConfig {
+    Extend,
+    Mirror,
 }
 
 /// The `[layout]` section: tiling gaps and master ratio. Defaults match the
@@ -1298,28 +1329,44 @@ fn validate_interaction_domain_sandbox_limits(
 }
 
 /// A filesystem-level failure while reading or writing the config file.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum LoadError {
     /// The file exists but could not be read.
-    #[error("{path}: read failed")]
     Read {
         path: PathBuf,
-        #[source]
         source: std::io::Error,
     },
     /// The file was read but failed schema or semantic validation.
-    #[error("{path}: {} error(s)", diagnostics.len())]
     Invalid {
         path: PathBuf,
         diagnostics: Vec<Diagnostic>,
     },
     /// The file could not be written.
-    #[error("{path}: write failed")]
     Write {
         path: PathBuf,
-        #[source]
         source: std::io::Error,
     },
+}
+
+impl std::fmt::Display for LoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Read { path, .. } => write!(f, "{}: read failed", path.display()),
+            Self::Invalid { path, diagnostics } => {
+                write!(f, "{}: {} error(s)", path.display(), diagnostics.len())
+            }
+            Self::Write { path, .. } => write!(f, "{}: write failed", path.display()),
+        }
+    }
+}
+
+impl std::error::Error for LoadError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Read { source, .. } | Self::Write { source, .. } => Some(source),
+            Self::Invalid { .. } => None,
+        }
+    }
 }
 
 impl Config {
@@ -1407,6 +1454,33 @@ impl Config {
                     "must not be empty",
                 ));
             }
+            match (output.role, output.mirror_of.as_deref()) {
+                (Some(OutputRoleConfig::Mirror), None | Some("")) => {
+                    diagnostics.push(Diagnostic::new(
+                        Some(format!("output.{index}.mirror_of")),
+                        "a mirror output requires the source connector",
+                    ))
+                }
+                (Some(OutputRoleConfig::Mirror), Some(source)) if source == output.connector => {
+                    diagnostics.push(Diagnostic::new(
+                        Some(format!("output.{index}.mirror_of")),
+                        "an output cannot mirror itself",
+                    ));
+                }
+                (Some(OutputRoleConfig::Mirror), Some(_))
+                    if output.scale.is_some() || output.position.is_some() || output.primary =>
+                {
+                    diagnostics.push(Diagnostic::new(
+                        Some(format!("output.{index}.role")),
+                        "a mirror follows its source's scale, position, and primary status",
+                    ));
+                }
+                (Some(OutputRoleConfig::Extend), Some(_)) => diagnostics.push(Diagnostic::new(
+                    Some(format!("output.{index}.mirror_of")),
+                    "mirror_of is only valid with role = \"mirror\"",
+                )),
+                _ => {}
+            }
             if let Some(scale) = output.scale
                 && (!scale.is_finite() || !(0.25..=4.0).contains(&scale))
             {
@@ -1456,7 +1530,9 @@ impl Config {
                     "must be between 80.0 and 500.0 (nits)",
                 ));
             }
-            if output.scale.is_none()
+            if output.role.is_none()
+                && output.mirror_of.is_none()
+                && output.scale.is_none()
                 && output.mode.is_none()
                 && output.position.is_none()
                 && output.transform.is_none()
@@ -1565,6 +1641,28 @@ impl Config {
                 Some("input.keyboard.repeat_delay_ms".into()),
                 "must be between 1 and 2000",
             ));
+        }
+        let mut mapped_devices = std::collections::HashSet::new();
+        for (index, mapping) in cfg.input.mappings.iter().enumerate() {
+            let prefix = format!("input.mapping.{index}");
+            if mapping.device.trim().is_empty() || mapping.device.len() > 256 {
+                diagnostics.push(Diagnostic::new(
+                    Some(format!("{prefix}.device")),
+                    "must name a device (1-256 bytes)",
+                ));
+            }
+            if mapping.output.trim().is_empty() || mapping.output.len() > 128 {
+                diagnostics.push(Diagnostic::new(
+                    Some(format!("{prefix}.output")),
+                    "must name a connector (1-128 bytes)",
+                ));
+            }
+            if !mapped_devices.insert(mapping.device.as_str()) {
+                diagnostics.push(Diagnostic::new(
+                    Some(format!("{prefix}.device")),
+                    "duplicate device binding",
+                ));
+            }
         }
         validate_interaction_domain_sandbox_limits(
             "interaction_domain_sandbox",
@@ -1771,6 +1869,16 @@ impl Config {
             policies.insert(
                 output.connector.clone(),
                 tessera_desktop::output::OutputPolicy {
+                    role: match output.role {
+                        Some(OutputRoleConfig::Extend) => {
+                            Some(tessera_desktop::output::OutputRole::Extend)
+                        }
+                        Some(OutputRoleConfig::Mirror) => output
+                            .mirror_of
+                            .clone()
+                            .map(|source| tessera_desktop::output::OutputRole::Mirror { source }),
+                        None => None,
+                    },
                     scale: output.scale,
                     mode: output.mode.as_deref().and_then(|m| m.parse().ok()),
                     position: output
@@ -1788,6 +1896,11 @@ impl Config {
             );
         }
         policies
+    }
+
+    /// The session display-topology policy (`[display] topology`).
+    pub fn display_topology(&self) -> tessera_desktop::output::DisplayTopology {
+        self.display.topology
     }
 }
 
@@ -2086,10 +2199,15 @@ pub enum ConfigEdit {
         touchpad: TouchpadConfig,
         mouse: tessera_primitives::input::MouseConfig,
         keyboard: tessera_primitives::input::KeyboardConfig,
+        mappings: Vec<tessera_primitives::input::InputMapping>,
     },
     /// Replace the user-editable fields for one `[[output]]` entry.
     SetOutput {
         settings: tessera_desktop::settings::DisplaySettings,
+    },
+    /// Replace the session default extend-or-mirror topology.
+    SetDisplayTopology {
+        topology: tessera_desktop::output::DisplayTopology,
     },
     /// Replace all compositor-owned desktop appearance and UI preference
     /// fields while preserving unrelated presentation policy.
@@ -2143,8 +2261,12 @@ impl ConfigStore {
                 touchpad,
                 mouse,
                 keyboard,
-            } => apply_input(&mut document, &touchpad, mouse, keyboard),
+                mappings,
+            } => apply_input(&mut document, &touchpad, mouse, keyboard, &mappings),
             ConfigEdit::SetOutput { settings } => apply_output(&mut document, settings),
+            ConfigEdit::SetDisplayTopology { topology } => {
+                apply_display_topology(&mut document, topology)
+            }
             ConfigEdit::SetDesktopPreferences { preferences } => {
                 apply_desktop_preferences(&mut document, &preferences)
             }
@@ -2297,6 +2419,7 @@ fn apply_input(
     touchpad: &TouchpadConfig,
     mouse: tessera_primitives::input::MouseConfig,
     keyboard: tessera_primitives::input::KeyboardConfig,
+    mappings: &[tessera_primitives::input::InputMapping],
 ) {
     if !document.get("input").is_some_and(toml_edit::Item::is_table) {
         document["input"] = toml_edit::Item::Table(toml_edit::Table::new());
@@ -2331,16 +2454,40 @@ fn apply_input(
     let keyboard_table = &mut document["input"]["keyboard"];
     keyboard_table["repeat_rate"] = toml_edit::value(i64::from(keyboard.repeat_rate));
     keyboard_table["repeat_delay_ms"] = toml_edit::value(i64::from(keyboard.repeat_delay_ms));
+
+    // The mapping array is part of the complete Input profile. Rebuild it in
+    // place so comments on the three device tables survive while removed
+    // bindings cannot linger as stale array entries.
+    let mut table = toml_edit::ArrayOfTables::new();
+    for mapping in mappings {
+        let mut entry = toml_edit::Table::new();
+        entry["device"] = toml_edit::value(mapping.device.clone());
+        entry["output"] = toml_edit::value(mapping.output.clone());
+        table.push(entry);
+    }
+    if let Some(input) = document["input"].as_table_mut() {
+        if table.is_empty() {
+            input.remove("mapping");
+        } else {
+            input["mapping"] = toml_edit::Item::ArrayOfTables(table);
+        }
+    }
 }
 
 fn apply_output(document: &mut DocumentMut, settings: tessera_desktop::settings::DisplaySettings) {
     let tessera_desktop::settings::DisplaySettings {
         connector,
+        role,
         mode,
         scale,
         position,
         primary,
+        tentative: _,
     } = settings;
+    let mirror_source = role
+        .as_ref()
+        .and_then(tessera_desktop::output::OutputRole::mirror_source)
+        .map(str::to_owned);
     if !document
         .get("output")
         .is_some_and(toml_edit::Item::is_array_of_tables)
@@ -2385,17 +2532,85 @@ fn apply_output(document: &mut DocumentMut, settings: tessera_desktop::settings:
         .get_mut(index)
         .expect("selected output table must still exist");
     output["connector"] = toml_edit::value(connector);
-    output["mode"] = toml_edit::value(format_mode_spec(mode));
-    output["scale"] = toml_edit::value(scale);
-    let mut position_table = toml_edit::InlineTable::new();
-    position_table.insert("x", toml_edit::Value::from(i64::from(position.x)));
-    position_table.insert("y", toml_edit::Value::from(i64::from(position.y)));
-    output["position"] = toml_edit::Item::Value(toml_edit::Value::InlineTable(position_table));
-    if primary {
-        output["primary"] = toml_edit::value(true);
-    } else {
-        output.remove("primary");
+    match mirror_source {
+        Some(source) => {
+            output["role"] = toml_edit::value("mirror");
+            output["mirror_of"] = toml_edit::value(source);
+            match mode {
+                Some(mode) => output["mode"] = toml_edit::value(format_mode_spec(mode)),
+                None => {
+                    output.remove("mode");
+                }
+            }
+            output.remove("scale");
+            output.remove("position");
+            output.remove("primary");
+        }
+        None => {
+            match role {
+                Some(tessera_desktop::output::OutputRole::Extend) => {
+                    output["role"] = toml_edit::value("extend");
+                }
+                _ => {
+                    output.remove("role");
+                }
+            }
+            output.remove("mirror_of");
+            match mode {
+                Some(mode) => output["mode"] = toml_edit::value(format_mode_spec(mode)),
+                None => {
+                    output.remove("mode");
+                }
+            }
+            match scale {
+                Some(scale) => output["scale"] = toml_edit::value(scale),
+                None => {
+                    output.remove("scale");
+                }
+            }
+            match position {
+                Some(position) => {
+                    let mut position_table = toml_edit::InlineTable::new();
+                    position_table.insert("x", toml_edit::Value::from(i64::from(position.x)));
+                    position_table.insert("y", toml_edit::Value::from(i64::from(position.y)));
+                    output["position"] =
+                        toml_edit::Item::Value(toml_edit::Value::InlineTable(position_table));
+                }
+                None => {
+                    output.remove("position");
+                }
+            }
+            if primary {
+                output["primary"] = toml_edit::value(true);
+            } else {
+                output.remove("primary");
+            }
+        }
     }
+    // An Automatic edit that clears the last override must not leave an
+    // entry that the schema rejects as "has no effect".
+    let keep = output_table_has_override(output);
+    if !keep {
+        outputs.remove(index);
+    }
+}
+
+fn apply_display_topology(
+    document: &mut DocumentMut,
+    topology: tessera_desktop::output::DisplayTopology,
+) {
+    if !document
+        .get("display")
+        .is_some_and(toml_edit::Item::is_table)
+    {
+        document["display"] = toml_edit::Item::Table(toml_edit::Table::new());
+    }
+    let name = match topology {
+        tessera_desktop::output::DisplayTopology::Auto => "auto",
+        tessera_desktop::output::DisplayTopology::Extend => "extend",
+        tessera_desktop::output::DisplayTopology::Mirror => "mirror",
+    };
+    document["display"]["topology"] = toml_edit::value(name);
 }
 
 fn editable_document(path: &Path) -> Result<DocumentMut, LoadError> {
@@ -2419,9 +2634,16 @@ fn editable_document(path: &Path) -> Result<DocumentMut, LoadError> {
 }
 
 fn output_table_has_override(table: &toml_edit::Table) -> bool {
-    ["scale", "mode", "position", "transform"]
-        .iter()
-        .any(|key| table.contains_key(key))
+    [
+        "scale",
+        "mode",
+        "position",
+        "transform",
+        "role",
+        "mirror_of",
+    ]
+    .iter()
+    .any(|key| table.contains_key(key))
         || table
             .get("primary")
             .and_then(toml_edit::Item::as_bool)

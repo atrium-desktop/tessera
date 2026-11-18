@@ -11,18 +11,14 @@
 //! DNS, and IP routing are not modelled because no consumer asks for them;
 //! the coarse link state still reports a wired primary connection.
 
-use std::borrow::Borrow;
 use std::collections::{BTreeMap, HashMap};
-use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use futures_util::StreamExt;
+use tessera_dbus::{Connection, FromArgs, Message, MessageStream, OwnedObjectPath, ToArgs, Value};
 use tessera_desktop::system::{NetworkState, WifiLinkState, WifiNetwork, WifiSecurity};
 use tessera_network::{BackendKind, NetworkBackend, NetworkError, NetworkSnapshot};
-use zbus::Connection;
-use zbus::{ObjectPath, OwnedObjectPath, OwnedVariant, Str, Variant};
 
 const NM_SERVICE: &str = "org.freedesktop.NetworkManager";
 const NM_PATH: &str = "/org/freedesktop/NetworkManager";
@@ -57,7 +53,7 @@ const SCAN_VISIBLE: Duration = Duration::from_secs(5);
 /// How long a failed refresh waits before the worker retries it.
 const RETRY_DELAY: Duration = Duration::from_secs(2);
 
-type NmSettings = HashMap<String, HashMap<String, OwnedVariant>>;
+type NmSettings = HashMap<String, HashMap<String, Value>>;
 
 #[derive(Debug, Clone)]
 struct NmManager {
@@ -178,8 +174,7 @@ impl NetworkManagerBackend {
     /// D-Bus-activates it: on an iwd host an activation would start a second
     /// radio manager, and a stopped system service is an operator decision.
     pub fn open() -> Result<Self, NetworkError> {
-        let connection =
-            zbus::block_on(Connection::system()).map_err(|_| NetworkError::Unavailable)?;
+        let connection = Connection::system().map_err(|_| NetworkError::Unavailable)?;
         if !name_has_owner(&connection, NM_SERVICE)? {
             return Err(NetworkError::Unavailable);
         }
@@ -600,8 +595,10 @@ impl NetworkBackend for NetworkManagerBackend {
         }
         for profile in profiles {
             let mut settings = self.api.connection_settings(&profile.path)?;
-            setting_mut(&mut settings, "connection")
-                .insert("autoconnect".to_string(), OwnedVariant::from(auto_connect));
+            setting_mut(&mut settings, "connection").insert(
+                "autoconnect".to_string(),
+                Value::Variant(Box::new(Value::Bool(auto_connect))),
+            );
             self.api.update_connection(&profile.path, settings)?;
         }
         let _ = self.refresh();
@@ -609,18 +606,15 @@ impl NetworkBackend for NetworkManagerBackend {
     }
 }
 
-fn blocking_call<B>(
+fn blocking_call<B: ToArgs>(
     connection: &Connection,
     destination: Option<&str>,
     path: &str,
     interface: Option<&str>,
     method: &str,
     body: &B,
-) -> zbus::Result<zbus::Message>
-where
-    B: zbus::export::serde::ser::Serialize + zbus::DynamicType,
-{
-    zbus::block_on(connection.call_method(destination, path, interface, method, body))
+) -> tessera_dbus::Result<Message> {
+    connection.call_method(destination, path, interface, method, body)
 }
 
 fn name_has_owner(connection: &Connection, name: &str) -> Result<bool, NetworkError> {
@@ -633,9 +627,7 @@ fn name_has_owner(connection: &Connection, name: &str) -> Result<bool, NetworkEr
         &(name,),
     )
     .map_err(|error| NetworkError::Service(format!("NameHasOwner failed: {error}")))?;
-    reply
-        .body()
-        .deserialize()
+    FromArgs::from_args(reply.body)
         .map_err(|error| NetworkError::Service(format!("NameHasOwner body: {error}")))
 }
 
@@ -656,12 +648,10 @@ fn start_signal_thread(connection: Connection, dirty: Arc<AtomicBool>) -> bool {
     std::thread::Builder::new()
         .name("tessera-nm-signals".into())
         .spawn(move || {
-            tessera_sched::mark_background();
-            let mut stream = match zbus::block_on(zbus::MessageStream::for_match_rule(
-                "type='signal',sender='org.freedesktop.NetworkManager'",
+            let stream = match MessageStream::for_match_rule(
                 &connection,
-                NonZeroUsize::new(64),
-            )) {
+                "type='signal',sender='org.freedesktop.NetworkManager'",
+            ) {
                 Ok(stream) => stream,
                 Err(error) => {
                     log::warn!(
@@ -670,16 +660,9 @@ fn start_signal_thread(connection: Connection, dirty: Arc<AtomicBool>) -> bool {
                     return;
                 }
             };
-            // Keep the thread inside `block_on` so the connection's zruntime
-            // keeps delivering signals; the stream ends when the connection
-            // closes.
-            zbus::block_on(async {
-                while let Some(message) = stream.next().await {
-                    if message.is_ok() {
-                        dirty.store(true, Ordering::Relaxed);
-                    }
-                }
-            });
+            while stream.next().is_some() {
+                dirty.store(true, Ordering::Relaxed);
+            }
         })
         .is_ok()
 }
@@ -766,32 +749,26 @@ fn signal_bars(strength: u8) -> u8 {
     u16::from(strength).div_ceil(25).min(4) as u8
 }
 
-fn own(value: &str) -> OwnedVariant {
-    OwnedVariant::from(Str::from(value))
+fn own(value: &str) -> Value {
+    Value::Variant(Box::new(Value::String(value.to_string())))
 }
 
-fn bytes(value: &[u8]) -> Result<OwnedVariant, NetworkError> {
-    OwnedVariant::try_from(Variant::Array(zbus::Array::from(value.to_vec())))
-        .map_err(|error| NetworkError::Service(format!("could not encode SSID bytes: {error}")))
+fn bytes(value: &[u8]) -> Result<Value, NetworkError> {
+    let items = value.iter().copied().map(Value::Byte).collect();
+    Ok(Value::Variant(Box::new(Value::Array("y".into(), items))))
 }
 
-fn setting_mut<'a>(
-    settings: &'a mut NmSettings,
-    name: &str,
-) -> &'a mut HashMap<String, OwnedVariant> {
+fn setting_mut<'a>(settings: &'a mut NmSettings, name: &str) -> &'a mut HashMap<String, Value> {
     settings.entry(name.to_string()).or_default()
 }
 
 fn settings_ssid(settings: &NmSettings) -> Option<String> {
     let value = settings.get("802-11-wireless")?.get("ssid")?;
-    let value: &Variant = Borrow::<Variant>::borrow(value);
     value_bytes(value).map(|ssid| String::from_utf8_lossy(&ssid).into_owned())
 }
 
 fn settings_auto_connect(settings: &NmSettings) -> Option<bool> {
-    let value = settings.get("connection")?.get("autoconnect")?;
-    let value: &Variant = Borrow::<Variant>::borrow(value);
-    value.downcast_ref::<bool>().ok()
+    settings.get("connection")?.get("autoconnect")?.as_bool()
 }
 
 fn connection_settings(
@@ -803,7 +780,10 @@ fn connection_settings(
     let connection = setting_mut(&mut settings, "connection");
     connection.insert("id".to_string(), own(&network.ssid));
     connection.insert("type".to_string(), own("802-11-wireless"));
-    connection.insert("autoconnect".to_string(), OwnedVariant::from(true));
+    connection.insert(
+        "autoconnect".to_string(),
+        Value::Variant(Box::new(Value::Bool(true))),
+    );
 
     let wireless = setting_mut(&mut settings, "802-11-wireless");
     wireless.insert("ssid".to_string(), bytes(network.ssid.as_bytes())?);
@@ -928,9 +908,7 @@ impl NmApi for ZbusNmApi {
             &(),
         )
         .map_err(|error| map_call("ListConnections", error))?;
-        let paths: Vec<OwnedObjectPath> = reply
-            .body()
-            .deserialize()
+        let paths: Vec<OwnedObjectPath> = FromArgs::from_args(reply.body)
             .map_err(|error| NetworkError::Service(format!("ListConnections body: {error}")))?;
         Ok(paths.into_iter().map(|path| path.to_string()).collect())
     }
@@ -945,9 +923,7 @@ impl NmApi for ZbusNmApi {
             &(),
         )
         .map_err(|error| map_call("GetSettings", error))?;
-        reply
-            .body()
-            .deserialize()
+        FromArgs::from_args(reply.body)
             .map_err(|error| NetworkError::Service(format!("GetSettings body: {error}")))
     }
 
@@ -958,7 +934,7 @@ impl NmApi for ZbusNmApi {
             device,
             Some(WIRELESS_IFACE),
             "RequestScan",
-            &(HashMap::<String, OwnedVariant>::new(),),
+            &(HashMap::<String, Value>::new(),),
         )
         .map_err(|error| map_call("RequestScan", error))?;
         Ok(())
@@ -971,7 +947,11 @@ impl NmApi for ZbusNmApi {
             NM_PATH,
             Some(PROPERTIES_IFACE),
             "Set",
-            &(NM_IFACE, "NetworkingEnabled", Variant::Bool(enabled)),
+            &(
+                NM_IFACE,
+                "NetworkingEnabled",
+                Value::Variant(Box::new(Value::Bool(enabled))),
+            ),
         )
         .map_err(|error| map_call("Set NetworkingEnabled", error))?;
         Ok(())
@@ -984,7 +964,11 @@ impl NmApi for ZbusNmApi {
             NM_PATH,
             Some(PROPERTIES_IFACE),
             "Set",
-            &(NM_IFACE, "WirelessEnabled", Variant::Bool(enabled)),
+            &(
+                NM_IFACE,
+                "WirelessEnabled",
+                Value::Variant(Box::new(Value::Bool(enabled))),
+            ),
         )
         .map_err(|error| map_call("Set WirelessEnabled", error))?;
         Ok(())
@@ -1075,7 +1059,7 @@ fn get_all(
     connection: &Connection,
     path: &str,
     interface: &str,
-) -> Result<HashMap<String, OwnedVariant>, NetworkError> {
+) -> Result<HashMap<String, Value>, NetworkError> {
     let reply = blocking_call(
         connection,
         Some(NM_SERVICE),
@@ -1085,13 +1069,11 @@ fn get_all(
         &(interface,),
     )
     .map_err(|error| map_call("GetAll", error))?;
-    reply
-        .body()
-        .deserialize()
+    FromArgs::from_args(reply.body)
         .map_err(|error| NetworkError::Service(format!("GetAll body: {error}")))
 }
 
-fn map_call(operation: &str, error: zbus::Error) -> NetworkError {
+fn map_call(operation: &str, error: tessera_dbus::Error) -> NetworkError {
     if let Some((name, _)) = error_name(&error) {
         return match name.as_str() {
             "org.freedesktop.DBus.Error.ServiceUnknown"
@@ -1105,88 +1087,66 @@ fn map_call(operation: &str, error: zbus::Error) -> NetworkError {
     NetworkError::Service(format!("{operation}: {error}"))
 }
 
-/// The D-Bus error name and description, including errors zbus promotes to
-/// `fdo::Error` (`AccessDenied`, `ServiceUnknown`, …).
-fn error_name(error: &zbus::Error) -> Option<(String, String)> {
-    use zbus::DBusError as _;
+fn error_name(error: &tessera_dbus::Error) -> Option<(String, String)> {
     match error {
-        zbus::Error::MethodError(name, detail, _) => {
-            Some((name.to_string(), detail.clone().unwrap_or_default()))
+        tessera_dbus::Error::MethodError { name, detail } => {
+            Some((name.clone(), detail.clone().unwrap_or_default()))
         }
-        zbus::Error::FDO(error) => Some((
-            error.name().to_string(),
-            error.description().unwrap_or_default().to_owned(),
-        )),
         _ => None,
     }
 }
 
-fn object_path(value: &str) -> Result<ObjectPath<'_>, NetworkError> {
-    ObjectPath::try_from(value)
+fn object_path(value: &str) -> Result<OwnedObjectPath, NetworkError> {
+    OwnedObjectPath::try_from(value)
         .map_err(|error| NetworkError::Service(format!("invalid object path '{value}': {error}")))
 }
 
-fn get_str(properties: &HashMap<String, OwnedVariant>, key: &str) -> Option<String> {
-    let value: &Variant = Borrow::<Variant>::borrow(properties.get(key)?);
-    value
-        .downcast_ref::<&str>()
-        .ok()
-        .map(std::string::ToString::to_string)
+fn get_str(properties: &HashMap<String, Value>, key: &str) -> Option<String> {
+    properties.get(key)?.as_str().map(str::to_string)
 }
 
-fn get_bool(properties: &HashMap<String, OwnedVariant>, key: &str) -> Option<bool> {
-    let value: &Variant = Borrow::<Variant>::borrow(properties.get(key)?);
-    value.downcast_ref::<bool>().ok()
+fn get_bool(properties: &HashMap<String, Value>, key: &str) -> Option<bool> {
+    properties.get(key)?.as_bool()
 }
 
-fn get_u32(properties: &HashMap<String, OwnedVariant>, key: &str) -> Option<u32> {
-    let value: &Variant = Borrow::<Variant>::borrow(properties.get(key)?);
-    value.downcast_ref::<u32>().ok()
+fn get_u32(properties: &HashMap<String, Value>, key: &str) -> Option<u32> {
+    properties.get(key)?.as_u32()
 }
 
-fn get_u8(properties: &HashMap<String, OwnedVariant>, key: &str) -> Option<u8> {
-    let value: &Variant = Borrow::<Variant>::borrow(properties.get(key)?);
-    value.downcast_ref::<u8>().ok()
+fn get_u8(properties: &HashMap<String, Value>, key: &str) -> Option<u8> {
+    properties.get(key)?.as_u8()
 }
 
-fn get_bytes(properties: &HashMap<String, OwnedVariant>, key: &str) -> Option<Vec<u8>> {
-    let value: &Variant = Borrow::<Variant>::borrow(properties.get(key)?);
-    value_bytes(value)
+fn get_bytes(properties: &HashMap<String, Value>, key: &str) -> Option<Vec<u8>> {
+    value_bytes(properties.get(key)?)
 }
 
-fn value_bytes(value: &Variant<'_>) -> Option<Vec<u8>> {
-    let Variant::Array(array) = value else {
+fn value_bytes(value: &Value) -> Option<Vec<u8>> {
+    let Value::Array(_, array) = value.unwrap_variant() else {
         return None;
     };
-    array
-        .iter()
-        .map(|element| element.downcast_ref::<u8>().ok())
-        .collect()
+    array.iter().map(Value::as_u8).collect()
 }
 
-fn get_object_path(properties: &HashMap<String, OwnedVariant>, key: &str) -> Option<String> {
-    let value: &Variant = Borrow::<Variant>::borrow(properties.get(key)?);
-    value
-        .downcast_ref::<ObjectPath>()
-        .ok()
-        .map(|path| path.to_string())
+fn get_object_path(properties: &HashMap<String, Value>, key: &str) -> Option<String> {
+    match properties.get(key)?.unwrap_variant() {
+        Value::ObjectPath(path) => Some(path.to_string()),
+        _ => None,
+    }
 }
 
-fn get_object_paths(properties: &HashMap<String, OwnedVariant>, key: &str) -> Vec<String> {
+fn get_object_paths(properties: &HashMap<String, Value>, key: &str) -> Vec<String> {
     let Some(value) = properties.get(key) else {
         return Vec::new();
     };
-    let value: &Variant = Borrow::<Variant>::borrow(value);
-    let Variant::Array(array) = value else {
+    let Value::Array(_, array) = value.unwrap_variant() else {
         return Vec::new();
     };
     array
         .iter()
-        .filter_map(|element| {
-            element
-                .downcast_ref::<ObjectPath>()
-                .ok()
-                .map(|path| path.to_string())
+        .filter_map(|element| match element.unwrap_variant() {
+            Value::ObjectPath(path) => Some(path.to_string()),
+            _ => None,
         })
         .collect()
 }
@@ -1345,7 +1305,10 @@ mod tests {
     fn profile(ssid: &str, auto_connect: bool) -> NmSettings {
         let mut settings = NmSettings::new();
         let connection = setting_mut(&mut settings, "connection");
-        connection.insert("autoconnect".to_string(), OwnedVariant::from(auto_connect));
+        connection.insert(
+            "autoconnect".to_string(),
+            Value::Variant(Box::new(Value::Bool(auto_connect))),
+        );
         setting_mut(&mut settings, "802-11-wireless").insert(
             "ssid".to_string(),
             bytes(ssid.as_bytes()).expect("test SSID bytes"),
@@ -1514,10 +1477,7 @@ mod tests {
         let key_mgmt = added[0]
             .get("802-11-wireless-security")
             .and_then(|security| security.get("key-mgmt"))
-            .and_then(|value| {
-                let value: &Variant = Borrow::<Variant>::borrow(value);
-                value.downcast_ref::<&str>().ok()
-            });
+            .and_then(|value| value.as_str());
         assert_eq!(key_mgmt, Some("sae"));
     }
 
@@ -1624,13 +1584,12 @@ mod tests {
     fn object_path_arrays_are_read_without_leaking_zbus_types() {
         let mut properties = HashMap::new();
         let paths = vec![
-            ObjectPath::try_from("/devices/1").expect("path"),
-            ObjectPath::try_from("/devices/2").expect("path"),
+            Value::ObjectPath(OwnedObjectPath::try_from("/devices/1").expect("path")),
+            Value::ObjectPath(OwnedObjectPath::try_from("/devices/2").expect("path")),
         ];
-        let value = Variant::Array(zbus::Array::from(paths));
         properties.insert(
             "Devices".to_string(),
-            OwnedVariant::try_from(value).expect("owned array"),
+            Value::Variant(Box::new(Value::Array("o".into(), paths))),
         );
         assert_eq!(
             get_object_paths(&properties, "Devices"),
@@ -1670,10 +1629,7 @@ mod tests {
             added[0]
                 .get("802-11-wireless-security")
                 .and_then(|security| security.get("key-mgmt"))
-                .and_then(|value| {
-                    let value: &Variant = Borrow::<Variant>::borrow(value);
-                    value.downcast_ref::<&str>().ok()
-                }),
+                .and_then(|value| value.as_str()),
             Some("wpa-psk")
         );
     }

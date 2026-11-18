@@ -25,7 +25,7 @@ pub(crate) fn detach_from_frame_pin(command: &mut std::process::Command) {
     // calls are async-signal-safe. The closure performs exactly one
     // `sched_setaffinity(2)` and allocates nothing.
     unsafe {
-        command.pre_exec(tessera_sched::release_inherited_affinity_to_global_plan);
+        command.pre_exec(crate::runtime::sched::release_inherited_affinity_to_global_plan);
     }
 }
 

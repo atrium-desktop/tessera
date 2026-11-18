@@ -917,16 +917,20 @@ struct ShadowSlotCache {
 
 struct WindowShadowEntry {
     filter: flux::ShadowFilter,
-    cached: Vec<Option<ShadowSlotCache>>,
+    /// Shadow outputs keyed by `(target namespace, frame slot)`. Per-output
+    /// targets can reuse the same slot number for different surfaces; the
+    /// namespace keeps their deferred filter images from aliasing.
+    cached: std::collections::HashMap<(u64, usize), Option<ShadowSlotCache>>,
 }
 
 pub(super) struct WindowShadowRenderer {
     /// Independent shadow filters per window.
     /// Eliminates cross-window filter thrashing and dangling raw output pointers.
-    entries: std::collections::HashMap<tessera_desktop::window::WindowId, WindowShadowEntry>,
-    /// Shared scratch masks per frame slot. Reused across windows during rebuilds,
-    /// eliminating per-window mask VRAM duplication.
-    scratch_masks: Vec<Option<flux::Image>>,
+    entries: std::collections::HashMap<(tessera_desktop::window::WindowId, u64), WindowShadowEntry>,
+    /// Shared scratch masks per `(target namespace, frame slot)`. Reused
+    /// across windows during rebuilds, eliminating per-window mask VRAM
+    /// duplication while keeping output targets isolated.
+    scratch_masks: std::collections::HashMap<(u64, usize), Option<flux::Image>>,
 }
 
 /// A rendered shadow ready for compositing: the borrowed filter output for
@@ -953,7 +957,7 @@ impl WindowShadowRenderer {
     pub(super) fn new(_device: &flux::Device) -> Result<Self, flux::Error> {
         Ok(Self {
             entries: std::collections::HashMap::new(),
-            scratch_masks: Vec::new(),
+            scratch_masks: std::collections::HashMap::new(),
         })
     }
 
@@ -970,11 +974,12 @@ impl WindowShadowRenderer {
         windows: &[tessera_desktop::window::Window],
         scale: f32,
         style: tessera_desktop::window::WindowShadowStyle,
+        namespace: u64,
     ) -> Vec<RenderedShadow> {
         if style != tessera_desktop::window::WindowShadowStyle::Soft {
             return Vec::new();
         }
-        let slot = frame.index() as usize;
+        let slot = (namespace, frame.index() as usize);
         let mut out = Vec::new();
 
         // Evict masks and filters for closed/unshadowed windows
@@ -984,17 +989,13 @@ impl WindowShadowRenderer {
             .map(|w| w.id)
             .collect();
         self.entries
-            .retain(|win_id, _| live_shadow_windows.contains(win_id));
+            .retain(|(win_id, _), _| live_shadow_windows.contains(win_id));
         // The guard tracks the *live* set, not the entry map: on the first
         // frame the map is still empty, so testing it would return before any
         // entry is created and no window would ever cast a shadow.
         if live_shadow_windows.is_empty() {
             self.scratch_masks.clear();
             return Vec::new();
-        }
-
-        if self.scratch_masks.len() <= slot {
-            self.scratch_masks.resize_with(slot + 1, || None);
         }
 
         for window in windows
@@ -1013,7 +1014,7 @@ impl WindowShadowRenderer {
             let bucket_w = flux::bucket_extent(px_w, 128);
             let bucket_h = flux::bucket_extent(px_h, 128);
 
-            let entry = match self.entries.entry(window.id) {
+            let entry = match self.entries.entry((window.id, namespace)) {
                 std::collections::hash_map::Entry::Occupied(occ) => occ.into_mut(),
                 std::collections::hash_map::Entry::Vacant(vac) => {
                     let Ok(filter) = flux::ShadowFilter::new(device) else {
@@ -1021,14 +1022,11 @@ impl WindowShadowRenderer {
                     };
                     vac.insert(WindowShadowEntry {
                         filter,
-                        cached: Vec::new(),
+                        cached: std::collections::HashMap::new(),
                     })
                 }
             };
 
-            if entry.cached.len() <= slot {
-                entry.cached.resize_with(slot + 1, || None);
-            }
             let key = ShadowSlotKey {
                 window_w: window.size.w,
                 window_h: window.size.h,
@@ -1040,7 +1038,7 @@ impl WindowShadowRenderer {
             // Reuse the slot's persistent filter output across steady-state
             // frames and window translations without re-running the offscreen
             // mask pass or the 3-pass Gaussian blur compute shaders.
-            if let Some(cached) = entry.cached[slot]
+            if let Some(Some(cached)) = entry.cached.get(&slot)
                 && cached.key == key
             {
                 out.push(RenderedShadow {
@@ -1054,8 +1052,10 @@ impl WindowShadowRenderer {
                 continue;
             }
 
-            let mask_stale = self.scratch_masks[slot]
-                .as_ref()
+            let mask_stale = self
+                .scratch_masks
+                .get(&slot)
+                .and_then(Option::as_ref)
                 .is_none_or(|img| img.size() != (bucket_w, bucket_h));
             if mask_stale {
                 let Ok(image) = flux::Image::render_target(
@@ -1066,10 +1066,10 @@ impl WindowShadowRenderer {
                 ) else {
                     continue;
                 };
-                self.scratch_masks[slot] = Some(image);
-                entry.cached[slot] = None;
+                self.scratch_masks.insert(slot, Some(image));
+                entry.cached.insert(slot, None);
             }
-            let Some(mask) = self.scratch_masks[slot].as_mut() else {
+            let Some(mask) = self.scratch_masks.get_mut(&slot).and_then(Option::as_mut) else {
                 continue;
             };
 
@@ -1103,7 +1103,7 @@ impl WindowShadowRenderer {
                 }
             };
             if !draw_mask_ok {
-                entry.cached[slot] = None;
+                entry.cached.insert(slot, None);
                 continue;
             }
 
@@ -1143,14 +1143,16 @@ impl WindowShadowRenderer {
                     if let Err(error) =
                         tessera_composite::effects::materialize_effect_output(frame, &shadow)
                     {
-                        entry.cached[slot] = None;
+                        entry.cached.insert(slot, None);
                         log::debug!("window shadow: materialize failed ({error}); skipping");
                         continue;
                     }
                     let raw = shadow.as_raw();
                     let w = mask.size().0 as f32;
                     let h = mask.size().1 as f32;
-                    entry.cached[slot] = Some(ShadowSlotCache { key, raw, w, h });
+                    entry
+                        .cached
+                        .insert(slot, Some(ShadowSlotCache { key, raw, w, h }));
                     out.push(RenderedShadow {
                         window: window.id,
                         raw,
@@ -1161,7 +1163,7 @@ impl WindowShadowRenderer {
                     });
                 }
                 Err(error) => {
-                    entry.cached[slot] = None;
+                    entry.cached.insert(slot, None);
                     log::debug!("window shadow: filter apply failed ({error}); skipping");
                 }
             }

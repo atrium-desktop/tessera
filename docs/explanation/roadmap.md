@@ -240,9 +240,17 @@ framebuffer space, and `[night_light]` programs CRTC gamma tables on a
 schedule. Mixed HDR/SDR multi-output awaits per-output presentation
 surfaces. Multi-monitor rendering correctness and gesture/tablet
 feel need real hardware to verify. The per-output display policy landed as
-`[[output]]` config entries: scale, live DRM mode selection, position, and
-primary are in effect and editable on the Settings Display page; the output
-transform is parsed but deferred until the renderer applies it.
+`[[output]]` config entries: scale, live DRM mode selection, position,
+primary, and the extend-or-mirror role are in effect and editable on the
+Settings Display page (ADR-0243); the output transform is parsed but deferred
+until the renderer applies it. Absolute devices bind to outputs and respect a
+mirror's letterbox content rectangle (ADR-0245). DRM normal and special chrome presentation now uses one native target per
+physical output; mirrors blit their source target. Capture, screenshot freeze,
+streams, session lock, and overlay fallback retain a dedicated union capture
+composition that is uploaded into targets, not scanned as a swapchain
+(ADR-0246, ADR-0247). Presentation groups synchronize spanning windows and
+mirrors as one atomic group while disjoint groups pace independently; feedback
+refresh is per output (ADR-0249). Two-output KMS hardware verification remains.
 The settings pages share one module contract in the standalone Settings
 application, while unfinished settings domains keep stable routes but remain
 unavailable.

@@ -6,8 +6,8 @@ pub mod tree;
 pub use auth::PeerAuthenticator;
 pub use tree::ShellSemanticTree;
 
-#[cfg(feature = "dep:zbus")]
+#[cfg(feature = "chrome-accessibility")]
 pub mod dbus;
 
-#[cfg(feature = "dep:zbus")]
+#[cfg(feature = "chrome-accessibility")]
 pub use dbus::ShellA11yService;

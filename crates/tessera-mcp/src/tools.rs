@@ -917,45 +917,99 @@ impl TryFrom<InputActionArgs> for SyntheticInputAction {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum PlatformError {
-    #[error("cannot connect to Tessera IPC socket {socket:?} as agent {label:?}: {source}")]
     Connect {
         socket: PathBuf,
         label: String,
-        #[source]
         source: std::io::Error,
     },
-    #[error("Tessera IPC operation failed: {0}")]
-    Ipc(#[from] std::io::Error),
-    #[error("invalid tool arguments: {0}")]
+    Ipc(std::io::Error),
     InvalidArguments(String),
-    #[error("unknown tool {0:?}")]
     UnknownTool(String),
-    #[error("tool {0:?} is not present in the compositor's granted named scope")]
     NotGranted(String),
-    #[error("the managed Agent Interaction Domain does not exist")]
     NoManagedInteractionDomain,
-    #[error(
-        "creating the managed Agent Interaction Domain requires CreateInteractionDomain in the named scope"
-    )]
     InteractionDomainCreationNotGranted,
-    #[error(
-        "graceful Interaction Domain cleanup requires RevokeInteractionDomain in the named scope"
-    )]
     InteractionDomainCleanupNotGranted,
-    #[error("Tessera returned an unexpected Interaction Domain action response")]
     UnexpectedResponse,
-    #[error("the compositor handshake did not bind an authenticated agent identity")]
     MissingAuthenticatedIdentity,
-    #[error("agent identity continuity failed: {0}")]
     Identity(String),
-    #[error("live smoke verification failed: {0}")]
     SmokeVerification(String),
-    #[error(transparent)]
-    Config(#[from] crate::ConfigError),
-    #[error("managed Interaction Domain lifecycle failed: {0}")]
-    InteractionDomain(#[from] tessera_ipc::SessionError),
+    Config(crate::ConfigError),
+    InteractionDomain(tessera_ipc::SessionError),
+}
+
+impl std::fmt::Display for PlatformError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Connect {
+                socket,
+                label,
+                source,
+            } => write!(
+                f,
+                "cannot connect to Tessera IPC socket {socket:?} as agent {label:?}: {source}"
+            ),
+            Self::Ipc(err) => write!(f, "Tessera IPC operation failed: {err}"),
+            Self::InvalidArguments(msg) => write!(f, "invalid tool arguments: {msg}"),
+            Self::UnknownTool(name) => write!(f, "unknown tool {name:?}"),
+            Self::NotGranted(name) => write!(
+                f,
+                "tool {name:?} is not present in the compositor's granted named scope"
+            ),
+            Self::NoManagedInteractionDomain => {
+                f.write_str("the managed Agent Interaction Domain does not exist")
+            }
+            Self::InteractionDomainCreationNotGranted => f.write_str(
+                "creating the managed Agent Interaction Domain requires CreateInteractionDomain in the named scope",
+            ),
+            Self::InteractionDomainCleanupNotGranted => f.write_str(
+                "graceful Interaction Domain cleanup requires RevokeInteractionDomain in the named scope",
+            ),
+            Self::UnexpectedResponse => {
+                f.write_str("Tessera returned an unexpected Interaction Domain action response")
+            }
+            Self::MissingAuthenticatedIdentity => {
+                f.write_str("the compositor handshake did not bind an authenticated agent identity")
+            }
+            Self::Identity(msg) => write!(f, "agent identity continuity failed: {msg}"),
+            Self::SmokeVerification(msg) => write!(f, "live smoke verification failed: {msg}"),
+            Self::Config(err) => write!(f, "{err}"),
+            Self::InteractionDomain(err) => {
+                write!(f, "managed Interaction Domain lifecycle failed: {err}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for PlatformError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Connect { source, .. } => Some(source),
+            Self::Ipc(err) => Some(err),
+            Self::Config(err) => Some(err),
+            Self::InteractionDomain(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+impl From<std::io::Error> for PlatformError {
+    fn from(err: std::io::Error) -> Self {
+        Self::Ipc(err)
+    }
+}
+
+impl From<crate::ConfigError> for PlatformError {
+    fn from(err: crate::ConfigError) -> Self {
+        Self::Config(err)
+    }
+}
+
+impl From<tessera_ipc::SessionError> for PlatformError {
+    fn from(err: tessera_ipc::SessionError) -> Self {
+        Self::InteractionDomain(err)
+    }
 }
 
 impl tessera_ipc::ClassifyError for PlatformError {

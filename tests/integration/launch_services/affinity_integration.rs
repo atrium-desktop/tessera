@@ -17,7 +17,6 @@
 use std::path::{Path, PathBuf};
 
 use tessera_launch_services::launcher::{LaunchOpts, LaunchSource, launch};
-use tessera_sched::SchedPlan;
 
 struct Probe {
     exec: String,
@@ -129,22 +128,25 @@ fn parse_cpu_list(list: &str) -> Vec<usize> {
 
 #[test]
 fn test_inv_arch_96_launched_client_does_not_inherit_the_frame_pin() {
-    let plan = SchedPlan::detect(true, 10, -10);
-    let available = plan.available_cpus();
+    let size = std::mem::size_of::<libc::cpu_set_t>();
+    let mut initial: libc::cpu_set_t = unsafe { std::mem::zeroed() };
+    assert_eq!(
+        unsafe { libc::sched_getaffinity(0, size, &mut initial) },
+        0,
+        "read initial affinity"
+    );
+    let available: Vec<usize> = (0..libc::CPU_SETSIZE as usize)
+        .filter(|&cpu| unsafe { libc::CPU_ISSET(cpu, &initial) })
+        .collect();
     if available.len() <= 1 {
         // A single-CPU environment cannot express the property.
         return;
     }
-    // Install the plan the launcher's `pre_exec` hook reads. If another test in
-    // this binary armed one first the set is a no-op, so re-read what is
-    // actually installed rather than assuming ours won.
-    tessera_sched::arm_global_plan(plan);
 
     let dir = tempfile::tempdir().expect("tempdir");
     let probe = build_probe(dir.path());
     let output = dir.path().join("mask.txt");
     let pinned_cpu = available[0];
-    let size = std::mem::size_of::<libc::cpu_set_t>();
 
     // Pin the calling thread exactly like the frame loop, so a child would
     // inherit a one-CPU mask if the release hook were missing.

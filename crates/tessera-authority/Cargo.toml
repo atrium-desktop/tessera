@@ -10,7 +10,6 @@ rust-version.workspace = true
 [dependencies]
 tessera-desktop.workspace = true
 tessera-primitives.workspace = true
-getrandom.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 zeroize.workspace = true

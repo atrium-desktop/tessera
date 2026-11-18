@@ -39,6 +39,7 @@ Low Cost / High Speed                            High Cost / Broad Scope
 | **Layer 1: Unit & Logic** | In-crate tests, zero GPU / display dependencies | State machines, layout math, protocol encoding, IPC schemas, config parsing | [`manual-testing.md`](manual-testing.md#scenario-0-flux-free-rapid-logic-verification) |
 | **Layer 2: Surface Previews** | Standalone inspection harness (`dev-preview`), mock sources | Isolated surface layout, animations, VRM avatar rendering, credential input | [`surface-testing.md`](surface-testing.md#inspection-harnesses-separate-development-only-binaries) |
 | **Layer 3: Nested Integration** | Nested Wayland compositor window (`TESSERA_BACKEND=nested`) | Full compositor runtime, multi-window stacking, client injection, input routing | [`manual-testing.md`](manual-testing.md#scenario-2-testing-inside-an-existing-desktop-nested-mode) |
+| **[`mirror-and-multi-output-system-test.md`](mirror-and-multi-output-system-test.md)** | **Mirror and Multi-Output System Test**: Physical evidence for roles, mirror letterbox, absolute input, multiple direct scanouts, and tentative display revert. |
 | **Layer 4: Physical Hardware** | Direct KMS/DRM session from bare Linux TTY | Atomic modeset, page flips, multi-GPU affinity, physical outputs, PAM login | [`vt-drm-testing.md`](vt-drm-testing.md), [`kms-overlay-system-test.md`](kms-overlay-system-test.md) |
 
 ---

@@ -130,7 +130,12 @@ pub(super) fn load_wallpaper(
         let wallpaper = if override_is_gltf {
             wallpaper::Wallpaper::from_gltf(device, surface, path)?
         } else {
-            wallpaper::Wallpaper::from_path(path, target_size.0, target_size.1)?
+            wallpaper::Wallpaper::from_path_with_worker_init(
+                path,
+                target_size.0,
+                target_size.1,
+                Some(super::sched::mark_frame_feeder),
+            )?
         };
         (wallpaper, format!("environment source {path}"))
     } else {
@@ -196,8 +201,12 @@ fn load_configured_wallpaper(
                     .as_deref()
                     .expect("validated video wallpaper source"),
             );
-            let wallpaper =
-                wallpaper::Wallpaper::from_video_path(&path, target_size.0, target_size.1)?;
+            let wallpaper = wallpaper::Wallpaper::from_video_path_with_worker_init(
+                &path,
+                target_size.0,
+                target_size.1,
+                Some(super::sched::mark_frame_feeder),
+            )?;
             Ok((wallpaper, format!("video {}", path.display())))
         }
         WallpaperMode::ThreeD => {
@@ -207,7 +216,12 @@ fn load_configured_wallpaper(
                 .expect("validated 3D wallpaper source");
             let mut wallpaper = if let Some(background) = config.background.as_deref() {
                 let background = configured_asset_path(config_path, background);
-                wallpaper::Wallpaper::from_path(&background, target_size.0, target_size.1)?
+                wallpaper::Wallpaper::from_path_with_worker_init(
+                    &background,
+                    target_size.0,
+                    target_size.1,
+                    Some(super::sched::mark_frame_feeder),
+                )?
             } else if model == "builtin" {
                 return Ok((
                     wallpaper::Wallpaper::from_builtin_model(device, surface)?,
@@ -292,6 +306,24 @@ pub(super) fn configured_output_modes(
         .into_iter()
         .filter_map(|(connector, policy)| policy.mode.map(|mode| (connector, mode)))
         .collect()
+}
+
+/// `[[output]]` policies as the backend's connector → policy map (ADR-0243).
+/// Both explicit roles and the primary flag participate in topology
+/// resolution; connectors without an entry follow `[display] topology`.
+pub(super) fn configured_output_policies(
+    config: Option<&tessera_config::Config>,
+) -> std::collections::HashMap<String, tessera_desktop::output::OutputPolicy> {
+    config.map(|c| c.output_policies()).unwrap_or_default()
+}
+
+/// The session topology policy (`[display] topology`, ADR-0243).
+pub(super) fn configured_display_topology(
+    config: Option<&tessera_config::Config>,
+) -> tessera_desktop::output::DisplayTopology {
+    config
+        .map(tessera_config::Config::display_topology)
+        .unwrap_or_default()
 }
 
 /// `[[output]]` color policy as the backend's connector → `ColorPolicy`
@@ -404,6 +436,7 @@ pub(super) fn reload_config(
             shell.set_color_scheme(preferences.color_scheme);
             server.set_decoration_policy(c.ui.window_decorations);
             server.set_output_policies(c.output_policies());
+            server.set_display_topology(c.display_topology());
             server.set_allow_quit_while_locked(c.dev.allow_quit_while_locked);
             server.set_keyboard_repeat(c.input.keyboard);
             server.set_keyboard_accessibility(c.accessibility.keyboard);
@@ -415,6 +448,7 @@ pub(super) fn reload_config(
             shell.set_color_scheme(preferences.color_scheme);
             server.set_decoration_policy(tessera_desktop::window::DecorationPolicy::default());
             server.set_output_policies(std::collections::HashMap::new());
+            server.set_display_topology(tessera_desktop::output::DisplayTopology::default());
             server.set_allow_quit_while_locked(false);
             server.set_keyboard_repeat(tessera_primitives::input::KeyboardConfig::default());
             server.set_keyboard_accessibility(preferences.accessibility.keyboard);
@@ -477,6 +511,45 @@ pub(super) fn apply_display_settings(
     if host.name() != "drm" {
         return Err("the outer compositor owns display settings in a nested session".into());
     }
+    let outputs = server.output_infos();
+    let Some(edited) = outputs
+        .iter()
+        .find(|output| output.connector == settings.connector)
+    else {
+        return Err(format!("display '{}' is not connected", settings.connector));
+    };
+    if let Some(mode) = settings.mode
+        && !edited.available_modes.is_empty()
+        && !edited
+            .available_modes
+            .iter()
+            .any(|advertised| mode.matches(advertised))
+    {
+        return Err(format!(
+            "display mode {}x{}@{} is not advertised by '{}'",
+            mode.width,
+            mode.height,
+            mode.refresh_hz
+                .map_or_else(|| "auto".to_owned(), |hz| format!("{hz}Hz")),
+            settings.connector
+        ));
+    }
+    if matches!(
+        settings.role,
+        Some(tessera_desktop::output::OutputRole::Mirror { .. })
+    ) && edited.kind.is_virtual()
+    {
+        return Err("a virtual display cannot mirror another output".into());
+    }
+    if let Some(tessera_desktop::output::OutputRole::Mirror { source }) = &settings.role
+        && !outputs.iter().any(|output| {
+            output.connector == *source && output.kind.is_physical() && !output.role.is_mirror()
+        })
+    {
+        return Err(format!(
+            "mirror source '{source}' is not a connected extended display"
+        ));
+    }
     let path = config_path
         .map(std::path::Path::to_path_buf)
         .ok_or_else(|| "no writable configuration path is available".to_owned())?;
@@ -500,8 +573,13 @@ pub(super) fn apply_display_settings(
     // not apply the same edit again on the next frame.
     *reload = Some(tessera_config::ReloadWatcher::at(&path));
     host.set_configured_modes(configured_output_modes(config.as_ref()));
+    host.set_configured_topology(
+        configured_display_topology(config.as_ref()),
+        configured_output_policies(config.as_ref()),
+    );
     host.set_configured_color_policies(configured_color_policies(config.as_ref()));
     host.set_configured_icc_profiles(configured_icc_profiles(config.as_ref()));
+    server.set_display_topology(configured_display_topology(config.as_ref()));
     server.set_color_pipeline(host.color_pipeline());
     server.set_outputs(host.output_infos());
     let outputs = server.output_infos();
@@ -511,8 +589,49 @@ pub(super) fn apply_display_settings(
     }
     system_status.display = tessera_desktop::settings::DisplayStatus {
         configurable: true,
+        topology: configured_display_topology(config.as_ref()),
         outputs,
         error: None,
+        pending_revert_seconds: None,
+    };
+    Ok(())
+}
+
+/// Persist the session topology default and reconcile the live outputs.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn apply_display_topology(
+    topology: tessera_desktop::output::DisplayTopology,
+    config_path: Option<&std::path::Path>,
+    config_writer: &ConfigWriter,
+    config: &mut Option<tessera_config::Config>,
+    server: &mut tessera_wayland::Server,
+    host: &mut Host,
+    reload: &mut Option<tessera_config::ReloadWatcher>,
+    live: &std::sync::Arc<LiveState>,
+    system_status: &mut tessera_shell::component::SystemStatus,
+) -> Result<(), String> {
+    if host.name() != "drm" {
+        return Err("the outer compositor owns display settings in a nested session".into());
+    }
+    let path = config_path
+        .map(std::path::Path::to_path_buf)
+        .ok_or_else(|| "no writable configuration path is available".to_owned())?;
+    config_writer.apply_and_wait(tessera_config::ConfigEdit::SetDisplayTopology { topology })?;
+    if let Some(current) = config.as_mut() {
+        current.display.topology = topology;
+    }
+    host.set_configured_topology(topology, configured_output_policies(config.as_ref()));
+    server.set_display_topology(topology);
+    server.set_outputs(host.output_infos());
+    let outputs = server.output_infos();
+    live.set_outputs(outputs.clone());
+    *reload = Some(tessera_config::ReloadWatcher::at(&path));
+    system_status.display = tessera_desktop::settings::DisplayStatus {
+        configurable: true,
+        topology,
+        outputs,
+        error: None,
+        pending_revert_seconds: None,
     };
     Ok(())
 }
@@ -583,6 +702,7 @@ pub(super) fn output_geometry_from_host(
         scale: tessera_desktop::output::Scale(scale),
         transform: tessera_primitives::Transform::Normal,
         logical_origin: tessera_primitives::Point::default(),
+        logical_size_override: None,
     }
 }
 

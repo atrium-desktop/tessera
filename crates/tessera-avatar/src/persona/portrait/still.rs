@@ -7,13 +7,15 @@ use super::{Error, mask::circle_mask_premultiplied};
 const PORTRAIT_SIZE: u32 = super::vrm::ATLAS_SIZE;
 
 pub fn build(device: &Device, path: &Path) -> Result<Image, Error> {
-    let decoded = image::open(path).map_err(|error| Error::Decode(path.to_path_buf(), error))?;
-    let fitted = decoded.resize_to_fill(
+    let decoded = tessera_image::decode_file(path)
+        .map_err(|error| Error::Decode(path.to_path_buf(), error))?;
+    let fitted = tessera_image::resize_to_fill(
+        &decoded,
         PORTRAIT_SIZE,
         PORTRAIT_SIZE,
-        image::imageops::FilterType::Lanczos3,
+        tessera_image::Filter::Lanczos3,
     );
-    let masked = circle_mask_premultiplied(&fitted.to_rgba8());
+    let masked = circle_mask_premultiplied(&fitted);
     Image::from_bytes(
         device,
         masked.width(),
@@ -26,14 +28,12 @@ pub fn build(device: &Device, path: &Path) -> Result<Image, Error> {
 
 #[cfg(test)]
 mod tests {
-    use image::GenericImageView;
-
     #[test]
     fn cover_fit_squares_any_aspect() {
-        let landscape = image::DynamicImage::ImageRgba8(
-            image::RgbaImage::from_raw(400, 200, vec![255; 400 * 200 * 4]).unwrap(),
-        )
-        .resize_to_fill(32, 32, image::imageops::FilterType::Nearest);
-        assert_eq!(landscape.dimensions(), (32, 32));
+        let landscape =
+            tessera_image::RgbaImage::from_raw(400, 200, vec![255; 400 * 200 * 4]).unwrap();
+        let fitted =
+            tessera_image::resize_to_fill(&landscape, 32, 32, tessera_image::Filter::Nearest);
+        assert_eq!(fitted.dimensions(), (32, 32));
     }
 }

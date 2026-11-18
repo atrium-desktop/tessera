@@ -1,12 +1,12 @@
 //! Debounced observation for the shared portrait configuration.
 
 use std::collections::HashMap;
+use std::ffi::{CStr, CString};
+use std::io;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
-
-use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 use super::{PortraitCandidate, PortraitConfig};
 
@@ -14,12 +14,38 @@ const DEBOUNCE: Duration = Duration::from_millis(180);
 const RETRY_DELAY: Duration = Duration::from_millis(350);
 const MAX_RETRIES: u8 = 3;
 
-#[derive(Debug, thiserror::Error)]
+const WATCH_MASK: u32 = libc::IN_MODIFY
+    | libc::IN_CLOSE_WRITE
+    | libc::IN_MOVED_FROM
+    | libc::IN_MOVED_TO
+    | libc::IN_CREATE
+    | libc::IN_DELETE
+    | libc::IN_DELETE_SELF
+    | libc::IN_MOVE_SELF
+    | libc::IN_ATTRIB;
+
+#[derive(Debug)]
 pub enum WatchError {
-    #[error("create persona portrait filesystem watcher")]
-    Create(#[source] notify::Error),
-    #[error("no persona portrait source directory could be watched")]
+    Create(io::Error),
     NoTargets,
+}
+
+impl std::fmt::Display for WatchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Create(_) => f.write_str("create persona portrait filesystem watcher"),
+            Self::NoTargets => f.write_str("no persona portrait source directory could be watched"),
+        }
+    }
+}
+
+impl std::error::Error for WatchError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Create(err) => Some(err),
+            Self::NoTargets => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -67,15 +93,6 @@ enum WatchDepth {
     Recursive,
 }
 
-impl WatchDepth {
-    fn notify_mode(self) -> RecursiveMode {
-        match self {
-            Self::Direct => RecursiveMode::NonRecursive,
-            Self::Recursive => RecursiveMode::Recursive,
-        }
-    }
-}
-
 #[derive(Debug, Default)]
 struct ReloadSchedule {
     deadline: Option<Instant>,
@@ -107,12 +124,146 @@ impl ReloadSchedule {
     }
 }
 
+struct InotifyWatcher {
+    fd: OwnedFd,
+    watches: HashMap<i32, (PathBuf, WatchDepth)>,
+}
+
+impl InotifyWatcher {
+    fn new() -> io::Result<Self> {
+        let raw = unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) };
+        if raw < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let fd = unsafe { OwnedFd::from_raw_fd(raw) };
+        Ok(Self {
+            fd,
+            watches: HashMap::new(),
+        })
+    }
+
+    fn clear_watches(&mut self) {
+        for wd in self.watches.drain().map(|(wd, _)| wd) {
+            unsafe {
+                libc::inotify_rm_watch(self.fd.as_raw_fd(), wd);
+            }
+        }
+    }
+
+    fn add_watch(&mut self, path: &Path, depth: WatchDepth) -> io::Result<()> {
+        let c_path = CString::new(path.as_os_str().as_bytes())
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+        let wd =
+            unsafe { libc::inotify_add_watch(self.fd.as_raw_fd(), c_path.as_ptr(), WATCH_MASK) };
+        if wd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        self.watches.insert(wd, (path.to_path_buf(), depth));
+        if depth == WatchDepth::Recursive
+            && let Ok(entries) = std::fs::read_dir(path)
+        {
+            for entry in entries.flatten() {
+                let sub = entry.path();
+                if sub.is_dir() {
+                    let _ = self.add_watch(&sub, WatchDepth::Recursive);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn has_pending_events(&self) -> bool {
+        let mut pfd = libc::pollfd {
+            fd: self.fd.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let rc = unsafe { libc::poll(&mut pfd, 1, 0) };
+        rc > 0 && (pfd.revents & libc::POLLIN) != 0
+    }
+
+    fn drain_relevant(&mut self, relevant: &RelevantPaths) -> bool {
+        let mut buf = [0u8; 4096];
+        let mut matched = false;
+        let mut new_dirs = Vec::new();
+        let header_size = std::mem::size_of::<libc::inotify_event>();
+
+        loop {
+            let n = unsafe {
+                libc::read(
+                    self.fd.as_raw_fd(),
+                    buf.as_mut_ptr().cast::<libc::c_void>(),
+                    buf.len(),
+                )
+            };
+            if n < 0 {
+                let err = io::Error::last_os_error();
+                if err.kind() == io::ErrorKind::WouldBlock {
+                    break;
+                }
+                if err.kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+                log::warn!("persona portrait: inotify read error: {err}");
+                matched = true;
+                break;
+            }
+            if n == 0 {
+                break;
+            }
+
+            let bytes = &buf[..n as usize];
+            let mut offset = 0usize;
+            while offset + header_size <= bytes.len() {
+                let event = unsafe {
+                    std::ptr::read_unaligned(bytes[offset..].as_ptr().cast::<libc::inotify_event>())
+                };
+                let name_len = event.len as usize;
+                let next_offset = offset + header_size + name_len;
+                if next_offset > bytes.len() {
+                    break;
+                }
+
+                if (event.mask & libc::IN_Q_OVERFLOW) != 0 {
+                    matched = true;
+                } else if let Some((dir, depth)) = self.watches.get(&event.wd) {
+                    let full_path = if name_len > 0 {
+                        let name_bytes = &bytes[offset + header_size..next_offset];
+                        let name = CStr::from_bytes_until_nul(name_bytes)
+                            .map(|c| Path::new(std::ffi::OsStr::from_bytes(c.to_bytes())))
+                            .unwrap_or_else(|_| Path::new(""));
+                        dir.join(name)
+                    } else {
+                        dir.clone()
+                    };
+
+                    if *depth == WatchDepth::Recursive
+                        && (event.mask & libc::IN_ISDIR) != 0
+                        && (event.mask & (libc::IN_CREATE | libc::IN_MOVED_TO)) != 0
+                    {
+                        new_dirs.push(full_path.clone());
+                    }
+
+                    if relevant.includes(&full_path) {
+                        matched = true;
+                    }
+                }
+                offset = next_offset;
+            }
+        }
+
+        for dir in new_dirs {
+            let _ = self.add_watch(&dir, WatchDepth::Recursive);
+        }
+
+        matched
+    }
+}
+
 /// Watches every source described by one immutable [`PortraitConfig`].
 pub struct PortraitWatcher {
-    watcher: RecommendedWatcher,
-    relevant: Arc<RelevantPaths>,
-    changed: Arc<AtomicBool>,
-    watched: HashMap<PathBuf, WatchDepth>,
+    watcher: InotifyWatcher,
+    relevant: RelevantPaths,
     schedule: ReloadSchedule,
 }
 
@@ -122,36 +273,10 @@ impl PortraitWatcher {
     }
 
     fn from_relevant(relevant: RelevantPaths) -> Result<Self, WatchError> {
-        let relevant = Arc::new(relevant);
-        let changed = Arc::new(AtomicBool::new(false));
-        let callback_relevant = Arc::clone(&relevant);
-        let callback_changed = Arc::clone(&changed);
-        let watcher =
-            notify::recommended_watcher(
-                move |result: notify::Result<notify::Event>| match result {
-                    Ok(event) => {
-                        if !matches!(event.kind, EventKind::Access(_))
-                            && (event.paths.is_empty()
-                                || event
-                                    .paths
-                                    .iter()
-                                    .any(|path| callback_relevant.includes(path)))
-                        {
-                            callback_changed.store(true, Ordering::Release);
-                        }
-                    }
-                    Err(error) => {
-                        log::warn!("persona portrait: filesystem watcher error: {error}");
-                        callback_changed.store(true, Ordering::Release);
-                    }
-                },
-            )
-            .map_err(WatchError::Create)?;
+        let watcher = InotifyWatcher::new().map_err(WatchError::Create)?;
         let mut this = Self {
             watcher,
             relevant,
-            changed,
-            watched: HashMap::new(),
             schedule: ReloadSchedule::default(),
         };
         this.refresh()?;
@@ -160,22 +285,13 @@ impl PortraitWatcher {
 
     pub fn refresh(&mut self) -> Result<(), WatchError> {
         let desired = watch_targets(&self.relevant);
-        for path in std::mem::take(&mut self.watched).into_keys() {
-            if let Err(error) = self.watcher.unwatch(&path) {
-                log::debug!("persona portrait: could not remove stale watch {path:?}: {error}");
-            }
-        }
+        self.watcher.clear_watches();
         for (path, depth) in desired {
-            match self.watcher.watch(&path, depth.notify_mode()) {
-                Ok(()) => {
-                    self.watched.insert(path, depth);
-                }
-                Err(error) => {
-                    log::warn!("persona portrait: could not watch {path:?}: {error}");
-                }
+            if let Err(error) = self.watcher.add_watch(&path, depth) {
+                log::warn!("persona portrait: could not watch {path:?}: {error}");
             }
         }
-        if self.watched.is_empty() {
+        if self.watcher.watches.is_empty() {
             Err(WatchError::NoTargets)
         } else {
             Ok(())
@@ -184,12 +300,12 @@ impl PortraitWatcher {
 
     #[must_use]
     pub fn needs_poll(&self) -> bool {
-        self.changed.load(Ordering::Acquire) || self.schedule.deadline.is_some()
+        self.schedule.deadline.is_some() || self.watcher.has_pending_events()
     }
 
     pub fn poll(&mut self) -> bool {
         let now = Instant::now();
-        if self.changed.swap(false, Ordering::AcqRel) {
+        if self.watcher.drain_relevant(&self.relevant) {
             self.schedule.observe(now);
         }
         self.schedule.take_ready(now)

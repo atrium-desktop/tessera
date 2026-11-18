@@ -1,42 +1,88 @@
 use std::process::ExitCode;
 use std::time::Duration;
 
-use clap::{Parser, Subcommand};
 use tessera_mcp::{BridgeConfig, TesseraPlatform};
 
-#[derive(Debug, Parser)]
-#[command(
-    name = "tessera-mcp",
-    version,
-    about = "Scoped Tessera desktop and Agent Interaction Domain MCP bridge"
-)]
-struct Cli {
-    #[command(subcommand)]
-    command: Option<Command>,
-}
-
-#[derive(Debug, Subcommand)]
 enum Command {
-    /// Serve MCP over newline-delimited JSON-RPC on stdin/stdout (default).
     Serve,
-    /// Probe the granted capability ceiling and print the effective tool grant.
     Check,
-    /// Run a live, reversible notification and Agent Interaction Domain smoke test.
     Smoke {
-        /// Seconds to keep the temporary Interaction Domain visible (paused, then active).
-        #[arg(long, default_value_t = 8, value_parser = clap::value_parser!(u64).range(1..=30))]
         observe_seconds: u64,
-        /// Visible human-controlled window to transfer temporarily and move
-        /// the Agent pointer over. No click or keyboard input is generated.
-        #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
         input_window: Option<u64>,
     },
-    /// Print an MCP client config entry for this executable.
     PrintConfig,
 }
 
+fn parse_cli() -> Result<Command, String> {
+    let mut args = std::env::args().skip(1);
+    let Some(cmd) = args.next() else {
+        return Ok(Command::Serve);
+    };
+    match cmd.as_str() {
+        "-h" | "--help" => {
+            println!(
+                "Scoped Tessera desktop and Agent Interaction Domain MCP bridge\n\n\
+                 Usage: tessera-mcp [COMMAND]\n\n\
+                 Commands:\n  \
+                   serve         Serve MCP over newline-delimited JSON-RPC on stdin/stdout (default)\n  \
+                   check         Probe the granted capability ceiling and print the effective tool grant\n  \
+                   smoke         Run a live, reversible notification and Agent Interaction Domain smoke test\n  \
+                   print-config  Print an MCP client config entry for this executable"
+            );
+            std::process::exit(0);
+        }
+        "-V" | "--version" => {
+            println!("tessera-mcp {}", env!("CARGO_PKG_VERSION"));
+            std::process::exit(0);
+        }
+        "serve" => Ok(Command::Serve),
+        "check" => Ok(Command::Check),
+        "print-config" => Ok(Command::PrintConfig),
+        "smoke" => {
+            let mut observe_seconds = 8u64;
+            let mut input_window = None;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--observe-seconds" => {
+                        let val = args.next().ok_or("--observe-seconds requires a value")?;
+                        observe_seconds = val
+                            .parse::<u64>()
+                            .map_err(|e| format!("invalid --observe-seconds: {e}"))?;
+                        if !(1..=30).contains(&observe_seconds) {
+                            return Err("--observe-seconds must be in 1..=30".into());
+                        }
+                    }
+                    "--input-window" => {
+                        let val = args.next().ok_or("--input-window requires a value")?;
+                        let id = val
+                            .parse::<u64>()
+                            .map_err(|e| format!("invalid --input-window: {e}"))?;
+                        if id < 1 {
+                            return Err("--input-window must be >= 1".into());
+                        }
+                        input_window = Some(id);
+                    }
+                    other => return Err(format!("unknown argument for smoke: {other}")),
+                }
+            }
+            Ok(Command::Smoke {
+                observe_seconds,
+                input_window,
+            })
+        }
+        other => Err(format!("unknown command: {other}")),
+    }
+}
+
 fn main() -> ExitCode {
-    match Cli::parse().command.unwrap_or(Command::Serve) {
+    let command = match parse_cli() {
+        Ok(cmd) => cmd,
+        Err(err) => {
+            eprintln!("tessera-mcp: {err}");
+            return ExitCode::from(2);
+        }
+    };
+    match command {
         Command::PrintConfig => print_config(),
         Command::Check => with_platform(|platform| {
             let output = serde_json::json!({

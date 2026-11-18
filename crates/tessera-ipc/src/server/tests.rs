@@ -342,6 +342,8 @@ impl Handler for StreamHandler {
                 kind: tessera_desktop::output::OutputKind::External,
                 geometry: Some(tessera_desktop::output::OutputGeometry::default()),
                 available_modes: Some(Vec::new()),
+                role: tessera_desktop::output::OutputRole::Extend,
+                role_source: tessera_desktop::output::OutputRoleSource::Auto,
             },
             tessera_protocol::schema::OutputInfo {
                 connector: "DP-1".into(),
@@ -350,6 +352,8 @@ impl Handler for StreamHandler {
                 kind: tessera_desktop::output::OutputKind::External,
                 geometry: Some(tessera_desktop::output::OutputGeometry::default()),
                 available_modes: Some(Vec::new()),
+                role: tessera_desktop::output::OutputRole::Extend,
+                role_source: tessera_desktop::output::OutputRoleSource::Auto,
             },
         ]
     }

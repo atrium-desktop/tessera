@@ -11,8 +11,8 @@
 //! 3. Every `system/<prefix dir>…` path quoted in living Markdown resolves. ADRs and the
 //!    changelog are historical records and are not scanned.
 
+use crate::error::{Context, Result, bail};
 use crate::workspace;
-use anyhow::{Context, Result, bail};
 use std::collections::BTreeMap;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;

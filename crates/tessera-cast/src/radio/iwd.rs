@@ -22,7 +22,7 @@
 //! ([ADR-0192](../../../docs/adr/0192-first-party-miracast-caster.md) §8). No sink
 //! has been in range on the machine this was written on.
 
-use zbus::{Connection, Variant};
+use tessera_dbus::{Connection, Value};
 
 use super::{DiscoveredPeer, DisplayCapabilities, P2pRadio};
 use crate::iwd::{
@@ -75,27 +75,42 @@ impl IwdRadio {
         advertisement: &DisplayCapabilities,
         include_optional: bool,
     ) -> Result<(), IwdError> {
-        let mut properties: std::collections::HashMap<&str, Variant<'_>> =
+        let mut properties: std::collections::HashMap<String, Value> =
             std::collections::HashMap::new();
         // Source-only is the deliberate dual-role mitigation (ADR-0192 §4), so
         // `Sink` is sent as an explicit `false` rather than omitted — the core
         // keys are exactly what every iwd release accepts.
-        properties.insert("Source", Variant::Bool(advertisement.source));
-        properties.insert("Sink", Variant::Bool(advertisement.sink));
+        properties.insert(
+            "Source".into(),
+            Value::Variant(Box::new(Value::Bool(advertisement.source))),
+        );
+        properties.insert(
+            "Sink".into(),
+            Value::Variant(Box::new(Value::Bool(advertisement.sink))),
+        );
         if let Some(port) = advertisement.port {
-            properties.insert("Port", Variant::U16(port));
+            properties.insert("Port".into(), Value::Variant(Box::new(Value::Uint16(port))));
         }
         if include_optional {
             // Only advertised capabilities are named: a `false` is the daemon's
             // default, and an unrecognised key fails the whole call.
             if advertisement.has_audio {
-                properties.insert("HasAudio", Variant::Bool(true));
+                properties.insert(
+                    "HasAudio".into(),
+                    Value::Variant(Box::new(Value::Bool(true))),
+                );
             }
             if advertisement.has_uibc {
-                properties.insert("HasUIBC", Variant::Bool(true));
+                properties.insert(
+                    "HasUIBC".into(),
+                    Value::Variant(Box::new(Value::Bool(true))),
+                );
             }
             if advertisement.has_content_protection {
-                properties.insert("HasContentProtection", Variant::Bool(true));
+                properties.insert(
+                    "HasContentProtection".into(),
+                    Value::Variant(Box::new(Value::Bool(true))),
+                );
             }
         }
 
@@ -105,7 +120,7 @@ impl IwdRadio {
             iwd::IWD_ROOT,
             Some(P2P_SERVICE_MANAGER),
             "RegisterDisplayService",
-            &properties,
+            &(properties,),
         )
         .map_err(|error| iwd::classify(error, "RegisterDisplayService"))?;
         // Measured against iwd: the method returns no object path. The

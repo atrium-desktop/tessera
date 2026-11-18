@@ -24,15 +24,14 @@
 //! ANSI color auto-detected from the TTY and `NO_COLOR`. Every process
 //! writes to stderr so journal capture is uniform.
 
+pub mod signals;
+
 use std::env;
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write as _};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use tracing_subscriber::filter::EnvFilter;
-use tracing_subscriber::fmt;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
+use log::{Level, LevelFilter, Log, Metadata, Record};
 
 /// Environment variable selecting the console format. `json` selects the
 /// machine-readable formatter; any other value (or unset) selects text.
@@ -42,18 +41,29 @@ pub const FORMAT_ENV: &str = "TESSERA_LOG_FORMAT";
 pub const NO_COLOR_ENV: &str = "NO_COLOR";
 
 /// Errors from runtime-environment resolution.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum RuntimeDirError {
     /// `$XDG_RUNTIME_DIR` is unset; the session does not meet the XDG
     /// basedir requirements.
-    #[error("$XDG_RUNTIME_DIR is unset")]
     Unset,
     /// The variable is set but not an absolute path. The XDG basedir
     /// specification requires absolute paths; a relative value would
     /// silently relocate sockets into whatever the cwd happens to be.
-    #[error("$XDG_RUNTIME_DIR must be an absolute path, got {0:?}")]
     Relative(String),
 }
+
+impl std::fmt::Display for RuntimeDirError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unset => f.write_str("$XDG_RUNTIME_DIR is unset"),
+            Self::Relative(path) => {
+                write!(f, "$XDG_RUNTIME_DIR must be an absolute path, got {path:?}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for RuntimeDirError {}
 
 /// Resolve the XDG runtime directory for this process.
 ///
@@ -137,7 +147,147 @@ fn run_cleanup_fixtures_reverse() {
     }
 }
 
-/// Install the shared subscriber for this process.
+struct EnvLogger {
+    default_level: LevelFilter,
+    directives: Vec<(String, LevelFilter)>,
+    json: bool,
+    ansi: bool,
+}
+
+impl EnvLogger {
+    fn parse(spec: &str, json: bool, ansi: bool) -> Self {
+        let mut default_level = LevelFilter::Error;
+        let mut directives = Vec::new();
+        let mut saw_bare_level = false;
+
+        for part in spec.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            if let Some((target, level_str)) = part.split_once('=') {
+                if let Some(level) = parse_level_filter(level_str.trim()) {
+                    directives.push((target.trim().to_string(), level));
+                }
+            } else if let Some(level) = parse_level_filter(part) {
+                default_level = level;
+                saw_bare_level = true;
+            } else {
+                directives.push((part.to_string(), LevelFilter::Trace));
+            }
+        }
+
+        if !saw_bare_level && directives.is_empty() {
+            default_level = LevelFilter::Info;
+        }
+        // Longest prefix wins.
+        directives.sort_by_key(|b| std::cmp::Reverse(b.0.len()));
+
+        Self {
+            default_level,
+            directives,
+            json,
+            ansi,
+        }
+    }
+
+    fn max_level(&self) -> LevelFilter {
+        self.directives
+            .iter()
+            .map(|(_, lvl)| *lvl)
+            .fold(self.default_level, std::cmp::max)
+    }
+
+    fn level_for(&self, target: &str) -> LevelFilter {
+        for (prefix, level) in &self.directives {
+            if target == prefix
+                || target
+                    .strip_prefix(prefix.as_str())
+                    .is_some_and(|rest| rest.starts_with("::") || rest.starts_with('.'))
+            {
+                return *level;
+            }
+        }
+        self.default_level
+    }
+}
+
+impl Log for EnvLogger {
+    fn enabled(&self, metadata: &Metadata<'_>) -> bool {
+        metadata.level() <= self.level_for(metadata.target())
+    }
+
+    fn log(&self, record: &Record<'_>) {
+        if !self.enabled(record.metadata()) {
+            return;
+        }
+        let mut stderr = std::io::stderr().lock();
+        if self.json {
+            let level = record.level().as_str();
+            let target = json_escape(record.target());
+            let msg = json_escape(&record.args().to_string());
+            let _ = writeln!(
+                stderr,
+                "{{\"level\":\"{level}\",\"target\":\"{target}\",\"message\":\"{msg}\"}}"
+            );
+        } else if self.ansi {
+            let (color, level) = match record.level() {
+                Level::Error => ("\x1b[31m", "ERROR"),
+                Level::Warn => ("\x1b[33m", " WARN"),
+                Level::Info => ("\x1b[32m", " INFO"),
+                Level::Debug => ("\x1b[34m", "DEBUG"),
+                Level::Trace => ("\x1b[35m", "TRACE"),
+            };
+            let _ = writeln!(
+                stderr,
+                "{color}{level}\x1b[0m \x1b[2m{}:\x1b[0m {}",
+                record.target(),
+                record.args()
+            );
+        } else {
+            let _ = writeln!(
+                stderr,
+                "{} {}: {}",
+                record.level(),
+                record.target(),
+                record.args()
+            );
+        }
+    }
+
+    fn flush(&self) {
+        let _ = std::io::stderr().flush();
+    }
+}
+
+fn parse_level_filter(raw: &str) -> Option<LevelFilter> {
+    match raw.to_ascii_lowercase().as_str() {
+        "off" => Some(LevelFilter::Off),
+        "error" => Some(LevelFilter::Error),
+        "warn" => Some(LevelFilter::Warn),
+        "info" => Some(LevelFilter::Info),
+        "debug" => Some(LevelFilter::Debug),
+        "trace" => Some(LevelFilter::Trace),
+        _ => None,
+    }
+}
+
+fn json_escape(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                use std::fmt::Write as _;
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Install the shared logger for this process.
 ///
 /// `default_filter` is used when `RUST_LOG` is unset; pass `"info"` for
 /// long-running services and `"warn"` for one-shot CLI clients. Also
@@ -145,46 +295,18 @@ fn run_cleanup_fixtures_reverse() {
 /// attributed final log record, release registered cleanup fixtures in
 /// reverse order, and then chain to the default hook so the backtrace
 /// still reaches stderr. Safe to call once per process; a second call
-/// is a no-op (the global subscriber is already installed).
-///
-/// Ordering matters: the `log` facade is bridged first so records emitted
-/// before the subscriber is fully installed are still captured by it.
+/// is a no-op (the global logger is already installed).
 pub fn init(default_filter: &str) {
-    // Bridge the `log` facade into the tracing subscriber so existing
-    // log::{info,warn,...} callsites are captured with span context.
-    let _ = tracing_log::LogTracer::init();
-
-    let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
-
+    let filter_spec = env::var("RUST_LOG").unwrap_or_else(|_| default_filter.to_string());
     let use_json = env::var(FORMAT_ENV)
         .map(|value| value.eq_ignore_ascii_case("json"))
         .unwrap_or(false);
     let ansi = env::var_os(NO_COLOR_ENV).is_none() && std::io::stderr().is_terminal();
 
-    let registry = tracing_subscriber::registry().with(filter);
-    if use_json {
-        registry
-            .with(
-                fmt::layer()
-                    .json()
-                    .with_writer(std::io::stderr)
-                    .with_current_span(true)
-                    .with_span_list(false),
-            )
-            .try_init()
-            .ok();
-    } else {
-        registry
-            .with(
-                fmt::layer()
-                    .with_target(true)
-                    .with_level(true)
-                    .with_ansi(ansi)
-                    .with_writer(std::io::stderr),
-            )
-            .try_init()
-            .ok();
+    let logger = EnvLogger::parse(&filter_spec, use_json, ansi);
+    let max_level = logger.max_level();
+    if log::set_logger(Box::leak(Box::new(logger))).is_ok() {
+        log::set_max_level(max_level);
     }
 
     install_panic_hook();

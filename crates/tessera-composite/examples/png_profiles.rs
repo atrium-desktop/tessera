@@ -1,10 +1,6 @@
 //! Privacy-safe synthetic PNG comparison; run with --profile release-fast.
 //! CSV times exclude scene generation/input cloning, include RGB preparation,
 //! and report median/min/max over five encodes after one warm-up per case.
-use image::{
-    ExtendedColorType, ImageEncoder,
-    codecs::png::{CompressionType, FilterType, PngEncoder},
-};
 use std::{hint::black_box, time::Instant};
 
 fn scene(width: u32, height: u32, kind: &str) -> Vec<u8> {
@@ -21,7 +17,6 @@ fn scene(width: u32, height: u32, kind: &str) -> Vec<u8> {
                 ((x + y) * 127 / (width + height)) as u8,
             ];
             let rgb = match kind {
-                // Generated pseudo-glyph strokes, panels, title bars, separators.
                 "ui" => {
                     if y % 240 < 28 {
                         [48, 58, 78]
@@ -39,7 +34,6 @@ fn scene(width: u32, height: u32, kind: &str) -> Vec<u8> {
                     }
                 }
                 "gradient" => gradient,
-                // Smooth spatial colour plus deterministic fine texture. Not a photograph.
                 "photo-like" => gradient.map(|c| c.saturating_add((seed & 31) as u8)),
                 _ => unreachable!(),
             };
@@ -59,44 +53,30 @@ fn main() {
         for kind in ["ui", "gradient", "photo-like"] {
             let source = scene(w, h, kind);
             for rgb in [false, true] {
-                for (name, compression, filter) in [
-                    ("Fast+Up", CompressionType::Fast, FilterType::Up),
-                    ("Fast+Adaptive", CompressionType::Fast, FilterType::Adaptive),
-                    (
-                        "Default+Adaptive",
-                        CompressionType::Default,
-                        FilterType::Adaptive,
-                    ),
-                    ("Fast+Paeth", CompressionType::Fast, FilterType::Paeth),
-                ] {
+                for (name, fast) in [("Default", false), ("Fast", true)] {
                     let mut times = Vec::new();
                     let mut bytes = 0;
                     for iteration in 0..6 {
                         let mut input = source.clone();
                         let start = Instant::now();
-                        let color = if rgb {
+                        let png = if rgb {
                             assert!(input.chunks_exact(4).all(|p| p[3] == 255));
                             for i in 0..input.len() / 4 {
                                 input.copy_within(i * 4..i * 4 + 3, i * 3);
                             }
                             input.truncate(input.len() / 4 * 3);
-                            ExtendedColorType::Rgb8
+                            tessera_image::encode_png_rgb(w, h, black_box(&input), fast).unwrap()
                         } else {
-                            ExtendedColorType::Rgba8
+                            tessera_image::encode_png_rgba(w, h, black_box(&input), fast).unwrap()
                         };
-                        let mut png = Vec::new();
-                        PngEncoder::new_with_quality(&mut png, compression, filter)
-                            .write_image(black_box(&input), w, h, color)
-                            .unwrap();
                         let elapsed = start.elapsed().as_secs_f64() * 1000.0;
                         bytes = black_box(png.len());
                         if iteration > 0 {
                             times.push(elapsed);
                         }
-                        // Verify every profile outside the timed region.
                         if iteration == 0 {
                             assert_eq!(
-                                image::load_from_memory(&png).unwrap().into_rgba8().as_raw(),
+                                tessera_image::decode_memory(&png).unwrap().as_raw(),
                                 &source
                             );
                         }

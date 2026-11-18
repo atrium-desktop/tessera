@@ -13,11 +13,8 @@ flux-sys = { workspace = true }
 vista = { workspace = true }
 vista-sys = { workspace = true }
 transit = { workspace = true }
-image = { workspace = true }
+tessera-image = { workspace = true }
 log.workspace = true
-thiserror.workspace = true
-# Realtime scheduling: tag the video reader as a frame feeder.
-tessera-sched.workspace = true
 
 [package.metadata.cargo-machete]
 ignored = ["vista-sys", "flux-sys"]

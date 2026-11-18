@@ -14,7 +14,7 @@ use tessera_cast::radio::{self, DisplayCapabilities, P2pRadio};
 use tessera_cast::session::{self, MediaSource, Radio, SessionEvent, SessionOptions};
 use tessera_cast::sink::{self, SinkScript};
 use tessera_cast::wfd::transport::RtspTransport;
-use zbus::OwnedVariant;
+use tessera_dbus::Value;
 
 use crate::common::env::EnvGuard;
 use crate::common::fake_networkmanager::{
@@ -32,8 +32,8 @@ fn fake(activation: Activation) -> Option<(FakeNetworkManager, EnvGuard)> {
     Some((fake, guard))
 }
 
-fn string(value: Option<OwnedVariant>) -> Option<String> {
-    value.and_then(|value| String::try_from(value).ok())
+fn string(value: Option<Value>) -> Option<String> {
+    value.and_then(|value| value.as_str().map(str::to_string))
 }
 
 #[test]
@@ -99,7 +99,7 @@ fn a_group_is_a_user_owned_volatile_profile_advertising_a_source() {
     );
     let ies = fake
         .setting("wifi-p2p", "wfd-ies")
-        .and_then(|value| Vec::<u8>::try_from(value).ok());
+        .and_then(|value| <Vec<u8> as tessera_dbus::FromValue>::from_value(value).ok());
     assert_eq!(
         ies,
         Some(vec![0x00, 0x00, 0x06, 0x00, 0x10, 0x1c, 0x44, 0x00, 0x32]),
@@ -107,7 +107,7 @@ fn a_group_is_a_user_owned_volatile_profile_advertising_a_source() {
     );
     let permissions = fake
         .setting("connection", "permissions")
-        .and_then(|value| Vec::<String>::try_from(value).ok())
+        .and_then(|value| <Vec<String> as tessera_dbus::FromValue>::from_value(value).ok())
         .unwrap_or_default();
     assert_eq!(permissions.len(), 1, "{permissions:?}");
     assert!(
@@ -121,7 +121,7 @@ fn a_group_is_a_user_owned_volatile_profile_advertising_a_source() {
         .options
         .as_ref()
         .and_then(|options| options.get("persist"))
-        .and_then(|value| value.try_clone().ok());
+        .cloned();
     assert_eq!(string(persist).as_deref(), Some("volatile"));
 
     let tv = radio

@@ -58,11 +58,25 @@ pub trait Backend {
                 scale: Scale(self.scale()),
                 transform: tessera_primitives::Transform::Normal,
                 logical_origin: tessera_primitives::Point::default(),
+                logical_size_override: None,
             },
             kind: tessera_desktop::output::OutputKind::External,
             available_modes: Vec::new(),
             color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
         }]
+    }
+
+    /// Install the session topology policy and per-connector output policies
+    /// from `[display]` / `[[output]]` (ADR-0243). The DRM backend resolves
+    /// explicit roles and primary anchoring into scanout aliases; the default
+    /// is a no-op.
+    fn set_configured_topology(
+        &mut self,
+        _topology: tessera_desktop::output::DisplayTopology,
+        _policies: std::collections::HashMap<String, tessera_desktop::output::OutputPolicy>,
+    ) {
     }
 
     /// Install the per-connector display-mode requests from the config's
@@ -223,6 +237,13 @@ pub trait Backend {
         } else {
             Err("output power control is unavailable on this backend".into())
         }
+    }
+
+    /// Whether one connector's primary-plane slot still has an atomic commit
+    /// in flight. Nested presentation owns no per-output slots and reports
+    /// false.
+    fn output_presentation_pending(&self, _connector: &str) -> bool {
+        false
     }
 
     /// Whether this presentation domain has an atomic commit in flight.

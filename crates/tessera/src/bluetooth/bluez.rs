@@ -6,12 +6,11 @@
 //! cache. Nothing here runs on the render thread, and no BlueZ object path or
 //! interface name escapes the cache ([`INV-NET-DAEMON-NEUTRAL`]).
 
-use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use tessera_dbus::{Connection, FromArgs, Message, OwnedObjectPath, ToArgs, Value};
 use tessera_desktop::system::{BluetoothDevice, BluetoothKind, BluetoothLinkState};
-use zbus::{Connection, OwnedObjectPath, OwnedVariant, Variant};
 
 use super::BluetoothBackend;
 
@@ -31,39 +30,27 @@ const DISCOVERY_WINDOW: Duration = Duration::from_secs(20);
 /// trip off that cadence while discovery is idle.
 const REFRESH_INTERVAL: Duration = Duration::from_secs(2);
 
-fn blocking_call<B>(
+fn blocking_call<B: ToArgs>(
     connection: &Connection,
     destination: Option<&str>,
     path: &str,
     interface: Option<&str>,
     method: &str,
     body: &B,
-) -> zbus::Result<zbus::Message>
-where
-    B: zbus::export::serde::ser::Serialize + zbus::DynamicType,
-{
-    zbus::block_on(connection.call_method(destination, path, interface, method, body))
+) -> tessera_dbus::Result<Message> {
+    connection.call_method(destination, path, interface, method, body)
 }
 
-fn get_str<'a>(props: &'a HashMap<String, OwnedVariant>, key: &str) -> Option<&'a str> {
-    props.get(key).and_then(|value| {
-        let v: &Variant = Borrow::<Variant>::borrow(value);
-        v.downcast_ref::<&str>().ok()
-    })
+fn get_str<'a>(props: &'a HashMap<String, Value>, key: &str) -> Option<&'a str> {
+    props.get(key).and_then(Value::as_str)
 }
 
-fn get_bool(props: &HashMap<String, OwnedVariant>, key: &str) -> Option<bool> {
-    props.get(key).and_then(|value| {
-        let v: &Variant = Borrow::<Variant>::borrow(value);
-        v.downcast_ref::<bool>().ok()
-    })
+fn get_bool(props: &HashMap<String, Value>, key: &str) -> Option<bool> {
+    props.get(key).and_then(Value::as_bool)
 }
 
-fn get_u32(props: &HashMap<String, OwnedVariant>, key: &str) -> Option<u32> {
-    props.get(key).and_then(|value| {
-        let v: &Variant = Borrow::<Variant>::borrow(value);
-        v.downcast_ref::<u32>().ok()
-    })
+fn get_u32(props: &HashMap<String, Value>, key: &str) -> Option<u32> {
+    props.get(key).and_then(Value::as_u32)
 }
 
 /// Map a BlueZ `Icon` name to the daemon-neutral device class.
@@ -102,7 +89,7 @@ fn kind_from_class(class: u32) -> BluetoothKind {
     }
 }
 
-fn device_kind(props: &HashMap<String, OwnedVariant>) -> BluetoothKind {
+fn device_kind(props: &HashMap<String, Value>) -> BluetoothKind {
     get_str(props, "Icon")
         .and_then(kind_from_icon)
         .or_else(|| get_u32(props, "Class").map(kind_from_class))
@@ -133,8 +120,7 @@ impl BluezBackend {
     /// has no adapter — the caller then reports Bluetooth as unavailable
     /// rather than fabricating a radio.
     pub fn open() -> Result<Self, String> {
-        let conn = zbus::block_on(Connection::system())
-            .map_err(|e| format!("system bus unavailable: {e}"))?;
+        let conn = Connection::system().map_err(|e| format!("system bus unavailable: {e}"))?;
         let backend = Self {
             conn,
             cache: Arc::new(Mutex::new(BluezCache::default())),
@@ -164,11 +150,8 @@ impl BluezBackend {
         )
         .map_err(|e| format!("bluez ObjectManager call failed: {e}"))?;
 
-        type ManagedObjects =
-            HashMap<OwnedObjectPath, HashMap<String, HashMap<String, OwnedVariant>>>;
-        let objects: ManagedObjects = reply
-            .body()
-            .deserialize()
+        type ManagedObjects = HashMap<OwnedObjectPath, HashMap<String, HashMap<String, Value>>>;
+        let objects: ManagedObjects = FromArgs::from_args(reply.body)
             .map_err(|e| format!("failed to parse bluez managed objects: {e}"))?;
 
         let mut adapter_path = None;
@@ -240,7 +223,7 @@ impl BluezBackend {
         path: &str,
         iface: &str,
         name: &str,
-        value: Variant<'_>,
+        value: Value,
     ) -> Result<(), String> {
         blocking_call(
             &self.conn,
@@ -248,7 +231,7 @@ impl BluezBackend {
             path,
             Some(PROPERTIES_IFACE),
             "Set",
-            &(iface, name, value),
+            &(iface, name, Value::Variant(Box::new(value))),
         )
         .map_err(|e| format!("bluez set {iface}.{name} failed: {e}"))?;
         Ok(())
@@ -277,7 +260,7 @@ fn sort_devices(devices: &mut [BluetoothDevice]) {
 impl BluetoothBackend for BluezBackend {
     fn set_enabled(&self, enabled: bool) -> Result<(), String> {
         let adapter = self.adapter_path()?;
-        self.set_property(&adapter, ADAPTER_IFACE, "Powered", Variant::Bool(enabled))?;
+        self.set_property(&adapter, ADAPTER_IFACE, "Powered", Value::Bool(enabled))?;
         if !enabled {
             let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
             cache.discovery_deadline = None;
@@ -330,7 +313,7 @@ impl BluetoothBackend for BluezBackend {
         // Pair alone leaves the peer untrusted; trusting it lets BlueZ
         // reconnect on proximity, which is what "connected" means to a user
         // who just paired a headset or keyboard.
-        let _ = self.set_property(&path, DEVICE_IFACE, "Trusted", Variant::Bool(true));
+        let _ = self.set_property(&path, DEVICE_IFACE, "Trusted", Value::Bool(true));
         let _ = self.refresh();
         Ok(())
     }
@@ -373,7 +356,7 @@ impl BluetoothBackend for BluezBackend {
             adapter.as_str(),
             Some(ADAPTER_IFACE),
             "RemoveDevice",
-            &(zbus::ObjectPath::try_from(self.device_path(address)?)
+            &(OwnedObjectPath::try_from(self.device_path(address)?)
                 .map_err(|e| format!("invalid device path: {e}"))?,),
         )
         .map_err(|e| format!("bluez RemoveDevice failed: {e}"))?;

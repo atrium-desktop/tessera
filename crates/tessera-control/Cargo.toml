@@ -1,13 +1,13 @@
 [package]
-name = "tessera-cli"
-description = "Domain-oriented management commands for a running Tessera session"
+name = "tessera-control"
+description = "Domain-oriented session control and command dispatch for Tessera"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
 [lib]
-name = "tessera_cli"
+name = "tessera_control"
 path = "src/lib.rs"
 
 [dependencies]
@@ -24,9 +24,6 @@ tessera-authority = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 zeroize.workspace = true
-clap = { workspace = true, features = ["wrap_help", "string"] }
-clap_complete = { workspace = true }
-thiserror = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -44,6 +44,14 @@ pub struct Layout {
     pub mode: Mode,
     pub panel: Rect,
     pub cards: Vec<Card>,
+    /// Signed slot coordinate for each card, parallel to `cards`.
+    ///
+    /// Fixed mode uses the stable index of the card in the strip. Carousel
+    /// mode uses the wrapped offset from the selected card, in `[-n/2, n/2]`.
+    /// Chrome animates the *slot*, not the pixel geometry, so a card crossing
+    /// the circular seam can be carried continuously through an equivalent
+    /// off-panel copy instead of being teleported while still visible.
+    pub slots: Vec<i32>,
 }
 
 /// Choose the stable-card or centred-carousel model using standard card
@@ -93,6 +101,7 @@ pub fn fixed_layout(display: Rect, windows: usize) -> Layout {
         mode: Mode::Fixed,
         panel,
         cards,
+        slots: (0..windows as i32).collect(),
     }
 }
 
@@ -109,7 +118,6 @@ pub fn carousel_layout(display: Rect, windows: usize, selected: usize) -> Layout
     }
 
     let selected = selected.min(windows - 1);
-    let step = card_w + CARD_GAP;
     let centre_x = display.origin.x + display.size.w / 2;
     let centre_y = display.origin.y + display.size.h / 2;
     let max_panel_w = (display.size.w * FIXED_WIDTH_PERCENT / 100)
@@ -122,34 +130,89 @@ pub fn carousel_layout(display: Rect, windows: usize, selected: usize) -> Layout
         card_h + PANEL_PAD * 2,
     );
 
-    let cards = (0..windows)
+    let slots: Vec<i32> = (0..windows)
         .map(|index| {
             let forward = (index + windows - selected) % windows;
-            let offset = if forward <= windows / 2 {
+            if forward <= windows / 2 {
                 forward as i32
             } else {
                 forward as i32 - windows as i32
-            };
-            let distance = offset.unsigned_abs();
-            let scale_percent = match distance {
-                0 => 100,
-                1 => 93,
-                _ => 86,
-            };
-            let scaled_w = card_w * scale_percent / 100;
-            let scaled_h = card_h * scale_percent / 100;
-            let preview_h = (scaled_h - CARD_LABEL_H).max(1);
-            let card_centre_x = centre_x + offset * step;
-            let x = card_centre_x - scaled_w / 2;
-            let y = centre_y - scaled_h / 2;
-            card_at(x, y, scaled_w, preview_h)
+            }
         })
+        .collect();
+    let cards = slots
+        .iter()
+        .map(|offset| carousel_card_at_offset(display, windows, *offset))
         .collect();
 
     Layout {
         mode: Mode::Carousel,
         panel,
         cards,
+        slots,
+    }
+}
+
+/// The card a carousel window occupies at a continuous signed slot.
+///
+/// Unlike [`carousel_layout`], `slot` may lie outside `[-n/2, n/2]`: the
+/// geometry is placed at that unwrapped position, which lets an animation carry
+/// a card across the ring seam at constant speed. Renderers draw every
+/// equivalent copy (`slot ± k·n`) that intersects the panel, so the card leaves
+/// one edge and enters the other instead of teleporting while visible.
+pub fn carousel_card(display: Rect, windows: usize, slot: f32) -> Card {
+    if windows == 0 {
+        return card_at(display.origin.x, display.origin.y, CARD_MIN_W, 56);
+    }
+    let lower = slot.floor();
+    let fraction = slot - lower;
+    let from = carousel_card_at_offset(display, windows, lower as i32);
+    let to = carousel_card_at_offset(display, windows, lower as i32 + 1);
+    lerp_card(from, to, fraction)
+}
+
+/// The carousel card for one integer, possibly unwrapped, slot offset.
+fn carousel_card_at_offset(display: Rect, windows: usize, offset: i32) -> Card {
+    let (card_w, card_h) = standard_card_size(display);
+    let step = card_w + CARD_GAP;
+    let centre_x = display.origin.x + display.size.w / 2;
+    let centre_y = display.origin.y + display.size.h / 2;
+    let distance = wrapped_distance(offset, windows);
+    let scale_percent = match distance {
+        0 => 100,
+        1 => 93,
+        _ => 86,
+    };
+    let scaled_w = card_w * scale_percent / 100;
+    let scaled_h = card_h * scale_percent / 100;
+    let preview_h = (scaled_h - CARD_LABEL_H).max(1);
+    let x = centre_x + offset * step - scaled_w / 2;
+    let y = centre_y - scaled_h / 2;
+    card_at(x, y, scaled_w, preview_h)
+}
+
+/// The distance in slots from the selected card, following the short way
+/// around the ring. `offset` may be unwrapped.
+fn wrapped_distance(offset: i32, windows: usize) -> u32 {
+    if windows == 0 {
+        return offset.unsigned_abs();
+    }
+    let n = windows as i32;
+    let wrapped = offset - n * ((offset as f32) / (n as f32)).round() as i32;
+    wrapped.unsigned_abs()
+}
+
+fn lerp_card(from: Card, to: Card, fraction: f32) -> Card {
+    let fraction = fraction.clamp(0.0, 1.0);
+    let mix = |a: i32, b: i32| a as f32 + (b - a) as f32 * fraction;
+    let x = mix(from.outer.origin.x, to.outer.origin.x).round() as i32;
+    let y = mix(from.outer.origin.y, to.outer.origin.y).round() as i32;
+    let w = mix(from.outer.size.w, to.outer.size.w).round() as i32;
+    let preview_h = mix(from.preview.size.h, to.preview.size.h).round() as i32;
+    Card {
+        outer: Rect::new(x, y, w.max(1), preview_h.max(1) + CARD_LABEL_H),
+        preview: Rect::new(x, y, w.max(1), preview_h.max(1)),
+        label: Rect::new(x, y + preview_h.max(1), w.max(1), CARD_LABEL_H),
     }
 }
 
@@ -190,6 +253,7 @@ fn empty_layout(display: Rect, mode: Mode) -> Layout {
         mode,
         panel: centred_rect(display, 200, 80),
         cards: Vec::new(),
+        slots: Vec::new(),
     }
 }
 
@@ -265,5 +329,58 @@ mod tests {
         let layout = carousel_layout(display, 10, 0);
         assert!(layout.panel.origin.x >= display.origin.x);
         assert!(layout.panel.origin.x + layout.panel.size.w <= display.origin.x + display.size.w);
+    }
+
+    #[test]
+    fn carousel_slots_are_signed_and_centred_on_the_selection() {
+        let display = Rect::new(0, 0, 1920, 1080);
+        let layout = carousel_layout(display, 8, 5);
+        assert_eq!(
+            layout.slots,
+            vec![3, 4, -3, -2, -1, 0, 1, 2],
+            "the selected card sits at slot 0 and the seam is one step wide"
+        );
+        assert_eq!(layout.cards[5], carousel_card(display, 8, 0.0));
+    }
+
+    /// The seam is crossed at a continuous position: the card that leaves one
+    /// side is the same card that enters the other, one ring away.
+    #[test]
+    fn carousel_cards_cross_the_seam_continuously() {
+        let display = Rect::new(0, 0, 1920, 1080);
+        let before = carousel_layout(display, 5, 4);
+        let after = carousel_layout(display, 5, 0);
+
+        // The seam card is index 2: canonical slots jump from -2 to +2, a
+        // four-slot representation change. Animated slots instead carry it one
+        // step left, from -2 to -3, with the +2 copy entering from the right.
+        assert_eq!(before.slots[2], -2);
+        assert_eq!(after.slots[2], 2);
+        let left = carousel_card(display, 5, -3.0);
+        let right = carousel_card(display, 5, 2.0);
+        assert!(left.outer.origin.x + left.outer.size.w < display.size.w / 2);
+        assert!(right.outer.origin.x > display.size.w / 2);
+        assert_eq!(right, after.cards[2]);
+
+        // Every other card moves exactly one adjacent slot.
+        for index in [0, 1, 3, 4] {
+            assert_eq!(after.slots[index] - before.slots[index], -1);
+        }
+    }
+
+    #[test]
+    fn unwrapped_copy_steps_continuously_across_the_seam() {
+        let display = Rect::new(0, 0, 1920, 1080);
+        let a = carousel_card(display, 5, 1.8);
+        let b = carousel_card(display, 5, 2.0);
+        let c = carousel_card(display, 5, 2.2);
+        assert!(a.outer.origin.x < b.outer.origin.x);
+        assert!(b.outer.origin.x < c.outer.origin.x);
+
+        // The equivalent copy on the other side reaches the same screen
+        // position one ring later, without the card itself changing identity.
+        let step = 238 + CARD_GAP;
+        let across = carousel_card(display, 5, 2.2 - 5.0);
+        assert!((across.outer.origin.x - (c.outer.origin.x - 5 * step)).abs() <= 2);
     }
 }

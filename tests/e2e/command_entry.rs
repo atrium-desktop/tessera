@@ -76,6 +76,28 @@ fn help_is_local_and_advertises_resource_domains() {
     assert!(stdout.contains("display"), "stdout was {stdout:?}");
     assert!(stdout.contains("window"), "stdout was {stdout:?}");
     assert!(!stdout.contains("tessera-cli"), "stdout was {stdout:?}");
+    assert!(!stdout.contains("tessera-ctl"), "stdout was {stdout:?}");
+    assert!(!stdout.contains("tessera-control"), "stdout was {stdout:?}");
+}
+
+#[test]
+fn local_commands_do_not_require_a_session() {
+    let output = std::process::Command::new(crate::common::binary("tessera"))
+        .env_remove("XDG_RUNTIME_DIR")
+        .args(["calc", "25 * 4"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{:?}", output);
+    assert_eq!(String::from_utf8(output.stdout).unwrap().trim(), "100");
+
+    let output = std::process::Command::new(crate::common::binary("tessera"))
+        .env_remove("XDG_RUNTIME_DIR")
+        .args(["query", "100 / 2", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{:?}", output);
+    let rows: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(rows[0]["title"], "= 50");
 }
 
 #[test]

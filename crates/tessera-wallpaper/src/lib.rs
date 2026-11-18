@@ -24,26 +24,61 @@ use still::StillSource;
 use video::VideoSource;
 
 /// Errors raised while loading or advancing a wallpaper source.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum Error {
-    #[error("wallpaper: open {0:?}: {1}")]
-    Open(PathBuf, #[source] std::io::Error),
-    #[error("wallpaper: decode {0:?}: {1}")]
+    Open(PathBuf, std::io::Error),
     Decode(PathBuf, String),
-    #[error("wallpaper: no decoder matched {0:?} (format hint: {1:?})")]
     UnsupportedFormat(PathBuf, Option<String>),
-    #[error("wallpaper: ffmpeg missing or failed to spawn: {0}")]
-    FfmpegSpawn(#[source] std::io::Error),
-    #[error("wallpaper: ffmpeg produced no frames for {0:?}")]
+    FfmpegSpawn(std::io::Error),
     FfmpegEmpty(PathBuf),
-    #[error("wallpaper: glTF model {0:?}: {1}")]
-    Gltf(PathBuf, #[source] vista::Error),
-    #[error("wallpaper: glTF model {0:?} has no measurable bounds")]
+    Gltf(PathBuf, vista::Error),
     GltfBounds(PathBuf),
-    #[error("wallpaper: 3D render resource: {0}")]
-    Flux(#[from] flux::Error),
-    #[error("wallpaper: parallax configuration: {0}")]
+    Flux(flux::Error),
     Parallax(String),
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Open(path, err) => write!(f, "wallpaper: open {path:?}: {err}"),
+            Self::Decode(path, msg) => write!(f, "wallpaper: decode {path:?}: {msg}"),
+            Self::UnsupportedFormat(path, hint) => {
+                write!(
+                    f,
+                    "wallpaper: no decoder matched {path:?} (format hint: {hint:?})"
+                )
+            }
+            Self::FfmpegSpawn(err) => {
+                write!(f, "wallpaper: ffmpeg missing or failed to spawn: {err}")
+            }
+            Self::FfmpegEmpty(path) => {
+                write!(f, "wallpaper: ffmpeg produced no frames for {path:?}")
+            }
+            Self::Gltf(path, err) => write!(f, "wallpaper: glTF model {path:?}: {err}"),
+            Self::GltfBounds(path) => {
+                write!(f, "wallpaper: glTF model {path:?} has no measurable bounds")
+            }
+            Self::Flux(err) => write!(f, "wallpaper: 3D render resource: {err}"),
+            Self::Parallax(msg) => write!(f, "wallpaper: parallax configuration: {msg}"),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Open(_, err) | Self::FfmpegSpawn(err) => Some(err),
+            Self::Gltf(_, err) => Some(err),
+            Self::Flux(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+impl From<flux::Error> for Error {
+    fn from(err: flux::Error) -> Self {
+        Self::Flux(err)
+    }
 }
 
 /// Per-source decode + pacing state. Each implementation owns its pixels
@@ -105,6 +140,17 @@ impl Wallpaper {
     /// size. On either path the final frame is GPU-scaled to whatever
     /// destination size [`Wallpaper::draw`] is given.
     pub fn from_path(path: impl AsRef<Path>, target_w: u32, target_h: u32) -> Result<Self, Error> {
+        Self::from_path_with_worker_init(path, target_w, target_h, None)
+    }
+
+    /// Load an image or video wallpaper, invoking `on_worker_start` on any
+    /// background decode thread spawned for video playback.
+    pub fn from_path_with_worker_init(
+        path: impl AsRef<Path>,
+        target_w: u32,
+        target_h: u32,
+        on_worker_start: Option<fn()>,
+    ) -> Result<Self, Error> {
         let path = path.as_ref();
         log::debug!("wallpaper: loading {path:?}");
 
@@ -136,7 +182,7 @@ impl Wallpaper {
         }
 
         log::debug!("wallpaper: not an image, trying ffmpeg");
-        let video = VideoSource::open(path, target_w, target_h)?;
+        let video = VideoSource::open(path, target_w, target_h, on_worker_start)?;
         let (w, h) = video.dimensions();
         log::info!("wallpaper: video loaded {path:?} ({w}x{h}, via ffmpeg)");
         Ok(Wallpaper {
@@ -185,6 +231,17 @@ impl Wallpaper {
         target_w: u32,
         target_h: u32,
     ) -> Result<Self, Error> {
+        Self::from_video_path_with_worker_init(path, target_w, target_h, None)
+    }
+
+    /// Load only a video source through ffmpeg, invoking `on_worker_start` on
+    /// the spawned decode thread.
+    pub fn from_video_path_with_worker_init(
+        path: impl AsRef<Path>,
+        target_w: u32,
+        target_h: u32,
+        on_worker_start: Option<fn()>,
+    ) -> Result<Self, Error> {
         let path = path.as_ref();
         let metadata =
             std::fs::metadata(path).map_err(|error| Error::Open(path.to_path_buf(), error))?;
@@ -197,7 +254,7 @@ impl Wallpaper {
                 ),
             ));
         }
-        let video = VideoSource::open(path, target_w, target_h)?;
+        let video = VideoSource::open(path, target_w, target_h, on_worker_start)?;
         let (width, height) = video.dimensions();
         log::info!("wallpaper: video loaded {path:?} ({width}x{height})");
         Ok(Self {

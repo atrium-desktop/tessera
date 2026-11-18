@@ -82,24 +82,33 @@ impl std::fmt::Display for BackendChoice {
 }
 
 /// A backend failure, classified by what a caller can do about it.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NetworkError {
     /// No service owns the network role.
-    #[error("no network service is available")]
     Unavailable,
     /// The service exists but does not implement the requested operation.
-    #[error("network operation is not supported: {0}")]
     Unsupported(String),
     /// The service rejected the request (authorization, conflicting state).
-    #[error("network service refused the request: {0}")]
     Refused(String),
     /// The named wireless network is not known to the service.
-    #[error("network '{0}' is not known")]
     NetworkNotFound(String),
     /// A transport, protocol, or platform failure.
-    #[error("{0}")]
     Service(String),
 }
+
+impl std::fmt::Display for NetworkError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unavailable => f.write_str("no network service is available"),
+            Self::Unsupported(op) => write!(f, "network operation is not supported: {op}"),
+            Self::Refused(msg) => write!(f, "network service refused the request: {msg}"),
+            Self::NetworkNotFound(name) => write!(f, "network '{name}' is not known"),
+            Self::Service(msg) => f.write_str(msg),
+        }
+    }
+}
+
+impl std::error::Error for NetworkError {}
 
 impl NetworkError {
     /// Whether this error means "no service", the only condition that lets

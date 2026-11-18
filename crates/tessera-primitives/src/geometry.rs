@@ -653,6 +653,7 @@ pub struct ClosingGhostView<'a> {
 /// renderer for zero-copy import. The `fd` is borrowed: the renderer (flux)
 /// duplicates it before import; the server keeps ownership and closes it when
 /// the surface backing is replaced or destroyed. `drm_format` is a DRM fourcc.
+#[derive(Debug, Clone)]
 pub struct SurfaceDmabuf {
     pub id: usize,
     /// Toplevel the surface belongs to (its root's window id), or `None`

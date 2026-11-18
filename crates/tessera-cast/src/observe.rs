@@ -78,7 +78,7 @@ fn observe_networkmanager_p2p() -> Verdict<()> {
 
 /// Whether iwd offers `RegisterDisplayService`. Its presence is what makes iwd a
 /// usable *radio* for a caster.
-fn observe_wfd_registration(connection: &zbus::Connection) -> Verdict<()> {
+fn observe_wfd_registration(connection: &tessera_dbus::Connection) -> Verdict<()> {
     match iwd::has_interface(connection, iwd::IWD_ROOT, P2P_SERVICE_MANAGER) {
         Ok(true) => Verdict::Observed(()),
         Ok(false) => Verdict::Absent,
@@ -88,7 +88,7 @@ fn observe_wfd_registration(connection: &zbus::Connection) -> Verdict<()> {
 
 /// Read the first adapter's P2P device facts. iwd exposes one `p2p.Device` per
 /// adapter; a caster needs one it can use.
-fn observe_p2p_device(connection: &zbus::Connection) -> Verdict<P2pDeviceFacts> {
+fn observe_p2p_device(connection: &tessera_dbus::Connection) -> Verdict<P2pDeviceFacts> {
     let adapter = match iwd::first_adapter(connection) {
         Ok(adapter) => adapter,
         Err(error) => return verdict_from_error(error),
@@ -163,22 +163,22 @@ fn observe_pipewire() -> Verdict<()> {
 /// Whether the session bus offers the desktop portal, which is how the caster
 /// obtains a virtual source without a compositor scope.
 fn observe_screencast_portal() -> Verdict<()> {
-    let session = match zbus::block_on(zbus::Connection::session()) {
+    let session = match tessera_dbus::Connection::session() {
         Ok(connection) => connection,
         Err(error) => return Verdict::Unverified(format!("session bus unavailable: {error}")),
     };
     // Asking the bus rather than activating the portal keeps the probe inert.
-    let reply = match zbus::block_on(session.call_method(
+    let reply = match session.call_method(
         Some("org.freedesktop.DBus"),
         "/org/freedesktop/DBus",
         Some("org.freedesktop.DBus"),
         "NameHasOwner",
         &("org.freedesktop.portal.Desktop",),
-    )) {
+    ) {
         Ok(reply) => reply,
         Err(error) => return Verdict::Unverified(format!("session bus query failed: {error}")),
     };
-    match reply.body().deserialize::<bool>() {
+    match tessera_dbus::FromArgs::from_args(reply.body) {
         Ok(true) => Verdict::Observed(()),
         Ok(false) => Verdict::Absent,
         Err(error) => Verdict::Unverified(format!("session bus reply unreadable: {error}")),

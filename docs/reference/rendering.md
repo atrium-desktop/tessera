@@ -23,12 +23,33 @@ plan. The plan follows physical coverage and the complete visible scene. A
 borderless client can scan out without an XDG fullscreen request, while a
 fullscreen client is composited when another visible element is present.
 
-All active outputs currently form one presentation domain and share one
-desktop framebuffer. A direct-scanout candidate must therefore cover the
-complete physical domain and be accepted by every selected primary plane.
-Replacing that union domain with per-output presentation domains — which is
-what lets a client own one output while another keeps compositing — is
-[ADR-0185](../adr/0185-per-output-presentation-domains.md), still a draft.
+Normal DRM presentation is per output. Each physical output owns a
+mode-sized compositor target with its own Flux ring, KMS primary slot, damage
+scope, and page flip. An extended target renders only that output's logical
+region; a mirror target is blitted from its source target with the fitted
+letterbox, so the mirror CRTC never asks KMS to scale (ADR-0246). A new target
+renders full for its first ring cycle, then uses target-local damage. Absolute
+input devices can bind to a connector and use the fitted content rectangle
+(ADR-0245).
+
+Capture, screenshot freeze, active streams, session lock, and an overlay-active
+fallback use one dedicated union composition as their source. That image is
+uploaded into every output target and presented through the target's own KMS
+slot; it is not scanned as a union swapchain. Overview, window switcher, live
+previews, soft shadows, 3D wallpaper, and workspace slides render per output.
+The union path is also the fallback when a target cannot be built. Every composite image carries a lease
+([optics ADR-0168](../../../optics/docs/adr/0168-exported-dmabuf-image-leases.md));
+Flux refuses to reuse a ring slot while a target still samples or scans it.
+Outputs that must share a scene generation form a presentation group (mirrors,
+touching same-refresh outputs, and outputs touched by one spanning window).
+A group is one atomic KMS commit; groups are independent and the loop paces at
+the fastest group. Callbacks, presentation feedback, and damage acknowledgement
+are scoped to the outputs that actually flipped, and feedback refresh follows
+the target output's rate. Ring exhaustion is a retryable
+`FLUX_ERROR_BUSY`. A direct client flip remains independent of the composite
+ring. When every physical output has its own covering opaque client and no
+chrome/overlay needs composition, the runtime enters simultaneous direct
+scanout on all of them, one target-scoped atomic commit per CRTC.
 
 Virtual extend outputs (`OutputKind::Virtual`, `VIRTUAL-*`,
 [ADR-0186](../adr/0186-session-scoped-virtual-extend-outputs-and-offscreen-output-streaming.md))

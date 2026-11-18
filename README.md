@@ -11,6 +11,8 @@ security boundaries.
   [Optics](https://github.com/ming2k/optics) stack
 - Native Dock, full application launcher, Prism search, notifications, the
   Control Center, and multi-workspace window management
+- Extend or mirror physical displays, with automatic topology for a newly
+  attached TV or monitor
 - Multi-output session lock, staged idle policy, lock-before-sleep, and
   physical display power management
 - Nested Wayland development and direct DRM/KMS presentation

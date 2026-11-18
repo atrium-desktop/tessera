@@ -34,12 +34,34 @@ pub struct WindowSwitcher {
     icons: IconSet,
     /// Frozen MRU order for the current held-Super session.
     order: Vec<WindowId>,
-    layout_key: Option<(usize, i32, i32, i32, i32)>,
+    /// The display rectangle the current spatial model was resolved for.
+    /// Deliberately excludes the window count: a window closing mid-session
+    /// retargets the remaining cards instead of discarding their animation.
+    layout_key: Option<(i32, i32, i32, i32)>,
+    /// Frozen at session start so a count change cannot swap a fixed strip for
+    /// a carousel (or back) while the user is looking at it.
+    mode_locked: bool,
     mode: crate::layout::window_switcher::Mode,
     animated_cards: HashMap<WindowId, AnimCard>,
+    /// Continuous, unwrapped carousel slot per window. A window crossing the
+    /// ring seam steps by one slot like every other card; its off-panel copy is
+    /// drawn one ring away, so nothing is teleported while visible.
+    animated_slots: HashMap<WindowId, f32>,
     animated_selection: Option<AnimCard>,
+    /// The panel body is part of the motion, not a static frame around it: a
+    /// closing window narrows a fixed strip and the body must follow the cards.
+    animated_panel: Option<AnimRect>,
+    /// The panel extent the damage walk may need to repaint this frame and the
+    /// one before it. Kept as the union through a transition so the vacated
+    /// edge is repainted even while the body shrinks.
+    damage_panel: Option<tessera_primitives::Rect>,
     presentation: Option<WindowSwitcherPresentation>,
     hovered: Option<WindowId>,
+    /// Whether the card under the pointer changed on the frame most recently
+    /// prepared. Damage assessment runs after preparation, so it must be able
+    /// to repaint the wash the previous frame left behind even though the new
+    /// hover is already `None`.
+    hover_dirty: bool,
     /// The design snapshot the switcher paints from, from
     /// [`ChromeUpdate::Appearance`]. Seeded on registration by
     /// [`crate::Shell::add`] and refreshed when the desktop color scheme
@@ -63,11 +85,16 @@ impl WindowSwitcher {
             icons: IconSet::default(),
             order: Vec::new(),
             layout_key: None,
+            mode_locked: false,
             mode: crate::layout::window_switcher::Mode::Fixed,
             animated_cards: HashMap::new(),
+            animated_slots: HashMap::new(),
             animated_selection: None,
+            animated_panel: None,
+            damage_panel: None,
             presentation: None,
             hovered: None,
+            hover_dirty: false,
             design: Design::dark(),
         }
     }
@@ -76,6 +103,7 @@ impl WindowSwitcher {
         if !self.open {
             self.order.clear();
             self.layout_key = None;
+            self.mode_locked = false;
             self.open = true;
             self.anim_active = true;
         }
@@ -120,7 +148,13 @@ impl WindowSwitcher {
         if self.visibility <= 0.001 && !self.open {
             self.presentation = None;
             self.animated_cards.clear();
+            self.animated_slots.clear();
+            self.animated_selection = None;
+            self.animated_panel = None;
+            self.damage_panel = None;
             self.hovered = None;
+            self.hover_dirty = false;
+            self.mode_locked = false;
             return None;
         }
 
@@ -147,19 +181,32 @@ impl WindowSwitcher {
         let selected_index = selected
             .and_then(|id| self.order.iter().position(|candidate| *candidate == id))
             .unwrap_or(0);
-        let layout_key = (
-            self.order.len(),
+
+        // The spatial model and the display are session-stable. Window count is
+        // deliberately not part of this key: a closing window retargets the
+        // remaining cards, while the mode itself stays fixed for the whole
+        // session so a threshold crossing cannot swap models mid-flight.
+        let display_key = (
             display.origin.x,
             display.origin.y,
             display.size.w,
             display.size.h,
         );
-        if self.layout_key != Some(layout_key) {
-            self.layout_key = Some(layout_key);
+        if self.layout_key != Some(display_key) || !self.mode_locked {
+            // A display change re-derives the model so it still fits; only a
+            // count change inside one session leaves the locked model alone.
             self.mode = crate::layout::window_switcher::mode(display, self.order.len());
+            self.layout_key = Some(display_key);
             self.animated_cards.clear();
+            self.animated_slots.clear();
             self.animated_selection = None;
+            self.animated_panel = None;
+            self.damage_panel = None;
         }
+        if self.open {
+            self.mode_locked = true;
+        }
+
         let target = crate::layout::window_switcher::layout_for_mode(
             display,
             self.order.len(),
@@ -167,74 +214,154 @@ impl WindowSwitcher {
             self.mode,
         );
         // Reduced motion is a one-frame resolve, expressed once by `transit`
-        // (`blend == 1.0`), so no separate branch is needed below.
+        // (`blend == 1.0`), so no separate branch is needed for the panel or
+        // the fixed strip.
         let blend = crate::widgets::motion::blend(SLIDE_RATE, dt, self.reduced_motion);
-        let target_cards = target
-            .cards
-            .iter()
-            .copied()
-            .enumerate()
-            .map(|(index, card)| {
-                if index == selected_index {
-                    preview::selected_geometry(card, PreviewSelectionStyle::Staged, &design)
-                } else {
-                    card
-                }
-            })
-            .collect::<Vec<_>>();
+        let target_panel = AnimRect::from_rect(target.panel);
+        let panel_anim = match self.animated_panel {
+            Some(mut current) => {
+                current = current.lerp(target_panel, blend);
+                self.animated_panel = Some(current);
+                current
+            }
+            None => {
+                self.animated_panel = Some(target_panel);
+                target_panel
+            }
+        };
+        let panel_moving = panel_anim.is_moving(target_panel);
+        let panel = panel_anim.to_rect();
+        // Keep the footprint of both the painted and the target body while the
+        // panel is in flight; a shrinking body must erase the pixels it vacated.
+        self.damage_panel = Some(if panel_moving {
+            self.damage_panel
+                .map_or(panel, |previous| previous.union(panel))
+                .union(target.panel)
+        } else {
+            panel
+        });
+
         let mut cards = Vec::with_capacity(self.order.len());
         let mut cards_moving = false;
-        for (id, target_card) in self.order.iter().copied().zip(target_cards.iter().copied()) {
-            let target_anim = AnimCard::from_card(target_card);
-            let current = self.animated_cards.entry(id).or_insert(target_anim);
-            // A circular list has one off-screen item whose logical slot wraps
-            // from one tail to the other. Teleport only that distant item behind
-            // the panel clip; every visible item, including the incoming
-            // selection, moves exactly one adjacent step.
-            if self.mode == crate::layout::window_switcher::Mode::Carousel {
-                let current_centre = current.outer.x + current.outer.w * 0.5;
-                let target_centre = target_anim.outer.x + target_anim.outer.w * 0.5;
-                if (current_centre - target_centre).abs() > target.panel.size.w as f32 * 0.5 {
-                    *current = target_anim;
+        let mut selection_moving = false;
+
+        match self.mode {
+            crate::layout::window_switcher::Mode::Fixed => {
+                let target_cards = target
+                    .cards
+                    .iter()
+                    .copied()
+                    .enumerate()
+                    .map(|(index, card)| {
+                        if index == selected_index {
+                            preview::selected_geometry(card, PreviewSelectionStyle::Staged, &design)
+                        } else {
+                            card
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                for (id, target_card) in
+                    self.order.iter().copied().zip(target_cards.iter().copied())
+                {
+                    let target_anim = AnimCard::from_card(target_card);
+                    let current = self.animated_cards.entry(id).or_insert(target_anim);
+                    *current = current.lerp(target_anim, blend);
+                    cards_moving |= current.is_moving(target_anim);
+                    push_card(&mut cards, panel, id, current.to_card(), &design);
                 }
+                self.animated_cards.retain(|id, _| self.order.contains(id));
+                self.animated_slots.clear();
+
+                let target_selection = target_cards.get(selected_index).copied();
+                selection_moving = if let Some(target_selection) = target_selection {
+                    let target_anim = AnimCard::from_card(target_selection);
+                    let current = self.animated_selection.get_or_insert(target_anim);
+                    *current = current.lerp(target_anim, blend);
+                    current.is_moving(target_anim)
+                } else {
+                    self.animated_selection = None;
+                    false
+                };
             }
-            // `blend` carries reduced motion (`1.0` resolves in one frame), so
-            // there is no separate reduced-motion branch here.
-            *current = current.lerp(target_anim, blend);
-            cards_moving |= current.is_moving(target_anim);
-            let settled = current.to_card();
-            if intersects(target.panel, settled.outer) {
-                cards.push(PreviewCard {
-                    window: id,
-                    geometry: settled,
-                    corner_radius: design.radii.control,
+            crate::layout::window_switcher::Mode::Carousel => {
+                // Animate one continuous slot scalar per window. A card crossing
+                // the ring seam moves exactly one slot like every other card;
+                // its equivalent copy one ring away supplies the visible card
+                // on the other side, so nothing is teleported while visible.
+                let count = self.order.len();
+                let ring = count as f32;
+                self.animated_cards.clear();
+                for (id, canonical) in self.order.iter().copied().zip(target.slots.iter().copied())
+                {
+                    let current = self.animated_slots.entry(id).or_insert(canonical as f32);
+                    // Pick the ring copy nearest the current position. This
+                    // makes the canonical -2 -> +2 representation change on the
+                    // seam a -1 slot step instead of a jump.
+                    let target_slot =
+                        canonical as f32 + ring * ((*current - canonical as f32) / ring).round();
+                    *current = crate::widgets::motion::approach(
+                        *current,
+                        target_slot,
+                        SLIDE_RATE,
+                        dt,
+                        self.reduced_motion,
+                    );
+                    cards_moving |= (*current - target_slot).abs() > 0.002;
+
+                    for lane in -1..=1 {
+                        let slot = *current + lane as f32 * ring;
+                        let card =
+                            crate::layout::window_switcher::carousel_card(display, count, slot);
+                        if !intersects(panel, card.outer) {
+                            continue;
+                        }
+                        let is_selected = Some(id) == selected && slot.abs() < 0.5;
+                        let geometry = if is_selected {
+                            preview::selected_geometry(card, PreviewSelectionStyle::Staged, &design)
+                        } else {
+                            card
+                        };
+                        cards.push(PreviewCard {
+                            window: id,
+                            geometry,
+                            corner_radius: design.radii.control,
+                        });
+                    }
+                }
+                self.animated_slots.retain(|id, _| self.order.contains(id));
+
+                self.animated_selection = (count > 0).then(|| {
+                    AnimCard::from_card(preview::selected_geometry(
+                        crate::layout::window_switcher::carousel_card(display, count, 0.0),
+                        PreviewSelectionStyle::Staged,
+                        &design,
+                    ))
                 });
             }
         }
-        self.animated_cards.retain(|id, _| self.order.contains(id));
 
-        let target_selection = target_cards.get(selected_index).copied();
-        let selection_moving = if let Some(target_selection) = target_selection {
-            let target_anim = AnimCard::from_card(target_selection);
-            let current = self.animated_selection.get_or_insert(target_anim);
-            if self.mode == crate::layout::window_switcher::Mode::Carousel {
-                *current = target_anim;
-            } else {
-                *current = current.lerp(target_anim, blend);
-            }
-            current.is_moving(target_anim)
+        // The compositor paints previews in this order and chrome paints labels
+        // in its own pass; both must agree that the selected card is on top.
+        cards.sort_by_key(|card| Some(card.window) == selected);
+
+        let raw = input.as_raw();
+        let previous_hovered = self.hovered;
+        self.hovered = if self.open && contains(panel, raw.cursor.x, raw.cursor.y) {
+            preview::hit_test(&cards, selected, raw.cursor.x, raw.cursor.y)
         } else {
-            self.animated_selection = None;
-            false
+            None
         };
-        self.anim_active = cards_moving || selection_moving;
+
+        self.hover_dirty = self.hovered != previous_hovered;
+        self.anim_active = cards_moving || selection_moving || panel_moving;
+        self.anim_active |= self.hover_dirty;
         if !self.anim_active {
             self.anim_active = (self.visibility - if self.open { 1.0 } else { 0.0 }).abs() > 0.002;
         }
 
         let presentation = WindowSwitcherPresentation {
             mode: self.mode,
-            panel: target.panel,
+            panel,
             cards,
             selection_indicator: self.animated_selection.map(AnimCard::to_card),
             selected,
@@ -243,6 +370,49 @@ impl WindowSwitcher {
         };
         self.presentation = Some(presentation.clone());
         Some(presentation)
+    }
+
+    /// The output region the settled switcher may repaint.
+    ///
+    /// While the scrim is fading the whole output is live, so there is no
+    /// narrower answer. Once the fade has resolved, every pixel the switcher
+    /// owns is inside the floating panel's body and its painted elevation halo;
+    /// the live previews and labels are clipped to that same body. Reporting
+    /// this band keeps a settling card, a hover change, or an animated panel
+    /// edge from becoming a full-output composite.
+    fn damage_band(&self, display: (f32, f32)) -> Option<Vec<Rect>> {
+        if !self.open || self.visibility < 0.999 {
+            return None;
+        }
+        let panel = self.damage_panel.or_else(|| {
+            self.presentation
+                .as_ref()
+                .map(|presentation| presentation.panel)
+        })?;
+        let mut region = panel;
+        for (halo, _) in tessera_design::materials::elevation_halo_for_body(
+            &self.design,
+            tessera_design::SurfaceRole::FloatingPanel,
+            to_lens(panel),
+            self.design.radii.panel_lg,
+            1.0,
+        ) {
+            region = region.union(tessera_primitives::Rect::new(
+                halo.x.floor() as i32,
+                halo.y.floor() as i32,
+                (halo.x + halo.w).ceil() as i32 - halo.x.floor() as i32,
+                (halo.y + halo.h).ceil() as i32 - halo.y.floor() as i32,
+            ));
+        }
+        let display = tessera_primitives::Rect::new(
+            0,
+            0,
+            display.0.max(1.0) as i32,
+            display.1.max(1.0) as i32,
+        );
+        region
+            .intersect(display)
+            .map(|region| vec![to_lens(region)])
     }
 }
 
@@ -256,35 +426,17 @@ impl Chrome for WindowSwitcher {
         i18n: &Localizer,
         out: &mut ChromeEvents,
     ) {
-        let display = tessera_primitives::Rect::new(
-            0,
-            0,
-            input.as_raw().display_size.x.max(1.0) as i32,
-            input.as_raw().display_size.y.max(1.0) as i32,
-        );
-        if self.presentation.is_none() {
-            let order = self.order.clone();
-            self.prepare(input, display, windows, &order, None);
-        }
+        // Preparation owns the display rectangle and the session model; a
+        // fallback prepare from `render` would invent a `(0, 0)` display after
+        // the real one and could freeze the wrong spatial model for the session.
         let Some(presentation) = self.presentation.clone() else {
             return;
         };
 
         let raw = input.as_raw();
-        let cursor = (raw.cursor.x, raw.cursor.y);
-        let previous_hovered = self.hovered;
-        self.hovered = self
-            .open
-            .then(|| {
-                preview::hit_test(
-                    &presentation.cards,
-                    presentation.selected,
-                    cursor.0,
-                    cursor.1,
-                )
-            })
-            .flatten();
-        self.anim_active |= self.hovered != previous_hovered;
+        // Hover is resolved in `prepare`, before the damage assessment reads
+        // `anim_pending`; a pointer move that crosses a card must repaint the
+        // frame that observes it, not the following one.
         let pressed = raw.mouse_pressed.first().copied().unwrap_or(false);
         if self.open && pressed {
             if let Some(id) = self.hovered
@@ -326,8 +478,18 @@ impl Chrome for WindowSwitcher {
             },
         );
 
-        if let Some(indicator) = presentation.selection_indicator {
-            let selection = to_lens(indicator.outer);
+        // The panel body and its elevation halo are painted above; everything
+        // below is content that belongs to the strip and must not paint into
+        // the desktop outside it. A scoped lens clip stamps every node built
+        // here — including the absolutely placed labels and hover washes that
+        // escape the panel container's flow — so the boundary is enforced by
+        // the renderer, not only by per-rect arithmetic.
+        frame.clip_begin(panel);
+
+        if let Some(indicator) = presentation.selection_indicator
+            && let Some(visible) = visible_rect(indicator.outer, presentation.panel)
+        {
+            let selection = to_lens(visible);
             frame.place(
                 "tessera-window-switcher-selection",
                 &chrome_place(
@@ -352,7 +514,6 @@ impl Chrome for WindowSwitcher {
             };
             let selected = Some(window.id) == presentation.selected;
             let hovered = Some(window.id) == self.hovered && !window.read_only;
-            let outer = to_lens(presented.geometry.outer);
             // Content brightness dims inactive cards; the hover wash below
             // belongs to a hovered card, whose item opacity is always 1.0.
             let item_opacity = if presentation.selected.is_none() || selected || hovered {
@@ -361,7 +522,11 @@ impl Chrome for WindowSwitcher {
                 presentation.inactive_content_brightness
             };
             frame.set_opacity(presentation.visibility * item_opacity);
-            if hovered && !selected {
+            if hovered
+                && !selected
+                && let Some(visible) = visible_rect(presented.geometry.outer, presentation.panel)
+            {
+                let outer = to_lens(visible);
                 frame.place(
                     &format!("tessera-window-switcher-card-{index}"),
                     &chrome_place(
@@ -378,7 +543,16 @@ impl Chrome for WindowSwitcher {
                 );
             }
 
-            let label_rect = to_lens(presented.geometry.label);
+            // A card at the carousel edge is clipped by the panel body; its
+            // label must stop at the same edge instead of spilling into the
+            // desktop outside the panel. A label whose left edge is already
+            // outside cannot be painted honestly, so it is omitted until the
+            // card has entered far enough to show one.
+            let Some(label_visible) = clipped_label_rect(presented.geometry, presentation.panel)
+            else {
+                continue;
+            };
+            let label_rect = to_lens(label_visible);
             let fallback_title = i18n.text(Message::UntitledWindow);
             let hierarchy_title = resolve_switcher_hierarchy_title(window, windows, fallback_title);
             let icon = window
@@ -431,6 +605,7 @@ impl Chrome for WindowSwitcher {
                 },
             );
         }
+        frame.clip_end();
         frame.set_opacity(1.0);
     }
 
@@ -477,7 +652,11 @@ impl Chrome for WindowSwitcher {
     ) -> Option<CursorShape> {
         self.open
             .then(|| {
-                self.presentation.as_ref()?.cards.iter().find(|card| {
+                let presentation = self.presentation.as_ref()?;
+                if !contains(presentation.panel, x, y) {
+                    return None;
+                }
+                presentation.cards.iter().find(|card| {
                     card.contains(x, y)
                         && windows
                             .iter()
@@ -499,6 +678,33 @@ impl Chrome for WindowSwitcher {
 
     fn anim_pending(&self) -> bool {
         self.anim_active
+    }
+
+    fn damage_regions(&self, _windows: &[Window], display: (f32, f32)) -> Option<Vec<Rect>> {
+        self.damage_band(display)
+    }
+
+    fn pointer_damage_regions(
+        &self,
+        x: f32,
+        y: f32,
+        display: (f32, f32),
+        _windows: &[Window],
+        _workspaces: &WorkspaceSnapshot,
+    ) -> Option<Vec<Rect>> {
+        if !self.open {
+            return None;
+        }
+        // Outside the panel nothing is hoverable, so a move that neither left
+        // a hovered card nor entered the panel changes no pixels at all.
+        let in_panel = self
+            .presentation
+            .as_ref()
+            .is_some_and(|presentation| contains(presentation.panel, x, y));
+        if self.hovered.is_none() && !in_panel && !self.hover_dirty {
+            return Some(Vec::new());
+        }
+        self.damage_band(display)
     }
 
     #[cfg(test)]
@@ -560,6 +766,74 @@ fn intersects(a: tessera_primitives::Rect, b: tessera_primitives::Rect) -> bool 
         && b.origin.x < a.origin.x + a.size.w
         && a.origin.y < b.origin.y + b.size.h
         && b.origin.y < a.origin.y + a.size.h
+}
+
+fn contains(rect: tessera_primitives::Rect, x: f32, y: f32) -> bool {
+    x >= rect.origin.x as f32
+        && y >= rect.origin.y as f32
+        && x < (rect.origin.x + rect.size.w) as f32
+        && y < (rect.origin.y + rect.size.h) as f32
+}
+
+/// Push a card only when its body may contribute pixels. Chrome clips the
+/// composed body to the panel, so cards wholly outside it are not presented
+/// either — keeping hit-testing and paint in one coordinate contract.
+fn push_card(
+    cards: &mut Vec<PreviewCard>,
+    panel: tessera_primitives::Rect,
+    window: WindowId,
+    geometry: crate::layout::window_switcher::Card,
+    design: &Design,
+) {
+    if intersects(panel, geometry.outer) {
+        cards.push(PreviewCard {
+            window,
+            geometry,
+            corner_radius: design.radii.control,
+        });
+    }
+}
+
+/// The part of a rect inside the panel, or `None` when nothing is visible.
+fn visible_rect(
+    rect: tessera_primitives::Rect,
+    panel: tessera_primitives::Rect,
+) -> Option<tessera_primitives::Rect> {
+    let x = rect.origin.x.max(panel.origin.x);
+    let y = rect.origin.y.max(panel.origin.y);
+    let right = (rect.origin.x + rect.size.w).min(panel.origin.x + panel.size.w);
+    let bottom = (rect.origin.y + rect.size.h).min(panel.origin.y + panel.size.h);
+    (right > x && bottom > y).then(|| tessera_primitives::Rect::new(x, y, right - x, bottom - y))
+}
+
+/// The label rect narrowed to the panel's right edge, or `None` when the card
+/// has not entered far enough to show one.
+///
+/// Lens has no general nested clip for non-scrolling containers, so the card
+/// label is the one piece of chrome that must enforce the same boundary as the
+/// compositor's preview scissor by construction. The left edge is required to
+/// be inside the panel: shifting a left-clipped label to the panel edge would
+/// paint a title that is not actually there.
+fn clipped_label_rect(
+    card: crate::layout::window_switcher::Card,
+    panel: tessera_primitives::Rect,
+) -> Option<tessera_primitives::Rect> {
+    let label = card.label;
+    // The label's own leading pad is transparent, so a card may overhang the
+    // left edge by exactly that pad before its first painted pixel escapes.
+    if label.origin.x + 8 < panel.origin.x || label.origin.y < panel.origin.y {
+        return None;
+    }
+    if label.origin.y + label.size.h > panel.origin.y + panel.size.h {
+        return None;
+    }
+    let right = (label.origin.x + label.size.w).min(panel.origin.x + panel.size.w);
+    let width = right - label.origin.x;
+    // Below the icon-plus-padding floor the label is unreadable noise, and an
+    // icon that does not fit in the narrowed row would itself spill past the
+    // panel edge. The card is still represented by its preview and hover wash.
+    (width >= 8 + 20 + 7 + 8)
+        .then(|| tessera_primitives::Rect::new(label.origin.x, label.origin.y, width, label.size.h))
 }
 
 /// A card's geometry while it is still moving.
@@ -986,6 +1260,305 @@ mod tests {
             "the panel casts a separating shadow"
         );
         assert!(style.body.components().3 >= 236, "the panel body is opaque");
+    }
+
+    #[test]
+    fn carousel_animation_carries_the_seam_card_by_one_slot() {
+        let mut switcher = WindowSwitcher::new();
+        switcher.start_window_switcher();
+        let display = tessera_primitives::Rect::new(0, 0, 1920, 1080);
+        let (windows, order) = windows(5);
+        let input = Input::new((1920.0, 1080.0), 1.0 / 60.0);
+
+        let before = switcher
+            .prepare(&input, display, &windows, &order, Some(order[4]))
+            .unwrap();
+        assert_eq!(before.mode, crate::layout::window_switcher::Mode::Carousel);
+        let seam = order[2];
+        let seam_before = switcher.animated_slots[&seam];
+        assert_eq!(seam_before, -2.0);
+
+        let after = switcher
+            .prepare(&input, display, &windows, &order, Some(order[0]))
+            .unwrap();
+        let seam_after = switcher.animated_slots[&seam];
+        assert!(
+            seam_after < seam_before,
+            "the seam card moves with the strip instead of jumping to +2"
+        );
+        assert!(
+            seam_after > -3.0,
+            "the seam card has not teleported to the far side"
+        );
+        // While it straddles the seam, the same window is represented by the
+        // copy leaving one edge and the copy entering the other.
+        let copies = after
+            .cards
+            .iter()
+            .filter(|card| card.window == seam)
+            .count();
+        assert!((1..=2).contains(&copies));
+    }
+
+    #[test]
+    fn the_spatial_mode_is_frozen_for_the_session() {
+        let mut switcher = WindowSwitcher::new();
+        switcher.set_reduced_motion(true);
+        switcher.start_window_switcher();
+        let display = tessera_primitives::Rect::new(0, 0, 1920, 1080);
+        let input = Input::default();
+        let (windows, order) = windows(5);
+
+        let first = switcher
+            .prepare(&input, display, &windows, &order, Some(order[0]))
+            .unwrap();
+        assert_eq!(first.mode, crate::layout::window_switcher::Mode::Carousel);
+
+        // A window closing mid-session retargets the remaining cards, but the
+        // carousel model stays put; it must not swap to a fixed strip.
+        let remaining = &order[..3];
+        let remaining_windows = &windows[..3];
+        let after = switcher
+            .prepare(
+                &input,
+                display,
+                remaining_windows,
+                remaining,
+                Some(remaining[0]),
+            )
+            .unwrap();
+        assert_eq!(after.mode, crate::layout::window_switcher::Mode::Carousel);
+        assert_eq!(
+            switcher
+                .animated_slots
+                .keys()
+                .copied()
+                .collect::<HashSet<_>>(),
+            remaining.iter().copied().collect::<HashSet<_>>(),
+            "surviving cards keep their animation state"
+        );
+    }
+
+    #[test]
+    fn labels_are_confined_to_the_panel_edge() {
+        let panel = tessera_primitives::Rect::new(100, 100, 200, 100);
+        let card = |x: i32| crate::layout::window_switcher::Card {
+            outer: tessera_primitives::Rect::new(x, 120, 100, 60),
+            preview: tessera_primitives::Rect::new(x, 120, 100, 22),
+            label: tessera_primitives::Rect::new(x, 142, 100, 38),
+        };
+
+        // A card entering from the right keeps only the label columns that are
+        // inside the panel.
+        assert_eq!(
+            clipped_label_rect(card(250), panel).map(|rect| rect.size.w),
+            Some(50)
+        );
+        // A card whose left edge is still outside cannot paint a title at all.
+        assert!(clipped_label_rect(card(50), panel).is_none());
+        // Fully inside is unchanged.
+        assert_eq!(clipped_label_rect(card(150), panel), Some(card(150).label));
+        // Vertically outside the panel is not visible.
+        let below = crate::layout::window_switcher::Card {
+            outer: tessera_primitives::Rect::new(150, 220, 100, 60),
+            preview: tessera_primitives::Rect::new(150, 220, 100, 22),
+            label: tessera_primitives::Rect::new(150, 242, 100, 38),
+        };
+        assert!(clipped_label_rect(below, panel).is_none());
+    }
+
+    #[test]
+    fn hover_is_resolved_before_damage_and_inside_the_panel() {
+        let mut switcher = WindowSwitcher::new();
+        switcher.set_reduced_motion(true);
+        switcher.start_window_switcher();
+        let display = tessera_primitives::Rect::new(0, 0, 1920, 1080);
+        let (windows, order) = windows(5);
+        let first = switcher
+            .prepare(&Input::default(), display, &windows, &order, Some(order[0]))
+            .unwrap();
+        let selected = first
+            .cards
+            .iter()
+            .find(|card| card.window == order[0])
+            .unwrap()
+            .geometry
+            .outer;
+
+        let mut input = Input::default();
+        input.set_cursor(
+            (selected.origin.x + selected.size.w / 2) as f32,
+            (selected.origin.y + selected.size.h / 2) as f32,
+        );
+        switcher
+            .prepare(&input, display, &windows, &order, Some(order[0]))
+            .unwrap();
+        assert_eq!(switcher.hovered, Some(order[0]));
+        assert!(switcher.anim_pending());
+
+        // A pointer outside the panel is not a card hit even when an off-panel
+        // copy of a card happens to contain that point.
+        input.set_cursor((display.size.w + 40) as f32, (display.size.h / 2) as f32);
+        switcher
+            .prepare(&input, display, &windows, &order, Some(order[0]))
+            .unwrap();
+        assert_eq!(switcher.hovered, None);
+        // The wash the previous frame painted must still be damaged even
+        // though the new hover is already `None`.
+        assert!(switcher.hover_dirty);
+        assert!(
+            !switcher
+                .pointer_damage_regions(
+                    (display.size.w + 40) as f32,
+                    (display.size.h / 2) as f32,
+                    (display.size.w as f32, display.size.h as f32),
+                    &windows,
+                    &WorkspaceSnapshot {
+                        outputs: Vec::new()
+                    },
+                )
+                .unwrap()
+                .is_empty()
+        );
+
+        // A second move in the same empty region changes nothing.
+        switcher
+            .prepare(&input, display, &windows, &order, Some(order[0]))
+            .unwrap();
+        assert!(!switcher.hover_dirty);
+        assert!(
+            switcher
+                .pointer_damage_regions(
+                    (display.size.w + 40) as f32,
+                    (display.size.h / 2) as f32,
+                    (display.size.w as f32, display.size.h as f32),
+                    &windows,
+                    &WorkspaceSnapshot {
+                        outputs: Vec::new()
+                    },
+                )
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn the_selected_card_is_presented_last_for_both_passes() {
+        let mut switcher = WindowSwitcher::new();
+        switcher.set_reduced_motion(true);
+        switcher.start_window_switcher();
+        let display = tessera_primitives::Rect::new(0, 0, 1920, 1080);
+        let (windows, order) = windows(5);
+        let presentation = switcher
+            .prepare(&Input::default(), display, &windows, &order, Some(order[0]))
+            .unwrap();
+        assert_eq!(presentation.cards.last().unwrap().window, order[0]);
+    }
+
+    #[test]
+    fn a_closing_window_animates_the_panel_body_with_the_cards() {
+        let mut switcher = WindowSwitcher::new();
+        switcher.start_window_switcher();
+        let display = tessera_primitives::Rect::new(0, 0, 1920, 1080);
+        let input = Input::new((1920.0, 1080.0), 1.0 / 60.0);
+        let (windows, order) = windows(4);
+
+        let before = switcher
+            .prepare(&input, display, &windows, &order, Some(order[0]))
+            .unwrap();
+        assert_eq!(before.mode, crate::layout::window_switcher::Mode::Fixed);
+
+        let remaining = &order[..3];
+        let after = switcher
+            .prepare(
+                &input,
+                display,
+                &windows[..3],
+                remaining,
+                Some(remaining[0]),
+            )
+            .unwrap();
+        let target = crate::layout::window_switcher::fixed_layout(display, 3)
+            .panel
+            .size
+            .w;
+        assert!(after.panel.size.w < before.panel.size.w);
+        assert!(
+            after.panel.size.w > target,
+            "the body eases toward the narrower target instead of snapping"
+        );
+        assert!(switcher.anim_pending());
+    }
+
+    #[test]
+    fn a_settled_switcher_reports_only_its_panel_band() {
+        let mut switcher = WindowSwitcher::new();
+        switcher.set_reduced_motion(true);
+        switcher.start_window_switcher();
+        let display = tessera_primitives::Rect::new(0, 0, 1920, 1080);
+        let (windows, order) = windows(4);
+        let presentation = switcher
+            .prepare(&Input::default(), display, &windows, &order, Some(order[0]))
+            .unwrap();
+
+        let regions = switcher.damage_regions(&windows, (1920.0, 1080.0)).unwrap();
+        assert_eq!(regions.len(), 1);
+        let region = regions[0];
+        assert!(region.w < 1920.0 && region.h < 1080.0);
+        assert!(region.x <= presentation.panel.origin.x as f32);
+        assert!(region.y <= presentation.panel.origin.y as f32);
+        assert!(
+            region.x + region.w >= (presentation.panel.origin.x + presentation.panel.size.w) as f32
+        );
+
+        // The closing fade keeps the full-output scrim live, so no narrower
+        // answer is honest.
+        switcher.finish_window_switcher();
+        assert!(
+            switcher
+                .damage_regions(&windows, (1920.0, 1080.0))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn pointer_damage_is_empty_outside_the_panel_and_non_empty_inside() {
+        let mut switcher = WindowSwitcher::new();
+        switcher.set_reduced_motion(true);
+        switcher.start_window_switcher();
+        let display = tessera_primitives::Rect::new(0, 0, 1920, 1080);
+        let (windows, order) = windows(4);
+        let presentation = switcher
+            .prepare(&Input::default(), display, &windows, &order, Some(order[0]))
+            .unwrap();
+        let panel = presentation.panel;
+
+        let outside = switcher
+            .pointer_damage_regions(
+                -20.0,
+                panel.origin.y as f32 + 10.0,
+                (1920.0, 1080.0),
+                &windows,
+                &WorkspaceSnapshot {
+                    outputs: Vec::new(),
+                },
+            )
+            .unwrap();
+        assert!(outside.is_empty());
+
+        let inside = switcher
+            .pointer_damage_regions(
+                (panel.origin.x + panel.size.w / 2) as f32,
+                (panel.origin.y + panel.size.h / 2) as f32,
+                (1920.0, 1080.0),
+                &windows,
+                &WorkspaceSnapshot {
+                    outputs: Vec::new(),
+                },
+            )
+            .unwrap();
+        assert_eq!(inside.len(), 1);
+        assert!(inside[0].w < 1920.0 && inside[0].h < 1080.0);
     }
 
     #[test]
