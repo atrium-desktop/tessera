@@ -1,4 +1,4 @@
-use lens::Frame;
+use optics_lens::Frame;
 
 const ELLIPSIS: &str = "…";
 
@@ -62,7 +62,7 @@ pub fn ellipsize(frame: &Frame, text: &str, size: f32, max_width: f32) -> String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lens::{Input, Ui};
+    use optics_lens::{Input, Ui};
 
     #[test]
     fn truncation_is_unicode_safe_and_bounded() {

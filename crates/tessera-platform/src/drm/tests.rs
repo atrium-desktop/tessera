@@ -442,6 +442,8 @@ fn output_assignment_backtracks_and_intersects_modifiers() {
                     modifiers: vec![0],
                 },
             ],
+            preferred_crtc: None,
+            preferred_plane: None,
             available_modes: Vec::new(),
             color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
             role: tessera_desktop::output::OutputRole::Extend,
@@ -460,6 +462,8 @@ fn output_assignment_backtracks_and_intersects_modifiers() {
                 plane: plane::Handle::from(raw(20)),
                 modifiers: vec![0, 9],
             }],
+            preferred_crtc: None,
+            preferred_plane: None,
             available_modes: Vec::new(),
             color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
             role: tessera_desktop::output::OutputRole::Extend,
@@ -544,4 +548,400 @@ fn pick_mode_with_spec_uses_highest_refresh_then_tie_breakers() {
     assert_eq!(pick_mode(&modes, Some(&hz)), Some(1));
     let odd: ModeSpec = "1920x1080@75".parse().unwrap();
     assert_eq!(pick_mode(&modes, Some(&odd)), Some(2));
+}
+
+#[test]
+fn per_crtc_modeset_tracks_each_slot_independently() {
+    let raw = |value| std::num::NonZeroU32::new(value).expect("non-zero crtc");
+    let mut slots = vec![
+        PlaneSlot {
+            crtc: crtc::Handle::from(raw(1)),
+            current: None,
+            retiring: None,
+            source: None,
+            pending: false,
+            modeset_done: false,
+        },
+        PlaneSlot {
+            crtc: crtc::Handle::from(raw(2)),
+            current: None,
+            retiring: None,
+            source: None,
+            pending: false,
+            modeset_done: false,
+        },
+    ];
+    // Before initial commit, every target needs ALLOW_MODESET.
+    assert!(device::targets_need_modeset(&slots, &[0]));
+    assert!(device::targets_need_modeset(&slots, &[1]));
+    assert!(device::targets_need_modeset(&slots, &[0, 1]));
+
+    // Committing CRTC 0 marks only CRTC 0 done; CRTC 1 still requires ALLOW_MODESET.
+    slots[0].modeset_done = true;
+    assert!(!device::targets_need_modeset(&slots, &[0]));
+    assert!(device::targets_need_modeset(&slots, &[1]));
+    assert!(device::targets_need_modeset(&slots, &[0, 1]));
+
+    // Once both complete modeset, neither single nor grouped commits need ALLOW_MODESET.
+    slots[1].modeset_done = true;
+    assert!(!device::targets_need_modeset(&slots, &[0]));
+    assert!(!device::targets_need_modeset(&slots, &[1]));
+    assert!(!device::targets_need_modeset(&slots, &[0, 1]));
+}
+
+#[test]
+fn assign_outputs_preserves_existing_crtc_when_lower_interface_connector_hotplugs() {
+    let raw = |value| std::num::NonZeroU32::new(value).unwrap();
+    let mode: Mode = unsafe { std::mem::zeroed() };
+    let pipe_a = crtc::Handle::from(raw(152));
+    let pipe_b = crtc::Handle::from(raw(271));
+    let plane_a = plane::Handle::from(raw(35));
+    let plane_b = plane::Handle::from(raw(154));
+
+    // HDMI-A-1 sorts before eDP-1 by connector interface number, and has no
+    // active CRTC yet. eDP-1 already owns pipe_a/plane_a.
+    let candidates = vec![
+        OutputCandidate {
+            connector: connector::Handle::from(raw(521)),
+            name: "HDMI-A-1".into(),
+            mode,
+            physical_size_mm: None,
+            ppi: None,
+            kind: OutputKind::External,
+            scale: Scale::IDENTITY,
+            choices: vec![
+                OutputChoice {
+                    crtc: pipe_a,
+                    plane: plane_a,
+                    modifiers: vec![0, 1],
+                },
+                OutputChoice {
+                    crtc: pipe_b,
+                    plane: plane_b,
+                    modifiers: vec![0, 1],
+                },
+            ],
+            preferred_crtc: None,
+            preferred_plane: None,
+            available_modes: Vec::new(),
+            color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+            role: tessera_desktop::output::OutputRole::Mirror {
+                source: "eDP-1".into(),
+            },
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
+        },
+        OutputCandidate {
+            connector: connector::Handle::from(raw(512)),
+            name: "eDP-1".into(),
+            mode,
+            physical_size_mm: None,
+            ppi: None,
+            kind: OutputKind::Internal,
+            scale: Scale::IDENTITY,
+            choices: vec![
+                OutputChoice {
+                    crtc: pipe_a,
+                    plane: plane_a,
+                    modifiers: vec![0, 1],
+                },
+                OutputChoice {
+                    crtc: pipe_b,
+                    plane: plane_b,
+                    modifiers: vec![0, 1],
+                },
+            ],
+            preferred_crtc: Some(pipe_a),
+            preferred_plane: Some(plane_a),
+            available_modes: Vec::new(),
+            color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
+        },
+    ];
+
+    let (selected, modifiers) = assign_outputs(&candidates).unwrap();
+    assert_eq!(
+        selected[1].crtc, pipe_a,
+        "active eDP-1 must keep pipe A instead of migrating and flashing black"
+    );
+    assert_eq!(selected[1].plane, plane_a);
+    assert_eq!(
+        selected[0].crtc, pipe_b,
+        "newly plugged HDMI-A-1 must take the free pipe B"
+    );
+    assert_eq!(selected[0].plane, plane_b);
+    assert_eq!(modifiers, vec![0, 1]);
+}
+
+#[test]
+fn assign_outputs_still_backtracks_when_hardware_requires_migrating_preferred_crtc() {
+    let raw = |value| std::num::NonZeroU32::new(value).unwrap();
+    let mode: Mode = unsafe { std::mem::zeroed() };
+    let pipe_a = crtc::Handle::from(raw(152));
+    let pipe_b = crtc::Handle::from(raw(271));
+    let plane_a = plane::Handle::from(raw(35));
+    let plane_b = plane::Handle::from(raw(154));
+
+    let candidates = vec![
+        OutputCandidate {
+            connector: connector::Handle::from(raw(521)),
+            name: "HDMI-A-1".into(),
+            mode,
+            physical_size_mm: None,
+            ppi: None,
+            kind: OutputKind::External,
+            scale: Scale::IDENTITY,
+            // Hardware constraint: HDMI-A-1 can ONLY drive pipe_a.
+            choices: vec![OutputChoice {
+                crtc: pipe_a,
+                plane: plane_a,
+                modifiers: vec![0],
+            }],
+            preferred_crtc: None,
+            preferred_plane: None,
+            available_modes: Vec::new(),
+            color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
+        },
+        OutputCandidate {
+            connector: connector::Handle::from(raw(512)),
+            name: "eDP-1".into(),
+            mode,
+            physical_size_mm: None,
+            ppi: None,
+            kind: OutputKind::Internal,
+            scale: Scale::IDENTITY,
+            choices: vec![
+                OutputChoice {
+                    crtc: pipe_a,
+                    plane: plane_a,
+                    modifiers: vec![0],
+                },
+                OutputChoice {
+                    crtc: pipe_b,
+                    plane: plane_b,
+                    modifiers: vec![0],
+                },
+            ],
+            preferred_crtc: Some(pipe_a),
+            preferred_plane: Some(plane_a),
+            available_modes: Vec::new(),
+            color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+            role: tessera_desktop::output::OutputRole::Extend,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
+        },
+    ];
+
+    let (selected, _) = assign_outputs(&candidates).unwrap();
+    assert_eq!(selected[0].crtc, pipe_a);
+    assert_eq!(selected[1].crtc, pipe_b);
+}
+
+#[test]
+fn disable_plan_clears_crtc_mode_id_and_active_while_protecting_preserved_outputs() {
+    let raw = |value| std::num::NonZeroU32::new(value).unwrap();
+    let edp_conn = connector::Handle::from(raw(512));
+    let hdmi_conn = connector::Handle::from(raw(521));
+    let edp_crtc = crtc::Handle::from(raw(152));
+    let hdmi_crtc = crtc::Handle::from(raw(271));
+    let edp_primary = plane::Handle::from(raw(35));
+    let hdmi_primary = plane::Handle::from(raw(154));
+    let dropped_cursor = plane::Handle::from(raw(145));
+
+    let prop = |id| property::Handle::from(raw(id));
+    let hdmi_spec = output::DisableOutputSpec {
+        connector: output::DisableConnectorOp {
+            connector: hdmi_conn,
+            crtc_id: prop(10),
+        },
+        crtc: output::DisableCrtcOp {
+            crtc: hdmi_crtc,
+            active: prop(11),
+            mode_id: prop(12),
+        },
+        planes: vec![output::DisablePlaneOp {
+            plane: hdmi_primary,
+            fb_id: prop(13),
+            crtc_id: prop(14),
+        }],
+    };
+    let edp_spec = output::DisableOutputSpec {
+        connector: output::DisableConnectorOp {
+            connector: edp_conn,
+            crtc_id: prop(20),
+        },
+        crtc: output::DisableCrtcOp {
+            crtc: edp_crtc,
+            active: prop(21),
+            mode_id: prop(22),
+        },
+        planes: vec![output::DisablePlaneOp {
+            plane: edp_primary,
+            fb_id: prop(23),
+            crtc_id: prop(24),
+        }],
+    };
+    let extra_cursor = output::DisablePlaneOp {
+        plane: dropped_cursor,
+        fb_id: prop(30),
+        crtc_id: prop(31),
+    };
+
+    let preserved_connectors = HashSet::from([edp_conn]);
+    let preserved_crtcs = HashSet::from([edp_crtc]);
+    let preserved_planes = HashSet::from([edp_primary]);
+
+    let plan = output::build_disable_plan(
+        &[hdmi_spec, edp_spec],
+        &[extra_cursor],
+        &preserved_connectors,
+        &preserved_crtcs,
+        &preserved_planes,
+    );
+
+    assert_eq!(plan.connectors.len(), 1);
+    assert_eq!(plan.connectors[0].connector, hdmi_conn);
+    assert_eq!(plan.crtcs.len(), 1);
+    assert_eq!(plan.crtcs[0].crtc, hdmi_crtc);
+    assert_eq!(plan.crtcs[0].active, prop(11));
+    assert_eq!(
+        plan.crtcs[0].mode_id,
+        prop(12),
+        "disabling a CRTC must clear MODE_ID=0 alongside ACTIVE=false or DRM returns EINVAL"
+    );
+    assert_eq!(
+        plan.planes.iter().map(|p| p.plane).collect::<Vec<_>>(),
+        vec![dropped_cursor, hdmi_primary]
+    );
+}
+
+#[test]
+fn hotplug_transition_preserves_unchanged_outputs_and_retrains_bad_links() {
+    let raw = |value| std::num::NonZeroU32::new(value).unwrap();
+    let edp_mode = output::ModeSignature {
+        size: (3072, 1920),
+        clock: 783_824,
+        hsync: (3120, 3152, 3232),
+        vsync: (1923, 1929, 2021),
+        vrefresh: 120,
+        flags: 0xa,
+    };
+    let hdmi_mode = output::ModeSignature {
+        size: (3840, 2160),
+        clock: 594_000,
+        hsync: (4016, 4104, 4400),
+        vsync: (2168, 2178, 2250),
+        vrefresh: 60,
+        flags: 0x9,
+    };
+    let edp = output::HotplugOutputKey {
+        connector: connector::Handle::from(raw(512)),
+        crtc: crtc::Handle::from(raw(152)),
+        primary_plane: plane::Handle::from(raw(35)),
+        mode: edp_mode,
+        modeset_done: true,
+        link_bad: false,
+    };
+    let hdmi = output::HotplugOutputKey {
+        connector: connector::Handle::from(raw(521)),
+        crtc: crtc::Handle::from(raw(271)),
+        primary_plane: plane::Handle::from(raw(154)),
+        mode: hdmi_mode,
+        modeset_done: true,
+        link_bad: false,
+    };
+
+    // Plugging HDMI-A-1 preserves live eDP-1 with zero disables.
+    let attach = output::plan_hotplug_transition(&[edp], &[hdmi, edp], true);
+    assert_eq!(attach.preserved, vec![(0, 1)]);
+    assert!(attach.disable_old_indices.is_empty());
+    assert!(attach.release_old_indices.is_empty());
+
+    // Unplugging HDMI-A-1 preserves live eDP-1 and disables only HDMI-A-1.
+    let detach = output::plan_hotplug_transition(&[hdmi, edp], &[edp], true);
+    assert_eq!(detach.preserved, vec![(1, 0)]);
+    assert_eq!(detach.disable_old_indices, vec![0]);
+    assert_eq!(detach.release_old_indices, vec![0]);
+
+    // A bad link-status on HDMI-A-1 retrains only HDMI-A-1 while keeping eDP-1 live.
+    let hdmi_bad = output::HotplugOutputKey {
+        link_bad: true,
+        ..hdmi
+    };
+    let retrain = output::plan_hotplug_transition(&[hdmi, edp], &[hdmi_bad, edp], true);
+    assert_eq!(retrain.preserved, vec![(1, 1)]);
+    assert_eq!(retrain.disable_old_indices, vec![0]);
+    assert_eq!(retrain.release_old_indices, vec![0]);
+
+    // Changing session format/color mode disables every active output cleanly.
+    let color_switch = output::plan_hotplug_transition(&[hdmi, edp], &[hdmi, edp], false);
+    assert!(color_switch.preserved.is_empty());
+    assert_eq!(color_switch.disable_old_indices, vec![0, 1]);
+    assert_eq!(color_switch.release_old_indices, vec![0, 1]);
+}
+
+#[test]
+fn mirror_disabled_cursor_plane_is_always_explicitly_cleared_on_commit() {
+    let raw = |value| std::num::NonZeroU32::new(value).unwrap();
+    let prop = |id| property::Handle::from(raw(id));
+    let cursor = CursorPlane {
+        handle: plane::Handle::from(raw(145)),
+        props: CursorPlaneProperties {
+            plane_fb_id: prop(1),
+            plane_crtc_id: prop(2),
+            plane_src_x: prop(3),
+            plane_src_y: prop(4),
+            plane_src_w: prop(5),
+            plane_src_h: prop(6),
+            plane_crtc_x: prop(7),
+            plane_crtc_y: prop(8),
+            plane_crtc_w: prop(9),
+            plane_crtc_h: prop(10),
+        },
+    };
+    let action = plan_cursor_plane_commit(
+        None,
+        Some(cursor),
+        crtc::Handle::from(raw(152)),
+        (0, 0),
+        (3840, 2160),
+        None,
+        &[],
+    );
+    assert_eq!(action, CursorPlaneCommit::Disable(cursor.handle));
+
+    let skip = plan_cursor_plane_commit(
+        None,
+        None,
+        crtc::Handle::from(raw(152)),
+        (0, 0),
+        (3840, 2160),
+        None,
+        &[],
+    );
+    assert_eq!(skip, CursorPlaneCommit::Skip);
+}
+
+#[test]
+fn mode_sized_target_geometry_stays_local_without_clobbering_output_origin() {
+    let target = device::primary_plane_geometry(
+        (2560, 1440),
+        (3072, 0),
+        (2560, 1440),
+        (0, 0, 2560, 1440),
+        device::PrimaryScanoutGeometry::ModeSizedTarget,
+    );
+    assert_eq!(target.src, (0, 0, 2560, 1440));
+    assert_eq!(target.dst, (0, 0, 2560, 1440));
+
+    let union = device::primary_plane_geometry(
+        (3840, 2160),
+        (0, 0),
+        (3072, 1920),
+        (192, 0, 3456, 2160),
+        device::PrimaryScanoutGeometry::UnionLayout,
+    );
+    assert_eq!(union.src, (0, 0, 3072, 1920));
+    assert_eq!(union.dst, (192, 0, 3456, 2160));
 }

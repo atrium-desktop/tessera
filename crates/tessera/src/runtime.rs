@@ -211,9 +211,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_default();
     log::info!(
         "flux: native runtime {}; device created for {} backend; dma-buf {}",
-        flux::version(),
+        optics_flux::version(),
         host.name(),
-        if flux::dmabuf_supported(device) {
+        if optics_flux::dmabuf_supported(device) {
             "supported"
         } else {
             "unavailable"
@@ -437,11 +437,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let clear = clear_color(desktop_preferences.color_scheme);
     let frame_count: u64 = 0;
-    // Nested-only deferral for retired client buffers: with no exportable
-    // completion fence, the loop releases them a few presented frames late
-    // instead of stalling the whole device on a wait_idle. Holds the frame
-    // count at which the first pending retirement was seen.
-    let retired_defer: Option<u64> = None;
 
     // A compositor overlay changes the owner of new key presses, not the
     // Wayland keyboard focus. Preserve that owner until the matching release
@@ -1077,7 +1072,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         (u64::MAX, std::time::Duration::from_secs(1));
     let cached_presentation_groups: (u64, u64, Vec<tessera_desktop::output::PresentationGroup>) =
         (u64::MAX, u64::MAX, Vec::new());
-    let independent_target_flips = false;
+    let vblank_wait_groups: Vec<Vec<String>> = Vec::new();
     let previous_agent_suspended = false;
     let automatically_paused_interaction_domains = std::collections::BTreeSet::new();
     // Whether chrome reported a multi-frame animation in flight last frame.
@@ -1199,7 +1194,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         wallpaper,
         clear,
         frame_count,
-        retired_defer,
+        last_composited_fence: None,
         primary_plane_state: PrimaryPlaneState::default(),
         direct_outputs: std::collections::BTreeSet::new(),
         output_targets: std::collections::BTreeMap::new(),
@@ -1267,7 +1262,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         last_outputs_revision,
         cached_presentation_interval,
         cached_presentation_groups,
-        independent_target_flips,
+        vblank_wait_groups,
         damage: DamageTracking::default(),
         presentation: PresentationScheduler::new(),
         pending_frame: None,

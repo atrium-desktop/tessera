@@ -13,7 +13,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
+use optics_lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 
 use crate::component::{Chrome, ChromeEvents, ChromeUpdate, Localizer, ellipsize};
 use tessera_design::Design;

@@ -10,7 +10,7 @@
 //! [`ChromeCommand::StartBatteryAlert`] opens or updates the panel;
 //! [`ChromeCommand::CancelBatteryAlert`] closes it without a reply.
 
-use lens::{Color, Frame, Input, LayoutOpts, Rect};
+use optics_lens::{Color, Frame, Input, LayoutOpts, Rect};
 
 use crate::component::{
     BatteryAlertParams, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, Localizer,

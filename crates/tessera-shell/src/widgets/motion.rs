@@ -20,16 +20,16 @@
 //! [`Smoother::step`], [`Hysteresis::step`]) instead of hand-writing a per-site snap.
 
 #[allow(unused_imports)]
-pub use transit::{
+pub use optics_transit::{
     Hysteresis, Smoother, Spring, SpringParams, approach, decay, dt_clamp, ease_in_cubic,
     ease_in_out_cubic, ease_out_back, ease_out_cubic, smoothstep,
 };
 
 /// One frame's delta time clamped to the range an animation may integrate
-/// over. Delegates directly to [`transit::dt_clamp`].
+/// over. Delegates directly to [`optics_transit::dt_clamp`].
 #[inline]
 pub fn frame_dt(dt_seconds: f32) -> f32 {
-    transit::dt_clamp(dt_seconds)
+    optics_transit::dt_clamp(dt_seconds)
 }
 
 /// Advance a spring toward `target` using bounded sub-steps (each <= 1/60 s)

@@ -2,12 +2,12 @@
 # Review changes here alongside the owning package manifest.
 
 [tessera]
-normal = ["flux", "flux-sys", "lens", "lens-sys", "libc", "log", "reticle-sys", "serde", "serde_json", "sha2", "tessera-assets", "tessera-audit", "tessera-authority", "tessera-cast", "tessera-control", "tessera-composite", "tessera-config", "tessera-dbus", "tessera-design", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-launch-services", "tessera-network", "tessera-platform", "tessera-primitives", "tessera-protocol", "tessera-shell", "tessera-wallpaper", "tessera-wayland", "vista-sys", "zeroize"]
+normal = ["optics-flux", "optics-flux-sys", "optics-lens", "optics-lens-sys", "libc", "log", "optics-reticle-sys", "serde", "serde_json", "sha2", "tessera-assets", "tessera-audit", "tessera-authority", "tessera-cast", "tessera-control", "tessera-composite", "tessera-config", "tessera-dbus", "tessera-design", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-launch-services", "tessera-network", "tessera-platform", "tessera-primitives", "tessera-protocol", "tessera-shell", "tessera-wallpaper", "tessera-wayland", "optics-vista-sys", "zeroize"]
 build = []
 dev = ["flate2", "tessera-image", "tempfile", "tessera-desktop", "tessera-ipc", "tessera-protocol", "tessera-shell"]
 
 [tessera-assets]
-normal = ["flate2", "tessera-image", "reticle", "reticle-sys"]
+normal = ["flate2", "tessera-image", "optics-reticle", "optics-reticle-sys"]
 build = []
 dev = []
 
@@ -27,12 +27,12 @@ build = []
 dev = []
 
 [tessera-avatar]
-normal = ["flux", "flux-sys", "tessera-image", "libc", "log", "tessera-launch-services", "vista", "vista-sys"]
+normal = ["optics-flux", "optics-flux-sys", "tessera-image", "libc", "log", "tessera-launch-services", "optics-vista", "optics-vista-sys"]
 build = []
 dev = ["tempfile"]
 
 [tessera-platform]
-normal = ["ash", "drm", "flux", "flux-sys", "input", "libc", "libseat", "log", "tessera-desktop", "tessera-primitives", "tessera-wayland-protocols", "udev"]
+normal = ["ash", "drm", "optics-flux", "optics-flux-sys", "input", "libc", "libseat", "log", "tessera-desktop", "tessera-primitives", "tessera-wayland-protocols", "udev"]
 build = ["pkg-config"]
 dev = []
 
@@ -60,7 +60,7 @@ build = []
 dev = ["tempfile"]
 
 [tessera-design]
-normal = ["lens", "lens-sys", "tessera-desktop"]
+normal = ["optics-lens", "optics-lens-sys", "tessera-desktop"]
 build = []
 dev = []
 
@@ -104,7 +104,7 @@ build = []
 dev = ["tempfile"]
 
 [tessera-lock]
-normal = ["ash", "flux", "flux-sys", "lens", "lens-sys", "libc", "log", "tessera-avatar", "tessera-config", "tessera-design", "tessera-env", "tessera-wallpaper", "tessera-wl-client", "vista-sys", "wayland-client", "wayland-protocols", "xkbcommon", "zeroize"]
+normal = ["ash", "optics-flux", "optics-flux-sys", "optics-lens", "optics-lens-sys", "libc", "log", "tessera-avatar", "tessera-config", "tessera-design", "tessera-env", "tessera-wallpaper", "tessera-wl-client", "optics-vista-sys", "wayland-client", "wayland-protocols", "xkbcommon", "zeroize"]
 build = ["pkg-config"]
 dev = []
 
@@ -121,7 +121,7 @@ dev = ["proptest", "tessera-audit"]
 [tessera-composite]
 # Structured damage diagnostics are emitted with tracing; the binary installs
 # the subscriber (ADR-0079, ADR-0230, ADR-0232).
-normal = ["flux", "flux-sys", "tessera-image", "libc", "log", "tessera-desktop", "tessera-primitives"]
+normal = ["optics-flux", "optics-flux-sys", "tessera-image", "libc", "log", "tessera-desktop", "tessera-primitives"]
 build = []
 dev = ["proptest"]
 
@@ -131,17 +131,17 @@ build = []
 dev = ["proptest"]
 
 [tessera-settings]
-normal = ["ash", "flux", "flux-sys", "lens", "lens-sys", "libc", "log", "tessera-design", "tessera-desktop", "tessera-env", "tessera-i18n", "tessera-ipc", "tessera-primitives", "tessera-protocol", "tessera-wl-client", "vista-sys", "wayland-client", "wayland-protocols"]
+normal = ["ash", "optics-flux", "optics-flux-sys", "optics-lens", "optics-lens-sys", "libc", "log", "tessera-design", "tessera-desktop", "tessera-env", "tessera-i18n", "tessera-ipc", "tessera-primitives", "tessera-protocol", "tessera-wl-client", "optics-vista-sys", "wayland-client", "wayland-protocols"]
 build = ["pkg-config"]
 dev = []
 
 [tessera-shell]
-normal = ["flux", "flux-sys", "lens", "lens-sys", "libc", "log", "reticle-sys", "tessera-assets", "tessera-authority", "tessera-avatar", "tessera-dbus", "tessera-design", "tessera-desktop", "tessera-i18n", "tessera-launch-services", "tessera-primitives", "transit", "vista-sys", "zeroize"]
+normal = ["optics-flux", "optics-flux-sys", "optics-lens", "optics-lens-sys", "libc", "log", "optics-reticle-sys", "tessera-assets", "tessera-authority", "tessera-avatar", "tessera-dbus", "tessera-design", "tessera-desktop", "tessera-i18n", "tessera-launch-services", "tessera-primitives", "optics-transit", "optics-vista-sys", "zeroize"]
 build = []
 dev = ["flate2"]
 
 [tessera-wallpaper]
-normal = ["flux", "flux-sys", "tessera-image", "log", "transit", "vista", "vista-sys"]
+normal = ["optics-flux", "optics-flux-sys", "tessera-image", "log", "optics-transit", "optics-vista", "optics-vista-sys"]
 build = []
 dev = ["tessera-composite"]
 
@@ -168,7 +168,7 @@ dev = []
 # dependencies are optional and gated by the `native` feature so flux-free CI
 # can compile the logical suites with --no-default-features.
 [tessera-tests]
-normal = ["libc", "serde_json", "tempfile", "tessera", "tessera-audit", "tessera-authority", "tessera-cast", "tessera-control", "tessera-composite", "tessera-config", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-launch-services", "tessera-mcp", "tessera-primitives", "tessera-protocol", "tessera-shell", "tessera-test-support", "flux-sys", "lens-sys", "reticle-sys", "vista-sys", "tessera-dbus"]
+normal = ["libc", "serde_json", "tempfile", "tessera", "tessera-audit", "tessera-authority", "tessera-cast", "tessera-control", "tessera-composite", "tessera-config", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-launch-services", "tessera-mcp", "tessera-primitives", "tessera-protocol", "tessera-shell", "tessera-test-support", "optics-flux-sys", "optics-lens-sys", "optics-reticle-sys", "optics-vista-sys", "tessera-dbus"]
 build = []
 dev = []
 

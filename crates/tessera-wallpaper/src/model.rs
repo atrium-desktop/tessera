@@ -4,12 +4,14 @@ use std::f32::consts::{PI, TAU};
 use std::path::Path;
 use std::time::Instant;
 
-use flux::{Camera, Material, MaterialDesc, MaterialKind, SceneColorLoad, SceneLight, Target};
-use vista::{Bounds, Scene};
+use optics_flux::{
+    Camera, Material, MaterialDesc, MaterialKind, SceneColorLoad, SceneLight, Target,
+};
+use optics_vista::{Bounds, Scene};
 
 use crate::Error;
 
-const DEPTH_FORMAT: flux::Format = flux::Format::D32Sfloat;
+const DEPTH_FORMAT: optics_flux::Format = optics_flux::Format::D32Sfloat;
 const FOV_Y: f32 = 48.0 * PI / 180.0;
 const ORBIT_SPEED: f32 = 0.10;
 const ORBIT_PITCH: f32 = 0.16;
@@ -30,15 +32,18 @@ pub(super) struct ModelLayer {
 
 impl ModelLayer {
     pub(super) fn from_path(
-        device: &flux::Device,
-        surface: &flux::Surface,
+        device: &optics_flux::Device,
+        surface: &optics_flux::Surface,
         path: &Path,
     ) -> Result<Self, Error> {
         let bytes = std::fs::read(path).map_err(|error| Error::Open(path.to_path_buf(), error))?;
         Self::from_bytes(device, surface, &bytes, path)
     }
 
-    pub(super) fn builtin(device: &flux::Device, surface: &flux::Surface) -> Result<Self, Error> {
+    pub(super) fn builtin(
+        device: &optics_flux::Device,
+        surface: &optics_flux::Surface,
+    ) -> Result<Self, Error> {
         let bytes = procedural_knot_glb();
         Self::from_bytes(
             device,
@@ -49,8 +54,8 @@ impl ModelLayer {
     }
 
     fn from_bytes(
-        device: &flux::Device,
-        surface: &flux::Surface,
+        device: &optics_flux::Device,
+        surface: &optics_flux::Surface,
         bytes: &[u8],
         label: &Path,
     ) -> Result<Self, Error> {
@@ -86,16 +91,17 @@ impl ModelLayer {
 
     pub(super) fn draw(
         &mut self,
-        device: &flux::Device,
-        frame: &mut flux::Frame<'_>,
-        color_target: Option<&flux::Image>,
-    ) -> Result<(), flux::Error> {
+        device: &optics_flux::Device,
+        frame: &mut optics_flux::Frame<'_>,
+        color_target: Option<&optics_flux::Image>,
+    ) -> Result<(), optics_flux::Error> {
         let slot = frame.index() as usize;
         if self.depth_by_slot.len() <= slot {
             self.depth_by_slot.resize_with(slot + 1, Vec::new);
         }
 
-        let surface_size = color_target.map_or_else(|| frame.surface_size(), flux::Image::size);
+        let surface_size =
+            color_target.map_or_else(|| frame.surface_size(), optics_flux::Image::size);
         let target_index = self.depth_by_slot[slot]
             .iter()
             .position(|target| target.size() == surface_size);
@@ -336,19 +342,19 @@ mod tests {
 
     #[test]
     fn procedural_model_renders_when_vulkan_is_available() {
-        let Ok(device) = flux::Device::new(true, &[], &[], 0) else {
+        let Ok(device) = optics_flux::Device::new(true, &[], &[], 0) else {
             return;
         };
-        let surface = flux::Surface::offscreen(&device, 160, 96).unwrap();
-        let mut canvas = flux::Canvas::new(&surface).unwrap();
+        let surface = optics_flux::Surface::offscreen(&device, 160, 96).unwrap();
+        let mut canvas = optics_flux::Canvas::new(&surface).unwrap();
         let mut model = ModelLayer::builtin(&device, &surface).unwrap();
 
         let mut frame = surface.begin_frame().unwrap();
         let session = canvas
             .begin_session(
                 &mut frame,
-                flux::CanvasPassOptions {
-                    clear: Some(flux::rgba(2, 3, 6, 255)),
+                optics_flux::CanvasPassOptions {
+                    clear: Some(optics_flux::rgba(2, 3, 6, 255)),
                     ..Default::default()
                 },
             )
@@ -368,24 +374,25 @@ mod tests {
 
     #[test]
     fn procedural_model_participates_in_downsampled_live_blur() {
-        let Ok(device) = flux::Device::new(true, &[], &[], 0) else {
+        let Ok(device) = optics_flux::Device::new(true, &[], &[], 0) else {
             return;
         };
-        let surface = flux::Surface::offscreen(&device, 160, 96).unwrap();
-        let mut canvas = flux::Canvas::new(&surface).unwrap();
-        let mut target = flux::Image::render_target(&device, 80, 48, surface.format()).unwrap();
-        let mut blur = flux::BlurFilter::new(&device).unwrap();
+        let surface = optics_flux::Surface::offscreen(&device, 160, 96).unwrap();
+        let mut canvas = optics_flux::Canvas::new(&surface).unwrap();
+        let mut target =
+            optics_flux::Image::render_target(&device, 80, 48, surface.format()).unwrap();
+        let mut blur = optics_flux::BlurFilter::new(&device).unwrap();
         let mut model = ModelLayer::builtin(&device, &surface).unwrap();
 
         let mut frame = surface.begin_frame().unwrap();
         let session = canvas
             .begin_session(
-                flux::ImageTarget {
+                optics_flux::ImageTarget {
                     frame: &mut frame,
                     image: &mut target,
                 },
-                flux::CanvasPassOptions {
-                    clear: Some(flux::rgba(2, 3, 6, 255)),
+                optics_flux::CanvasPassOptions {
+                    clear: Some(optics_flux::rgba(2, 3, 6, 255)),
                     ..Default::default()
                 },
             )
@@ -401,8 +408,8 @@ mod tests {
         let session = canvas
             .begin_session(
                 &mut frame,
-                flux::CanvasPassOptions {
-                    clear: Some(flux::rgba(0, 0, 0, 255)),
+                optics_flux::CanvasPassOptions {
+                    clear: Some(optics_flux::rgba(0, 0, 0, 255)),
                     ..Default::default()
                 },
             )
@@ -422,23 +429,24 @@ mod tests {
 
     #[test]
     fn procedural_model_keeps_two_same_frame_depth_targets_alive() {
-        let Ok(device) = flux::Device::new(true, &[], &[], 0) else {
+        let Ok(device) = optics_flux::Device::new(true, &[], &[], 0) else {
             return;
         };
-        let surface = flux::Surface::offscreen(&device, 160, 96).unwrap();
-        let mut canvas = flux::Canvas::new(&surface).unwrap();
-        let mut target = flux::Image::render_target(&device, 80, 48, surface.format()).unwrap();
+        let surface = optics_flux::Surface::offscreen(&device, 160, 96).unwrap();
+        let mut canvas = optics_flux::Canvas::new(&surface).unwrap();
+        let mut target =
+            optics_flux::Image::render_target(&device, 80, 48, surface.format()).unwrap();
         let mut model = ModelLayer::builtin(&device, &surface).unwrap();
 
         let mut frame = surface.begin_frame().unwrap();
         let session = canvas
             .begin_session(
-                flux::ImageTarget {
+                optics_flux::ImageTarget {
                     frame: &mut frame,
                     image: &mut target,
                 },
-                flux::CanvasPassOptions {
-                    clear: Some(flux::rgba(2, 3, 6, 255)),
+                optics_flux::CanvasPassOptions {
+                    clear: Some(optics_flux::rgba(2, 3, 6, 255)),
                     ..Default::default()
                 },
             )
@@ -449,8 +457,8 @@ mod tests {
         let session = canvas
             .begin_session(
                 &mut frame,
-                flux::CanvasPassOptions {
-                    clear: Some(flux::rgba(2, 3, 6, 255)),
+                optics_flux::CanvasPassOptions {
+                    clear: Some(optics_flux::rgba(2, 3, 6, 255)),
                     ..Default::default()
                 },
             )

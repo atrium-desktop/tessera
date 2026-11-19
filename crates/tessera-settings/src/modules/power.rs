@@ -1,4 +1,4 @@
-use lens::{Align, Frame, LayoutOpts};
+use optics_lens::{Align, Frame, LayoutOpts};
 use tessera_design::Design;
 use tessera_desktop::settings::IdleSettings;
 use tessera_desktop::settings::SettingsAction;
@@ -151,7 +151,7 @@ impl SettingsModule for PowerModule {
         ModuleMetadata {
             id: POWER_MODULE_ID,
             title: Message::PowerManagement,
-            icon: lens::sys::lens_icon_id::LENS_ICON_BATTERY_CHARGING,
+            icon: optics_lens::sys::lens_icon_id::LENS_ICON_BATTERY_CHARGING,
             category: ModuleCategory::System,
             keywords: &[
                 "power", "idle", "lock", "screen", "display", "sleep", "suspend",

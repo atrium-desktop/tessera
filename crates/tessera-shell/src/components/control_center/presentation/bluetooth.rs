@@ -58,7 +58,7 @@ impl ControlCenter {
                                     },
                                     |f, _| {
                                         f.icon_raw(
-                                            lens::sys::lens_icon_id::LENS_ICON_CHEVRON_LEFT,
+                                            optics_lens::sys::lens_icon_id::LENS_ICON_CHEVRON_LEFT,
                                             16.0,
                                         );
                                         display_label(f, i18n.text(Message::Back), type_scale.body);
@@ -90,7 +90,7 @@ impl ControlCenter {
                                         f.flex(1.0);
                                         f.spacer(0.0);
                                         f.icon_raw(
-                                            lens::sys::lens_icon_id::LENS_ICON_REFRESH_CW,
+                                            optics_lens::sys::lens_icon_id::LENS_ICON_REFRESH_CW,
                                             16.0,
                                         );
                                         f.flex(1.0);
@@ -222,7 +222,7 @@ impl ControlCenter {
                                                         }),
                                                     );
                                                     f.icon_raw(
-                                                        lens::sys::lens_icon_id::LENS_ICON_BLUETOOTH,
+                                                        optics_lens::sys::lens_icon_id::LENS_ICON_BLUETOOTH,
                                                         18.0,
                                                     );
                                                     f.set_theme(themes::hud(&hud).with_fg(hud.text));

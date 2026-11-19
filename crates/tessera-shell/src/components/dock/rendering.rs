@@ -2716,7 +2716,7 @@ impl Dock {
                             // The pointer crosses from the binary's flux binding type to
                             // lens's ABI-identical flux_image.
                             Some(ptr) => unsafe {
-                                f.image(ptr as *mut lens::sys::flux_image, s, s)
+                                f.image(ptr as *mut optics_lens::sys::flux_image, s, s)
                             },
                             None => f.icon(Icon::FileText, s * 0.6),
                         }

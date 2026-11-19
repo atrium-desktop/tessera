@@ -1,4 +1,4 @@
-use lens::Rect;
+use optics_lens::Rect;
 
 /// Standard inset that keeps compositor popups away from output edges.
 pub const POPUP_MARGIN: f32 = 8.0;

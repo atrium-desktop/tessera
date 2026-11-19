@@ -1,9 +1,9 @@
 //! Runtime-registered product glyphs for shell chrome.
 //!
-//! Lens ships a fixed built-in icon table (`lens::sys::lens_icon_id`) that has
+//! Lens ships a fixed built-in icon table (`optics_lens::sys::lens_icon_id`) that has
 //! no keyboard-hardware vocabulary; the closest match for a keyboard backlight
 //! was `LENS_ICON_EDIT` (a pencil in a box), which reads as "edit", not
-//! "illumination". `lens::register_svg_icon` lets a host register its own SVG
+//! "illumination". `optics_lens::register_svg_icon` lets a host register its own SVG
 //! at runtime and then draw it through every icon widget exactly like a
 //! built-in (`lens_icon_register_svg`, Optics `libs/lens/src/icon_runtime.c`).
 //!
@@ -15,7 +15,7 @@
 
 use std::sync::OnceLock;
 
-use lens::sys::lens_icon_id;
+use optics_lens::sys::lens_icon_id;
 
 /// Keyboard outline with three illumination rays above it — the keyboard
 /// backlight glyph. Drawn in the built-in icon set's 2/24 stroke weight; the
@@ -38,7 +38,7 @@ static KEYBOARD_BACKLIGHT: OnceLock<Option<lens_icon_id>> = OnceLock::new();
 /// Returns `None` if the SVG was rejected by the lens parser; callers should
 /// then fall back to a built-in icon id.
 pub fn keyboard_backlight() -> Option<lens_icon_id> {
-    *KEYBOARD_BACKLIGHT.get_or_init(|| lens::register_svg_icon(KEYBOARD_BACKLIGHT_SVG))
+    *KEYBOARD_BACKLIGHT.get_or_init(|| optics_lens::register_svg_icon(KEYBOARD_BACKLIGHT_SVG))
 }
 
 /// The Bluetooth rune — the standard mark for the Bluetooth radio (ADR-0175).
@@ -65,9 +65,9 @@ static BLUETOOTH_DISABLED: OnceLock<Option<lens_icon_id>> = OnceLock::new();
 /// which case callers fall back to a built-in id.
 pub fn bluetooth(enabled: bool) -> Option<lens_icon_id> {
     if enabled {
-        *BLUETOOTH.get_or_init(|| lens::register_svg_icon(BLUETOOTH_SVG))
+        *BLUETOOTH.get_or_init(|| optics_lens::register_svg_icon(BLUETOOTH_SVG))
     } else {
-        *BLUETOOTH_DISABLED.get_or_init(|| lens::register_svg_icon(BLUETOOTH_DISABLED_SVG))
+        *BLUETOOTH_DISABLED.get_or_init(|| optics_lens::register_svg_icon(BLUETOOTH_DISABLED_SVG))
     }
 }
 

@@ -12,7 +12,7 @@
 
 use std::time::{Duration, Instant};
 
-use lens::{Color, Frame, Input, LayoutOpts, Rect};
+use optics_lens::{Color, Frame, Input, LayoutOpts, Rect};
 
 use crate::component::{
     AppCatalog, AppPickParams, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
@@ -407,7 +407,7 @@ impl Chrome for AppPicker {
                     frame.spacer(10.0);
                     frame.centered(ICON, ROW_H, |frame| match icon {
                         Some(pointer) => unsafe {
-                            frame.image(pointer as *mut lens::sys::flux_image, ICON, ICON);
+                            frame.image(pointer as *mut optics_lens::sys::flux_image, ICON, ICON);
                         },
                         None => {
                             frame.spacer(0.0);

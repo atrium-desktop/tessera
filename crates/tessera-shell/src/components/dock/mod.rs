@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::hash::Hasher;
 
-pub(crate) use lens::{Align, Color, Frame, Icon, Input, LayoutOpts, Rect};
+pub(crate) use optics_lens::{Align, Color, Frame, Icon, Input, LayoutOpts, Rect};
 pub(crate) use tessera_design::materials::{chrome_place, surface_layout};
 pub(crate) use tessera_design::{Design, SurfaceRole, materials};
 
@@ -981,14 +981,20 @@ impl Dock {
     /// duplicates. Anchored bands can coincide (the tooltip band contains the
     /// strip), and a repeated region would make the host walk the same scissor
     /// twice.
-    pub(crate) fn push_damage(regions: &mut Vec<lens::Rect>, x: f32, y: f32, w: f32, h: f32) {
+    pub(crate) fn push_damage(
+        regions: &mut Vec<optics_lens::Rect>,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+    ) {
         if w <= 0.0 || h <= 0.0 {
             return;
         }
         /* Outward on both edges, so the far edge is never short. */
         let x0 = x.floor();
         let y0 = y.floor();
-        let rect = lens::Rect {
+        let rect = optics_lens::Rect {
             x: x0,
             y: y0,
             w: (x + w).ceil() - x0,

@@ -8,8 +8,8 @@
 //! A hand-rolled QR module (see [`qr`]) carries the easter egg where the
 //! classic page shows its support code.
 
-use flux::CanvasCommands;
-use lens::{Align, Color, Rect};
+use optics_flux::CanvasCommands;
+use optics_lens::{Align, Color, Rect};
 use tessera_lock::{LockState, bsod_layout};
 
 use crate::profile::clock_strings;
@@ -33,7 +33,7 @@ impl StylePainter for BsodPainter {
     fn paint_background(
         &self,
         canvas: &CanvasCommands<'_>,
-        _device: &flux::Device,
+        _device: &optics_flux::Device,
         _background: &mut LockBackground,
         output: (u32, u32),
         _dim: f32,
@@ -47,7 +47,7 @@ impl StylePainter for BsodPainter {
             0.0,
             output.0 as f32,
             output.1 as f32,
-            flux::rgba(BSOD_BLUE[0], BSOD_BLUE[1], BSOD_BLUE[2], 255),
+            optics_flux::rgba(BSOD_BLUE[0], BSOD_BLUE[1], BSOD_BLUE[2], 255),
         );
     }
 
@@ -60,7 +60,7 @@ impl StylePainter for BsodPainter {
 
     fn paint_clock(
         &self,
-        _ui: &mut lens::Frame,
+        _ui: &mut optics_lens::Frame,
         _frame: &FramePresentation<'_>,
         _clock: &str,
         _date: &str,
@@ -69,7 +69,7 @@ impl StylePainter for BsodPainter {
         // the QR code, eliminating isolated corner clutter.
     }
 
-    fn paint_identity(&self, ui: &mut lens::Frame, frame: &FramePresentation<'_>) {
+    fn paint_identity(&self, ui: &mut optics_lens::Frame, frame: &FramePresentation<'_>) {
         let layout = bsod_layout(frame.logical.0 as f32, frame.logical.1 as f32);
         let alpha = (255.0 * frame.progress) as u8;
         let white = lock_theme(&self.visual.design, Color::rgba(255, 255, 255, 255), alpha);
@@ -298,7 +298,7 @@ fn paint_qr(
         origin_y,
         layout.qr_size * scale + quiet * 2.0,
         layout.qr_size * scale + quiet * 2.0,
-        flux::rgba(255, 255, 255, alpha),
+        optics_flux::rgba(255, 255, 255, alpha),
     );
     for y in 0..qr::MODULES {
         for x in 0..qr::MODULES {
@@ -310,7 +310,7 @@ fn paint_qr(
                 origin_y + quiet + y as f32 * module * scale,
                 module * scale,
                 module * scale,
-                flux::rgba(BSOD_BLUE[0], BSOD_BLUE[1], BSOD_BLUE[2], alpha),
+                optics_flux::rgba(BSOD_BLUE[0], BSOD_BLUE[1], BSOD_BLUE[2], alpha),
             );
         }
     }

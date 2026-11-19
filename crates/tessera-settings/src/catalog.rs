@@ -1,6 +1,6 @@
 //! The built-in module set, in stable sidebar order.
 
-use lens::sys::lens_icon_id;
+use optics_lens::sys::lens_icon_id;
 use tessera_i18n::Message;
 
 use crate::module::{

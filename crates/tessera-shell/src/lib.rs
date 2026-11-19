@@ -12,8 +12,8 @@ pub use crate::component::{
     WindowAction, WindowSwitcherPresentation,
 };
 #[cfg(test)]
-use lens::Frame;
-use lens::Ui;
+use optics_lens::Frame;
+use optics_lens::Ui;
 
 mod chrome;
 pub mod clock;
@@ -96,8 +96,8 @@ fn participates_in_shell_pass(
 /// says *which* argument or state was wrong. `Display` forwards to it.
 #[derive(Debug)]
 pub enum ShellError {
-    Create(lens::Error),
-    Render(lens::Error),
+    Create(optics_lens::Error),
+    Render(optics_lens::Error),
 }
 
 impl std::fmt::Display for ShellError {
@@ -172,7 +172,7 @@ pub struct Shell {
     /// cannot run between a canvas pass's begin and its draws. Holding the
     /// built scene here lets `prepare_frame` (before damage assessment) do the
     /// building and `submit` (inside the pass) do only the drawing.
-    pending_scene: Option<lens::Snapshot>,
+    pending_scene: Option<optics_lens::Snapshot>,
     /// The last scene that was successfully built, retained so a failed build
     /// degrades to the previous chrome instead of to no chrome at all.
     ///
@@ -183,7 +183,7 @@ pub struct Shell {
     /// the last good snapshot keeps the desktop usable while the defect exists,
     /// and — together with the retry backoff below — stops the failure from
     /// becoming a per-frame rebuild loop.
-    last_good_scene: Option<lens::Snapshot>,
+    last_good_scene: Option<optics_lens::Snapshot>,
     /// Backoff gate for rebuilding after a failed build.
     ///
     /// Without it, `pending_scene == None` makes `needs_build` permanently
@@ -245,12 +245,12 @@ impl Shell {
     /// registered; add components with [`Shell::add`].
     ///
     /// # Safety
-    /// `device` must be a live `flux_device` (from `flux::Device::as_raw`) and
+    /// `device` must be a live `flux_device` (from `optics_flux::Device::as_raw`) and
     /// outlive the `Shell`. The pointer crosses from the `flux` bindings' type
     /// to lens's distinct-but-ABI-identical `flux_device`.
     pub unsafe fn new(device: *mut c_void) -> Result<Shell, ShellError> {
         unsafe {
-            let ui = Ui::with_device(device as *mut lens::sys::flux_device)
+            let ui = Ui::with_device(device as *mut optics_lens::sys::flux_device)
                 .map_err(ShellError::Create)?;
             Ok(Shell {
                 ui,
@@ -408,14 +408,14 @@ impl Shell {
     ///
     /// `period <= 0` is lens's spelling of "no blink" and there is no
     /// "restore the library default" call, so re-enabling names the binding's
-    /// [`lens::DEFAULT_CARET_BLINK_PERIOD_S`] — the library's own value, not a
+    /// [`optics_lens::DEFAULT_CARET_BLINK_PERIOD_S`] — the library's own value, not a
     /// number copied here, which is what keeps a preference toggle from
     /// silently changing the blink rate when Optics tunes it.
     fn apply_caret_blink(&mut self) {
         let period = if self.reduced_motion {
             0.0
         } else {
-            lens::DEFAULT_CARET_BLINK_PERIOD_S
+            optics_lens::DEFAULT_CARET_BLINK_PERIOD_S
         };
         self.ui.set_caret_blink(period);
     }
@@ -1384,7 +1384,7 @@ impl Shell {
     /// * otherwise — only components with an animation in flight repaint, plus
     ///   Lens's own eased values and caret blink.
     ///
-    /// Lens reports its damage through [`lens::Ui::damage_rects`], which
+    /// Lens reports its damage through [`optics_lens::Ui::damage_rects`], which
     /// localizes per placed body and per drawn leaf, so a settling widget
     /// narrows the repaint exactly like a component's [`Chrome::damage_regions`].
     /// Only a component that returns `None` widens the frame — that is a genuine
@@ -1456,7 +1456,7 @@ impl Shell {
             // the whole point of the list contract: a direction that must be
             // second-guessed here (band substitution, "looks too big" clamping)
             // would reintroduce exactly the guessed footprint the list replaces.
-            let mut buffer = [lens::Rect::default(); LENS_DAMAGE_CAPACITY];
+            let mut buffer = [optics_lens::Rect::default(); LENS_DAMAGE_CAPACITY];
             let count = self.ui.damage_rects(&mut buffer[..]);
             for damage in buffer.iter().take(count) {
                 /* Lens already rounds its damage outward to whole logical pixels,
@@ -1541,7 +1541,7 @@ impl Shell {
     /// position and needs no `reserved` arithmetic in physical space.
     pub fn chrome_intersects_render_area(
         &self,
-        area: flux::CanvasRenderArea,
+        area: optics_flux::CanvasRenderArea,
         scale: f32,
         logical_size: (u32, u32),
     ) -> bool {
@@ -1966,7 +1966,7 @@ impl Shell {
     /// twice in one frame draws once and then nothing.
     ///
     /// # Safety
-    /// `canvas` must be a live `flux_canvas` (from `flux::Canvas::as_raw`)
+    /// `canvas` must be a live `flux_canvas` (from `optics_flux::Canvas::as_raw`)
     /// whose pass is currently open for drawing and whose target outlives the
     /// call. It must outlive every `Snapshot` this `Shell` has produced.
     pub unsafe fn submit(&mut self, canvas: *mut c_void) -> Result<(), ShellError> {
@@ -1986,7 +1986,7 @@ impl Shell {
         };
         // SAFETY: `canvas` is the caller's live `flux_canvas`, open for
         // drawing; the snapshot borrows only its own display list.
-        unsafe { scene.submit(canvas as *mut lens::sys::flux_canvas) }
+        unsafe { scene.submit(canvas as *mut optics_lens::sys::flux_canvas) }
             .map_err(ShellError::Render)?;
         self.ui.activate(scene).map_err(ShellError::Render)?;
         // Present exactly once: the scene has been drawn and activated. Only a

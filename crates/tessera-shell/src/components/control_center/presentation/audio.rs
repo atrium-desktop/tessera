@@ -168,7 +168,7 @@ impl ControlCenter {
                         ..Default::default()
                     },
                     |f, _| {
-                        f.icon_raw(lens::sys::lens_icon_id::LENS_ICON_CHEVRON_LEFT, 16.0);
+                        f.icon_raw(optics_lens::sys::lens_icon_id::LENS_ICON_CHEVRON_LEFT, 16.0);
                         display_label(f, i18n.text(Message::Back), type_scale.body);
                     },
                 );
@@ -267,7 +267,7 @@ fn render_capture_banner(
             ..Default::default()
         },
         |f| {
-            f.icon_raw(lens::sys::lens_icon_id::LENS_ICON_MIC, 16.0);
+            f.icon_raw(optics_lens::sys::lens_icon_id::LENS_ICON_MIC, 16.0);
             display_label(f, i18n.text(Message::MicrophoneInUse), type_scale.footnote);
         },
     );
@@ -350,7 +350,7 @@ fn render_output_rows(
                             // The marker is the server's statement, not a
                             // cached click.
                             f.set_theme(themes::hud(hud).with_fg(hud.accent));
-                            f.icon_raw(lens::sys::lens_icon_id::LENS_ICON_CHECK, 16.0);
+                            f.icon_raw(optics_lens::sys::lens_icon_id::LENS_ICON_CHECK, 16.0);
                         }
                     },
                 );
@@ -414,7 +414,7 @@ fn render_input_rows(
                         f.spacer(0.0);
                         if is_default {
                             f.set_theme(themes::hud(hud).with_fg(hud.accent));
-                            f.icon_raw(lens::sys::lens_icon_id::LENS_ICON_CHECK, 16.0);
+                            f.icon_raw(optics_lens::sys::lens_icon_id::LENS_ICON_CHECK, 16.0);
                         }
                     },
                 );
@@ -458,8 +458,8 @@ fn render_empty_note(
 /// The glyph for one output transport. Purely presentational: the transport is
 /// already decided in `tessera-desktop`, and an unrecognized one still gets a
 /// speaker rather than no icon at all.
-fn audio_output_icon(kind: AudioOutputKind) -> lens::sys::lens_icon_id {
-    use lens::sys::lens_icon_id;
+fn audio_output_icon(kind: AudioOutputKind) -> optics_lens::sys::lens_icon_id {
+    use optics_lens::sys::lens_icon_id;
     match kind {
         AudioOutputKind::Bluetooth => lens_icon_id::LENS_ICON_BLUETOOTH,
         AudioOutputKind::Wired => lens_icon_id::LENS_ICON_HEADPHONES,
@@ -473,8 +473,8 @@ fn audio_output_icon(kind: AudioOutputKind) -> lens::sys::lens_icon_id {
 /// The glyph for one input transport, by the same discipline as
 /// [`audio_output_icon`]: the transport is already decided, and an
 /// unrecognized one still reads as a microphone.
-fn audio_input_icon(kind: AudioInputKind) -> lens::sys::lens_icon_id {
-    use lens::sys::lens_icon_id;
+fn audio_input_icon(kind: AudioInputKind) -> optics_lens::sys::lens_icon_id {
+    use optics_lens::sys::lens_icon_id;
     match kind {
         AudioInputKind::Bluetooth => lens_icon_id::LENS_ICON_BLUETOOTH,
         AudioInputKind::Headset => lens_icon_id::LENS_ICON_HEADPHONES,

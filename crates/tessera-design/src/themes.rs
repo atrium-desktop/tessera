@@ -1,6 +1,6 @@
 //! lens theme factories for product-level surfaces.
 
-use lens::{Color, Theme};
+use optics_lens::{Color, Theme};
 
 use crate::Design;
 

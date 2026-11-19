@@ -1,4 +1,5 @@
 use super::*;
+use crate::sync::merge_sync_fences;
 
 pub(super) fn scanout_formats_support(
     formats: &HashMap<u32, Vec<u64>>,
@@ -8,51 +9,6 @@ pub(super) fn scanout_formats_support(
     formats
         .get(&fourcc)
         .is_some_and(|modifiers| modifiers.contains(&modifier))
-}
-
-#[repr(C)]
-struct SyncMergeData {
-    name: [u8; 32],
-    fd2: i32,
-    fence: i32,
-    flags: u32,
-    pad: u32,
-}
-
-/// `SYNC_IOC_MERGE` from `<linux/sync_file.h>`. The UAPI encoding and
-/// `sync_merge_data` layout are stable across Linux architectures supported by
-/// Tessera.
-const SYNC_IOC_MERGE: libc::c_ulong = 0xC030_3E03;
-
-fn merge_sync_fences(mut fences: Vec<OwnedFd>) -> Option<OwnedFd> {
-    let mut merged = fences.pop()?;
-    for fence in fences {
-        let mut data = SyncMergeData {
-            name: [0; 32],
-            fd2: fence.as_raw_fd(),
-            fence: -1,
-            flags: 0,
-            pad: 0,
-        };
-        data.name[..10].copy_from_slice(b"tessera-kms");
-        let result = unsafe {
-            libc::ioctl(
-                merged.as_raw_fd(),
-                SYNC_IOC_MERGE,
-                &mut data as *mut SyncMergeData,
-            )
-        };
-        if result < 0 || data.fence < 0 {
-            log::warn!(
-                "drm: failed to merge multi-output completion fences: {}",
-                std::io::Error::last_os_error()
-            );
-            return None;
-        }
-        // SAFETY: a successful SYNC_IOC_MERGE returns a new owned sync_file.
-        merged = unsafe { OwnedFd::from_raw_fd(data.fence) };
-    }
-    Some(merged)
 }
 
 fn close_raw_fences(fences: &mut [i32]) {
@@ -97,6 +53,55 @@ fn composite_fb_slot_conflicts(existing: CompositeFbKey, candidate: CompositeFbK
     existing.epoch == candidate.epoch && existing.slot == candidate.slot && existing != candidate
 }
 
+/// Whether any target CRTC in this commit still requires `ALLOW_MODESET`.
+pub(super) fn targets_need_modeset(slots: &[PlaneSlot], targets: &[usize]) -> bool {
+    targets
+        .iter()
+        .any(|&index| slots.get(index).is_some_and(|slot| !slot.modeset_done))
+}
+
+/// Primary-plane source/destination mapping for an atomic commit.
+///
+/// Keeping target-local scanout separate from `output.x` / `output.y` lets
+/// `present_render_targets` scan mode-sized surfaces 1:1 without clobbering
+/// the output's desktop origin that `add_cursor_plane_to_commit` needs to
+/// place the hardware cursor on secondary extended outputs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PrimaryScanoutGeometry {
+    UnionLayout,
+    ModeSizedTarget,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct PrimaryPlaneGeometry {
+    pub(super) src: (u32, u32, u32, u32),
+    pub(super) dst: (i32, i32, u32, u32),
+}
+
+pub(super) fn primary_plane_geometry(
+    mode: (u32, u32),
+    output_origin: (u32, u32),
+    source_size: (u32, u32),
+    destination: (i32, i32, u32, u32),
+    geometry: PrimaryScanoutGeometry,
+) -> PrimaryPlaneGeometry {
+    match geometry {
+        PrimaryScanoutGeometry::UnionLayout => PrimaryPlaneGeometry {
+            src: (
+                output_origin.0,
+                output_origin.1,
+                source_size.0,
+                source_size.1,
+            ),
+            dst: destination,
+        },
+        PrimaryScanoutGeometry::ModeSizedTarget => PrimaryPlaneGeometry {
+            src: (0, 0, mode.0, mode.1),
+            dst: (0, 0, mode.0, mode.1),
+        },
+    }
+}
+
 /// Cache epoch for a compositor-owned mirror target. The high bit separates
 /// target rings from the union surface's epoch, and the connector hash keeps
 /// two mirror targets with overlapping slot 0 from invalidating each other.
@@ -120,7 +125,7 @@ pub(super) struct PresentedComposite {
     fourcc: u32,
     color_pipeline: tessera_desktop::output::ColorPipeline,
     acquire_fence: Option<OwnedFd>,
-    lease: std::rc::Rc<flux::DmabufLease>,
+    lease: std::rc::Rc<optics_flux::DmabufLease>,
 }
 
 impl DrmBackend {
@@ -534,7 +539,7 @@ impl DrmBackend {
     /// Load the configured ICC profile's parametric color space (ADR-0069
     /// two-tier extraction covers matrix+TRC profiles). `None` — the sRGB
     /// default — when unset, unreadable, or LUT-only.
-    fn configured_icc_space(&self) -> Option<flux::ColorSpace> {
+    fn configured_icc_space(&self) -> Option<optics_flux::ColorSpace> {
         let path = self.displays.icc_profile.as_deref()?;
         let bytes = match std::fs::read(path) {
             Ok(bytes) => bytes,
@@ -543,7 +548,7 @@ impl DrmBackend {
                 return None;
             }
         };
-        match flux::IccProfile::new(&bytes) {
+        match optics_flux::IccProfile::new(&bytes) {
             Ok(profile) => match profile.color_space() {
                 Some(space) => {
                     log::info!("drm: framebuffer color space from ICC profile {path}");
@@ -574,26 +579,29 @@ impl DrmBackend {
     /// a different pixel encoding from the image it samples.
     fn create_exportable_surface(
         &self,
-        device: &flux::Device,
+        device: &optics_flux::Device,
         width: u32,
         height: u32,
-    ) -> Result<(flux::Surface, DisplayColorMode), DrmError> {
+    ) -> Result<(optics_flux::Surface, DisplayColorMode), DrmError> {
         let color_mode = self.displays.color_mode;
         let icc_space = match color_mode {
             DisplayColorMode::Sdr | DisplayColorMode::SdrDeepColor => self.configured_icc_space(),
             DisplayColorMode::Hdr => None,
         };
         let surface = match (color_mode, icc_space) {
-            (DisplayColorMode::Sdr, None) => {
-                flux::Surface::offscreen_dmabuf(device, width, height, &self.displays.modifiers)?
-            }
+            (DisplayColorMode::Sdr, None) => optics_flux::Surface::offscreen_dmabuf(
+                device,
+                width,
+                height,
+                &self.displays.modifiers,
+            )?,
             (DisplayColorMode::Sdr, Some(space)) => {
-                flux::Surface::offscreen_dmabuf_with_color_options(
+                optics_flux::Surface::offscreen_dmabuf_with_color_options(
                     device,
                     width,
                     height,
                     &self.displays.modifiers,
-                    flux::SurfaceColorOptions {
+                    optics_flux::SurfaceColorOptions {
                         color_spaces: &[space],
                         ..Default::default()
                     },
@@ -603,31 +611,31 @@ impl DrmBackend {
                 // An ICC profile takes precedence over the sRGB default.
                 let spaces = match icc {
                     Some(space) => vec![space],
-                    None => vec![flux::ColorSpace::SRGB],
+                    None => vec![optics_flux::ColorSpace::SRGB],
                 };
-                flux::Surface::offscreen_dmabuf_with_color_options(
+                optics_flux::Surface::offscreen_dmabuf_with_color_options(
                     device,
                     width,
                     height,
                     &self.displays.modifiers,
-                    flux::SurfaceColorOptions {
+                    optics_flux::SurfaceColorOptions {
                         color_spaces: &spaces,
-                        offscreen_formats: &[flux::Format::Rgb10a2Unorm],
+                        offscreen_formats: &[optics_flux::Format::Rgb10a2Unorm],
                         ..Default::default()
                     },
                 )?
             }
             (DisplayColorMode::Hdr, _) => {
                 let sdr_white = self.configured_sdr_white_nits().unwrap_or(203.0);
-                flux::Surface::offscreen_dmabuf_with_color_options(
+                optics_flux::Surface::offscreen_dmabuf_with_color_options(
                     device,
                     width,
                     height,
                     &self.displays.modifiers,
-                    flux::SurfaceColorOptions {
-                        color_spaces: &[flux::ColorSpace::BT2020_PQ],
-                        offscreen_formats: &[flux::Format::Rgb10a2Unorm],
-                        hdr: Some(flux::SurfaceHdr {
+                    optics_flux::SurfaceColorOptions {
+                        color_spaces: &[optics_flux::ColorSpace::BT2020_PQ],
+                        offscreen_formats: &[optics_flux::Format::Rgb10a2Unorm],
+                        hdr: Some(optics_flux::SurfaceHdr {
                             sdr_white_nits: sdr_white,
                             metadata: None,
                         }),
@@ -642,7 +650,10 @@ impl DrmBackend {
         Ok((surface, color_mode))
     }
 
-    pub fn create_surface(&mut self, device: &flux::Device) -> Result<flux::Surface, DrmError> {
+    pub fn create_surface(
+        &mut self,
+        device: &optics_flux::Device,
+    ) -> Result<optics_flux::Surface, DrmError> {
         // A recreated Flux surface reuses slot numbers for different VkImages.
         // Advance the epoch before allocating it so an equal-size recreation
         // can never hit a framebuffer imported from the previous surface.
@@ -699,7 +710,7 @@ impl DrmBackend {
             DisplayColorMode::Hdr => {}
         }
         self.surface_stale = false;
-        self.sync_capable = flux::dmabuf_sync_supported(device);
+        self.sync_capable = optics_flux::dmabuf_sync_supported(device);
         self.explicit_sync = self
             .displays
             .outputs
@@ -715,6 +726,12 @@ impl DrmBackend {
             }
         );
         Ok(surface)
+    }
+
+    /// Whether compositor exports should use explicit dma-buf sync fences
+    /// (`IN_FENCE_FD` + Vulkan `SYNC_FD`) rather than CPU fence waits.
+    pub fn explicit_sync(&self) -> bool {
+        self.explicit_sync
     }
 
     /// Complete a Flux frame, export it, and queue it on the primary plane.
@@ -1295,8 +1312,8 @@ impl DrmBackend {
 
     pub fn present(
         &mut self,
-        surface: &flux::Surface,
-        frame: flux::SubmittedFrame<'_>,
+        surface: &optics_flux::Surface,
+        frame: optics_flux::SubmittedFrame<'_>,
         damage: Option<&[tessera_primitives::Rect]>,
     ) -> Result<Option<OwnedFd>, DrmError> {
         let targets = (0..self.displays.outputs.len()).collect::<Vec<_>>();
@@ -1308,8 +1325,8 @@ impl DrmBackend {
     /// per-output targets present their own mode-sized surfaces.
     pub fn compose_only(
         &mut self,
-        surface: &flux::Surface,
-        frame: flux::SubmittedFrame<'_>,
+        surface: &optics_flux::Surface,
+        frame: optics_flux::SubmittedFrame<'_>,
     ) -> Result<Option<OwnedFd>, DrmError> {
         if !self.active || !self.render_ready || !self.outputs_powered {
             return Err(DrmError::Inactive);
@@ -1362,8 +1379,8 @@ impl DrmBackend {
     /// flip state (ADR-0185).
     pub fn present_to(
         &mut self,
-        surface: &flux::Surface,
-        frame: flux::SubmittedFrame<'_>,
+        surface: &optics_flux::Surface,
+        frame: optics_flux::SubmittedFrame<'_>,
         damage: Option<&[tessera_primitives::Rect]>,
         targets: &[&str],
     ) -> Result<Option<OwnedFd>, DrmError> {
@@ -1383,8 +1400,8 @@ impl DrmBackend {
     /// primary scanout.
     pub fn present_with_overlay(
         &mut self,
-        surface: &flux::Surface,
-        frame: flux::SubmittedFrame<'_>,
+        surface: &optics_flux::Surface,
+        frame: optics_flux::SubmittedFrame<'_>,
         damage: Option<&[tessera_primitives::Rect]>,
         overlay: crate::host::OverlayLayer<'_>,
     ) -> Result<Option<OwnedFd>, DrmError> {
@@ -1394,8 +1411,8 @@ impl DrmBackend {
 
     fn present_inner(
         &mut self,
-        surface: &flux::Surface,
-        frame: flux::SubmittedFrame<'_>,
+        surface: &optics_flux::Surface,
+        frame: optics_flux::SubmittedFrame<'_>,
         damage: Option<&[tessera_primitives::Rect]>,
         targets: &[usize],
         overlay: Option<crate::host::OverlayLayer<'_>>,
@@ -1480,11 +1497,12 @@ impl DrmBackend {
                 }
             }
         }
-        self.commit_scanout(
+        let kms_fence = self.commit_scanout(
             &mut scanouts,
             targets,
             damage,
             PrimaryPlaneSource::Composited,
+            PrimaryScanoutGeometry::UnionLayout,
             false,
             overlay,
         )?;
@@ -1494,7 +1512,8 @@ impl DrmBackend {
         // free backbuffer slot instead of rotating into the live scanout buffer.
         frame.present()?;
         self.presented_composite = presented_composite;
-        Ok(completion_fence)
+        let fences: Vec<OwnedFd> = completion_fence.into_iter().chain(kms_fence).collect();
+        Ok(merge_sync_fences(fences))
     }
 
     /// Create an exportable compositor-owned surface at a mirror's native
@@ -1502,10 +1521,10 @@ impl DrmBackend {
     /// has to scale the union framebuffer for this output.
     pub fn create_render_target(
         &self,
-        device: &flux::Device,
+        device: &optics_flux::Device,
         width: u32,
         height: u32,
-    ) -> Result<flux::Surface, DrmError> {
+    ) -> Result<optics_flux::Surface, DrmError> {
         if width == 0 || height == 0 || self.displays.modifiers.is_empty() {
             return Err(DrmError::DmabufUnsupported);
         }
@@ -1521,11 +1540,13 @@ impl DrmBackend {
     /// path unchanged.
     pub fn present_render_target(
         &mut self,
-        exported: flux::ExportedDmabuf,
+        exported: optics_flux::ExportedDmabuf,
         target: &str,
     ) -> Result<Option<OwnedFd>, DrmError> {
-        self.present_render_targets(vec![(target.to_owned(), exported)])?;
-        Ok(None)
+        self.present_render_targets(vec![crate::host::RenderTargetCommit::from_exported(
+            target.to_owned(),
+            exported,
+        )])
     }
 
     /// Present a coherent output group in one atomic commit.
@@ -1534,10 +1555,13 @@ impl DrmBackend {
     /// source/destination is temporarily replaced with the target's full mode,
     /// and the complete group is committed once. KMS therefore flips the group
     /// at one atomic boundary without reintroducing a union framebuffer.
+    /// Returns the merged KMS `OUT_FENCE_PTR` when reclaiming a direct-scanned
+    /// client plane so retired client buffers can be released accurately
+    /// (ADR-0250, `[INV-ARCH-159]`).
     pub fn present_render_targets(
         &mut self,
-        targets: Vec<(String, flux::ExportedDmabuf)>,
-    ) -> Result<(), DrmError> {
+        targets: Vec<crate::host::RenderTargetCommit>,
+    ) -> Result<Option<OwnedFd>, DrmError> {
         if targets.is_empty() {
             return Err(DrmError::ScanoutUnsupported);
         }
@@ -1548,9 +1572,9 @@ impl DrmBackend {
             return Err(DrmError::Reconfigured);
         }
         let mut indices = Vec::with_capacity(targets.len());
-        for (target, _) in &targets {
+        for target in &targets {
             let index = self
-                .slot_index_for_connector(target)
+                .slot_index_for_connector(&target.connector)
                 .ok_or(DrmError::ScanoutUnsupported)?;
             if indices.contains(&index) {
                 return Err(DrmError::ScanoutUnsupported);
@@ -1563,49 +1587,28 @@ impl DrmBackend {
         let mut scanouts = (0..self.displays.outputs.len())
             .map(|_| None)
             .collect::<Vec<_>>();
-        for (index, (connector, exported)) in indices.iter().zip(targets) {
-            let epoch = target_composite_epoch(&connector);
-            let mut scanout = self.import_scanout_with_epoch(exported.dmabuf, epoch)?;
-            scanout.lease = Some(std::rc::Rc::new(exported.lease));
-            scanouts[*index] = Some(scanout);
+        for (&index, target) in indices.iter().zip(targets) {
+            let epoch = target_composite_epoch(&target.connector);
+            match self.import_scanout_with_epoch(target.dmabuf, epoch) {
+                Ok(mut scanout) => {
+                    scanout.lease = Some(target.lease);
+                    scanouts[index] = Some(scanout);
+                }
+                Err(error) => {
+                    self.release_scanout_options(&mut scanouts);
+                    return Err(error);
+                }
+            }
         }
-        let saved = indices
-            .iter()
-            .map(|&index| {
-                let output = &self.displays.outputs[index];
-                (
-                    index,
-                    output.x,
-                    output.y,
-                    output.source_size,
-                    output.destination,
-                )
-            })
-            .collect::<Vec<_>>();
-        for &index in &indices {
-            let (mode_width, mode_height) = self.displays.outputs[index].mode.size();
-            let output = &mut self.displays.outputs[index];
-            output.x = 0;
-            output.y = 0;
-            output.source_size = (u32::from(mode_width), u32::from(mode_height));
-            output.destination = (0, 0, u32::from(mode_width), u32::from(mode_height));
-        }
-        let result = self.commit_scanout(
+        self.commit_scanout(
             &mut scanouts,
             &indices,
             Some(&[]),
             PrimaryPlaneSource::Composited,
+            PrimaryScanoutGeometry::ModeSizedTarget,
             false,
             None,
-        );
-        for (index, x, y, source_size, destination) in saved {
-            let output = &mut self.displays.outputs[index];
-            output.x = x;
-            output.y = y;
-            output.source_size = source_size;
-            output.destination = destination;
-        }
-        result.map(|_| ())
+        )
     }
 
     /// Source rectangle of one output inside the shared composite framebuffer.
@@ -1720,6 +1723,7 @@ impl DrmBackend {
             &[target_index],
             damage,
             PrimaryPlaneSource::DirectClient,
+            PrimaryScanoutGeometry::UnionLayout,
             allow_async,
             None,
         )?;
@@ -1837,8 +1841,10 @@ impl DrmBackend {
         self.card.as_ref().expect("DRM card exists until drop")
     }
 
-    fn clone_dmabuf(dmabuf: &flux::SurfaceDmabuf) -> Result<flux::SurfaceDmabuf, DrmError> {
-        Ok(flux::SurfaceDmabuf {
+    fn clone_dmabuf(
+        dmabuf: &optics_flux::SurfaceDmabuf,
+    ) -> Result<optics_flux::SurfaceDmabuf, DrmError> {
+        Ok(optics_flux::SurfaceDmabuf {
             fd: dmabuf.fd.try_clone()?,
             acquire_fence: dmabuf
                 .acquire_fence
@@ -1855,7 +1861,7 @@ impl DrmBackend {
 
     pub(super) fn import_scanout(
         &mut self,
-        dmabuf: flux::SurfaceDmabuf,
+        dmabuf: optics_flux::SurfaceDmabuf,
     ) -> Result<PrimaryScanout, DrmError> {
         self.import_scanout_with_epoch(dmabuf, self.composite_fb_epoch)
     }
@@ -1867,7 +1873,7 @@ impl DrmBackend {
     /// their framebuffer cache entries from invalidating the union image.
     fn import_scanout_with_epoch(
         &mut self,
-        dmabuf: flux::SurfaceDmabuf,
+        dmabuf: optics_flux::SurfaceDmabuf,
         epoch: u64,
     ) -> Result<PrimaryScanout, DrmError> {
         let modifier = DrmModifier::from(dmabuf.modifier);
@@ -2004,12 +2010,14 @@ impl DrmBackend {
         blob
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn commit_scanout(
         &mut self,
         scanouts: &mut [Option<PrimaryScanout>],
         targets: &[usize],
         damage: Option<&[tessera_primitives::Rect]>,
         source: PrimaryPlaneSource,
+        geometry: PrimaryScanoutGeometry,
         allow_async: bool,
         overlay: Option<crate::host::OverlayLayer<'_>>,
     ) -> Result<Option<OwnedFd>, DrmError> {
@@ -2062,13 +2070,21 @@ impl DrmBackend {
         // Per-commit FB_DAMAGE_CLIPS blobs, destroyed once the commit ioctl
         // has run (the kernel references the blob, it does not borrow ours).
         let mut damage_blobs: Vec<u64> = Vec::new();
-        let use_out_fences = (source.needs_kms_completion_fence() || overlay_transition)
-            && targets.iter().all(|&index| {
-                self.displays.outputs[index]
-                    .props
-                    .crtc_out_fence_ptr
-                    .is_some()
-            });
+        let leaving_direct_client = targets.iter().any(|&index| {
+            self.slots[index].current.as_ref().is_some_and(|scanout| {
+                scanout
+                    .ownership
+                    .matches_source(PrimaryPlaneSource::DirectClient)
+            })
+        });
+        let use_out_fences =
+            (source.needs_kms_completion_fence() || overlay_transition || leaving_direct_client)
+                && targets.iter().all(|&index| {
+                    self.displays.outputs[index]
+                        .props
+                        .crtc_out_fence_ptr
+                        .is_some()
+                });
         let mut out_fence_fds = vec![-1_i32; self.displays.outputs.len()];
         for &output_index in targets {
             let output = &self.displays.outputs[output_index];
@@ -2084,9 +2100,17 @@ impl DrmBackend {
             let props = output.props;
             let primary = &output.planes.primary;
             let plane_props = primary.props;
-            let (source_width, source_height) = output.source_size;
-            let (destination_x, destination_y, destination_width, destination_height) =
-                output.destination;
+            let (mode_w, mode_h) = output.mode.size();
+            let PrimaryPlaneGeometry {
+                src: (source_x, source_y, source_width, source_height),
+                dst: (destination_x, destination_y, destination_width, destination_height),
+            } = primary_plane_geometry(
+                (u32::from(mode_w), u32::from(mode_h)),
+                (output.x, output.y),
+                output.source_size,
+                output.destination,
+                geometry,
+            );
             add_cursor_plane_to_commit(
                 &mut request,
                 output,
@@ -2098,6 +2122,17 @@ impl DrmBackend {
                 props.connector_crtc_id,
                 property::Value::CRTC(Some(output.crtc)),
             );
+            if !self.slots[output_index].modeset_done
+                && let Some(link_status) = props.connector_link_status
+            {
+                // DRM_MODE_LINK_STATUS_GOOD (0): required on the modeset
+                // commit that retrains a connector after a `Bad` link uevent.
+                request.add_property(
+                    output.connector,
+                    link_status,
+                    property::Value::UnsignedRange(0),
+                );
+            }
             request.add_property(output.crtc, props.crtc_mode_id, output.mode_blob);
             request.add_property(
                 output.crtc,
@@ -2159,12 +2194,12 @@ impl DrmBackend {
             request.add_property(
                 primary.handle,
                 plane_props.src_x,
-                property::Value::UnsignedRange((output.x as u64) << 16),
+                property::Value::UnsignedRange((source_x as u64) << 16),
             );
             request.add_property(
                 primary.handle,
                 plane_props.src_y,
-                property::Value::UnsignedRange((output.y as u64) << 16),
+                property::Value::UnsignedRange((source_y as u64) << 16),
             );
             request.add_property(
                 primary.handle,
@@ -2210,12 +2245,12 @@ impl DrmBackend {
             // never an empty clip list.
             if let Some(clips_prop) = plane_props.fb_damage_clips {
                 let (w32, h32) = (source_width, source_height);
-                let clips = damage_clip_for_output(damage, output.x, output.y, w32, h32);
+                let clips = damage_clip_for_output(damage, source_x, source_y, w32, h32);
                 let full = [
-                    output.x as i32,
-                    output.y as i32,
-                    (output.x + w32) as i32,
-                    (output.y + h32) as i32,
+                    source_x as i32,
+                    source_y as i32,
+                    (source_x + w32) as i32,
+                    (source_y + h32) as i32,
                 ];
                 let full_blob = primary.full_damage_blob.as_ref().map(|(value, _)| *value);
                 // An empty clip list means the output is untouched: a NULL
@@ -2277,7 +2312,7 @@ impl DrmBackend {
                 }
             }
         }
-        let needs_modeset = targets.iter().any(|&index| !self.slots[index].modeset_done);
+        let needs_modeset = targets_need_modeset(&self.slots, targets);
         let mut flags = AtomicCommitFlags::NONBLOCK | AtomicCommitFlags::PAGE_FLIP_EVENT;
         if needs_modeset {
             flags |= AtomicCommitFlags::ALLOW_MODESET;
@@ -2419,6 +2454,7 @@ impl DrmBackend {
         );
         for &index in targets {
             self.slots[index].modeset_done = true;
+            self.displays.outputs[index].link_bad = false;
         }
         if overlay_transition && !use_out_fences {
             // Overlay scans out a live client buffer. Without OUT_FENCE_PTR

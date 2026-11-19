@@ -14,13 +14,13 @@ pub(super) use crate::widgets::shapes::render_disc;
 pub(super) use crate::widgets::shapes::render_ring;
 pub(super) use crate::widgets::tiered::{Tier, TieredIndicator, TieredOutcome, tiered_control};
 
-pub(super) fn volume_icon_raw(status: &SystemStatus) -> lens::sys::lens_icon_id {
+pub(super) fn volume_icon_raw(status: &SystemStatus) -> optics_lens::sys::lens_icon_id {
     if status.muted || status.volume.unwrap_or(0) == 0 {
-        lens::sys::lens_icon_id::LENS_ICON_VOLUME_X
+        optics_lens::sys::lens_icon_id::LENS_ICON_VOLUME_X
     } else if status.volume.unwrap_or(0) < 55 {
-        lens::sys::lens_icon_id::LENS_ICON_VOLUME_1
+        optics_lens::sys::lens_icon_id::LENS_ICON_VOLUME_1
     } else {
-        lens::sys::lens_icon_id::LENS_ICON_VOLUME_2
+        optics_lens::sys::lens_icon_id::LENS_ICON_VOLUME_2
     }
 }
 
@@ -29,11 +29,11 @@ pub(super) fn volume_icon_raw(status: &SystemStatus) -> lens::sys::lens_icon_id 
 /// Two states, not three: a capture device is either being listened to or it is
 /// not. There is no "quiet microphone" the way there is a quiet speaker, and a
 /// graduated glyph would imply one.
-pub(super) fn microphone_icon_raw(status: &SystemStatus) -> lens::sys::lens_icon_id {
+pub(super) fn microphone_icon_raw(status: &SystemStatus) -> optics_lens::sys::lens_icon_id {
     if status.microphone_muted || status.microphone_volume == Some(0) {
-        lens::sys::lens_icon_id::LENS_ICON_MIC_OFF
+        optics_lens::sys::lens_icon_id::LENS_ICON_MIC_OFF
     } else {
-        lens::sys::lens_icon_id::LENS_ICON_MIC
+        optics_lens::sys::lens_icon_id::LENS_ICON_MIC
     }
 }
 
@@ -46,12 +46,12 @@ pub(super) fn render_compact_quick_toggle_tile(
     id: &str,
     title: &str,
     subtitle: Option<&str>,
-    icon: lens::sys::lens_icon_id,
+    icon: optics_lens::sys::lens_icon_id,
     active: bool,
     size: (f32, f32),
     hud: ControlCenterColors,
     type_scale: TypeScale,
-) -> lens::Response {
+) -> optics_lens::Response {
     let original = f.theme();
     // A tile too narrow for its label shows only its glyph; the label stays
     // its accessible name and the caller shows it as a tooltip.
@@ -159,7 +159,7 @@ pub(super) fn render_expandable_quick_toggle_tile(
     id: &str,
     title: &str,
     subtitle: &str,
-    icon: lens::sys::lens_icon_id,
+    icon: optics_lens::sys::lens_icon_id,
     active: bool,
     size: (f32, f32),
     hud: ControlCenterColors,
@@ -265,7 +265,10 @@ pub(super) fn render_expandable_quick_toggle_tile(
                     f.flex(1.0);
                     f.spacer(0.0);
                     f.set_theme(themes::hud(&hud).with_fg(sub_fg));
-                    f.icon_raw(lens::sys::lens_icon_id::LENS_ICON_CHEVRON_RIGHT, 16.0);
+                    f.icon_raw(
+                        optics_lens::sys::lens_icon_id::LENS_ICON_CHEVRON_RIGHT,
+                        16.0,
+                    );
                     f.flex(1.0);
                     f.spacer(0.0);
                 },
@@ -296,7 +299,7 @@ pub(super) fn render_horizontal_fader(
     f: &mut Frame,
     id: &str,
     label: &str,
-    icon: lens::sys::lens_icon_id,
+    icon: optics_lens::sys::lens_icon_id,
     icon_clickable: bool,
     value: Option<u8>,
     range: (u8, u8),
@@ -410,7 +413,10 @@ pub(super) fn render_horizontal_fader(
                             |f, _| {
                                 f.flex(1.0);
                                 f.spacer(0.0);
-                                f.icon_raw(lens::sys::lens_icon_id::LENS_ICON_CHEVRON_RIGHT, 16.0);
+                                f.icon_raw(
+                                    optics_lens::sys::lens_icon_id::LENS_ICON_CHEVRON_RIGHT,
+                                    16.0,
+                                );
                                 f.flex(1.0);
                                 f.spacer(0.0);
                             },
@@ -492,8 +498,8 @@ pub(super) fn render_kbd_backlight_tiers(
                     // The keyboard-backlight glyph (keyboard outline with three
                     // illumination rays); falls back to the built-in key icon if
                     // runtime SVG registration is unavailable.
-                    let icon =
-                        kbd_backlight_icon().unwrap_or(lens::sys::lens_icon_id::LENS_ICON_KEY);
+                    let icon = kbd_backlight_icon()
+                        .unwrap_or(optics_lens::sys::lens_icon_id::LENS_ICON_KEY);
                     f.icon_raw(icon, 18.0);
                     display_label(f, label, type_scale.body);
                     f.flex(1.0);

@@ -8,7 +8,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "set TESSERA_AVATAR_DEBUG_ASSETS=1 or TESSERA_AVATAR_DEBUG_DIR for debug-assets".into(),
         );
     }
-    let device = flux::Device::new(true, &[], &[], 1)?;
+    let device = optics_flux::Device::new(true, &[], &[], 1)?;
     let directory = std::env::var_os("TESSERA_AVATAR_DEBUG_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| {

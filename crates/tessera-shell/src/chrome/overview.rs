@@ -6,7 +6,7 @@
 //! and dismissal. It is a view mode over the same snapshots every other
 //! component reads — it never mutates the window model itself.
 
-use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
+use optics_lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 use tessera_design::Design;
 use tessera_design::materials::{chrome_place, surface_layout};
 

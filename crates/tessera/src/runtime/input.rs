@@ -726,9 +726,15 @@ impl CompositorRuntime<'_> {
         let mut input = tessera_shell::component::Input::default();
         input.set_display_size(self.input_acc.display_size.0, self.input_acc.display_size.1);
         input.set_cursor(self.input_acc.cursor.0, self.input_acc.cursor.1);
-        input.set_mouse_down(lens::MouseButton::Left, self.input_acc.mouse_down[0]);
-        input.set_mouse_down(lens::MouseButton::Right, self.input_acc.mouse_down[1]);
-        input.set_mouse_down(lens::MouseButton::Middle, self.input_acc.mouse_down[2]);
+        input.set_mouse_down(optics_lens::MouseButton::Left, self.input_acc.mouse_down[0]);
+        input.set_mouse_down(
+            optics_lens::MouseButton::Right,
+            self.input_acc.mouse_down[1],
+        );
+        input.set_mouse_down(
+            optics_lens::MouseButton::Middle,
+            self.input_acc.mouse_down[2],
+        );
         let mut shell_scroll = (0.0_f32, 0.0_f32);
         let mut shell_scroll_pixels = (0.0_f32, 0.0_f32);
         let pointer_before = self.input_acc.cursor;
@@ -834,9 +840,9 @@ impl CompositorRuntime<'_> {
                         // 0x112=middle) to lens's MouseButton. Other buttons
                         // are dropped; the chrome only consumes these three.
                         let mapped = match button {
-                            0x110 => Some(lens::MouseButton::Left),
-                            0x111 => Some(lens::MouseButton::Right),
-                            0x112 => Some(lens::MouseButton::Middle),
+                            0x110 => Some(optics_lens::MouseButton::Left),
+                            0x111 => Some(optics_lens::MouseButton::Right),
+                            0x112 => Some(optics_lens::MouseButton::Middle),
                             _ => None,
                         };
                         if let Some(b) = mapped {
@@ -1319,6 +1325,14 @@ impl CompositorRuntime<'_> {
             let (pw, ph) = self.host.physical_size();
             let needs_recreate = self.host.surface_needs_recreate();
             let size_changed = self.surface.size() != (pw, ph);
+            let previous_outputs = self.server.output_infos();
+            let next_outputs = self.host.output_infos();
+            let topology_changed = resize_requires_redraw_and_cursor_reset(
+                size_changed,
+                needs_recreate,
+                &previous_outputs,
+                &next_outputs,
+            );
             if needs_recreate || size_changed {
                 self.damage.force_full_redraw = true;
                 if let Some(capture) = self.pending_capture.take() {
@@ -1336,7 +1350,7 @@ impl CompositorRuntime<'_> {
                     // retcon a modifier, so recreate the surface and its canvas
                     // at the new display set instead.
                     *self.surface = self.host.create_surface(self.device)?;
-                    *self.canvas = flux::Canvas::new(self.surface)?;
+                    *self.canvas = optics_flux::Canvas::new(self.surface)?;
                 } else {
                     self.surface.resize(pw, ph)?;
                 }
@@ -1348,8 +1362,21 @@ impl CompositorRuntime<'_> {
                     );
                 }
             }
+            if topology_changed {
+                // Entering or leaving mirror mode preserves the union desktop
+                // size (`3072x1920`), yet switches between hardware and
+                // software cursor rendering. Force a full redraw and drop the
+                // cached cursor baseline so no stale software cursor remains
+                // baked into the primary framebuffer (and the hardware cursor
+                // plane is reprogrammed on the very next frame).
+                self.damage.force_full_redraw = true;
+                self.damage.last_presented_cursor = None;
+                self.damage.last_presented_cursor_position = None;
+                self.damage.last_presented_cursor_hotspot = None;
+                self.damage.last_presented_cursor_pixels = None;
+            }
             self.host.set_buffer_scale();
-            self.server.set_outputs(self.host.output_infos());
+            self.server.set_outputs(next_outputs);
             self.server.set_color_pipeline(self.host.color_pipeline());
             // Reconcile live streams with the new geometry (ADR-0126):
             // streams whose negotiated size no longer matches are frozen
@@ -1574,6 +1601,42 @@ impl CompositorRuntime<'_> {
     }
 }
 
+/// Whether a `take_resize()` notification requires forcing a full redraw and
+/// resetting the cached cursor presentation baseline.
+///
+/// Mirror hotplug/unplug keeps the union desktop size unchanged (for example
+/// `3072x1920` for `eDP-1` alone and for `eDP-1` + `HDMI-A-1` mirror), yet
+/// switches between hardware and software cursor rendering. A pure refresh-rate
+/// update (`wl_output.mode` on `NestedHost`) keeps the same physical output
+/// layout and returns `false` so its damage history stays intact.
+fn resize_requires_redraw_and_cursor_reset(
+    size_changed: bool,
+    needs_recreate: bool,
+    previous_outputs: &[tessera_desktop::output::OutputInfo],
+    next_outputs: &[tessera_desktop::output::OutputInfo],
+) -> bool {
+    if size_changed || needs_recreate {
+        return true;
+    }
+    fn topology_key(
+        outputs: &[tessera_desktop::output::OutputInfo],
+    ) -> Vec<(&str, &tessera_desktop::output::OutputRole, i32, i32)> {
+        outputs
+            .iter()
+            .filter(|output| output.kind.is_physical())
+            .map(|output| {
+                (
+                    output.connector.as_str(),
+                    &output.role,
+                    output.geometry.mode.width,
+                    output.geometry.mode.height,
+                )
+            })
+            .collect()
+    }
+    topology_key(previous_outputs) != topology_key(next_outputs)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1663,22 +1726,22 @@ mod tests {
         let mut first = tessera_shell::component::Input::new((100.0, 80.0), 0.0);
         first
             .set_cursor(10.0, 20.0)
-            .set_mouse_down(lens::MouseButton::Left, true)
-            .set_mouse_pressed(lens::MouseButton::Left, true)
+            .set_mouse_down(optics_lens::MouseButton::Left, true)
+            .set_mouse_pressed(optics_lens::MouseButton::Left, true)
             .set_scroll(1.0, 2.0)
             .set_text("a")
-            .push_key(lens::key::LEFT, true, false);
+            .push_key(optics_lens::key::LEFT, true, false);
         first.as_raw_mut().ime_delete_before = 2;
         let mut merged = frame(first, true);
 
         let mut second = tessera_shell::component::Input::new((120.0, 90.0), 0.0);
         second
             .set_cursor(30.0, 40.0)
-            .set_mouse_down(lens::MouseButton::Left, false)
-            .set_mouse_released(lens::MouseButton::Left, true)
+            .set_mouse_down(optics_lens::MouseButton::Left, false)
+            .set_mouse_released(optics_lens::MouseButton::Left, true)
             .set_scroll(3.0, 4.0)
             .set_text("b")
-            .push_key(lens::key::RIGHT, true, false);
+            .push_key(optics_lens::key::RIGHT, true, false);
         second.as_raw_mut().ime_delete_before = 3;
         second.as_raw_mut().ime_delete_after = 4;
         merged.merge(frame(second, true));
@@ -1686,13 +1749,13 @@ mod tests {
         let raw = merged.input.as_raw();
         assert_eq!((raw.cursor.x, raw.cursor.y), (30.0, 40.0));
         assert_eq!((raw.display_size.x, raw.display_size.y), (120.0, 90.0));
-        assert!(!raw.mouse_down[lens_sys::lens_mouse_button::LENS_MOUSE_LEFT as usize]);
-        assert!(raw.mouse_pressed[lens_sys::lens_mouse_button::LENS_MOUSE_LEFT as usize]);
-        assert!(raw.mouse_released[lens_sys::lens_mouse_button::LENS_MOUSE_LEFT as usize]);
+        assert!(!raw.mouse_down[optics_lens_sys::lens_mouse_button::LENS_MOUSE_LEFT as usize]);
+        assert!(raw.mouse_pressed[optics_lens_sys::lens_mouse_button::LENS_MOUSE_LEFT as usize]);
+        assert!(raw.mouse_released[optics_lens_sys::lens_mouse_button::LENS_MOUSE_LEFT as usize]);
         assert_eq!((raw.scroll_x, raw.scroll_y), (4.0, 6.0));
         assert_eq!(raw.key_count, 2);
-        assert_eq!(raw.keys[0].key, lens::key::LEFT);
-        assert_eq!(raw.keys[1].key, lens::key::RIGHT);
+        assert_eq!(raw.keys[0].key, optics_lens::key::LEFT);
+        assert_eq!(raw.keys[1].key, optics_lens::key::RIGHT);
         assert_eq!(raw.ime_delete_before, 5);
         assert_eq!(raw.ime_delete_after, 4);
         let text = raw
@@ -1825,5 +1888,83 @@ mod tests {
         );
         assert!(feedback.is_empty());
         assert_eq!(sequence, 3);
+    }
+
+    fn test_output(
+        connector: &str,
+        width: i32,
+        height: i32,
+        refresh_mhz: u32,
+        role: tessera_desktop::output::OutputRole,
+    ) -> tessera_desktop::output::OutputInfo {
+        tessera_desktop::output::OutputInfo {
+            connector: connector.to_owned(),
+            geometry: tessera_desktop::output::OutputGeometry {
+                mode: tessera_desktop::output::OutputMode {
+                    width,
+                    height,
+                    refresh_mhz,
+                },
+                scale: tessera_desktop::output::Scale::IDENTITY,
+                transform: tessera_primitives::Transform::Normal,
+                logical_origin: Point::default(),
+                logical_size_override: None,
+            },
+            kind: tessera_desktop::output::OutputKind::External,
+            available_modes: Vec::new(),
+            color_caps: tessera_primitives::edid::EdidColorCapabilities::default(),
+            role,
+            role_source: tessera_desktop::output::OutputRoleSource::Auto,
+        }
+    }
+
+    #[test]
+    fn mirror_hotplug_forces_redraw_and_cursor_reset_even_when_union_size_is_unchanged() {
+        let edp = test_output(
+            "eDP-1",
+            3072,
+            1920,
+            120_000,
+            tessera_desktop::output::OutputRole::Extend,
+        );
+        let hdmi_mirror = test_output(
+            "HDMI-A-1",
+            3840,
+            2160,
+            60_000,
+            tessera_desktop::output::OutputRole::Mirror {
+                source: "eDP-1".to_owned(),
+            },
+        );
+        // Connecting a mirror leaves the union size at 3072x1920 but switches
+        // to software cursor rendering.
+        assert!(resize_requires_redraw_and_cursor_reset(
+            false,
+            false,
+            std::slice::from_ref(&edp),
+            &[edp.clone(), hdmi_mirror.clone()],
+        ));
+        // Disconnecting the mirror restores hardware cursor rendering; we must
+        // repaint so the old software cursor does not remain baked into eDP-1.
+        assert!(resize_requires_redraw_and_cursor_reset(
+            false,
+            false,
+            &[edp.clone(), hdmi_mirror],
+            std::slice::from_ref(&edp),
+        ));
+        // A pure refresh-rate change with identical layout keeps damage history.
+        let edp_60 = test_output(
+            "eDP-1",
+            3072,
+            1920,
+            60_000,
+            tessera_desktop::output::OutputRole::Extend,
+        );
+        assert!(!resize_requires_redraw_and_cursor_reset(
+            false,
+            false,
+            std::slice::from_ref(&edp),
+            std::slice::from_ref(&edp_60),
+        ));
     }
 }

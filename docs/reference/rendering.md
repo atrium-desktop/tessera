@@ -26,11 +26,16 @@ fullscreen client is composited when another visible element is present.
 Normal DRM presentation is per output. Each physical output owns a
 mode-sized compositor target with its own Flux ring, KMS primary slot, damage
 scope, and page flip. An extended target renders only that output's logical
-region; a mirror target is blitted from its source target with the fitted
-letterbox, so the mirror CRTC never asks KMS to scale (ADR-0246). A new target
-renders full for its first ring cycle, then uses target-local damage. Absolute
-input devices can bind to a connector and use the fitted content rectangle
-(ADR-0245).
+region; a mirror target reuses cached Vulkan imports of its source target's
+DMA-BUF ring and blits only projected source/cursor damage with the fitted
+letterbox, so the mirror CRTC never asks KMS to scale and steady-state mirror
+frames avoid per-frame Vulkan image creation or full-screen blits (ADR-0246,
+ADR-0250). A new target renders full for its first ring cycle, then uses
+target-local damage. Absolute input devices can bind to a connector and use the
+fitted content rectangle (ADR-0245). Retired client DMA-BUFs are released
+immediately at the presentation boundary (and on composited `NoDamage` paths)
+using the merged GPU render sync_file and/or KMS `OUT_FENCE_PTR`, with
+`DMA_BUF_SYNC_READ` fence injection for implicit-sync clients (ADR-0250).
 
 Capture, screenshot freeze, active streams, session lock, and an overlay-active
 fallback use one dedicated union composition as their source. That image is

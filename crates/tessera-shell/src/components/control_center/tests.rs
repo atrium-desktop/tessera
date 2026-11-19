@@ -69,7 +69,7 @@ fn no_windows() -> (Vec<Window>, WorkspaceSnapshot) {
 /// Render one headless frame and present it, so the next frame hit-tests
 /// against real geometry.
 fn render_headless(
-    ui: &mut lens::Ui,
+    ui: &mut optics_lens::Ui,
     panel: &mut ControlCenter,
     input: &Input,
     windows: &[Window],
@@ -85,19 +85,24 @@ fn render_headless(
 }
 
 /// Hover `at` for two frames, then press and release the left button there.
-fn click(panel: &mut ControlCenter, ui: &mut lens::Ui, at: (f32, f32), out: &mut ChromeEvents) {
+fn click(
+    panel: &mut ControlCenter,
+    ui: &mut optics_lens::Ui,
+    at: (f32, f32),
+    out: &mut ChromeEvents,
+) {
     let (windows, workspaces) = no_windows();
     let i18n = Localizer::default();
     let mut input = Input::new(DISPLAY, 0.016);
     input.set_cursor(at.0, at.1);
     render_headless(ui, panel, &input, &windows, &workspaces, &i18n, out);
     render_headless(ui, panel, &input, &windows, &workspaces, &i18n, out);
-    input.set_mouse_down(lens::MouseButton::Left, true);
-    input.set_mouse_pressed(lens::MouseButton::Left, true);
+    input.set_mouse_down(optics_lens::MouseButton::Left, true);
+    input.set_mouse_pressed(optics_lens::MouseButton::Left, true);
     render_headless(ui, panel, &input, &windows, &workspaces, &i18n, out);
-    input.set_mouse_down(lens::MouseButton::Left, false);
-    input.set_mouse_pressed(lens::MouseButton::Left, false);
-    input.set_mouse_released(lens::MouseButton::Left, true);
+    input.set_mouse_down(optics_lens::MouseButton::Left, false);
+    input.set_mouse_pressed(optics_lens::MouseButton::Left, false);
+    input.set_mouse_released(optics_lens::MouseButton::Left, true);
     render_headless(ui, panel, &input, &windows, &workspaces, &i18n, out);
 }
 
@@ -510,7 +515,7 @@ fn header_button(panel: &ControlCenter, index: usize) -> Rect {
 fn the_gear_opens_the_settings_application_and_closes_the_sheet() {
     let mut panel = ControlCenter::presented_for_test();
     resolved(&mut panel);
-    let mut ui = lens::Ui::headless().unwrap();
+    let mut ui = optics_lens::Ui::headless().unwrap();
     let mut out = ChromeEvents::default();
     let gear = centre(header_button(&panel, 0));
     click(&mut panel, &mut ui, gear, &mut out);
@@ -524,7 +529,7 @@ fn the_gear_opens_the_settings_application_and_closes_the_sheet() {
 fn the_power_button_discloses_the_session_strip() {
     let mut panel = ControlCenter::presented_for_test();
     resolved(&mut panel);
-    let mut ui = lens::Ui::headless().unwrap();
+    let mut ui = optics_lens::Ui::headless().unwrap();
     let mut out = ChromeEvents::default();
     let power = centre(header_button(&panel, 2));
     click(&mut panel, &mut ui, power, &mut out);
@@ -537,7 +542,7 @@ fn the_power_button_discloses_the_session_strip() {
 fn a_press_outside_the_cards_dismisses_and_inside_does_not() {
     let mut panel = ControlCenter::presented_for_test();
     resolved(&mut panel);
-    let mut ui = lens::Ui::headless().unwrap();
+    let mut ui = optics_lens::Ui::headless().unwrap();
     let mut out = ChromeEvents::default();
     let card = panel.sheet.controls;
     // Inside the card, on the header's text (no control there).
@@ -567,7 +572,7 @@ fn clear_all_dismisses_every_notification_in_order() {
         card.x + card.w - layout::CARD_PAD - 24.0,
         header_y + LIST_HEADER_H * 0.5,
     );
-    let mut ui = lens::Ui::headless().unwrap();
+    let mut ui = optics_lens::Ui::headless().unwrap();
     let mut out = ChromeEvents::default();
     click(&mut panel, &mut ui, button, &mut out);
     assert_eq!(out.dismissed_notifications, ids);
@@ -643,38 +648,40 @@ fn pressing_the_next_chevron_turns_the_page_and_the_last_page_goes_no_further() 
     panel.reveal.snap_to(1.0);
     panel.set_reduced_motion(true);
     let mut out = ChromeEvents::default();
-    let mut ui = lens::Ui::headless().unwrap();
+    let mut ui = optics_lens::Ui::headless().unwrap();
     let mut input = Input::new(display, 0.05);
     let i18n = Localizer::default();
 
-    let frame =
-        |ui: &mut lens::Ui, panel: &mut ControlCenter, input: &Input, out: &mut ChromeEvents| {
-            ui.frame(input, |f| {
-                panel.render_tray_shelf_cells(
-                    f,
-                    anchor,
-                    &cells,
-                    1.0,
-                    (input.as_raw().cursor.x, input.as_raw().cursor.y),
-                    &i18n,
-                );
-            });
-            let snap = ui.snapshot().unwrap();
-            ui.activate(&snap).unwrap();
-            let _ = out;
-        };
-    let press = |ui: &mut lens::Ui,
+    let frame = |ui: &mut optics_lens::Ui,
+                 panel: &mut ControlCenter,
+                 input: &Input,
+                 out: &mut ChromeEvents| {
+        ui.frame(input, |f| {
+            panel.render_tray_shelf_cells(
+                f,
+                anchor,
+                &cells,
+                1.0,
+                (input.as_raw().cursor.x, input.as_raw().cursor.y),
+                &i18n,
+            );
+        });
+        let snap = ui.snapshot().unwrap();
+        ui.activate(&snap).unwrap();
+        let _ = out;
+    };
+    let press = |ui: &mut optics_lens::Ui,
                  panel: &mut ControlCenter,
                  input: &mut Input,
                  out: &mut ChromeEvents| {
-        input.set_mouse_down(lens::MouseButton::Left, true);
-        input.set_mouse_pressed(lens::MouseButton::Left, true);
+        input.set_mouse_down(optics_lens::MouseButton::Left, true);
+        input.set_mouse_pressed(optics_lens::MouseButton::Left, true);
         frame(ui, panel, input, out);
-        input.set_mouse_down(lens::MouseButton::Left, false);
-        input.set_mouse_pressed(lens::MouseButton::Left, false);
-        input.set_mouse_released(lens::MouseButton::Left, true);
+        input.set_mouse_down(optics_lens::MouseButton::Left, false);
+        input.set_mouse_pressed(optics_lens::MouseButton::Left, false);
+        input.set_mouse_released(optics_lens::MouseButton::Left, true);
         frame(ui, panel, input, out);
-        input.set_mouse_released(lens::MouseButton::Left, false);
+        input.set_mouse_released(optics_lens::MouseButton::Left, false);
     };
 
     let first = shelf_layout(anchor, cells.len(), 0);
@@ -737,27 +744,29 @@ fn pressing_the_previous_chevron_turns_back_and_the_first_page_goes_no_further()
     panel.set_reduced_motion(true);
     panel.tray_page = 3;
     let mut out = ChromeEvents::default();
-    let mut ui = lens::Ui::headless().unwrap();
+    let mut ui = optics_lens::Ui::headless().unwrap();
     let mut input = Input::new(display, 0.05);
     let i18n = Localizer::default();
 
-    let frame =
-        |ui: &mut lens::Ui, panel: &mut ControlCenter, input: &Input, out: &mut ChromeEvents| {
-            ui.frame(input, |f| {
-                panel.render_tray_shelf_cells(
-                    f,
-                    anchor,
-                    &cells,
-                    1.0,
-                    (input.as_raw().cursor.x, input.as_raw().cursor.y),
-                    &i18n,
-                );
-            });
-            let snap = ui.snapshot().unwrap();
-            ui.activate(&snap).unwrap();
-            let _ = out;
-        };
-    let press_at = |ui: &mut lens::Ui,
+    let frame = |ui: &mut optics_lens::Ui,
+                 panel: &mut ControlCenter,
+                 input: &Input,
+                 out: &mut ChromeEvents| {
+        ui.frame(input, |f| {
+            panel.render_tray_shelf_cells(
+                f,
+                anchor,
+                &cells,
+                1.0,
+                (input.as_raw().cursor.x, input.as_raw().cursor.y),
+                &i18n,
+            );
+        });
+        let snap = ui.snapshot().unwrap();
+        ui.activate(&snap).unwrap();
+        let _ = out;
+    };
+    let press_at = |ui: &mut optics_lens::Ui,
                     panel: &mut ControlCenter,
                     input: &mut Input,
                     out: &mut ChromeEvents,
@@ -765,14 +774,14 @@ fn pressing_the_previous_chevron_turns_back_and_the_first_page_goes_no_further()
         input.set_cursor(at.x + at.w * 0.5, at.y + at.h * 0.5);
         frame(ui, panel, input, out);
         frame(ui, panel, input, out);
-        input.set_mouse_down(lens::MouseButton::Left, true);
-        input.set_mouse_pressed(lens::MouseButton::Left, true);
+        input.set_mouse_down(optics_lens::MouseButton::Left, true);
+        input.set_mouse_pressed(optics_lens::MouseButton::Left, true);
         frame(ui, panel, input, out);
-        input.set_mouse_down(lens::MouseButton::Left, false);
-        input.set_mouse_pressed(lens::MouseButton::Left, false);
-        input.set_mouse_released(lens::MouseButton::Left, true);
+        input.set_mouse_down(optics_lens::MouseButton::Left, false);
+        input.set_mouse_pressed(optics_lens::MouseButton::Left, false);
+        input.set_mouse_released(optics_lens::MouseButton::Left, true);
         frame(ui, panel, input, out);
-        input.set_mouse_released(lens::MouseButton::Left, false);
+        input.set_mouse_released(optics_lens::MouseButton::Left, false);
     };
 
     // Back from page 3 to page 0, one chevron press each.
@@ -820,26 +829,28 @@ fn an_item_on_a_later_page_still_activates_and_opens_its_menu() {
     panel.set_reduced_motion(true);
     panel.tray_page = 2;
     let mut out = ChromeEvents::default();
-    let mut ui = lens::Ui::headless().unwrap();
+    let mut ui = optics_lens::Ui::headless().unwrap();
     let mut input = Input::new(display, 0.05);
     let i18n = Localizer::default();
 
-    let frame =
-        |ui: &mut lens::Ui, panel: &mut ControlCenter, input: &Input, out: &mut ChromeEvents| {
-            ui.frame(input, |f| {
-                panel.render_tray_shelf_cells(
-                    f,
-                    anchor,
-                    &cells,
-                    1.0,
-                    (input.as_raw().cursor.x, input.as_raw().cursor.y),
-                    &i18n,
-                );
-            });
-            let snap = ui.snapshot().unwrap();
-            ui.activate(&snap).unwrap();
-            let _ = out;
-        };
+    let frame = |ui: &mut optics_lens::Ui,
+                 panel: &mut ControlCenter,
+                 input: &Input,
+                 out: &mut ChromeEvents| {
+        ui.frame(input, |f| {
+            panel.render_tray_shelf_cells(
+                f,
+                anchor,
+                &cells,
+                1.0,
+                (input.as_raw().cursor.x, input.as_raw().cursor.y),
+                &i18n,
+            );
+        });
+        let snap = ui.snapshot().unwrap();
+        ui.activate(&snap).unwrap();
+        let _ = out;
+    };
 
     // Page 2: one item, bracketed by both chevrons.
     let layout = shelf_layout(anchor, cells.len(), 2);
@@ -863,14 +874,14 @@ fn an_item_on_a_later_page_still_activates_and_opens_its_menu() {
     assert_eq!(panel.menu_open_for, None, "nothing opens before the press");
 
     // Right-click must reach the item on this page and open its popover.
-    input.set_mouse_down(lens::MouseButton::Right, true);
-    input.set_mouse_pressed(lens::MouseButton::Right, true);
+    input.set_mouse_down(optics_lens::MouseButton::Right, true);
+    input.set_mouse_pressed(optics_lens::MouseButton::Right, true);
     frame(&mut ui, &mut panel, &input, &mut out);
-    input.set_mouse_down(lens::MouseButton::Right, false);
-    input.set_mouse_pressed(lens::MouseButton::Right, false);
-    input.set_mouse_released(lens::MouseButton::Right, true);
+    input.set_mouse_down(optics_lens::MouseButton::Right, false);
+    input.set_mouse_pressed(optics_lens::MouseButton::Right, false);
+    input.set_mouse_released(optics_lens::MouseButton::Right, true);
     frame(&mut ui, &mut panel, &input, &mut out);
-    input.set_mouse_released(lens::MouseButton::Right, false);
+    input.set_mouse_released(optics_lens::MouseButton::Right, false);
 
     assert_eq!(
         panel.menu_open_for.as_deref(),
@@ -902,7 +913,7 @@ fn a_page_that_stops_existing_falls_back_to_a_real_one() {
     panel.set_reduced_motion(true);
     panel.tray_page = 5;
     let out = ChromeEvents::default();
-    let mut ui = lens::Ui::headless().unwrap();
+    let mut ui = optics_lens::Ui::headless().unwrap();
     let input = Input::new((1280.0, 720.0), 0.05);
     let i18n = Localizer::default();
 
@@ -941,7 +952,7 @@ fn a_tray_menu_that_scrolled_to_another_page_is_dismissed() {
     panel.reveal.snap_to(1.0);
     panel.set_reduced_motion(true);
     panel.menu_open_for = Some(cells[0].key.clone());
-    let mut ui = lens::Ui::headless().unwrap();
+    let mut ui = optics_lens::Ui::headless().unwrap();
     let input = Input::new((1280.0, 720.0), 0.05);
     let i18n = Localizer::default();
 
@@ -1119,7 +1130,7 @@ fn the_sound_fader_offers_the_output_page_only_when_there_is_a_choice() {
     };
     let i18n = Localizer::default();
     let input = Input::new((1920.0, 1080.0), 0.05);
-    let mut ui = lens::Ui::headless().unwrap();
+    let mut ui = optics_lens::Ui::headless().unwrap();
 
     panel.page = Page::Sound;
     panel.status.audio_outputs = vec![
@@ -1211,7 +1222,7 @@ fn the_sound_page_paints_in_every_capture_and_inventory_state() {
     };
     let i18n = Localizer::default();
     let input_state = Input::new((1920.0, 1080.0), 0.05);
-    let mut ui = lens::Ui::headless().unwrap();
+    let mut ui = optics_lens::Ui::headless().unwrap();
 
     for state in states {
         let mut panel = ControlCenter::without_sources();

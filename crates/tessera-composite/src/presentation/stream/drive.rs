@@ -26,7 +26,7 @@ use super::transport::{
 /// observations, and the content port for offscreen streams (windows and `VIRTUAL-*`).
 pub struct OffscreenStreamDrive<'a> {
     pub now: Instant,
-    pub device: &'a flux::Device,
+    pub device: &'a optics_flux::Device,
     /// The window/output model signatures at this drive; geometry
     /// re-resolution is gated on them.
     pub signature: (u64, u64),

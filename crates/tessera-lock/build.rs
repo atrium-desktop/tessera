@@ -1,12 +1,19 @@
 //! Link the native session dependencies and preserve local Optics rpaths.
 
 fn main() {
-    let mut local_optics_dirs = Vec::new();
-    for var in ["DEP_LENS_RPATHS", "DEP_FLUX_RPATHS", "DEP_VISTA_RPATHS"] {
-        if let Ok(rpaths) = std::env::var(var) {
-            for dir in rpaths.split(';').filter(|path| !path.is_empty()) {
-                if !local_optics_dirs.iter().any(|existing| existing == dir) {
-                    local_optics_dirs.push(dir.to_owned());
+    let mut local_link_dirs = Vec::new();
+    for var in [
+        "DEP_LENS_LINK_PATHS",
+        "DEP_FLUX_LINK_PATHS",
+        "DEP_VISTA_LINK_PATHS",
+        "DEP_LENS_RPATHS",
+        "DEP_FLUX_RPATHS",
+        "DEP_VISTA_RPATHS",
+    ] {
+        if let Ok(paths) = std::env::var(var) {
+            for dir in paths.split(';').filter(|path| !path.is_empty()) {
+                if !local_link_dirs.iter().any(|existing| existing == dir) {
+                    local_link_dirs.push(dir.to_owned());
                 }
             }
         }
@@ -14,8 +21,8 @@ fn main() {
 
     // In local Optics mode an older system libflux may still live in
     // `/usr/lib`. Put the binding-published Meson directories first so the
-    // linker and the runtime loader select the same native build.
-    for dir in &local_optics_dirs {
+    // linker selects the intended native build.
+    for dir in &local_link_dirs {
         println!("cargo:rustc-link-search=native={dir}");
     }
 
@@ -27,10 +34,20 @@ fn main() {
         .probe("pam")
         .expect("tessera-lock requires PAM");
 
-    if !local_optics_dirs.is_empty() {
+    let mut local_rpaths = Vec::new();
+    for var in ["DEP_LENS_RPATHS", "DEP_FLUX_RPATHS", "DEP_VISTA_RPATHS"] {
+        if let Ok(rpaths) = std::env::var(var) {
+            for dir in rpaths.split(';').filter(|path| !path.is_empty()) {
+                if !local_rpaths.iter().any(|existing| existing == dir) {
+                    local_rpaths.push(dir.to_owned());
+                }
+            }
+        }
+    }
+    if !local_rpaths.is_empty() {
         println!("cargo:rustc-link-arg=-Wl,--disable-new-dtags");
     }
-    for dir in local_optics_dirs {
+    for dir in local_rpaths {
         println!("cargo:rustc-link-arg=-Wl,-rpath,{dir}");
     }
 }

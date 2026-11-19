@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use lens::Rect;
+use optics_lens::Rect;
 use tessera_desktop::dock::DockPosition;
 
 use crate::widgets::motion::{Spring, SpringParams, approach, smoothstep};

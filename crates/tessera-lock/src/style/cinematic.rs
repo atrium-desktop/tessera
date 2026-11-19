@@ -1,8 +1,8 @@
 //! The `cinematic` composition: full-bleed artwork, peripheral clock, and
 //! a lower-right typographic credential rail.
 
-use flux::{CanvasCommands, GradientStop};
-use lens::{Align, Color, Rect};
+use optics_flux::{CanvasCommands, GradientStop};
+use optics_lens::{Align, Color, Rect};
 use tessera_config::LockScreenStyle;
 use tessera_design::materials::chrome_place;
 use tessera_lock::lock_layout_for;
@@ -22,7 +22,7 @@ impl StylePainter for CinematicPainter {
     fn paint_background(
         &self,
         canvas: &CanvasCommands<'_>,
-        device: &flux::Device,
+        device: &optics_flux::Device,
         background: &mut LockBackground,
         output: (u32, u32),
         dim: f32,
@@ -72,7 +72,7 @@ impl StylePainter for CinematicPainter {
             field_y + field_h - 1.5 * frame.scale,
             field_w,
             1.5 * frame.scale,
-            flux::rgba(red, green, blue, (rail_alpha * progress) as u8),
+            optics_flux::rgba(red, green, blue, (rail_alpha * progress) as u8),
         );
         if state.validation_pending()
             && !self.visual.reduced_motion
@@ -94,7 +94,7 @@ impl StylePainter for CinematicPainter {
 
     fn paint_clock(
         &self,
-        ui: &mut lens::Frame,
+        ui: &mut optics_lens::Frame,
         frame: &FramePresentation<'_>,
         clock: &str,
         date: &str,
@@ -138,7 +138,7 @@ impl StylePainter for CinematicPainter {
         );
     }
 
-    fn paint_identity(&self, ui: &mut lens::Frame, frame: &FramePresentation<'_>) {
+    fn paint_identity(&self, ui: &mut optics_lens::Frame, frame: &FramePresentation<'_>) {
         let layout = lock_layout_for(
             LockScreenStyle::Cinematic,
             frame.logical.0 as f32,
@@ -224,7 +224,7 @@ impl StylePainter for CinematicPainter {
                     w: layout.field_width,
                     h: layout.field_height,
                 },
-                lens::LayoutOpts {
+                optics_lens::LayoutOpts {
                     pad: 0.0,
                     cross: Align::Stretch,
                     ..tessera_design::materials::surface_layout()
@@ -232,7 +232,7 @@ impl StylePainter for CinematicPainter {
             ),
             |ui| {
                 ui.row_ex(
-                    &lens::LayoutOpts {
+                    &optics_lens::LayoutOpts {
                         width: layout.field_width,
                         height: layout.field_height,
                         pad: 0.0,
@@ -303,17 +303,17 @@ fn draw_validation_sweep(
         (sweep_x, rail_y),
         (sweep_x + sweep_w, rail_y),
         &[
-            GradientStop::new(0.0, flux::rgba(150, 210, 255, 0)),
+            GradientStop::new(0.0, optics_flux::rgba(150, 210, 255, 0)),
             GradientStop::new(
                 0.5,
-                flux::rgba(
+                optics_flux::rgba(
                     validation_red,
                     validation_green,
                     validation_blue,
                     (112.0 * alpha) as u8,
                 ),
             ),
-            GradientStop::new(1.0, flux::rgba(150, 210, 255, 0)),
+            GradientStop::new(1.0, optics_flux::rgba(150, 210, 255, 0)),
         ],
     );
     canvas.fill_rect_linear_gradient(
@@ -321,9 +321,9 @@ fn draw_validation_sweep(
         (sweep_x, rail_y),
         (sweep_x + sweep_w, rail_y),
         &[
-            GradientStop::new(0.0, flux::rgba(210, 238, 255, 0)),
-            GradientStop::new(0.5, flux::rgba(226, 245, 255, (250.0 * alpha) as u8)),
-            GradientStop::new(1.0, flux::rgba(210, 238, 255, 0)),
+            GradientStop::new(0.0, optics_flux::rgba(210, 238, 255, 0)),
+            GradientStop::new(0.5, optics_flux::rgba(226, 245, 255, (250.0 * alpha) as u8)),
+            GradientStop::new(1.0, optics_flux::rgba(210, 238, 255, 0)),
         ],
     );
     canvas.restore();
@@ -332,8 +332,8 @@ fn draw_validation_sweep(
 /// Scrim gradient for the shared artwork painter.
 pub(crate) fn cinematic_scrim_stops() -> [GradientStop; 3] {
     [
-        GradientStop::new(0.0, flux::rgba(2, 4, 9, 6)),
-        GradientStop::new(0.58, flux::rgba(2, 4, 9, 34)),
-        GradientStop::new(1.0, flux::rgba(2, 4, 9, 176)),
+        GradientStop::new(0.0, optics_flux::rgba(2, 4, 9, 6)),
+        GradientStop::new(0.58, optics_flux::rgba(2, 4, 9, 34)),
+        GradientStop::new(1.0, optics_flux::rgba(2, 4, 9, 176)),
     ]
 }

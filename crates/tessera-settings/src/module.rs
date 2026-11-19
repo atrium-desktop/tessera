@@ -11,8 +11,8 @@
 //! in-process `.so`; the metadata and state model here are what such a
 //! protocol would carry.
 
-use lens::Frame;
-use lens::sys::lens_icon_id;
+use optics_lens::Frame;
+use optics_lens::sys::lens_icon_id;
 use tessera_design::Design;
 use tessera_desktop::settings::{SettingsAction, SettingsSnapshot};
 use tessera_i18n::{Localizer, Message};

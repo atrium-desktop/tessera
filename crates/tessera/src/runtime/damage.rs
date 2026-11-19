@@ -59,6 +59,32 @@ fn inflate_damage_rect(rect: tessera_primitives::Rect, margin: i32) -> tessera_p
     )
 }
 
+fn software_cursor_swept_rect(
+    cursor_position: (f32, f32),
+    previous_physical: Option<(i32, i32)>,
+    extent: f32,
+    scale: f32,
+    display: (f32, f32),
+) -> tessera_primitives::Rect {
+    let extent = extent.max(1.0);
+    let swept = |position: (f32, f32)| {
+        let x0 = (position.0 - extent).max(0.0).floor() as i32;
+        let y0 = (position.1 - extent).max(0.0).floor() as i32;
+        let x1 = (position.0 + extent).min(display.0).ceil() as i32;
+        let y1 = (position.1 + extent).min(display.1).ceil() as i32;
+        tessera_primitives::Rect::new(x0, y0, (x1 - x0).max(0), (y1 - y0).max(0))
+    };
+    let mut rect = swept(cursor_position);
+    if let Some(previous) = previous_physical {
+        let logical = (
+            previous.0 as f32 / scale.max(0.001),
+            previous.1 as f32 / scale.max(0.001),
+        );
+        rect = rect.union(swept(logical));
+    }
+    rect
+}
+
 fn transition_damage_with_shadow(
     rects: Vec<tessera_primitives::Rect>,
     style: tessera_desktop::window::WindowShadowStyle,
@@ -162,6 +188,26 @@ impl CompositorRuntime<'_> {
         let lock_changed = session_locked != self.damage.last_session_locked;
         let software_cursor_changed = software_cursor
             && self.damage.last_presented_cursor != Some((cursor_shape, cursor_hidden));
+        // A software cursor shape or visibility change only alters pixels
+        // inside the cursor sprite's swept footprint (old + new position and
+        // max sprite extent). Treating it as `base_full` made hovering links
+        // and text inside browsers on mirrored/software-cursor outputs repaint
+        // the entire 3K/4K desktop dozens of times per second (ADR-0250).
+        let effective_cursor_extent = self
+            .damage
+            .last_presented_cursor_pixels
+            .map_or(cursor_extent, |(w, h)| {
+                (w.max(h) as f32 / scale.max(0.001)).max(cursor_extent)
+            });
+        let software_cursor_change_rect = software_cursor_changed.then(|| {
+            software_cursor_swept_rect(
+                cursor_position,
+                self.damage.last_presented_cursor_position,
+                effective_cursor_extent,
+                scale,
+                self.input_acc.display_size,
+            )
+        });
         // A workspace slide translates entire page layers across the output, so
         // no localized rect describes it: every sampled frame is a full-output
         // repaint by construction. Per-window transitions are different — each
@@ -206,7 +252,6 @@ impl CompositorRuntime<'_> {
             || forced
             || freeze_capture
             || lock_changed
-            || software_cursor_changed
             || wallpaper_full
             || workspace_slide
             || workspace_changed
@@ -349,29 +394,15 @@ impl CompositorRuntime<'_> {
                 // Only a software cursor paints into the primary framebuffer;
                 // a hardware cursor plane commits out-of-band without dirtying
                 // composite output pixels.
-                let cursor_rect = if software_cursor {
-                    let extent = cursor_extent.max(1.0);
-                    let swept = |position: (f32, f32)| {
-                        let x0 = (position.0 - extent).max(0.0).floor() as i32;
-                        let y0 = (position.1 - extent).max(0.0).floor() as i32;
-                        let x1 = (position.0 + extent).min(display.0).ceil() as i32;
-                        let y1 = (position.1 + extent).min(display.1).ceil() as i32;
-                        tessera_primitives::Rect::new(x0, y0, (x1 - x0).max(0), (y1 - y0).max(0))
-                    };
-                    let mut rect = swept(cursor_position);
-                    if let Some(previous) = self.damage.last_presented_cursor_position {
-                        // The baseline stores physical pixels; the swept
-                        // footprint here is logical. Convert back.
-                        let logical = (
-                            previous.0 as f32 / scale.max(0.001),
-                            previous.1 as f32 / scale.max(0.001),
-                        );
-                        rect = rect.union(swept(logical));
-                    }
-                    Some(rect)
-                } else {
-                    None
-                };
+                let cursor_rect = software_cursor.then(|| {
+                    software_cursor_swept_rect(
+                        cursor_position,
+                        self.damage.last_presented_cursor_position,
+                        effective_cursor_extent,
+                        scale,
+                        display,
+                    )
+                });
                 // Chrome hover state can change anywhere along the pointer's
                 // path; union the animated-chrome footprint when one is
                 // known, and the pointer-capture band when it is not (the
@@ -463,6 +494,9 @@ impl CompositorRuntime<'_> {
             if let Some(rects) = input_damage {
                 extra.extend(rects);
             }
+            if let Some(rect) = software_cursor_change_rect {
+                extra.push(rect);
+            }
             if !transition_rects.is_empty() {
                 extra.extend(transition_rects);
             }
@@ -502,5 +536,26 @@ impl CompositorRuntime<'_> {
             output,
             sampled_surface_ids,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_inv_arch_160_software_cursor_shape_change_stays_localized() {
+        let rect = software_cursor_swept_rect(
+            (500.0, 300.0),
+            Some((900, 500)), // logical (450, 250) at scale 2.0
+            32.0,
+            2.0,
+            (1920.0, 1080.0),
+        );
+        assert_eq!(rect, tessera_primitives::Rect::new(418, 218, 114, 114));
+        assert!(rect.size.w < 1920 && rect.size.h < 1080);
+        // Clamped to display edges without leaking full-output bounds.
+        let edge = software_cursor_swept_rect((4.0, 4.0), None, 32.0, 1.0, (1920.0, 1080.0));
+        assert_eq!(edge, tessera_primitives::Rect::new(0, 0, 36, 36));
     }
 }

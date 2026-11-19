@@ -6,7 +6,7 @@
 //! - Obscurity collision tracking with client windows and workspace mode.
 //! - 100% headless testable with zero GPU or display dependencies.
 
-use lens::Rect;
+use optics_lens::Rect;
 use tessera_desktop::app::Entry;
 use tessera_desktop::dock::DockPosition;
 use tessera_desktop::window::{SpaceUse, Window};

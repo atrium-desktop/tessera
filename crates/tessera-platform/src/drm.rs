@@ -99,7 +99,7 @@ pub enum DrmError {
     DesktopTooLarge(u32, u32),
     MissingProperty(&'static str),
     InputSeat(String),
-    Flux(flux::Error),
+    Flux(optics_flux::Error),
     DmabufUnsupported,
     Inactive,
     Busy,
@@ -164,8 +164,8 @@ impl From<std::io::Error> for DrmError {
     }
 }
 
-impl From<flux::Error> for DrmError {
-    fn from(err: flux::Error) -> Self {
+impl From<optics_flux::Error> for DrmError {
+    fn from(err: optics_flux::Error) -> Self {
         Self::Flux(err)
     }
 }
@@ -263,90 +263,157 @@ fn cursor_plane_rect(
     })
 }
 
+/// Pure KMS action for one output's cursor plane, separated from
+/// `AtomicModeReq` so mirror/disabled-cursor cleanup is testable without a
+/// DRM card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CursorPlaneCommit {
+    Skip,
+    Disable(plane::Handle),
+    Program {
+        plane: plane::Handle,
+        framebuffer: control::framebuffer::Handle,
+        crtc: crtc::Handle,
+        rect: CursorPlaneRect,
+    },
+}
+
+fn plan_cursor_plane_commit(
+    cursor: Option<CursorPlane>,
+    disabled_cursor: Option<CursorPlane>,
+    crtc: crtc::Handle,
+    output_origin: (u32, u32),
+    output_size: (u32, u32),
+    state: Option<CursorState>,
+    buffers: &[CursorBuffer],
+) -> CursorPlaneCommit {
+    if let Some(cursor) = cursor {
+        let placement = state.and_then(|state| {
+            let buffer = buffers.get(state.buffer)?;
+            let rect = cursor_plane_rect(
+                state.position,
+                state.hotspot,
+                buffer.dumb.size(),
+                output_origin,
+                output_size,
+            )?;
+            Some((buffer.framebuffer, rect))
+        });
+        match placement {
+            Some((framebuffer, rect)) => CursorPlaneCommit::Program {
+                plane: cursor.handle,
+                framebuffer,
+                crtc,
+                rect,
+            },
+            None => CursorPlaneCommit::Disable(cursor.handle),
+        }
+    } else if let Some(cursor) = disabled_cursor {
+        CursorPlaneCommit::Disable(cursor.handle)
+    } else {
+        CursorPlaneCommit::Skip
+    }
+}
+
 fn add_cursor_plane_to_commit(
     request: &mut atomic::AtomicModeReq,
     output: &Output,
     state: Option<CursorState>,
     buffers: &[CursorBuffer],
 ) {
-    let Some(cursor) = &output.planes.cursor else {
-        return;
-    };
-    let placement = state.and_then(|state| {
-        let buffer = buffers.get(state.buffer)?;
-        let (width, height) = output.mode.size();
-        let rect = cursor_plane_rect(
-            state.position,
-            state.hotspot,
-            buffer.dumb.size(),
-            (output.x, output.y),
-            (u32::from(width), u32::from(height)),
-        )?;
-        Some((buffer.framebuffer, rect))
-    });
-    let Some((framebuffer, rect)) = placement else {
-        request.add_property(
-            cursor.handle,
-            cursor.props.plane_fb_id,
-            property::Value::Framebuffer(None),
-        );
-        request.add_property(
-            cursor.handle,
-            cursor.props.plane_crtc_id,
-            property::Value::CRTC(None),
-        );
-        return;
-    };
-    request.add_property(
-        cursor.handle,
-        cursor.props.plane_fb_id,
-        property::Value::Framebuffer(Some(framebuffer)),
+    let (width, height) = output.mode.size();
+    let action = plan_cursor_plane_commit(
+        output.planes.cursor,
+        output.planes.disabled_cursor,
+        output.crtc,
+        (output.x, output.y),
+        (u32::from(width), u32::from(height)),
+        state,
+        buffers,
     );
-    request.add_property(
-        cursor.handle,
-        cursor.props.plane_crtc_id,
-        property::Value::CRTC(Some(output.crtc)),
-    );
-    request.add_property(
-        cursor.handle,
-        cursor.props.plane_src_x,
-        property::Value::UnsignedRange(u64::from(rect.src.0) << 16),
-    );
-    request.add_property(
-        cursor.handle,
-        cursor.props.plane_src_y,
-        property::Value::UnsignedRange(u64::from(rect.src.1) << 16),
-    );
-    request.add_property(
-        cursor.handle,
-        cursor.props.plane_src_w,
-        property::Value::UnsignedRange(u64::from(rect.src.2) << 16),
-    );
-    request.add_property(
-        cursor.handle,
-        cursor.props.plane_src_h,
-        property::Value::UnsignedRange(u64::from(rect.src.3) << 16),
-    );
-    request.add_property(
-        cursor.handle,
-        cursor.props.plane_crtc_x,
-        property::Value::SignedRange(i64::from(rect.dst.0)),
-    );
-    request.add_property(
-        cursor.handle,
-        cursor.props.plane_crtc_y,
-        property::Value::SignedRange(i64::from(rect.dst.1)),
-    );
-    request.add_property(
-        cursor.handle,
-        cursor.props.plane_crtc_w,
-        property::Value::UnsignedRange(u64::from(rect.dst.2)),
-    );
-    request.add_property(
-        cursor.handle,
-        cursor.props.plane_crtc_h,
-        property::Value::UnsignedRange(u64::from(rect.dst.3)),
-    );
+    match action {
+        CursorPlaneCommit::Skip => {}
+        CursorPlaneCommit::Disable(handle) => {
+            let Some(cursor) = output
+                .planes
+                .cursor
+                .or(output.planes.disabled_cursor)
+                .filter(|plane| plane.handle == handle)
+            else {
+                return;
+            };
+            request.add_property(
+                cursor.handle,
+                cursor.props.plane_fb_id,
+                property::Value::Framebuffer(None),
+            );
+            request.add_property(
+                cursor.handle,
+                cursor.props.plane_crtc_id,
+                property::Value::CRTC(None),
+            );
+        }
+        CursorPlaneCommit::Program {
+            plane: handle,
+            framebuffer,
+            crtc,
+            rect,
+        } => {
+            let Some(cursor) = output.planes.cursor.filter(|plane| plane.handle == handle) else {
+                return;
+            };
+            request.add_property(
+                cursor.handle,
+                cursor.props.plane_fb_id,
+                property::Value::Framebuffer(Some(framebuffer)),
+            );
+            request.add_property(
+                cursor.handle,
+                cursor.props.plane_crtc_id,
+                property::Value::CRTC(Some(crtc)),
+            );
+            request.add_property(
+                cursor.handle,
+                cursor.props.plane_src_x,
+                property::Value::UnsignedRange(u64::from(rect.src.0) << 16),
+            );
+            request.add_property(
+                cursor.handle,
+                cursor.props.plane_src_y,
+                property::Value::UnsignedRange(u64::from(rect.src.1) << 16),
+            );
+            request.add_property(
+                cursor.handle,
+                cursor.props.plane_src_w,
+                property::Value::UnsignedRange(u64::from(rect.src.2) << 16),
+            );
+            request.add_property(
+                cursor.handle,
+                cursor.props.plane_src_h,
+                property::Value::UnsignedRange(u64::from(rect.src.3) << 16),
+            );
+            request.add_property(
+                cursor.handle,
+                cursor.props.plane_crtc_x,
+                property::Value::SignedRange(i64::from(rect.dst.0)),
+            );
+            request.add_property(
+                cursor.handle,
+                cursor.props.plane_crtc_y,
+                property::Value::SignedRange(i64::from(rect.dst.1)),
+            );
+            request.add_property(
+                cursor.handle,
+                cursor.props.plane_crtc_w,
+                property::Value::UnsignedRange(u64::from(rect.dst.2)),
+            );
+            request.add_property(
+                cursor.handle,
+                cursor.props.plane_crtc_h,
+                property::Value::UnsignedRange(u64::from(rect.dst.3)),
+            );
+        }
+    }
 }
 
 /// Pure KMS values for one overlay plane, before they are written into an
@@ -556,6 +623,10 @@ struct OutputAtomicProperties {
     /// (`GAMMA_LUT_SIZE`, typically 256 or 1024 entries). Night light
     /// programs a per-channel gain ramp here; absent on legacy drivers.
     crtc_gamma_lut: Option<(property::Handle, u32)>,
+    /// Connector `link-status` enum property (0 = Good, 1 = Bad). When the
+    /// kernel signals link degradation via hotplug + `Bad`, userspace must
+    /// write `0` (Good) on the retraining `ALLOW_MODESET` commit.
+    connector_link_status: Option<property::Handle>,
 }
 
 #[derive(Debug)]
@@ -600,6 +671,9 @@ struct Output {
     available_modes: Vec<OutputMode>,
     /// HDR/wide-gamut capabilities parsed from the connector's EDID.
     color_caps: tessera_primitives::edid::EdidColorCapabilities,
+    /// True when the kernel reported `link-status != Good` during probe and
+    /// this connector requires a retraining modeset.
+    link_bad: bool,
 }
 
 /// The session-wide color pipeline mode. The compositor renders one shared
@@ -685,7 +759,7 @@ struct PrimaryScanout {
     /// Flux image lease shared by every CRTC scanning this composited frame.
     /// The ring slot becomes reusable only when the last slot referencing the
     /// image retires and drops its lease (ADR-0185).
-    lease: Option<std::rc::Rc<flux::DmabufLease>>,
+    lease: Option<std::rc::Rc<optics_flux::DmabufLease>>,
 }
 
 #[derive(Debug)]
@@ -1171,7 +1245,7 @@ impl DrmBackend {
     /// The identity comes from the live descriptor rather than a second path
     /// lookup, so Vulkan selection is bound to the exact device libseat
     /// granted even if `/dev/dri` changes concurrently.
-    pub fn kms_device(&self) -> Result<(PathBuf, flux::DrmNode), DrmError> {
+    pub fn kms_device(&self) -> Result<(PathBuf, optics_flux::DrmNode), DrmError> {
         let card = self.card.as_ref().ok_or(DrmError::Inactive)?;
         let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
         if unsafe { libc::fstat(card.as_fd().as_raw_fd(), stat.as_mut_ptr()) } < 0 {
@@ -1187,7 +1261,7 @@ impl DrmBackend {
         }
         Ok((
             card.path.clone(),
-            flux::DrmNode {
+            optics_flux::DrmNode {
                 major: libc::major(stat.st_rdev),
                 minor: libc::minor(stat.st_rdev),
             },

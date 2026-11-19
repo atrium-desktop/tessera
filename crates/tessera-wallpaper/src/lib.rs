@@ -31,9 +31,9 @@ pub enum Error {
     UnsupportedFormat(PathBuf, Option<String>),
     FfmpegSpawn(std::io::Error),
     FfmpegEmpty(PathBuf),
-    Gltf(PathBuf, vista::Error),
+    Gltf(PathBuf, optics_vista::Error),
     GltfBounds(PathBuf),
-    Flux(flux::Error),
+    Flux(optics_flux::Error),
     Parallax(String),
 }
 
@@ -75,8 +75,8 @@ impl std::error::Error for Error {
     }
 }
 
-impl From<flux::Error> for Error {
-    fn from(err: flux::Error) -> Self {
+impl From<optics_flux::Error> for Error {
+    fn from(err: optics_flux::Error) -> Self {
         Self::Flux(err)
     }
 }
@@ -119,7 +119,7 @@ pub struct Wallpaper {
     height: u32,
     /// Cached flux texture; re-created only when the source's generation
     /// advances.
-    flux_image: Option<flux::Image>,
+    flux_image: Option<optics_flux::Image>,
     /// Generation last uploaded to `flux_image`. Initial value forces a
     /// first-frame upload.
     last_uploaded_gen: u64,
@@ -289,8 +289,8 @@ impl Wallpaper {
     /// Load a `.glb` as a model-only wallpaper. The scene is automatically
     /// framed, then rendered with an orbiting camera and animated key light.
     pub fn from_gltf(
-        device: &flux::Device,
-        surface: &flux::Surface,
+        device: &optics_flux::Device,
+        surface: &optics_flux::Surface,
         path: impl AsRef<Path>,
     ) -> Result<Self, Error> {
         let path = path.as_ref();
@@ -308,8 +308,8 @@ impl Wallpaper {
 
     /// Construct a model-only wallpaper with the built-in procedural scene.
     pub fn from_builtin_model(
-        device: &flux::Device,
-        surface: &flux::Surface,
+        device: &optics_flux::Device,
+        surface: &optics_flux::Surface,
     ) -> Result<Self, Error> {
         let model = ModelLayer::builtin(device, surface)?;
         Ok(Self {
@@ -345,8 +345,8 @@ impl Wallpaper {
     /// Add a caller-selected `.glb` model over the current media background.
     pub fn set_model_from_gltf(
         &mut self,
-        device: &flux::Device,
-        surface: &flux::Surface,
+        device: &optics_flux::Device,
+        surface: &optics_flux::Surface,
         path: impl AsRef<Path>,
     ) -> Result<(), Error> {
         self.model = Some(ModelLayer::from_path(device, surface, path.as_ref())?);
@@ -356,8 +356,8 @@ impl Wallpaper {
     /// Add the built-in procedural knot model over the current background.
     pub fn set_builtin_model(
         &mut self,
-        device: &flux::Device,
-        surface: &flux::Surface,
+        device: &optics_flux::Device,
+        surface: &optics_flux::Surface,
     ) -> Result<(), Error> {
         self.model = Some(ModelLayer::builtin(device, surface)?);
         Ok(())
@@ -414,7 +414,7 @@ impl Wallpaper {
     /// Draw the optional 3D model into its own depth-tested pass. The caller
     /// must end any canvas pass first and may begin another canvas pass with
     /// load semantics afterward.
-    pub fn draw_model(&mut self, device: &flux::Device, frame: &mut flux::Frame<'_>) {
+    pub fn draw_model(&mut self, device: &optics_flux::Device, frame: &mut optics_flux::Frame<'_>) {
         self.draw_model_into(device, frame, None);
     }
 
@@ -422,18 +422,18 @@ impl Wallpaper {
     /// The target's existing 2D background is loaded and preserved.
     pub fn draw_model_to(
         &mut self,
-        device: &flux::Device,
-        frame: &mut flux::Frame<'_>,
-        target: &flux::Image,
+        device: &optics_flux::Device,
+        frame: &mut optics_flux::Frame<'_>,
+        target: &optics_flux::Image,
     ) {
         self.draw_model_into(device, frame, Some(target));
     }
 
     fn draw_model_into(
         &mut self,
-        device: &flux::Device,
-        frame: &mut flux::Frame<'_>,
-        target: Option<&flux::Image>,
+        device: &optics_flux::Device,
+        frame: &mut optics_flux::Frame<'_>,
+        target: Option<&optics_flux::Image>,
     ) {
         let Some(model) = self.model.as_mut() else {
             return;
@@ -456,8 +456,8 @@ impl Wallpaper {
     /// advanced here using wall-clock time.
     pub fn draw(
         &mut self,
-        device: &flux::Device,
-        canvas: &flux::CanvasCommands<'_>,
+        device: &optics_flux::Device,
+        canvas: &optics_flux::CanvasCommands<'_>,
         dst_w: f32,
         dst_h: f32,
     ) {
@@ -468,8 +468,8 @@ impl Wallpaper {
     /// source aspect ratio and crops overflow instead of stretching artwork.
     pub fn draw_cover(
         &mut self,
-        device: &flux::Device,
-        canvas: &flux::CanvasCommands<'_>,
+        device: &optics_flux::Device,
+        canvas: &optics_flux::CanvasCommands<'_>,
         dst_w: f32,
         dst_h: f32,
     ) {
@@ -478,8 +478,8 @@ impl Wallpaper {
 
     fn draw_fitted(
         &mut self,
-        device: &flux::Device,
-        canvas: &flux::CanvasCommands<'_>,
+        device: &optics_flux::Device,
+        canvas: &optics_flux::CanvasCommands<'_>,
         dst_w: f32,
         dst_h: f32,
         cover: bool,
@@ -497,11 +497,11 @@ impl Wallpaper {
         if r#gen != self.last_uploaded_gen {
             let need = (self.width as usize) * (self.height as usize) * 4;
             if pixels.len() == need {
-                match flux::Image::from_bytes(
+                match optics_flux::Image::from_bytes(
                     device,
                     self.width,
                     self.height,
-                    flux::Format::Bgra8Unorm,
+                    optics_flux::Format::Bgra8Unorm,
                     pixels,
                 ) {
                     Ok(img) => {

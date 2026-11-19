@@ -2,7 +2,7 @@
 //!
 //! Backends (nested-host, libinput, DRM/KMS) emit these; the main loop drains
 //! and routes them — to the focused client via `wl_seat`, to the chrome via
-//! `lens::Input`, or both. Keeping the types in `tessera-primitives` (rather than in
+//! `optics_lens::Input`, or both. Keeping the types in `tessera-primitives` (rather than in
 //! `tessera-platform`) means the server and shell never need to depend on a backend
 //! crate to consume input.
 

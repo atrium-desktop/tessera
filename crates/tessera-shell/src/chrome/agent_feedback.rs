@@ -24,7 +24,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant};
 
-use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
+use optics_lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 #[cfg(feature = "agent-sprites")]
 use tessera_assets::cursors::{self, EmbeddedDir};
 use tessera_authority::interaction_domain::InteractionDomainId;
@@ -67,7 +67,7 @@ enum OperationRegion {
 /// theme's own scale varies.
 #[derive(Clone)]
 struct LoadedCursor {
-    image: std::rc::Rc<flux::Image>,
+    image: std::rc::Rc<optics_flux::Image>,
     hotspot: (f32, f32),
 }
 
@@ -78,7 +78,7 @@ struct AgentCursorSet {
 
 impl AgentCursorSet {
     #[cfg(feature = "agent-sprites")]
-    fn upload(device: &flux::Device, theme: &EmbeddedDir) -> Option<Self> {
+    fn upload(device: &optics_flux::Device, theme: &EmbeddedDir) -> Option<Self> {
         let load_cursor = |shape: u32| -> Option<LoadedCursor> {
             for candidate in tessera_primitives::cursor_shape::xdg_names(shape) {
                 // The theme's own SVG is the source of truth: it carries both the
@@ -151,16 +151,16 @@ fn normalized_hotspot(document: Option<&tessera_assets::VectorDocument>) -> (f32
 /// over the mirror's scrim.
 #[cfg(feature = "agent-sprites")]
 fn upload_document_sprite(
-    device: &flux::Device,
+    device: &optics_flux::Device,
     document: &tessera_assets::VectorDocument,
     size: u32,
-) -> Option<flux::Image> {
+) -> Option<optics_flux::Image> {
     let raster = document.rasterize(size).ok()?;
-    flux::Image::from_bytes(
+    optics_flux::Image::from_bytes(
         device,
         raster.width(),
         raster.height(),
-        flux::Format::Bgra8Unorm,
+        optics_flux::Format::Bgra8Unorm,
         raster.as_bgra(),
     )
     .ok()
@@ -201,7 +201,7 @@ impl AgentFeedback {
     /// Construct the feedback layer, uploading the pointer sprites through
     /// the composition root's flux device.
     #[must_use]
-    pub fn new(device: &flux::Device) -> Self {
+    pub fn new(device: &optics_flux::Device) -> Self {
         #[cfg(feature = "agent-sprites")]
         let sets = AgentCursorSet::upload(device, &cursors::AI_LIGHT)
             .zip(AgentCursorSet::upload(device, &cursors::AI_DARK))
@@ -1069,13 +1069,17 @@ fn scaled_alpha(alpha: u8, numerator: u16, denominator: u16) -> u8 {
 /// degrades to no on-screen pointer. Compiling an asset decoder into a build that
 /// does not want it is the thing to avoid, not the absence of the sprites.
 #[cfg(feature = "agent-sprites")]
-fn upload_sprite(device: &flux::Device, png: &[u8], size: u32) -> Option<flux::Image> {
+fn upload_sprite(
+    device: &optics_flux::Device,
+    png: &[u8],
+    size: u32,
+) -> Option<optics_flux::Image> {
     let raster = tessera_assets::decode_bytes(png, size).ok()?;
-    flux::Image::from_bytes(
+    optics_flux::Image::from_bytes(
         device,
         raster.width(),
         raster.height(),
-        flux::Format::Bgra8Unorm,
+        optics_flux::Format::Bgra8Unorm,
         raster.as_bgra(),
     )
     .ok()

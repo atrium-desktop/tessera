@@ -4,7 +4,7 @@
 
 use std::ffi::c_void;
 
-use lens::{Align, Color, Frame, Icon, LayoutOpts, Rect};
+use optics_lens::{Align, Color, Frame, Icon, LayoutOpts, Rect};
 use tessera_design::materials::{chrome_place, surface_layout};
 use tessera_design::{Design, materials};
 use tessera_desktop::app::Entry;
@@ -35,7 +35,7 @@ pub enum ItemIcon {
     App(Option<*mut c_void>),
     System(Icon),
     /// A built-in lens glyph the Rust [`Icon`] enum does not bind.
-    Raw(lens::sys::lens_icon_id),
+    Raw(optics_lens::sys::lens_icon_id),
     Math,
     Agent,
 }
@@ -94,7 +94,7 @@ pub fn panel_rect(
 /// [`Icon`] enum binds only a subset of the built-in table; `Shield` (security
 /// posture) and `X` (dismiss) misrepresent "lock session" and "power off".
 pub fn cmd_to_icon(cmd: SystemCmd) -> ItemIcon {
-    use lens::sys::lens_icon_id;
+    use optics_lens::sys::lens_icon_id;
     match cmd {
         SystemCmd::Lock => ItemIcon::Raw(lens_icon_id::LENS_ICON_LOCK),
         SystemCmd::Screenshot => ItemIcon::Raw(lens_icon_id::LENS_ICON_CROP),
@@ -556,7 +556,7 @@ pub fn render_icon(frame: &mut Frame, icon: Option<*mut c_void>, progress: f32) 
     let size = ICON_SIZE * (0.92 + progress.clamp(0.0, 1.0) * 0.08);
     frame.centered(ICON_SIZE, ICON_SIZE, |frame| match icon {
         Some(pointer) => unsafe {
-            frame.image(pointer as *mut lens::sys::flux_image, size, size);
+            frame.image(pointer as *mut optics_lens::sys::flux_image, size, size);
         },
         None => {
             frame.column_ex(

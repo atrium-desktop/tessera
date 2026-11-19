@@ -5,7 +5,7 @@
 /// `tessera_shell::component::AppCatalog` (see `tessera_shell::component::IconSet`), so a refreshed cache is
 /// swapped in only after the new catalog has been fanned out.
 pub(super) struct IconCache {
-    pub(super) _images: Vec<flux::Image>,
+    pub(super) _images: Vec<optics_flux::Image>,
     pub(super) map: std::collections::HashMap<String, *mut std::ffi::c_void>,
     pub(super) default_icon: Option<*mut std::ffi::c_void>,
 }
@@ -347,18 +347,18 @@ pub(super) fn decode_icons(
 /// Upload decoded icons as flux textures, keyed by every id the window might
 /// report as `app_id`. Pure GPU work: all file I/O and decoding happened in
 /// [`decode_icons`] on the worker thread.
-pub(super) fn build_icon_cache(device: &flux::Device, decoded: &[DecodedIcon]) -> IconCache {
+pub(super) fn build_icon_cache(device: &optics_flux::Device, decoded: &[DecodedIcon]) -> IconCache {
     use std::ffi::c_void;
-    let mut images: Vec<flux::Image> = Vec::new();
+    let mut images: Vec<optics_flux::Image> = Vec::new();
     let mut map: std::collections::HashMap<String, *mut c_void> = std::collections::HashMap::new();
     let mut hud_count = 0usize;
 
     for icon in decoded {
-        match flux::Image::from_bytes(
+        match optics_flux::Image::from_bytes(
             device,
             icon.width,
             icon.height,
-            flux::Format::Bgra8Unorm,
+            optics_flux::Format::Bgra8Unorm,
             &icon.bgra,
         ) {
             Ok(img) => {

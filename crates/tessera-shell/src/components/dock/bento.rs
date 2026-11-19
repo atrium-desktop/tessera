@@ -20,7 +20,7 @@
 //! the hit test, and the paint each match on [`StripCell`] instead of growing a
 //! flag per cell kind.
 
-use lens::{Frame, LayoutOpts, Rect};
+use optics_lens::{Frame, LayoutOpts, Rect};
 use tessera_design::{Design, materials};
 use tessera_desktop::system::{BatteryStatus, BluetoothLinkState, SystemStatus, WifiLinkState};
 
@@ -779,9 +779,9 @@ fn paint_reading(
         Reading::Bluetooth { .. } => bluetooth_icon(tone),
         Reading::Battery { status } => {
             if status.charging {
-                lens::sys::lens_icon_id::LENS_ICON_BATTERY_CHARGING
+                optics_lens::sys::lens_icon_id::LENS_ICON_BATTERY_CHARGING
             } else {
-                lens::sys::lens_icon_id::LENS_ICON_BATTERY
+                optics_lens::sys::lens_icon_id::LENS_ICON_BATTERY
             }
         }
     };
@@ -792,7 +792,7 @@ fn paint_reading(
             glyph_rect,
             LayoutOpts {
                 pad: 0.0,
-                cross: lens::Align::Center,
+                cross: optics_lens::Align::Center,
                 ..materials::surface_layout()
             },
         ),
@@ -866,18 +866,18 @@ fn paint_reading(
 /// both "the radio is on", and the tone ramp already says which. `Off` is the
 /// struck-through glyph, because "off" and "on but idle" must never draw the same
 /// shape.
-fn wifi_icon(tone: ReadingTone) -> lens::sys::lens_icon_id {
+fn wifi_icon(tone: ReadingTone) -> optics_lens::sys::lens_icon_id {
     match tone {
-        ReadingTone::Linked | ReadingTone::Idle => lens::sys::lens_icon_id::LENS_ICON_WIFI,
-        ReadingTone::Off => lens::sys::lens_icon_id::LENS_ICON_WIFI_OFF,
+        ReadingTone::Linked | ReadingTone::Idle => optics_lens::sys::lens_icon_id::LENS_ICON_WIFI,
+        ReadingTone::Off => optics_lens::sys::lens_icon_id::LENS_ICON_WIFI_OFF,
     }
 }
 
 /// The Bluetooth glyph for a tone: the rune, struck through when off.
-fn bluetooth_icon(tone: ReadingTone) -> lens::sys::lens_icon_id {
+fn bluetooth_icon(tone: ReadingTone) -> optics_lens::sys::lens_icon_id {
     let enabled = !matches!(tone, ReadingTone::Off);
     crate::widgets::icons::bluetooth(enabled)
-        .unwrap_or(lens::sys::lens_icon_id::LENS_ICON_BLUETOOTH)
+        .unwrap_or(optics_lens::sys::lens_icon_id::LENS_ICON_BLUETOOTH)
 }
 
 /// Draw the interactive workspace rail.

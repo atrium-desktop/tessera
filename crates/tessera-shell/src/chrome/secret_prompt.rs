@@ -11,7 +11,7 @@
 //! compositor's IPC answer path exactly once (further zeroization is the
 //! caller's job — see the portal's vault KDF).
 
-use lens::{Align, Frame, Input, LayoutOpts, Rect};
+use optics_lens::{Align, Frame, Input, LayoutOpts, Rect};
 
 use crate::component::{
     Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, Localizer, Reserved,

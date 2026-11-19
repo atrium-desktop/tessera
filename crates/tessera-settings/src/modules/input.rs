@@ -1,4 +1,4 @@
-use lens::{Align, Frame, LayoutOpts};
+use optics_lens::{Align, Frame, LayoutOpts};
 use tessera_design::Design;
 use tessera_desktop::settings::SettingsAction;
 use tessera_desktop::settings::SettingsSnapshot;
@@ -50,7 +50,7 @@ impl SettingsModule for InputModule {
         ModuleMetadata {
             id: INPUT_MODULE_ID,
             title: Message::Input,
-            icon: lens::sys::lens_icon_id::LENS_ICON_MOUSE_POINTER,
+            icon: optics_lens::sys::lens_icon_id::LENS_ICON_MOUSE_POINTER,
             category: ModuleCategory::Hardware,
             keywords: &[
                 "input", "keyboard", "repeat", "mouse", "pointer", "speed", "scroll", "touchpad",

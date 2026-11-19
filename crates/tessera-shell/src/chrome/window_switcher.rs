@@ -7,7 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
+use optics_lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 use tessera_design::materials::{chrome_place, surface_layout};
 use tessera_design::{Design, PreviewSelectionStyle};
 
@@ -592,7 +592,7 @@ impl Chrome for WindowSwitcher {
                             if let Some(icon) = icon {
                                 unsafe {
                                     frame.image_tinted(
-                                        icon as *mut lens::sys::flux_image,
+                                        icon as *mut optics_lens::sys::flux_image,
                                         20.0,
                                         20.0,
                                         icon_tint,

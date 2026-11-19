@@ -43,25 +43,25 @@ tessera-audit = { path = "crates/tessera-audit" }
 # development worktree can patch these sources through
 # .cargo/optics-local.toml without making a sibling checkout mandatory for CI
 # or downstream packagers.
-flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
-flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
-vista = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
-vista-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
+optics-flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
+optics-flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
+optics-vista = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
+optics-vista-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
 # Renderer-neutral offscreen DAG planning above Flux image operators.
-lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
-lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
+optics-lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
+optics-lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
 # transit (motion vocabulary; ADR-0172) provides analytic springs and easing;
 # v0.0.53 adds the explicit `reduced_motion` flag to every advance entry point.
 # Optics v0.0.79 makes transit a header-only vocabulary on the C side and pure
 # Safe Rust here (Optics ADR-0158), so there is no transit-sys FFI crate and no
 # native library to discover or rpath.
-transit = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
+optics-transit = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
 # reticle (vector-document compiler; ADR-0220, renamed from svg in Optics
 # ADR-0161) is the single SVG implementation in the stack: cursors, application
 # icons and tray icons all compile through it instead of shelling out to
 # rsvg-convert or shipping pre-baked bitmaps.
-reticle = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
-reticle-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
+optics-reticle = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
+optics-reticle-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
 
 # Observability: crates emit through the `log` facade; each binary installs a
 # `tracing`-based subscriber through the shared `tessera-env` crate, which

@@ -15,7 +15,7 @@
 
 use std::time::Instant;
 
-use lens::{Align, Color, LayoutOpts, Theme};
+use optics_lens::{Align, Color, LayoutOpts, Theme};
 use tessera_config::LockScreenStyle;
 use tessera_lock::LockState;
 
@@ -25,7 +25,7 @@ use crate::render::{AvatarStatus, LockBackground, LockPalette, LockVisual};
 /// Inputs shared by every paint stage of one frame.
 pub struct FramePresentation<'a> {
     pub logical: (u32, u32),
-    pub avatar: Option<&'a flux::Image>,
+    pub avatar: Option<&'a optics_flux::Image>,
     pub avatar_status: AvatarStatus,
     pub state: &'a LockState,
     pub profile: &'a Profile,
@@ -46,27 +46,31 @@ pub trait StylePainter {
     /// other stage; `dim` is the configured artwork scrim strength.
     fn paint_background(
         &self,
-        canvas: &flux::CanvasCommands<'_>,
-        device: &flux::Device,
+        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_flux::Device,
         background: &mut LockBackground,
         output: (u32, u32),
         dim: f32,
     );
 
     /// Flux shapes below the lens text layer, in physical pixels.
-    fn paint_materials(&self, canvas: &flux::CanvasCommands<'_>, frame: &FramePresentation<'_>);
+    fn paint_materials(
+        &self,
+        canvas: &optics_flux::CanvasCommands<'_>,
+        frame: &FramePresentation<'_>,
+    );
 
     /// Clock rendered in both engaged and ambient presentations (lens layer).
     fn paint_clock(
         &self,
-        ui: &mut lens::Frame,
+        ui: &mut optics_lens::Frame,
         frame: &FramePresentation<'_>,
         clock: &str,
         date: &str,
     );
 
     /// Authentication content, gated by the host on reveal progress.
-    fn paint_identity(&self, ui: &mut lens::Frame, frame: &FramePresentation<'_>);
+    fn paint_identity(&self, ui: &mut optics_lens::Frame, frame: &FramePresentation<'_>);
 
     /// Whether the composition animates continuously while engaged; the
     /// host uses this to keep requesting frames. `false` is safe for static

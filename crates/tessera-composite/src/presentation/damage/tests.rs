@@ -445,20 +445,22 @@ fn flux_damage_round_trip_preserves_the_set_and_rounds_outward() {
     let round_trip = FrameDamage::from_flux_damage(damage.to_flux_damage());
     assert_eq!(round_trip, damage);
     assert_eq!(
-        FrameDamage::from_flux_damage(flux::Damage::None),
+        FrameDamage::from_flux_damage(optics_flux::Damage::None),
         FrameDamage::None
     );
     assert_eq!(
-        FrameDamage::from_flux_damage(flux::Damage::Area(Vec::new())),
+        FrameDamage::from_flux_damage(optics_flux::Damage::Area(Vec::new())),
         FrameDamage::None
     );
     assert_eq!(
-        FrameDamage::from_flux_damage(flux::Damage::Area(vec![flux::CanvasRenderArea {
-            x: 10.4,
-            y: 20.6,
-            width: 3.2,
-            height: 4.1,
-        }])),
+        FrameDamage::from_flux_damage(optics_flux::Damage::Area(vec![
+            optics_flux::CanvasRenderArea {
+                x: 10.4,
+                y: 20.6,
+                width: 3.2,
+                height: 4.1,
+            }
+        ])),
         FrameDamage::Area(vec![Rect::new(10, 20, 4, 5)])
     );
 }

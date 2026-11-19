@@ -30,7 +30,7 @@
 //!   [`crate::widgets::motion`] (`[INV-ARCH-49]`): this module never integrates
 //!   a spring by hand.
 
-use lens::{Align, Color, Frame, LayoutOpts};
+use optics_lens::{Align, Color, Frame, LayoutOpts};
 use tessera_design::{ControlCenterColors, themes};
 
 use crate::widgets::motion::{Spring, SpringParams};
@@ -293,7 +293,7 @@ const DISPLAY_WEIGHT: f32 = 700.0;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lens::{Input, MouseButton, Ui};
+    use optics_lens::{Input, MouseButton, Ui};
 
     fn tiers() -> Vec<Tier> {
         vec![

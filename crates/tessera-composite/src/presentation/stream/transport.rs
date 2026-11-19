@@ -16,14 +16,15 @@ pub const DRM_FORMAT_XRGB8888: u32 = 0x3432_5258;
 /// recorded with (1x analytic coverage; the compositor output does not
 /// preserve destination alpha between layers).
 pub fn begin_opaque_frame<'c, 'surface>(
-    canvas: &'c mut flux::Canvas,
-    frame: &'c mut flux::Frame<'surface>,
+    canvas: &'c mut optics_flux::Canvas,
+    frame: &'c mut optics_flux::Frame<'surface>,
     clear: u32,
-) -> Result<flux::CanvasSession<'c, &'c mut flux::Frame<'surface>>, flux::Error> {
+) -> Result<optics_flux::CanvasSession<'c, &'c mut optics_flux::Frame<'surface>>, optics_flux::Error>
+{
     debug_assert_eq!(clear >> 24, 0xff, "compositor pass clear must be opaque");
     canvas.begin_session(
         frame,
-        flux::CanvasPassOptions {
+        optics_flux::CanvasPassOptions {
             clear: Some(clear),
             damage: Vec::new(),
         },
@@ -154,8 +155,8 @@ pub trait StreamPainter {
     /// cursor sprite when `cursor` is set.
     fn paint_offscreen_frame(
         &mut self,
-        device: &flux::Device,
-        canvas: &flux::CanvasCommands<'_>,
+        device: &optics_flux::Device,
+        canvas: &optics_flux::CanvasCommands<'_>,
         target: &super::registry::OffscreenTarget,
         geometry: &OffscreenGeometry,
         cursor: Option<(u32, (f32, f32))>,
@@ -167,14 +168,14 @@ pub trait StreamPainter {
 /// every frame until the stream stops (a geometry restart is a fresh stream
 /// with a fresh target).
 pub struct OffscreenShmTarget {
-    pub surface: flux::Surface,
-    pub canvas: flux::Canvas,
+    pub surface: optics_flux::Surface,
+    pub canvas: optics_flux::Canvas,
 }
 
 impl OffscreenShmTarget {
-    pub fn new(device: &flux::Device, width: u32, height: u32) -> Result<Self, String> {
+    pub fn new(device: &optics_flux::Device, width: u32, height: u32) -> Result<Self, String> {
         let surface =
-            flux::Surface::offscreen_readback(device, width, height).map_err(|error| {
+            optics_flux::Surface::offscreen_readback(device, width, height).map_err(|error| {
                 format!(
                     "allocate offscreen stream target: {error}{}",
                     crate::presentation::flux_last_error_detail()
@@ -186,7 +187,7 @@ impl OffscreenShmTarget {
                 crate::presentation::flux_last_error_detail()
             )
         })?;
-        let canvas = flux::Canvas::new(&surface).map_err(|error| {
+        let canvas = optics_flux::Canvas::new(&surface).map_err(|error| {
             format!(
                 "create offscreen stream canvas: {error}{}",
                 crate::presentation::flux_last_error_detail()
@@ -205,7 +206,7 @@ impl OffscreenShmTarget {
 pub struct PendingSlotFrame {
     pub slot: usize,
     pub fence: OwnedFd,
-    pub source: Option<flux::Image>,
+    pub source: Option<optics_flux::Image>,
     pub sequence: u64,
     pub dropped: u64,
     pub submitted_at: std::time::Instant,
@@ -223,8 +224,8 @@ pub struct PendingSlotFrame {
 /// capture surface and its canvas, the slot ring, and the frames awaiting
 /// their acquire fence.
 pub struct DmabufStream {
-    pub surface: flux::Surface,
-    pub canvas: flux::Canvas,
+    pub surface: optics_flux::Surface,
+    pub canvas: optics_flux::Canvas,
     pub modifier: u64,
     pub slot_stride: u32,
     pub slot_bytes: u64,
@@ -240,8 +241,8 @@ pub struct DmabufStream {
 /// surface with its canvas, the announced modifier, and the slot table the
 /// IPC layer transfers to the client.
 pub struct DmabufCapture {
-    pub surface: flux::Surface,
-    pub canvas: flux::Canvas,
+    pub surface: optics_flux::Surface,
+    pub canvas: optics_flux::Canvas,
     pub modifier: u64,
     pub table: tessera_primitives::stream::StreamSlotTable,
 }
@@ -253,19 +254,19 @@ pub struct DmabufCapture {
 /// post-present copy never crosses formats. Any failure is reported to the
 /// caller, which falls back to SHM.
 pub fn enumerate_slot_ring(
-    device: &flux::Device,
+    device: &optics_flux::Device,
     modifier: u64,
     width: u32,
     height: u32,
 ) -> Result<DmabufCapture, String> {
-    let surface =
-        flux::Surface::offscreen_dmabuf(device, width, height, &[modifier]).map_err(|error| {
+    let surface = optics_flux::Surface::offscreen_dmabuf(device, width, height, &[modifier])
+        .map_err(|error| {
             format!(
                 "capture surface: {error}{}",
                 crate::presentation::flux_last_error_detail()
             )
         })?;
-    let mut canvas = flux::Canvas::new(&surface).map_err(|error| {
+    let mut canvas = optics_flux::Canvas::new(&surface).map_err(|error| {
         format!(
             "capture canvas: {error}{}",
             crate::presentation::flux_last_error_detail()
@@ -277,7 +278,7 @@ pub fn enumerate_slot_ring(
         let mut frame = surface
             .begin_frame()
             .map_err(|error| format!("capture slot clear: {error}"))?;
-        let session = begin_opaque_frame(&mut canvas, &mut frame, flux::rgba(0, 0, 0, 255))
+        let session = begin_opaque_frame(&mut canvas, &mut frame, optics_flux::rgba(0, 0, 0, 255))
             .map_err(|error| format!("capture slot clear: {error}"))?;
         session
             .end()
@@ -337,7 +338,7 @@ pub fn enumerate_slot_ring(
 /// [`BlitFailure::Submitted`].
 pub fn submit_capture_frame(
     dmabuf: &DmabufStream,
-    frame: flux::Frame<'_>,
+    frame: optics_flux::Frame<'_>,
 ) -> Result<(usize, OwnedFd), BlitFailure> {
     let submitted = frame
         .submit()
@@ -381,14 +382,14 @@ pub fn submit_capture_frame(
 /// composition root).
 #[allow(clippy::too_many_arguments)]
 pub fn blit_presented_frame(
-    device: &flux::Device,
+    device: &optics_flux::Device,
     dmabuf: &mut DmabufStream,
     presented: &PresentedFrameRef<'_>,
     acquire_fence: Option<&OwnedFd>,
     src_rect: Option<&tessera_primitives::Rect>,
     cursor: Option<StreamCursorBlit>,
-    draw_cursor: &mut dyn FnMut(&flux::CanvasCommands<'_>, &StreamCursorBlit),
-) -> Result<(usize, OwnedFd, flux::Image), BlitFailure> {
+    draw_cursor: &mut dyn FnMut(&optics_flux::CanvasCommands<'_>, &StreamCursorBlit),
+) -> Result<(usize, OwnedFd, optics_flux::Image), BlitFailure> {
     let fd = presented
         .fd
         .try_clone()
@@ -408,22 +409,22 @@ pub fn blit_presented_frame(
     // double-close.
     let import = unsafe {
         match fence {
-            Some(fence) => flux::Image::import_dmabuf_with_acquire_fence(
+            Some(fence) => optics_flux::Image::import_dmabuf_with_acquire_fence(
                 device,
                 presented.width,
                 presented.height,
-                flux::Format::Bgra8Unorm,
+                optics_flux::Format::Bgra8Unorm,
                 presented.modifier,
                 fd,
                 0,
                 presented.stride,
                 fence,
             ),
-            None => flux::Image::import_dmabuf(
+            None => optics_flux::Image::import_dmabuf(
                 device,
                 presented.width,
                 presented.height,
-                flux::Format::Bgra8Unorm,
+                optics_flux::Format::Bgra8Unorm,
                 presented.modifier,
                 fd,
                 0,
@@ -443,8 +444,12 @@ pub fn blit_presented_frame(
             crate::presentation::flux_last_error_detail()
         ))
     })?;
-    let session = begin_opaque_frame(&mut dmabuf.canvas, &mut frame, flux::rgba(0, 0, 0, 255))
-        .map_err(|error| BlitFailure::Retryable(format!("capture pass: {error}")))?;
+    let session = begin_opaque_frame(
+        &mut dmabuf.canvas,
+        &mut frame,
+        optics_flux::rgba(0, 0, 0, 255),
+    )
+    .map_err(|error| BlitFailure::Retryable(format!("capture pass: {error}")))?;
     let (dst_w, dst_h) = dmabuf.surface.size();
     match src_rect {
         // Connector-addressed stream: sample only the output's sub-region
@@ -491,7 +496,7 @@ pub fn blit_presented_frame(
 /// Render an offscreen scene (window or virtual output) into the SHM stream's
 /// cached readback target and submit the frame (ADR-0127, ADR-0186).
 pub fn render_offscreen_stream_shm(
-    device: &flux::Device,
+    device: &optics_flux::Device,
     target: &mut OffscreenShmTarget,
     clear: u32,
     offscreen_target: &super::registry::OffscreenTarget,
@@ -516,7 +521,7 @@ pub fn render_offscreen_stream_shm(
         .map_err(|error| format!("request offscreen stream readback: {error}"))?;
     frame
         .submit()
-        .and_then(flux::SubmittedFrame::present)
+        .and_then(optics_flux::SubmittedFrame::present)
         .map_err(|error| format!("submit offscreen stream frame: {error}"))?;
     Ok(())
 }
@@ -526,7 +531,7 @@ pub fn render_offscreen_stream_shm(
 /// (ADR-0127, ADR-0186). Shares the submit/export tail with the presented-frame
 /// blit so the ring bookkeeping — and its failure semantics — stay identical.
 pub fn render_offscreen_stream_dmabuf(
-    device: &flux::Device,
+    device: &optics_flux::Device,
     dmabuf: &mut DmabufStream,
     clear: u32,
     offscreen_target: &super::registry::OffscreenTarget,
@@ -559,25 +564,26 @@ mod tests {
     /// without a dma-buf-capable Vulkan device on this machine.
     #[test]
     fn dmabuf_capture_surface_enumerates_and_exports_slots() {
-        let Ok(device) = flux::Device::new_with_options(flux::DeviceOptions {
+        let Ok(device) = optics_flux::Device::new_with_options(optics_flux::DeviceOptions {
             headless: true,
             frames_in_flight: STREAM_SLOT_COUNT as u32,
-            required_features: flux::DeviceFeatures::DMABUF,
-            optional_features: flux::DeviceFeatures::DMABUF_SYNC_FILE,
-            ..flux::DeviceOptions::default()
+            required_features: optics_flux::DeviceFeatures::DMABUF,
+            optional_features: optics_flux::DeviceFeatures::DMABUF_SYNC_FILE,
+            ..optics_flux::DeviceOptions::default()
         }) else {
             return;
         };
         const LINEAR: u64 = 0; // DRM_FORMAT_MOD_LINEAR
-        let Ok(surface) = flux::Surface::offscreen_dmabuf(&device, 64, 48, &[LINEAR]) else {
+        let Ok(surface) = optics_flux::Surface::offscreen_dmabuf(&device, 64, 48, &[LINEAR]) else {
             return;
         };
-        let mut canvas = flux::Canvas::new(&surface).unwrap();
+        let mut canvas = optics_flux::Canvas::new(&surface).unwrap();
         let mut exports = Vec::new();
         for expected_slot in 0..STREAM_SLOT_COUNT {
             let mut frame = surface.begin_frame().unwrap();
             let session =
-                begin_opaque_frame(&mut canvas, &mut frame, flux::rgba(0, 0, 0, 255)).unwrap();
+                begin_opaque_frame(&mut canvas, &mut frame, optics_flux::rgba(0, 0, 0, 255))
+                    .unwrap();
             session.end().unwrap();
             frame.submit().unwrap().present().unwrap();
             let dmabuf = surface.export_dmabuf_pooled().unwrap();
@@ -595,7 +601,8 @@ mod tests {
         // ring wrapped back to slot 0.
         let mut frame = surface.begin_frame().unwrap();
         let session =
-            begin_opaque_frame(&mut canvas, &mut frame, flux::rgba(10, 20, 30, 255)).unwrap();
+            begin_opaque_frame(&mut canvas, &mut frame, optics_flux::rgba(10, 20, 30, 255))
+                .unwrap();
         session.end().unwrap();
         frame.submit().unwrap().present().unwrap();
         let dmabuf = surface.export_dmabuf_pooled_explicit().unwrap();

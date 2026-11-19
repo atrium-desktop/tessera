@@ -9,7 +9,7 @@
 //! [`ChromeEvents::confirm_pick_answered`]. Ordinary modal chrome over the
 //! live scene: no freeze, no screen-content capture.
 
-use lens::{Frame, Input, Rect};
+use optics_lens::{Frame, Input, Rect};
 
 use crate::component::{
     Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, ConfirmAnswer, ConfirmPickParams,

@@ -27,7 +27,7 @@
 //! [`ChromeEvents::pick_cancelled`]; the compositor closes the loop by
 //! answering the IPC request.
 
-use lens::{Align, Color, Frame, Input, LayoutOpts, Rect as LensRect, Style};
+use optics_lens::{Align, Color, Frame, Input, LayoutOpts, Rect as LensRect, Style};
 use tessera_design::{Design, materials};
 
 use crate::component::{

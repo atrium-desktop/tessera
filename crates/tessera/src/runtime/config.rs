@@ -112,8 +112,8 @@ pub(super) fn wallpaper_source_overridden() -> bool {
 pub(super) fn load_wallpaper(
     config: Option<&tessera_config::Config>,
     config_path: Option<&std::path::Path>,
-    device: &flux::Device,
-    surface: &flux::Surface,
+    device: &optics_flux::Device,
+    surface: &optics_flux::Surface,
     target_size: (u32, u32),
     bundled_image: &[u8],
 ) -> Result<(wallpaper::Wallpaper, String), wallpaper::Error> {
@@ -168,8 +168,8 @@ pub(super) fn load_wallpaper(
 fn load_configured_wallpaper(
     config: Option<&tessera_config::WallpaperConfig>,
     config_path: Option<&std::path::Path>,
-    device: &flux::Device,
-    surface: &flux::Surface,
+    device: &optics_flux::Device,
+    surface: &optics_flux::Surface,
     target_size: (u32, u32),
     bundled_image: &[u8],
 ) -> Result<(wallpaper::Wallpaper, String), wallpaper::Error> {

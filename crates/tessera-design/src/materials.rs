@@ -1,6 +1,6 @@
 //! Pure lens option factories for tessera surface materials.
 
-use lens::{Align, Band, Color, LayoutOpts, PlaceMode, PlaceOpts, Rect};
+use optics_lens::{Align, Band, Color, LayoutOpts, PlaceMode, PlaceOpts, Rect};
 
 use crate::Design;
 use crate::tokens::SurfaceRole;
@@ -182,14 +182,14 @@ pub fn elevation_halo_for_body(
 /// cast its own silhouette, and a halo rounded differently from the body it
 /// sits under is visible as a second shape.
 pub fn place_floating(
-    frame: &mut lens::Frame,
+    frame: &mut optics_lens::Frame,
     id: &str,
     role: SurfaceRole,
     design: &Design,
     bounds: Rect,
     opacity: f32,
     body: LayoutOpts,
-    place: impl FnOnce(&mut lens::Frame),
+    place: impl FnOnce(&mut optics_lens::Frame),
 ) {
     for (index, (rect, material)) in
         elevation_halo_for_body(design, role, bounds, body.radius, opacity)
@@ -313,7 +313,7 @@ pub fn sized_fill(width: f32, height: f32, color: Color, radius: f32) -> LayoutO
 
 #[cfg(test)]
 mod tests {
-    use lens::Color;
+    use optics_lens::Color;
 
     use super::*;
 

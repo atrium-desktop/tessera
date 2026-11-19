@@ -29,6 +29,8 @@ impl CompositorRuntime<'_> {
                 // screenshot across a target-availability boundary.
                 self.refuse_suspended_frame();
                 self.primary_plane_state.invalidate();
+                self.last_composited_fence = None;
+                self.vblank_wait_groups.clear();
                 // The hardware cursor plane is blanked when outputs go away;
                 // drop the sprite baseline so the next commit reprograms it.
                 self.damage.last_presented_cursor = None;
@@ -46,6 +48,8 @@ impl CompositorRuntime<'_> {
                 // must still invalidate that older input epoch.
                 self.refuse_suspended_frame();
                 self.primary_plane_state.invalidate();
+                self.last_composited_fence = None;
+                self.vblank_wait_groups.clear();
                 self.damage.last_presented_cursor = None;
                 self.damage.last_presented_cursor_position = None;
                 self.damage.last_presented_cursor_hotspot = None;
@@ -60,9 +64,11 @@ impl CompositorRuntime<'_> {
                 // suspend, so its presentation-side sprite baseline is void
                 // and the first cursor commit must not be skipped.
                 self.damage.force_full_redraw = true;
+                self.last_composited_fence = None;
+                self.vblank_wait_groups.clear();
                 // The display content did not survive the VT round-trip. Flux
                 // must not let an image epoch claim otherwise.
-                self.surface.invalidate_damage();
+                self.invalidate_all_surface_damage();
                 self.damage.last_presented_cursor = None;
                 self.damage.last_presented_cursor_position = None;
                 self.damage.last_presented_cursor_hotspot = None;
@@ -72,8 +78,8 @@ impl CompositorRuntime<'_> {
         }
         if availability == PresentationAvailability::Available {
             self.tick_display_revert();
-            self.presentation
-                .reconcile_backend(self.host.presentation_pending());
+            let pending = self.backend_presentation_pending();
+            self.presentation.reconcile_backend(pending);
             if let Some(elapsed) = self.presentation.take_stall_warning(now) {
                 log::warn!(
                     "{}: presentation batch still owns scanout after {elapsed:?}; \
@@ -88,8 +94,9 @@ impl CompositorRuntime<'_> {
                 );
                 self.host.recover_lost_presentation();
                 self.direct_outputs.clear();
+                self.vblank_wait_groups.clear();
                 self.damage.force_full_redraw = true;
-                self.surface.invalidate_damage();
+                self.invalidate_all_surface_damage();
             }
             if self.presentation.tick(now) {
                 if self.animating {
@@ -296,12 +303,61 @@ impl CompositorRuntime<'_> {
         self.presentation.queue_redraw();
     }
 
+    /// Whether the presentation backend is currently blocked on an in-flight
+    /// hardware page flip for the active presentation group(s).
+    ///
+    /// - Non-DRM hosts (nested) own no KMS flip events and return `false`,
+    ///   using `WaitingForEstimatedVblank`.
+    /// - Single-group DRM sessions (1 output, mirrored outputs, or
+    ///   same-refresh touching outputs) stay pending until *every* CRTC in the
+    ///   group retires its flip, locking frame submission to real hardware
+    ///   vblank with no software-timer phase drift.
+    /// - Multi-group DRM sessions stay pending while every group in
+    ///   `vblank_wait_groups` (or every physical group when unset) still has an
+    ///   in-flight flip, unblocking immediately when any group becomes ready.
+    fn backend_presentation_pending(&mut self) -> bool {
+        if self.host.name() != "drm" {
+            return self.host.presentation_pending();
+        }
+        let groups = self.presentation_groups().to_vec();
+        if groups.is_empty() {
+            return self.host.presentation_pending();
+        }
+        if groups.len() == 1 {
+            self.vblank_wait_groups.clear();
+            let single = [groups[0].outputs.clone()];
+            return tessera_composite::presentation::presentation_groups_pending(
+                &single,
+                |connector| self.host.output_presentation_pending(connector),
+            );
+        }
+        if !self.vblank_wait_groups.is_empty() {
+            let pending = tessera_composite::presentation::presentation_groups_pending(
+                &self.vblank_wait_groups,
+                |connector| self.host.output_presentation_pending(connector),
+            );
+            if !pending {
+                self.vblank_wait_groups.clear();
+            }
+            return pending;
+        }
+        let all_groups: Vec<Vec<String>> = groups.into_iter().map(|g| g.outputs).collect();
+        tessera_composite::presentation::presentation_groups_pending(&all_groups, |connector| {
+            self.host.output_presentation_pending(connector)
+        })
+    }
+
     pub(super) fn run_loop(mut self) -> Result<(), Box<dyn std::error::Error>> {
         // Arm the frame thread's realtime/pin schedule before the first
         // frame. This is the exact main-thread boundary where the frame loop's
         // CPU the system should treat as ours, distinct from every compile or
         // scan worker. No-op when `[compositor]` realtime scheduling is off.
         sched::arm_frame_thread(&self.sched_plan);
+        // Pre-allocate per-output DRM render targets before frame 1's pacing
+        // window starts so initial Vulkan surface + Canvas creation does not
+        // consume the first frame's render budget.
+        self.sync_output_targets();
+        self.previous_render_at = std::time::Instant::now();
         while self.wait_for_work() {
             let work = match self.prepare_iteration() {
                 Ok(Some(work)) => work,
@@ -328,7 +384,20 @@ impl CompositorRuntime<'_> {
             // CRTC's non-blocking commit slot and force the primary flip into
             // a spurious `EBUSY` retry.
             let is_cursor_fast_path = frame.cursor_fast_path;
+            let has_external_activity =
+                !is_cursor_fast_path && (frame.had_input || self.server.frame_callbacks_pending());
             self.queue_frame_state(frame);
+            if !self.presentation.can_redraw()
+                && has_external_activity
+                && !self.vblank_wait_groups.is_empty()
+            {
+                // On a multi-group DRM session where only a subset of groups is
+                // flipping, fresh external work may target an idle group; let
+                // reconcile_backend check whether any group is ready now.
+                self.vblank_wait_groups.clear();
+                let pending = self.backend_presentation_pending();
+                self.presentation.reconcile_backend(pending);
+            }
             if !self.presentation.can_redraw() {
                 if is_cursor_fast_path && let Some(pending) = self.pending_frame.as_ref() {
                     let (session_locked, cursor_hidden, cursor_shape) = (
@@ -407,8 +476,7 @@ impl CompositorRuntime<'_> {
 
             match outcome {
                 PresentationOutcome::Submitted => {
-                    let presentation_pending =
-                        !self.independent_target_flips && self.host.presentation_pending();
+                    let presentation_pending = self.backend_presentation_pending();
                     let pacing_anchor =
                         submission_pacing_anchor(presentation_pending, render_at, now);
                     self.presentation.submitted(
@@ -418,24 +486,29 @@ impl CompositorRuntime<'_> {
                         refresh_interval,
                     );
                 }
-                PresentationOutcome::NoDamage { callbacks_sent } => self.presentation.no_damage(
-                    callbacks_sent,
-                    self.animating,
-                    now,
-                    refresh_interval,
-                ),
+                PresentationOutcome::NoDamage { callbacks_sent } => {
+                    self.vblank_wait_groups.clear();
+                    self.presentation.no_damage(
+                        callbacks_sent,
+                        self.animating,
+                        now,
+                        refresh_interval,
+                    );
+                }
                 PresentationOutcome::Retry { wait } => {
                     // A backend-owned rejection (`KMS` still owns the
                     // previous batch) is gated on that batch retiring via
                     // `reconcile_backend`, so exactly one fresh render follows
-                    // each real flip. A deadline-owned retry has no event to
-                    // wake it: pace it to the next presentation boundary
-                    // instead of spinning on the 1 ms floor or sleeping for the
-                    // backend watchdog.
-                    let at = match wait {
-                        RetryWait::BackendEvent => now + std::time::Duration::from_millis(1),
-                        RetryWait::Deadline => now + refresh_interval,
-                    };
+                    // each real flip. Bounding the fallback deadline to the
+                    // watchdog while a flip is pending stops input wakeups from
+                    // spinning the loop during vblank.
+                    let presentation_pending = self.backend_presentation_pending();
+                    let at = PresentationScheduler::retry_deadline(
+                        wait,
+                        presentation_pending,
+                        now,
+                        refresh_interval,
+                    );
                     self.presentation.retry_at(at, wait)
                 }
             }

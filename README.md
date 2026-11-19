@@ -75,19 +75,23 @@ to prevent audit store lock contention with the host compositor.
 ### How the C libraries are selected
 
 The Rust bindings (`flux`, `lens`, `transit`, `reticle`, ...) are ordinary crates
-compiled into the compositor binary. The C implementations are **shared
-libraries**. The patched `*-sys` build scripts auto-discover the sibling
-`../optics` checkout and prepend its `build/meson-uninstalled` directory to
-`pkg-config`, then emit an RPATH to `build/libs/*`. A source-tree `cargo run`
-therefore uses the freshly built C libraries, even though the system-wide
-`pkg-config --modversion flux` still reports the installed release.
+compiled into the compositor binary. By default, the Optics C implementations
+are **statically linked** (`libflux.a`, `liblens.a`, `libvista.a`,
+`libreticle.a`, `libglyph.a`) directly into each Tessera executable, while OS
+dependencies (`libvulkan`, `freetype`, `harfbuzz`, `fontconfig`, `fribidi`,
+etc.) remain dynamically linked.
 
-Set `FLUX_USE_INSTALLED=1` to link the system pkg-config database instead.
-Pre-1.0 the bindings require the **exact** `X.Y.Z` of the C library: a
-mismatch fails the build (or the dynamic loader, because the SONAME carries the
-full pre-1.0 version) instead of silently reading a different descriptor
-layout. A running compositor keeps the library inode it mapped at startup;
-restart it after rebuilding Optics.
+The patched `*-sys` build scripts auto-discover the sibling `../optics` checkout
+and prepend its `build/meson-uninstalled` directory to `pkg-config`. A
+source-tree `cargo run` therefore links the freshly built static archives from
+`../optics/build` without requiring a system Optics install or runtime RPATH.
+
+Set `FLUX_USE_INSTALLED=1` (or the per-crate `*_USE_INSTALLED=1` variables) to
+link against the system pkg-config database instead, `OPTICS_STATIC=1` to
+require static archives, or `OPTICS_DYNAMIC=1` to link Optics shared libraries
+with an RPATH. Pre-1.0 the bindings require the **exact** `X.Y.Z` of the C
+library: a mismatch fails the build instead of silently reading a different
+descriptor layout.
 
 Source-tree Cargo commands do not install systemd, D-Bus, portal, desktop, or
 icon metadata. The D-Bus-activated portal backend is built from the

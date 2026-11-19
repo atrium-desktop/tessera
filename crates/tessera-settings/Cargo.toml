@@ -14,10 +14,10 @@ path = "src/main.rs"
 
 [dependencies]
 ash.workspace = true
-flux.workspace = true
-flux-sys.workspace = true
-lens.workspace = true
-lens-sys.workspace = true
+optics-flux.workspace = true
+optics-flux-sys.workspace = true
+optics-lens.workspace = true
+optics-lens-sys.workspace = true
 libc.workspace = true
 log.workspace = true
 tessera-design.workspace = true
@@ -28,7 +28,7 @@ tessera-i18n.workspace = true
 tessera-ipc.workspace = true
 tessera-primitives.workspace = true
 tessera-protocol.workspace = true
-vista-sys.workspace = true
+optics-vista-sys.workspace = true
 wayland-client.workspace = true
 wayland-protocols.workspace = true
 
@@ -36,7 +36,7 @@ wayland-protocols.workspace = true
 pkg-config.workspace = true
 
 [package.metadata.cargo-machete]
-ignored = ["flux-sys", "vista-sys", "lens-sys", "pkg-config"]
+ignored = ["optics-flux-sys", "optics-vista-sys", "optics-lens-sys", "pkg-config"]
 
 [lints]
 workspace = true

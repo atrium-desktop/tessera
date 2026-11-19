@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use ash::vk::{self, Handle};
-use flux::Image;
-use lens::{Color, Input, Ui};
+use optics_flux::Image;
+use optics_lens::{Color, Input, Ui};
 use tessera_config::{
     ColorScheme, LockScreenBackgroundConfig, LockScreenBackgroundMode, LockScreenStyle,
 };
@@ -26,8 +26,8 @@ const AVATAR_CAMERA: tessera_avatar::persona::VrmCamera =
 #[derive(Debug)]
 pub enum RenderError {
     Vulkan,
-    Flux(flux::Error),
-    Lens(lens::Error),
+    Flux(optics_flux::Error),
+    Lens(optics_lens::Error),
     Wallpaper(tessera_wallpaper::Error),
     Avatar(String),
 }
@@ -55,14 +55,14 @@ impl std::error::Error for RenderError {
     }
 }
 
-impl From<flux::Error> for RenderError {
-    fn from(err: flux::Error) -> Self {
+impl From<optics_flux::Error> for RenderError {
+    fn from(err: optics_flux::Error) -> Self {
         Self::Flux(err)
     }
 }
 
-impl From<lens::Error> for RenderError {
-    fn from(err: lens::Error) -> Self {
+impl From<optics_lens::Error> for RenderError {
+    fn from(err: optics_lens::Error) -> Self {
         Self::Lens(err)
     }
 }
@@ -108,7 +108,7 @@ impl From<tessera_avatar::persona::PortraitKind> for AvatarStatus {
 }
 
 pub struct Graphics {
-    pub device: flux::Device,
+    pub device: optics_flux::Device,
     background: LockBackground,
     visual: LockVisual,
     avatar: AvatarResource,
@@ -188,7 +188,7 @@ impl Graphics {
         connection: &Connection,
         options: GraphicsOptions,
     ) -> Result<Self, RenderError> {
-        let device = flux::Device::new(true, &INSTANCE_EXTENSIONS, &DEVICE_EXTENSIONS, 2)?;
+        let device = optics_flux::Device::new(true, &INSTANCE_EXTENSIONS, &DEVICE_EXTENSIONS, 2)?;
         let resolved = resolve_lock_appearance(options);
         let background = load_background(&resolved.background, resolved.config_path.as_deref())?;
         let portrait_config = tessera_avatar::persona::PortraitConfig::current();
@@ -261,7 +261,7 @@ impl Graphics {
         let physical_size = physical_size(logical_size, scale);
         let vk_surface = self.ash.create_surface(connection, wl_surface)?;
         let surface = match unsafe {
-            flux::Surface::from_vk(
+            optics_flux::Surface::from_vk(
                 &self.device,
                 vk_surface.as_raw() as usize as *mut c_void,
                 physical_size.0,
@@ -414,8 +414,8 @@ fn physical_size(logical_size: (u32, u32), scale: f32) -> (u32, u32) {
 }
 
 pub struct LockRenderSurface {
-    surface: flux::Surface,
-    canvas: flux::Canvas,
+    surface: optics_flux::Surface,
+    canvas: optics_flux::Canvas,
     ui: Ui,
     vk_surface: vk::SurfaceKHR,
     logical_size: (u32, u32),
@@ -423,7 +423,7 @@ pub struct LockRenderSurface {
 }
 
 struct RenderAssets<'a> {
-    device: &'a flux::Device,
+    device: &'a optics_flux::Device,
     background: &'a mut LockBackground,
     avatar: Option<&'a Image>,
     avatar_status: AvatarStatus,
@@ -432,15 +432,16 @@ struct RenderAssets<'a> {
 
 impl LockRenderSurface {
     fn new(
-        device: &flux::Device,
-        surface: flux::Surface,
+        device: &optics_flux::Device,
+        surface: optics_flux::Surface,
         vk_surface: vk::SurfaceKHR,
         logical_size: (u32, u32),
         scale: f32,
         design: &Design,
     ) -> Result<Self, RenderError> {
-        let canvas = flux::Canvas::new(&surface)?;
-        let mut ui = unsafe { Ui::with_device(device.as_raw().cast::<lens::sys::flux_device>()) }?;
+        let canvas = optics_flux::Canvas::new(&surface)?;
+        let mut ui =
+            unsafe { Ui::with_device(device.as_raw().cast::<optics_lens::sys::flux_device>()) }?;
         ui.set_scale(scale);
         ui.set_theme(themes::application(design));
         Ok(Self {
@@ -476,8 +477,8 @@ impl LockRenderSurface {
         let physical = self.surface.size();
         let session = self.canvas.begin_session(
             &mut frame,
-            flux::CanvasPassOptions {
-                clear: Some(flux::rgba(8, 12, 24, 255)),
+            optics_flux::CanvasPassOptions {
+                clear: Some(optics_flux::rgba(8, 12, 24, 255)),
                 ..Default::default()
             },
         )?;
@@ -525,7 +526,7 @@ impl LockRenderSurface {
         });
         let snapshot = self.ui.snapshot()?;
         unsafe {
-            snapshot.submit(session.as_raw().cast::<lens::sys::flux_canvas>())?;
+            snapshot.submit(session.as_raw().cast::<optics_lens::sys::flux_canvas>())?;
         }
         self.ui.activate(&snapshot)?;
         session.end()?;
@@ -542,7 +543,7 @@ struct AshBridge {
 }
 
 impl AshBridge {
-    fn new(connection: &Connection, device: &flux::Device) -> Result<Self, RenderError> {
+    fn new(connection: &Connection, device: &optics_flux::Device) -> Result<Self, RenderError> {
         let entry = unsafe { ash::Entry::load() }.map_err(|_| RenderError::Vulkan)?;
         let instance = unsafe {
             ash::Instance::load(

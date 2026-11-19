@@ -15,13 +15,13 @@ pub struct CapturedPixels {
 }
 
 /// CPU-side source of a captured frame. The windowed presentation surface
-/// (and exportable offscreen targets) detach an on-demand [`flux::Readback`]
+/// (and exportable offscreen targets) detach an on-demand [`optics_flux::Readback`]
 /// snapshot whose staging can outlive the surface; `require_readback` surfaces
 /// such as Interaction Domain render targets keep their staging surface-owned
 /// (flux refuses `take_readback` there), so the frame is copied into an owned
 /// buffer on the main loop instead.
 pub enum CapturedPixelsSource {
-    Readback(flux::Readback),
+    Readback(optics_flux::Readback),
     Rgba(Vec<u8>),
 }
 
@@ -50,7 +50,7 @@ pub struct PendingReadback {
 /// the requested physical rectangle, the worker allocates only that extent,
 /// and no later CPU crop is needed.
 pub fn request_frame_readback(
-    frame: &mut flux::Frame,
+    frame: &mut optics_flux::Frame,
     full_size: (u32, u32),
     crop: Option<tessera_primitives::Rect>,
     mut cursor: Option<CaptureCursor>,
@@ -60,7 +60,7 @@ pub fn request_frame_readback(
         if crop.origin.x < 0 || crop.origin.y < 0 || crop.size.w <= 0 || crop.size.h <= 0 {
             return Err("frame readback request has an empty or out-of-bounds region".into());
         }
-        let region = flux::ReadbackRegion {
+        let region = optics_flux::ReadbackRegion {
             x: crop.origin.x as u32,
             y: crop.origin.y as u32,
             width: crop.size.w as u32,
@@ -103,7 +103,7 @@ fn translate_cursor_to_region(
 }
 
 pub fn read_captured_pixels(
-    surface: &flux::Surface,
+    surface: &optics_flux::Surface,
     pending: PendingReadback,
 ) -> Result<CapturedPixels, String> {
     let readback = surface
@@ -128,11 +128,11 @@ pub fn read_captured_pixels(
 
 /// Copy a completed frame from a `require_readback` surface directly into an
 /// owned buffer. Flux keeps require-readback staging surface-owned and refuses
-/// [`flux::Surface::take_readback`] there, so the pixel copy happens on the
-/// main loop once [`flux::Surface::read_pixels_ready`] reports the frame; the
+/// [`optics_flux::Surface::take_readback`] there, so the pixel copy happens on the
+/// main loop once [`optics_flux::Surface::read_pixels_ready`] reports the frame; the
 /// capture worker only encodes the already CPU-side bytes.
 pub fn read_captured_pixels_owned(
-    surface: &flux::Surface,
+    surface: &optics_flux::Surface,
     pending: PendingReadback,
 ) -> Result<CapturedPixels, String> {
     let mut full_rgba = vec![0u8; pending.width as usize * pending.height as usize * 4];

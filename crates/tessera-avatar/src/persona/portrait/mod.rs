@@ -18,14 +18,14 @@ pub use watch::{PortraitWatcher, WatchError};
 
 use std::path::PathBuf;
 
-use flux::{Device, Image};
+use optics_flux::{Device, Image};
 
 /// Errors raised while resolving or preparing shared portrait content.
 #[derive(Debug)]
 pub enum Error {
     Decode(PathBuf, tessera_image::ImageError),
     Avatar(VrmError),
-    Flux(flux::Error),
+    Flux(optics_flux::Error),
     NoUsableSource,
 }
 
@@ -59,8 +59,8 @@ impl From<VrmError> for Error {
     }
 }
 
-impl From<flux::Error> for Error {
-    fn from(err: flux::Error) -> Self {
+impl From<optics_flux::Error> for Error {
+    fn from(err: optics_flux::Error) -> Self {
         Self::Flux(err)
     }
 }

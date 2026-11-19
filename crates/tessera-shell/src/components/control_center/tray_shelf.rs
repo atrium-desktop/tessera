@@ -26,7 +26,7 @@
 //!   so a two-icon tray reads as a small pill rather than a wide empty bar.
 
 use super::{TRAY_CELL, TRAY_GAP, TRAY_PAD};
-use lens::Rect;
+use optics_lens::Rect;
 
 /// The horizontal pitch of one shelf slot: the cell plus the gap after it.
 pub(super) const SLOT_PITCH: f32 = TRAY_CELL + TRAY_GAP;

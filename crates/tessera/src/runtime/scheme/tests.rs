@@ -2,12 +2,15 @@ use super::*;
 
 #[test]
 fn dark_scheme_keeps_the_historical_scene_colors() {
-    assert_eq!(clear_color(ColorScheme::Dark), flux::rgba(30, 30, 46, 255));
+    assert_eq!(
+        clear_color(ColorScheme::Dark),
+        optics_flux::rgba(30, 30, 46, 255)
+    );
     assert_eq!(overview_scrim(ColorScheme::Dark), (8, 10, 20));
     assert_eq!(window_switcher_scrim(ColorScheme::Dark), (5, 7, 12));
     assert_eq!(
         interaction_domain_clear(ColorScheme::Dark),
-        flux::rgba(17, 20, 27, 255)
+        optics_flux::rgba(17, 20, 27, 255)
     );
 }
 
@@ -27,7 +30,7 @@ fn system_resolves_to_the_dark_fallback() {
 fn light_scheme_inverts_the_scene_tone() {
     assert_eq!(
         clear_color(ColorScheme::Light),
-        flux::rgba(243, 245, 249, 255)
+        optics_flux::rgba(243, 245, 249, 255)
     );
     assert_eq!(window_switcher_scrim(ColorScheme::Light), (243, 245, 249));
 }

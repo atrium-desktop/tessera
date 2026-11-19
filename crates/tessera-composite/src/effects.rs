@@ -1,6 +1,6 @@
 //! Deferred effect outputs and the boundary that makes them sampleable.
 //!
-//! Optics applies a reusable effect (`flux::ShadowFilter`, `flux::BlurFilter`,
+//! Optics applies a reusable effect (`optics_flux::ShadowFilter`, `optics_flux::BlurFilter`,
 //! and the Prism materials) by *registering* a pass (Optics ADR-0147): the
 //! output handle is valid the moment `apply` returns, but its pixels are not
 //! written until something requires them. Two consequences reach this
@@ -28,17 +28,17 @@
 /// no caller can use it to sample.
 pub trait DeferredEffectOutput {
     /// Raw `flux_image` of the output. Borrowed from the filter's frame slot.
-    fn raw_image(&self) -> *mut flux::sys::flux_image;
+    fn raw_image(&self) -> *mut optics_flux::sys::flux_image;
 }
 
-impl DeferredEffectOutput for flux::ShadowedImage<'_> {
-    fn raw_image(&self) -> *mut flux::sys::flux_image {
+impl DeferredEffectOutput for optics_flux::ShadowedImage<'_> {
+    fn raw_image(&self) -> *mut optics_flux::sys::flux_image {
         self.as_raw()
     }
 }
 
-impl DeferredEffectOutput for flux::BlurredImage<'_> {
-    fn raw_image(&self) -> *mut flux::sys::flux_image {
+impl DeferredEffectOutput for optics_flux::BlurredImage<'_> {
+    fn raw_image(&self) -> *mut optics_flux::sys::flux_image {
         self.as_raw()
     }
 }
@@ -55,20 +55,20 @@ impl DeferredEffectOutput for flux::BlurredImage<'_> {
 /// so the ordering cannot rot into a per-frame cost when the output was
 /// consumed regardless. Skipping the call, by contrast, fails the draw.
 pub fn materialize_effect_output(
-    frame: &flux::Frame<'_>,
+    frame: &optics_flux::Frame<'_>,
     output: &impl DeferredEffectOutput,
-) -> Result<(), flux::Error> {
+) -> Result<(), optics_flux::Error> {
     let image = output.raw_image();
     if image.is_null() {
-        return Err(flux::Error::from_raw(
-            flux::sys::flux_result::FLUX_ERROR_INVALID_ARGUMENT,
+        return Err(optics_flux::Error::from_raw(
+            optics_flux::sys::flux_result::FLUX_ERROR_INVALID_ARGUMENT,
         ));
     }
     // SAFETY: `image` is a live image on the frame's device — the caller holds
     // the filter borrow that keeps the slot's storage alive — and
     // `Frame::as_raw` yields the recording frame it was applied to.
-    flux::Error::check_raw(unsafe {
-        flux::sys::flux_frame_materialize_image(frame.as_raw(), image)
+    optics_flux::Error::check_raw(unsafe {
+        optics_flux::sys::flux_frame_materialize_image(frame.as_raw(), image)
     })
 }
 
@@ -89,11 +89,11 @@ pub struct PlanCounters {
 }
 
 /// Read the frame's deferred-pass counters. Cheap (no GPU work, no allocation).
-pub fn plan_counters(frame: &flux::Frame<'_>) -> Option<PlanCounters> {
-    let mut raw = flux::sys::flux_frame_plan_counters::default();
+pub fn plan_counters(frame: &optics_flux::Frame<'_>) -> Option<PlanCounters> {
+    let mut raw = optics_flux::sys::flux_frame_plan_counters::default();
     // SAFETY: `raw` is a fully initialized counter block; the frame is live.
-    let rc = unsafe { flux::sys::flux_frame_plan_stats(frame.as_raw(), &mut raw) };
-    (rc == flux::sys::flux_result::FLUX_OK).then_some(PlanCounters {
+    let rc = unsafe { optics_flux::sys::flux_frame_plan_stats(frame.as_raw(), &mut raw) };
+    (rc == optics_flux::sys::flux_result::FLUX_OK).then_some(PlanCounters {
         registered: raw.registered,
         executed: raw.executed,
         pruned: raw.pruned,
@@ -109,18 +109,18 @@ mod tests {
 
     /// Fill `target` through a canvas pass, so the blur has real input.
     fn paint(
-        canvas: &mut flux::Canvas,
-        frame: &mut flux::Frame<'_>,
-        target: &mut flux::Image,
-        color: flux::sys::flux_color,
+        canvas: &mut optics_flux::Canvas,
+        frame: &mut optics_flux::Frame<'_>,
+        target: &mut optics_flux::Image,
+        color: optics_flux::sys::flux_color,
     ) {
         let session = canvas
             .begin_session(
-                flux::ImageTarget {
+                optics_flux::ImageTarget {
                     frame,
                     image: target,
                 },
-                flux::CanvasPassOptions {
+                optics_flux::CanvasPassOptions {
                     clear: Some(color),
                     ..Default::default()
                 },
@@ -132,10 +132,10 @@ mod tests {
     /// The counters report this frame's plan, not a running total.
     #[test]
     fn plan_counters_are_per_frame() {
-        let Ok(device) = flux::Device::new(true, &[], &[], 0) else {
+        let Ok(device) = optics_flux::Device::new(true, &[], &[], 0) else {
             return;
         };
-        let surface = flux::Surface::offscreen(&device, SIZE.0, SIZE.1).unwrap();
+        let surface = optics_flux::Surface::offscreen(&device, SIZE.0, SIZE.1).unwrap();
         let frame = surface.begin_frame().unwrap();
         assert_eq!(plan_counters(&frame), Some(PlanCounters::default()));
     }
@@ -147,29 +147,29 @@ mod tests {
     /// this frame's.
     #[test]
     fn deferred_output_is_rejected_until_materialized() {
-        let Ok(device) = flux::Device::new(true, &[], &[], 0) else {
+        let Ok(device) = optics_flux::Device::new(true, &[], &[], 0) else {
             return;
         };
-        let surface = flux::Surface::offscreen(&device, SIZE.0, SIZE.1).unwrap();
-        let mut canvas = flux::Canvas::new(&surface).unwrap();
+        let surface = optics_flux::Surface::offscreen(&device, SIZE.0, SIZE.1).unwrap();
+        let mut canvas = optics_flux::Canvas::new(&surface).unwrap();
         let mut input =
-            flux::Image::render_target(&device, SIZE.0, SIZE.1, surface.format()).unwrap();
-        let mut blur = flux::BlurFilter::new(&device).unwrap();
+            optics_flux::Image::render_target(&device, SIZE.0, SIZE.1, surface.format()).unwrap();
+        let mut blur = optics_flux::BlurFilter::new(&device).unwrap();
 
         let mut frame = surface.begin_frame().unwrap();
         paint(
             &mut canvas,
             &mut frame,
             &mut input,
-            flux::rgba(90, 140, 200, 255),
+            optics_flux::rgba(90, 140, 200, 255),
         );
         let blurred = blur.apply(&frame, &input, 2.0).unwrap();
 
         let session = canvas
             .begin_session(
                 &mut frame,
-                flux::CanvasPassOptions {
-                    clear: Some(flux::rgba(0, 0, 0, 255)),
+                optics_flux::CanvasPassOptions {
+                    clear: Some(optics_flux::rgba(0, 0, 0, 255)),
                     ..Default::default()
                 },
             )
@@ -180,8 +180,11 @@ mod tests {
         // refusal must not corrupt a command stream the caller is mid-way
         // through; the observable consequence is the missing layer.
         session.end().unwrap();
-        let info = flux::ErrorInfo::last().expect("the refusal must be observable");
-        assert_eq!(info.code, flux::sys::flux_result::FLUX_ERROR_INVALID_STATE);
+        let info = optics_flux::ErrorInfo::last().expect("the refusal must be observable");
+        assert_eq!(
+            info.code,
+            optics_flux::sys::flux_result::FLUX_ERROR_INVALID_STATE
+        );
         let message = info.message.unwrap_or_default();
         assert!(
             message.contains("materialize"),
@@ -206,21 +209,21 @@ mod tests {
     /// the producer at the boundary that had to precede the sample.
     #[test]
     fn materialized_output_composites() {
-        let Ok(device) = flux::Device::new(true, &[], &[], 0) else {
+        let Ok(device) = optics_flux::Device::new(true, &[], &[], 0) else {
             return;
         };
-        let surface = flux::Surface::offscreen(&device, SIZE.0, SIZE.1).unwrap();
-        let mut canvas = flux::Canvas::new(&surface).unwrap();
+        let surface = optics_flux::Surface::offscreen(&device, SIZE.0, SIZE.1).unwrap();
+        let mut canvas = optics_flux::Canvas::new(&surface).unwrap();
         let mut input =
-            flux::Image::render_target(&device, SIZE.0, SIZE.1, surface.format()).unwrap();
-        let mut blur = flux::BlurFilter::new(&device).unwrap();
+            optics_flux::Image::render_target(&device, SIZE.0, SIZE.1, surface.format()).unwrap();
+        let mut blur = optics_flux::BlurFilter::new(&device).unwrap();
 
         let mut frame = surface.begin_frame().unwrap();
         paint(
             &mut canvas,
             &mut frame,
             &mut input,
-            flux::rgba(220, 60, 30, 255),
+            optics_flux::rgba(220, 60, 30, 255),
         );
         let blurred = blur.apply(&frame, &input, 2.0).unwrap();
         materialize_effect_output(&frame, &blurred).unwrap();
@@ -228,8 +231,8 @@ mod tests {
         let session = canvas
             .begin_session(
                 &mut frame,
-                flux::CanvasPassOptions {
-                    clear: Some(flux::rgba(0, 0, 0, 255)),
+                optics_flux::CanvasPassOptions {
+                    clear: Some(optics_flux::rgba(0, 0, 0, 255)),
                     ..Default::default()
                 },
             )
@@ -253,21 +256,21 @@ mod tests {
     /// than assumed.
     #[test]
     fn unsampled_effect_pass_is_pruned() {
-        let Ok(device) = flux::Device::new(true, &[], &[], 0) else {
+        let Ok(device) = optics_flux::Device::new(true, &[], &[], 0) else {
             return;
         };
-        let surface = flux::Surface::offscreen(&device, SIZE.0, SIZE.1).unwrap();
-        let mut canvas = flux::Canvas::new(&surface).unwrap();
+        let surface = optics_flux::Surface::offscreen(&device, SIZE.0, SIZE.1).unwrap();
+        let mut canvas = optics_flux::Canvas::new(&surface).unwrap();
         let mut input =
-            flux::Image::render_target(&device, SIZE.0, SIZE.1, surface.format()).unwrap();
-        let mut blur = flux::BlurFilter::new(&device).unwrap();
+            optics_flux::Image::render_target(&device, SIZE.0, SIZE.1, surface.format()).unwrap();
+        let mut blur = optics_flux::BlurFilter::new(&device).unwrap();
 
         let mut frame = surface.begin_frame().unwrap();
         paint(
             &mut canvas,
             &mut frame,
             &mut input,
-            flux::rgba(10, 20, 30, 255),
+            optics_flux::rgba(10, 20, 30, 255),
         );
         let _unused = blur.apply(&frame, &input, 2.0).unwrap();
 

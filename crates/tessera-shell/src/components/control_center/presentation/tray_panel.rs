@@ -96,7 +96,7 @@ impl ControlCenter {
                 } else {
                     None
                 },
-                fallback: fallback_themed.map(|icon| icon as *mut lens::sys::flux_image),
+                fallback: fallback_themed.map(|icon| icon as *mut optics_lens::sys::flux_image),
             })
             .collect();
 

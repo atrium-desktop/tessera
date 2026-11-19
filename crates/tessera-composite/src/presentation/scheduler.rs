@@ -378,6 +378,30 @@ impl PresentationScheduler {
         self.state = PresentationState::Retrying { not_before, wait };
     }
 
+    /// Compute the fallback deadline for a retry outcome.
+    ///
+    /// When a backend flip is genuinely in flight (`RetryWait::BackendEvent`
+    /// with `backend_pending == true`), `reconcile_backend(false)` wakes the
+    /// scheduler the exact instant the page-flip event arrives. Bounding the
+    /// timer fallback to `PRESENTATION_WATCHDOG` (instead of a 1 ms floor)
+    /// stops input/Wayland wakeups during vblank from prematurely promoting
+    /// `Retrying` to `Queued` and spinning the render path while KMS still owns
+    /// scanout. When no flip is in flight (or for `RetryWait::Deadline`), pace
+    /// to one refresh interval so transient rejections recover cleanly without
+    /// busy-looping.
+    #[must_use]
+    pub fn retry_deadline(
+        wait: RetryWait,
+        backend_pending: bool,
+        now: Instant,
+        refresh_interval: Duration,
+    ) -> Instant {
+        match wait {
+            RetryWait::BackendEvent if backend_pending => now + PRESENTATION_WATCHDOG,
+            RetryWait::BackendEvent | RetryWait::Deadline => now + refresh_interval,
+        }
+    }
+
     /// Report a page flip that exceeded the ownership watchdog once per
     /// submission. The state remains blocked at this tier: a late flip is
     /// not permission to reuse a scanout buffer that KMS may still own.
@@ -490,6 +514,28 @@ impl PresentationScheduler {
             paced: false,
         }
     }
+}
+
+/// Whether every presentation group in `groups` is currently blocked by an
+/// in-flight page flip on at least one of its member outputs.
+///
+/// - For a single-output or mirrored group (`groups.len() == 1`), this stays
+///   `true` until *every* CRTC in the atomic group has retired its flip — so a
+///   120 Hz source panel finishing early never wakes the loop while its 60 Hz
+///   mirror CRTC is still scanning out the previous batch.
+/// - For multiple disjoint groups, this drops to `false` as soon as *any*
+///   group has all of its CRTCs ready, allowing the faster group to advance on
+///   its own hardware vblank.
+pub fn presentation_groups_pending<S: AsRef<str>>(
+    groups: &[Vec<S>],
+    is_output_pending: impl Fn(&str) -> bool,
+) -> bool {
+    !groups.is_empty()
+        && groups.iter().all(|group| {
+            group
+                .iter()
+                .any(|connector| is_output_pending(connector.as_ref()))
+        })
 }
 
 #[cfg(test)]
@@ -806,5 +852,56 @@ mod tests {
             state.wait_timeout(Duration::ZERO, now),
             PRESENTATION_WATCHDOG
         );
+    }
+
+    #[test]
+    fn backend_event_retry_with_pending_flip_does_not_spin_on_early_wakeups() {
+        let now = Instant::now();
+        let mut state = PresentationScheduler::new();
+        state.begin_redraw();
+        let deadline =
+            PresentationScheduler::retry_deadline(RetryWait::BackendEvent, true, now, FRAME);
+        state.retry_at(deadline, RetryWait::BackendEvent);
+
+        // Input or Wayland events arriving 1 ms, 5 ms, or 50 ms later while a
+        // DRM flip (or initial modeset) is still in flight must NOT promote
+        // Retrying -> Queued.
+        for ms in [1, 5, 16, 50, 200] {
+            state.reconcile_backend(true);
+            assert!(!state.tick(now + Duration::from_millis(ms)));
+            assert!(
+                !state.can_redraw(),
+                "must stay parked while flip is still pending at +{ms}ms"
+            );
+        }
+
+        // The exact instant KMS retires the flip, reconcile_backend wakes it.
+        state.reconcile_backend(false);
+        assert!(state.can_redraw());
+    }
+
+    #[test]
+    fn presentation_groups_pending_respects_mirror_and_independent_groups() {
+        // Empty set cannot be pending.
+        assert!(!presentation_groups_pending::<&str>(&[], |_| true));
+
+        // Single output: tracks its own CRTC flip.
+        let single = vec![vec!["eDP-1"]];
+        assert!(presentation_groups_pending(&single, |c| c == "eDP-1"));
+        assert!(!presentation_groups_pending(&single, |_| false));
+
+        // Mirror group (120 Hz eDP-1 + 60 Hz HDMI-A-1): stays pending even
+        // after eDP-1 retires, until HDMI-A-1 also retires.
+        let mirror = vec![vec!["eDP-1", "HDMI-A-1"]];
+        assert!(presentation_groups_pending(&mirror, |c| c == "eDP-1" || c == "HDMI-A-1"));
+        assert!(presentation_groups_pending(&mirror, |c| c == "HDMI-A-1"));
+        assert!(!presentation_groups_pending(&mirror, |_| false));
+
+        // Disjoint extended groups: pending only while BOTH groups are busy;
+        // unblocks as soon as DP-1 finishes even while DP-2 is still flipping.
+        let disjoint = vec![vec!["DP-1"], vec!["DP-2"]];
+        assert!(presentation_groups_pending(&disjoint, |c| c == "DP-1" || c == "DP-2"));
+        assert!(!presentation_groups_pending(&disjoint, |c| c == "DP-2"));
+        assert!(!presentation_groups_pending(&disjoint, |c| c == "DP-1"));
     }
 }

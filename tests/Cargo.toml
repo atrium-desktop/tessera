@@ -20,10 +20,10 @@ native = [
     "dep:tessera",
     "dep:tessera-composite",
     "dep:tessera-shell",
-    "dep:flux-sys",
-    "dep:lens-sys",
-    "dep:reticle-sys",
-    "dep:vista-sys",
+    "dep:optics-flux-sys",
+    "dep:optics-lens-sys",
+    "dep:optics-reticle-sys",
+    "dep:optics-vista-sys",
     "dep:tessera-dbus",
     "dep:tessera-cast",
 ]
@@ -56,10 +56,10 @@ tessera-shell = { workspace = true, optional = true, default-features = false, f
 ] }
 # Native `-sys` edges are not linked from the suites directly; they publish the
 # local Optics rpaths that the test harnesses must re-emit (see `build.rs`).
-flux-sys = { workspace = true, optional = true }
-lens-sys = { workspace = true, optional = true }
-reticle-sys = { workspace = true, optional = true }
-vista-sys = { workspace = true, optional = true }
+optics-flux-sys = { workspace = true, optional = true }
+optics-lens-sys = { workspace = true, optional = true }
+optics-reticle-sys = { workspace = true, optional = true }
+optics-vista-sys = { workspace = true, optional = true }
 tessera-dbus = { workspace = true, optional = true }
 
 [[test]]
@@ -72,7 +72,7 @@ path = "e2e/main.rs"
 
 [package.metadata.cargo-machete]
 # Native rpath metadata for the test harnesses; not referenced from source.
-ignored = ["flux-sys", "lens-sys", "reticle-sys", "vista-sys"]
+ignored = ["optics-flux-sys", "optics-lens-sys", "optics-reticle-sys", "optics-vista-sys"]
 
 [lints]
 workspace = true

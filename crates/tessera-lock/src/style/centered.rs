@@ -4,8 +4,8 @@
 //! avatar (image, 3D model, or initial fallback) above a rounded credential
 //! field.
 
-use flux::{CanvasCommands, GradientStop};
-use lens::{Align, LayoutOpts, Rect};
+use optics_flux::{CanvasCommands, GradientStop};
+use optics_lens::{Align, LayoutOpts, Rect};
 use tessera_config::LockScreenStyle;
 use tessera_design::AvatarRole;
 use tessera_design::materials::chrome_place;
@@ -26,7 +26,7 @@ impl StylePainter for CenteredPainter {
     fn paint_background(
         &self,
         canvas: &CanvasCommands<'_>,
-        device: &flux::Device,
+        device: &optics_flux::Device,
         background: &mut LockBackground,
         output: (u32, u32),
         dim: f32,
@@ -80,7 +80,7 @@ impl StylePainter for CenteredPainter {
                     avatar_size,
                     avatar_size,
                     avatar_size * 0.5,
-                    flux::rgba(red, green, blue, (255.0 * progress) as u8),
+                    optics_flux::rgba(red, green, blue, (255.0 * progress) as u8),
                 );
             }
         }
@@ -94,7 +94,7 @@ impl StylePainter for CenteredPainter {
             avatar_size,
             avatar_size,
             avatar_size * 0.5,
-            flux::rgba(
+            optics_flux::rgba(
                 ring_red,
                 ring_green,
                 ring_blue,
@@ -117,9 +117,9 @@ impl StylePainter for CenteredPainter {
             field_h,
             10.0 * frame.scale,
             if frame.state.rejected() {
-                flux::rgba(38, 8, 14, (174.0 * progress) as u8)
+                optics_flux::rgba(38, 8, 14, (174.0 * progress) as u8)
             } else {
-                flux::rgba(4, 8, 16, (142.0 * progress) as u8)
+                optics_flux::rgba(4, 8, 16, (142.0 * progress) as u8)
             },
         );
         canvas.stroke_rrect(
@@ -129,12 +129,12 @@ impl StylePainter for CenteredPainter {
             field_h,
             10.0 * frame.scale,
             if frame.state.rejected() {
-                flux::rgba(error_red, error_green, error_blue, (238.0 * progress) as u8)
+                optics_flux::rgba(error_red, error_green, error_blue, (238.0 * progress) as u8)
             } else if frame.state.validation_pending() {
                 let (red, green, blue, _) = self.visual.design.colors.validation.components();
-                flux::rgba(red, green, blue, (168.0 * progress) as u8)
+                optics_flux::rgba(red, green, blue, (168.0 * progress) as u8)
             } else {
-                flux::rgba(255, 255, 255, (62.0 * progress) as u8)
+                optics_flux::rgba(255, 255, 255, (62.0 * progress) as u8)
             },
             frame.scale,
         );
@@ -142,7 +142,7 @@ impl StylePainter for CenteredPainter {
 
     fn paint_clock(
         &self,
-        ui: &mut lens::Frame,
+        ui: &mut optics_lens::Frame,
         frame: &FramePresentation<'_>,
         clock: &str,
         date: &str,
@@ -188,7 +188,7 @@ impl StylePainter for CenteredPainter {
         );
     }
 
-    fn paint_identity(&self, ui: &mut lens::Frame, frame: &FramePresentation<'_>) {
+    fn paint_identity(&self, ui: &mut optics_lens::Frame, frame: &FramePresentation<'_>) {
         let layout = lock_layout_for(
             LockScreenStyle::Centered,
             frame.logical.0 as f32,
@@ -330,7 +330,7 @@ impl StylePainter for CenteredPainter {
         };
         if let Some((message, error)) = status {
             let color = if error {
-                lens::Color::rgba(255, 174, 168, 255)
+                optics_lens::Color::rgba(255, 174, 168, 255)
             } else {
                 palette_muted(self.visual.palette)
             };
@@ -355,8 +355,8 @@ impl StylePainter for CenteredPainter {
 /// Scrim gradient for the shared artwork painter.
 pub(crate) fn centered_scrim_stops() -> [GradientStop; 3] {
     [
-        GradientStop::new(0.0, flux::rgba(2, 5, 12, 54)),
-        GradientStop::new(0.55, flux::rgba(2, 5, 12, 10)),
-        GradientStop::new(1.0, flux::rgba(2, 5, 12, 110)),
+        GradientStop::new(0.0, optics_flux::rgba(2, 5, 12, 54)),
+        GradientStop::new(0.55, optics_flux::rgba(2, 5, 12, 10)),
+        GradientStop::new(1.0, optics_flux::rgba(2, 5, 12, 110)),
     ]
 }

@@ -1,6 +1,6 @@
 //! Semantic visual tokens for the built-in dark and light appearances.
 
-use lens::Color;
+use optics_lens::Color;
 use tessera_desktop::settings::ColorScheme;
 
 use crate::colors::{DockColors, ProductColors, SceneColors};

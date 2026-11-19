@@ -192,8 +192,8 @@ impl InteractionDomainProcesses {
 
 pub(super) struct InteractionDomainRenderTarget {
     pub(super) output: tessera_authority::interaction_domain::VirtualOutput,
-    pub(super) surface: flux::Surface,
-    pub(super) canvas: flux::Canvas,
+    pub(super) surface: optics_flux::Surface,
+    pub(super) canvas: optics_flux::Canvas,
 }
 
 pub(super) struct InteractionDomainCaptureContext {
@@ -241,7 +241,7 @@ pub(super) fn begin_interaction_domain_capture(
         tessera_authority::interaction_domain::InteractionDomainId,
         InteractionDomainRenderTarget,
     >,
-    device: &flux::Device,
+    device: &optics_flux::Device,
     renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     interaction_domain: tessera_authority::interaction_domain::InteractionDomainId,
@@ -289,14 +289,15 @@ pub(super) fn begin_interaction_domain_capture(
         .get(&interaction_domain)
         .is_none_or(|target| target.output != output)
     {
-        let surface = flux::Surface::offscreen_readback(device, physical_size.0, physical_size.1)
-            .map_err(|error| {
-            format!(
-                "allocate interaction_domain {} render target: {error}{}",
-                interaction_domain.0,
-                flux_last_error_detail()
-            )
-        })?;
+        let surface =
+            optics_flux::Surface::offscreen_readback(device, physical_size.0, physical_size.1)
+                .map_err(|error| {
+                    format!(
+                        "allocate interaction_domain {} render target: {error}{}",
+                        interaction_domain.0,
+                        flux_last_error_detail()
+                    )
+                })?;
         surface.prepare_readback().map_err(|error| {
             format!(
                 "prepare interaction_domain {} readback: {error}{}",
@@ -304,7 +305,7 @@ pub(super) fn begin_interaction_domain_capture(
                 flux_last_error_detail()
             )
         })?;
-        let canvas = flux::Canvas::new(&surface).map_err(|error| {
+        let canvas = optics_flux::Canvas::new(&surface).map_err(|error| {
             format!(
                 "create interaction_domain {} canvas: {error}{}",
                 interaction_domain.0,
@@ -371,7 +372,7 @@ pub(super) fn begin_interaction_domain_capture(
     })?;
     frame
         .submit()
-        .and_then(flux::SubmittedFrame::present)
+        .and_then(optics_flux::SubmittedFrame::present)
         .map_err(|error| {
             format!(
                 "submit interaction_domain {} frame: {error}{}",

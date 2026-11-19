@@ -120,8 +120,8 @@ struct RuntimePainter<'a> {
 impl StreamPainter for RuntimePainter<'_> {
     fn paint_offscreen_frame(
         &mut self,
-        device: &flux::Device,
-        canvas: &flux::CanvasCommands<'_>,
+        device: &optics_flux::Device,
+        canvas: &optics_flux::CanvasCommands<'_>,
         target: &OffscreenTarget,
         geometry: &OffscreenGeometry,
         cursor: Option<(u32, (f32, f32))>,
@@ -615,7 +615,8 @@ impl CompositorRuntime<'_> {
         let cursor_state = (!self.host.uses_software_cursor())
             .then(|| self.capture_cursor_state())
             .filter(|state| !state.hidden && !state.client_surface);
-        let mut draw_cursor = |canvas: &flux::CanvasCommands<'_>, blit: &StreamCursorBlit| {
+        let mut draw_cursor = |canvas: &optics_flux::CanvasCommands<'_>,
+                               blit: &StreamCursorBlit| {
             draw_software_cursor(
                 canvas,
                 self.device,
@@ -1152,12 +1153,12 @@ mod dmabuf_tests {
     /// Wayland runtime dir on this machine.
     #[test]
     fn window_stream_render_pipeline_smoke() {
-        let Ok(device) = flux::Device::new_with_options(flux::DeviceOptions {
+        let Ok(device) = optics_flux::Device::new_with_options(optics_flux::DeviceOptions {
             headless: true,
             frames_in_flight: STREAM_SLOT_COUNT as u32,
-            required_features: flux::DeviceFeatures::DMABUF,
-            optional_features: flux::DeviceFeatures::DMABUF_SYNC_FILE,
-            ..flux::DeviceOptions::default()
+            required_features: optics_flux::DeviceFeatures::DMABUF,
+            optional_features: optics_flux::DeviceFeatures::DMABUF_SYNC_FILE,
+            ..optics_flux::DeviceOptions::default()
         }) else {
             return;
         };
@@ -1183,8 +1184,8 @@ mod dmabuf_tests {
         impl StreamPainter for EmptyPainter<'_> {
             fn paint_offscreen_frame(
                 &mut self,
-                device: &flux::Device,
-                canvas: &flux::CanvasCommands<'_>,
+                device: &optics_flux::Device,
+                canvas: &optics_flux::CanvasCommands<'_>,
                 target: &OffscreenTarget,
                 geometry: &OffscreenGeometry,
                 _cursor: Option<(u32, (f32, f32))>,
@@ -1256,10 +1257,10 @@ mod dmabuf_tests {
 
         // dmabuf: the window render shares the blit's submit/export tail.
         const LINEAR: u64 = 0; // DRM_FORMAT_MOD_LINEAR
-        let Ok(surface) = flux::Surface::offscreen_dmabuf(&device, 64, 48, &[LINEAR]) else {
+        let Ok(surface) = optics_flux::Surface::offscreen_dmabuf(&device, 64, 48, &[LINEAR]) else {
             return;
         };
-        let canvas = flux::Canvas::new(&surface).unwrap();
+        let canvas = optics_flux::Canvas::new(&surface).unwrap();
         let mut dmabuf = DmabufStream {
             surface,
             canvas,
@@ -1297,12 +1298,12 @@ mod dmabuf_tests {
             render_offscreen_stream_dmabuf, render_offscreen_stream_shm,
         };
 
-        let Ok(device) = flux::Device::new_with_options(flux::DeviceOptions {
+        let Ok(device) = optics_flux::Device::new_with_options(optics_flux::DeviceOptions {
             headless: true,
             frames_in_flight: STREAM_SLOT_COUNT as u32,
-            required_features: flux::DeviceFeatures::DMABUF,
-            optional_features: flux::DeviceFeatures::DMABUF_SYNC_FILE,
-            ..flux::DeviceOptions::default()
+            required_features: optics_flux::DeviceFeatures::DMABUF,
+            optional_features: optics_flux::DeviceFeatures::DMABUF_SYNC_FILE,
+            ..optics_flux::DeviceOptions::default()
         }) else {
             return;
         };
@@ -1365,10 +1366,10 @@ mod dmabuf_tests {
         }
 
         const LINEAR: u64 = 0;
-        let Ok(surface) = flux::Surface::offscreen_dmabuf(&device, 64, 64, &[LINEAR]) else {
+        let Ok(surface) = optics_flux::Surface::offscreen_dmabuf(&device, 64, 64, &[LINEAR]) else {
             return;
         };
-        let canvas = flux::Canvas::new(&surface).unwrap();
+        let canvas = optics_flux::Canvas::new(&surface).unwrap();
         let mut dmabuf = DmabufStream {
             surface,
             canvas,

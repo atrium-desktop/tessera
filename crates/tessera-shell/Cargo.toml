@@ -32,21 +32,21 @@ required-features = ["persona"]
 tessera-launch-services = { workspace = true, optional = true }
 tessera-assets = { workspace = true, optional = true }
 tessera-dbus = { workspace = true, optional = true }
-vista-sys.workspace = true
+optics-vista-sys.workspace = true
 tessera-authority.workspace = true
 tessera-desktop.workspace = true
 tessera-primitives.workspace = true
 tessera-design = { workspace = true }
 tessera-i18n = { workspace = true }
 tessera-avatar = { workspace = true, optional = true, features = ["persona"] }
-flux = { workspace = true }
-flux-sys = { workspace = true }
-lens = { workspace = true }
-lens-sys = { workspace = true }
+optics-flux = { workspace = true }
+optics-flux-sys = { workspace = true }
+optics-lens = { workspace = true }
+optics-lens-sys = { workspace = true }
 # Direct dep so this crate's build script receives DEP_RETICLE_RPATHS for the
 # test harness; the decoder itself lives in `tessera-assets` (ADR-0233).
-reticle-sys = { workspace = true }
-transit = { workspace = true }
+optics-reticle-sys = { workspace = true }
+optics-transit = { workspace = true }
 log.workspace = true
 # statvfs for the resource probe's root-filesystem usage sample.
 libc.workspace = true
@@ -58,7 +58,7 @@ zeroize = { workspace = true }
 flate2 = { workspace = true }
 
 [package.metadata.cargo-machete]
-ignored = ["flux-sys", "lens-sys", "reticle-sys", "vista-sys"]
+ignored = ["optics-flux-sys", "optics-lens-sys", "optics-reticle-sys", "optics-vista-sys"]
 
 [lints]
 workspace = true

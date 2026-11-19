@@ -10,13 +10,13 @@ build = "build.rs"
 
 [dependencies]
 tessera-desktop.workspace = true
-lens = { workspace = true }
+optics-lens = { workspace = true }
 # Direct dep so this crate's test harness receives DEP_LENS_RPATHS and can
 # resolve the selected Lens/Flux native libraries through build.rs.
-lens-sys = { workspace = true }
+optics-lens-sys = { workspace = true }
 
 [package.metadata.cargo-machete]
-ignored = ["lens-sys"]
+ignored = ["optics-lens-sys"]
 
 [lints]
 workspace = true

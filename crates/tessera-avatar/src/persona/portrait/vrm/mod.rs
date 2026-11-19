@@ -15,7 +15,7 @@ pub use motion::{MotionInfo, MotionKind};
 
 use std::path::Path;
 
-use flux::{Device, Image};
+use optics_flux::{Device, Image};
 
 /// Square offscreen target edge, in physical pixels.
 pub(super) const ATLAS_SIZE: u32 = 256;

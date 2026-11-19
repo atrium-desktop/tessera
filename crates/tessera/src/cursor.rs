@@ -326,7 +326,7 @@ impl CursorTheme {
 
 /// One resolved, uploaded cursor ready to draw: a texture plus its hotspot.
 pub struct LoadedCursor {
-    pub image: flux::Image,
+    pub image: optics_flux::Image,
     /// Original premultiplied BGRA pixels retained for cursor-inclusive
     /// screenshots on nested backends, whose host cursor is not part of the
     /// compositor framebuffer.
@@ -405,7 +405,12 @@ impl CursorCache {
     /// The cursor for a `wp_cursor_shape` value at `scale`. The bundled Tessera
     /// theme guarantees a result for every standard shape, so this returns `None`
     /// only if rasterization itself fails.
-    pub fn get(&mut self, device: &flux::Device, shape: u32, scale: f32) -> Option<&LoadedCursor> {
+    pub fn get(
+        &mut self,
+        device: &optics_flux::Device,
+        shape: u32,
+        scale: f32,
+    ) -> Option<&LoadedCursor> {
         let (name, size) = self.effective();
         if !matches!(&self.theme, Some((n, s, _)) if *n == name && *s == size) {
             let theme = CursorTheme::resolve(&name, size);
@@ -445,11 +450,11 @@ impl CursorCache {
             .or_insert_with(|| {
                 let img = theme.load_shape(shape, scale)?;
                 let pixels: std::sync::Arc<[u8]> = img.pixels.into();
-                let image = flux::Image::from_bytes(
+                let image = optics_flux::Image::from_bytes(
                     device,
                     img.width,
                     img.height,
-                    flux::Format::Bgra8Unorm,
+                    optics_flux::Format::Bgra8Unorm,
                     &pixels,
                 )
                 .ok()?;

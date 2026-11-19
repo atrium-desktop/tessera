@@ -5,7 +5,7 @@
 //! compositor scene rendering, shell chrome, hit-testing, and Liquid Glass
 //! focus.
 
-use lens::LayoutOpts;
+use optics_lens::LayoutOpts;
 use tessera_design::{Design, PreviewSelectionStyle, materials};
 use tessera_desktop::window::WindowId;
 
@@ -147,7 +147,7 @@ pub fn selected_geometry(
 
 #[cfg(test)]
 mod tests {
-    use lens::Color;
+    use optics_lens::Color;
 
     use super::*;
 

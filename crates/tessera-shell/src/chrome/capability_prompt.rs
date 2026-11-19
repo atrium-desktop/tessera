@@ -14,7 +14,7 @@
 
 use std::collections::BTreeSet;
 
-use lens::{Color, Frame, Input, LayoutOpts, Rect};
+use optics_lens::{Color, Frame, Input, LayoutOpts, Rect};
 
 use crate::component::{
     CapabilityFamily, CapabilityPickParams, CapabilityPickResult, Chrome, ChromeCommand,

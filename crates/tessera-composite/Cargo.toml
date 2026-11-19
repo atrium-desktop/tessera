@@ -12,8 +12,8 @@ build = "build.rs"
 tessera-image.workspace = true
 tessera-desktop.workspace = true
 tessera-primitives.workspace = true
-flux = { workspace = true }
-flux-sys = { workspace = true }
+optics-flux = { workspace = true }
+optics-flux-sys = { workspace = true }
 libc.workspace = true
 log.workspace = true
 
@@ -21,7 +21,7 @@ log.workspace = true
 proptest.workspace = true
 
 [package.metadata.cargo-machete]
-ignored = ["flux-sys"]
+ignored = ["optics-flux-sys"]
 
 [lints]
 workspace = true

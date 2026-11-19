@@ -10,7 +10,7 @@
 //! the cards' natural heights, so hit-testing, damage, and painting all read
 //! one answer, and the behaviour is unit-tested without a GPU.
 
-use lens::Rect;
+use optics_lens::Rect;
 
 use crate::component::Reserved;
 

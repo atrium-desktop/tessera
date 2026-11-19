@@ -107,8 +107,8 @@ mod tests {
     const PINNED: &str = r#"
 [workspace.dependencies]
 other = "1.0"
-flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.50" }
-lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.50" } # keep me
+optics-flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.50" }
+optics-lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.50" } # keep me
 "#;
 
     #[test]
@@ -128,14 +128,13 @@ lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.50" } # keep me
     fn refuses_diverging_missing_or_absent_pins() {
         let split = r#"
 [workspace.dependencies]
-flux = { git = "https://github.com/ming2k/optics", tag = "v1" }
-lens = { git = "https://github.com/ming2k/optics", tag = "v2" }
+optics-flux = { git = "https://github.com/ming2k/optics", tag = "v1" }
+optics-lens = { git = "https://github.com/ming2k/optics", tag = "v2" }
 "#;
         let error = pinned_tag(&document(split)).unwrap_err().to_string();
         assert!(error.contains("multiple tags"), "got: {error}");
 
-        let untagged =
-            "[workspace.dependencies]\nflux = { git = \"https://github.com/ming2k/optics\" }\n";
+        let untagged = "[workspace.dependencies]\noptics-flux = { git = \"https://github.com/ming2k/optics\" }\n";
         let error = pinned_tag(&document(untagged)).unwrap_err().to_string();
         assert!(error.contains("no git tag"), "got: {error}");
 

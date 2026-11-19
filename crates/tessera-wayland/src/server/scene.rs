@@ -2544,8 +2544,24 @@ impl Server {
     /// Release replaced dma-bufs after the renderer has submitted a frame
     /// that no longer references them. `completion_fence` is a borrowed Linux
     /// sync_file fd for that submission; `None` means completion was already
-    /// waited on by the backend.
+    /// waited on or signaled.
+    ///
+    /// Explicit-sync clients receive `fenced_release` with a duplicate of
+    /// `completion_fence`; implicit-sync `wl_buffer` releases inject the read
+    /// fence into the dma-buf's `dma_resv` via `DMA_BUF_IOCTL_IMPORT_SYNC_FILE`
+    /// (Linux 6.0+, best-effort) before posting `wl_buffer.release`, so Mesa/GPU
+    /// writers wait for the compositor's Vulkan/KMS reads without stalling the
+    /// swapchain (ADR-0250, `[INV-ARCH-159]`).
     pub fn release_retired_buffers(&mut self, completion_fence: Option<i32>) {
+        #[repr(C)]
+        struct DmaBufImportSyncFile {
+            flags: u32,
+            fd: i32,
+        }
+        const DMA_BUF_SYNC_READ: u32 = 1;
+        // _IOW('b', 3, struct dma_buf_import_sync_file) from <linux/dma-buf.h>.
+        const DMA_BUF_IOCTL_IMPORT_SYNC_FILE: c_ulong = 0x4008_6203;
+
         let retired = std::mem::take(&mut self.state.retired_buffer_releases);
         let mut retry = Vec::new();
         for release in retired {
@@ -2563,6 +2579,29 @@ impl Server {
             };
             unsafe {
                 if !release.buffer.is_null() {
+                    if release.explicit_release.is_null()
+                        && let Some(fence) = completion_fence
+                        && fence >= 0
+                        && ffi::wl_resource_instance_of(
+                            release.buffer,
+                            &ffi::wl_buffer_interface,
+                            &WL_BUFFER_IMPL as *const _ as *const c_void,
+                        ) != 0
+                    {
+                        let db =
+                            ffi::wl_resource_get_user_data(release.buffer) as *const DmabufBuffer;
+                        if !db.is_null() && (*db).fd >= 0 {
+                            let import = DmaBufImportSyncFile {
+                                flags: DMA_BUF_SYNC_READ,
+                                fd: fence,
+                            };
+                            let _ = ioctl(
+                                (*db).fd,
+                                DMA_BUF_IOCTL_IMPORT_SYNC_FILE,
+                                &import as *const DmaBufImportSyncFile,
+                            );
+                        }
+                    }
                     ffi::wl_resource_post_event(release.buffer, ffi::WL_BUFFER_RELEASE);
                 }
                 if !release.explicit_release.is_null() {

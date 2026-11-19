@@ -38,7 +38,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::widgets::motion::{Spring, SpringParams};
 use crate::widgets::tiered::TieredIndicator;
-use lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
+use optics_lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
 use tessera_avatar::persona::{Portrait, PortraitConfig, PortraitWatcher, Profile};
 use tessera_design::tokens::TypeScale;
 use tessera_design::{AvatarRole, ControlCenterColors, Design, SurfaceRole, materials, themes};
@@ -180,8 +180,8 @@ struct TrayCellVisual {
     key: String,
     title: String,
     has_menu: bool,
-    texture: Option<*mut lens::sys::flux_image>,
-    fallback: Option<*mut lens::sys::flux_image>,
+    texture: Option<*mut optics_lens::sys::flux_image>,
+    fallback: Option<*mut optics_lens::sys::flux_image>,
 }
 
 /// Render-side cache of the shared dbusmenu tree, tagged with the worker's
@@ -217,7 +217,7 @@ pub struct ControlCenter {
     portrait_config: PortraitConfig,
     /// Non-owning view of the compositor device, used only on the render
     /// thread to build a complete hot-reload replacement.
-    avatar_device: Option<flux::Device>,
+    avatar_device: Option<optics_flux::Device>,
     /// Filesystem observation is notification-only; decode and GPU work stay
     /// on the render thread.
     avatar_watcher: Option<PortraitWatcher>,
@@ -274,7 +274,7 @@ impl ControlCenter {
     /// caller keeps it alive past the panel. The tray handle comes from the
     /// composition root's single `crate::tray::spawn()`.
     pub fn new(
-        device: &flux::Device,
+        device: &optics_flux::Device,
         tray: Option<TrayHandle>,
         notifications: Arc<Mutex<NotificationQueue>>,
     ) -> ControlCenter {
@@ -282,7 +282,7 @@ impl ControlCenter {
             // SAFETY: the composition root declares its flux device before the
             // shell and drops it after; the panel touches it on the render
             // thread only.
-            let device = unsafe { flux::Device::borrow_raw(device.as_raw()) };
+            let device = unsafe { optics_flux::Device::borrow_raw(device.as_raw()) };
             TrayProjection::new(device, handle)
         });
         let portrait_config = PortraitConfig::current();
@@ -294,7 +294,7 @@ impl ControlCenter {
             }
         };
         // SAFETY: as above.
-        let avatar_device = unsafe { flux::Device::borrow_raw(device.as_raw()) };
+        let avatar_device = unsafe { optics_flux::Device::borrow_raw(device.as_raw()) };
         let avatar_watcher = match PortraitWatcher::new(&portrait_config) {
             Ok(watcher) => Some(watcher),
             Err(error) => {

@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use flux::{Device, Format, Image};
+use optics_flux::{Device, Format, Image};
 
 use super::{Error, mask::circle_mask_premultiplied};
 

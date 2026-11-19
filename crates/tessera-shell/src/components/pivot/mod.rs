@@ -24,7 +24,7 @@ use crate::component::{
     AppCatalog, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, IconSet, Localizer,
 };
 use crate::widgets::geom::contains;
-use lens::{Frame, Input, Rect};
+use optics_lens::{Frame, Input, Rect};
 use tessera_design::Design;
 use tessera_desktop::window::Window;
 use tessera_desktop::workspace::WorkspaceSnapshot;

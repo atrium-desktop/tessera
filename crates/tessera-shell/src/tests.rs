@@ -3,13 +3,13 @@ use super::*;
 /// A chrome component that draws one text field, so the shell's caret
 /// contract (Optics ADR-0151) can be exercised without a GPU.
 struct CaretField {
-    buf: lens::TextBuf,
+    buf: optics_lens::TextBuf,
 }
 
 impl CaretField {
     fn new() -> Self {
         Self {
-            buf: lens::TextBuf::new(64, ""),
+            buf: optics_lens::TextBuf::new(64, ""),
         }
     }
 }
@@ -358,21 +358,24 @@ fn reserved_inset_clamps_to_non_negative() {
 
 #[test]
 fn cursor_shape_from_lens_cursor_hint() {
-    assert_eq!(CursorShape::from_hint(lens::CursorHint::Default), None);
     assert_eq!(
-        CursorShape::from_hint(lens::CursorHint::Pointer),
+        CursorShape::from_hint(optics_lens::CursorHint::Default),
+        None
+    );
+    assert_eq!(
+        CursorShape::from_hint(optics_lens::CursorHint::Pointer),
         Some(CursorShape::Pointer)
     );
     assert_eq!(
-        CursorShape::from_hint(lens::CursorHint::Text),
+        CursorShape::from_hint(optics_lens::CursorHint::Text),
         Some(CursorShape::Text)
     );
     assert_eq!(
-        CursorShape::from_hint(lens::CursorHint::ResizeNs),
+        CursorShape::from_hint(optics_lens::CursorHint::ResizeNs),
         Some(CursorShape::ResizeNs)
     );
     assert_eq!(
-        CursorShape::from_hint(lens::CursorHint::ResizeEw),
+        CursorShape::from_hint(optics_lens::CursorHint::ResizeEw),
         Some(CursorShape::ResizeEw)
     );
 }
@@ -390,7 +393,7 @@ fn cursor_shape_at_falls_back_to_ui_cursor_hint() {
             _i18n: &Localizer,
             _out: &mut ChromeEvents,
         ) {
-            frame.set_cursor_hint(lens::CursorHint::Text);
+            frame.set_cursor_hint(optics_lens::CursorHint::Text);
         }
 
         fn captures_pointer(
@@ -461,7 +464,7 @@ fn a_fully_opaque_cover_elides_the_desktop_pass() {
     assert!(shell.opaque_cover_active());
 }
 
-use lens::Rect;
+use optics_lens::Rect;
 
 /// A component whose animation footprint is a small band.
 struct LocalizedAnim {
@@ -945,7 +948,7 @@ fn the_overlay_elision_respects_chrome_on_any_edge() {
         visible: true,
     }));
 
-    let left_edge = flux::CanvasRenderArea {
+    let left_edge = optics_flux::CanvasRenderArea {
         x: 0.0,
         y: 400.0,
         width: 40.0,
@@ -956,7 +959,7 @@ fn the_overlay_elision_respects_chrome_on_any_edge() {
         "a left-edge decoration owns pixels in a left-edge render area"
     );
 
-    let middle = flux::CanvasRenderArea {
+    let middle = optics_flux::CanvasRenderArea {
         x: 800.0,
         y: 400.0,
         width: 40.0,
@@ -977,7 +980,7 @@ fn an_invisible_decoration_blocks_nothing() {
         footprint: Some(tessera_primitives::Rect::new(0, 0, 86, 1080)),
         visible: false,
     }));
-    let anywhere = flux::CanvasRenderArea {
+    let anywhere = optics_flux::CanvasRenderArea {
         x: 0.0,
         y: 0.0,
         width: 1920.0,
@@ -998,7 +1001,7 @@ fn a_visible_overlay_always_blocks_the_elision() {
         pending: false,
         footprint: Some(tessera_primitives::Rect::new(800, 400, 236, 180)),
     }));
-    let middle = flux::CanvasRenderArea {
+    let middle = optics_flux::CanvasRenderArea {
         x: 800.0,
         y: 400.0,
         width: 40.0,

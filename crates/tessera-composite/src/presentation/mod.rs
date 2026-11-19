@@ -25,7 +25,7 @@ pub use scanout::{
 };
 pub use scheduler::{
     ActivationChange, PresentationAvailability, PresentationOutcome, PresentationScheduler,
-    RetryWait,
+    RetryWait, presentation_groups_pending,
 };
 pub use stream::{
     BlitFailure, CaptureCursorState, DRM_FORMAT_XRGB8888, DmabufCapture, DmabufStream,
@@ -43,8 +43,8 @@ pub use stream::{
 /// the empty string when flux recorded none. Shared by every crate that
 /// formats flux handle errors.
 pub fn flux_last_error_detail() -> String {
-    let mut info: flux_sys::flux_error_info = unsafe { std::mem::zeroed() };
-    unsafe { flux_sys::flux_get_last_error(&mut info) };
+    let mut info: optics_flux_sys::flux_error_info = unsafe { std::mem::zeroed() };
+    unsafe { optics_flux_sys::flux_get_last_error(&mut info) };
     if info.message.is_null() {
         return String::new();
     }

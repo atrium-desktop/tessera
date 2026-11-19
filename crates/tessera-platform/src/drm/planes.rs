@@ -155,6 +155,11 @@ pub(super) fn apply_overlay_policy(displays: &mut DisplaySet, enabled: bool) {
 pub(super) struct OutputPlanes {
     pub(super) primary: PrimaryPlane,
     pub(super) cursor: Option<CursorPlane>,
+    /// Cursor plane compatible with this output's CRTC that must stay disabled
+    /// (for example on a mirror output whose pointer is composited into the
+    /// source framebuffer). Retaining the handle lets every commit clear any
+    /// stale kernel cursor state instead of leaving a zombie sprite on screen.
+    pub(super) disabled_cursor: Option<CursorPlane>,
     pub(super) overlay: OverlayPlaneAllocation,
 }
 

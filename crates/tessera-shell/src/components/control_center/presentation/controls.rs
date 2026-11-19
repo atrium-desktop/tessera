@@ -197,7 +197,7 @@ impl ControlCenter {
                     "control-center-wifi",
                     i18n.text(Message::Wifi),
                     &wifi_sub,
-                    lens::sys::lens_icon_id::LENS_ICON_WIFI,
+                    optics_lens::sys::lens_icon_id::LENS_ICON_WIFI,
                     wifi_on,
                     (half, TILE_H),
                     hud,
@@ -217,7 +217,7 @@ impl ControlCenter {
                     "control-center-bluetooth",
                     i18n.text(Message::Bluetooth),
                     &bt_sub,
-                    lens::sys::lens_icon_id::LENS_ICON_BLUETOOTH,
+                    optics_lens::sys::lens_icon_id::LENS_ICON_BLUETOOTH,
                     bt_on,
                     (half, TILE_H),
                     hud,
@@ -239,7 +239,7 @@ impl ControlCenter {
                     "control-center-cast",
                     i18n.text(Message::Cast),
                     &cast_sub,
-                    lens::sys::lens_icon_id::LENS_ICON_CAST,
+                    optics_lens::sys::lens_icon_id::LENS_ICON_CAST,
                     cast_on,
                     (half, TILE_H),
                     hud,
@@ -256,9 +256,9 @@ impl ControlCenter {
                     i18n.text(Message::DoNotDisturb),
                     None,
                     if dnd_on {
-                        lens::sys::lens_icon_id::LENS_ICON_BELL_OFF
+                        optics_lens::sys::lens_icon_id::LENS_ICON_BELL_OFF
                     } else {
-                        lens::sys::lens_icon_id::LENS_ICON_BELL
+                        optics_lens::sys::lens_icon_id::LENS_ICON_BELL
                     },
                     dnd_on,
                     (quarter, TILE_H),
@@ -280,9 +280,9 @@ impl ControlCenter {
                     i18n.text(Message::DarkMode),
                     None,
                     if dark_on {
-                        lens::sys::lens_icon_id::LENS_ICON_MOON
+                        optics_lens::sys::lens_icon_id::LENS_ICON_MOON
                     } else {
-                        lens::sys::lens_icon_id::LENS_ICON_SUN
+                        optics_lens::sys::lens_icon_id::LENS_ICON_SUN
                     },
                     dark_on,
                     (quarter, TILE_H),
@@ -382,7 +382,7 @@ impl ControlCenter {
                         f,
                         "control-center-brightness",
                         i18n.text(Message::Brightness),
-                        lens::sys::lens_icon_id::LENS_ICON_SUN,
+                        optics_lens::sys::lens_icon_id::LENS_ICON_SUN,
                         false,
                         status.brightness,
                         (1, 100),
@@ -476,7 +476,8 @@ impl ControlCenter {
                             f,
                             "control-center-kbd-backlight",
                             i18n.text(Message::Keyboard),
-                            kbd_backlight_icon().unwrap_or(lens::sys::lens_icon_id::LENS_ICON_KEY),
+                            kbd_backlight_icon()
+                                .unwrap_or(optics_lens::sys::lens_icon_id::LENS_ICON_KEY),
                             false,
                             Some(level),
                             (0, 100),

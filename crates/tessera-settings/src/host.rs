@@ -7,8 +7,8 @@
 //! everything here is plain state, so it is exercised by unit tests without a
 //! compositor.
 
-use lens::sys::lens_icon_id;
-use lens::{Align, Color, Frame, LayoutOpts, TextBuf};
+use optics_lens::sys::lens_icon_id;
+use optics_lens::{Align, Color, Frame, LayoutOpts, TextBuf};
 use tessera_design::{ControlCenterColors, Design, themes};
 use tessera_desktop::settings::{SettingsAction, SettingsSnapshot};
 use tessera_i18n::{Localizer, Message};
@@ -316,12 +316,12 @@ impl SettingsHost {
                         // NUL-terminated, and `lens_set_focus` only records an
                         // id for the next build.
                         unsafe {
-                            let id = lens::sys::lens_current_id(
-                                raw as *const lens::sys::lens,
+                            let id = optics_lens::sys::lens_current_id(
+                                raw as *const optics_lens::sys::lens,
                                 label.as_ptr(),
                             );
                             if id != 0 {
-                                lens::sys::lens_set_focus(raw, id);
+                                optics_lens::sys::lens_set_focus(raw, id);
                             }
                         }
                     }
@@ -676,12 +676,12 @@ mod tests {
     fn focus_search_targets_the_scoped_text_field() {
         let i18n = Localizer::new("en-US");
         let mut host = connected();
-        let mut ui = lens::Ui::headless().unwrap();
+        let mut ui = optics_lens::Ui::headless().unwrap();
         let size = (960.0, 680.0);
-        let idle = lens::Input::new(size, 0.016);
+        let idle = optics_lens::Input::new(size, 0.016);
         host.focus_search();
         ui.frame(&idle, |f| host.render(f, size, &i18n));
-        let mut typed = lens::Input::new(size, 0.016);
+        let mut typed = optics_lens::Input::new(size, 0.016);
         typed.set_text("dock");
         ui.frame(&typed, |f| host.render(f, size, &i18n));
         assert_eq!(host.search_query(), "dock");

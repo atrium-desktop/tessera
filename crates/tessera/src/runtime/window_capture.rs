@@ -20,14 +20,14 @@ pub(super) struct WindowCaptureContext {
 /// flight. The offscreen surface is deliberately not cached: it is created
 /// per capture, owned here until the readback completes, and then dropped.
 pub(super) struct PendingWindowCapture {
-    pub(super) surface: flux::Surface,
+    pub(super) surface: optics_flux::Surface,
     pub(super) readback: PendingReadback,
     pub(super) context: WindowCaptureContext,
     pub(super) reply: std::sync::mpsc::Sender<Result<tessera_ipc::CaptureWindowPayload, String>>,
 }
 
 pub(super) struct PreparedWindowCapture {
-    pub(super) surface: flux::Surface,
+    pub(super) surface: optics_flux::Surface,
     pub(super) readback: PendingReadback,
     pub(super) context: WindowCaptureContext,
 }
@@ -119,10 +119,10 @@ fn window_capture_scale_milli(
 /// clipped by the target extent (mirroring `StreamTarget::Window`
 /// semantics). Shared by the one-shot capture and per-window streams.
 pub(super) fn draw_window_tree(
-    device: &flux::Device,
+    device: &optics_flux::Device,
     renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
-    canvas: &flux::CanvasCommands<'_>,
+    canvas: &optics_flux::CanvasCommands<'_>,
     window: tessera_desktop::window::WindowId,
     geometry: &OffscreenGeometry,
 ) {
@@ -155,7 +155,7 @@ pub(super) fn draw_window_tree(
 /// toplevel bounds are clipped by the target extent (mirroring
 /// `StreamTarget::Window` semantics).
 pub(super) fn begin_window_capture(
-    device: &flux::Device,
+    device: &optics_flux::Device,
     renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     window: tessera_desktop::window::WindowId,
@@ -165,7 +165,7 @@ pub(super) fn begin_window_capture(
     let geometry = window_tree_geometry(server, window)?;
     let physical_width = geometry.physical_width;
     let physical_height = geometry.physical_height;
-    let surface = flux::Surface::offscreen_readback(device, physical_width, physical_height)
+    let surface = optics_flux::Surface::offscreen_readback(device, physical_width, physical_height)
         .map_err(|error| {
             format!(
                 "allocate window {} render target: {error}{}",
@@ -180,7 +180,7 @@ pub(super) fn begin_window_capture(
             flux_last_error_detail()
         )
     })?;
-    let mut canvas = flux::Canvas::new(&surface).map_err(|error| {
+    let mut canvas = optics_flux::Canvas::new(&surface).map_err(|error| {
         format!(
             "create window {} canvas: {error}{}",
             window.0,
@@ -219,7 +219,7 @@ pub(super) fn begin_window_capture(
     })?;
     frame
         .submit()
-        .and_then(flux::SubmittedFrame::present)
+        .and_then(optics_flux::SubmittedFrame::present)
         .map_err(|error| {
             format!(
                 "submit window {} frame: {error}{}",

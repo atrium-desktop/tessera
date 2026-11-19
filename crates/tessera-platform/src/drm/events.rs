@@ -307,6 +307,16 @@ impl DrmBackend {
                 self.retiring_overlay = None;
                 self.pending_flips.clear();
                 self.forget_composite_fb_cache();
+                // The revoked fd also destroyed every cached cursor dumb buffer,
+                // framebuffer, and property blob. Drop their handles without
+                // ioctls so the replacement fd never commits or destroys stale
+                // numeric IDs.
+                self.cursor_buffers.clear();
+                self.cursor_state = None;
+                self.cursor_plane_active = false;
+                self.gamma_blob = None;
+                self.hdr_metadata_blob = None;
+                self.presented_composite = None;
                 self.hotplug_pending = false;
                 match open_card_and_outputs(
                     &self.seat,

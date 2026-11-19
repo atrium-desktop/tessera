@@ -201,13 +201,13 @@ pub enum CursorShape {
 
 impl CursorShape {
     /// Map a Lens immediate-mode UI cursor hint to the corresponding Wayland cursor shape.
-    pub fn from_hint(hint: lens::CursorHint) -> Option<Self> {
+    pub fn from_hint(hint: optics_lens::CursorHint) -> Option<Self> {
         match hint {
-            lens::CursorHint::Default => None,
-            lens::CursorHint::Pointer => Some(Self::Pointer),
-            lens::CursorHint::Text => Some(Self::Text),
-            lens::CursorHint::ResizeNs => Some(Self::ResizeNs),
-            lens::CursorHint::ResizeEw => Some(Self::ResizeEw),
+            optics_lens::CursorHint::Default => None,
+            optics_lens::CursorHint::Pointer => Some(Self::Pointer),
+            optics_lens::CursorHint::Text => Some(Self::Text),
+            optics_lens::CursorHint::ResizeNs => Some(Self::ResizeNs),
+            optics_lens::CursorHint::ResizeEw => Some(Self::ResizeEw),
         }
     }
 }
@@ -228,11 +228,11 @@ impl Reserved {
     }
 }
 
-use lens::{Frame, Rect};
+use optics_lens::{Frame, Rect};
 
 /// Re-export so callers can construct input snapshots without depending on
 /// lens directly.
-pub use lens::Input;
+pub use optics_lens::Input;
 
 /// Parameters of one user-consent application pick, mapped from the IPC
 /// request by the compositor runtime.

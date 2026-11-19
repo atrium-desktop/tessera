@@ -34,7 +34,7 @@ checkout without one forcing its setup on the other:
 
 | Concern | Canonical workflow | Local workflow |
 |---------|--------------------|----------------|
-| Rust bindings | Locked Optics `v<OPTICS_VERSION>` Git source | `[patch]` entries for `../optics/bindings` |
+| Rust bindings | Locked Optics `v<OPTICS_VERSION>` Git source | `[patch]` entries for `../optics/crates` |
 | Native libraries | System `pkg-config` and dynamic-loader paths | The sibling uninstalled Meson tree (via `meson-uninstalled/*.pc`) |
 | `.cargo/config.toml` | Absent | A copy of `.cargo/optics-local.toml` |
 | `Cargo.lock` | Canonical and committed | Worktree-local and excluded from commits |

@@ -8,16 +8,16 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-flux = { workspace = true }
-flux-sys = { workspace = true }
-vista = { workspace = true }
-vista-sys = { workspace = true }
-transit = { workspace = true }
+optics-flux = { workspace = true }
+optics-flux-sys = { workspace = true }
+optics-vista = { workspace = true }
+optics-vista-sys = { workspace = true }
+optics-transit = { workspace = true }
 tessera-image = { workspace = true }
 log.workspace = true
 
 [package.metadata.cargo-machete]
-ignored = ["vista-sys", "flux-sys"]
+ignored = ["optics-vista-sys", "optics-flux-sys"]
 
 [lints]
 workspace = true

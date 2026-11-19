@@ -352,7 +352,7 @@ impl CompositorRuntime<'_> {
         });
         let color_managed = candidate.is_some_and(|frame| frame.color.is_some());
         let plane_facts = self.overlay_plane_facts(output_name.as_deref(), candidate);
-        let chrome_area = flux::CanvasRenderArea {
+        let chrome_area = optics_flux::CanvasRenderArea {
             x: physical_target.origin.x as f32,
             y: physical_target.origin.y as f32,
             width: physical_target.size.w as f32,

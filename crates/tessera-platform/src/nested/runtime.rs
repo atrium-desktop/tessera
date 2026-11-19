@@ -201,8 +201,11 @@ impl NestedHost {
     }
 
     /// Create a `VkSurfaceKHR` on `device`'s instance for this window. Returns
-    /// the raw handle as a `*mut c_void` suitable for `flux::Surface::from_vk`.
-    pub fn create_vk_surface(&mut self, device: &flux::Device) -> Result<*mut c_void, NestedError> {
+    /// the raw handle as a `*mut c_void` suitable for `optics_flux::Surface::from_vk`.
+    pub fn create_vk_surface(
+        &mut self,
+        device: &optics_flux::Device,
+    ) -> Result<*mut c_void, NestedError> {
         unsafe {
             let entry = ash::Entry::load().map_err(|_| NestedError::Vulkan)?;
             let raw_instance = device.vk_instance() as usize as u64;

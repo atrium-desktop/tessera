@@ -1,7 +1,7 @@
 //! Wayland clipboard integration for Lens text fields.
 //!
 //! Lens owns text editing and reports copy/paste intent through its
-//! [`lens_clipboard`](lens::sys::lens_clipboard) host callbacks. This module
+//! [`lens_clipboard`](optics_lens::sys::lens_clipboard) host callbacks. This module
 //! turns those callbacks into one calloop event each, and implements the
 //! Wayland side against the seat's `wl_data_device`:
 //!

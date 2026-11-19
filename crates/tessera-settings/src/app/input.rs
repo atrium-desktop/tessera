@@ -1,6 +1,6 @@
 //! Wayland seat events folded into one Lens input snapshot per frame.
 
-use lens::{Input, MouseButton};
+use optics_lens::{Input, MouseButton};
 use tessera_wl_client::{AxisScroll, BTN_LEFT, BTN_MIDDLE, BTN_RIGHT, KeyEvent, Keysym, Modifiers};
 
 /// Pixels one discrete wheel notch scrolls when the device reports only
@@ -76,22 +76,22 @@ impl InputState {
     pub fn modifiers(&mut self, modifiers: Modifiers) {
         let mut mask = 0;
         if modifiers.shift {
-            mask |= lens::mods::SHIFT;
+            mask |= optics_lens::mods::SHIFT;
         }
         if modifiers.ctrl {
-            mask |= lens::mods::CTRL;
+            mask |= optics_lens::mods::CTRL;
         }
         if modifiers.alt {
-            mask |= lens::mods::ALT;
+            mask |= optics_lens::mods::ALT;
         }
         if modifiers.logo {
-            mask |= lens::mods::SUPER;
+            mask |= optics_lens::mods::SUPER;
         }
         self.mods = mask;
     }
 
     pub fn ctrl(&self) -> bool {
-        self.mods & lens::mods::CTRL != 0
+        self.mods & optics_lens::mods::CTRL != 0
     }
 
     pub fn key(&mut self, event: &KeyEvent, pressed: bool, repeat: bool) {
@@ -100,7 +100,9 @@ impl InputState {
         }
         // Text enters through the layout commit path, never as shortcuts.
         if pressed
-            && self.mods & (lens::mods::CTRL | lens::mods::ALT | lens::mods::SUPER) == 0
+            && self.mods
+                & (optics_lens::mods::CTRL | optics_lens::mods::ALT | optics_lens::mods::SUPER)
+                == 0
             && let Some(text) = &event.utf8
             && text.chars().all(|c| !c.is_control())
         {
@@ -150,7 +152,7 @@ impl InputState {
 /// and navigation keys, unshifted ASCII for printable keys (so `ctrl+a`
 /// arrives as `'a'`), nothing for the rest.
 pub fn lens_key(keysym: Keysym) -> Option<i32> {
-    use lens::key;
+    use optics_lens::key;
     let special = match keysym {
         Keysym::Escape => key::ESCAPE,
         Keysym::Tab | Keysym::ISO_Left_Tab => key::TAB,
@@ -191,9 +193,9 @@ mod tests {
 
     #[test]
     fn editing_keys_map_to_portable_sentinels() {
-        assert_eq!(lens_key(Keysym::Escape), Some(lens::key::ESCAPE));
-        assert_eq!(lens_key(Keysym::KP_Enter), Some(lens::key::RETURN));
-        assert_eq!(lens_key(Keysym::ISO_Left_Tab), Some(lens::key::TAB));
+        assert_eq!(lens_key(Keysym::Escape), Some(optics_lens::key::ESCAPE));
+        assert_eq!(lens_key(Keysym::KP_Enter), Some(optics_lens::key::RETURN));
+        assert_eq!(lens_key(Keysym::ISO_Left_Tab), Some(optics_lens::key::TAB));
     }
 
     #[test]

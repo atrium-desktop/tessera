@@ -58,7 +58,7 @@ pub enum DecodeError {
     /// The vector source could not be read or decompressed.
     Source(SourceError),
     /// The vector compiler rejected the document.
-    Vector(reticle::Error),
+    Vector(optics_reticle::Error),
     /// A buffer's extent does not match its pixel byte length.
     Extent { width: u32, height: u32, len: usize },
 }
@@ -105,8 +105,8 @@ impl From<SourceError> for DecodeError {
     }
 }
 
-impl From<reticle::Error> for DecodeError {
-    fn from(err: reticle::Error) -> Self {
+impl From<optics_reticle::Error> for DecodeError {
+    fn from(err: optics_reticle::Error) -> Self {
         Self::Vector(err)
     }
 }
@@ -114,7 +114,7 @@ impl From<reticle::Error> for DecodeError {
 /// One decoded asset in the renderer's native CPU layout.
 ///
 /// `bgra` is `width * height * 4` bytes of **premultiplied** blue, green, red,
-/// alpha. It is ready for `flux::Image::from_bytes(..., Bgra8Unorm, ...)` with
+/// alpha. It is ready for `optics_flux::Image::from_bytes(..., Bgra8Unorm, ...)` with
 /// no post-processing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RasterImage {
@@ -185,7 +185,7 @@ impl RasterImage {
 /// compiler themselves, which is what makes "one asset rasterizer" a dependency
 /// boundary rather than a convention (ADR-0233).
 pub struct VectorDocument {
-    inner: reticle::Document,
+    inner: optics_reticle::Document,
 }
 
 impl VectorDocument {
@@ -193,7 +193,7 @@ impl VectorDocument {
     /// [`read_vector_source`] or [`decompress_if_gzip`].
     pub fn parse(bytes: &[u8]) -> Result<Self, DecodeError> {
         Ok(Self {
-            inner: reticle::Document::parse_bytes(bytes, reticle::Limits::default())?,
+            inner: optics_reticle::Document::parse_bytes(bytes, optics_reticle::Limits::default())?,
         })
     }
 
@@ -293,15 +293,15 @@ pub fn decode_bytes(bytes: &[u8], extent: u32) -> Result<RasterImage, DecodeErro
 /// renders instead of vanishing. Documents keep their aspect ratio and are
 /// fitted into the square, centred, by the compiler.
 fn rasterize_document(
-    document: &reticle::Document,
+    document: &optics_reticle::Document,
     extent: u32,
 ) -> Result<RasterImage, DecodeError> {
     let extent = clamp_extent(extent);
-    let pixmap = document.rasterize(reticle::RasterizeOptions {
+    let pixmap = document.rasterize(optics_reticle::RasterizeOptions {
         width: extent,
         height: extent,
-        format: reticle::PixelFormat::Bgra8Premul,
-        paint: reticle::PaintMode::theme(0xFFFF_FFFF),
+        format: optics_reticle::PixelFormat::Bgra8Premul,
+        paint: optics_reticle::PaintMode::theme(0xFFFF_FFFF),
         stroke_width: 0.0,
     })?;
     raster_from_pixmap(&pixmap)
@@ -369,7 +369,7 @@ fn premultiplied_rgba_to_bgra(rgba: RgbaImage) -> RasterImage {
     }
 }
 
-fn raster_from_pixmap(pixmap: &reticle::Pixmap) -> Result<RasterImage, DecodeError> {
+fn raster_from_pixmap(pixmap: &optics_reticle::Pixmap) -> Result<RasterImage, DecodeError> {
     let width = pixmap.width();
     let height = pixmap.height();
     let row_bytes = (width as usize).checked_mul(4).ok_or(DecodeError::Extent {

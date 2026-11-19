@@ -1,5 +1,231 @@
 use super::*;
 
+/// Pure KMS disable operations built before touching an `AtomicModeReq`.
+///
+/// Linux's `drm_atomic_crtc_check` requires `MODE_ID = 0` whenever a CRTC has
+/// its connectors detached (`ACTIVE = false` alone leaves `crtc_state->enable`
+/// true and fails with `EINVAL`). Separating the plan from the ioctl makes that
+/// invariant directly unit-testable without a DRM card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct DisablePlaneOp {
+    pub(super) plane: plane::Handle,
+    pub(super) fb_id: property::Handle,
+    pub(super) crtc_id: property::Handle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct DisableConnectorOp {
+    pub(super) connector: connector::Handle,
+    pub(super) crtc_id: property::Handle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct DisableCrtcOp {
+    pub(super) crtc: crtc::Handle,
+    pub(super) active: property::Handle,
+    pub(super) mode_id: property::Handle,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(super) struct DisableAtomicPlan {
+    pub(super) planes: Vec<DisablePlaneOp>,
+    pub(super) connectors: Vec<DisableConnectorOp>,
+    pub(super) crtcs: Vec<DisableCrtcOp>,
+}
+
+impl DisableAtomicPlan {
+    pub(super) fn is_empty(&self) -> bool {
+        self.planes.is_empty() && self.connectors.is_empty() && self.crtcs.is_empty()
+    }
+}
+
+/// Pure output descriptor used to build a disable plan without needing a full
+/// `Output` with kernel blobs.
+#[derive(Debug, Clone)]
+pub(super) struct DisableOutputSpec {
+    pub(super) connector: DisableConnectorOp,
+    pub(super) crtc: DisableCrtcOp,
+    pub(super) planes: Vec<DisablePlaneOp>,
+}
+
+pub(super) fn build_disable_plan(
+    outputs: &[DisableOutputSpec],
+    extra_planes: &[DisablePlaneOp],
+    preserved_connectors: &HashSet<connector::Handle>,
+    preserved_crtcs: &HashSet<crtc::Handle>,
+    preserved_planes: &HashSet<plane::Handle>,
+) -> DisableAtomicPlan {
+    let mut plan = DisableAtomicPlan::default();
+    let mut seen_planes = HashSet::new();
+    let mut seen_connectors = HashSet::new();
+    let mut seen_crtcs = HashSet::new();
+
+    for plane in extra_planes {
+        if !preserved_planes.contains(&plane.plane) && seen_planes.insert(plane.plane) {
+            plan.planes.push(*plane);
+        }
+    }
+    for output in outputs {
+        for plane in &output.planes {
+            if !preserved_planes.contains(&plane.plane) && seen_planes.insert(plane.plane) {
+                plan.planes.push(*plane);
+            }
+        }
+        if !preserved_connectors.contains(&output.connector.connector)
+            && seen_connectors.insert(output.connector.connector)
+        {
+            plan.connectors.push(output.connector);
+        }
+        if !preserved_crtcs.contains(&output.crtc.crtc) && seen_crtcs.insert(output.crtc.crtc) {
+            plan.crtcs.push(output.crtc);
+        }
+    }
+    plan
+}
+
+pub(super) fn apply_disable_plan(request: &mut atomic::AtomicModeReq, plan: &DisableAtomicPlan) {
+    for plane in &plan.planes {
+        request.add_property(plane.plane, plane.fb_id, property::Value::Framebuffer(None));
+        request.add_property(plane.plane, plane.crtc_id, property::Value::CRTC(None));
+    }
+    for connector in &plan.connectors {
+        request.add_property(
+            connector.connector,
+            connector.crtc_id,
+            property::Value::CRTC(None),
+        );
+    }
+    for crtc in &plan.crtcs {
+        request.add_property(crtc.crtc, crtc.mode_id, property::Value::Blob(0));
+        request.add_property(crtc.crtc, crtc.active, property::Value::Boolean(false));
+    }
+}
+
+/// Value-equality signature of a DRM mode timing, used to determine whether a
+/// surviving output can keep its live CRTC/mode blob across a hotplug without
+/// triggering a redundant modeset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct ModeSignature {
+    pub(super) size: (u16, u16),
+    pub(super) clock: u32,
+    pub(super) hsync: (u16, u16, u16),
+    pub(super) vsync: (u16, u16, u16),
+    pub(super) vrefresh: u32,
+    pub(super) flags: u32,
+}
+
+pub(super) fn mode_signature(mode: &Mode) -> ModeSignature {
+    ModeSignature {
+        size: mode.size(),
+        clock: mode.clock(),
+        hsync: mode.hsync(),
+        vsync: mode.vsync(),
+        vrefresh: mode.vrefresh(),
+        flags: mode.flags().bits(),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct HotplugOutputKey {
+    pub(super) connector: connector::Handle,
+    pub(super) crtc: crtc::Handle,
+    pub(super) primary_plane: plane::Handle,
+    pub(super) mode: ModeSignature,
+    pub(super) modeset_done: bool,
+    pub(super) link_bad: bool,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(super) struct HotplugTransitionPlan {
+    /// `(old_index, new_index)` pairs whose live CRTC, primary plane, and mode
+    /// stay untouched across the hotplug.
+    pub(super) preserved: Vec<(usize, usize)>,
+    /// Indices in `old` that completed a modeset and must be disabled in KMS
+    /// before releasing their framebuffers.
+    pub(super) disable_old_indices: Vec<usize>,
+    /// Indices in `old` whose scanout slots are not carried forward and must be
+    /// released once the disable commit completes.
+    pub(super) release_old_indices: Vec<usize>,
+}
+
+pub(super) fn plan_hotplug_transition(
+    old: &[HotplugOutputKey],
+    new: &[HotplugOutputKey],
+    same_format_and_color: bool,
+) -> HotplugTransitionPlan {
+    let mut plan = HotplugTransitionPlan::default();
+    let mut matched_new = vec![false; new.len()];
+    for (old_index, old_key) in old.iter().enumerate() {
+        let preserved_new = if same_format_and_color && old_key.modeset_done {
+            new.iter().enumerate().position(|(new_index, new_key)| {
+                !matched_new[new_index]
+                    && !new_key.link_bad
+                    && old_key.connector == new_key.connector
+                    && old_key.crtc == new_key.crtc
+                    && old_key.primary_plane == new_key.primary_plane
+                    && old_key.mode == new_key.mode
+            })
+        } else {
+            None
+        };
+        if let Some(new_index) = preserved_new {
+            matched_new[new_index] = true;
+            plan.preserved.push((old_index, new_index));
+        } else {
+            if old_key.modeset_done {
+                plan.disable_old_indices.push(old_index);
+            }
+            plan.release_old_indices.push(old_index);
+        }
+    }
+    plan
+}
+
+fn disable_spec_for_output(
+    output: &Output,
+    active_overlay: Option<&OverlayScanout>,
+) -> DisableOutputSpec {
+    let mut planes = Vec::with_capacity(3);
+    if let Some(cursor) = output.planes.cursor.or(output.planes.disabled_cursor) {
+        planes.push(DisablePlaneOp {
+            plane: cursor.handle,
+            fb_id: cursor.props.plane_fb_id,
+            crtc_id: cursor.props.plane_crtc_id,
+        });
+    }
+    planes.push(DisablePlaneOp {
+        plane: output.planes.primary.handle,
+        fb_id: output.planes.primary.props.fb_id,
+        crtc_id: output.planes.primary.props.crtc_id,
+    });
+    if let Some(overlay) = active_overlay.filter(|overlay| overlay.output == output.name)
+        && let Some(caps) = output
+            .planes
+            .overlay
+            .discovered
+            .iter()
+            .find(|plane| plane.handle == overlay.plane)
+    {
+        planes.push(DisablePlaneOp {
+            plane: caps.handle,
+            fb_id: caps.props.fb_id,
+            crtc_id: caps.props.crtc_id,
+        });
+    }
+    DisableOutputSpec {
+        connector: DisableConnectorOp {
+            connector: output.connector,
+            crtc_id: output.props.connector_crtc_id,
+        },
+        crtc: DisableCrtcOp {
+            crtc: output.crtc,
+            active: output.props.crtc_active,
+            mode_id: output.props.crtc_mode_id,
+        },
+        planes,
+    }
+}
+
 impl DrmBackend {
     /// Change KMS scanout power while retaining connector assignment and
     /// input ownership. Turning outputs back on is completed by the next
@@ -43,6 +269,17 @@ impl DrmBackend {
 
     pub(super) fn reconfigure_outputs(&mut self) {
         self.hotplug_pending = false;
+        let existing_assignments = self
+            .displays
+            .outputs
+            .iter()
+            .map(|output| {
+                (
+                    output.connector,
+                    (output.crtc, output.planes.primary.handle),
+                )
+            })
+            .collect::<HashMap<_, _>>();
         let mut selected = match select_outputs(
             self.card(),
             &self.configured_modes,
@@ -50,6 +287,7 @@ impl DrmBackend {
             &self.configured_icc,
             self.configured_topology,
             &self.configured_policies,
+            &existing_assignments,
         ) {
             Ok(displays) => displays,
             Err(DrmError::NoConnector) => {
@@ -76,7 +314,8 @@ impl DrmBackend {
         };
 
         apply_overlay_policy(&mut selected, self.overlay_offload_enabled);
-        if display_signature(&selected) == display_signature(&self.displays) {
+        let any_link_bad = selected.outputs.iter().any(|output| output.link_bad);
+        if !any_link_bad && display_signature(&selected) == display_signature(&self.displays) {
             // Probe created fresh mode blobs. The existing display set remains
             // authoritative, so release only the redundant probe resources.
             for output in selected.outputs {
@@ -86,26 +325,188 @@ impl DrmBackend {
             return;
         }
 
-        if self.any_modeset_done()
-            && let Err(error) = self.disable_outputs()
-        {
-            log::warn!("drm: failed to disable old hotplug layout: {error}");
-        }
-        self.reset_modeset_done();
-        self.pending_flips.clear();
-        self.clear_plane_slots(true);
-        if let Some(overlay) = self.current_overlay.take() {
-            self.release_overlay_scanout(overlay);
-        }
-        if let Some(overlay) = self.retiring_overlay.take() {
-            self.release_overlay_scanout(overlay);
+        let old_keys = self
+            .displays
+            .outputs
+            .iter()
+            .zip(&self.slots)
+            .map(|(output, slot)| HotplugOutputKey {
+                connector: output.connector,
+                crtc: output.crtc,
+                primary_plane: output.planes.primary.handle,
+                mode: mode_signature(&output.mode),
+                modeset_done: slot.modeset_done,
+                link_bad: false,
+            })
+            .collect::<Vec<_>>();
+        let new_keys = selected
+            .outputs
+            .iter()
+            .map(|output| HotplugOutputKey {
+                connector: output.connector,
+                crtc: output.crtc,
+                primary_plane: output.planes.primary.handle,
+                mode: mode_signature(&output.mode),
+                modeset_done: false,
+                link_bad: output.link_bad,
+            })
+            .collect::<Vec<_>>();
+        let same_format_and_color = self.displays.format == selected.format
+            && self.displays.color_mode == selected.color_mode;
+        let transition = plan_hotplug_transition(&old_keys, &new_keys, same_format_and_color);
+
+        let mut preserved_connectors = HashSet::new();
+        let mut preserved_crtcs = HashSet::new();
+        let mut preserved_planes = HashSet::new();
+        let mut extra_planes = Vec::new();
+        for &(old_index, new_index) in &transition.preserved {
+            let old_output = &self.displays.outputs[old_index];
+            let new_output = &selected.outputs[new_index];
+            preserved_connectors.insert(new_output.connector);
+            preserved_crtcs.insert(new_output.crtc);
+            preserved_planes.insert(new_output.planes.primary.handle);
+            if let Some(cursor) = new_output.planes.cursor {
+                preserved_planes.insert(cursor.handle);
+            }
+            if let Some(old_cursor) = old_output.planes.cursor
+                && new_output.planes.cursor.map(|plane| plane.handle) != Some(old_cursor.handle)
+            {
+                extra_planes.push(DisablePlaneOp {
+                    plane: old_cursor.handle,
+                    fb_id: old_cursor.props.plane_fb_id,
+                    crtc_id: old_cursor.props.plane_crtc_id,
+                });
+            }
         }
 
+        let clear_overlay = self.current_overlay.as_ref().is_some_and(|overlay| {
+            selected
+                .outputs
+                .iter()
+                .any(|output| output.role.is_mirror())
+                || !transition
+                    .preserved
+                    .iter()
+                    .any(|&(old_index, _)| self.displays.outputs[old_index].name == overlay.output)
+        });
+        if clear_overlay
+            && let Some(overlay) = self.current_overlay.as_ref()
+            && let Some(owner) = self
+                .displays
+                .outputs
+                .iter()
+                .find(|output| output.name == overlay.output)
+            && let Some(caps) = owner
+                .planes
+                .overlay
+                .discovered
+                .iter()
+                .find(|plane| plane.handle == overlay.plane)
+        {
+            extra_planes.push(DisablePlaneOp {
+                plane: caps.handle,
+                fb_id: caps.props.fb_id,
+                crtc_id: caps.props.crtc_id,
+            });
+        }
+
+        let disable_specs = transition
+            .disable_old_indices
+            .iter()
+            .map(|&index| {
+                disable_spec_for_output(
+                    &self.displays.outputs[index],
+                    self.current_overlay.as_ref(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let disable_plan = build_disable_plan(
+            &disable_specs,
+            &extra_planes,
+            &preserved_connectors,
+            &preserved_crtcs,
+            &preserved_planes,
+        );
+        if !disable_plan.is_empty() {
+            let mut request = atomic::AtomicModeReq::new();
+            apply_disable_plan(&mut request, &disable_plan);
+            if let Err(error) = self
+                .card()
+                .atomic_commit(AtomicCommitFlags::ALLOW_MODESET, request)
+            {
+                log::warn!("drm: failed to disable removed hotplug outputs: {error}");
+            }
+        }
+
+        // Preserve live mode blobs for unchanged outputs so KMS sees identical
+        // `MODE_ID` handles and does not flag a spurious mode change on pipes
+        // that did not move. The redundant probe blobs swap into `old` and are
+        // destroyed below.
+        for &(old_index, new_index) in &transition.preserved {
+            std::mem::swap(
+                &mut self.displays.outputs[old_index].mode_blob,
+                &mut selected.outputs[new_index].mode_blob,
+            );
+            std::mem::swap(
+                &mut self.displays.outputs[old_index].mode_blob_id,
+                &mut selected.outputs[new_index].mode_blob_id,
+            );
+        }
+
+        self.pending_flips.clear();
+        let mut old_slots: Vec<Option<PlaneSlot>> = std::mem::take(&mut self.slots)
+            .into_iter()
+            .map(Some)
+            .collect();
         let old = std::mem::replace(&mut self.displays, selected);
+
+        let mut new_slots: Vec<Option<PlaneSlot>> =
+            (0..self.displays.outputs.len()).map(|_| None).collect();
+        for &(old_index, new_index) in &transition.preserved {
+            if let Some(mut slot) = old_slots.get_mut(old_index).and_then(Option::take) {
+                slot.crtc = self.displays.outputs[new_index].crtc;
+                slot.pending = false;
+                slot.modeset_done = true;
+                new_slots[new_index] = Some(slot);
+            }
+        }
+        self.slots = self
+            .displays
+            .outputs
+            .iter()
+            .zip(new_slots)
+            .map(|(output, slot)| {
+                slot.unwrap_or(PlaneSlot {
+                    crtc: output.crtc,
+                    current: None,
+                    retiring: None,
+                    source: None,
+                    pending: false,
+                    modeset_done: false,
+                })
+            })
+            .collect();
+
+        // Release scanout framebuffers belonging to removed/reassigned outputs
+        // only after their CRTCs and planes were disabled above.
+        for mut slot in old_slots.into_iter().flatten() {
+            let scanouts = slot.retiring.take().into_iter().chain(slot.current.take());
+            for scanout in scanouts {
+                self.release_scanout(scanout);
+            }
+        }
+        if clear_overlay {
+            if let Some(overlay) = self.current_overlay.take() {
+                self.release_overlay_scanout(overlay);
+            }
+            if let Some(overlay) = self.retiring_overlay.take() {
+                self.release_overlay_scanout(overlay);
+            }
+        }
         for output in old.outputs {
             destroy_output_blobs(self.card(), &output);
         }
-        self.rebuild_plane_slots();
+
         if !self.hardware_cursor_supported() {
             // A mirror removes one output's cursor plane, so the session falls
             // back to the software cursor. Drop any sprite committed before
@@ -141,8 +542,9 @@ impl DrmBackend {
         });
         self.render_ready = true;
         log::info!(
-            "drm: hotplug layout now has {} output(s), desktop {}x{}",
+            "drm: hotplug layout now has {} output(s) ({} preserved), desktop {}x{}",
             self.displays.outputs.len(),
+            transition.preserved.len(),
             width,
             height
         );
@@ -260,44 +662,22 @@ impl DrmBackend {
     }
 
     pub(super) fn disable_outputs(&mut self) -> Result<(), DrmError> {
-        let mut request = atomic::AtomicModeReq::new();
-        for output in &self.displays.outputs {
-            let props = output.props;
-            if let Some(cursor) = &output.planes.cursor {
-                request.add_property(
-                    cursor.handle,
-                    cursor.props.plane_fb_id,
-                    property::Value::Framebuffer(None),
-                );
-                request.add_property(
-                    cursor.handle,
-                    cursor.props.plane_crtc_id,
-                    property::Value::CRTC(None),
-                );
-            }
-            request.add_property(
-                output.planes.primary.handle,
-                output.planes.primary.props.fb_id,
-                property::Value::Framebuffer(None),
-            );
-            request.add_property(
-                output.planes.primary.handle,
-                output.planes.primary.props.crtc_id,
-                property::Value::CRTC(None),
-            );
-            request.add_property(
-                output.connector,
-                props.connector_crtc_id,
-                property::Value::CRTC(None),
-            );
-            request.add_property(
-                output.crtc,
-                props.crtc_active,
-                property::Value::Boolean(false),
-            );
+        let specs = self
+            .displays
+            .outputs
+            .iter()
+            .map(|output| disable_spec_for_output(output, self.current_overlay.as_ref()))
+            .collect::<Vec<_>>();
+        let empty_connectors = HashSet::new();
+        let empty_crtcs = HashSet::new();
+        let empty_planes = HashSet::new();
+        let plan = build_disable_plan(&specs, &[], &empty_connectors, &empty_crtcs, &empty_planes);
+        if !plan.is_empty() {
+            let mut request = atomic::AtomicModeReq::new();
+            apply_disable_plan(&mut request, &plan);
+            self.card()
+                .atomic_commit(AtomicCommitFlags::ALLOW_MODESET, request)?;
         }
-        self.card()
-            .atomic_commit(AtomicCommitFlags::ALLOW_MODESET, request)?;
         self.cursor_plane_active = false;
         Ok(())
     }
@@ -366,6 +746,7 @@ pub(super) fn open_card_and_outputs(
                             configured_icc,
                             configured_topology,
                             configured_policies,
+                            &HashMap::new(),
                         )
                     });
                 match result {
@@ -404,6 +785,8 @@ pub(super) struct OutputCandidate {
     pub(super) kind: OutputKind,
     pub(super) scale: Scale,
     pub(super) choices: Vec<OutputChoice>,
+    pub(super) preferred_crtc: Option<crtc::Handle>,
+    pub(super) preferred_plane: Option<plane::Handle>,
     pub(super) available_modes: Vec<OutputMode>,
     pub(super) color_caps: tessera_primitives::edid::EdidColorCapabilities,
     pub(super) role: tessera_desktop::output::OutputRole,
@@ -424,6 +807,7 @@ pub(super) fn select_outputs(
     configured_icc: &HashMap<String, String>,
     configured_topology: tessera_desktop::output::DisplayTopology,
     configured_policies: &HashMap<String, tessera_desktop::output::OutputPolicy>,
+    existing_assignments: &HashMap<connector::Handle, (crtc::Handle, plane::Handle)>,
 ) -> Result<DisplaySet, DrmError> {
     let resources = card.resource_handles()?;
     let mut connectors = resources
@@ -545,11 +929,19 @@ pub(super) fn select_outputs(
             let scale = physical_size_mm
                 .and_then(|size| automatic_scale(selected_mode, size, kind))
                 .unwrap_or(Scale::IDENTITY);
-            let mut crtcs = Vec::new();
-            if let Some(current) = connector
+            let existing = existing_assignments.get(&connector.handle()).copied();
+            let current_crtc = connector
                 .current_encoder()
                 .and_then(|encoder| card.get_encoder(encoder).ok())
-                .and_then(|encoder| encoder.crtc())
+                .and_then(|encoder| encoder.crtc());
+            let preferred_crtc = existing.map(|(crtc, _)| crtc).or(current_crtc);
+            let preferred_plane = existing.map(|(_, plane)| plane);
+            let mut crtcs = Vec::new();
+            if let Some(preferred) = preferred_crtc {
+                crtcs.push(preferred);
+            }
+            if let Some(current) = current_crtc
+                && !crtcs.contains(&current)
             {
                 crtcs.push(current);
             }
@@ -590,6 +982,8 @@ pub(super) fn select_outputs(
                 kind,
                 scale,
                 choices,
+                preferred_crtc,
+                preferred_plane,
                 available_modes: advertised_modes(connector),
                 color_caps: caps,
                 role: tessera_desktop::output::OutputRole::Extend,
@@ -678,8 +1072,11 @@ pub(super) fn select_outputs(
             // The mirror's cursor is composited into the source rectangle and
             // arrives through the shared framebuffer. A second hardware
             // cursor plane would need independent coordinate scaling and
-            // would visibly duplicate the pointer.
-            output.planes.cursor = None;
+            // would visibly duplicate the pointer. Retain the handle in
+            // `disabled_cursor` so commits explicitly clear any stale kernel
+            // cursor state left on this CRTC instead of stranding a zombie
+            // sprite on the mirror.
+            output.planes.disabled_cursor = output.planes.cursor.take();
         }
         let discovered = plane_inventory
             .overlay
@@ -881,18 +1278,54 @@ pub(super) fn fitted_destination(mode: (u32, u32), source: (u32, u32)) -> (i32, 
 pub(super) fn assign_outputs(
     candidates: &[OutputCandidate],
 ) -> Option<(Vec<OutputChoice>, Vec<u64>)> {
-    pub(super) fn recurse(
-        candidates: &[OutputCandidate],
-        index: usize,
+    // Assign candidates that already own a live CRTC first so a newly plugged
+    // connector with a lower interface number (e.g. HDMI-A before eDP) never
+    // steals an active display's CRTC and forces a pipe-migration black flash.
+    // Backtracking still explores every valid assignment if a hardware
+    // constraint requires moving a CRTC.
+    let mut order = (0..candidates.len()).collect::<Vec<_>>();
+    order.sort_by_key(|&index| (candidates[index].preferred_crtc.is_none(), index));
+
+    let ordered_choices: Vec<Vec<&OutputChoice>> = candidates
+        .iter()
+        .enumerate()
+        .map(|(index, candidate)| {
+            let preferred_by_other: HashSet<crtc::Handle> = candidates
+                .iter()
+                .enumerate()
+                .filter(|&(other_index, _)| other_index != index)
+                .filter_map(|(_, other)| other.preferred_crtc)
+                .collect();
+            let mut choices: Vec<(usize, &OutputChoice)> =
+                candidate.choices.iter().enumerate().collect();
+            choices.sort_by_key(|&(choice_index, choice)| {
+                let crtc_mismatch = candidate
+                    .preferred_crtc
+                    .is_some_and(|preferred| choice.crtc != preferred);
+                let plane_mismatch = candidate
+                    .preferred_plane
+                    .is_some_and(|preferred| choice.plane != preferred);
+                let steals_other = preferred_by_other.contains(&choice.crtc);
+                (crtc_mismatch, plane_mismatch, steals_other, choice_index)
+            });
+            choices.into_iter().map(|(_, choice)| choice).collect()
+        })
+        .collect();
+
+    fn recurse(
+        order: &[usize],
+        ordered_choices: &[Vec<&OutputChoice>],
+        depth: usize,
         used_crtcs: &mut HashSet<crtc::Handle>,
         used_planes: &mut HashSet<plane::Handle>,
-        selected: &mut Vec<OutputChoice>,
+        selected: &mut [Option<OutputChoice>],
         shared: Option<Vec<u64>>,
-    ) -> Option<(Vec<OutputChoice>, Vec<u64>)> {
-        if index == candidates.len() {
-            return Some((selected.clone(), shared.unwrap_or_default()));
+    ) -> Option<Vec<u64>> {
+        if depth == order.len() {
+            return Some(shared.unwrap_or_default());
         }
-        for choice in &candidates[index].choices {
+        let candidate_index = order[depth];
+        for choice in &ordered_choices[candidate_index] {
             if used_crtcs.contains(&choice.crtc) || used_planes.contains(&choice.plane) {
                 continue;
             }
@@ -909,32 +1342,37 @@ pub(super) fn assign_outputs(
             }
             used_crtcs.insert(choice.crtc);
             used_planes.insert(choice.plane);
-            selected.push(choice.clone());
-            if let Some(result) = recurse(
-                candidates,
-                index + 1,
+            selected[candidate_index] = Some((*choice).clone());
+            if let Some(modifiers) = recurse(
+                order,
+                ordered_choices,
+                depth + 1,
                 used_crtcs,
                 used_planes,
                 selected,
                 Some(next_shared),
             ) {
-                return Some(result);
+                return Some(modifiers);
             }
-            selected.pop();
+            selected[candidate_index] = None;
             used_crtcs.remove(&choice.crtc);
             used_planes.remove(&choice.plane);
         }
         None
     }
 
-    recurse(
-        candidates,
+    let mut selected = vec![None; candidates.len()];
+    let modifiers = recurse(
+        &order,
+        &ordered_choices,
         0,
         &mut HashSet::new(),
         &mut HashSet::new(),
-        &mut Vec::new(),
+        &mut selected,
         None,
-    )
+    )?;
+    let resolved = selected.into_iter().collect::<Option<Vec<_>>>()?;
+    Some((resolved, modifiers))
 }
 
 pub(super) fn build_output(
@@ -948,6 +1386,18 @@ pub(super) fn build_output(
     let connector_props = property_map(card, candidate.connector)?;
     let crtc_props = property_map(card, choice.crtc)?;
     let plane_props = property_map(card, choice.plane)?;
+    let connector_link_status = optional_prop(&connector_props, "link-status");
+    let link_bad = connector_link_status.is_some_and(|prop| {
+        card.get_properties(candidate.connector)
+            .ok()
+            .and_then(|props| {
+                props
+                    .iter()
+                    .find(|&(&id, _)| id == prop)
+                    .map(|(_, &value)| value != 0)
+            })
+            .unwrap_or(false)
+    });
     let props = OutputAtomicProperties {
         connector_crtc_id: required_prop(&connector_props, "CRTC_ID")?,
         crtc_mode_id: required_prop(&crtc_props, "MODE_ID")?,
@@ -957,6 +1407,7 @@ pub(super) fn build_output(
         connector_hdr_metadata: optional_prop(&connector_props, "HDR_OUTPUT_METADATA"),
         connector_max_bpc: optional_prop(&connector_props, "max bpc"),
         crtc_gamma_lut: gamma_lut_prop(card, choice.crtc, &crtc_props),
+        connector_link_status,
     };
     let primary_props = PrimaryPlaneProperties {
         fb_id: required_prop(&plane_props, "FB_ID")?,
@@ -1009,6 +1460,7 @@ pub(super) fn build_output(
                 full_damage_blob,
             },
             cursor: None,
+            disabled_cursor: None,
             overlay: OverlayPlaneAllocation::disabled(Vec::new()),
         },
         mode: candidate.mode,
@@ -1027,6 +1479,7 @@ pub(super) fn build_output(
         props,
         available_modes: candidate.available_modes,
         color_caps: candidate.color_caps,
+        link_bad,
     })
 }
 

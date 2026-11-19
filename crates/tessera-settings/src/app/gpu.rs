@@ -5,7 +5,7 @@ use std::os::raw::c_void;
 use std::ptr;
 
 use ash::vk::{self, Handle};
-use lens::{CursorHint, Input, Ui};
+use optics_lens::{CursorHint, Input, Ui};
 use tessera_design::{Design, themes};
 use tessera_i18n::Localizer;
 use tessera_settings::SettingsHost;
@@ -19,8 +19,8 @@ const DEVICE_EXTENSIONS: [&CStr; 1] = [c"VK_KHR_swapchain"];
 #[derive(Debug)]
 pub enum RenderError {
     Vulkan,
-    Flux(flux::Error),
-    Lens(lens::Error),
+    Flux(optics_flux::Error),
+    Lens(optics_lens::Error),
 }
 
 impl std::fmt::Display for RenderError {
@@ -43,14 +43,14 @@ impl std::error::Error for RenderError {
     }
 }
 
-impl From<flux::Error> for RenderError {
-    fn from(err: flux::Error) -> Self {
+impl From<optics_flux::Error> for RenderError {
+    fn from(err: optics_flux::Error) -> Self {
         Self::Flux(err)
     }
 }
 
-impl From<lens::Error> for RenderError {
-    fn from(err: lens::Error) -> Self {
+impl From<optics_lens::Error> for RenderError {
+    fn from(err: optics_lens::Error) -> Self {
         Self::Lens(err)
     }
 }
@@ -63,13 +63,13 @@ pub struct FrameOutcome {
 }
 
 pub struct Graphics {
-    device: flux::Device,
+    device: optics_flux::Device,
     ash: AshBridge,
 }
 
 impl Graphics {
     pub fn new(connection: &Connection) -> Result<Self, RenderError> {
-        let device = flux::Device::new(true, &INSTANCE_EXTENSIONS, &DEVICE_EXTENSIONS, 2)?;
+        let device = optics_flux::Device::new(true, &INSTANCE_EXTENSIONS, &DEVICE_EXTENSIONS, 2)?;
         let ash = AshBridge::new(connection, &device)?;
         Ok(Self { device, ash })
     }
@@ -87,7 +87,7 @@ impl Graphics {
         // SAFETY: `vk_surface` was created on this device's instance and lives
         // until `destroy_surface`, which drops the flux surface first.
         let surface = match unsafe {
-            flux::Surface::from_vk(
+            optics_flux::Surface::from_vk(
                 &self.device,
                 vk_surface.as_raw() as usize as *mut c_void,
                 physical.0,
@@ -101,27 +101,27 @@ impl Graphics {
                 return Err(error.into());
             }
         };
-        let canvas = flux::Canvas::new(&surface)?;
+        let canvas = optics_flux::Canvas::new(&surface)?;
         // SAFETY: the device outlives the Ui; both are owned by `Graphics`'
         // caller in drop order (surface before graphics). The clipboard
         // pointer is the boxed `clipboard::Host` owned by `App`; it outlives
         // this surface and is stable across resizes.
         let mut raw = ptr::null_mut();
-        let desc = lens::sys::lens_desc {
-            size: std::mem::size_of::<lens::sys::lens_desc>() as u32,
-            device: self.device.as_raw().cast::<lens::sys::flux_device>(),
-            theme: unsafe { lens::sys::lens_theme_dark() },
-            clipboard: lens::sys::lens_clipboard {
+        let desc = optics_lens::sys::lens_desc {
+            size: std::mem::size_of::<optics_lens::sys::lens_desc>() as u32,
+            device: self.device.as_raw().cast::<optics_lens::sys::flux_device>(),
+            theme: unsafe { optics_lens::sys::lens_theme_dark() },
+            clipboard: optics_lens::sys::lens_clipboard {
                 request_text: Some(clipboard::request_text),
                 set_text: Some(clipboard::set_text),
                 user: clipboard_user,
             },
             ..unsafe { std::mem::zeroed() }
         };
-        let result = unsafe { lens::sys::lens_create(&desc, &mut raw) };
-        if result != lens::sys::flux_result::FLUX_OK || raw.is_null() {
-            return Err(RenderError::Lens(lens::Error::Create(
-                lens::FluxDiagnostic::for_test(result),
+        let result = unsafe { optics_lens::sys::lens_create(&desc, &mut raw) };
+        if result != optics_lens::sys::flux_result::FLUX_OK || raw.is_null() {
+            return Err(RenderError::Lens(optics_lens::Error::Create(
+                optics_lens::FluxDiagnostic::for_test(result),
             )));
         }
         let owned_lens = OwnedLens(raw);
@@ -150,19 +150,19 @@ impl Graphics {
 /// Owns a raw Lens context created with the host clipboard descriptor.
 /// [`Ui::borrow_raw`] does not release a borrowed context, so this guard is
 /// the single owner and drops after `ui` in declaration order.
-struct OwnedLens(*mut lens::sys::lens);
+struct OwnedLens(*mut optics_lens::sys::lens);
 
 impl Drop for OwnedLens {
     fn drop(&mut self) {
         // SAFETY: `lens_create` returned this context and this guard has not
         // released it; the borrowed `Ui` is dropped first.
-        unsafe { lens::sys::lens_release(self.0) };
+        unsafe { optics_lens::sys::lens_release(self.0) };
     }
 }
 
 pub struct RenderSurface {
-    surface: flux::Surface,
-    canvas: flux::Canvas,
+    surface: optics_flux::Surface,
+    canvas: optics_flux::Canvas,
     ui: Ui,
     _lens: OwnedLens,
     vk_surface: vk::SurfaceKHR,
@@ -212,8 +212,8 @@ impl RenderSurface {
         let background = design.colors.application_surface;
         let session = self.canvas.begin_session(
             &mut frame,
-            flux::CanvasPassOptions {
-                clear: Some(flux::rgba(
+            optics_flux::CanvasPassOptions {
+                clear: Some(optics_flux::rgba(
                     background.r(),
                     background.g(),
                     background.b(),
@@ -227,7 +227,7 @@ impl RenderSurface {
         let snapshot = self.ui.snapshot()?;
         // SAFETY: the canvas session is live until `end` below.
         unsafe {
-            snapshot.submit(session.as_raw().cast::<lens::sys::flux_canvas>())?;
+            snapshot.submit(session.as_raw().cast::<optics_lens::sys::flux_canvas>())?;
         }
         self.ui.activate(&snapshot)?;
         session.end()?;
@@ -256,7 +256,7 @@ struct AshBridge {
 }
 
 impl AshBridge {
-    fn new(connection: &Connection, device: &flux::Device) -> Result<Self, RenderError> {
+    fn new(connection: &Connection, device: &optics_flux::Device) -> Result<Self, RenderError> {
         // SAFETY: loading the system Vulkan loader has no preconditions.
         let entry = unsafe { ash::Entry::load() }.map_err(|_| RenderError::Vulkan)?;
         // SAFETY: flux created this instance and keeps it alive with the device.

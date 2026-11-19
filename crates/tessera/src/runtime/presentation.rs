@@ -11,6 +11,19 @@ mod capture;
 use capture::FrameCapture;
 
 impl CompositorRuntime<'_> {
+    /// Invalidate Flux's per-image damage history across the union surface and
+    /// every per-output target, and mark every target as owing a presentation.
+    pub(super) fn invalidate_all_surface_damage(&mut self) {
+        self.surface.invalidate_damage();
+        for target in self.output_targets.values_mut() {
+            target.surface.invalidate_damage();
+            target.needs_present = true;
+            target.last_source_export = None;
+            target.last_mirror_cursor_rect = None;
+            target.import_cache.retire_all();
+        }
+    }
+
     /// Land a pointer-motion cursor update on the hardware cursor plane
     /// without rendering a frame.
     ///
@@ -323,12 +336,16 @@ impl CompositorRuntime<'_> {
         });
         let mut damage = assessed_damage.output;
         let mut sampled_surface_ids = assessed_damage.sampled_surface_ids;
+        let has_mirror_target =
+            has_active_mirror_target(&self.server.output_infos(), |connector| {
+                self.output_targets.contains_key(connector)
+            });
         let cursor_plane_changed = self.host.supports_hardware_cursor()
             && (self.damage.last_presented_cursor != Some((cursor_shape, cursor_hidden))
                 || (!cursor_hidden
                     && self.damage.last_presented_cursor_position != Some(cursor_position)));
         let cursor_only_eligible = matches!(damage, FrameDamage::None)
-            && self.output_targets.is_empty()
+            && !has_mirror_target
             && cursor_plane_changed
             && frame_capture.is_none()
             && !stream_forcing_due
@@ -389,29 +406,33 @@ impl CompositorRuntime<'_> {
                 Err(error) => return Err(error.into()),
             }
         }
-        // Cursor-only KMS commits are not enough when each output has its own
-        // compositor target: the source targets need no repaint (the cursor
-        // plane moves independently), but a mirror target has no cursor plane
-        // and must redraw its cursor. Force a full target frame so both
-        // classes of output remain correct.
-        if cursor_plane_changed && !self.output_targets.is_empty() {
+        // Cursor-only KMS commits are not enough when a mirror target is
+        // active: source outputs own a hardware cursor plane, but a mirror
+        // target has no cursor plane and must redraw its cursor. On the
+        // per-output target path this routes through a localized mirror-only
+        // pass without forcing full desktop redraws; only the legacy union
+        // fallback needs full damage (ADR-0250, `[INV-ARCH-160]`).
+        let mirror_cursor_dirty = cursor_plane_changed && has_mirror_target;
+        if mirror_cursor_dirty && !self.can_render_output_targets() {
             damage = FrameDamage::Full;
         }
         if matches!(damage, FrameDamage::None)
+            && !mirror_cursor_dirty
             && frame_capture.is_none()
             && !stream_forcing_due
             && self.pending_capture.is_none()
             && self.pending_interaction_domain_capture.is_none()
             && !self.screenshot_freeze.armed
             && !self.server.lock_confirmation_pending()
-            && !self.server.retired_buffers_pending()
+            && !(self.server.retired_buffers_pending()
+                && (self.primary_plane_state.is_direct() || self.overlay_state.active().is_some()))
         {
             // Nothing visible changed: skip the render and the atomic commit
             // — the scanout contents are already correct, so presenting
-            // would be pure waste. A frame callback may complete without a
-            // GPU submission once per estimated refresh cycle; callbacks
-            // arriving before that boundary remain pending instead of
-            // forcing empty composites.
+            // would be pure waste. Release any retired client buffers whose
+            // prior composited GPU read is already fenced/complete so clients
+            // never deadlock on `NoDamage` (ADR-0250, `[INV-ARCH-159]`).
+            self.release_idle_retired_buffers();
             let callbacks_sent = self.presentation.frame_callbacks_allowed()
                 && self
                     .server
@@ -474,7 +495,7 @@ impl CompositorRuntime<'_> {
         let overlay_change = self.overlay_state.reconcile(wanted_overlay);
         if overlay_change.requires_primary_repaint() {
             self.damage.force_full_redraw = true;
-            self.surface.invalidate_damage();
+            self.invalidate_all_surface_damage();
             damage = FrameDamage::Full;
             if matches!(
                 overlay_change,
@@ -537,6 +558,7 @@ impl CompositorRuntime<'_> {
                     false,
                     Some(&target_refs),
                 );
+                self.last_composited_fence = None;
                 if self.server.retired_buffers_pending() {
                     self.server
                         .release_retired_buffers(last_fence.as_ref().map(AsRawFd::as_raw_fd));
@@ -612,6 +634,7 @@ impl CompositorRuntime<'_> {
                         false,
                         Some(&direct_outputs),
                     );
+                    self.last_composited_fence = None;
                     if self.server.retired_buffers_pending() {
                         self.server.release_retired_buffers(
                             completion_fence.as_ref().map(AsRawFd::as_raw_fd),
@@ -715,7 +738,7 @@ impl CompositorRuntime<'_> {
             // Direct scanout bypassed Flux's epoch ledger entirely. The first
             // resumed composite has no trustworthy image history.
             self.damage.force_full_redraw = true;
-            self.surface.invalidate_damage();
+            self.invalidate_all_surface_damage();
             damage = FrameDamage::Full;
         }
         // Normal DRM frames use one native target per physical output. The
@@ -742,6 +765,7 @@ impl CompositorRuntime<'_> {
                 &sampled_surface_ids,
                 cursor_shape,
                 cursor_hidden,
+                mirror_cursor_dirty,
                 window_switcher.as_ref(),
                 &target_live_previews,
             );
@@ -812,7 +836,7 @@ impl CompositorRuntime<'_> {
                 // to decide whether visible Lens chrome intersects the
                 // repaint.
                 #[allow(unused_assignments)]
-                let mut output_damage_scope: Vec<flux::CanvasRenderArea> = Vec::new();
+                let mut output_damage_scope: Vec<optics_flux::CanvasRenderArea> = Vec::new();
                 self.renderer.begin_frame();
                 let render_geometry = RenderGeometry {
                     logical_size,
@@ -962,13 +986,13 @@ impl CompositorRuntime<'_> {
                     ) {
                         self.screenshot_freeze.failed = true;
                     } else if let Some(target) = self.screenshot_freeze.target_mut(frame_slot) {
-                        let capture_ok = (|| -> Result<(), flux::Error> {
+                        let capture_ok = (|| -> Result<(), optics_flux::Error> {
                             let s1 = self.canvas.begin_session(
-                                flux::ImageTarget {
+                                optics_flux::ImageTarget {
                                     frame: &mut frame,
                                     image: target,
                                 },
-                                flux::CanvasPassOptions {
+                                optics_flux::CanvasPassOptions {
                                     clear: Some(self.clear),
                                     damage: Vec::new(),
                                 },
@@ -987,11 +1011,11 @@ impl CompositorRuntime<'_> {
                             }
 
                             let s2 = self.canvas.begin_session(
-                                flux::ImageTarget {
+                                optics_flux::ImageTarget {
                                     frame: &mut frame,
                                     image: target,
                                 },
-                                flux::CanvasPassOptions {
+                                optics_flux::CanvasPassOptions {
                                     clear: None,
                                     damage: Vec::new(),
                                 },
@@ -1114,7 +1138,7 @@ impl CompositorRuntime<'_> {
                 let overlay_session = if desktop_occluded {
                     let s = self.canvas.begin_session(
                         &mut frame,
-                        flux::CanvasPassOptions {
+                        optics_flux::CanvasPassOptions {
                             clear: Some(self.clear),
                             /* Moved, not cloned: this branch is the mutually
                              * exclusive alternative to the overlay pass below,
@@ -1716,7 +1740,7 @@ impl CompositorRuntime<'_> {
                         {
                             self.overlay_state.deactivate();
                             self.damage.force_full_redraw = true;
-                            self.surface.invalidate_damage();
+                            self.invalidate_all_surface_damage();
                             log::warn!(
                                 "{}: overlay presentation rejected; falling back to composition: {error}",
                                 self.host.name()
@@ -1836,17 +1860,18 @@ impl CompositorRuntime<'_> {
                     // flip retires.
                     sampled_surface_ids.push(overlay.surface_id);
                 }
-                let target_outputs = if target_presentation {
-                    let outputs = self.present_union_to_targets(cursor_shape, cursor_hidden)?;
+                let (target_outputs, target_kms_fence) = if target_presentation {
+                    let (outputs, kms_fence) =
+                        self.present_union_to_targets(cursor_shape, cursor_hidden)?;
                     if outputs.is_empty() {
                         self.damage.pending_damage = Some(FrameDamage::Full);
                         return Ok(PresentationOutcome::Retry {
                             wait: RetryWait::BackendEvent,
                         });
                     }
-                    Some(outputs)
+                    (Some(outputs), kms_fence)
                 } else {
-                    None
+                    (None, None)
                 };
                 let presented_outputs = target_outputs
                     .as_ref()
@@ -1856,9 +1881,6 @@ impl CompositorRuntime<'_> {
                             .as_ref()
                             .map(|targets| targets.iter().map(String::as_str).collect::<Vec<_>>())
                     });
-                if target_presentation && target_outputs.as_ref().is_some_and(|o| !o.is_empty()) {
-                    self.independent_target_flips = true;
-                }
                 self.server.acknowledge_presented_surface_damage_on_outputs(
                     sampled_surface_ids.iter(),
                     drew_preview_sources,
@@ -1872,25 +1894,13 @@ impl CompositorRuntime<'_> {
                         ),
                     }
                 }
-                if self.server.retired_buffers_pending() {
-                    if completion_fence.is_none() && !self.host.uses_software_cursor() {
-                        // Nested swapchain presentation has no exportable
-                        // completion fence. Rather than stalling the whole
-                        // device on a wait_idle, release the buffers a few
-                        // frames late: after more presented frames than
-                        // flux's in-flight slots (3), the GPU can no longer
-                        // reference their contents.
-                        let since = self.retired_defer.get_or_insert(self.frame_count);
-                        if self.frame_count.saturating_sub(*since) >= 4 {
-                            self.server.release_retired_buffers(None);
-                            self.retired_defer = None;
-                        }
-                    } else {
-                        self.server.release_retired_buffers(
-                            completion_fence.as_ref().map(AsRawFd::as_raw_fd),
-                        );
-                    }
-                }
+                let merged_completion_fence = tessera_platform::sync::merge_live_sync_fences(
+                    completion_fence
+                        .into_iter()
+                        .chain(target_kms_fence)
+                        .collect(),
+                );
+                self.release_retired_buffers_after_composited_frame(merged_completion_fence);
 
                 // Pace clients: fire frame callbacks for this presentation and
                 // complete `wp_presentation_feedback` for exactly the surfaces
@@ -1915,7 +1925,13 @@ impl CompositorRuntime<'_> {
                     (!cursor_hidden).then_some(last_committed_sprite_size);
                 self.damage.force_full_redraw = false;
 
-                self.present_output_targets(cursor_shape, cursor_hidden);
+                // When `target_presentation` ran, `present_union_to_targets`
+                // already blitted and committed every output target (including
+                // mirrors). Running `present_output_targets` again on the same
+                // frame would hit `DrmError::Busy` and evict the mirror target.
+                if !target_presentation {
+                    self.present_output_targets(cursor_shape, cursor_hidden);
+                }
                 self.frame_count += 1;
                 if self.frame_count == 1 {
                     log::info!(
@@ -1924,7 +1940,7 @@ impl CompositorRuntime<'_> {
                     );
                 }
             }
-            Err(error) if error.0 == flux_sys::flux_result::FLUX_ERROR_BUSY => {
+            Err(error) if error.0 == optics_flux_sys::flux_result::FLUX_ERROR_BUSY => {
                 log::trace!("frame acquire deferred: image lease still held: {error}");
                 if let Some(capture) = frame_capture.take() {
                     refuse_capture_target(
@@ -1943,7 +1959,7 @@ impl CompositorRuntime<'_> {
                     wait: RetryWait::BackendEvent,
                 });
             }
-            Err(error) if error.0 == flux_sys::flux_result::FLUX_ERROR_TIMEOUT => {
+            Err(error) if error.0 == optics_flux_sys::flux_result::FLUX_ERROR_TIMEOUT => {
                 // A capture bound by the pre-pass never got its frame; refuse
                 // it so the worker lane is released for the next iteration.
                 log::trace!("frame acquire timed out: {error}");
@@ -1983,7 +1999,7 @@ impl CompositorRuntime<'_> {
                 let (nw, nh) = self.host.physical_size();
                 match self.surface.resize(nw, nh) {
                     Ok(()) => {}
-                    Err(error) if error.0 == flux_sys::flux_result::FLUX_ERROR_BUSY => {
+                    Err(error) if error.0 == optics_flux_sys::flux_result::FLUX_ERROR_BUSY => {
                         // A scanout lease still owns the old ring image. Keep
                         // the pending damage and retry once the corresponding
                         // page flip releases it.
@@ -2026,7 +2042,7 @@ impl CompositorRuntime<'_> {
                         self.shell.start_screenshot();
                     }
                 }
-                self.surface.invalidate_damage();
+                self.invalidate_all_surface_damage();
                 // Damage tracked against the old framebuffer does not
                 // describe the rebuilt one; render the next frame in full.
                 self.damage.force_full_redraw = true;
@@ -2152,7 +2168,7 @@ impl CompositorRuntime<'_> {
 }
 
 pub(super) fn capture_cursor_snapshot(
-    device: &flux::Device,
+    device: &optics_flux::Device,
     cache: &mut cursor::CursorCache,
     position: (f32, f32),
     shape: u32,
@@ -2168,22 +2184,37 @@ pub(super) fn capture_cursor_snapshot(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn begin_desktop_output<'c, 'surface>(
-    canvas: &'c mut flux::Canvas,
-    device: &flux::Device,
-    frame: &'c mut flux::Frame<'surface>,
+/// Whether any physical output currently has an active mirror target.
+///
+/// Only mirror targets lack an independent KMS cursor plane; single-output and
+/// extended DRM targets own hardware cursor planes and stay eligible for the
+/// zero-GPU cursor-only commit path.
+pub(super) fn has_active_mirror_target(
+    outputs: &[tessera_desktop::output::OutputInfo],
+    has_target: impl Fn(&str) -> bool,
+) -> bool {
+    outputs
+        .iter()
+        .any(|output| output.role.is_mirror() && has_target(&output.connector))
+}
+
+pub(super) fn begin_desktop_output<'c, 'surface>(
+    canvas: &'c mut optics_flux::Canvas,
+    device: &optics_flux::Device,
+    frame: &'c mut optics_flux::Frame<'surface>,
     wallpaper: &mut Option<wallpaper::Wallpaper>,
     logical_size: (u32, u32),
     scale: f32,
     clear: u32,
-    damage: Vec<flux::CanvasRenderArea>,
+    damage: Vec<optics_flux::CanvasRenderArea>,
     model_active: bool,
     wallpaper_occluded: bool,
-) -> Result<flux::CanvasSession<'c, &'c mut flux::Frame<'surface>>, flux::Error> {
+) -> Result<optics_flux::CanvasSession<'c, &'c mut optics_flux::Frame<'surface>>, optics_flux::Error>
+{
     if model_active {
         let s = canvas.begin_session(
             &mut *frame,
-            flux::CanvasPassOptions {
+            optics_flux::CanvasPassOptions {
                 clear: Some(clear),
                 damage: damage.clone(),
             },
@@ -2197,7 +2228,7 @@ fn begin_desktop_output<'c, 'surface>(
         }
         canvas.begin_session(
             frame,
-            flux::CanvasPassOptions {
+            optics_flux::CanvasPassOptions {
                 clear: None,
                 damage,
             },
@@ -2205,7 +2236,7 @@ fn begin_desktop_output<'c, 'surface>(
     } else {
         let s = canvas.begin_session(
             frame,
-            flux::CanvasPassOptions {
+            optics_flux::CanvasPassOptions {
                 clear: Some(clear),
                 damage,
             },

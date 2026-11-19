@@ -4,7 +4,7 @@
 //! full canvas size. Animated GIF/WebP frames that cover only a sub-rect of the
 //! canvas are composited onto the previous frame's contents during
 //! decode, so consumers always see uniformly-sized buffers and can pass
-//! them straight to `flux::Image::from_bytes`.
+//! them straight to `optics_flux::Image::from_bytes`.
 
 use std::path::Path;
 use std::time::{Duration, Instant};

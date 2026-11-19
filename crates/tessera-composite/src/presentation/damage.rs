@@ -230,14 +230,14 @@ impl FrameDamage {
     /// Flux owns the per-image epoch ledger; the composition root supplies the
     /// current frame's change set and receives the exact repaint scope back.
     /// There is deliberately no second per-image vocabulary here.
-    pub fn to_flux_damage(&self) -> flux::Damage {
+    pub fn to_flux_damage(&self) -> optics_flux::Damage {
         match self {
-            FrameDamage::None => flux::Damage::None,
-            FrameDamage::Full => flux::Damage::Full,
-            FrameDamage::Area(rects) => flux::Damage::Area(
+            FrameDamage::None => optics_flux::Damage::None,
+            FrameDamage::Full => optics_flux::Damage::Full,
+            FrameDamage::Area(rects) => optics_flux::Damage::Area(
                 rects
                     .iter()
-                    .map(|r| flux::CanvasRenderArea {
+                    .map(|r| optics_flux::CanvasRenderArea {
                         x: r.origin.x as f32,
                         y: r.origin.y as f32,
                         width: r.size.w.max(0) as f32,
@@ -253,11 +253,11 @@ impl FrameDamage {
     /// Flux rectangles are physical-pixel floats; the compositor's damage is
     /// integer pixel authority, so map outward to avoid stranding a partially
     /// covered edge pixel.
-    pub fn from_flux_damage(damage: flux::Damage) -> Self {
+    pub fn from_flux_damage(damage: optics_flux::Damage) -> Self {
         match damage {
-            flux::Damage::None => FrameDamage::None,
-            flux::Damage::Full => FrameDamage::Full,
-            flux::Damage::Area(areas) => {
+            optics_flux::Damage::None => FrameDamage::None,
+            optics_flux::Damage::Full => FrameDamage::Full,
+            optics_flux::Damage::Area(areas) => {
                 let rects: Vec<Rect> = areas
                     .into_iter()
                     .filter_map(|a| {
@@ -633,7 +633,7 @@ pub fn offscreen_damage_to_target(
 ///
 /// Vulkan's dynamic `renderArea` must be fully inside the attachment: both flux
 /// backends reject a scope naming no pixel of the target, and canvas.c degrades a
-/// set above `flux::FLUX_DAMAGE_CAPACITY` to a full-extent pass. A damage rect
+/// set above `optics_flux::FLUX_DAMAGE_CAPACITY` to a full-extent pass. A damage rect
 /// reaching the output pass is usually clamped already, but three sources can
 /// still hand out a rect that is not:
 ///
@@ -652,13 +652,13 @@ pub fn offscreen_damage_to_target(
 pub fn frame_damage_scope(
     repaint: &FrameDamage,
     physical_size: (u32, u32),
-) -> Vec<flux::CanvasRenderArea> {
+) -> Vec<optics_flux::CanvasRenderArea> {
     let Some(rects) = repaint.area_rects() else {
         /* `Full` (and `None`) both mean "the whole destination": an empty scope
          * is exactly that, and flux already interprets it that way. */
         return Vec::new();
     };
-    let mut scope: Vec<flux::CanvasRenderArea> = Vec::with_capacity(rects.len());
+    let mut scope: Vec<optics_flux::CanvasRenderArea> = Vec::with_capacity(rects.len());
     for rect in rects {
         if let Some(area) = clamp_render_area(*rect, physical_size.0, physical_size.1) {
             scope.push(area);
@@ -668,7 +668,7 @@ pub fn frame_damage_scope(
      * cover something, so fall back to the full destination rather than an empty
      * scope that would be indistinguishable from `Full` arriving by accident. */
     if scope.is_empty() && !rects.is_empty() {
-        scope.push(flux::CanvasRenderArea {
+        scope.push(optics_flux::CanvasRenderArea {
             x: 0.0,
             y: 0.0,
             width: physical_size.0 as f32,
@@ -682,7 +682,7 @@ pub fn frame_damage_scope(
 /// `CanvasRenderArea`. `None` means "no usable area" — either the rect reaches
 /// no framebuffer pixel, or it degenerates in one dimension (which Vulkan would
 /// reject, and which visually means "nothing to draw").
-fn clamp_render_area(rect: Rect, max_w: u32, max_h: u32) -> Option<flux::CanvasRenderArea> {
+fn clamp_render_area(rect: Rect, max_w: u32, max_h: u32) -> Option<optics_flux::CanvasRenderArea> {
     if rect.is_empty() {
         return None;
     }
@@ -693,7 +693,7 @@ fn clamp_render_area(rect: Rect, max_w: u32, max_h: u32) -> Option<flux::CanvasR
     if x1 <= x0 || y1 <= y0 {
         return None;
     }
-    Some(flux::CanvasRenderArea {
+    Some(optics_flux::CanvasRenderArea {
         x: x0 as f32,
         y: y0 as f32,
         width: (x1 - x0) as f32,
