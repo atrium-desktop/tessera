@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.98] - 2026-11-19
+
 ### Added
 
 - **Kestrel station-networking and Wi-Fi Display P2P backends.**
