@@ -189,11 +189,11 @@ pub struct Config {
 /// The `[network]` section: which live network service owns the host's
 /// station networking (ADR-0242).
 ///
-/// `auto` prefers NetworkManager and falls through to iwd **only when
-/// NetworkManager is not running**. Neither service is D-Bus-activated. An
-/// explicit name never falls back. The
-/// compositor does not open either service: it passes this choice to
-/// `tessera-networkd`, which owns the system D-Bus connection.
+/// `auto` prefers Kestrel, then NetworkManager, and falls through to iwd
+/// **only when higher-priority services are not running**. No service is
+/// D-Bus-activated. An explicit name never falls back. The compositor does not
+/// open any service: it passes this choice to `tessera-networkd`, which owns
+/// the system D-Bus connection.
 #[derive(Debug, Clone, PartialEq, Default, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkConfig {

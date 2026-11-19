@@ -7,6 +7,7 @@
 
 pub mod daemon;
 pub mod iwd;
+pub mod kestrel;
 pub mod networkmanager;
 mod selection;
 

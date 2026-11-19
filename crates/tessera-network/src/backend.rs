@@ -16,6 +16,8 @@ use tessera_desktop::system::{NetworkState, WifiLinkState, WifiNetwork};
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum BackendKind {
+    /// `com.hihusky.Kestrel`.
+    Kestrel,
     /// `org.freedesktop.NetworkManager`.
     #[serde(rename = "networkmanager")]
     NetworkManager,
@@ -31,6 +33,7 @@ pub enum BackendKind {
 impl BackendKind {
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::Kestrel => "kestrel",
             Self::NetworkManager => "networkmanager",
             Self::Iwd => "iwd",
             Self::Mock => "mock",
@@ -49,15 +52,17 @@ impl std::fmt::Display for BackendKind {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum BackendChoice {
-    /// Prefer NetworkManager; use iwd only when NetworkManager is not
-    /// running.
+    /// Prefer Kestrel, then NetworkManager, then iwd (only when the higher-
+    /// priority daemon is not running).
     ///
     /// A service is used only when it already owns its bus name: selection
-    /// never D-Bus-activates either daemon. A stopped service is an operator
-    /// decision, and starting one on an iwd host would create a second radio
-    /// manager.
+    /// never D-Bus-activates any daemon. A stopped service is an operator
+    /// decision, and starting one on a host managed by another authority would
+    /// create a second radio manager.
     #[default]
     Auto,
+    /// Kestrel only.
+    Kestrel,
     /// NetworkManager only.
     #[serde(rename = "networkmanager")]
     NetworkManager,
@@ -69,6 +74,7 @@ impl BackendChoice {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Auto => "auto",
+            Self::Kestrel => "kestrel",
             Self::NetworkManager => "networkmanager",
             Self::Iwd => "iwd",
         }
@@ -308,12 +314,17 @@ mod tests {
     #[test]
     fn a_backend_choice_has_one_stable_wire_name() {
         assert_eq!(BackendChoice::Auto.as_str(), "auto");
+        assert_eq!(BackendChoice::Kestrel.as_str(), "kestrel");
         assert_eq!(BackendChoice::NetworkManager.as_str(), "networkmanager");
         assert_eq!(BackendChoice::Iwd.as_str(), "iwd");
     }
 
     #[test]
     fn a_backend_choice_round_trips_through_toml_vocabulary() {
+        assert_eq!(
+            serde_json::from_str::<BackendChoice>("\"kestrel\"").unwrap(),
+            BackendChoice::Kestrel
+        );
         assert_eq!(
             serde_json::from_str::<BackendChoice>("\"networkmanager\"").unwrap(),
             BackendChoice::NetworkManager

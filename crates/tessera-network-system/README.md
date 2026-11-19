@@ -1,6 +1,6 @@
 # tessera-network-system
 
-The system side of ADR-0242: NetworkManager and iwd backends, explicit
+The system side of ADR-0242: Kestrel, NetworkManager, and iwd backends, explicit
 selection, and the `tessera-networkd` service that owns the system D-Bus
 connection on behalf of the compositor.
 

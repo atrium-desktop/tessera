@@ -1,22 +1,23 @@
 //! The radio port: what a caster needs from a Wi-Fi Display P2P authority.
 //!
 //! The trait exists so the discovery and casting use cases can be driven by a
-//! scripted authority in tests. Two production authorities implement it:
+//! scripted authority in tests. Three production authorities implement it:
 //!
-//! - [`iwd`] — the reference configuration; completed a session with the
-//!   reference TV;
+//! - [`kestrel`] — the Kestrel orchestrator (`com.hihusky.Kestrel.P2P`);
 //! - [`networkmanager`] — NetworkManager's `wifi-p2p` device, for hosts that run
-//!   NetworkManager with wpa_supplicant and therefore have no iwd.
+//!   NetworkManager with wpa_supplicant;
+//! - [`iwd`] — the iwd P2P reference configuration.
 //!
-//! [`open_system`] picks one: iwd when its P2P service manager is present,
-//! otherwise NetworkManager.
+//! [`open_system`] picks one: Kestrel when a P2P-capable Kestrel device is
+//! running, otherwise NetworkManager, otherwise iwd.
 //!
 //! Nothing here owns the station link: the wireless subsystem does that
 //! ([ADR-0190](../docs/adr/0190-wireless-backends-are-selected-and-capability-declared.md)).
-//! The caster owns only the **P2P role** — a role iwd exposes separately, with
-//! its own device object and its own connection budget.
+//! The caster owns only the **P2P role** — a role the authority exposes separately,
+//! with its own device/session object.
 
 pub mod iwd;
+pub mod kestrel;
 pub mod networkmanager;
 
 use crate::iwd::IwdError;
@@ -145,35 +146,42 @@ pub trait P2pRadio {
 /// Which system authority a caster drives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Authority {
+    Kestrel,
     Iwd,
     NetworkManager,
 }
 
 /// Choose the P2P authority from what each one reported.
 ///
-/// NetworkManager wins when it exposes a ready `wifi-p2p` device, because it
-/// only does so when its wpa_supplicant backend owns the adapter's P2P role;
-/// an iwd running beside it cannot enable P2P (measured: `p2p.Device.Enabled:
-/// Operation failed`). Hosts with iwd alone, or NetworkManager on its iwd
-/// backend, expose no such device and get iwd — the reference configuration.
+/// Kestrel wins when it is running with a P2P-capable device (because on a
+/// Kestrel+iwd host Kestrel owns the radio). Next, NetworkManager wins when it
+/// exposes a ready `wifi-p2p` device, because it only does so when its
+/// wpa_supplicant backend owns the adapter's P2P role. Hosts with iwd alone, or
+/// NetworkManager on its iwd backend, expose no such device and get iwd.
 pub fn select_authority(
+    kestrel: &Result<(), IwdError>,
     networkmanager: &Result<(), IwdError>,
     iwd: &Result<(), IwdError>,
 ) -> Result<Authority, String> {
-    match (networkmanager, iwd) {
-        (Ok(()), _) => Ok(Authority::NetworkManager),
-        (Err(_), Ok(())) => Ok(Authority::Iwd),
-        (Err(nm), Err(iwd)) => Err(format!(
-            "no Wi-Fi Display P2P authority: NetworkManager: {nm}; iwd: {iwd}"
+    match (kestrel, networkmanager, iwd) {
+        (Ok(()), _, _) => Ok(Authority::Kestrel),
+        (Err(_), Ok(()), _) => Ok(Authority::NetworkManager),
+        (Err(_), Err(_), Ok(())) => Ok(Authority::Iwd),
+        (Err(kestrel), Err(nm), Err(iwd)) => Err(format!(
+            "no Wi-Fi Display P2P authority: Kestrel: {kestrel}; NetworkManager: {nm}; iwd: {iwd}"
         )),
     }
 }
 
 /// Open the system's Wi-Fi Display P2P authority (see [`select_authority`]).
 ///
-/// Neither probe here starts a daemon: iwd is only contacted when it already
-/// owns its bus name.
+/// None of the probes here D-Bus-activate a daemon: each is only contacted when
+/// it already owns its bus name.
 pub fn open_system() -> Result<Box<dyn P2pRadio>, IwdError> {
+    let kestrel = kestrel::KestrelRadio::open().and_then(|radio| {
+        radio.enable_p2p()?;
+        Ok(radio)
+    });
     let networkmanager = networkmanager::NmRadio::open().and_then(|radio| {
         radio.enable_p2p()?;
         Ok(radio)
@@ -192,16 +200,21 @@ pub fn open_system() -> Result<Box<dyn P2pRadio>, IwdError> {
         }
     });
     let choice = select_authority(
+        &kestrel.as_ref().map(|_| ()).map_err(Clone::clone),
         &networkmanager.as_ref().map(|_| ()).map_err(Clone::clone),
         &iwd.as_ref().map(|_| ()).map_err(Clone::clone),
     )
     .map_err(IwdError::Unsupported)?;
-    match (choice, networkmanager, iwd) {
-        (Authority::NetworkManager, Ok(radio), _) => {
+    match (choice, kestrel, networkmanager, iwd) {
+        (Authority::Kestrel, Ok(radio), _, _) => {
+            log::info!("radio: Kestrel P2P device {}", radio.device());
+            Ok(Box::new(radio))
+        }
+        (Authority::NetworkManager, _, Ok(radio), _) => {
             log::info!("radio: NetworkManager wifi-p2p device {}", radio.device());
             Ok(Box::new(radio))
         }
-        (Authority::Iwd, _, Ok(radio)) => Ok(Box::new(radio)),
+        (Authority::Iwd, _, _, Ok(radio)) => Ok(Box::new(radio)),
         _ => Err(IwdError::Protocol(
             "authority selection disagreed with probes".to_owned(),
         )),
@@ -347,29 +360,43 @@ mod tests {
     }
 
     #[test]
-    fn a_ready_networkmanager_p2p_device_is_preferred() {
+    fn a_ready_kestrel_or_networkmanager_p2p_device_is_preferred() {
         let iwd_ok = Ok(());
-        let missing = Err(IwdError::Unsupported("no wifi-p2p device".into()));
+        let missing_kestrel = Err(IwdError::Unsupported("Kestrel is not running".into()));
+        let missing_nm = Err(IwdError::Unsupported("no wifi-p2p device".into()));
         assert_eq!(
-            select_authority(&Ok(()), &iwd_ok),
+            select_authority(&Ok(()), &Ok(()), &iwd_ok),
+            Ok(Authority::Kestrel)
+        );
+        assert_eq!(
+            select_authority(&missing_kestrel, &Ok(()), &iwd_ok),
             Ok(Authority::NetworkManager)
         );
-        assert_eq!(select_authority(&missing, &iwd_ok), Ok(Authority::Iwd));
         assert_eq!(
-            select_authority(&Ok(()), &Err(IwdError::ServiceUnavailable)),
+            select_authority(&missing_kestrel, &missing_nm, &iwd_ok),
+            Ok(Authority::Iwd)
+        );
+        assert_eq!(
+            select_authority(
+                &missing_kestrel,
+                &Ok(()),
+                &Err(IwdError::ServiceUnavailable)
+            ),
             Ok(Authority::NetworkManager)
         );
     }
 
     #[test]
-    fn with_no_authority_both_causes_are_named() {
+    fn with_no_authority_every_cause_is_named() {
         let error = select_authority(
+            &Err(IwdError::Unsupported("Kestrel is not running".into())),
             &Err(IwdError::Unsupported(
                 "NetworkManager is not running".into(),
             )),
             &Err(IwdError::ServiceUnavailable),
         )
         .expect_err("no authority");
+        assert!(error.contains("Kestrel is not running"), "{error}");
         assert!(error.contains("NetworkManager is not running"), "{error}");
         assert!(error.contains("iwd is not running"), "{error}");
     }

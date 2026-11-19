@@ -398,6 +398,10 @@ mod tests {
     #[test]
     fn the_service_backend_name_is_the_protocol_name() {
         assert_eq!(
+            NetworkServiceBackend::Config(BackendChoice::Kestrel).as_str(),
+            "kestrel"
+        );
+        assert_eq!(
             NetworkServiceBackend::Config(BackendChoice::NetworkManager).as_str(),
             "networkmanager"
         );

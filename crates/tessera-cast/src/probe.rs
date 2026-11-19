@@ -58,6 +58,8 @@ impl<T: fmt::Display> fmt::Display for Verdict<T> {
 /// The radio half: a P2P authority that can form a Wi-Fi Display group.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RadioReport {
+    /// Kestrel's `com.hihusky.Kestrel.P2P` on at least one device.
+    pub kestrel_p2p: Verdict<()>,
     /// iwd's `net.connman.iwd.p2p.ServiceManager`, the WFD registration point.
     pub wfd_registration: Verdict<()>,
     /// iwd's `net.connman.iwd.p2p.Device` on at least one adapter.
@@ -81,14 +83,16 @@ impl RadioReport {
         }
     }
 
-    /// Either authority suffices; the radio is absent only when both are.
+    /// Any authority suffices; the radio is absent only when all are.
     pub fn authority(&self) -> Verdict<()> {
-        match (&self.iwd(), &self.networkmanager_p2p) {
-            (Verdict::Observed(()), _) | (_, Verdict::Observed(())) => Verdict::Observed(()),
-            (Verdict::Absent, Verdict::Absent) => Verdict::Absent,
-            (Verdict::Unverified(reason), _) | (_, Verdict::Unverified(reason)) => {
-                Verdict::Unverified(reason.clone())
-            }
+        match (&self.kestrel_p2p, &self.iwd(), &self.networkmanager_p2p) {
+            (Verdict::Observed(()), _, _)
+            | (_, Verdict::Observed(()), _)
+            | (_, _, Verdict::Observed(())) => Verdict::Observed(()),
+            (Verdict::Absent, Verdict::Absent, Verdict::Absent) => Verdict::Absent,
+            (Verdict::Unverified(reason), _, _)
+            | (_, Verdict::Unverified(reason), _)
+            | (_, _, Verdict::Unverified(reason)) => Verdict::Unverified(reason.clone()),
         }
     }
 }
@@ -199,6 +203,12 @@ impl CastReport {
             }
         ));
         out.push_str(&format!(
+            "  Kestrel P2P            {}\n",
+            self.radio
+                .kestrel_p2p
+                .describe("P2P device ready", "no Kestrel P2P device")
+        ));
+        out.push_str(&format!(
             "  NetworkManager P2P     {}\n",
             self.radio
                 .networkmanager_p2p
@@ -249,6 +259,7 @@ mod tests {
 
     fn observed_radio() -> RadioReport {
         RadioReport {
+            kestrel_p2p: Verdict::Absent,
             wfd_registration: Verdict::Observed(()),
             p2p_device: Verdict::Observed(P2pDeviceFacts {
                 enabled: false,
@@ -303,6 +314,7 @@ mod tests {
     fn test_inv_arch_83_absent_radio_blocks_even_with_a_full_pipeline() {
         let report = report(
             RadioReport {
+                kestrel_p2p: Verdict::Absent,
                 wfd_registration: Verdict::Absent,
                 p2p_device: Verdict::Absent,
                 networkmanager_p2p: Verdict::Absent,
@@ -326,6 +338,7 @@ mod tests {
         // A permission wall on the radio must not read as "can cast".
         let report = report(
             RadioReport {
+                kestrel_p2p: Verdict::Absent,
                 wfd_registration: Verdict::Unverified("insufficient privilege".into()),
                 p2p_device: Verdict::Unverified("insufficient privilege".into()),
                 networkmanager_p2p: Verdict::Absent,
@@ -354,6 +367,7 @@ mod tests {
         pipeline.h264_encoder = Verdict::Unverified("vainfo missing".into());
         let report = report(
             RadioReport {
+                kestrel_p2p: Verdict::Absent,
                 wfd_registration: Verdict::Absent,
                 p2p_device: Verdict::Absent,
                 networkmanager_p2p: Verdict::Absent,
@@ -364,11 +378,24 @@ mod tests {
     }
 
     #[test]
-    fn a_networkmanager_p2p_device_is_a_radio_without_iwd() {
+    fn a_kestrel_or_networkmanager_p2p_device_is_a_radio_without_iwd() {
+        let kestrel_report = report(
+            RadioReport {
+                kestrel_p2p: Verdict::Observed(()),
+                wfd_registration: Verdict::Absent,
+                p2p_device: Verdict::Absent,
+                networkmanager_p2p: Verdict::Absent,
+            },
+            observed_pipeline(),
+        );
+        assert_eq!(kestrel_report.blocker(), Blocker::None);
+        assert!(kestrel_report.render().contains("P2P device ready"));
+
         // The NetworkManager + wpa_supplicant host this was verified on: no iwd
         // P2P at all, a ready `p2p-dev-wlan0`.
         let report = report(
             RadioReport {
+                kestrel_p2p: Verdict::Absent,
                 wfd_registration: Verdict::Absent,
                 p2p_device: Verdict::Absent,
                 networkmanager_p2p: Verdict::Observed(()),
@@ -383,6 +410,7 @@ mod tests {
     fn an_unverified_networkmanager_keeps_an_absent_iwd_indeterminate() {
         let report = report(
             RadioReport {
+                kestrel_p2p: Verdict::Absent,
                 wfd_registration: Verdict::Absent,
                 p2p_device: Verdict::Absent,
                 networkmanager_p2p: Verdict::Unverified("bus refused".into()),

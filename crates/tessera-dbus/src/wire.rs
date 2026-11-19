@@ -330,6 +330,18 @@ impl<A: ToValue, B: ToValue, C: ToValue, D: ToValue> ToArgs for (A, B, C, D) {
     }
 }
 
+impl<A: ToValue, B: ToValue, C: ToValue, D: ToValue, E: ToValue> ToArgs for (A, B, C, D, E) {
+    fn to_args(&self) -> Vec<Value> {
+        vec![
+            self.0.to_value(),
+            self.1.to_value(),
+            self.2.to_value(),
+            self.3.to_value(),
+            self.4.to_value(),
+        ]
+    }
+}
+
 impl<T: FromValue> FromArgs for T {
     fn from_args(mut args: Vec<Value>) -> Result<Self, WireError> {
         if args.is_empty() {

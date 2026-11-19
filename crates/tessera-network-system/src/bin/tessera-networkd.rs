@@ -30,14 +30,14 @@ fn main() -> ExitCode {
             println!(
                 "tessera-networkd: the out-of-process network service (ADR-0242)\n\n\
                  USAGE:\n    \
-                 tessera-networkd [--socket PATH] [--backend auto|networkmanager|iwd|mock]\n\n\
+                 tessera-networkd [--socket PATH] [--backend auto|kestrel|networkmanager|iwd|mock]\n\n\
                  The service listens on a per-user Unix socket (default\n\
                  $XDG_RUNTIME_DIR/tessera-networkd.sock), owns the system D-Bus\n\
                  connection, and publishes a backend-neutral network snapshot.\n\
-                 `auto` prefers NetworkManager and falls back to iwd only when\n\
-                 NetworkManager is not running. Neither daemon is D-Bus-activated;\n\
-                 a stopped service is reported as unavailable. `mock` is for\n\
-                 preview and tests."
+                 `auto` prefers Kestrel, then NetworkManager, and falls back to iwd\n\
+                 only when higher-priority services are not running. No daemon is\n\
+                 D-Bus-activated; a stopped service is reported as unavailable. `mock`\n\
+                 is for preview and tests."
             );
             return ExitCode::SUCCESS;
         }

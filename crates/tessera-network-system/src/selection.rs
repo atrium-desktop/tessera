@@ -2,10 +2,11 @@
 //!
 //! Selection is a policy, not a guess:
 //!
-//! - `auto` prefers NetworkManager, and falls through to iwd **only when
-//!   NetworkManager is not running**. Neither service is D-Bus-activated: a
-//!   stopped daemon is an operator decision, and starting one on a host where
-//!   the other owns the radio would create a second radio manager.
+//! - `auto` prefers Kestrel, then NetworkManager, and falls through to iwd
+//!   **only when the higher-priority services are not running**. None of the
+//!   services are D-Bus-activated: a stopped daemon is an operator decision,
+//!   and starting one on a host where another owns the radio would create a
+//!   second radio manager.
 //! - an explicit choice never falls back. If the named service is missing,
 //!   the service reports unavailable.
 //! - `mock` exists only for preview/tests and is never a production fallback
@@ -18,12 +19,14 @@ use tessera_network::{
 };
 
 use crate::iwd::IwdBackend;
+use crate::kestrel::KestrelBackend;
 use crate::networkmanager::NetworkManagerBackend;
 
 /// The backend a service process was asked to run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DaemonBackend {
     Auto,
+    Kestrel,
     NetworkManager,
     Iwd,
     Mock,
@@ -33,6 +36,7 @@ impl DaemonBackend {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Auto => "auto",
+            Self::Kestrel => "kestrel",
             Self::NetworkManager => "networkmanager",
             Self::Iwd => "iwd",
             Self::Mock => "mock",
@@ -52,11 +56,12 @@ impl FromStr for DaemonBackend {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "auto" => Ok(Self::Auto),
+            "kestrel" => Ok(Self::Kestrel),
             "networkmanager" | "network-manager" => Ok(Self::NetworkManager),
             "iwd" => Ok(Self::Iwd),
             "mock" => Ok(Self::Mock),
             other => Err(format!(
-                "unknown network backend '{other}'; expected auto, networkmanager, iwd, or mock"
+                "unknown network backend '{other}'; expected auto, kestrel, networkmanager, iwd, or mock"
             )),
         }
     }
@@ -66,6 +71,7 @@ impl FromStr for DaemonBackend {
 pub fn open_backend(choice: DaemonBackend) -> Box<dyn NetworkBackend> {
     let backend = select_backend(
         choice,
+        || KestrelBackend::open().map(|backend| Box::new(backend) as Box<dyn NetworkBackend>),
         || {
             NetworkManagerBackend::open()
                 .map(|backend| Box::new(backend) as Box<dyn NetworkBackend>)
@@ -95,6 +101,7 @@ pub fn open_backend(choice: DaemonBackend) -> Box<dyn NetworkBackend> {
 /// without a bus or a radio.
 fn select_backend(
     choice: DaemonBackend,
+    kestrel: impl FnOnce() -> Result<Box<dyn NetworkBackend>, NetworkError>,
     networkmanager: impl FnOnce() -> Result<Box<dyn NetworkBackend>, NetworkError>,
     iwd: impl FnOnce() -> Result<Box<dyn NetworkBackend>, NetworkError>,
 ) -> Box<dyn NetworkBackend> {
@@ -107,6 +114,10 @@ fn select_backend(
             let _ = backend.connect("Home-WiFi-5G", None);
             Box::new(backend)
         }
+        DaemonBackend::Kestrel => match kestrel() {
+            Ok(backend) => backend,
+            Err(error) => unavailable(format!("Kestrel: {error}")),
+        },
         DaemonBackend::NetworkManager => match networkmanager() {
             Ok(backend) => backend,
             Err(error) => unavailable(format!("NetworkManager: {error}")),
@@ -115,15 +126,21 @@ fn select_backend(
             Ok(backend) => backend,
             Err(error) => unavailable(format!("iwd: {error}")),
         },
-        DaemonBackend::Auto => match networkmanager() {
+        DaemonBackend::Auto => match kestrel() {
             Ok(backend) => backend,
-            Err(error) if error.is_unavailable() => match iwd() {
+            Err(error) if error.is_unavailable() => match networkmanager() {
                 Ok(backend) => backend,
-                Err(iwd_error) => unavailable(format!(
-                    "NetworkManager is not running ({error}); iwd: {iwd_error}"
+                Err(nm_error) if nm_error.is_unavailable() => match iwd() {
+                    Ok(backend) => backend,
+                    Err(iwd_error) => unavailable(format!(
+                        "Kestrel is not running ({error}); NetworkManager is not running ({nm_error}); iwd: {iwd_error}"
+                    )),
+                },
+                Err(nm_error) => unavailable(format!(
+                    "NetworkManager is present but unusable: {nm_error}"
                 )),
             },
-            Err(error) => unavailable(format!("NetworkManager is present but unusable: {error}")),
+            Err(error) => unavailable(format!("Kestrel is present but unusable: {error}")),
         },
     }
 }
@@ -150,9 +167,29 @@ mod tests {
     }
 
     #[test]
-    fn auto_prefers_networkmanager_when_it_answers() {
+    fn auto_prefers_kestrel_then_networkmanager_when_it_answers() {
+        let nm_called = std::cell::Cell::new(false);
         let iwd_called = std::cell::Cell::new(false);
-        let backend = select_backend(DaemonBackend::Auto, mock, || {
+        let backend = select_backend(
+            DaemonBackend::Auto,
+            mock,
+            || {
+                nm_called.set(true);
+                Err(NetworkError::Unavailable)
+            },
+            || {
+                iwd_called.set(true);
+                Err(NetworkError::Unavailable)
+            },
+        );
+        assert_eq!(backend.kind(), BackendKind::Mock);
+        assert!(
+            !nm_called.get() && !iwd_called.get(),
+            "NetworkManager and iwd must not be probed when Kestrel answers"
+        );
+
+        let iwd_called = std::cell::Cell::new(false);
+        let backend = select_backend(DaemonBackend::Auto, missing, mock, || {
             iwd_called.set(true);
             Err(NetworkError::Unavailable)
         });
@@ -164,12 +201,24 @@ mod tests {
     }
 
     #[test]
-    fn auto_falls_through_to_iwd_only_when_networkmanager_is_not_running() {
-        let fallback = select_backend(DaemonBackend::Auto, missing, mock);
+    fn auto_falls_through_only_when_higher_priority_daemons_are_not_running() {
+        let fallback = select_backend(DaemonBackend::Auto, missing, missing, mock);
         assert_eq!(fallback.kind(), BackendKind::Mock);
         assert!(fallback.snapshot().available);
 
-        let broken_nm = select_backend(DaemonBackend::Auto, broken, mock);
+        let broken_kestrel = select_backend(DaemonBackend::Auto, broken, mock, mock);
+        assert_eq!(broken_kestrel.kind(), BackendKind::Unavailable);
+        assert!(!broken_kestrel.snapshot().available);
+        assert!(
+            broken_kestrel
+                .snapshot()
+                .last_error
+                .as_deref()
+                .is_some_and(|error| error.contains("Kestrel is present but unusable")),
+            "a present-but-broken Kestrel must not fall through to NetworkManager or iwd"
+        );
+
+        let broken_nm = select_backend(DaemonBackend::Auto, missing, broken, mock);
         assert_eq!(broken_nm.kind(), BackendKind::Unavailable);
         assert!(!broken_nm.snapshot().available);
         assert!(
@@ -184,11 +233,15 @@ mod tests {
 
     #[test]
     fn explicit_backends_never_fall_back() {
-        let nm = select_backend(DaemonBackend::NetworkManager, missing, mock);
+        let kestrel = select_backend(DaemonBackend::Kestrel, missing, mock, mock);
+        assert_eq!(kestrel.kind(), BackendKind::Unavailable);
+        assert!(!kestrel.snapshot().available);
+
+        let nm = select_backend(DaemonBackend::NetworkManager, mock, missing, mock);
         assert_eq!(nm.kind(), BackendKind::Unavailable);
         assert!(!nm.snapshot().available);
 
-        let iwd = select_backend(DaemonBackend::Iwd, mock, missing);
+        let iwd = select_backend(DaemonBackend::Iwd, mock, mock, missing);
         assert_eq!(iwd.kind(), BackendKind::Unavailable);
         assert!(!iwd.snapshot().available);
     }
@@ -198,6 +251,10 @@ mod tests {
         assert_eq!(
             "auto".parse::<DaemonBackend>().unwrap(),
             DaemonBackend::Auto
+        );
+        assert_eq!(
+            "kestrel".parse::<DaemonBackend>().unwrap(),
+            DaemonBackend::Kestrel
         );
         assert_eq!(
             "networkmanager".parse::<DaemonBackend>().unwrap(),

@@ -14,6 +14,18 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Added
+
+- **Kestrel station-networking and Wi-Fi Display P2P backends.**
+  `tessera-network-system` gains a Kestrel (`com.hihusky.Kestrel`, API v2)
+  station backend, and `[network] backend` now accepts `"kestrel"` in addition
+  to `"auto"`, `"networkmanager"`, and `"iwd"`. `auto` prefers Kestrel, then
+  NetworkManager, and falls back to iwd only when higher-priority daemons are
+  not running; none are D-Bus-activated. `tessera-cast` gains a matching
+  `KestrelRadio` (`com.hihusky.Kestrel.P2P` and `com.hihusky.Kestrel.Session`)
+  for Wi-Fi Display discovery and P2P group formation, with read-only capability
+  probing in `observe`/`probe`.
+
 ## [0.0.97] - 2026-11-18
 
 ### Added

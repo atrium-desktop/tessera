@@ -46,6 +46,7 @@ pub fn probe() -> CastReport {
 }
 
 fn probe_radio() -> RadioReport {
+    let kestrel_p2p = observe_kestrel_p2p();
     let networkmanager_p2p = observe_networkmanager_p2p();
     // `system_connection` refuses to D-Bus-activate iwd, so a stopped iwd is
     // reported as absent instead of being started by a read-only probe.
@@ -53,6 +54,7 @@ fn probe_radio() -> RadioReport {
         Ok(connection) => connection,
         Err(error) => {
             return RadioReport {
+                kestrel_p2p,
                 wfd_registration: verdict_from_error(error.clone()),
                 p2p_device: verdict_from_error(error),
                 networkmanager_p2p,
@@ -60,9 +62,19 @@ fn probe_radio() -> RadioReport {
         }
     };
     RadioReport {
+        kestrel_p2p,
         wfd_registration: observe_wfd_registration(&connection),
         p2p_device: observe_p2p_device(&connection),
         networkmanager_p2p,
+    }
+}
+
+/// Whether Kestrel has a P2P-capable device. Read-only and never activates.
+fn observe_kestrel_p2p() -> Verdict<()> {
+    match crate::radio::kestrel::observe_p2p_device() {
+        Ok(true) => Verdict::Observed(()),
+        Ok(false) => Verdict::Absent,
+        Err(error) => verdict_from_error(error),
     }
 }
 

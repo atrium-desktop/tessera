@@ -78,6 +78,7 @@ fn network_backend_defaults_to_auto_and_accepts_explicit_choices() {
 
     for (text, expected) in [
         ("auto", BackendChoice::Auto),
+        ("kestrel", BackendChoice::Kestrel),
         ("networkmanager", BackendChoice::NetworkManager),
         ("iwd", BackendChoice::Iwd),
     ] {

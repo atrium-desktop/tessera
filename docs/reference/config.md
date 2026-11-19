@@ -507,21 +507,21 @@ NetworkManager or iwd.
 
 ```toml
 [network]
-# "auto" prefers NetworkManager and falls back to iwd only when
-# NetworkManager is not running. Neither daemon is D-Bus-activated: a stopped
-# service is reported as unavailable. "networkmanager" and "iwd" are absolute:
-# a missing service is reported as unavailable, never silently replaced by the
-# other.
+# "auto" prefers Kestrel, then NetworkManager, and falls back to iwd only when
+# higher-priority services are not running. None of these daemons are
+# D-Bus-activated: a stopped service is reported as unavailable. "kestrel",
+# "networkmanager", and "iwd" are absolute: a missing service is reported as
+# unavailable, never silently replaced by another.
 backend = "auto"
 ```
 
 | Field | Default | Validation |
 |-------|---------|------------|
-| `backend` | `"auto"` | `"auto"`, `"networkmanager"`, or `"iwd"`. `mock` is not a configuration value; it is reachable only through the explicit preview path. |
+| `backend` | `"auto"` | `"auto"`, `"kestrel"`, `"networkmanager"`, or `"iwd"`. `mock` is not a configuration value; it is reachable only through the explicit preview path. |
 
-`auto` never starts a radio manager: a stopped or broken NetworkManager is
-reported as unavailable with a reason, and the service does not fall through
-to iwd unless NetworkManager is genuinely not running. The choice is read at
+`auto` never starts a radio manager: a stopped or broken higher-priority
+manager is reported as unavailable with a reason, and the service does not fall
+through unless the service is genuinely not running. The choice is read at
 session start, so changing it takes effect on the next session.
 
 ## Compositor Scheduling
