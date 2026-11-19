@@ -699,6 +699,9 @@ struct PlaneSlot {
     source: Option<PrimaryPlaneSource>,
     /// A flip is committed and its page-flip event has not arrived.
     pending: bool,
+    /// This CRTC/connector has completed its initial modeset since the last
+    /// power-on, hotplug, or VT resume.
+    modeset_done: bool,
 }
 
 /// A client buffer scanned out by one overlay plane. The buffer shares the
@@ -983,7 +986,6 @@ pub struct DrmBackend {
     displays: DisplaySet,
     active: bool,
     failed: bool,
-    modeset_done: bool,
     pending_flips: HashSet<crtc::Handle>,
     /// One primary-plane slot per output. A slot owns the framebuffer it is
     /// scanning until its own page-flip event retires it, so a partially
@@ -1594,7 +1596,7 @@ impl Drop for DrmBackend {
             log::warn!("drm: page flip did not settle during shutdown: {error}");
         }
         if self.active
-            && self.modeset_done
+            && self.any_modeset_done()
             && let Err(error) = self.disable_outputs()
         {
             log::warn!("drm: failed to disable output during shutdown: {error}");

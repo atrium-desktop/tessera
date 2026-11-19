@@ -30,6 +30,7 @@ fn backend_outputs_reconcile_workspace_connectors_and_geometry() {
         return;
     }
     let mut server = Server::new().expect("Server::new");
+    server.set_display_topology(tessera_desktop::output::DisplayTopology::Extend);
     let geometry = |x, width| tessera_desktop::output::OutputGeometry {
         mode: tessera_desktop::output::OutputMode {
             width,

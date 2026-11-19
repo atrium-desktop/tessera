@@ -358,6 +358,7 @@ impl CompositorRuntime<'_> {
                     self.renderer.gc(self.server.live_surface_ids());
                     self.renderer.begin_frame();
                     self.frame_count += 1;
+                    self.drain_shell_chrome_events();
                     return Ok(PresentationOutcome::Submitted);
                 }
                 Err(HostError::Drm(DrmError::CursorFallback)) => {
@@ -377,6 +378,7 @@ impl CompositorRuntime<'_> {
                     // path: the unpresented position keeps
                     // `cursor_plane_changed` true next frame. The backend owns
                     // the flip that must retire before this commit can retry.
+                    self.drain_shell_chrome_events();
                     return Ok(PresentationOutcome::Retry {
                         wait: RetryWait::BackendEvent,
                     });
@@ -417,6 +419,7 @@ impl CompositorRuntime<'_> {
                     > 0;
             self.renderer.gc(self.server.live_surface_ids());
             self.renderer.begin_frame();
+            self.drain_shell_chrome_events();
             return Ok(PresentationOutcome::NoDamage { callbacks_sent });
         }
         // Direct-scanout fast path: a single opaque dma-buf client whose actual
@@ -558,6 +561,7 @@ impl CompositorRuntime<'_> {
                 self.renderer.begin_frame();
                 self.frame_count += 1;
                 self.scanout_telemetry.record_success();
+                self.drain_shell_chrome_events();
                 return Ok(PresentationOutcome::Submitted);
             }
             // Some targets may already be direct. Composite all on the
@@ -632,6 +636,7 @@ impl CompositorRuntime<'_> {
                     self.renderer.gc(self.server.live_surface_ids());
                     self.renderer.begin_frame();
                     self.frame_count += 1;
+                    self.drain_shell_chrome_events();
                     return Ok(PresentationOutcome::Submitted);
                 }
                 Err(error) => {
@@ -683,6 +688,7 @@ impl CompositorRuntime<'_> {
                         } else {
                             self.damage.force_full_redraw = true;
                         }
+                        self.drain_shell_chrome_events();
                         return Ok(PresentationOutcome::Retry {
                             wait: RetryWait::BackendEvent,
                         });
@@ -731,7 +737,7 @@ impl CompositorRuntime<'_> {
             && !self.streams.any_output_live()
             && self.can_render_output_targets()
         {
-            return self.render_output_targets(
+            let outcome = self.render_output_targets(
                 &damage,
                 &sampled_surface_ids,
                 cursor_shape,
@@ -739,6 +745,8 @@ impl CompositorRuntime<'_> {
                 window_switcher.as_ref(),
                 &target_live_previews,
             );
+            self.drain_shell_chrome_events();
+            return outcome;
         }
 
         // Opportunistic stream capture: this frame composites for real
@@ -1409,125 +1417,6 @@ impl CompositorRuntime<'_> {
                 {
                     let _ = pick.reply.send(Ok(tessera_protocol::PickResult::Cancelled));
                 }
-                // App-pick delivery (the AppChooser portal's compositor
-                // side).
-                if let Some(id) = self.shell.take_app_pick_confirmed()
-                    && let Some(pick) = self.pending_app_pick.take()
-                {
-                    let _ = pick
-                        .reply
-                        .send(Ok(tessera_protocol::AppPickResult::App { id }));
-                }
-                if self.shell.take_app_pick_cancelled()
-                    && let Some(pick) = self.pending_app_pick.take()
-                {
-                    let _ = pick
-                        .reply
-                        .send(Ok(tessera_protocol::AppPickResult::Cancelled));
-                }
-                if self.pending_app_pick.is_some()
-                    && !self.shell.app_pick_active()
-                    && let Some(pick) = self.pending_app_pick.take()
-                {
-                    let _ = pick
-                        .reply
-                        .send(Ok(tessera_protocol::AppPickResult::Cancelled));
-                }
-                // Secret-prompt delivery (the vault password unlock's
-                // compositor side), same shape as the other picks above.
-                if let Some(value) = self.shell.take_secret_prompt_confirmed()
-                    && let Some(pick) = self.pending_secret_prompt.take()
-                {
-                    let _ = pick
-                        .reply
-                        .send(Ok(tessera_protocol::SecretPromptResult::Secret { value }));
-                }
-                if self.shell.take_secret_prompt_cancelled()
-                    && let Some(pick) = self.pending_secret_prompt.take()
-                {
-                    let _ = pick
-                        .reply
-                        .send(Ok(tessera_protocol::SecretPromptResult::Cancelled));
-                }
-                if self.pending_secret_prompt.is_some()
-                    && !self.shell.secret_prompt_active()
-                    && let Some(pick) = self.pending_secret_prompt.take()
-                {
-                    let _ = pick
-                        .reply
-                        .send(Ok(tessera_protocol::SecretPromptResult::Cancelled));
-                }
-                // Confirmation delivery (portal consent dialogs and
-                // ADR-0088 runtime grants), same shape as the other picks
-                // above. The single answered value fans out to every
-                // confirmation consumer this frame: the waiting IPC reply
-                // and any parked destructive system action.
-                let confirm_answer = self.shell.take_confirm_pick_answered();
-                if let Some(answer) = confirm_answer
-                    && let Some(pick) = self.pending_confirm_pick.take()
-                {
-                    let _ = pick.reply.send(Ok(answer));
-                }
-                if self.pending_confirm_pick.is_some()
-                    && !self.shell.confirm_pick_active()
-                    && let Some(pick) = self.pending_confirm_pick.take()
-                {
-                    let _ = pick
-                        .reply
-                        .send(Ok(tessera_shell::component::ConfirmAnswer::Cancelled));
-                }
-
-                // Destructive system actions parked behind the same consent
-                // chrome: the panel requested power off / reboot / suspend,
-                // and the user just answered. Confirmed applies the parked
-                // action through the authoritative runtime path; anything
-                // else simply drops it.
-                if let Some(answer) = confirm_answer
-                    && let Some(action) = self.pending_system_action.take()
-                    && matches!(
-                        answer,
-                        tessera_shell::component::ConfirmAnswer::Confirmed
-                            | tessera_shell::component::ConfirmAnswer::AllowOnce
-                    )
-                    && let Err(reason) = apply_system_action(
-                        self.server,
-                        self.host,
-                        &self.notif_queue,
-                        &mut self.system_status,
-                        &mut self.ipc_idle_inhibits,
-                        &mut self.idle_process,
-                        &self.network,
-                        &self.bluetooth,
-                        &self.casting,
-                        &*self.host_system,
-                        action,
-                    )
-                {
-                    log::warn!("system control: {reason}");
-                }
-                // The dialog vanished without an answer reaching us (Escape
-                // paths already resolve through the pick flow above); a
-                // parked action with no live dialog must not linger.
-                if self.pending_system_action.is_some() && !self.shell.confirm_pick_active() {
-                    self.pending_system_action = None;
-                }
-                // Capability-checklist delivery (ADR-0088 agent pairing),
-                // same shape as the other picks above.
-                if let Some(result) = self.shell.take_capability_pick_answered()
-                    && let Some(pick) = self.pending_capability_pick.take()
-                {
-                    let _ = pick.reply.send(Ok(result));
-                }
-                if self.pending_capability_pick.is_some()
-                    && !self.shell.capability_pick_active()
-                    && let Some(pick) = self.pending_capability_pick.take()
-                {
-                    let _ = pick
-                        .reply
-                        .send(Ok(tessera_shell::component::CapabilityPickResult {
-                            approved: None,
-                        }));
-                }
                 // The selector closed this frame (confirmed above or
                 // cancelled). This frame still presented the frozen
                 // snapshot — exactly what the bound readback captures — so
@@ -1549,519 +1438,56 @@ impl CompositorRuntime<'_> {
                         scale,
                     );
                 }
-                // Drain chrome interactions and forward through the apply
-                // chokepoint (ADR-0033) so the journal records them.
-                let ts = self.start.elapsed().as_millis() as u64;
-                let origin = tessera_protocol::Origin::Chrome;
-                if let Some(id) = self.shell.take_window_switcher_pick() {
-                    self.server.cancel_window_switcher();
-                    self.shell.finish_window_switcher();
-                    apply_chrome_window_command(
-                        self.server,
-                        &self.notif_queue,
-                        &mut self.quit_requested,
-                        tessera_protocol::Command::Focus { id, reveal: true },
-                        &self.ipc,
-                        &self.journal,
-                        ts,
-                    );
-                }
-                if self.shell.take_window_switcher_cancel() {
-                    self.server.cancel_window_switcher();
-                    self.shell.finish_window_switcher();
-                }
-                if let Some(id) = self.shell.take_clicked_window() {
-                    apply_chrome_window_command(
-                        self.server,
-                        &self.notif_queue,
-                        &mut self.quit_requested,
-                        tessera_protocol::Command::Focus { id, reveal: true },
-                        &self.ipc,
-                        &self.journal,
-                        ts,
-                    );
-                }
-                // Overview intents (M9): a thumbnail pick focuses its window;
-                // a rail tile switches workspace while the overview stays open.
-                if let Some(id) = self.shell.take_overview_pick() {
-                    apply_chrome_window_command(
-                        self.server,
-                        &self.notif_queue,
-                        &mut self.quit_requested,
-                        tessera_protocol::Command::Focus { id, reveal: true },
-                        &self.ipc,
-                        &self.journal,
-                        ts,
-                    );
-                }
-                if let Some(id) = self.shell.take_overview_switch() {
-                    let cmd = tessera_protocol::Command::SwitchWorkspaceTo { id };
-                    apply_command_and_journal(
-                        self.server,
-                        &self.notif_queue,
-                        &mut self.quit_requested,
-                        cmd,
-                        &self.ipc,
-                        &self.journal,
-                        ts,
-                        origin.clone(),
-                    );
-                }
-                for action in self.shell.take_window_actions() {
-                    let cmd = match action {
-                        tessera_shell::component::WindowAction::Focus(id) => {
-                            tessera_protocol::Command::Focus { id, reveal: true }
-                        }
-                        tessera_shell::component::WindowAction::Minimize(id) => {
-                            tessera_protocol::Command::Minimize { id }
-                        }
-                        tessera_shell::component::WindowAction::SetMaximized(id, maximized) => {
-                            tessera_protocol::Command::SetMaximized { id, maximized }
-                        }
-                        tessera_shell::component::WindowAction::SetAlwaysOnTop(id, on_top) => {
-                            tessera_protocol::Command::SetAlwaysOnTop { id, on_top }
-                        }
-                        tessera_shell::component::WindowAction::Close(id) => {
-                            tessera_protocol::Command::Close { id }
-                        }
-                    };
-                    apply_chrome_window_command(
-                        self.server,
-                        &self.notif_queue,
-                        &mut self.quit_requested,
-                        cmd,
-                        &self.ipc,
-                        &self.journal,
-                        ts,
-                    );
-                }
-                // Mirror-guard drags move a read-only mirror's presentation
-                // position. Like a title-bar move grab this is a
-                // chrome-owned gesture, not a journaled command.
-                if let Some(mirror_move) = self.shell.take_mirror_move() {
-                    self.server
-                        .start_mirror_move(mirror_move.window, mirror_move.cursor);
-                }
-                if let Some(id) = self.shell.take_switch_workspace() {
-                    let cmd = tessera_protocol::Command::SwitchWorkspaceTo { id };
-                    apply_command_and_journal(
-                        self.server,
-                        &self.notif_queue,
-                        &mut self.quit_requested,
-                        cmd,
-                        &self.ipc,
-                        &self.journal,
-                        ts,
-                        origin.clone(),
-                    );
-                }
-                for id in self.shell.take_dismissed_notifications() {
-                    let cmd = tessera_protocol::Command::DismissNotification { id };
-                    apply_command_and_journal(
-                        self.server,
-                        &self.notif_queue,
-                        &mut self.quit_requested,
-                        cmd,
-                        &self.ipc,
-                        &self.journal,
-                        ts,
-                        origin.clone(),
-                    );
-                }
-                if let Some(app) = self.shell.take_open_builtin() {
-                    // The selector opens through the freeze session so the
-                    // trigger frame (chrome included) is snapshotted first.
-                    if app == tessera_desktop::app::BuiltInApplication::ScreenshotSelector {
-                        let cursor = Self::capture_cursor_state_parts(
-                            self.input_acc.cursor,
-                            self.input_acc.display_size,
-                            self.server,
-                            &self.shell,
-                        );
-                        self.screenshot_freeze.request_open(Some(cursor));
-                    } else {
-                        self.shell.open_builtin(app);
-                    }
-                }
-                for intent in self.shell.take_interaction_domain_intents() {
-                    let action = interaction_domain_intent_to_action(intent);
-                    let before_revision = self.server.interaction_domain_revision();
-                    let result = apply_interaction_domain_action(self.server, None, action.clone());
-                    match &result {
-                        Ok(_) => {
-                            for interaction_domain in
-                                interaction_domains_explicitly_stopped(&action)
-                            {
-                                self.automatically_paused_interaction_domains
-                                    .remove(&interaction_domain);
-                            }
-                            let invalidated =
-                                interaction_domain_action_invalidates_capture(&action);
-                            if !invalidated.is_empty() {
-                                self.capture_worker.invalidate_security_context();
-                                if self
-                                    .pending_interaction_domain_capture
-                                    .as_ref()
-                                    .is_some_and(|pending| {
-                                        invalidated.contains(&pending.context.interaction_domain)
-                                    })
-                                {
-                                    let pending = self
-                                        .pending_interaction_domain_capture
-                                        .take()
-                                        .expect("capture invalidation predicate checked");
-                                    refuse_capture_target(
-                                        &self.capture_worker,
-                                        CaptureTarget::InteractionDomainReply {
-                                            context: pending.context,
-                                            reply: pending.reply,
-                                        },
-                                        "Interaction Domain authority changed before capture completed".into(),
-                                        &self.journal,
-                                        &self.ipc,
-                                    );
-                                }
-                            }
-                            if let tessera_protocol::InteractionDomainAction::Revoke {
-                                interaction_domain,
-                                ..
-                            } = &action
-                            {
-                                self.interaction_domain_render_targets
-                                    .remove(interaction_domain);
-                            }
-                            self.interaction_domain_processes
-                                .apply_committed_action(&action);
-                            let snapshot = self.server.interaction_domain_snapshot();
-                            self.last_interaction_domain_revision = Some(snapshot.revision);
-                            self.live.set_interaction_domains(snapshot.clone());
-                            self.shell.set_interaction_domains(snapshot.clone());
-                            if let Some(ipc) = &self.ipc {
-                                ipc.broadcast(tessera_protocol::Event::InteractionDomainsChanged {
-                                    revision: snapshot.revision,
-                                });
-                            }
-                        }
-                        Err(error) => {
-                            log::warn!("Interaction Domain action from shell refused: {error}");
-                            let notification = self
-                                .notif_queue
-                                .lock()
-                                .unwrap_or_else(|e| e.into_inner())
-                                .push(
-                                    "Interaction Domain",
-                                    error.clone(),
-                                    Some("tessera".into()),
-                                    ts,
-                                );
-                            if let Some(ipc) = &self.ipc {
-                                ipc.broadcast(tessera_protocol::Event::Notified { notification });
-                            }
-                        }
-                    }
-                    let after_revision = self.server.interaction_domain_revision();
-                    let effect = match result {
-                        Ok(_) => tessera_protocol::Effect::Applied,
-                        Err(reason) => tessera_protocol::Effect::Refused { reason },
-                    };
-                    journal_mutation_effect_and_broadcast(
-                        &self.journal,
-                        &self.ipc,
-                        ts,
-                        tessera_protocol::Origin::Chrome,
-                        tessera_protocol::JournalMutation::InteractionDomain {
-                            action,
-                            before_revision,
-                            after_revision,
-                        },
-                        effect,
-                    );
-                }
-                let system_actions = self.shell.take_system_actions();
-                if !system_actions.is_empty() {
-                    let mut applied = false;
-                    for action in system_actions {
-                        // The reading describes the request that succeeds, so it
-                        // needs the action after the call that consumes it.
-                        let applied_action = action.clone();
-                        // Destructive lifecycle transitions route through the
-                        // system-level confirmation first: the same consent
-                        // chrome the portal flows use, so a stray click on the
-                        // panel's power knob never powers the machine off.
-                        // The consent chrome opens in the iteration loop right
-                        // after this frame (the flux frame's borrow below
-                        // forbids the `&mut self` call here).
-                        if matches!(
-                            action,
-                            tessera_desktop::system::SystemAction::PowerOff
-                                | tessera_desktop::system::SystemAction::Reboot
-                                | tessera_desktop::system::SystemAction::Suspend
-                        ) && self.pending_system_action.is_none()
-                        {
-                            self.system_confirm_requests.push(action);
-                            continue;
-                        }
-                        let command = tessera_protocol::Command::System {
-                            action: action.clone(),
-                        };
-                        let effect = match apply_system_action(
-                            self.server,
-                            self.host,
-                            &self.notif_queue,
-                            &mut self.system_status,
-                            &mut self.ipc_idle_inhibits,
-                            &mut self.idle_process,
-                            &self.network,
-                            &self.bluetooth,
-                            &self.casting,
-                            &*self.host_system,
-                            action,
-                        ) {
-                            Ok(()) => {
-                                applied = true;
-                                // A reading acknowledges a completed action, so
-                                // it is raised against the value the machine
-                                // reached rather than the one it was asked for.
-                                if let Some(params) = super::system::osd_for_action(
-                                    &applied_action,
-                                    &self.system_status,
-                                    self.shell.localizer(),
-                                ) {
-                                    self.shell.show_osd(params);
-                                }
-                                tessera_protocol::Effect::Applied
-                            }
-                            Err(reason) => {
-                                log::warn!("system control: {reason}");
-                                tessera_protocol::Effect::Refused { reason }
-                            }
-                        };
-                        journal_effect_and_broadcast(
-                            &self.journal,
-                            &self.ipc,
-                            ts,
-                            origin.clone(),
-                            command,
-                            effect,
-                        );
-                    }
-                    if applied {
-                        publish_system_status_parts(
-                            &self.system_status,
-                            &mut self.shell,
-                            &self.live,
-                            &self.ipc,
-                        );
-                        // Reconcile the optimistic hardware state out of
-                        // cycle: `apply_system_action` already published
-                        // optimistic values, and the poller thread
-                        // re-probes the host right away so the main loop never
-                        // blocks on a subprocess.
-                        let _ = self.status_refresh_tx.send(());
-                    }
-                }
-                // Persistent-settings mutations from compositor-owned settings
-                // UI: the same commit/journal path as IPC settings requests.
-                let settings_actions = self.shell.take_settings_actions();
-                for (expected_revision, action) in settings_actions {
-                    let appearance_changed = matches!(
-                        &action,
-                        tessera_protocol::SettingsAction::SetDesktopPreferences { .. }
-                    );
-                    let before_revision = self.settings_revision;
-                    let result = if self.server.session_locked() {
-                        Err("session is locked".into())
-                    } else {
-                        // Disjoint-field form: a Flux frame borrows
-                        // `self.surface` across this whole section.
-                        settings::commit_settings_parts(
-                            expected_revision,
-                            action.clone(),
-                            &mut self.settings_revision,
-                            self.config_path.as_deref(),
-                            &self.config_writer,
-                            &mut self.config,
-                            &mut self.keymap,
-                            &mut self.gesture_map,
-                            self.server,
-                            &mut self.shell,
-                            &mut self.cursor_cache,
-                            self.host,
-                            &mut self.reload,
-                            &mut self.idle_process,
-                            &self.live,
-                            &mut self.system_status,
-                            &mut self.input_acc,
-                            &self.ipc,
-                        )
-                    };
-                    if result.is_ok() {
-                        // A committed settings action may redraw status chrome
-                        // outside the signed server-state paths.
-                        self.damage.chrome_dirty = true;
-                        if appearance_changed {
-                            queue_app_scan_parts(
-                                self.server,
-                                self.host,
-                                self.config.as_ref(),
-                                &self.scan_req_tx,
-                                &mut self.next_app_scan,
-                            );
-                        }
-                    }
-                    let after_revision = self.settings_revision;
-                    let effect = match &result {
-                        Ok(_) => tessera_protocol::Effect::Applied,
-                        Err(reason) => tessera_protocol::Effect::Refused {
-                            reason: reason.clone(),
-                        },
-                    };
-                    journal_mutation_effect_and_broadcast(
-                        &self.journal,
-                        &self.ipc,
-                        ts,
-                        origin.clone(),
-                        tessera_protocol::JournalMutation::Settings {
-                            action,
-                            before_revision,
-                            after_revision,
-                        },
-                        effect,
-                    );
-                }
-                // The Control Center's Lock now row: lock immediately through
-                // the same idle-process path as the Super+L binding.
-                if self.shell.take_lock() {
-                    self.idle_process.lock_now();
-                }
-                // A dock reading row asked for the surface that owns it
-                // (ADR-0218). Open-only: a reading press must not close a panel
-                // the user is already looking at.
-                if self.shell.take_open_control_center() {
-                    self.shell.open_control_center();
-                    // The panel's fidelity is bounded by the probe cadence, and
-                    // this is the one moment the user is looking at the reading's
-                    // detail — the same reason the Super+S binding refreshes.
-                    let _ = self.status_refresh_tx.send(());
-                }
-                // The dock's Pivot tile was clicked: toggle Pivot.
-                if self.shell.take_toggle_pivot() {
-                    self.shell.toggle_pivot();
-                }
-                // Clipboard copy requests (e.g. from Pivot calculator)
-                if let Some(text) = self.shell.take_clipboard_copy() {
-                    log::info!("clipboard: copied expression from Pivot: {text}");
-                }
-                // Dispatched AI Agent prompts from Pivot
-                if let Some(prompt) = self.shell.take_agent_prompt() {
-                    log::info!("agent-broker: dispatched prompt from Pivot: {prompt}");
-                }
-                // Dock context-menu pin/unpin requests: apply the explicit,
-                // idempotent action to dock state, persist to dock_state.json,
-                // and refresh immediately.
-                let pin_actions = self.shell.take_dock_pin_actions();
-                if !pin_actions.is_empty() {
-                    let mut pinned_list = self.dock_state.pinned.clone();
-                    pinned_list = materialize_pins_for_manual_edit(
-                        &self.launcher_apps,
-                        &self.icon_cache.map,
-                        &pinned_list,
-                        self.dock_state.autopopulate,
-                    );
-                    pinned_list =
-                        apply_pin_actions(&self.launcher_apps, &pinned_list, &pin_actions);
-                    self.dock_state.pinned = pinned_list.clone();
-                    self.dock_state.autopopulate = false;
-                    if let Err(error) = self.dock_state.save_to_path(&self.dock_state_path) {
-                        log::warn!("dock: pins not saved: {error}");
-                    }
-                    if let Some(c) = self.config.as_mut() {
-                        c.dock.pinned = pinned_list.clone();
-                        c.dock.autopopulate = false;
-                    }
-                    let pinned = resolve_chrome_pins(
-                        &self.launcher_apps,
-                        &self.icon_cache.map,
-                        &pinned_list,
-                        false,
-                    );
-                    self.shell
-                        .set_app_catalog(tessera_shell::component::AppCatalog {
-                            apps: self.launcher_apps.clone(),
-                            pinned,
-                            icons: self.icon_cache.as_icon_set(),
-                            position: self.dock_state.position,
-                        });
-                }
-                // A committed drag reorder carries the complete pinned list
-                // in dock order (entry ids, already materialized from the
-                // visible strip): persist it to dock_state.json. The dock
-                // applied the order optimistically; this push reconciles it.
-                if let Some(pinned_list) = self.shell.take_dock_reorder() {
-                    self.dock_state.pinned = pinned_list.clone();
-                    self.dock_state.autopopulate = false;
-                    if let Err(error) = self.dock_state.save_to_path(&self.dock_state_path) {
-                        log::warn!("dock: reordered pins not saved: {error}");
-                    }
-                    if let Some(c) = self.config.as_mut() {
-                        c.dock.pinned = pinned_list.clone();
-                        c.dock.autopopulate = false;
-                    }
-                    let pinned = resolve_chrome_pins(
-                        &self.launcher_apps,
-                        &self.icon_cache.map,
-                        &pinned_list,
-                        false,
-                    );
-                    self.shell
-                        .set_app_catalog(tessera_shell::component::AppCatalog {
-                            apps: self.launcher_apps.clone(),
-                            pinned,
-                            icons: self.icon_cache.as_icon_set(),
-                            position: self.dock_state.position,
-                        });
-                }
-                // A dock edge drag commits the edge it landed on: persist
-                // it to dock_state.json and reconcile the catalog-carried position.
-                // The dock already switched edges optimistically during the gesture.
-                if let Some(position) = self.shell.take_dock_position() {
-                    self.dock_state.position = position;
-                    if let Err(error) = self.dock_state.save_to_path(&self.dock_state_path) {
-                        log::warn!("dock: position not saved: {error}");
-                    }
-                    if let Some(c) = self.config.as_mut() {
-                        c.dock.position = position;
-                    }
-                    let pinned = resolve_chrome_pins(
-                        &self.launcher_apps,
-                        &self.icon_cache.map,
-                        &self.dock_state.pinned,
-                        self.dock_state.autopopulate,
-                    );
-                    self.shell
-                        .set_app_catalog(tessera_shell::component::AppCatalog {
-                            apps: self.launcher_apps.clone(),
-                            pinned,
-                            icons: self.icon_cache.as_icon_set(),
-                            position,
-                        });
-                }
-                // Launch the application the launcher's clicked row asked for.
-                // The child is detached (setsid) and inherits the Wayland/XDG
-                // environment, so it connects back to this compositor and
-                // survives it exiting. See tessera-launch / ADR-0022.
-                if let Some(entry) = self.shell.take_spawn() {
-                    let opts = tessera_launch_services::LaunchOpts {
-                        wayland_display: Some(self.server.socket().to_owned()),
-                        ..Default::default()
-                    };
-                    match tessera_launch_services::launch(&entry, &opts) {
-                        Ok(report) => {
-                            log::info!("launcher: spawned {} (pid {})", entry.id, report.pid)
-                        }
-                        Err(e) => log::warn!("launcher: failed to spawn {}: {e}", entry.id),
-                    }
-                }
+                drain_shell_chrome_events_parts(ShellChromeDrainParts {
+                    shell: &mut self.shell,
+                    server: self.server,
+                    host: self.host,
+                    start: self.start,
+                    notif_queue: &self.notif_queue,
+                    quit_requested: &mut self.quit_requested,
+                    ipc: &self.ipc,
+                    journal: &self.journal,
+                    live: &self.live,
+                    screenshot_freeze: &mut self.screenshot_freeze,
+                    input_acc: &mut self.input_acc,
+                    pending_app_pick: &mut self.pending_app_pick,
+                    pending_secret_prompt: &mut self.pending_secret_prompt,
+                    pending_confirm_pick: &mut self.pending_confirm_pick,
+                    pending_system_action: &mut self.pending_system_action,
+                    pending_capability_pick: &mut self.pending_capability_pick,
+                    system_confirm_requests: &mut self.system_confirm_requests,
+                    system_status: &mut self.system_status,
+                    ipc_idle_inhibits: &mut self.ipc_idle_inhibits,
+                    idle_process: &mut self.idle_process,
+                    network: &self.network,
+                    bluetooth: &self.bluetooth,
+                    casting: &self.casting,
+                    host_system: &self.host_system,
+                    status_refresh_tx: &self.status_refresh_tx,
+                    config_path: self.config_path.as_deref(),
+                    config_writer: &self.config_writer,
+                    config: &mut self.config,
+                    keymap: &mut self.keymap,
+                    gesture_map: &mut self.gesture_map,
+                    cursor_cache: &mut self.cursor_cache,
+                    reload: &mut self.reload,
+                    settings_revision: &mut self.settings_revision,
+                    damage: &mut self.damage,
+                    scan_req_tx: &self.scan_req_tx,
+                    next_app_scan: &mut self.next_app_scan,
+                    dock_state: &mut self.dock_state,
+                    dock_state_path: &self.dock_state_path,
+                    launcher_apps: &self.launcher_apps,
+                    icon_cache: &self.icon_cache,
+                    automatically_paused_interaction_domains: &mut self
+                        .automatically_paused_interaction_domains,
+                    capture_worker: &self.capture_worker,
+                    pending_interaction_domain_capture: &mut self
+                        .pending_interaction_domain_capture,
+                    interaction_domain_render_targets: &mut self.interaction_domain_render_targets,
+                    interaction_domain_processes: &mut self.interaction_domain_processes,
+                    last_interaction_domain_revision: &mut self.last_interaction_domain_revision,
+                });
                 if self.host.uses_software_cursor() && !capturing_frozen_screenshot {
                     let saved_cursor = frame_capture
                         .as_ref()
@@ -2788,5 +2214,738 @@ fn begin_desktop_output<'c, 'surface>(
             draw_wallpaper_background(&s, device, wallpaper, logical_size, scale);
         }
         Ok(s)
+    }
+}
+
+impl CompositorRuntime<'_> {
+    /// Drain all shell chrome events emitted during `prepare_frame`.
+    ///
+    /// Called on every presentation path (including `render_output_targets`
+    /// and fast paths) so Dock/Pivot launches, pin edits, window actions, and
+    /// portal answers are never dropped when the union render path is bypassed.
+    pub(super) fn drain_shell_chrome_events(&mut self) {
+        drain_shell_chrome_events_parts(ShellChromeDrainParts {
+            shell: &mut self.shell,
+            server: self.server,
+            host: self.host,
+            start: self.start,
+            notif_queue: &self.notif_queue,
+            quit_requested: &mut self.quit_requested,
+            ipc: &self.ipc,
+            journal: &self.journal,
+            live: &self.live,
+            screenshot_freeze: &mut self.screenshot_freeze,
+            input_acc: &mut self.input_acc,
+            pending_app_pick: &mut self.pending_app_pick,
+            pending_secret_prompt: &mut self.pending_secret_prompt,
+            pending_confirm_pick: &mut self.pending_confirm_pick,
+            pending_system_action: &mut self.pending_system_action,
+            pending_capability_pick: &mut self.pending_capability_pick,
+            system_confirm_requests: &mut self.system_confirm_requests,
+            system_status: &mut self.system_status,
+            ipc_idle_inhibits: &mut self.ipc_idle_inhibits,
+            idle_process: &mut self.idle_process,
+            network: &self.network,
+            bluetooth: &self.bluetooth,
+            casting: &self.casting,
+            host_system: &self.host_system,
+            status_refresh_tx: &self.status_refresh_tx,
+            config_path: self.config_path.as_deref(),
+            config_writer: &self.config_writer,
+            config: &mut self.config,
+            keymap: &mut self.keymap,
+            gesture_map: &mut self.gesture_map,
+            cursor_cache: &mut self.cursor_cache,
+            reload: &mut self.reload,
+            settings_revision: &mut self.settings_revision,
+            damage: &mut self.damage,
+            scan_req_tx: &self.scan_req_tx,
+            next_app_scan: &mut self.next_app_scan,
+            dock_state: &mut self.dock_state,
+            dock_state_path: &self.dock_state_path,
+            launcher_apps: &self.launcher_apps,
+            icon_cache: &self.icon_cache,
+            automatically_paused_interaction_domains: &mut self
+                .automatically_paused_interaction_domains,
+            capture_worker: &self.capture_worker,
+            pending_interaction_domain_capture: &mut self.pending_interaction_domain_capture,
+            interaction_domain_render_targets: &mut self.interaction_domain_render_targets,
+            interaction_domain_processes: &mut self.interaction_domain_processes,
+            last_interaction_domain_revision: &mut self.last_interaction_domain_revision,
+        });
+    }
+}
+
+struct ShellChromeDrainParts<'a> {
+    shell: &'a mut tessera_shell::Shell,
+    server: &'a mut tessera_wayland::Server,
+    host: &'a mut Host,
+    start: std::time::Instant,
+    notif_queue: &'a std::sync::Arc<std::sync::Mutex<tessera_desktop::notify::NotificationQueue>>,
+    quit_requested: &'a mut bool,
+    ipc: &'a Option<tessera_ipc::Server>,
+    journal: &'a std::sync::Arc<
+        std::sync::Mutex<tessera_audit::AuditLog<tessera_audit::journal::Entry>>,
+    >,
+    live: &'a std::sync::Arc<LiveState>,
+    screenshot_freeze: &'a mut ScreenshotFreeze,
+    input_acc: &'a mut InputAccumulator,
+    pending_app_pick: &'a mut Option<PendingAppPick>,
+    pending_secret_prompt: &'a mut Option<PendingSecretPrompt>,
+    pending_confirm_pick: &'a mut Option<PendingConfirmPick>,
+    pending_system_action: &'a mut Option<tessera_desktop::system::SystemAction>,
+    pending_capability_pick: &'a mut Option<PendingCapabilityPick>,
+    system_confirm_requests: &'a mut Vec<tessera_desktop::system::SystemAction>,
+    system_status: &'a mut tessera_shell::component::SystemStatus,
+    ipc_idle_inhibits: &'a mut IdleInhibits,
+    idle_process: &'a mut session::IdleProcess,
+    network: &'a crate::network::NetworkHandle,
+    bluetooth: &'a crate::bluetooth::BluetoothHandle,
+    casting: &'a crate::casting::CastHandle,
+    host_system: &'a std::sync::Arc<dyn crate::host_system::HostSystem>,
+    status_refresh_tx: &'a std::sync::mpsc::Sender<()>,
+    config_path: Option<&'a std::path::Path>,
+    config_writer: &'a ConfigWriter,
+    config: &'a mut Option<tessera_config::Config>,
+    keymap: &'a mut tessera_desktop::keybind::Keymap,
+    gesture_map: &'a mut tessera_desktop::gesture::GestureMap,
+    cursor_cache: &'a mut cursor::CursorCache,
+    reload: &'a mut Option<tessera_config::ReloadWatcher>,
+    settings_revision: &'a mut u64,
+    damage: &'a mut DamageTracking,
+    scan_req_tx: &'a std::sync::mpsc::Sender<AppScanRequest>,
+    next_app_scan: &'a mut std::time::Instant,
+    dock_state: &'a mut tessera_wayland::DockStateStore,
+    dock_state_path: &'a std::path::Path,
+    launcher_apps: &'a [tessera_desktop::app::Entry],
+    icon_cache: &'a IconCache,
+    automatically_paused_interaction_domains: &'a mut std::collections::BTreeSet<
+        tessera_authority::interaction_domain::InteractionDomainId,
+    >,
+    capture_worker: &'a CaptureWorker,
+    pending_interaction_domain_capture: &'a mut Option<PendingInteractionDomainCapture>,
+    interaction_domain_render_targets: &'a mut std::collections::BTreeMap<
+        tessera_authority::interaction_domain::InteractionDomainId,
+        InteractionDomainRenderTarget,
+    >,
+    interaction_domain_processes: &'a mut InteractionDomainProcesses,
+    last_interaction_domain_revision: &'a mut Option<u64>,
+}
+
+fn drain_shell_chrome_events_parts(parts: ShellChromeDrainParts<'_>) {
+    // App-pick delivery (the AppChooser portal's compositor side).
+    if let Some(id) = parts.shell.take_app_pick_confirmed()
+        && let Some(pick) = parts.pending_app_pick.take()
+    {
+        let _ = pick
+            .reply
+            .send(Ok(tessera_protocol::AppPickResult::App { id }));
+    }
+    if parts.shell.take_app_pick_cancelled()
+        && let Some(pick) = parts.pending_app_pick.take()
+    {
+        let _ = pick
+            .reply
+            .send(Ok(tessera_protocol::AppPickResult::Cancelled));
+    }
+    if parts.pending_app_pick.is_some()
+        && !parts.shell.app_pick_active()
+        && let Some(pick) = parts.pending_app_pick.take()
+    {
+        let _ = pick
+            .reply
+            .send(Ok(tessera_protocol::AppPickResult::Cancelled));
+    }
+    // Secret-prompt delivery (the vault password unlock's compositor side).
+    if let Some(value) = parts.shell.take_secret_prompt_confirmed()
+        && let Some(pick) = parts.pending_secret_prompt.take()
+    {
+        let _ = pick
+            .reply
+            .send(Ok(tessera_protocol::SecretPromptResult::Secret { value }));
+    }
+    if parts.shell.take_secret_prompt_cancelled()
+        && let Some(pick) = parts.pending_secret_prompt.take()
+    {
+        let _ = pick
+            .reply
+            .send(Ok(tessera_protocol::SecretPromptResult::Cancelled));
+    }
+    if parts.pending_secret_prompt.is_some()
+        && !parts.shell.secret_prompt_active()
+        && let Some(pick) = parts.pending_secret_prompt.take()
+    {
+        let _ = pick
+            .reply
+            .send(Ok(tessera_protocol::SecretPromptResult::Cancelled));
+    }
+    // Confirmation delivery (portal consent dialogs and ADR-0088 runtime grants).
+    let confirm_answer = parts.shell.take_confirm_pick_answered();
+    if let Some(answer) = confirm_answer
+        && let Some(pick) = parts.pending_confirm_pick.take()
+    {
+        let _ = pick.reply.send(Ok(answer));
+    }
+    if parts.pending_confirm_pick.is_some()
+        && !parts.shell.confirm_pick_active()
+        && let Some(pick) = parts.pending_confirm_pick.take()
+    {
+        let _ = pick
+            .reply
+            .send(Ok(tessera_shell::component::ConfirmAnswer::Cancelled));
+    }
+    // Destructive system actions parked behind the same consent chrome.
+    if let Some(answer) = confirm_answer
+        && let Some(action) = parts.pending_system_action.take()
+        && matches!(
+            answer,
+            tessera_shell::component::ConfirmAnswer::Confirmed
+                | tessera_shell::component::ConfirmAnswer::AllowOnce
+        )
+        && let Err(reason) = apply_system_action(
+            parts.server,
+            parts.host,
+            parts.notif_queue,
+            parts.system_status,
+            parts.ipc_idle_inhibits,
+            parts.idle_process,
+            parts.network,
+            parts.bluetooth,
+            parts.casting,
+            &**parts.host_system,
+            action,
+        )
+    {
+        log::warn!("system control: {reason}");
+    }
+    if parts.pending_system_action.is_some() && !parts.shell.confirm_pick_active() {
+        *parts.pending_system_action = None;
+    }
+    // Capability-checklist delivery (ADR-0088 agent pairing).
+    if let Some(result) = parts.shell.take_capability_pick_answered()
+        && let Some(pick) = parts.pending_capability_pick.take()
+    {
+        let _ = pick.reply.send(Ok(result));
+    }
+    if parts.pending_capability_pick.is_some()
+        && !parts.shell.capability_pick_active()
+        && let Some(pick) = parts.pending_capability_pick.take()
+    {
+        let _ = pick
+            .reply
+            .send(Ok(tessera_shell::component::CapabilityPickResult {
+                approved: None,
+            }));
+    }
+    // Drain chrome interactions and forward through the apply
+    // chokepoint (ADR-0033) so the journal records them.
+    let ts = parts.start.elapsed().as_millis() as u64;
+    let origin = tessera_protocol::Origin::Chrome;
+    if let Some(id) = parts.shell.take_window_switcher_pick() {
+        parts.server.cancel_window_switcher();
+        parts.shell.finish_window_switcher();
+        apply_chrome_window_command(
+            parts.server,
+            parts.notif_queue,
+            parts.quit_requested,
+            tessera_protocol::Command::Focus { id, reveal: true },
+            parts.ipc,
+            parts.journal,
+            ts,
+        );
+    }
+    if parts.shell.take_window_switcher_cancel() {
+        parts.server.cancel_window_switcher();
+        parts.shell.finish_window_switcher();
+    }
+    if let Some(id) = parts.shell.take_clicked_window() {
+        apply_chrome_window_command(
+            parts.server,
+            parts.notif_queue,
+            parts.quit_requested,
+            tessera_protocol::Command::Focus { id, reveal: true },
+            parts.ipc,
+            parts.journal,
+            ts,
+        );
+    }
+    // Overview intents (M9): a thumbnail pick focuses its window;
+    // a rail tile switches workspace while the overview stays open.
+    if let Some(id) = parts.shell.take_overview_pick() {
+        apply_chrome_window_command(
+            parts.server,
+            parts.notif_queue,
+            parts.quit_requested,
+            tessera_protocol::Command::Focus { id, reveal: true },
+            parts.ipc,
+            parts.journal,
+            ts,
+        );
+    }
+    if let Some(id) = parts.shell.take_overview_switch() {
+        let cmd = tessera_protocol::Command::SwitchWorkspaceTo { id };
+        apply_command_and_journal(
+            parts.server,
+            parts.notif_queue,
+            parts.quit_requested,
+            cmd,
+            parts.ipc,
+            parts.journal,
+            ts,
+            origin.clone(),
+        );
+    }
+    for action in parts.shell.take_window_actions() {
+        let cmd = match action {
+            tessera_shell::component::WindowAction::Focus(id) => {
+                tessera_protocol::Command::Focus { id, reveal: true }
+            }
+            tessera_shell::component::WindowAction::Minimize(id) => {
+                tessera_protocol::Command::Minimize { id }
+            }
+            tessera_shell::component::WindowAction::SetMaximized(id, maximized) => {
+                tessera_protocol::Command::SetMaximized { id, maximized }
+            }
+            tessera_shell::component::WindowAction::SetAlwaysOnTop(id, on_top) => {
+                tessera_protocol::Command::SetAlwaysOnTop { id, on_top }
+            }
+            tessera_shell::component::WindowAction::Close(id) => {
+                tessera_protocol::Command::Close { id }
+            }
+        };
+        apply_chrome_window_command(
+            parts.server,
+            parts.notif_queue,
+            parts.quit_requested,
+            cmd,
+            parts.ipc,
+            parts.journal,
+            ts,
+        );
+    }
+    // Mirror-guard drags move a read-only mirror's presentation
+    // position. Like a title-bar move grab this is a
+    // chrome-owned gesture, not a journaled command.
+    if let Some(mirror_move) = parts.shell.take_mirror_move() {
+        parts
+            .server
+            .start_mirror_move(mirror_move.window, mirror_move.cursor);
+    }
+    if let Some(id) = parts.shell.take_switch_workspace() {
+        let cmd = tessera_protocol::Command::SwitchWorkspaceTo { id };
+        apply_command_and_journal(
+            parts.server,
+            parts.notif_queue,
+            parts.quit_requested,
+            cmd,
+            parts.ipc,
+            parts.journal,
+            ts,
+            origin.clone(),
+        );
+    }
+    for id in parts.shell.take_dismissed_notifications() {
+        let cmd = tessera_protocol::Command::DismissNotification { id };
+        apply_command_and_journal(
+            parts.server,
+            parts.notif_queue,
+            parts.quit_requested,
+            cmd,
+            parts.ipc,
+            parts.journal,
+            ts,
+            origin.clone(),
+        );
+    }
+    if let Some(app) = parts.shell.take_open_builtin() {
+        // The selector opens through the freeze session so the
+        // trigger frame (chrome included) is snapshotted first.
+        if app == tessera_desktop::app::BuiltInApplication::ScreenshotSelector {
+            let cursor = CompositorRuntime::capture_cursor_state_parts(
+                parts.input_acc.cursor,
+                parts.input_acc.display_size,
+                parts.server,
+                parts.shell,
+            );
+            parts.screenshot_freeze.request_open(Some(cursor));
+        } else {
+            parts.shell.open_builtin(app);
+        }
+    }
+    for intent in parts.shell.take_interaction_domain_intents() {
+        let action = interaction_domain_intent_to_action(intent);
+        let before_revision = parts.server.interaction_domain_revision();
+        let result = apply_interaction_domain_action(parts.server, None, action.clone());
+        match &result {
+            Ok(_) => {
+                for interaction_domain in interaction_domains_explicitly_stopped(&action) {
+                    parts
+                        .automatically_paused_interaction_domains
+                        .remove(&interaction_domain);
+                }
+                let invalidated = interaction_domain_action_invalidates_capture(&action);
+                if !invalidated.is_empty() {
+                    parts.capture_worker.invalidate_security_context();
+                    if parts
+                        .pending_interaction_domain_capture
+                        .as_ref()
+                        .is_some_and(|pending| {
+                            invalidated.contains(&pending.context.interaction_domain)
+                        })
+                    {
+                        let pending = parts
+                            .pending_interaction_domain_capture
+                            .take()
+                            .expect("capture invalidation predicate checked");
+                        refuse_capture_target(
+                            parts.capture_worker,
+                            CaptureTarget::InteractionDomainReply {
+                                context: pending.context,
+                                reply: pending.reply,
+                            },
+                            "Interaction Domain authority changed before capture completed".into(),
+                            parts.journal,
+                            parts.ipc,
+                        );
+                    }
+                }
+                if let tessera_protocol::InteractionDomainAction::Revoke {
+                    interaction_domain,
+                    ..
+                } = &action
+                {
+                    parts
+                        .interaction_domain_render_targets
+                        .remove(interaction_domain);
+                }
+                parts
+                    .interaction_domain_processes
+                    .apply_committed_action(&action);
+                let snapshot = parts.server.interaction_domain_snapshot();
+                *parts.last_interaction_domain_revision = Some(snapshot.revision);
+                parts.live.set_interaction_domains(snapshot.clone());
+                parts.shell.set_interaction_domains(snapshot.clone());
+                if let Some(ipc) = parts.ipc {
+                    ipc.broadcast(tessera_protocol::Event::InteractionDomainsChanged {
+                        revision: snapshot.revision,
+                    });
+                }
+            }
+            Err(error) => {
+                log::warn!("Interaction Domain action from shell refused: {error}");
+                let notification = parts
+                    .notif_queue
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(
+                        "Interaction Domain",
+                        error.clone(),
+                        Some("tessera".into()),
+                        ts,
+                    );
+                if let Some(ipc) = parts.ipc {
+                    ipc.broadcast(tessera_protocol::Event::Notified { notification });
+                }
+            }
+        }
+        let after_revision = parts.server.interaction_domain_revision();
+        let effect = match result {
+            Ok(_) => tessera_protocol::Effect::Applied,
+            Err(reason) => tessera_protocol::Effect::Refused { reason },
+        };
+        journal_mutation_effect_and_broadcast(
+            parts.journal,
+            parts.ipc,
+            ts,
+            tessera_protocol::Origin::Chrome,
+            tessera_protocol::JournalMutation::InteractionDomain {
+                action,
+                before_revision,
+                after_revision,
+            },
+            effect,
+        );
+    }
+    let system_actions = parts.shell.take_system_actions();
+    if !system_actions.is_empty() {
+        let mut applied = false;
+        for action in system_actions {
+            // The reading describes the request that succeeds, so it
+            // needs the action after the call that consumes it.
+            let applied_action = action.clone();
+            // Destructive lifecycle transitions route through the
+            // system-level confirmation first: the same consent
+            // chrome the portal flows use, so a stray click on the
+            // panel's power knob never powers the machine off.
+            // The consent chrome opens in the iteration loop right
+            // after this frame (the flux frame's borrow below
+            // forbids the `&mut parts` call here).
+            if matches!(
+                action,
+                tessera_desktop::system::SystemAction::PowerOff
+                    | tessera_desktop::system::SystemAction::Reboot
+                    | tessera_desktop::system::SystemAction::Suspend
+            ) && parts.pending_system_action.is_none()
+            {
+                parts.system_confirm_requests.push(action);
+                continue;
+            }
+            let command = tessera_protocol::Command::System {
+                action: action.clone(),
+            };
+            let effect = match apply_system_action(
+                parts.server,
+                parts.host,
+                parts.notif_queue,
+                parts.system_status,
+                parts.ipc_idle_inhibits,
+                parts.idle_process,
+                parts.network,
+                parts.bluetooth,
+                parts.casting,
+                &**parts.host_system,
+                action,
+            ) {
+                Ok(()) => {
+                    applied = true;
+                    // A reading acknowledges a completed action, so
+                    // it is raised against the value the machine
+                    // reached rather than the one it was asked for.
+                    if let Some(params) = super::system::osd_for_action(
+                        &applied_action,
+                        parts.system_status,
+                        parts.shell.localizer(),
+                    ) {
+                        parts.shell.show_osd(params);
+                    }
+                    tessera_protocol::Effect::Applied
+                }
+                Err(reason) => {
+                    log::warn!("system control: {reason}");
+                    tessera_protocol::Effect::Refused { reason }
+                }
+            };
+            journal_effect_and_broadcast(
+                parts.journal,
+                parts.ipc,
+                ts,
+                origin.clone(),
+                command,
+                effect,
+            );
+        }
+        if applied {
+            publish_system_status_parts(parts.system_status, parts.shell, parts.live, parts.ipc);
+            // Reconcile the optimistic hardware state out of
+            // cycle: `apply_system_action` already published
+            // optimistic values, and the poller thread
+            // re-probes the host right away so the main loop never
+            // blocks on a subprocess.
+            let _ = parts.status_refresh_tx.send(());
+        }
+    }
+    // Persistent-settings mutations from compositor-owned settings
+    // UI: the same commit/journal path as IPC settings requests.
+    let settings_actions = parts.shell.take_settings_actions();
+    for (expected_revision, action) in settings_actions {
+        let appearance_changed = matches!(
+            &action,
+            tessera_protocol::SettingsAction::SetDesktopPreferences { .. }
+        );
+        let before_revision = *parts.settings_revision;
+        let result = if parts.server.session_locked() {
+            Err("session is locked".into())
+        } else {
+            // Disjoint-field form: a Flux frame borrows
+            // `parts.surface` across this whole section.
+            settings::commit_settings_parts(
+                expected_revision,
+                action.clone(),
+                parts.settings_revision,
+                parts.config_path,
+                parts.config_writer,
+                parts.config,
+                parts.keymap,
+                parts.gesture_map,
+                parts.server,
+                parts.shell,
+                parts.cursor_cache,
+                parts.host,
+                parts.reload,
+                parts.idle_process,
+                parts.live,
+                parts.system_status,
+                parts.input_acc,
+                parts.ipc,
+            )
+        };
+        if result.is_ok() {
+            // A committed settings action may redraw status chrome
+            // outside the signed server-state paths.
+            parts.damage.chrome_dirty = true;
+            if appearance_changed {
+                queue_app_scan_parts(
+                    parts.server,
+                    parts.host,
+                    parts.config.as_ref(),
+                    parts.scan_req_tx,
+                    parts.next_app_scan,
+                );
+            }
+        }
+        let after_revision = *parts.settings_revision;
+        let effect = match &result {
+            Ok(_) => tessera_protocol::Effect::Applied,
+            Err(reason) => tessera_protocol::Effect::Refused {
+                reason: reason.clone(),
+            },
+        };
+        journal_mutation_effect_and_broadcast(
+            parts.journal,
+            parts.ipc,
+            ts,
+            origin.clone(),
+            tessera_protocol::JournalMutation::Settings {
+                action,
+                before_revision,
+                after_revision,
+            },
+            effect,
+        );
+    }
+    // The Control Center's Lock now row: lock immediately through
+    // the same idle-process path as the Super+L binding.
+    if parts.shell.take_lock() {
+        parts.idle_process.lock_now();
+    }
+    // A dock reading row asked for the surface that owns it
+    // (ADR-0218). Open-only: a reading press must not close a panel
+    // the user is already looking at.
+    if parts.shell.take_open_control_center() {
+        parts.shell.open_control_center();
+        // The panel's fidelity is bounded by the probe cadence, and
+        // this is the one moment the user is looking at the reading's
+        // detail — the same reason the Super+S binding refreshes.
+        let _ = parts.status_refresh_tx.send(());
+    }
+    // The dock's Pivot tile was clicked: toggle Pivot.
+    if parts.shell.take_toggle_pivot() {
+        parts.shell.toggle_pivot();
+    }
+    // Clipboard copy requests (e.g. from Pivot calculator)
+    if let Some(text) = parts.shell.take_clipboard_copy() {
+        log::info!("clipboard: copied expression from Pivot: {text}");
+    }
+    // Dispatched AI Agent prompts from Pivot
+    if let Some(prompt) = parts.shell.take_agent_prompt() {
+        log::info!("agent-broker: dispatched prompt from Pivot: {prompt}");
+    }
+    // Dock context-menu pin/unpin requests: apply the explicit,
+    // idempotent action to dock state, persist to dock_state.json,
+    // and refresh immediately.
+    let pin_actions = parts.shell.take_dock_pin_actions();
+    if !pin_actions.is_empty() {
+        let mut pinned_list = parts.dock_state.pinned.clone();
+        pinned_list = materialize_pins_for_manual_edit(
+            parts.launcher_apps,
+            &parts.icon_cache.map,
+            &pinned_list,
+            parts.dock_state.autopopulate,
+        );
+        pinned_list = apply_pin_actions(parts.launcher_apps, &pinned_list, &pin_actions);
+        parts.dock_state.pinned = pinned_list.clone();
+        parts.dock_state.autopopulate = false;
+        if let Err(error) = parts.dock_state.save_to_path(parts.dock_state_path) {
+            log::warn!("dock: pins not saved: {error}");
+        }
+        if let Some(c) = parts.config.as_mut() {
+            c.dock.pinned = pinned_list.clone();
+            c.dock.autopopulate = false;
+        }
+        let pinned = resolve_chrome_pins(
+            parts.launcher_apps,
+            &parts.icon_cache.map,
+            &pinned_list,
+            false,
+        );
+        parts
+            .shell
+            .set_app_catalog(tessera_shell::component::AppCatalog {
+                apps: parts.launcher_apps.to_vec(),
+                pinned,
+                icons: parts.icon_cache.as_icon_set(),
+                position: parts.dock_state.position,
+            });
+    }
+    // A committed drag reorder carries the complete pinned list
+    // in dock order (entry ids, already materialized from the
+    // visible strip): persist it to dock_state.json. The dock
+    // applied the order optimistically; this push reconciles it.
+    if let Some(pinned_list) = parts.shell.take_dock_reorder() {
+        parts.dock_state.pinned = pinned_list.clone();
+        parts.dock_state.autopopulate = false;
+        if let Err(error) = parts.dock_state.save_to_path(parts.dock_state_path) {
+            log::warn!("dock: reordered pins not saved: {error}");
+        }
+        if let Some(c) = parts.config.as_mut() {
+            c.dock.pinned = pinned_list.clone();
+            c.dock.autopopulate = false;
+        }
+        let pinned = resolve_chrome_pins(
+            parts.launcher_apps,
+            &parts.icon_cache.map,
+            &pinned_list,
+            false,
+        );
+        parts
+            .shell
+            .set_app_catalog(tessera_shell::component::AppCatalog {
+                apps: parts.launcher_apps.to_vec(),
+                pinned,
+                icons: parts.icon_cache.as_icon_set(),
+                position: parts.dock_state.position,
+            });
+    }
+    // A dock edge drag commits the edge it landed on: persist
+    // it to dock_state.json and reconcile the catalog-carried position.
+    // The dock already switched edges optimistically during the gesture.
+    if let Some(position) = parts.shell.take_dock_position() {
+        parts.dock_state.position = position;
+        if let Err(error) = parts.dock_state.save_to_path(parts.dock_state_path) {
+            log::warn!("dock: position not saved: {error}");
+        }
+        if let Some(c) = parts.config.as_mut() {
+            c.dock.position = position;
+        }
+        let pinned = resolve_chrome_pins(
+            parts.launcher_apps,
+            &parts.icon_cache.map,
+            &parts.dock_state.pinned,
+            parts.dock_state.autopopulate,
+        );
+        parts
+            .shell
+            .set_app_catalog(tessera_shell::component::AppCatalog {
+                apps: parts.launcher_apps.to_vec(),
+                pinned,
+                icons: parts.icon_cache.as_icon_set(),
+                position,
+            });
+    }
+    // Launch the application the launcher's clicked row asked for.
+    // The child is detached (setsid) and inherits the Wayland/XDG
+    // environment, so it connects back to this compositor and
+    // survives it exiting. See tessera-launch / ADR-0022.
+    if let Some(entry) = parts.shell.take_spawn() {
+        let opts = tessera_launch_services::LaunchOpts {
+            wayland_display: Some(parts.server.socket().to_owned()),
+            ..Default::default()
+        };
+        match tessera_launch_services::launch(&entry, &opts) {
+            Ok(report) => {
+                log::info!("launcher: spawned {} (pid {})", entry.id, report.pid)
+            }
+            Err(e) => log::warn!("launcher: failed to spawn {}: {e}", entry.id),
+        }
     }
 }

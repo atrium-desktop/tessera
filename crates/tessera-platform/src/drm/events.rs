@@ -325,7 +325,6 @@ impl DrmBackend {
                         });
                         self.displays = displays;
                         self.rebuild_plane_slots();
-                        self.modeset_done = false;
                         // A VT/suspend round-trip always wakes to a freshly
                         // rendered frame. This also closes the edge where the
                         // idle coordinator died while scanout was powered off

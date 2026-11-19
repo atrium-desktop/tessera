@@ -12,4 +12,6 @@ mod cast_networkmanager;
 #[cfg(feature = "native")]
 mod command_entry;
 #[cfg(feature = "native")]
+mod display_mirror;
+#[cfg(feature = "native")]
 mod tray_smoke;

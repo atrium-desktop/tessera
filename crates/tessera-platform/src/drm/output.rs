@@ -19,10 +19,10 @@ impl DrmBackend {
             return Err(DrmError::Busy);
         }
         if !powered {
-            if self.modeset_done {
+            if self.any_modeset_done() {
                 self.disable_outputs()?;
             }
-            self.modeset_done = false;
+            self.reset_modeset_done();
             self.cursor_plane_active = false;
             // The kernel plane is now blank; forgetting the cached sprite
             // position makes the next cursor commit reprogram the plane
@@ -32,7 +32,7 @@ impl DrmBackend {
             log::info!("drm: physical outputs powered off; input remains active");
         } else {
             self.outputs_powered = true;
-            self.modeset_done = false;
+            self.reset_modeset_done();
             // Re-assert the cursor on the first full commit after wake; the
             // plane was blanked at power-off, so its old placement is void.
             self.cursor_state = None;
@@ -54,10 +54,10 @@ impl DrmBackend {
             Ok(displays) => displays,
             Err(DrmError::NoConnector) => {
                 log::info!("drm: all outputs disconnected; suspending rendering");
-                if self.modeset_done {
+                if self.any_modeset_done() {
                     let _ = self.disable_outputs();
                 }
-                self.modeset_done = false;
+                self.reset_modeset_done();
                 self.pending_flips.clear();
                 self.clear_plane_slots(true);
                 if let Some(overlay) = self.current_overlay.take() {
@@ -86,12 +86,12 @@ impl DrmBackend {
             return;
         }
 
-        if self.modeset_done
+        if self.any_modeset_done()
             && let Err(error) = self.disable_outputs()
         {
             log::warn!("drm: failed to disable old hotplug layout: {error}");
         }
-        self.modeset_done = false;
+        self.reset_modeset_done();
         self.pending_flips.clear();
         self.clear_plane_slots(true);
         if let Some(overlay) = self.current_overlay.take() {
@@ -181,8 +181,19 @@ impl DrmBackend {
                 retiring: None,
                 source: None,
                 pending: false,
+                modeset_done: false,
             })
             .collect();
+    }
+
+    pub(super) fn any_modeset_done(&self) -> bool {
+        self.slots.iter().any(|slot| slot.modeset_done)
+    }
+
+    pub(super) fn reset_modeset_done(&mut self) {
+        for slot in &mut self.slots {
+            slot.modeset_done = false;
+        }
     }
 
     pub(super) fn slot_index_for_connector(&self, connector: &str) -> Option<usize> {

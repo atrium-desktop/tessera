@@ -463,6 +463,7 @@ impl DrmBackend {
                 retiring: None,
                 source: None,
                 pending: false,
+                modeset_done: false,
             })
             .collect();
         let mut backend = Self {
@@ -475,7 +476,6 @@ impl DrmBackend {
             displays,
             active: true,
             failed: false,
-            modeset_done: false,
             pending_flips: HashSet::new(),
             slots,
             current_overlay: None,
@@ -1187,7 +1187,7 @@ impl DrmBackend {
                 layer.zpos,
             );
             let mut flags = AtomicCommitFlags::TEST_ONLY;
-            if !self.modeset_done {
+            if !self.slots[output_index].modeset_done {
                 flags |= AtomicCommitFlags::ALLOW_MODESET;
             }
             self.card()
@@ -2277,15 +2277,16 @@ impl DrmBackend {
                 }
             }
         }
+        let needs_modeset = targets.iter().any(|&index| !self.slots[index].modeset_done);
         let mut flags = AtomicCommitFlags::NONBLOCK | AtomicCommitFlags::PAGE_FLIP_EVENT;
-        if !self.modeset_done {
+        if needs_modeset {
             flags |= AtomicCommitFlags::ALLOW_MODESET;
         }
-        if !self.modeset_done || overlay_transition {
+        if needs_modeset || overlay_transition {
             // The kernel rejects TEST_ONLY | PAGE_FLIP_EVENT with EINVAL, so
             // this preflight cannot be merged with the real commit below.
             let mut test_flags = AtomicCommitFlags::TEST_ONLY;
-            if !self.modeset_done {
+            if needs_modeset {
                 test_flags |= AtomicCommitFlags::ALLOW_MODESET;
             }
             if let Err(error) = self.card().atomic_commit(test_flags, request.clone()) {
@@ -2324,7 +2325,7 @@ impl DrmBackend {
                 );
             }
         }
-        let can_async = allow_async && self.atomic_async_page_flip && self.modeset_done;
+        let can_async = allow_async && self.atomic_async_page_flip && !needs_modeset;
         let commit_result = if can_async {
             let async_flags = flags | AtomicCommitFlags::PAGE_FLIP_ASYNC;
             match self.card().atomic_commit(async_flags, request.clone()) {
@@ -2416,7 +2417,9 @@ impl DrmBackend {
                 .iter()
                 .map(|&index| self.displays.outputs[index].crtc),
         );
-        self.modeset_done = true;
+        for &index in targets {
+            self.slots[index].modeset_done = true;
+        }
         if overlay_transition && !use_out_fences {
             // Overlay scans out a live client buffer. Without OUT_FENCE_PTR
             // there is no non-blocking release signal, so pay the flip wait

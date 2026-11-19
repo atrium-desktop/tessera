@@ -1159,9 +1159,9 @@ pub struct OutputPosition {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DisplayConfig {
-    /// `auto` (default), `extend`, or `mirror`. Explicit per-connector roles
-    /// always win; `auto` mirrors the first smaller external display and
-    /// extends larger ones.
+    /// `mirror` (default), `auto`, or `extend`. Explicit per-connector roles
+    /// always win; `mirror` mirrors external displays onto the primary, while
+    /// `auto` mirrors the first smaller external display and extends larger ones.
     #[serde(default)]
     pub topology: tessera_desktop::output::DisplayTopology,
 }

@@ -140,11 +140,11 @@ impl OutputRoleSource {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DisplayTopology {
     /// Choose mirror or extend from the connected outputs' native pixel areas.
-    #[default]
     Auto,
     /// Every output extends the desktop.
     Extend,
     /// Every output except the primary mirrors the primary.
+    #[default]
     Mirror,
 }
 
@@ -1471,6 +1471,23 @@ mod tests {
             role: OutputRole::Extend,
             role_source: crate::output::OutputRoleSource::Auto,
         }
+    }
+
+    #[test]
+    fn default_topology_is_mirror_and_mirrors_larger_external_hdmi() {
+        assert_eq!(DisplayTopology::default(), DisplayTopology::Mirror);
+        let outputs = [
+            role_info("eDP-1", OutputKind::Internal, mode(3072, 1920)),
+            role_info("HDMI-A-1", OutputKind::External, mode(3840, 2160)),
+        ];
+        let roles = resolve_output_roles(&outputs, &Default::default(), DisplayTopology::default());
+        assert_eq!(roles[0], OutputRole::Extend);
+        assert_eq!(
+            roles[1],
+            OutputRole::Mirror {
+                source: "eDP-1".into()
+            }
+        );
     }
 
     #[test]
