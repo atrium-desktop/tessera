@@ -14,6 +14,22 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.99] - 2026-11-20
+
+### Changed
+
+- **Default display topology set to `mirror`.** `DisplayTopology::default()`
+  now defaults to `Mirror` instead of `Auto` so external displays mirror the
+  primary output by default unless configured otherwise.
+
+### Fixed
+
+- **Per-CRTC DRM modeset tracking and shell chrome event draining.** Track
+  `modeset_done` per `PlaneSlot` rather than globally on `DrmBackend` so newly
+  activated or hotplugged CRTCs receive `ALLOW_MODESET`, and refactor shell
+  chrome event draining in `runtime/presentation.rs` with end-to-end display
+  mirroring coverage.
+
 ## [0.0.98] - 2026-11-19
 
 ### Added
