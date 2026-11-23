@@ -1,4 +1,4 @@
-//! Responsive lock-screen geometry, independent of Lens and the GPU host.
+//! Responsive lock-screen geometry, independent of optics-ui and the GPU host.
 
 pub use tessera_config::LockScreenStyle;
 

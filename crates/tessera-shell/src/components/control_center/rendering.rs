@@ -14,13 +14,13 @@ pub(super) use crate::widgets::shapes::render_disc;
 pub(super) use crate::widgets::shapes::render_ring;
 pub(super) use crate::widgets::tiered::{Tier, TieredIndicator, TieredOutcome, tiered_control};
 
-pub(super) fn volume_icon_raw(status: &SystemStatus) -> optics_lens::sys::lens_icon_id {
+pub(super) fn volume_icon_raw(status: &SystemStatus) -> optics_ui::sys::optics_ui_icon_id {
     if status.muted || status.volume.unwrap_or(0) == 0 {
-        optics_lens::sys::lens_icon_id::LENS_ICON_VOLUME_X
+        optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_VOLUME_X
     } else if status.volume.unwrap_or(0) < 55 {
-        optics_lens::sys::lens_icon_id::LENS_ICON_VOLUME_1
+        optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_VOLUME_1
     } else {
-        optics_lens::sys::lens_icon_id::LENS_ICON_VOLUME_2
+        optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_VOLUME_2
     }
 }
 
@@ -29,11 +29,11 @@ pub(super) fn volume_icon_raw(status: &SystemStatus) -> optics_lens::sys::lens_i
 /// Two states, not three: a capture device is either being listened to or it is
 /// not. There is no "quiet microphone" the way there is a quiet speaker, and a
 /// graduated glyph would imply one.
-pub(super) fn microphone_icon_raw(status: &SystemStatus) -> optics_lens::sys::lens_icon_id {
+pub(super) fn microphone_icon_raw(status: &SystemStatus) -> optics_ui::sys::optics_ui_icon_id {
     if status.microphone_muted || status.microphone_volume == Some(0) {
-        optics_lens::sys::lens_icon_id::LENS_ICON_MIC_OFF
+        optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_MIC_OFF
     } else {
-        optics_lens::sys::lens_icon_id::LENS_ICON_MIC
+        optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_MIC
     }
 }
 
@@ -46,12 +46,12 @@ pub(super) fn render_compact_quick_toggle_tile(
     id: &str,
     title: &str,
     subtitle: Option<&str>,
-    icon: optics_lens::sys::lens_icon_id,
+    icon: optics_ui::sys::optics_ui_icon_id,
     active: bool,
     size: (f32, f32),
     hud: ControlCenterColors,
     type_scale: TypeScale,
-) -> optics_lens::Response {
+) -> optics_ui::Response {
     let original = f.theme();
     // A tile too narrow for its label shows only its glyph; the label stays
     // its accessible name and the caller shows it as a tooltip.
@@ -159,7 +159,7 @@ pub(super) fn render_expandable_quick_toggle_tile(
     id: &str,
     title: &str,
     subtitle: &str,
-    icon: optics_lens::sys::lens_icon_id,
+    icon: optics_ui::sys::optics_ui_icon_id,
     active: bool,
     size: (f32, f32),
     hud: ControlCenterColors,
@@ -266,7 +266,7 @@ pub(super) fn render_expandable_quick_toggle_tile(
                     f.spacer(0.0);
                     f.set_theme(themes::hud(&hud).with_fg(sub_fg));
                     f.icon_raw(
-                        optics_lens::sys::lens_icon_id::LENS_ICON_CHEVRON_RIGHT,
+                        optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_CHEVRON_RIGHT,
                         16.0,
                     );
                     f.flex(1.0);
@@ -299,7 +299,7 @@ pub(super) fn render_horizontal_fader(
     f: &mut Frame,
     id: &str,
     label: &str,
-    icon: optics_lens::sys::lens_icon_id,
+    icon: optics_ui::sys::optics_ui_icon_id,
     icon_clickable: bool,
     value: Option<u8>,
     range: (u8, u8),
@@ -414,7 +414,7 @@ pub(super) fn render_horizontal_fader(
                                 f.flex(1.0);
                                 f.spacer(0.0);
                                 f.icon_raw(
-                                    optics_lens::sys::lens_icon_id::LENS_ICON_CHEVRON_RIGHT,
+                                    optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_CHEVRON_RIGHT,
                                     16.0,
                                 );
                                 f.flex(1.0);
@@ -499,7 +499,7 @@ pub(super) fn render_kbd_backlight_tiers(
                     // illumination rays); falls back to the built-in key icon if
                     // runtime SVG registration is unavailable.
                     let icon = kbd_backlight_icon()
-                        .unwrap_or(optics_lens::sys::lens_icon_id::LENS_ICON_KEY);
+                        .unwrap_or(optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_KEY);
                     f.icon_raw(icon, 18.0);
                     display_label(f, label, type_scale.body);
                     f.flex(1.0);
@@ -578,7 +578,7 @@ pub(super) fn menu_bounds(owner: Rect, visible: &[MenuNode], display: (f32, f32)
 
 // ---- display typography (ADR-0080 refresh) -------------------------------
 
-/// Weight of the panel's display typography. lens draws text at the theme's
+/// Weight of the panel's display typography. optics-ui draws text at the theme's
 /// regular weight (`text_weight = 0`); the bold 600–700 range reads as the
 /// game-HUD voice the panel wants for its labels.
 pub(super) const DISPLAY_WEIGHT: f32 = 700.0;

@@ -2,7 +2,7 @@
 
 `xdg-desktop-portal-atrium` is the private xdg-desktop-portal backend for an
 Tessera session. It is built from the independent
-[xdg-desktop-portal-atrium repository](https://github.com/aegis-shell/xdg-desktop-portal-atrium),
+[xdg-desktop-portal-atrium repository](https://github.com/atrium-desktop/xdg-desktop-portal-atrium),
 distributed separately from the compositor, and activated on the session
 D-Bus as needed.
 
@@ -10,8 +10,8 @@ D-Bus as needed.
 
 | Item | Value |
 |------|-------|
-| Source repository | `https://github.com/aegis-shell/xdg-desktop-portal-atrium` |
-| Release compatibility | Portal `v0.0.10` supports Tessera `v0.0.22` and its IPC protocol 27; the Portal compatibility reference remains authoritative |
+| Source repository | `https://github.com/atrium-desktop/xdg-desktop-portal-atrium` |
+| Release compatibility | Portal `v0.0.38` speaks Tessera IPC protocol 32 and negotiates down to 24. The [Portal compatibility reference](https://github.com/atrium-desktop/xdg-desktop-portal-atrium/blob/main/docs/reference/compatibility.md) lists the exact Tessera releases each Portal line serves and is authoritative |
 | Distribution package | `xdg-desktop-portal-atrium` |
 | Backend executable | `/usr/libexec/xdg-desktop-portal-atrium` by default; distributions may configure `libexecdir` |
 | FileChooser prompter | `/usr/libexec/atrium-portal-prompter` by default; distributions may configure `libexecdir` |

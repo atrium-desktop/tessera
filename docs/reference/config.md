@@ -30,7 +30,7 @@ untouched.
 | `schema_version` | integer | required | Schema major version. Must be `2`. A different value is rejected with a diagnostic; supported migrations are explicit through `tessera config migrate`. |
 | `[[keybind]]` | array of tables | built-in defaults | Global key bindings. See [Key Bindings](#key-bindings) and [System Shortcuts](keyboard-shortcuts.md). |
 | `[[window_rule]]` | array of tables | none | Placement rules applied to newly-mapped toplevels. See [Window Rules](#window-rules). |
-| `[display]` | table | `topology = "auto"` | Default extend-or-mirror policy for connectors without an explicit role. See [Displays](#displays). |
+| `[display]` | table | `topology = "mirror"` | Default extend-or-mirror policy for connectors without an explicit role. See [Displays](#displays). |
 | `[layout]` | table | gaps `8`, master_ratio `0.5` | Tiling policy parameters. See [Layout](#layout). |
 | `[dock]` | table | automatic pins | Applications pinned to the dock. See [Dock](#dock). |
 | `[ui]` | table | `hicolor` icons, `default` 24 px cursor, borderless windows, full motion | Desktop-wide UI and window-presentation policy. See [UI](#ui). |
@@ -50,7 +50,6 @@ untouched.
 | `[agent]` | table | lockdown on | Agent authorization policy: whether unpaired connections keep privileged capabilities. See [Agent Authorization](#agent-authorization). |
 | `[audit]` | table | 2048 MiB ceiling, 512 MiB reserve | Durable authority-history storage and checkpoint policy. See [Audit Storage](#audit-storage). |
 | `[interaction_domain_sandbox]` | table | default deny | Process-resource budgets for new Interaction Domain application launches; network and host files remain isolated. See [Interaction Domain Sandbox](#interaction-domain-sandbox). |
-| `[dev]` | table | all off | Development-only escape hatches; planned for removal before release. See [Development Options](#development-options). |
 
 ## Environment
 
@@ -67,7 +66,7 @@ not written back to TOML.
 | `TESSERA_WALLPAPER_MODEL` | configured model, then unset | Process-start 3D-model override. Set to `builtin` for the procedural knot or to a `.glb` path. Ignored when `TESSERA_WALLPAPER` is a `.glb` or the configured mode is parallax. |
 | `TESSERA_BACKEND` | `auto` | Presentation backend target: `auto`, `drm`, or `nested`. When `auto`, automatically selects `nested` if `$WAYLAND_DISPLAY` is present, or `drm` on bare-metal virtual terminals. Explicit values override detection for CI, direct DRM testing within existing sessions, or display-manager transitions. |
 | `TESSERA_PREVIEW` | unset | Direct component preview routing: `pivot` (or `launcher`, `spotlight`), `control-center` (or `control_center`), `overview`, or `switcher`. Opens directly into the requested surface on startup and isolates state in a temporary disposable sandbox directory. |
-| `TESSERA_OVERLAY_OFFLOAD` | unset | Set to `1` to enable the hardware-validation path for one topmost opaque overlay candidate (ADR-0235). Requires a complete-set atomic `TEST_ONLY` pass; rejection falls back to composition. Unset keeps overlay allocation and presentation disabled. See [KMS Overlay System Test](../dev/testing/kms-overlay-system-test.md). |
+| `TESSERA_OVERLAY_OFFLOAD` | unset | Set to `1` to enable the hardware-validation path for one topmost opaque overlay candidate (ADR-0235). Requires a complete-set atomic `TEST_ONLY` pass; rejection falls back to composition. Unset keeps overlay allocation and presentation disabled. See [How to Validate KMS Overlay Offload](../how-to/kms-overlay-validation.md). |
 | `TESSERA_COLOR_SCHEME` | `[appearance] color_scheme`, then `system` | Process-start appearance scheme override: `dark`, `light`, or `system`. Overrides persistent configuration for the session and exports to toolkit portals without mutating configuration. Also accepts `TESSERA_THEME` as an alias. |
 | `TESSERA_AVATAR_DEBUG_ASSETS` | unset | Set to `1` in debug builds to prepend `assets/debug/persona/` to avatar discovery before system stills. Ignored in release builds. |
 | `TESSERA_AVATAR_DEBUG_DIR` | unset | Explicit directory override for local debug avatar assets in debug builds. Ignored in release builds. |
@@ -214,7 +213,7 @@ Applied live on reload.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `reduced_motion` | boolean | `false` | Accessibility reduced-motion switch. When `true`, every chrome and lens transition (dock magnification, launcher reveal, fades, slides) resolves to its end state in at most one frame. |
+| `reduced_motion` | boolean | `false` | Accessibility reduced-motion switch. When `true`, every chrome and UI transition (dock magnification, launcher reveal, fades, slides) resolves to its end state in at most one frame. |
 | `icon_theme` | string | `"hicolor"` | Freedesktop application icon theme used by the launcher, Dock, and themed shell symbols. `$TESSERA_ICON_THEME` wins when set. Changes apply live. |
 | `cursor_theme` | string | `"default"` | SVG cursor theme for the software cursor on direct display, resolved through the freedesktop cursor spec. `cursors/<name>.svg` is compiled in process at the output's own scale, honouring the art's `data-hotspot-x`/`data-hotspot-y`; a pre-baked `cursors/<name>.png` in the same theme wins as the artist's own override. A conventional Xcursor binary theme resolves but contributes nothing, logs how many of its directories contributed, and falls back to the bundled art. `$XCURSOR_THEME` wins when set. Built-in `tessera-user-light` and `tessera-user-dark` need no installation; legacy `Tessera` selects the light variant. Unresolved shapes fall back to `tessera-user-light`. AI feedback uses separate sprites whose polarity follows the shell foreground. |
 | `cursor_size` | integer | `24` | Cursor size in logical pixels, 8–128. `$XCURSOR_SIZE` wins when set. |
@@ -626,11 +625,11 @@ The `[display]` table chooses how connectors without an explicit
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `topology` | string | `"auto"` | `"auto"` mirrors the first external display smaller than the primary panel (or equal-sized when the primary is internal) and extends larger ones or equal-sized external pairs; `"extend"` always extends; `"mirror"` makes every non-primary physical output a mirror of the primary. Explicit per-connector roles always win. |
+| `topology` | string | `"mirror"` | `"auto"` mirrors the first external display smaller than the primary panel (or equal-sized when the primary is internal) and extends larger ones or equal-sized external pairs; `"extend"` always extends; `"mirror"` makes every non-primary physical output a mirror of the primary. Explicit per-connector roles always win. |
 
 ```toml
 [display]
-topology = "auto"
+topology = "mirror"
 ```
 
 `auto` is a first-connect heuristic, not a policy that re-evaluates a
@@ -962,21 +961,6 @@ satisfies an entry.
 [ipc.scope_executables]
 atrium-portal = ["/opt/tessera/bin/xdg-desktop-portal-atrium"]
 tessera-owner-admin = ["/usr/bin/tessera"]
-```
-
-## Development Options
-
-The `[dev]` table holds development-only escape hatches. These options are
-not a stable interface: they exist to unblock compositor development, are
-planned for removal before release, and must not be relied upon.
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `allow_quit_while_locked` | boolean | `false` | Allow the `quit` binding (`Super+Ctrl+Q` by default) to match while the session is locked, so a wedged lock screen cannot trap a development session. No other binding matches while locked. |
-
-```toml
-[dev]
-allow_quit_while_locked = true
 ```
 
 ## Key Bindings

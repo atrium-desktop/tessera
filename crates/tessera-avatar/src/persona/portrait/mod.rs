@@ -18,14 +18,14 @@ pub use watch::{PortraitWatcher, WatchError};
 
 use std::path::PathBuf;
 
-use optics_flux::{Device, Image};
+use optics_gfx::{Device, Image};
 
 /// Errors raised while resolving or preparing shared portrait content.
 #[derive(Debug)]
 pub enum Error {
     Decode(PathBuf, tessera_image::ImageError),
     Avatar(VrmError),
-    Flux(optics_flux::Error),
+    Gfx(optics_gfx::Error),
     NoUsableSource,
 }
 
@@ -34,7 +34,7 @@ impl std::fmt::Display for Error {
         match self {
             Self::Decode(path, _) => write!(f, "persona portrait: decode {path:?}"),
             Self::Avatar(err) => write!(f, "persona portrait: {err}"),
-            Self::Flux(err) => write!(f, "persona portrait: texture upload failed: {err}"),
+            Self::Gfx(err) => write!(f, "persona portrait: texture upload failed: {err}"),
             Self::NoUsableSource => {
                 f.write_str("persona portrait: configured sources exist but none could be decoded")
             }
@@ -47,7 +47,7 @@ impl std::error::Error for Error {
         match self {
             Self::Decode(_, err) => Some(err),
             Self::Avatar(err) => Some(err),
-            Self::Flux(err) => Some(err),
+            Self::Gfx(err) => Some(err),
             Self::NoUsableSource => None,
         }
     }
@@ -59,9 +59,9 @@ impl From<VrmError> for Error {
     }
 }
 
-impl From<optics_flux::Error> for Error {
-    fn from(err: optics_flux::Error) -> Self {
-        Self::Flux(err)
+impl From<optics_gfx::Error> for Error {
+    fn from(err: optics_gfx::Error) -> Self {
+        Self::Gfx(err)
     }
 }
 

@@ -202,8 +202,8 @@ fn toplevel_drag_probe_e2e_client_binds_and_creates_drag() {
 }
 
 #[test]
-fn optics_iris_dnd_contract_action_negotiation() {
-    // Optics Iris (ADR-0086) advertises COPY | MOVE with preferred COPY.
+fn optics_window_dnd_contract_action_negotiation() {
+    // Optics window (ADR-0086) advertises COPY | MOVE with preferred COPY.
     let source_actions = ffi::WL_DATA_ACTION_COPY | ffi::WL_DATA_ACTION_MOVE;
     let dest_actions = ffi::WL_DATA_ACTION_COPY;
     let preferred = ffi::WL_DATA_ACTION_COPY;

@@ -22,7 +22,7 @@
 //! It anchors above the dock's edge — where the user's attention already is when
 //! they reach for a hardware control — and holds no space and no focus.
 
-use optics_lens::{Align, Frame, Input, LayoutOpts, Rect};
+use optics_ui::{Align, Frame, Input, LayoutOpts, Rect};
 
 use crate::component::{
     Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, Localizer, OsdParams, ellipsize,

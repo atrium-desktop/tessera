@@ -20,23 +20,23 @@ Select the narrowest testing scenario that covers your change:
 
 | Verification Target | Recommended Scenario | External Dependencies | Execution Overhead |
 | :--- | :--- | :--- | :--- |
-| **Logic, protocol codecs, schemas, config, IPC, audit** | **[Scenario 0: Flux-Free Logic](#scenario-0-flux-free-rapid-logic-verification-zero-c-dependencies)** | None (Pure Rust toolchain only) | Sub-second |
+| **Logic, protocol codecs, schemas, config, IPC, audit** | **[Scenario 0: Native-Free Logic](#2-scenario-0-native-free-rapid-logic-verification-zero-c-dependencies)** | None (Pure Rust toolchain only) | Sub-second |
 | **Lock screen UI, avatar, credential interaction** | **[Scenario 1A: Lock Screen Preview](#1a-lock-screen-preview)** | Wayland host only (Zero compositor required) | Instant window |
 | **3D Persona avatar rendering & framing** | **[Scenario 1B: Avatar Preview](#1b-3d-persona--vrm-avatar-preview)** | GPU (Headless snapshot dump) | Instant dump |
-| **Compositor runtime, window management, chrome, layout** | **[Scenario 2: Nested Compositor](#scenario-2-testing-inside-an-existing-desktop-nested-mode)** | Full host Wayland desktop + Optics C libraries | Single isolated client window |
-| **Inner Wayland client protocols, dmabuf, xdg-shell** | **[Scenario 3: Inner Client Injection](#scenario-3-inner-client-injection--protocol-testing)** | Running nested instance | Client process |
-| **Physical KMS scanout, VT switching, multi-GPU** | **[Scenario 4: Direct VT/DRM](#scenario-4-direct-vtdrm-hardware-testing)** | Physical Linux TTY + rootless seat | Bare-metal session switch |
-| **Full workspace unit & doc suite** | **[Scenario 5: Full Workspace Sanity](#scenario-5-full-workspace-unit-sanity)** | Full native stack + Optics | ~10-20 seconds |
+| **Compositor runtime, window management, chrome, layout** | **[Scenario 2: Nested Compositor](#4-scenario-2-testing-inside-an-existing-desktop-nested-mode)** | Full host Wayland desktop + Optics C libraries | Single isolated client window |
+| **Inner Wayland client protocols, dmabuf, xdg-shell** | **[Scenario 3: Inner Client Injection](#5-scenario-3-inner-client-injection--protocol-testing)** | Running nested instance | Client process |
+| **Physical KMS scanout, VT switching, multi-GPU** | **[Scenario 4: Direct VT/DRM](#6-scenario-4-direct-vtdrm-hardware-testing)** | Physical Linux TTY + rootless seat | Bare-metal session switch |
+| **Full workspace unit & doc suite** | **[Scenario 5: Full Workspace Sanity](#7-scenario-5-full-workspace-unit-sanity)** | Full native stack + Optics | ~10-20 seconds |
 
 ---
 
-## 2. Scenario 0: Flux-Free Rapid Logic Verification (Zero C Dependencies)
+## 2. Scenario 0: Native-Free Rapid Logic Verification (Zero C Dependencies)
 
 ### Purpose
 
 Validate core business logic, protocol serializations, audit chains, and config
-parsing without installing or building the native C23/Meson Optics stack (`flux`,
-`vista`, `lens`, `iris`).
+parsing without installing or building the native C23/Meson Optics stack (`optics-gfx`,
+`optics-scene`, `optics-ui`, `optics-svg`, `optics-text`).
 
 ### Execution Command
 
@@ -210,7 +210,7 @@ VT switching on physical GPU hardware.
 For extensive hardware verification steps (mixed-refresh rates, atomic planes),
 see the detailed guide: [VT/DRM Manual Testing](vt-drm-testing.md). For the
 gated overlay candidate, complete-set `TEST_ONLY`, and deactivation matrix, see
-[KMS Overlay System Test](kms-overlay-system-test.md).
+[How to Validate KMS Overlay Offload](../../how-to/kms-overlay-validation.md).
 
 ---
 

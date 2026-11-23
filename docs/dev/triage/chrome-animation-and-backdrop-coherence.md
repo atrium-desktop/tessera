@@ -91,7 +91,7 @@ localize" and stays a full-output repaint.
   reaches zero opacity, then stop reporting it.
 
 ### Rule 4: Swapchain Ring Draining Across All Animated Surfaces (`[INV-ARCH-63]`)
-With triple-buffered swapchains (`FLUX_MAX_FRAMES_IN_FLIGHT = 3`) and regional
+With triple-buffered swapchains (`OPTICS_GFX_MAX_FRAMES_IN_FLIGHT = 3`) and regional
 `render_area` repaints, an animation settling to rest — or a transient popover
 (Dock tooltip or live-preview panel) closing — **must prime a 3-frame drain
 counter** (`settled_drain_frames = 3` / `hover_drain_frames = 3`) and keep
@@ -186,21 +186,21 @@ combined primary+cursor atomic commit.
 `crates/tessera-platform/src/drm/device.rs` (`DrmBackend::present`) must export
 the dma-buf, import and commit scanout, and only then call `frame.present()`. If
 `commit_scanout` fails or returns `EBUSY`, the `SubmittedFrame` is abandoned
-(Optics `flux_frame_abandon`, Optics ADR-0110) so `current_frame` does not
+(Optics `optics_gfx_frame_abandon`, Optics ADR-0110) so `current_frame` does not
 advance.
 
 - **Failure Mode**: calling `frame.present()` first rotates the offscreen ring
   into the buffer currently under scanout, so the retry composites into a live
   buffer (torn frame); dropping the frame instead of abandoning it wedges the
-  surface permanently (`flux_surface_begin_frame` returns
-  `FLUX_ERROR_INVALID_STATE` forever).
+  surface permanently (`optics_gfx_surface_begin_frame` returns
+  `OPTICS_GFX_ERROR_INVALID_STATE` forever).
 
 ### Rule 10: Freeze Capture and Bucketed Offscreen Extents (`[INV-ARCH-68]`, `[INV-ARCH-69]`)
 - `assess_frame_damage` includes `screenshot_freeze.needs_capture()` in
   `base_full`: the frame that freezes the desktop for a screenshot must assess as
   full damage even when it carries no other input.
 - An offscreen target rounded up to 128-pixel buckets
-  (`flux::bucket_extent(raw, 128)`) must keep the **logical** extent it paints
+  (`gfx::bucket_extent(raw, 128)`) must keep the **logical** extent it paints
   and the **physical** extent it allocates as separate values, and express every
   sampling ratio against the pair. This is the one surviving form of the old
   capture-ratio rule: the window-shadow filter buckets its mask and output, so a
@@ -216,7 +216,7 @@ advance.
 
 | Observed Symptom | Primary Suspect | Where to Inspect |
 |------------------|-----------------|------------------|
-| Severe frame drops during Control Center open/close or a chrome fade | Per-node `save_layer` pass explosion in `optics`, or a damage envelope that misses a fading body's painted halo | `../optics/libs/lens/src/render/replay.c` (`lensi_compile_node_body`), `crates/tessera-shell/src/chrome/system_osd.rs` (`damage_regions`) |
+| Severe frame drops during Control Center open/close or a chrome fade | Per-node `save_layer` pass explosion in `optics`, or a damage envelope that misses a fading body's painted halo | `../optics/libs/ui/src/render/replay.c` (`lensi_compile_node_body`), `crates/tessera-shell/src/chrome/system_osd.rs` (`damage_regions`) |
 | A chrome surface looks shifted or doubled against its own body (`重影`) | A damage region localized from Frame T-1 geometry, or a halo whose reach is not proportional to the body that casts it | `crates/tessera-shell/src/components/dock/rendering.rs` (`step_autohide_motion`, `resolve_strip_geometry`), `crates/tessera-design/src/materials.rs` (`elevation_halo_for_body`) |
 | Old magnified Dock tiles, tooltips, or preview cards flicker every 2–3 frames on cursor movement (`闪烁`) | `Dock::anim_pending()` returning `false` during magnification/hover drain, or `hover_damage_rect` not unioned into `Dock::damage_regions()` for 3 drain frames | `crates/tessera-shell/src/components/dock/rendering.rs` (`anim_pending`, `damage_regions`, `record_hover_surface_damage`) |
 | GPU stays busy and frames keep presenting while chrome is visibly still | An animation predicate that cannot become false: eased state stored in an integral rect, a latched `anim_active`, or a drain counter in the clock | `crates/tessera-shell/src/chrome/window_switcher.rs` (`AnimCard`, `is_moving`), `crates/tessera-shell/src/components/dock/motion.rs` (`anim_pending`) |
@@ -224,7 +224,7 @@ advance.
 | Region screenshot selection cannot be dragged; Enter/Space closes the picker with no capture (`截图不可用`) | `Chrome::prepare_frame` default consumed the call, so `update_pointer` never ran and `confirmed` stayed `None` | `crates/tessera-shell/src/component/mod.rs` (`Chrome::prepare_frame`), `crates/tessera-shell/src/chrome/screenshot.rs` (`prepare_frame`, `update_pointer`) |
 | Frame freezes for a screenshot but captures a stale/blank desktop | `assess_frame_damage` `base_full` missing `screenshot_freeze.needs_capture()` | `crates/tessera/src/runtime/damage.rs` (`base_full`) |
 | Full-output tear/flicker while moving the cursor over a modal panel | `cursor_plane_piggyback` committing the cursor out-of-band *and* in the render transaction, forcing the primary flip into `EBUSY` retries | `crates/tessera/src/runtime/event_loop.rs` (`present_pointer_cursor` gate), `crates/tessera/src/runtime/input.rs` (`FrameState`) |
-| Tear on the frame after an `EBUSY` atomic-flip retry | `frame.present()` called before `commit_scanout`, rotating the offscreen ring into the buffer under scanout | `crates/tessera-platform/src/drm/device.rs` (`DrmBackend::present`), `../optics/libs/flux/src/core/frame.c` (`flux_frame_abandon`) |
+| Tear on the frame after an `EBUSY` atomic-flip retry | `frame.present()` called before `commit_scanout`, rotating the offscreen ring into the buffer under scanout | `crates/tessera-platform/src/drm/device.rs` (`DrmBackend::present`), `../optics/libs/gfx/src/core/frame.c` (`optics_gfx_frame_abandon`) |
 | Wallpaper and client windows composited beneath an open Control Center | `desktop_occluded` predicate missing `occludes_desktop` or a live scene consumer | `crates/tessera/src/runtime/presentation.rs` (`desktop_occluded`), `crates/tessera-shell/src/lib.rs` (`Shell::occludes_desktop`) |
 | Dock collapses when a window maximizes or overlaps it, and can never be expanded again | `collapse_pending` not cleared when `is_settled && target_reveal == 0.0`, or `hidden_trigger_armed` not re-armed when pointer leaves handle | `crates/tessera-shell/src/components/dock/rendering.rs` (`step_autohide_motion`) |
 | Dock starts expanding after 180 ms dwell, then immediately collapses halfway up when moving the cursor toward the icons | `expanding` state not including `expanded_trigger_contains(rest_bounds)` in `over_dock_trigger`, causing the 0.15 s `AUTOHIDE_QUICK_DISMISS_TIMEOUT` to fire during the 0.25 s spring flight | `crates/tessera-shell/src/components/dock/rendering.rs` (`step_autohide_motion`) |

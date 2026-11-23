@@ -3,13 +3,13 @@ use super::*;
 /// A chrome component that draws one text field, so the shell's caret
 /// contract (Optics ADR-0151) can be exercised without a GPU.
 struct CaretField {
-    buf: optics_lens::TextBuf,
+    buf: optics_ui::TextBuf,
 }
 
 impl CaretField {
     fn new() -> Self {
         Self {
-            buf: optics_lens::TextBuf::new(64, ""),
+            buf: optics_ui::TextBuf::new(64, ""),
         }
     }
 }
@@ -48,7 +48,7 @@ fn a_focused_caret_ticks_without_owing_a_paint_every_frame() {
 
     // Build once so the field is laid out, then focus it. Focus is set
     // through the binding's escape hatch because the shell has no focus
-    // model of its own: lens owns which widget holds the caret.
+    // model of its own: optics-ui owns which widget holds the caret.
     shell.prepare_frame(&Input::default());
     assert!(
         !shell.caret_clock_live(),
@@ -73,7 +73,7 @@ fn a_focused_caret_ticks_without_owing_a_paint_every_frame() {
     );
 
     // Advance the blink over simulated time. Each iteration forces a build
-    // the way the loop's own tick would; lens integrates the frame delta
+    // the way the loop's own tick would; optics-ui integrates the frame delta
     // inside a build, which is the only place the phase can move. A frame
     // that owes a paint is presented, which is what consumes the flip.
     //
@@ -89,7 +89,7 @@ fn a_focused_caret_ticks_without_owing_a_paint_every_frame() {
         if shell.caret_flip_pending() {
             painted += 1;
             present(&mut shell);
-            // Presenting is what consumes a flip: lens records the phase the
+            // Presenting is what consumes a flip: optics-ui records the phase the
             // snapshot carried when it is activated, so the next build
             // compares against what the user actually saw. A build with no
             // time on it must therefore report nothing owed — this is the
@@ -111,9 +111,9 @@ fn a_focused_caret_ticks_without_owing_a_paint_every_frame() {
 /// Present the scene `prepare_frame` built, without drawing it.
 ///
 /// This is the second half of [`Shell::submit`] — the activation that tells
-/// lens which snapshot reached the display — performed here because a
+/// optics-ui which snapshot reached the display — performed here because a
 /// headless shell has no canvas to submit through. It matters for the caret
-/// contract: lens compares the current blink phase against the *presented*
+/// contract: optics-ui compares the current blink phase against the *presented*
 /// one, so a flip is only consumed by an activation, never by a build.
 fn present(shell: &mut Shell) {
     let Some(scene) = shell.pending_scene.as_ref() else {
@@ -147,7 +147,7 @@ fn reduced_motion_makes_the_caret_solid() {
         "a solid caret must not schedule any wakeup"
     );
 
-    // Turning the preference back on restores the blink. lens has no
+    // Turning the preference back on restores the blink. optics-ui has no
     // "restore the default" call — `period <= 0` *is* "off" — so the shell
     // has to name a period, and this asserts it does.
     shell.set_reduced_motion(false);
@@ -158,9 +158,9 @@ fn reduced_motion_makes_the_caret_solid() {
     );
 }
 
-/// Give `label` keyboard focus, so a lens text widget claims the caret.
+/// Give `label` keyboard focus, so an optics-ui text widget claims the caret.
 ///
-/// The shell has no focus model of its own: lens owns which widget holds
+/// The shell has no focus model of its own: optics-ui owns which widget holds
 /// the caret. Marking the scene dirty stands in for the click that would do
 /// this in a live session — a focus change always arrives as input there,
 /// and input is what makes `prepare_frame` build.
@@ -357,25 +357,22 @@ fn reserved_inset_clamps_to_non_negative() {
 }
 
 #[test]
-fn cursor_shape_from_lens_cursor_hint() {
+fn cursor_shape_from_ui_cursor_hint() {
+    assert_eq!(CursorShape::from_hint(optics_ui::CursorHint::Default), None);
     assert_eq!(
-        CursorShape::from_hint(optics_lens::CursorHint::Default),
-        None
-    );
-    assert_eq!(
-        CursorShape::from_hint(optics_lens::CursorHint::Pointer),
+        CursorShape::from_hint(optics_ui::CursorHint::Pointer),
         Some(CursorShape::Pointer)
     );
     assert_eq!(
-        CursorShape::from_hint(optics_lens::CursorHint::Text),
+        CursorShape::from_hint(optics_ui::CursorHint::Text),
         Some(CursorShape::Text)
     );
     assert_eq!(
-        CursorShape::from_hint(optics_lens::CursorHint::ResizeNs),
+        CursorShape::from_hint(optics_ui::CursorHint::ResizeNs),
         Some(CursorShape::ResizeNs)
     );
     assert_eq!(
-        CursorShape::from_hint(optics_lens::CursorHint::ResizeEw),
+        CursorShape::from_hint(optics_ui::CursorHint::ResizeEw),
         Some(CursorShape::ResizeEw)
     );
 }
@@ -393,7 +390,7 @@ fn cursor_shape_at_falls_back_to_ui_cursor_hint() {
             _i18n: &Localizer,
             _out: &mut ChromeEvents,
         ) {
-            frame.set_cursor_hint(optics_lens::CursorHint::Text);
+            frame.set_cursor_hint(optics_ui::CursorHint::Text);
         }
 
         fn captures_pointer(
@@ -464,7 +461,7 @@ fn a_fully_opaque_cover_elides_the_desktop_pass() {
     assert!(shell.opaque_cover_active());
 }
 
-use optics_lens::Rect;
+use optics_ui::Rect;
 
 /// A component whose animation footprint is a small band.
 struct LocalizedAnim {
@@ -604,7 +601,7 @@ fn a_pointer_outside_chrome_claims_nothing() {
 }
 
 /// `[INV-ARCH-92]`-adjacent: the scene must be **built** by the time damage
-/// is assessed, because lens's damage query only describes a frame that
+/// is assessed, because optics-ui's damage query only describes a frame that
 /// exists. Confirm `prepare_frame` is what builds it, so a host that
 /// assesses damage between `prepare_frame` and `submit` reads this frame.
 #[test]
@@ -948,7 +945,7 @@ fn the_overlay_elision_respects_chrome_on_any_edge() {
         visible: true,
     }));
 
-    let left_edge = optics_flux::CanvasRenderArea {
+    let left_edge = optics_gfx::CanvasRenderArea {
         x: 0.0,
         y: 400.0,
         width: 40.0,
@@ -959,7 +956,7 @@ fn the_overlay_elision_respects_chrome_on_any_edge() {
         "a left-edge decoration owns pixels in a left-edge render area"
     );
 
-    let middle = optics_flux::CanvasRenderArea {
+    let middle = optics_gfx::CanvasRenderArea {
         x: 800.0,
         y: 400.0,
         width: 40.0,
@@ -980,7 +977,7 @@ fn an_invisible_decoration_blocks_nothing() {
         footprint: Some(tessera_primitives::Rect::new(0, 0, 86, 1080)),
         visible: false,
     }));
-    let anywhere = optics_flux::CanvasRenderArea {
+    let anywhere = optics_gfx::CanvasRenderArea {
         x: 0.0,
         y: 0.0,
         width: 1920.0,
@@ -1001,7 +998,7 @@ fn a_visible_overlay_always_blocks_the_elision() {
         pending: false,
         footprint: Some(tessera_primitives::Rect::new(800, 400, 236, 180)),
     }));
-    let middle = optics_flux::CanvasRenderArea {
+    let middle = optics_gfx::CanvasRenderArea {
         x: 800.0,
         y: 400.0,
         width: 40.0,

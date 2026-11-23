@@ -21,7 +21,7 @@ light snapshots.
 | `DockColors` | Scheme-invariant foreground colors painted inside Dock glass |
 
 Components consume the resolved `Design` or a scoped color type. They do not
-construct `lens::Color` values for an adopted product role and do not select
+construct `optics-ui::Color` values for an adopted product role and do not select
 dark or light values themselves.
 
 ## Naming grammar

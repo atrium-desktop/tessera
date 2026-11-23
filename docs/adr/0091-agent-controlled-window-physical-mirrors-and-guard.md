@@ -107,6 +107,6 @@ for an explicit supervision and recovery surface.
 
 The conceptual relationship between Realm authority, observation, and the
 guard is described in
-[Architecture](../explanation/architecture.md#realm-authority). The user
+[Architecture](../explanation/architecture.md#actor-boundary). The user
 workflow is documented in
 [How to Use Agent Workspaces](../how-to/ai-workspaces.md).

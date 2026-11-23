@@ -2,6 +2,7 @@
 name = "tessera-primitives"
 version.workspace = true
 edition.workspace = true
+publish = false
 license.workspace = true
 rust-version.workspace = true
 description = "Universal foundational physical, geometric, color, identity, and buffer primitives for Tessera."

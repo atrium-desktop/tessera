@@ -22,7 +22,7 @@ outer Wayland compositor
 ```
 
 At startup, tessera connects to the inherited `$WAYLAND_DISPLAY`, creates an
-`xdg_toplevel`, and presents Flux frames through a Wayland Vulkan surface. It
+`xdg_toplevel`, and presents gfx frames through a Wayland Vulkan surface. It
 also creates a separate, auto-named Wayland server socket for applications
 managed inside tessera, then points its own process environment at that socket.
 The D-Bus and systemd activation environments are left to the host session:
@@ -39,7 +39,7 @@ The runtime still uses the production redraw lifecycle. A successful nested
 submission has no direct KMS page-flip event, so the outer FIFO swapchain owns
 physical throttling and Tessera uses an estimated refresh boundary only for
 no-damage callbacks and compositor animation. Client commits wake the nested
-poll immediately; callback-only work does not force an empty Flux frame. The
+poll immediately; callback-only work does not force an empty gfx frame. The
 estimate starts at render begin, so time already spent inside FIFO
 presentation is credited rather than followed by a second full-frame wait.
 
@@ -63,7 +63,7 @@ test must fail instead of falling back to DRM if that environment is missing.
 A successful start opens an `tessera` window and logs both roles:
 
 ```text
-flux: device created for nested backend; ...
+optics_gfx: device created for nested backend; ...
 server: listening on WAYLAND_DISPLAY=wayland-N
 ```
 
@@ -129,7 +129,7 @@ process before testing IPC.
 
 Nested mode can validate Wayland dma-buf negotiation even though it cannot
 validate KMS scanout. Startup should identify the DRM node belonging to the
-Vulkan physical device selected by Flux:
+Vulkan physical device selected by gfx:
 
 ```text
 dmabuf: v4 main device is Vulkan render node 226:128
@@ -155,7 +155,7 @@ flatpak run \
 
 Inspect the application's own graphics log and confirm that its renderer is
 the Intel, AMD, or NVIDIA GPU rather than `llvmpipe`. A hardware renderer here
-isolates protocol negotiation and Flux import from direct-display concerns.
+isolates protocol negotiation and gfx import from direct-display concerns.
 Run the same check on the DRM backend before drawing conclusions about KMS
 page flips or direct scanout; see
 [VT/DRM Manual Testing](testing/vt-drm-testing.md#verify-client-gpu-acceleration).

@@ -14,14 +14,13 @@ pub(super) use tessera_composite::presentation::frame_damage_scope;
 /// single Canvas pass; this helper is retained for pass-boundary unit tests.
 #[cfg(test)]
 pub(super) fn begin_overlay_frame<'c, 'surface>(
-    canvas: &'c mut optics_flux::Canvas,
-    frame: &'c mut optics_flux::Frame<'surface>,
-    damage: Vec<optics_flux::CanvasRenderArea>,
-) -> Result<optics_flux::CanvasSession<'c, &'c mut optics_flux::Frame<'surface>>, optics_flux::Error>
-{
+    canvas: &'c mut optics_gfx::Canvas,
+    frame: &'c mut optics_gfx::Frame<'surface>,
+    damage: Vec<optics_gfx::CanvasRenderArea>,
+) -> Result<optics_gfx::CanvasSession<'c, &'c mut optics_gfx::Frame<'surface>>, optics_gfx::Error> {
     canvas.begin_session(
         frame,
-        optics_flux::CanvasPassOptions {
+        optics_gfx::CanvasPassOptions {
             clear: None,
             damage,
         },
@@ -37,18 +36,17 @@ pub(super) use tessera_composite::presentation::begin_opaque_frame;
 /// texture sampling, blending and framebuffer writes stay inside the scissor.
 #[allow(dead_code)]
 pub(super) fn begin_opaque_frame_repaint<'c, 'surface>(
-    canvas: &'c mut optics_flux::Canvas,
-    frame: &'c mut optics_flux::Frame<'surface>,
+    canvas: &'c mut optics_gfx::Canvas,
+    frame: &'c mut optics_gfx::Frame<'surface>,
     size: (u32, u32),
     clear: u32,
     repaint: &FrameDamage,
-) -> Result<optics_flux::CanvasSession<'c, &'c mut optics_flux::Frame<'surface>>, optics_flux::Error>
-{
+) -> Result<optics_gfx::CanvasSession<'c, &'c mut optics_gfx::Frame<'surface>>, optics_gfx::Error> {
     debug_assert_eq!(clear >> 24, 0xff, "compositor pass clear must be opaque");
     let damage = frame_damage_scope(repaint, size);
     canvas.begin_session(
         frame,
-        optics_flux::CanvasPassOptions {
+        optics_gfx::CanvasPassOptions {
             clear: Some(clear),
             damage,
         },
@@ -57,9 +55,9 @@ pub(super) fn begin_opaque_frame_repaint<'c, 'surface>(
 
 /// One slot's frozen trigger-frame snapshot.
 struct ScreenshotCapture {
-    image: optics_flux::Image,
+    image: optics_gfx::Image,
     size: (u32, u32),
-    format: optics_flux::Format,
+    format: optics_gfx::Format,
 }
 
 /// Frozen desktop snapshot shown while the screenshot selector is open.
@@ -170,7 +168,7 @@ impl ScreenshotFreeze {
     }
 
     /// The snapshot image, once the trigger frame has been captured.
-    pub(super) fn image(&self) -> Option<&optics_flux::Image> {
+    pub(super) fn image(&self) -> Option<&optics_gfx::Image> {
         if !self.captured {
             return None;
         }
@@ -183,14 +181,14 @@ impl ScreenshotFreeze {
     /// This frame's snapshot target, after [`ensure_target`](Self::ensure_target)
     /// succeeded.
     #[allow(dead_code)]
-    pub(super) fn target(&self, slot: usize) -> Option<&optics_flux::Image> {
+    pub(super) fn target(&self, slot: usize) -> Option<&optics_gfx::Image> {
         self.captures
             .get(slot)?
             .as_ref()
             .map(|capture| &capture.image)
     }
 
-    pub(super) fn target_mut(&mut self, slot: usize) -> Option<&mut optics_flux::Image> {
+    pub(super) fn target_mut(&mut self, slot: usize) -> Option<&mut optics_gfx::Image> {
         self.captures
             .get_mut(slot)?
             .as_mut()
@@ -200,14 +198,14 @@ impl ScreenshotFreeze {
     /// Allocate (or reuse) this frame slot's full-resolution snapshot target.
     pub(super) fn ensure_target(
         &mut self,
-        device: &optics_flux::Device,
-        surface: &optics_flux::Surface,
+        device: &optics_gfx::Device,
+        surface: &optics_gfx::Surface,
         slot: usize,
         surface_size: (u32, u32),
     ) -> bool {
         let format = match surface.format() {
-            optics_flux::Format::Rgba8Unorm | optics_flux::Format::Bgra8Unorm => {
-                optics_flux::Format::Rgba8Unorm
+            optics_gfx::Format::Rgba8Unorm | optics_gfx::Format::Bgra8Unorm => {
+                optics_gfx::Format::Rgba8Unorm
             }
             other => {
                 log::warn!(
@@ -227,8 +225,7 @@ impl ScreenshotFreeze {
             .as_ref()
             .is_none_or(|capture| capture.size != surface_size || capture.format != format);
         if stale {
-            match optics_flux::Image::render_target(device, surface_size.0, surface_size.1, format)
-            {
+            match optics_gfx::Image::render_target(device, surface_size.0, surface_size.1, format) {
                 Ok(image) => {
                     self.captures[slot] = Some(ScreenshotCapture {
                         image,
@@ -249,8 +246,8 @@ impl ScreenshotFreeze {
 }
 
 pub(super) fn draw_wallpaper_background(
-    canvas: &optics_flux::CanvasCommands<'_>,
-    device: &optics_flux::Device,
+    canvas: &optics_gfx::CanvasCommands<'_>,
+    device: &optics_gfx::Device,
     wallpaper: &mut Option<wallpaper::Wallpaper>,
     logical_size: (u32, u32),
     scale: f32,
@@ -266,8 +263,8 @@ pub(super) fn draw_wallpaper_background(
 }
 
 pub(super) fn draw_client_scene(
-    canvas: &optics_flux::CanvasCommands<'_>,
-    device: &optics_flux::Device,
+    canvas: &optics_gfx::CanvasCommands<'_>,
+    device: &optics_gfx::Device,
     renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     scale: f32,
@@ -385,8 +382,8 @@ pub(super) fn draw_client_scene(
 /// overlays, not ordinary client content. Draw them after compositor chrome
 /// so a Dock or status bar cannot cover the candidate panel or cursor.
 pub(super) fn draw_client_overlays(
-    canvas: &optics_flux::CanvasCommands<'_>,
-    device: &optics_flux::Device,
+    canvas: &optics_gfx::CanvasCommands<'_>,
+    device: &optics_gfx::Device,
     renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     scale: f32,
@@ -409,8 +406,8 @@ pub(super) fn draw_client_overlays(
 /// emitted after all normal desktop/chrome work, then only surfaces owned by
 /// the active lock client (plus its cursor) are allowed above it.
 pub(super) fn draw_lock_scene(
-    canvas: &optics_flux::CanvasCommands<'_>,
-    device: &optics_flux::Device,
+    canvas: &optics_gfx::CanvasCommands<'_>,
+    device: &optics_gfx::Device,
     renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     physical_size: (u32, u32),
@@ -422,7 +419,7 @@ pub(super) fn draw_lock_scene(
         0.0,
         physical_size.0 as f32,
         physical_size.1 as f32,
-        optics_flux::rgba(0, 0, 0, 255),
+        optics_gfx::rgba(0, 0, 0, 255),
     );
     canvas.restore();
 
@@ -447,8 +444,8 @@ pub(super) fn draw_lock_scene(
 /// cell (and the scrim fades in) instead of popping onto the grid.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_overview_scene(
-    canvas: &optics_flux::CanvasCommands<'_>,
-    device: &optics_flux::Device,
+    canvas: &optics_gfx::CanvasCommands<'_>,
+    device: &optics_gfx::Device,
     renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     logical_size: (u32, u32),
@@ -465,7 +462,7 @@ pub(super) fn draw_overview_scene(
         0.0,
         logical_size.0 as f32 * scale,
         logical_size.1 as f32 * scale,
-        optics_flux::rgba(scrim_r, scrim_g, scrim_b, scrim_alpha),
+        optics_gfx::rgba(scrim_r, scrim_g, scrim_b, scrim_alpha),
     );
     canvas.restore();
 
@@ -582,8 +579,8 @@ pub(super) fn draw_overview_scene(
 /// neighbouring tiles.
 #[allow(clippy::too_many_arguments)]
 fn draw_workspace_rail_tiles(
-    canvas: &optics_flux::CanvasCommands<'_>,
-    device: &optics_flux::Device,
+    canvas: &optics_gfx::CanvasCommands<'_>,
+    device: &optics_gfx::Device,
     renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     snapshot: &tessera_desktop::workspace::WorkspaceSnapshot,
@@ -679,7 +676,7 @@ fn draw_workspace_rail_tiles(
 /// Shell chrome draws labels and the selected-card border over these targets.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_window_switcher_scrim(
-    canvas: &optics_flux::CanvasCommands<'_>,
+    canvas: &optics_gfx::CanvasCommands<'_>,
     logical_size: (u32, u32),
     scale: f32,
     presentation: &tessera_shell::component::WindowSwitcherPresentation,
@@ -693,14 +690,14 @@ pub(super) fn draw_window_switcher_scrim(
         0.0,
         logical_size.0 as f32 * scale,
         logical_size.1 as f32 * scale,
-        optics_flux::rgba(scrim_r, scrim_g, scrim_b, scrim_alpha),
+        optics_gfx::rgba(scrim_r, scrim_g, scrim_b, scrim_alpha),
     );
     canvas.restore();
 }
 
 pub(super) fn draw_window_switcher_cards(
-    canvas: &optics_flux::CanvasCommands<'_>,
-    device: &optics_flux::Device,
+    canvas: &optics_gfx::CanvasCommands<'_>,
+    device: &optics_gfx::Device,
     renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     scale: f32,
@@ -754,8 +751,8 @@ pub(super) fn draw_window_switcher_cards(
 /// subsurfaces cannot bleed into a neighbouring card and unrelated windows
 /// are never redrawn over the popover.
 pub(super) fn draw_live_preview_scenes(
-    canvas: &optics_flux::CanvasCommands<'_>,
-    device: &optics_flux::Device,
+    canvas: &optics_gfx::CanvasCommands<'_>,
+    device: &optics_gfx::Device,
     renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     scale: f32,
@@ -806,8 +803,8 @@ pub(super) fn draw_live_preview_scenes(
 
 #[allow(clippy::too_many_arguments)]
 fn draw_preview_card_scene(
-    canvas: &optics_flux::CanvasCommands<'_>,
-    device: &optics_flux::Device,
+    canvas: &optics_gfx::CanvasCommands<'_>,
+    device: &optics_gfx::Device,
     renderer: &mut tessera_composite::Renderer,
     surface_order: &[usize],
     shm: &[tessera_primitives::SurfacePixels<'_>],
@@ -866,8 +863,8 @@ fn draw_preview_card_scene(
 /// Client-provided cursor surfaces are already composited by `tessera-server`;
 /// this covers the cursor-shape protocol and compositor-owned cursors.
 pub(super) fn draw_software_cursor(
-    canvas: &optics_flux::CanvasCommands<'_>,
-    device: &optics_flux::Device,
+    canvas: &optics_gfx::CanvasCommands<'_>,
+    device: &optics_gfx::Device,
     cache: &mut cursor::CursorCache,
     position: (f32, f32),
     shape: u32,
@@ -892,7 +889,7 @@ pub(super) fn draw_software_cursor(
 mod tests;
 
 /// Compositor-side blurred drop shadows for floating windows (ADR-0139):
-/// the Optics `flux_shadow_filter` renders a rounded-rect mask through a
+/// the Optics `optics_gfx_shadow_filter` renders a rounded-rect mask through a
 /// Gaussian blur; this wrapper owns the filter, renders each window's mask
 /// into a per-slot capture target, and records the shadow passes at a pass
 /// boundary. `tessera-composite` then composites the borrowed outputs beneath
@@ -915,13 +912,13 @@ struct ShadowSlotKey {
 #[derive(Clone, Copy)]
 struct ShadowSlotCache {
     key: ShadowSlotKey,
-    raw: *mut optics_flux::sys::flux_image,
+    raw: *mut optics_gfx::sys::optics_gfx_image,
     w: f32,
     h: f32,
 }
 
 struct WindowShadowEntry {
-    filter: optics_flux::ShadowFilter,
+    filter: optics_gfx::ShadowFilter,
     /// Shadow outputs keyed by `(target namespace, frame slot)`. Per-output
     /// targets can reuse the same slot number for different surfaces; the
     /// namespace keeps their deferred filter images from aliasing.
@@ -935,7 +932,7 @@ pub(super) struct WindowShadowRenderer {
     /// Shared scratch masks per `(target namespace, frame slot)`. Reused
     /// across windows during rebuilds, eliminating per-window mask VRAM
     /// duplication while keeping output targets isolated.
-    scratch_masks: std::collections::HashMap<(u64, usize), Option<optics_flux::Image>>,
+    scratch_masks: std::collections::HashMap<(u64, usize), Option<optics_gfx::Image>>,
 }
 
 /// A rendered shadow ready for compositing: the borrowed filter output for
@@ -943,14 +940,14 @@ pub(super) struct WindowShadowRenderer {
 pub(super) struct RenderedShadow {
     /// The window this shadow belongs to.
     pub window: tessera_desktop::window::WindowId,
-    /// Raw `flux_image` borrowed from the shadow filter's current frame
+    /// Raw `optics_gfx_image` borrowed from the shadow filter's current frame
     /// slot. Lifetime: valid until the same slot is applied again, which
     /// happens on the next frame rotation — strictly after this frame's
     /// canvas passes and submit (ADR-0074 frame-slot lifetime). The
     /// composition root applies the filter exactly once per frame, before
     /// any output pass opens, so every composite of this pointer precedes
     /// the next apply on this slot.
-    pub raw: *mut optics_flux::sys::flux_image,
+    pub raw: *mut optics_gfx::sys::optics_gfx_image,
     /// Physical-pixel placement (already includes the blur margin).
     pub x: f32,
     pub y: f32,
@@ -959,7 +956,7 @@ pub(super) struct RenderedShadow {
 }
 
 impl WindowShadowRenderer {
-    pub(super) fn new(_device: &optics_flux::Device) -> Result<Self, optics_flux::Error> {
+    pub(super) fn new(_device: &optics_gfx::Device) -> Result<Self, optics_gfx::Error> {
         Ok(Self {
             entries: std::collections::HashMap::new(),
             scratch_masks: std::collections::HashMap::new(),
@@ -973,9 +970,9 @@ impl WindowShadowRenderer {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn prepare(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &mut optics_flux::Canvas,
-        frame: &mut optics_flux::Frame<'_>,
+        device: &optics_gfx::Device,
+        canvas: &mut optics_gfx::Canvas,
+        frame: &mut optics_gfx::Frame<'_>,
         windows: &[tessera_desktop::window::Window],
         scale: f32,
         style: tessera_desktop::window::WindowShadowStyle,
@@ -1016,13 +1013,13 @@ impl WindowShadowRenderer {
             let px_h = (window.size.h as f32 * scale + margin * 2.0)
                 .ceil()
                 .max(1.0) as u32;
-            let bucket_w = optics_flux::bucket_extent(px_w, 128);
-            let bucket_h = optics_flux::bucket_extent(px_h, 128);
+            let bucket_w = optics_gfx::bucket_extent(px_w, 128);
+            let bucket_h = optics_gfx::bucket_extent(px_h, 128);
 
             let entry = match self.entries.entry((window.id, namespace)) {
                 std::collections::hash_map::Entry::Occupied(occ) => occ.into_mut(),
                 std::collections::hash_map::Entry::Vacant(vac) => {
-                    let Ok(filter) = optics_flux::ShadowFilter::new(device) else {
+                    let Ok(filter) = optics_gfx::ShadowFilter::new(device) else {
                         continue;
                     };
                     vac.insert(WindowShadowEntry {
@@ -1063,11 +1060,11 @@ impl WindowShadowRenderer {
                 .and_then(Option::as_ref)
                 .is_none_or(|img| img.size() != (bucket_w, bucket_h));
             if mask_stale {
-                let Ok(image) = optics_flux::Image::render_target(
+                let Ok(image) = optics_gfx::Image::render_target(
                     device,
                     bucket_w,
                     bucket_h,
-                    optics_flux::Format::Rgba8Unorm,
+                    optics_gfx::Format::Rgba8Unorm,
                 ) else {
                     continue;
                 };
@@ -1080,11 +1077,11 @@ impl WindowShadowRenderer {
 
             // Draw the mask: opaque rounded rect at the window's position
             // within the padded extent.
-            let clear = optics_flux::rgba(0, 0, 0, 0);
+            let clear = optics_gfx::rgba(0, 0, 0, 0);
             let draw_mask_ok = {
                 let session = canvas.begin_session(
-                    optics_flux::ImageTarget { frame, image: mask },
-                    optics_flux::CanvasPassOptions {
+                    optics_gfx::ImageTarget { frame, image: mask },
+                    optics_gfx::CanvasPassOptions {
                         clear: Some(clear),
                         damage: Vec::new(),
                     },
@@ -1099,7 +1096,7 @@ impl WindowShadowRenderer {
                         window.size.w as f32,
                         window.size.h as f32,
                         SHADOW_CORNER_RADIUS,
-                        optics_flux::rgba(255, 255, 255, 255),
+                        optics_gfx::rgba(255, 255, 255, 255),
                     );
                     session.restore();
                     session.end().is_ok()
@@ -1112,7 +1109,7 @@ impl WindowShadowRenderer {
                 continue;
             }
 
-            let params = optics_flux::ShadowParams {
+            let params = optics_gfx::ShadowParams {
                 blur: SHADOW_BLUR_SIGMA * scale,
                 offset_x: 0.0,
                 offset_y: SHADOW_OFFSET_Y * scale,
@@ -1135,7 +1132,7 @@ impl WindowShadowRenderer {
                     // - The pointer escapes this function. `tessera-composite`
                     //   draws it inside a canvas pass, and a pass that samples
                     //   an unexecuted deferred output is rejected outright
-                    //   (`FLUX_ERROR_INVALID_STATE`), so a shadow composited
+                    //   (`OPTICS_GFX_ERROR_INVALID_STATE`), so a shadow composited
                     //   without this call fails the frame instead of painting.
                     // - The slot cache stores the pointer for later frames. A
                     //   pruned pass leaves the image unwritten, so caching

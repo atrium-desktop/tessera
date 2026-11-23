@@ -1,4 +1,4 @@
-//! Flux/Lens rendering for one or more lock-content surfaces.
+//! gfx/optics-ui rendering for one or more lock-content surfaces.
 
 use std::ffi::CStr;
 use std::os::raw::c_void;
@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use ash::vk::{self, Handle};
-use optics_flux::Image;
-use optics_lens::{Color, Input, Ui};
+use optics_gfx::Image;
+use optics_ui::{Color, Input, Ui};
 use tessera_config::{
     ColorScheme, LockScreenBackgroundConfig, LockScreenBackgroundMode, LockScreenStyle,
 };
@@ -26,8 +26,8 @@ const AVATAR_CAMERA: tessera_avatar::persona::VrmCamera =
 #[derive(Debug)]
 pub enum RenderError {
     Vulkan,
-    Flux(optics_flux::Error),
-    Lens(optics_lens::Error),
+    Gfx(optics_gfx::Error),
+    Ui(optics_ui::Error),
     Wallpaper(tessera_wallpaper::Error),
     Avatar(String),
 }
@@ -36,8 +36,8 @@ impl std::fmt::Display for RenderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Vulkan => f.write_str("Vulkan is unavailable"),
-            Self::Flux(err) => write!(f, "{err}"),
-            Self::Lens(err) => write!(f, "{err}"),
+            Self::Gfx(err) => write!(f, "{err}"),
+            Self::Ui(err) => write!(f, "{err}"),
             Self::Wallpaper(err) => write!(f, "{err}"),
             Self::Avatar(msg) => write!(f, "avatar image could not be prepared: {msg}"),
         }
@@ -47,23 +47,23 @@ impl std::fmt::Display for RenderError {
 impl std::error::Error for RenderError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Flux(err) => Some(err),
-            Self::Lens(err) => Some(err),
+            Self::Gfx(err) => Some(err),
+            Self::Ui(err) => Some(err),
             Self::Wallpaper(err) => Some(err),
             _ => None,
         }
     }
 }
 
-impl From<optics_flux::Error> for RenderError {
-    fn from(err: optics_flux::Error) -> Self {
-        Self::Flux(err)
+impl From<optics_gfx::Error> for RenderError {
+    fn from(err: optics_gfx::Error) -> Self {
+        Self::Gfx(err)
     }
 }
 
-impl From<optics_lens::Error> for RenderError {
-    fn from(err: optics_lens::Error) -> Self {
-        Self::Lens(err)
+impl From<optics_ui::Error> for RenderError {
+    fn from(err: optics_ui::Error) -> Self {
+        Self::Ui(err)
     }
 }
 
@@ -74,11 +74,11 @@ impl From<tessera_wallpaper::Error> for RenderError {
 }
 
 impl RenderError {
-    /// Map a persona portrait error onto the lock's render error. Flux faults
+    /// Map a persona portrait error onto the lock's render error. gfx faults
     /// are preserved as-is; everything else becomes a descriptive `Avatar`.
     fn from_avatar(error: tessera_avatar::persona::Error) -> Self {
         match error {
-            tessera_avatar::persona::Error::Flux(error) => RenderError::Flux(error),
+            tessera_avatar::persona::Error::Gfx(error) => RenderError::Gfx(error),
             other => RenderError::Avatar(other.to_string()),
         }
     }
@@ -108,7 +108,7 @@ impl From<tessera_avatar::persona::PortraitKind> for AvatarStatus {
 }
 
 pub struct Graphics {
-    pub device: optics_flux::Device,
+    pub device: optics_gfx::Device,
     background: LockBackground,
     visual: LockVisual,
     avatar: AvatarResource,
@@ -188,7 +188,7 @@ impl Graphics {
         connection: &Connection,
         options: GraphicsOptions,
     ) -> Result<Self, RenderError> {
-        let device = optics_flux::Device::new(true, &INSTANCE_EXTENSIONS, &DEVICE_EXTENSIONS, 2)?;
+        let device = optics_gfx::Device::new(true, &INSTANCE_EXTENSIONS, &DEVICE_EXTENSIONS, 2)?;
         let resolved = resolve_lock_appearance(options);
         let background = load_background(&resolved.background, resolved.config_path.as_deref())?;
         let portrait_config = tessera_avatar::persona::PortraitConfig::current();
@@ -261,7 +261,7 @@ impl Graphics {
         let physical_size = physical_size(logical_size, scale);
         let vk_surface = self.ash.create_surface(connection, wl_surface)?;
         let surface = match unsafe {
-            optics_flux::Surface::from_vk(
+            optics_gfx::Surface::from_vk(
                 &self.device,
                 vk_surface.as_raw() as usize as *mut c_void,
                 physical_size.0,
@@ -414,8 +414,8 @@ fn physical_size(logical_size: (u32, u32), scale: f32) -> (u32, u32) {
 }
 
 pub struct LockRenderSurface {
-    surface: optics_flux::Surface,
-    canvas: optics_flux::Canvas,
+    surface: optics_gfx::Surface,
+    canvas: optics_gfx::Canvas,
     ui: Ui,
     vk_surface: vk::SurfaceKHR,
     logical_size: (u32, u32),
@@ -423,7 +423,7 @@ pub struct LockRenderSurface {
 }
 
 struct RenderAssets<'a> {
-    device: &'a optics_flux::Device,
+    device: &'a optics_gfx::Device,
     background: &'a mut LockBackground,
     avatar: Option<&'a Image>,
     avatar_status: AvatarStatus,
@@ -432,16 +432,17 @@ struct RenderAssets<'a> {
 
 impl LockRenderSurface {
     fn new(
-        device: &optics_flux::Device,
-        surface: optics_flux::Surface,
+        device: &optics_gfx::Device,
+        surface: optics_gfx::Surface,
         vk_surface: vk::SurfaceKHR,
         logical_size: (u32, u32),
         scale: f32,
         design: &Design,
     ) -> Result<Self, RenderError> {
-        let canvas = optics_flux::Canvas::new(&surface)?;
-        let mut ui =
-            unsafe { Ui::with_device(device.as_raw().cast::<optics_lens::sys::flux_device>()) }?;
+        let canvas = optics_gfx::Canvas::new(&surface)?;
+        let mut ui = unsafe {
+            Ui::with_device(device.as_raw().cast::<optics_ui::sys::optics_gfx_device>())
+        }?;
         ui.set_scale(scale);
         ui.set_theme(themes::application(design));
         Ok(Self {
@@ -477,8 +478,8 @@ impl LockRenderSurface {
         let physical = self.surface.size();
         let session = self.canvas.begin_session(
             &mut frame,
-            optics_flux::CanvasPassOptions {
-                clear: Some(optics_flux::rgba(8, 12, 24, 255)),
+            optics_gfx::CanvasPassOptions {
+                clear: Some(optics_gfx::rgba(8, 12, 24, 255)),
                 ..Default::default()
             },
         )?;
@@ -526,7 +527,7 @@ impl LockRenderSurface {
         });
         let snapshot = self.ui.snapshot()?;
         unsafe {
-            snapshot.submit(session.as_raw().cast::<optics_lens::sys::flux_canvas>())?;
+            snapshot.submit(session.as_raw().cast::<optics_ui::sys::optics_gfx_canvas>())?;
         }
         self.ui.activate(&snapshot)?;
         session.end()?;
@@ -543,7 +544,7 @@ struct AshBridge {
 }
 
 impl AshBridge {
-    fn new(connection: &Connection, device: &optics_flux::Device) -> Result<Self, RenderError> {
+    fn new(connection: &Connection, device: &optics_gfx::Device) -> Result<Self, RenderError> {
         let entry = unsafe { ash::Entry::load() }.map_err(|_| RenderError::Vulkan)?;
         let instance = unsafe {
             ash::Instance::load(

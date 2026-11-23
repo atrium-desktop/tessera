@@ -5,7 +5,7 @@
 
 pub(crate) use super::*;
 
-pub(crate) use optics_lens::Icon;
+pub(crate) use optics_ui::Icon;
 pub(crate) use tessera_design::materials::{chrome_place, sized, transparent};
 
 mod audio;

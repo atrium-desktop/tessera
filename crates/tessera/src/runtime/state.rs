@@ -69,8 +69,8 @@ pub(super) struct DamageTracking {
     /// (VT switch, backend reconfigure).
     pub(super) last_presented_cursor_hotspot: Option<(u32, u32)>,
     pub(super) last_presented_cursor_pixels: Option<(u32, u32)>,
-    /// Assessed damage whose frame never reached Flux's submit point (acquire
-    /// timeout, a pre-recording surface failure). Flux owns per-image epoch
+    /// Assessed damage whose frame never reached gfx's submit point (acquire
+    /// timeout, a pre-recording surface failure). gfx owns per-image epoch
     /// history; this is only the pre-submit transaction carry. Unioned into the
     /// next assessment and cleared by the next successful submit.
     pub(super) pending_damage: Option<FrameDamage>,
@@ -92,7 +92,7 @@ pub(super) struct DamageTracking {
 /// A compositor-owned presentation target for one physical output.
 ///
 /// Field drop order is safety-critical: `last_source_export` and `source_lease`
-/// hold `optics_flux::DmabufLease` handles referencing a `optics_flux::Surface`, and `canvas`
+/// hold `optics_gfx::DmabufLease` handles referencing a `optics_gfx::Surface`, and `canvas`
 /// holds pass state referencing `surface`. All of them must be declared before
 /// `surface` so Rust drops them first. A mirror target is blitted from its
 /// source target; an extended target owns its output-local scene pass.
@@ -104,23 +104,23 @@ pub(super) struct OutputTarget {
     pub(super) last_source_export: Option<output_target::RetainedSourceExport>,
     /// Lease on the last source/union image sampled by this mirror target. It
     /// keeps the source ring slot alive until the next target frame replaces it.
-    pub(super) source_lease: Option<std::rc::Rc<optics_flux::DmabufLease>>,
+    pub(super) source_lease: Option<std::rc::Rc<optics_gfx::DmabufLease>>,
     /// Bounded LRU cache of imported source DMA-BUF images for mirror/capture
     /// blits, avoiding per-frame Vulkan image import and layout transitions
     /// (ADR-0250, `[INV-ARCH-160]`).
     pub(super) import_cache: output_target::TargetImportCache,
-    pub(super) canvas: optics_flux::Canvas,
-    pub(super) surface: optics_flux::Surface,
+    pub(super) canvas: optics_gfx::Canvas,
+    pub(super) surface: optics_gfx::Surface,
     pub(super) mode: (u32, u32),
-    /// Flux format of the target surface, shared with the union framing.
-    pub(super) format: optics_flux::Format,
+    /// gfx format of the target surface, shared with the union framing.
+    pub(super) format: optics_gfx::Format,
     pub(super) color_pipeline: tessera_desktop::output::ColorPipeline,
     /// The source connector for a mirror, or this connector for an extended
     /// output.
     pub(super) source: String,
     /// Whether this target owes at least one presentation (newly created or
     /// invalidated by VT resume / scanout exit / overlay transition). Per-slot
-    /// buffer-age damage history is owned by Flux (`begin_frame_timeout_with_damage`
+    /// buffer-age damage history is owned by gfx (`begin_frame_timeout_with_damage`
     /// + `frame.repaint_scope()`).
     pub(super) needs_present: bool,
     /// Last hardware-cursor bounding rect drawn into this mirror target in
@@ -154,12 +154,12 @@ pub(super) struct CompositorRuntime<'engine> {
     pub(super) sched_watchdog: Option<crate::runtime::sched::DeadlineWatchdog>,
     // Rust drops fields in declaration order. The canvas and its Vulkan
     // surface must disappear before a nested host tears down the Wayland
-    // display that owns the swapchain's wl_buffers. Flux resources retain the
+    // display that owns the swapchain's wl_buffers. gfx resources retain the
     // device themselves, so keeping the explicit device handle last is safe.
-    pub(super) canvas: &'engine mut optics_flux::Canvas,
-    pub(super) surface: &'engine mut optics_flux::Surface,
+    pub(super) canvas: &'engine mut optics_gfx::Canvas,
+    pub(super) surface: &'engine mut optics_gfx::Surface,
     pub(super) host: &'engine mut Host,
-    pub(super) device: &'engine mut optics_flux::Device,
+    pub(super) device: &'engine mut optics_gfx::Device,
     /// Compositor-side blurred window shadows (ADR-0139): owns the Optics
     /// shadow filter and per-slot mask targets; renders at the frame's pass
     /// boundary, composites inside the output pass.

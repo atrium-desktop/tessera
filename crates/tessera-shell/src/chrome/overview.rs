@@ -6,7 +6,7 @@
 //! and dismissal. It is a view mode over the same snapshots every other
 //! component reads — it never mutates the window model itself.
 
-use optics_lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
+use optics_ui::{Align, Color, Frame, Input, LayoutOpts, Rect};
 use tessera_design::Design;
 use tessera_design::materials::{chrome_place, surface_layout};
 
@@ -316,7 +316,7 @@ impl Chrome for Overview {
 
         // One frame-scoped switch fades the whole overview uniformly —
         // frames, labels, and any future imagery — stamped per node at
-        // build time. Restored at the end of render; lens also resets it
+        // build time. Restored at the end of render; optics-ui also resets it
         // every frame begin.
         frame.set_opacity(self.visibility);
 
@@ -349,7 +349,7 @@ impl Chrome for Overview {
                 frame.place(
                     &format!("tessera-overview-ws-{i}"),
                     &chrome_place(
-                        to_lens(*tile),
+                        to_ui(*tile),
                         LayoutOpts {
                             bg,
                             border,
@@ -412,7 +412,7 @@ impl Chrome for Overview {
                 frame.place(
                     &format!("tessera-overview-interaction_domain-{i}"),
                     &chrome_place(
-                        to_lens(*tile),
+                        to_ui(*tile),
                         LayoutOpts {
                             bg,
                             border: if hovered {
@@ -465,7 +465,7 @@ impl Chrome for Overview {
             frame.place(
                 &format!("tessera-overview-cell-{i}"),
                 &chrome_place(
-                    to_lens(cell),
+                    to_ui(cell),
                     LayoutOpts {
                         border,
                         border_width: if hovered { 2.0 } else { 1.0 },
@@ -651,7 +651,7 @@ fn animated_cell(
     )
 }
 
-fn to_lens(rect: tessera_primitives::Rect) -> Rect {
+fn to_ui(rect: tessera_primitives::Rect) -> Rect {
     Rect {
         x: rect.origin.x as f32,
         y: rect.origin.y as f32,

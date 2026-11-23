@@ -14,7 +14,7 @@ and [ADR-0182](../adr/0182-fullscreen-frame-pacing-and-direct-scanout-fidelity.m
 
 | Plan | Primary-plane source | Output composition | Selection rule |
 |------|----------------------|--------------------|----------------|
-| Composited | Compositor-owned dma-buf | Flux renders the desktop, clients, effects, shell, overlays, and capture work | Selected whenever any visible scene element or buffer constraint requires composition |
+| Composited | Compositor-owned dma-buf | gfx renders the desktop, clients, effects, shell, overlays, and capture work | Selected whenever any visible scene element or buffer constraint requires composition |
 | Direct scanout | Client-owned dma-buf | The compositor output render is skipped | Selected only when one eligible client buffer is the complete physical presentation domain |
 
 Direct-scanout eligibility keys on physical identity, not on the presence of a
@@ -24,7 +24,7 @@ borderless client can scan out without an XDG fullscreen request, while a
 fullscreen client is composited when another visible element is present.
 
 Normal DRM presentation is per output. Each physical output owns a
-mode-sized compositor target with its own Flux ring, KMS primary slot, damage
+mode-sized compositor target with its own gfx ring, KMS primary slot, damage
 scope, and page flip. An extended target renders only that output's logical
 region; a mirror target reuses cached Vulkan imports of its source target's
 DMA-BUF ring and blits only projected source/cursor damage with the fitted
@@ -43,15 +43,15 @@ uploaded into every output target and presented through the target's own KMS
 slot; it is not scanned as a union swapchain. Overview, window switcher, live
 previews, soft shadows, 3D wallpaper, and workspace slides render per output.
 The union path is also the fallback when a target cannot be built. Every composite image carries a lease
-([optics ADR-0168](../../../optics/docs/adr/0168-exported-dmabuf-image-leases.md));
-Flux refuses to reuse a ring slot while a target still samples or scans it.
+([Optics ADR-0168](https://github.com/ming2k/optics/blob/v0.0.82/docs/adr/0168-exported-dmabuf-image-leases.md): exported dma-buf image leases);
+gfx refuses to reuse a ring slot while a target still samples or scans it.
 Outputs that must share a scene generation form a presentation group (mirrors,
 touching same-refresh outputs, and outputs touched by one spanning window).
 A group is one atomic KMS commit; groups are independent and the loop paces at
 the fastest group. Callbacks, presentation feedback, and damage acknowledgement
 are scoped to the outputs that actually flipped, and feedback refresh follows
 the target output's rate. Ring exhaustion is a retryable
-`FLUX_ERROR_BUSY`. A direct client flip remains independent of the composite
+`OPTICS_GFX_ERROR_BUSY`. A direct client flip remains independent of the composite
 ring. When every physical output has its own covering opaque client and no
 chrome/overlay needs composition, the runtime enters simultaneous direct
 scanout on all of them, one target-scoped atomic commit per CRTC.
@@ -244,7 +244,7 @@ buffer retires with the page flip. Rejection falls back to composition. The
 first path still submits Primary alongside overlay content updates; an
 overlay-only commit is a follow-up optimization, not a correctness requirement. Hardware
 bring-up and the full scenario matrix live in
-[KMS Overlay System Test](../dev/testing/kms-overlay-system-test.md).
+[How to Validate KMS Overlay Offload](../how-to/kms-overlay-validation.md).
 
 ## Primary-Plane State
 

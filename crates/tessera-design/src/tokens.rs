@@ -1,6 +1,6 @@
 //! Semantic visual tokens for the built-in dark and light appearances.
 
-use optics_lens::Color;
+use optics_ui::Color;
 use tessera_desktop::settings::ColorScheme;
 
 use crate::colors::{DockColors, ProductColors, SceneColors};
@@ -110,7 +110,7 @@ impl Design {
     /// The canonical light appearance: the same geometry and optical identity
     /// as [`Design::dark`], re-toned as dark ink on a light stone body.
     ///
-    /// The lens light theme is generalized to whole-product surfaces: white
+    /// The optics-ui light theme is generalized to whole-product surfaces: white
     /// bodies keep their stone tone, tints become dark washes, and shadows
     /// deepen slightly so pale panels still separate from bright content.
     /// Radii, strokes, and preview policy are scheme-invariant and shared
@@ -194,7 +194,7 @@ pub struct Radii {
     /// strip, a live-preview popover, a modal body, the pixel loupe.
     ///
     /// Named for what it is. It carried the name `glass_panel` while chrome was
-    /// an analytic lens body; the radius is the same number, and the name now
+    /// an analytic glass body; the radius is the same number, and the name now
     /// describes the shape rather than a material that no longer exists.
     pub panel_lg: f32,
     pub control: f32,
@@ -248,7 +248,7 @@ pub struct TypeScale {
 /// the shadow that separates the surface from arbitrary content beneath it.
 ///
 /// The reason is the one ADR-0213 records: an analytic glass body costs a
-/// full-resolution scene capture plus a per-pixel lens shader on every frame
+/// full-resolution scene capture plus a per-pixel refraction shader on every frame
 /// its contents move, which on a laptop panel is the single largest
 /// steady-state GPU cost the compositor has, and it buys a decorative effect
 /// that competes with the content it floats over.

@@ -27,7 +27,7 @@ The stack, from the rendering layer up:
 
 | Layer | Owner | What lives here |
 |-------|-------|-----------------|
-| Rendering and UI | flux, lens (out of tree) | Vulkan presentation; immediate-mode chrome drawing |
+| Rendering and UI | gfx, optics-ui (out of tree) | Vulkan presentation; immediate-mode chrome drawing |
 | The domain | `tessera-primitives`, `tessera-desktop`, `tessera-authority` | Foundational primitives, desktop state, window placements, and authority |
 | The platform | `tessera-wayland`, `tessera-platform`, `tessera-composite`, `tessera-shell` | Wayland, presentation, and the chrome host |
 | The seam | `tessera-protocol`, `tessera-ipc` | Versioned messages, transport, clients, and server admission |

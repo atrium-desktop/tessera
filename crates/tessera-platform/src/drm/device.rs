@@ -125,7 +125,7 @@ pub(super) struct PresentedComposite {
     fourcc: u32,
     color_pipeline: tessera_desktop::output::ColorPipeline,
     acquire_fence: Option<OwnedFd>,
-    lease: std::rc::Rc<optics_flux::DmabufLease>,
+    lease: std::rc::Rc<optics_gfx::DmabufLease>,
 }
 
 impl DrmBackend {
@@ -152,7 +152,7 @@ impl DrmBackend {
         })
     }
 
-    /// Start a new Flux surface/storage epoch. Existing cache entries stay
+    /// Start a new gfx surface/storage epoch. Existing cache entries stay
     /// alive while `current` or `retiring` references them, then are reaped.
     pub(super) fn invalidate_composite_fb_cache(&mut self) {
         self.composite_fb_epoch = self.composite_fb_epoch.wrapping_add(1);
@@ -535,11 +535,11 @@ impl DrmBackend {
         Ok(backend)
     }
 
-    /// Create Flux's exportable offscreen target at the selected display mode.
+    /// Create gfx's exportable offscreen target at the selected display mode.
     /// Load the configured ICC profile's parametric color space (ADR-0069
     /// two-tier extraction covers matrix+TRC profiles). `None` — the sRGB
     /// default — when unset, unreadable, or LUT-only.
-    fn configured_icc_space(&self) -> Option<optics_flux::ColorSpace> {
+    fn configured_icc_space(&self) -> Option<optics_gfx::ColorSpace> {
         let path = self.displays.icc_profile.as_deref()?;
         let bytes = match std::fs::read(path) {
             Ok(bytes) => bytes,
@@ -548,7 +548,7 @@ impl DrmBackend {
                 return None;
             }
         };
-        match optics_flux::IccProfile::new(&bytes) {
+        match optics_gfx::IccProfile::new(&bytes) {
             Ok(profile) => match profile.color_space() {
                 Some(space) => {
                     log::info!("drm: framebuffer color space from ICC profile {path}");
@@ -579,29 +579,29 @@ impl DrmBackend {
     /// a different pixel encoding from the image it samples.
     fn create_exportable_surface(
         &self,
-        device: &optics_flux::Device,
+        device: &optics_gfx::Device,
         width: u32,
         height: u32,
-    ) -> Result<(optics_flux::Surface, DisplayColorMode), DrmError> {
+    ) -> Result<(optics_gfx::Surface, DisplayColorMode), DrmError> {
         let color_mode = self.displays.color_mode;
         let icc_space = match color_mode {
             DisplayColorMode::Sdr | DisplayColorMode::SdrDeepColor => self.configured_icc_space(),
             DisplayColorMode::Hdr => None,
         };
         let surface = match (color_mode, icc_space) {
-            (DisplayColorMode::Sdr, None) => optics_flux::Surface::offscreen_dmabuf(
+            (DisplayColorMode::Sdr, None) => optics_gfx::Surface::offscreen_dmabuf(
                 device,
                 width,
                 height,
                 &self.displays.modifiers,
             )?,
             (DisplayColorMode::Sdr, Some(space)) => {
-                optics_flux::Surface::offscreen_dmabuf_with_color_options(
+                optics_gfx::Surface::offscreen_dmabuf_with_color_options(
                     device,
                     width,
                     height,
                     &self.displays.modifiers,
-                    optics_flux::SurfaceColorOptions {
+                    optics_gfx::SurfaceColorOptions {
                         color_spaces: &[space],
                         ..Default::default()
                     },
@@ -611,31 +611,31 @@ impl DrmBackend {
                 // An ICC profile takes precedence over the sRGB default.
                 let spaces = match icc {
                     Some(space) => vec![space],
-                    None => vec![optics_flux::ColorSpace::SRGB],
+                    None => vec![optics_gfx::ColorSpace::SRGB],
                 };
-                optics_flux::Surface::offscreen_dmabuf_with_color_options(
+                optics_gfx::Surface::offscreen_dmabuf_with_color_options(
                     device,
                     width,
                     height,
                     &self.displays.modifiers,
-                    optics_flux::SurfaceColorOptions {
+                    optics_gfx::SurfaceColorOptions {
                         color_spaces: &spaces,
-                        offscreen_formats: &[optics_flux::Format::Rgb10a2Unorm],
+                        offscreen_formats: &[optics_gfx::Format::Rgb10a2Unorm],
                         ..Default::default()
                     },
                 )?
             }
             (DisplayColorMode::Hdr, _) => {
                 let sdr_white = self.configured_sdr_white_nits().unwrap_or(203.0);
-                optics_flux::Surface::offscreen_dmabuf_with_color_options(
+                optics_gfx::Surface::offscreen_dmabuf_with_color_options(
                     device,
                     width,
                     height,
                     &self.displays.modifiers,
-                    optics_flux::SurfaceColorOptions {
-                        color_spaces: &[optics_flux::ColorSpace::BT2020_PQ],
-                        offscreen_formats: &[optics_flux::Format::Rgb10a2Unorm],
-                        hdr: Some(optics_flux::SurfaceHdr {
+                    optics_gfx::SurfaceColorOptions {
+                        color_spaces: &[optics_gfx::ColorSpace::BT2020_PQ],
+                        offscreen_formats: &[optics_gfx::Format::Rgb10a2Unorm],
+                        hdr: Some(optics_gfx::SurfaceHdr {
                             sdr_white_nits: sdr_white,
                             metadata: None,
                         }),
@@ -652,9 +652,9 @@ impl DrmBackend {
 
     pub fn create_surface(
         &mut self,
-        device: &optics_flux::Device,
-    ) -> Result<optics_flux::Surface, DrmError> {
-        // A recreated Flux surface reuses slot numbers for different VkImages.
+        device: &optics_gfx::Device,
+    ) -> Result<optics_gfx::Surface, DrmError> {
+        // A recreated gfx surface reuses slot numbers for different VkImages.
         // Advance the epoch before allocating it so an equal-size recreation
         // can never hit a framebuffer imported from the previous surface.
         self.invalidate_composite_fb_cache();
@@ -710,7 +710,7 @@ impl DrmBackend {
             DisplayColorMode::Hdr => {}
         }
         self.surface_stale = false;
-        self.sync_capable = optics_flux::dmabuf_sync_supported(device);
+        self.sync_capable = optics_gfx::dmabuf_sync_supported(device);
         self.explicit_sync = self
             .displays
             .outputs
@@ -734,7 +734,7 @@ impl DrmBackend {
         self.explicit_sync
     }
 
-    /// Complete a Flux frame, export it, and queue it on the primary plane.
+    /// Complete a gfx frame, export it, and queue it on the primary plane.
     /// The next backend dispatch waits for its page-flip event before another
     /// frame may be rendered.
     ///
@@ -1312,8 +1312,8 @@ impl DrmBackend {
 
     pub fn present(
         &mut self,
-        surface: &optics_flux::Surface,
-        frame: optics_flux::SubmittedFrame<'_>,
+        surface: &optics_gfx::Surface,
+        frame: optics_gfx::SubmittedFrame<'_>,
         damage: Option<&[tessera_primitives::Rect]>,
     ) -> Result<Option<OwnedFd>, DrmError> {
         let targets = (0..self.displays.outputs.len()).collect::<Vec<_>>();
@@ -1325,8 +1325,8 @@ impl DrmBackend {
     /// per-output targets present their own mode-sized surfaces.
     pub fn compose_only(
         &mut self,
-        surface: &optics_flux::Surface,
-        frame: optics_flux::SubmittedFrame<'_>,
+        surface: &optics_gfx::Surface,
+        frame: optics_gfx::SubmittedFrame<'_>,
     ) -> Result<Option<OwnedFd>, DrmError> {
         if !self.active || !self.render_ready || !self.outputs_powered {
             return Err(DrmError::Inactive);
@@ -1379,8 +1379,8 @@ impl DrmBackend {
     /// flip state (ADR-0185).
     pub fn present_to(
         &mut self,
-        surface: &optics_flux::Surface,
-        frame: optics_flux::SubmittedFrame<'_>,
+        surface: &optics_gfx::Surface,
+        frame: optics_gfx::SubmittedFrame<'_>,
         damage: Option<&[tessera_primitives::Rect]>,
         targets: &[&str],
     ) -> Result<Option<OwnedFd>, DrmError> {
@@ -1400,8 +1400,8 @@ impl DrmBackend {
     /// primary scanout.
     pub fn present_with_overlay(
         &mut self,
-        surface: &optics_flux::Surface,
-        frame: optics_flux::SubmittedFrame<'_>,
+        surface: &optics_gfx::Surface,
+        frame: optics_gfx::SubmittedFrame<'_>,
         damage: Option<&[tessera_primitives::Rect]>,
         overlay: crate::host::OverlayLayer<'_>,
     ) -> Result<Option<OwnedFd>, DrmError> {
@@ -1411,8 +1411,8 @@ impl DrmBackend {
 
     fn present_inner(
         &mut self,
-        surface: &optics_flux::Surface,
-        frame: optics_flux::SubmittedFrame<'_>,
+        surface: &optics_gfx::Surface,
+        frame: optics_gfx::SubmittedFrame<'_>,
         damage: Option<&[tessera_primitives::Rect]>,
         targets: &[usize],
         overlay: Option<crate::host::OverlayLayer<'_>>,
@@ -1521,10 +1521,10 @@ impl DrmBackend {
     /// has to scale the union framebuffer for this output.
     pub fn create_render_target(
         &self,
-        device: &optics_flux::Device,
+        device: &optics_gfx::Device,
         width: u32,
         height: u32,
-    ) -> Result<optics_flux::Surface, DrmError> {
+    ) -> Result<optics_gfx::Surface, DrmError> {
         if width == 0 || height == 0 || self.displays.modifiers.is_empty() {
             return Err(DrmError::DmabufUnsupported);
         }
@@ -1540,7 +1540,7 @@ impl DrmBackend {
     /// path unchanged.
     pub fn present_render_target(
         &mut self,
-        exported: optics_flux::ExportedDmabuf,
+        exported: optics_gfx::ExportedDmabuf,
         target: &str,
     ) -> Result<Option<OwnedFd>, DrmError> {
         self.present_render_targets(vec![crate::host::RenderTargetCommit::from_exported(
@@ -1632,7 +1632,7 @@ impl DrmBackend {
     /// covers the output and whose `(fourcc, modifier)` the plane accepts is
     /// imported and committed as-is. XDG fullscreen/maximized state is not a
     /// KMS eligibility criterion.
-    /// No flux frame is involved, so this is called instead of (not alongside)
+    /// No gfx frame is involved, so this is called instead of (not alongside)
     /// [`Self::present`]. Any kernel import/commit failure is reported as an error
     /// so the runtime falls back to compositing the next frame.
     pub fn present_scanout(
@@ -1683,7 +1683,7 @@ impl DrmBackend {
         {
             // Never guess that implicit synchronization also covers an
             // explicitly supplied producer fence. The runtime will composite
-            // this frame instead; Flux imports and waits on the same fence.
+            // this frame instead; gfx imports and waits on the same fence.
             return Err(DrmError::ScanoutUnsupported);
         }
         if client.fd < 0 {
@@ -1842,9 +1842,9 @@ impl DrmBackend {
     }
 
     fn clone_dmabuf(
-        dmabuf: &optics_flux::SurfaceDmabuf,
-    ) -> Result<optics_flux::SurfaceDmabuf, DrmError> {
-        Ok(optics_flux::SurfaceDmabuf {
+        dmabuf: &optics_gfx::SurfaceDmabuf,
+    ) -> Result<optics_gfx::SurfaceDmabuf, DrmError> {
+        Ok(optics_gfx::SurfaceDmabuf {
             fd: dmabuf.fd.try_clone()?,
             acquire_fence: dmabuf
                 .acquire_fence
@@ -1861,19 +1861,19 @@ impl DrmBackend {
 
     pub(super) fn import_scanout(
         &mut self,
-        dmabuf: optics_flux::SurfaceDmabuf,
+        dmabuf: optics_gfx::SurfaceDmabuf,
     ) -> Result<PrimaryScanout, DrmError> {
         self.import_scanout_with_epoch(dmabuf, self.composite_fb_epoch)
     }
 
     /// Import a composited scanout image under an explicit cache epoch.
     ///
-    /// Composer-owned mirror targets are separate Flux rings whose slot
+    /// Composer-owned mirror targets are separate gfx rings whose slot
     /// numbers overlap the union surface's slots. A distinct epoch keeps
     /// their framebuffer cache entries from invalidating the union image.
     fn import_scanout_with_epoch(
         &mut self,
-        dmabuf: optics_flux::SurfaceDmabuf,
+        dmabuf: optics_gfx::SurfaceDmabuf,
         epoch: u64,
     ) -> Result<PrimaryScanout, DrmError> {
         let modifier = DrmModifier::from(dmabuf.modifier);
@@ -1904,7 +1904,7 @@ impl DrmBackend {
 
         if let Some(key) = key {
             // A slot is expected to keep one backing object for the life of a
-            // Flux surface. If it changes, retire the former entry rather than
+            // gfx surface. If it changes, retire the former entry rather than
             // trusting slot alone; current/retiring references defer cleanup.
             for (cached_key, entry) in &mut self.composite_fb_cache {
                 if composite_fb_slot_conflicts(*cached_key, key) {

@@ -23,5 +23,5 @@ mod output;
 pub use output::{atomic_write_capture, screenshot_uri_list};
 
 pub use tessera_composite::presentation::{
-    clamp_logical_region, flux_last_error_detail, logical_rect_to_physical,
+    clamp_logical_region, gfx_last_error_detail, logical_rect_to_physical,
 };

@@ -18,10 +18,10 @@ use tessera_primitives::input::PointerGestureEvent;
 use tessera_primitives::input::TextInputEvent;
 use tessera_primitives::input::TextInputState;
 
-/// Frame slots Flux runs concurrently. ADR-0038's frame pacing assumes three:
+/// Frame slots gfx runs concurrently. ADR-0038's frame pacing assumes three:
 /// on DRM the offscreen ring must hold one image per slot so a frame being
 /// rendered never aliases the image the CRTC is still scanning out (with the
-/// flux default of two, rendering frame k reuses the buffer committed two
+/// gfx default of two, rendering frame k reuses the buffer committed two
 /// frames ago — exactly the one on screen until the pending flip lands).
 const FRAMES_IN_FLIGHT: u32 = 3;
 
@@ -66,12 +66,12 @@ pub enum HostError {
     InvalidBackend(String),
     Nested(NestedError),
     Drm(DrmError),
-    Flux(optics_flux::Error),
+    Gfx(optics_gfx::Error),
     DrmRenderer {
         path: PathBuf,
         major: u32,
         minor: u32,
-        source: optics_flux::Error,
+        source: optics_gfx::Error,
     },
 }
 
@@ -83,7 +83,7 @@ impl std::fmt::Display for HostError {
             }
             Self::Nested(err) => write!(f, "{err}"),
             Self::Drm(err) => write!(f, "{err}"),
-            Self::Flux(err) => write!(f, "{err}"),
+            Self::Gfx(err) => write!(f, "{err}"),
             Self::DrmRenderer {
                 path,
                 major,
@@ -103,7 +103,7 @@ impl std::error::Error for HostError {
         match self {
             Self::Nested(err) => Some(err),
             Self::Drm(err) => Some(err),
-            Self::Flux(err) => Some(err),
+            Self::Gfx(err) => Some(err),
             Self::DrmRenderer { source, .. } => Some(source),
             Self::InvalidBackend(_) => None,
         }
@@ -122,9 +122,9 @@ impl From<DrmError> for HostError {
     }
 }
 
-impl From<optics_flux::Error> for HostError {
-    fn from(err: optics_flux::Error) -> Self {
-        Self::Flux(err)
+impl From<optics_gfx::Error> for HostError {
+    fn from(err: optics_gfx::Error) -> Self {
+        Self::Gfx(err)
     }
 }
 
@@ -144,24 +144,24 @@ pub struct PresentedDmabuf {
     pub color_pipeline: tessera_desktop::output::ColorPipeline,
     /// Producer fence for this image, when explicit sync is active.
     pub acquire_fence: Option<OwnedFd>,
-    /// Flux lease keeping the ring slot alive while a mirror target samples
+    /// gfx lease keeping the ring slot alive while a mirror target samples
     /// the image. The lease is released with the target's next replacement.
-    pub lease: std::rc::Rc<optics_flux::DmabufLease>,
+    pub lease: std::rc::Rc<optics_gfx::DmabufLease>,
 }
 
 /// One mode-sized output target ready for atomic KMS presentation.
 ///
 /// Sharing `lease` via `Rc` lets the compositor retain a source target's
 /// currently scanned-out image for cursor-only mirror re-blits without holding
-/// a second Flux ring slot (ADR-0250, `[INV-ARCH-160]`).
+/// a second gfx ring slot (ADR-0250, `[INV-ARCH-160]`).
 pub struct RenderTargetCommit {
     pub connector: String,
-    pub dmabuf: optics_flux::SurfaceDmabuf,
-    pub lease: std::rc::Rc<optics_flux::DmabufLease>,
+    pub dmabuf: optics_gfx::SurfaceDmabuf,
+    pub lease: std::rc::Rc<optics_gfx::DmabufLease>,
 }
 
 impl RenderTargetCommit {
-    pub fn from_exported(connector: String, exported: optics_flux::ExportedDmabuf) -> Self {
+    pub fn from_exported(connector: String, exported: optics_gfx::ExportedDmabuf) -> Self {
         Self {
             connector,
             dmabuf: exported.dmabuf,
@@ -271,24 +271,24 @@ impl Host {
 
     /// Create the Vulkan device with backend-mandatory extensions. dma-buf is
     /// optional for nested development, but mandatory for direct scanout.
-    pub fn create_device(&self) -> Result<optics_flux::Device, HostError> {
+    pub fn create_device(&self) -> Result<optics_gfx::Device, HostError> {
         match self {
             Self::Nested(_) => {
-                let device = optics_flux::Device::new_with_options(optics_flux::DeviceOptions {
+                let device = optics_gfx::Device::new_with_options(optics_gfx::DeviceOptions {
                     headless: false,
                     instance_extensions: &INSTANCE_EXTENSIONS,
                     device_extensions: &DEVICE_EXTENSIONS,
                     frames_in_flight: FRAMES_IN_FLIGHT,
-                    optional_features: optics_flux::DeviceFeatures::DMABUF
-                        | optics_flux::DeviceFeatures::DMABUF_SYNC_FILE,
-                    ..optics_flux::DeviceOptions::default()
+                    optional_features: optics_gfx::DeviceFeatures::DMABUF
+                        | optics_gfx::DeviceFeatures::DMABUF_SYNC_FILE,
+                    ..optics_gfx::DeviceOptions::default()
                 })?;
                 let enabled = device.enabled_features();
-                if !enabled.contains(optics_flux::DeviceFeatures::DMABUF) {
+                if !enabled.contains(optics_gfx::DeviceFeatures::DMABUF) {
                     log::warn!(
                         "nested: dma-buf Vulkan capabilities unavailable; using swapchain-only device"
                     );
-                } else if !enabled.contains(optics_flux::DeviceFeatures::DMABUF_SYNC_FILE) {
+                } else if !enabled.contains(optics_gfx::DeviceFeatures::DMABUF_SYNC_FILE) {
                     log::warn!(
                         "nested: explicit dma-buf sync unavailable; using implicit synchronization"
                     );
@@ -303,13 +303,13 @@ impl Host {
                     drm_node.major,
                     drm_node.minor
                 );
-                let device = optics_flux::Device::new_with_options(optics_flux::DeviceOptions {
+                let device = optics_gfx::Device::new_with_options(optics_gfx::DeviceOptions {
                     headless: true,
                     frames_in_flight: FRAMES_IN_FLIGHT,
                     drm_node: Some(drm_node),
-                    required_features: optics_flux::DeviceFeatures::DMABUF,
-                    optional_features: optics_flux::DeviceFeatures::DMABUF_SYNC_FILE,
-                    ..optics_flux::DeviceOptions::default()
+                    required_features: optics_gfx::DeviceFeatures::DMABUF,
+                    optional_features: optics_gfx::DeviceFeatures::DMABUF_SYNC_FILE,
+                    ..optics_gfx::DeviceOptions::default()
                 })
                 .map_err(|source| HostError::DrmRenderer {
                     path: kms_path.clone(),
@@ -319,7 +319,7 @@ impl Host {
                 })?;
                 if !device
                     .enabled_features()
-                    .contains(optics_flux::DeviceFeatures::DMABUF_SYNC_FILE)
+                    .contains(optics_gfx::DeviceFeatures::DMABUF_SYNC_FILE)
                 {
                     log::warn!("drm: explicit dma-buf sync unavailable; using the fence-wait path");
                 }
@@ -336,8 +336,8 @@ impl Host {
 
     pub fn create_surface(
         &mut self,
-        device: &optics_flux::Device,
-    ) -> Result<optics_flux::Surface, HostError> {
+        device: &optics_gfx::Device,
+    ) -> Result<optics_gfx::Surface, HostError> {
         match self {
             Self::Nested(host) => {
                 let vk_surface = host.create_vk_surface(device)?;
@@ -353,7 +353,7 @@ impl Host {
                 // `wl_surface.frame` wait prevents the 1.000s `vkQueuePresentKHR`
                 // stall when the nested window is occluded or unfocused.
                 Ok(unsafe {
-                    optics_flux::Surface::from_vk(device, vk_surface, width, height, false)?
+                    optics_gfx::Surface::from_vk(device, vk_surface, width, height, false)?
                 })
             }
             Self::Drm(host) => Ok(host.create_surface(device)?),
@@ -362,8 +362,8 @@ impl Host {
 
     pub fn present(
         &mut self,
-        surface: &optics_flux::Surface,
-        frame: optics_flux::SubmittedFrame<'_>,
+        surface: &optics_gfx::Surface,
+        frame: optics_gfx::SubmittedFrame<'_>,
         damage: Option<&[tessera_primitives::Rect]>,
     ) -> Result<Option<OwnedFd>, HostError> {
         match self {
@@ -392,8 +392,8 @@ impl Host {
     /// descriptor and lease keep the composed image alive for those consumers.
     pub fn compose_only(
         &mut self,
-        surface: &optics_flux::Surface,
-        frame: optics_flux::SubmittedFrame<'_>,
+        surface: &optics_gfx::Surface,
+        frame: optics_gfx::SubmittedFrame<'_>,
         damage: Option<&[tessera_primitives::Rect]>,
     ) -> Result<Option<OwnedFd>, HostError> {
         match self {
@@ -415,8 +415,8 @@ impl Host {
     /// a single host surface and ignores the target list.
     pub fn present_to(
         &mut self,
-        surface: &optics_flux::Surface,
-        frame: optics_flux::SubmittedFrame<'_>,
+        surface: &optics_gfx::Surface,
+        frame: optics_gfx::SubmittedFrame<'_>,
         damage: Option<&[tessera_primitives::Rect]>,
         targets: &[&str],
     ) -> Result<Option<OwnedFd>, HostError> {
@@ -439,8 +439,8 @@ impl Host {
     /// runtime then composites normally.
     pub fn present_with_overlay(
         &mut self,
-        surface: &optics_flux::Surface,
-        frame: optics_flux::SubmittedFrame<'_>,
+        surface: &optics_gfx::Surface,
+        frame: optics_gfx::SubmittedFrame<'_>,
         damage: Option<&[tessera_primitives::Rect]>,
         overlay: OverlayLayer<'_>,
     ) -> Result<Option<OwnedFd>, HostError> {
@@ -467,10 +467,10 @@ impl Host {
     /// keeps its single host swapchain.
     pub fn create_render_target(
         &self,
-        device: &optics_flux::Device,
+        device: &optics_gfx::Device,
         width: u32,
         height: u32,
-    ) -> Result<optics_flux::Surface, HostError> {
+    ) -> Result<optics_gfx::Surface, HostError> {
         match self {
             Self::Nested(_) => Err(HostError::Drm(DrmError::ScanoutUnsupported)),
             Self::Drm(host) => Ok(host.create_render_target(device, width, height)?),
@@ -481,7 +481,7 @@ impl Host {
     /// KMS plane scaling. The target surface is already mode-sized.
     pub fn present_render_target(
         &mut self,
-        exported: optics_flux::ExportedDmabuf,
+        exported: optics_gfx::ExportedDmabuf,
         target: &str,
     ) -> Result<Option<OwnedFd>, HostError> {
         match self {
@@ -559,7 +559,7 @@ impl Host {
     /// Direct DRM has an exact per-CRTC page-flip barrier. Nested mode is a
     /// development host and can only wait for completion of our Vulkan work;
     /// the outer compositor remains the physical presentation authority.
-    pub fn wait_presented(&mut self, device: &optics_flux::Device) -> Result<(), HostError> {
+    pub fn wait_presented(&mut self, device: &optics_gfx::Device) -> Result<(), HostError> {
         match self {
             Self::Nested(_) => {
                 device.wait_idle();
@@ -714,11 +714,11 @@ impl Host {
 
     /// Preferred DRM device for linux-dmabuf v4 feedback.
     ///
-    /// Query the physical device Flux actually selected, so Mesa clients use
+    /// Query the physical device gfx actually selected, so Mesa clients use
     /// the same GPU even in nested and multi-GPU configurations. Direct DRM
     /// can fall back to its KMS primary node when a Vulkan driver lacks
     /// `VK_EXT_physical_device_drm`.
-    pub fn dmabuf_feedback_device(&self, device: &optics_flux::Device) -> Option<u64> {
+    pub fn dmabuf_feedback_device(&self, device: &optics_gfx::Device) -> Option<u64> {
         if let Some(device) = vulkan_dmabuf_feedback_device(device) {
             return Some(device);
         }
@@ -729,7 +729,7 @@ impl Host {
     }
 }
 
-fn vulkan_dmabuf_feedback_device(device: &optics_flux::Device) -> Option<u64> {
+fn vulkan_dmabuf_feedback_device(device: &optics_gfx::Device) -> Option<u64> {
     let Some(identity) = device.drm_identity() else {
         log::warn!("dmabuf: Vulkan device exposes no DRM identity; using backend fallback");
         return None;

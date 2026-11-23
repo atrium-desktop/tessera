@@ -7,12 +7,12 @@
 //!    with a bounded decompression step because a theme directory is untrusted
 //!    input.
 //! 2. **What layout does the renderer receive?** Every raster and every vector
-//!    document is decoded into **premultiplied BGRA8**, the layout flux samples
+//!    document is decoded into **premultiplied BGRA8**, the layout gfx samples
 //!    through `Bgra8Unorm`. Callers never swap channels, premultiply, resize in
 //!    the wrong alpha space, or guess a convention: those decisions exist here
 //!    exactly once.
 //!
-//! The crate deliberately has no flux/lens edge. It owns bytes and pixels, not
+//! The crate deliberately has no gfx/optics-ui edge. It owns bytes and pixels, not
 //! GPU resources, so the compositor, the shell, and any future surface decode
 //! an asset the same way without sharing a renderer.
 
@@ -33,7 +33,7 @@ use tessera_image::{Filter, ImageError, RgbaImage};
 /// cannot be painted is a silent wrong answer (ADR-0222, `[INV-ASSET-06]`).
 pub const RASTER_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp"];
 
-/// Vector formats the reticle compiler consumes.
+/// Vector formats the `optics-svg` compiler consumes.
 pub const VECTOR_EXTENSIONS: &[&str] = &["svg", "svgz"];
 
 /// Hard ceiling on a decoded raster edge, independent of the caller's policy.
@@ -58,7 +58,7 @@ pub enum DecodeError {
     /// The vector source could not be read or decompressed.
     Source(SourceError),
     /// The vector compiler rejected the document.
-    Vector(optics_reticle::Error),
+    Vector(optics_svg::Error),
     /// A buffer's extent does not match its pixel byte length.
     Extent { width: u32, height: u32, len: usize },
 }
@@ -105,8 +105,8 @@ impl From<SourceError> for DecodeError {
     }
 }
 
-impl From<optics_reticle::Error> for DecodeError {
-    fn from(err: optics_reticle::Error) -> Self {
+impl From<optics_svg::Error> for DecodeError {
+    fn from(err: optics_svg::Error) -> Self {
         Self::Vector(err)
     }
 }
@@ -114,7 +114,7 @@ impl From<optics_reticle::Error> for DecodeError {
 /// One decoded asset in the renderer's native CPU layout.
 ///
 /// `bgra` is `width * height * 4` bytes of **premultiplied** blue, green, red,
-/// alpha. It is ready for `optics_flux::Image::from_bytes(..., Bgra8Unorm, ...)` with
+/// alpha. It is ready for `optics_gfx::Image::from_bytes(..., Bgra8Unorm, ...)` with
 /// no post-processing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RasterImage {
@@ -180,12 +180,12 @@ impl RasterImage {
 
 /// A parsed SVG/SVGZ document.
 ///
-/// This is the only type in the desktop that owns a reticle document. Consumers
+/// This is the only type in the desktop that owns an `optics-svg` document. Consumers
 /// ask it to rasterize or to report its stamped hotspot; they never import the
 /// compiler themselves, which is what makes "one asset rasterizer" a dependency
 /// boundary rather than a convention (ADR-0233).
 pub struct VectorDocument {
-    inner: optics_reticle::Document,
+    inner: optics_svg::Document,
 }
 
 impl VectorDocument {
@@ -193,7 +193,7 @@ impl VectorDocument {
     /// [`read_vector_source`] or [`decompress_if_gzip`].
     pub fn parse(bytes: &[u8]) -> Result<Self, DecodeError> {
         Ok(Self {
-            inner: optics_reticle::Document::parse_bytes(bytes, optics_reticle::Limits::default())?,
+            inner: optics_svg::Document::parse_bytes(bytes, optics_svg::Limits::default())?,
         })
     }
 
@@ -293,15 +293,15 @@ pub fn decode_bytes(bytes: &[u8], extent: u32) -> Result<RasterImage, DecodeErro
 /// renders instead of vanishing. Documents keep their aspect ratio and are
 /// fitted into the square, centred, by the compiler.
 fn rasterize_document(
-    document: &optics_reticle::Document,
+    document: &optics_svg::Document,
     extent: u32,
 ) -> Result<RasterImage, DecodeError> {
     let extent = clamp_extent(extent);
-    let pixmap = document.rasterize(optics_reticle::RasterizeOptions {
+    let pixmap = document.rasterize(optics_svg::RasterizeOptions {
         width: extent,
         height: extent,
-        format: optics_reticle::PixelFormat::Bgra8Premul,
-        paint: optics_reticle::PaintMode::theme(0xFFFF_FFFF),
+        format: optics_svg::PixelFormat::Bgra8Premul,
+        paint: optics_svg::PaintMode::theme(0xFFFF_FFFF),
         stroke_width: 0.0,
     })?;
     raster_from_pixmap(&pixmap)
@@ -369,7 +369,7 @@ fn premultiplied_rgba_to_bgra(rgba: RgbaImage) -> RasterImage {
     }
 }
 
-fn raster_from_pixmap(pixmap: &optics_reticle::Pixmap) -> Result<RasterImage, DecodeError> {
+fn raster_from_pixmap(pixmap: &optics_svg::Pixmap) -> Result<RasterImage, DecodeError> {
     let width = pixmap.width();
     let height = pixmap.height();
     let row_bytes = (width as usize).checked_mul(4).ok_or(DecodeError::Extent {
@@ -450,7 +450,7 @@ mod tests {
     #[test]
     fn raster_alpha_is_premultiplied_at_the_boundary() {
         // Half-transparent red has to arrive as half-red, not full red with a
-        // separate alpha: flux samples premultiplied texels.
+        // separate alpha: gfx samples premultiplied texels.
         let raster = decode_bytes(&png([255, 0, 0, 128]), 1).expect("png decodes");
         assert_eq!(raster.as_bgra(), &[0, 0, 128, 128]);
     }

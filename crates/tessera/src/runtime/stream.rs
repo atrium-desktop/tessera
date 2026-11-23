@@ -120,8 +120,8 @@ struct RuntimePainter<'a> {
 impl StreamPainter for RuntimePainter<'_> {
     fn paint_offscreen_frame(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         target: &OffscreenTarget,
         geometry: &OffscreenGeometry,
         cursor: Option<(u32, (f32, f32))>,
@@ -588,7 +588,7 @@ impl CompositorRuntime<'_> {
     /// frame event is delivered later, once the slot's acquire fence signals
     /// (`poll_dmabuf_stream_fences`). A slot still owned by the consumer
     /// drops the due frame instead of stalling the ring. A frame that was
-    /// submitted but could not be exported ends its stream: flux's ring
+    /// submitted but could not be exported ends its stream: gfx's ring
     /// advanced while the tracking here did not, so continuing could
     /// overwrite a consumer-owned slot. Window streams render their own
     /// tree into their capture surface (ADR-0127) and are not driven here.
@@ -615,8 +615,7 @@ impl CompositorRuntime<'_> {
         let cursor_state = (!self.host.uses_software_cursor())
             .then(|| self.capture_cursor_state())
             .filter(|state| !state.hidden && !state.client_surface);
-        let mut draw_cursor = |canvas: &optics_flux::CanvasCommands<'_>,
-                               blit: &StreamCursorBlit| {
+        let mut draw_cursor = |canvas: &optics_gfx::CanvasCommands<'_>, blit: &StreamCursorBlit| {
             draw_software_cursor(
                 canvas,
                 self.device,
@@ -791,7 +790,7 @@ impl CompositorRuntime<'_> {
 
     /// Reconcile every live stream with a new presentation-surface geometry
     /// (IPC protocol 29, ADR-0126). Called for ANY surface-size change —
-    /// hotplug or config mode change through `take_resize`, and the flux
+    /// hotplug or config mode change through `take_resize`, and the gfx
     /// `begin_frame` failure rebuild — so streams can no longer keep
     /// delivering at a stale geometry. The registry decides; this applies
     /// the decisions to the IPC lane and the shell indicator.
@@ -942,7 +941,7 @@ impl CompositorRuntime<'_> {
     /// virtual-output) to the capture worker for BGRA conversion
     /// (ADR-0127/0186). The worker lane is shared with one-shot captures,
     /// which keep priority: while a one-shot reserves the lane a ready frame
-    /// waits on its surface (flux keeps the completed frame mapped), and a
+    /// waits on its surface (gfx keeps the completed frame mapped), and a
     /// frame held that way for too long logs once instead of starving
     /// silently.
     pub(super) fn poll_offscreen_stream_readbacks(&mut self) {
@@ -980,7 +979,7 @@ impl CompositorRuntime<'_> {
                 Err(error) => {
                     log::warn!(
                         "stream {stream_id}: offscreen readback readiness failed: {error}{}",
-                        flux_last_error_detail()
+                        gfx_last_error_detail()
                     );
                     *stage = OffscreenStreamStage::Idle;
                     stream.dropped += 1;
@@ -1153,12 +1152,12 @@ mod dmabuf_tests {
     /// Wayland runtime dir on this machine.
     #[test]
     fn window_stream_render_pipeline_smoke() {
-        let Ok(device) = optics_flux::Device::new_with_options(optics_flux::DeviceOptions {
+        let Ok(device) = optics_gfx::Device::new_with_options(optics_gfx::DeviceOptions {
             headless: true,
             frames_in_flight: STREAM_SLOT_COUNT as u32,
-            required_features: optics_flux::DeviceFeatures::DMABUF,
-            optional_features: optics_flux::DeviceFeatures::DMABUF_SYNC_FILE,
-            ..optics_flux::DeviceOptions::default()
+            required_features: optics_gfx::DeviceFeatures::DMABUF,
+            optional_features: optics_gfx::DeviceFeatures::DMABUF_SYNC_FILE,
+            ..optics_gfx::DeviceOptions::default()
         }) else {
             return;
         };
@@ -1184,8 +1183,8 @@ mod dmabuf_tests {
         impl StreamPainter for EmptyPainter<'_> {
             fn paint_offscreen_frame(
                 &mut self,
-                device: &optics_flux::Device,
-                canvas: &optics_flux::CanvasCommands<'_>,
+                device: &optics_gfx::Device,
+                canvas: &optics_gfx::CanvasCommands<'_>,
                 target: &OffscreenTarget,
                 geometry: &OffscreenGeometry,
                 _cursor: Option<(u32, (f32, f32))>,
@@ -1257,10 +1256,10 @@ mod dmabuf_tests {
 
         // dmabuf: the window render shares the blit's submit/export tail.
         const LINEAR: u64 = 0; // DRM_FORMAT_MOD_LINEAR
-        let Ok(surface) = optics_flux::Surface::offscreen_dmabuf(&device, 64, 48, &[LINEAR]) else {
+        let Ok(surface) = optics_gfx::Surface::offscreen_dmabuf(&device, 64, 48, &[LINEAR]) else {
             return;
         };
-        let canvas = optics_flux::Canvas::new(&surface).unwrap();
+        let canvas = optics_gfx::Canvas::new(&surface).unwrap();
         let mut dmabuf = DmabufStream {
             surface,
             canvas,
@@ -1298,12 +1297,12 @@ mod dmabuf_tests {
             render_offscreen_stream_dmabuf, render_offscreen_stream_shm,
         };
 
-        let Ok(device) = optics_flux::Device::new_with_options(optics_flux::DeviceOptions {
+        let Ok(device) = optics_gfx::Device::new_with_options(optics_gfx::DeviceOptions {
             headless: true,
             frames_in_flight: STREAM_SLOT_COUNT as u32,
-            required_features: optics_flux::DeviceFeatures::DMABUF,
-            optional_features: optics_flux::DeviceFeatures::DMABUF_SYNC_FILE,
-            ..optics_flux::DeviceOptions::default()
+            required_features: optics_gfx::DeviceFeatures::DMABUF,
+            optional_features: optics_gfx::DeviceFeatures::DMABUF_SYNC_FILE,
+            ..optics_gfx::DeviceOptions::default()
         }) else {
             return;
         };
@@ -1366,10 +1365,10 @@ mod dmabuf_tests {
         }
 
         const LINEAR: u64 = 0;
-        let Ok(surface) = optics_flux::Surface::offscreen_dmabuf(&device, 64, 64, &[LINEAR]) else {
+        let Ok(surface) = optics_gfx::Surface::offscreen_dmabuf(&device, 64, 64, &[LINEAR]) else {
             return;
         };
-        let canvas = optics_flux::Canvas::new(&surface).unwrap();
+        let canvas = optics_gfx::Canvas::new(&surface).unwrap();
         let mut dmabuf = DmabufStream {
             surface,
             canvas,

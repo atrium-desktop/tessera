@@ -187,12 +187,12 @@ command pool is tagged with `d->graphics_family` and the command buffer is freed
 on recycle, so the pool returns to the transient cache instead of being destroyed
 and recreated per import.
 
-- **Owner**: `../optics/libs/flux/src/core/dmabuf.c`
+- **Owner**: `../optics/libs/gfx/src/core/dmabuf.c`
   (`dmabuf_transition_image_layout`),
-  `../optics/libs/flux/src/core/oneshot.c`
-  (`flux_vk_upload_pending_park_families`, `transient_pool_release`).
+  `../optics/libs/gfx/src/core/oneshot.c`
+  (`optics_gfx_vk_upload_pending_park_families`, `transient_pool_release`).
 - **Failure Mode**: Tagging the pool `UINT32_MAX` (the removed plain
-  `flux_vk_upload_pending_park` entry point) made every recycle call
+  `optics_gfx_vk_upload_pending_park` entry point) made every recycle call
   `vkDestroyCommandPool` + `vkCreateCommandPool`; leaving `pool_cmd` unset leaked
   the command buffer into a reset pool on drivers that retain allocations.
 
@@ -246,7 +246,7 @@ opaque surface covering an output.
 **Implemented.** The composited canvas still spans the union, but each CRTC
 owns a primary-plane slot, direct scanout is evaluated against the target
 output, and page flips retire per CRTC. Composite frames still gate on any
-composite slot pending because the Flux ring is shared; direct flips are
+composite slot pending because the gfx ring is shared; direct flips are
 independent. The historical failure modes below remain useful as regression
 markers.
 
@@ -299,7 +299,7 @@ markers.
 | Steady per-frame KMS ioctl traffic under direct scanout | Client framebuffer cache miss (identity unknown, or unbounded eviction) | `crates/tessera-platform/src/drm/device.rs` (`import_scanout_client`, `reap_client_fb_cache`) |
 | One-frame flicker on entering fullscreen | Scene snapshots pushed after the plane decision | `crates/tessera/src/runtime/presentation.rs` (`sync_shell_and_ipc_snapshots` call order) |
 | Random full-output composites while a game owns the screen | `[INV-ARCH-71]` merge clearing pointer-only, or `cursor_motion_plain` rejecting clamped motion | `crates/tessera/src/runtime/input.rs` (`FrameState::merge`, `cursor_motion_plain`) |
-| Per-import command-pool churn in a frame capture | dma-buf transition pool tagged `UINT32_MAX` | `../optics/libs/flux/src/core/dmabuf.c` (`dmabuf_transition_image_layout`) |
+| Per-import command-pool churn in a frame capture | dma-buf transition pool tagged `UINT32_MAX` | `../optics/libs/gfx/src/core/dmabuf.c` (`dmabuf_transition_image_layout`) |
 
 ## Third-Party Behaviours Tessera Must Not Work Around
 

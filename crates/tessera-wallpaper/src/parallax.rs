@@ -55,7 +55,7 @@ struct ImagePlane {
     width: u32,
     height: u32,
     depth: f32,
-    image: Option<optics_flux::Image>,
+    image: Option<optics_gfx::Image>,
     last_uploaded_gen: u64,
 }
 
@@ -73,7 +73,7 @@ impl ImagePlane {
         })
     }
 
-    fn poll_and_upload(&mut self, device: &optics_flux::Device, now: Instant) {
+    fn poll_and_upload(&mut self, device: &optics_gfx::Device, now: Instant) {
         let (pixels, generation) = self.source.poll(now);
         if generation == self.last_uploaded_gen {
             return;
@@ -86,11 +86,11 @@ impl ImagePlane {
             );
             return;
         }
-        match optics_flux::Image::from_bytes(
+        match optics_gfx::Image::from_bytes(
             device,
             self.width,
             self.height,
-            optics_flux::Format::Bgra8Unorm,
+            optics_gfx::Format::Bgra8Unorm,
             pixels,
         ) {
             Ok(image) => {
@@ -144,9 +144,9 @@ impl Motion {
         let rate = 1.0 / tau;
         let dt_sec = dt.as_secs_f32().min(0.050);
         self.current.0 =
-            optics_transit::approach(self.current.0, self.target.0, rate, dt_sec, false);
+            optics_motion::approach(self.current.0, self.target.0, rate, dt_sec, false);
         self.current.1 =
-            optics_transit::approach(self.current.1, self.target.1, rate, dt_sec, false);
+            optics_motion::approach(self.current.1, self.target.1, rate, dt_sec, false);
         if !self.is_animating() {
             self.current = self.target;
         }
@@ -285,8 +285,8 @@ impl ParallaxScene {
 
     pub(super) fn draw(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         dst_w: f32,
         dst_h: f32,
     ) {

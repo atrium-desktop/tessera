@@ -5,7 +5,7 @@
 //! video) and parallax transitions advance inside [`Wallpaper::draw`].
 //!
 //! The crate owns decode, GPU scene-resource, and animation state, but it does
-//! not retain the flux device or canvas. Each frame the main loop calls
+//! not retain the gfx device or canvas. Each frame the main loop calls
 //! [`Wallpaper::draw`] with the current device, canvas, and output size. See
 //! ADR-0018 and ADR-0092 for the design.
 
@@ -31,9 +31,9 @@ pub enum Error {
     UnsupportedFormat(PathBuf, Option<String>),
     FfmpegSpawn(std::io::Error),
     FfmpegEmpty(PathBuf),
-    Gltf(PathBuf, optics_vista::Error),
+    Gltf(PathBuf, optics_scene::Error),
     GltfBounds(PathBuf),
-    Flux(optics_flux::Error),
+    Gfx(optics_gfx::Error),
     Parallax(String),
 }
 
@@ -58,7 +58,7 @@ impl std::fmt::Display for Error {
             Self::GltfBounds(path) => {
                 write!(f, "wallpaper: glTF model {path:?} has no measurable bounds")
             }
-            Self::Flux(err) => write!(f, "wallpaper: 3D render resource: {err}"),
+            Self::Gfx(err) => write!(f, "wallpaper: 3D render resource: {err}"),
             Self::Parallax(msg) => write!(f, "wallpaper: parallax configuration: {msg}"),
         }
     }
@@ -69,15 +69,15 @@ impl std::error::Error for Error {
         match self {
             Self::Open(_, err) | Self::FfmpegSpawn(err) => Some(err),
             Self::Gltf(_, err) => Some(err),
-            Self::Flux(err) => Some(err),
+            Self::Gfx(err) => Some(err),
             _ => None,
         }
     }
 }
 
-impl From<optics_flux::Error> for Error {
-    fn from(err: optics_flux::Error) -> Self {
-        Self::Flux(err)
+impl From<optics_gfx::Error> for Error {
+    fn from(err: optics_gfx::Error) -> Self {
+        Self::Gfx(err)
     }
 }
 
@@ -108,7 +108,7 @@ enum SourceKind {
 }
 
 /// A compositor wallpaper. Owns decode state (and, for video, the ffmpeg
-/// child) and the most recently uploaded flux texture.
+/// child) and the most recently uploaded gfx texture.
 ///
 /// Construction decodes the source to pixels; per-frame rendering is
 /// [`Wallpaper::draw`], which the main loop calls before any client
@@ -117,10 +117,10 @@ pub struct Wallpaper {
     source: SourceKind,
     width: u32,
     height: u32,
-    /// Cached flux texture; re-created only when the source's generation
+    /// Cached gfx texture; re-created only when the source's generation
     /// advances.
-    flux_image: Option<optics_flux::Image>,
-    /// Generation last uploaded to `flux_image`. Initial value forces a
+    optics_gfx_image: Option<optics_gfx::Image>,
+    /// Generation last uploaded to `optics_gfx_image`. Initial value forces a
     /// first-frame upload.
     last_uploaded_gen: u64,
     /// Optional depth-tested model layer drawn between the media background
@@ -174,7 +174,7 @@ impl Wallpaper {
                 source: SourceKind::Still(still),
                 width: w,
                 height: h,
-                flux_image: None,
+                optics_gfx_image: None,
                 last_uploaded_gen: u64::MAX,
                 model: None,
                 parallax: None,
@@ -189,7 +189,7 @@ impl Wallpaper {
             source: SourceKind::Video(video),
             width: w,
             height: h,
-            flux_image: None,
+            optics_gfx_image: None,
             last_uploaded_gen: u64::MAX,
             model: None,
             parallax: None,
@@ -218,7 +218,7 @@ impl Wallpaper {
             source: SourceKind::Still(still),
             width,
             height,
-            flux_image: None,
+            optics_gfx_image: None,
             last_uploaded_gen: u64::MAX,
             model: None,
             parallax: None,
@@ -261,7 +261,7 @@ impl Wallpaper {
             source: SourceKind::Video(video),
             width,
             height,
-            flux_image: None,
+            optics_gfx_image: None,
             last_uploaded_gen: u64::MAX,
             model: None,
             parallax: None,
@@ -279,7 +279,7 @@ impl Wallpaper {
             source: SourceKind::Still(still),
             width: w,
             height: h,
-            flux_image: None,
+            optics_gfx_image: None,
             last_uploaded_gen: u64::MAX,
             model: None,
             parallax: None,
@@ -289,8 +289,8 @@ impl Wallpaper {
     /// Load a `.glb` as a model-only wallpaper. The scene is automatically
     /// framed, then rendered with an orbiting camera and animated key light.
     pub fn from_gltf(
-        device: &optics_flux::Device,
-        surface: &optics_flux::Surface,
+        device: &optics_gfx::Device,
+        surface: &optics_gfx::Surface,
         path: impl AsRef<Path>,
     ) -> Result<Self, Error> {
         let path = path.as_ref();
@@ -299,7 +299,7 @@ impl Wallpaper {
             source: SourceKind::Still(StillSource::transparent_pixel()),
             width: 1,
             height: 1,
-            flux_image: None,
+            optics_gfx_image: None,
             last_uploaded_gen: u64::MAX,
             model: Some(model),
             parallax: None,
@@ -308,15 +308,15 @@ impl Wallpaper {
 
     /// Construct a model-only wallpaper with the built-in procedural scene.
     pub fn from_builtin_model(
-        device: &optics_flux::Device,
-        surface: &optics_flux::Surface,
+        device: &optics_gfx::Device,
+        surface: &optics_gfx::Surface,
     ) -> Result<Self, Error> {
         let model = ModelLayer::builtin(device, surface)?;
         Ok(Self {
             source: SourceKind::Still(StillSource::transparent_pixel()),
             width: 1,
             height: 1,
-            flux_image: None,
+            optics_gfx_image: None,
             last_uploaded_gen: u64::MAX,
             model: Some(model),
             parallax: None,
@@ -335,7 +335,7 @@ impl Wallpaper {
             source: SourceKind::Still(StillSource::transparent_pixel()),
             width,
             height,
-            flux_image: None,
+            optics_gfx_image: None,
             last_uploaded_gen: u64::MAX,
             model: None,
             parallax: Some(parallax),
@@ -345,8 +345,8 @@ impl Wallpaper {
     /// Add a caller-selected `.glb` model over the current media background.
     pub fn set_model_from_gltf(
         &mut self,
-        device: &optics_flux::Device,
-        surface: &optics_flux::Surface,
+        device: &optics_gfx::Device,
+        surface: &optics_gfx::Surface,
         path: impl AsRef<Path>,
     ) -> Result<(), Error> {
         self.model = Some(ModelLayer::from_path(device, surface, path.as_ref())?);
@@ -356,8 +356,8 @@ impl Wallpaper {
     /// Add the built-in procedural knot model over the current background.
     pub fn set_builtin_model(
         &mut self,
-        device: &optics_flux::Device,
-        surface: &optics_flux::Surface,
+        device: &optics_gfx::Device,
+        surface: &optics_gfx::Surface,
     ) -> Result<(), Error> {
         self.model = Some(ModelLayer::builtin(device, surface)?);
         Ok(())
@@ -414,7 +414,7 @@ impl Wallpaper {
     /// Draw the optional 3D model into its own depth-tested pass. The caller
     /// must end any canvas pass first and may begin another canvas pass with
     /// load semantics afterward.
-    pub fn draw_model(&mut self, device: &optics_flux::Device, frame: &mut optics_flux::Frame<'_>) {
+    pub fn draw_model(&mut self, device: &optics_gfx::Device, frame: &mut optics_gfx::Frame<'_>) {
         self.draw_model_into(device, frame, None);
     }
 
@@ -422,18 +422,18 @@ impl Wallpaper {
     /// The target's existing 2D background is loaded and preserved.
     pub fn draw_model_to(
         &mut self,
-        device: &optics_flux::Device,
-        frame: &mut optics_flux::Frame<'_>,
-        target: &optics_flux::Image,
+        device: &optics_gfx::Device,
+        frame: &mut optics_gfx::Frame<'_>,
+        target: &optics_gfx::Image,
     ) {
         self.draw_model_into(device, frame, Some(target));
     }
 
     fn draw_model_into(
         &mut self,
-        device: &optics_flux::Device,
-        frame: &mut optics_flux::Frame<'_>,
-        target: Option<&optics_flux::Image>,
+        device: &optics_gfx::Device,
+        frame: &mut optics_gfx::Frame<'_>,
+        target: Option<&optics_gfx::Image>,
     ) {
         let Some(model) = self.model.as_mut() else {
             return;
@@ -456,8 +456,8 @@ impl Wallpaper {
     /// advanced here using wall-clock time.
     pub fn draw(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         dst_w: f32,
         dst_h: f32,
     ) {
@@ -468,8 +468,8 @@ impl Wallpaper {
     /// source aspect ratio and crops overflow instead of stretching artwork.
     pub fn draw_cover(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         dst_w: f32,
         dst_h: f32,
     ) {
@@ -478,8 +478,8 @@ impl Wallpaper {
 
     fn draw_fitted(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         dst_w: f32,
         dst_h: f32,
         cover: bool,
@@ -497,15 +497,15 @@ impl Wallpaper {
         if r#gen != self.last_uploaded_gen {
             let need = (self.width as usize) * (self.height as usize) * 4;
             if pixels.len() == need {
-                match optics_flux::Image::from_bytes(
+                match optics_gfx::Image::from_bytes(
                     device,
                     self.width,
                     self.height,
-                    optics_flux::Format::Bgra8Unorm,
+                    optics_gfx::Format::Bgra8Unorm,
                     pixels,
                 ) {
                     Ok(img) => {
-                        self.flux_image = Some(img);
+                        self.optics_gfx_image = Some(img);
                         self.last_uploaded_gen = r#gen;
                     }
                     Err(e) => log::warn!("wallpaper: upload failed: {e:?}"),
@@ -518,7 +518,7 @@ impl Wallpaper {
             }
         }
 
-        if let Some(img) = &self.flux_image {
+        if let Some(img) = &self.optics_gfx_image {
             if cover {
                 let (x, y, width, height) =
                     cover_geometry((self.width as f32, self.height as f32), (dst_w, dst_h));

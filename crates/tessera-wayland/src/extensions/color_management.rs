@@ -1,8 +1,8 @@
 //! `wp_color_management_v1` (staging, advertised at version 1): clients tag
 //! their buffers with an image description (parametric primaries+transfer,
 //! or an ICC profile); the compositor decodes tagged content into the
-//! working space at sample time via flux image tags (ADR-0001 boundary:
-//! conversion lives in flux, this module owns protocol + per-surface state).
+//! working space at sample time via gfx image tags (ADR-0001 boundary:
+//! conversion lives in gfx, this module owns protocol + per-surface state).
 //!
 //! The compositor renders one shared framebuffer, so the output image
 //! description is uniform across outputs and follows the session color
@@ -1057,7 +1057,7 @@ unsafe extern "C" fn icc_creator_create(
             return;
         };
         // Header-level validation (acsp signature, RGB display/scanner
-        // class); the renderer's flux ICC parser is the final authority.
+        // class); the renderer's gfx ICC parser is the final authority.
         let valid = bytes.len() >= 132
             && &bytes[36..40] == b"acsp"
             && matches!(&bytes[12..16], b"mntr" | b"scnr")

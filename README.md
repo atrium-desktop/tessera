@@ -26,19 +26,19 @@ The safest first run is a nested session inside an existing Wayland desktop.
 Tessera requires Rust 1.89 or later and the native build dependencies listed in
 the [Getting Started tutorial](docs/tutorials/01-getting-started.md).
 
-Install the Optics `v<OPTICS_VERSION>` native libraries from a distribution package or
+Install the Optics `v0.0.82` native libraries from a distribution package or
 build the matching source release. Building Optics needs a C23 compiler,
 Meson, and `slangc` (Slang 2026.17+; recent Vulkan SDKs bundle it):
 
 ```bash
-git clone --branch "v<OPTICS_VERSION>" --depth 1 \
+git clone --branch "v0.0.82" --depth 1 \
   https://github.com/ming2k/optics.git ../optics
 meson setup ../optics/build ../optics \
   -Dtests=false -Dbuildtype=debugoptimized
 meson compile -C ../optics/build
 sudo meson install -C ../optics/build
 sudo ldconfig
-pkg-config --modversion flux vista lens iris reticle
+pkg-config --modversion optics-gfx optics-scene optics-ui optics-svg optics-text
 ```
 
 From the Tessera repository root, start the compositor. Use the
@@ -74,29 +74,33 @@ to prevent audit store lock contention with the host compositor.
 
 ### How the C libraries are selected
 
-The Rust bindings (`flux`, `lens`, `transit`, `reticle`, ...) are ordinary crates
-compiled into the compositor binary. By default, the Optics C implementations
-are **statically linked** (`libflux.a`, `liblens.a`, `libvista.a`,
-`libreticle.a`, `libglyph.a`) directly into each Tessera executable, while OS
+The Rust bindings (`optics-gfx`, `optics-ui`, `optics-motion`, `optics-svg`, ...) are ordinary crates
+compiled into the compositor binary. The installer builds Optics with
+`-Ddefault_library=static` and sets `OPTICS_STATIC=1`, so released Tessera
+executables embed the archives (`liboptics_gfx.a`, `liboptics_ui.a`, `liboptics_scene.a`,
+`liboptics_svg.a`, `liboptics_text.a`) directly, while OS
 dependencies (`libvulkan`, `freetype`, `harfbuzz`, `fontconfig`, `fribidi`,
-etc.) remain dynamically linked.
+etc.) remain dynamically linked. A development build follows the link mode the
+bindings select: archives on the pinned static-only tree, and the shared
+objects from newer Optics sources.
 
 The patched `*-sys` build scripts auto-discover the sibling `../optics` checkout
 and prepend its `build/meson-uninstalled` directory to `pkg-config`. A
-source-tree `cargo run` therefore links the freshly built static archives from
-`../optics/build` without requiring a system Optics install or runtime RPATH.
+source-tree `cargo run` therefore links the libraries from `../optics/build`
+without requiring a system Optics install; when the bindings choose the shared
+objects, the emitted RPATH points at the same tree.
 
-Set `FLUX_USE_INSTALLED=1` (or the per-crate `*_USE_INSTALLED=1` variables) to
-link against the system pkg-config database instead, `OPTICS_STATIC=1` to
-require static archives, or `OPTICS_DYNAMIC=1` to link Optics shared libraries
-with an RPATH. Pre-1.0 the bindings require the **exact** `X.Y.Z` of the C
-library: a mismatch fails the build instead of silently reading a different
-descriptor layout.
+Set `OPTICS_GFX_USE_INSTALLED=1` (or the per-crate `OPTICS_*_USE_INSTALLED=1` variables) to
+link against the system pkg-config database instead. `OPTICS_STATIC=1` requires
+static archives and `OPTICS_DYNAMIC=1` forces the shared libraries with an
+RPATH. Pre-1.0 the bindings require the **exact** `X.Y.Z` of the C library: a
+mismatch fails the build instead of silently reading a different descriptor
+layout.
 
 Source-tree Cargo commands do not install systemd, D-Bus, portal, desktop, or
 icon metadata. The D-Bus-activated portal backend is built from the
 independent
-[xdg-desktop-portal-atrium repository](https://github.com/aegis-shell/xdg-desktop-portal-atrium)
+[xdg-desktop-portal-atrium repository](https://github.com/atrium-desktop/xdg-desktop-portal-atrium)
 and distributed as a compatibility-mapped optional package; the core
 compositor runs without it. An installed core package can start the
 compositor as a user service:

@@ -11,7 +11,7 @@ mod capture;
 use capture::FrameCapture;
 
 impl CompositorRuntime<'_> {
-    /// Invalidate Flux's per-image damage history across the union surface and
+    /// Invalidate gfx's per-image damage history across the union surface and
     /// every per-output target, and mark every target as owing a presentation.
     pub(super) fn invalidate_all_surface_damage(&mut self) {
         self.surface.invalidate_damage();
@@ -276,7 +276,7 @@ impl CompositorRuntime<'_> {
         // same frame, allowing direct scanout without a one-frame composite
         // lag.
         self.sync_shell_and_ipc_snapshots();
-        // Report the output scale so lens rasterises chrome crisply on a
+        // Report the output scale so optics-ui rasterises chrome crisply on a
         // HiDPI host; layout and input stay in logical pixels.
         self.shell.set_scale(scale);
         // Create/destroy mirror targets before the union frame decides which
@@ -700,7 +700,7 @@ impl CompositorRuntime<'_> {
                             &error,
                             HostError::Drm(DrmError::Busy | DrmError::FlipTimeout)
                         ) {
-                            // No Flux frame was recorded on the direct-scanout
+                            // No gfx frame was recorded on the direct-scanout
                             // path. Carry the assessed damage to the retry
                             // instead of forcing a full composite.
                             self.damage.pending_damage =
@@ -735,7 +735,7 @@ impl CompositorRuntime<'_> {
         // appeared, the cursor moved, chrome opened…): force a full composite so
         // the resumed render is correct rather than skipped as "unchanged".
         if was_scanout {
-            // Direct scanout bypassed Flux's epoch ledger entirely. The first
+            // Direct scanout bypassed gfx's epoch ledger entirely. The first
             // resumed composite has no trustworthy image history.
             self.damage.force_full_redraw = true;
             self.invalidate_all_surface_damage();
@@ -816,7 +816,7 @@ impl CompositorRuntime<'_> {
         } else {
             250_000_000
         };
-        let current_damage = damage.to_flux_damage();
+        let current_damage = damage.to_gfx_damage();
         match self
             .surface
             .begin_frame_timeout_with_damage(acquire_timeout_ns, &current_damage)
@@ -824,19 +824,19 @@ impl CompositorRuntime<'_> {
             Ok(mut frame) => {
                 let frame_slot = frame.index() as usize;
                 // Damage belongs to the swapchain image the presentation
-                // engine handed us, not to the GPU frame slot. Flux owns that
+                // engine handed us, not to the GPU frame slot. gfx owns that
                 // ledger and answers with the exact scope this image must
                 // repaint; the compositor no longer maintains a parallel
                 // per-image history.
                 let image_index = frame.image_index() as usize;
-                let repaint = FrameDamage::from_flux_damage(frame.repaint_scope()?);
+                let repaint = FrameDamage::from_gfx_damage(frame.repaint_scope()?);
                 // Exact physical render area of the currently open output
                 // pass. Full-output and offscreen-target passes leave it as
                 // `None`. The merged desktop-and-chrome pass uses this scope
-                // to decide whether visible Lens chrome intersects the
+                // to decide whether visible optics-ui chrome intersects the
                 // repaint.
                 #[allow(unused_assignments)]
-                let mut output_damage_scope: Vec<optics_flux::CanvasRenderArea> = Vec::new();
+                let mut output_damage_scope: Vec<optics_gfx::CanvasRenderArea> = Vec::new();
                 self.renderer.begin_frame();
                 let render_geometry = RenderGeometry {
                     logical_size,
@@ -986,13 +986,13 @@ impl CompositorRuntime<'_> {
                     ) {
                         self.screenshot_freeze.failed = true;
                     } else if let Some(target) = self.screenshot_freeze.target_mut(frame_slot) {
-                        let capture_ok = (|| -> Result<(), optics_flux::Error> {
+                        let capture_ok = (|| -> Result<(), optics_gfx::Error> {
                             let s1 = self.canvas.begin_session(
-                                optics_flux::ImageTarget {
+                                optics_gfx::ImageTarget {
                                     frame: &mut frame,
                                     image: target,
                                 },
-                                optics_flux::CanvasPassOptions {
+                                optics_gfx::CanvasPassOptions {
                                     clear: Some(self.clear),
                                     damage: Vec::new(),
                                 },
@@ -1011,11 +1011,11 @@ impl CompositorRuntime<'_> {
                             }
 
                             let s2 = self.canvas.begin_session(
-                                optics_flux::ImageTarget {
+                                optics_gfx::ImageTarget {
                                     frame: &mut frame,
                                     image: target,
                                 },
-                                optics_flux::CanvasPassOptions {
+                                optics_gfx::CanvasPassOptions {
                                     clear: None,
                                     damage: Vec::new(),
                                 },
@@ -1138,7 +1138,7 @@ impl CompositorRuntime<'_> {
                 let overlay_session = if desktop_occluded {
                     let s = self.canvas.begin_session(
                         &mut frame,
-                        optics_flux::CanvasPassOptions {
+                        optics_gfx::CanvasPassOptions {
                             clear: Some(self.clear),
                             /* Moved, not cloned: this branch is the mutually
                              * exclusive alternative to the overlay pass below,
@@ -1651,10 +1651,10 @@ impl CompositorRuntime<'_> {
                     }
                 };
                 // The KMS hint is relative to the frame that is actually on
-                // screen, not to this image's own last use. Flux's scanout
+                // screen, not to this image's own last use. gfx's scanout
                 // ledger includes every submitted-but-abandoned frame, so a
                 // Busy retry cannot under-report changed pixels.
-                let scanout_damage = FrameDamage::from_flux_damage(self.surface.scanout_damage()?);
+                let scanout_damage = FrameDamage::from_gfx_damage(self.surface.scanout_damage()?);
                 let damage_rects = scanout_damage.area_rects();
                 let render_scale = self
                     .server
@@ -1940,7 +1940,7 @@ impl CompositorRuntime<'_> {
                     );
                 }
             }
-            Err(error) if error.0 == optics_flux_sys::flux_result::FLUX_ERROR_BUSY => {
+            Err(error) if error.0 == optics_gfx_sys::optics_gfx_result::OPTICS_GFX_ERROR_BUSY => {
                 log::trace!("frame acquire deferred: image lease still held: {error}");
                 if let Some(capture) = frame_capture.take() {
                     refuse_capture_target(
@@ -1959,7 +1959,9 @@ impl CompositorRuntime<'_> {
                     wait: RetryWait::BackendEvent,
                 });
             }
-            Err(error) if error.0 == optics_flux_sys::flux_result::FLUX_ERROR_TIMEOUT => {
+            Err(error)
+                if error.0 == optics_gfx_sys::optics_gfx_result::OPTICS_GFX_ERROR_TIMEOUT =>
+            {
                 // A capture bound by the pre-pass never got its frame; refuse
                 // it so the worker lane is released for the next iteration.
                 log::trace!("frame acquire timed out: {error}");
@@ -1974,7 +1976,7 @@ impl CompositorRuntime<'_> {
                 }
                 // The previous frame's GPU work did not retire inside the
                 // frame timeout (or the presentation engine released no
-                // swapchain image): transient. No Flux frame exists, so this
+                // swapchain image): transient. No gfx frame exists, so this
                 // damage has no epoch entry yet. Carry it forward verbatim;
                 // collapsing to Full here is what turned a transient acquire
                 // miss into three full-output repaints.
@@ -1999,7 +2001,9 @@ impl CompositorRuntime<'_> {
                 let (nw, nh) = self.host.physical_size();
                 match self.surface.resize(nw, nh) {
                     Ok(()) => {}
-                    Err(error) if error.0 == optics_flux_sys::flux_result::FLUX_ERROR_BUSY => {
+                    Err(error)
+                        if error.0 == optics_gfx_sys::optics_gfx_result::OPTICS_GFX_ERROR_BUSY =>
+                    {
                         // A scanout lease still owns the old ring image. Keep
                         // the pending damage and retry once the corresponding
                         // page flip releases it.
@@ -2049,7 +2053,7 @@ impl CompositorRuntime<'_> {
                 if let Err(error) = self.surface.prepare_readback() {
                     log::warn!(
                         "capture: could not preallocate resized readback staging: {error}{}",
-                        flux_last_error_detail()
+                        gfx_last_error_detail()
                     );
                 }
                 // The surface was rebuilt; no backend event exists for it.
@@ -2168,7 +2172,7 @@ impl CompositorRuntime<'_> {
 }
 
 pub(super) fn capture_cursor_snapshot(
-    device: &optics_flux::Device,
+    device: &optics_gfx::Device,
     cache: &mut cursor::CursorCache,
     position: (f32, f32),
     shape: u32,
@@ -2199,22 +2203,21 @@ pub(super) fn has_active_mirror_target(
 }
 
 pub(super) fn begin_desktop_output<'c, 'surface>(
-    canvas: &'c mut optics_flux::Canvas,
-    device: &optics_flux::Device,
-    frame: &'c mut optics_flux::Frame<'surface>,
+    canvas: &'c mut optics_gfx::Canvas,
+    device: &optics_gfx::Device,
+    frame: &'c mut optics_gfx::Frame<'surface>,
     wallpaper: &mut Option<wallpaper::Wallpaper>,
     logical_size: (u32, u32),
     scale: f32,
     clear: u32,
-    damage: Vec<optics_flux::CanvasRenderArea>,
+    damage: Vec<optics_gfx::CanvasRenderArea>,
     model_active: bool,
     wallpaper_occluded: bool,
-) -> Result<optics_flux::CanvasSession<'c, &'c mut optics_flux::Frame<'surface>>, optics_flux::Error>
-{
+) -> Result<optics_gfx::CanvasSession<'c, &'c mut optics_gfx::Frame<'surface>>, optics_gfx::Error> {
     if model_active {
         let s = canvas.begin_session(
             &mut *frame,
-            optics_flux::CanvasPassOptions {
+            optics_gfx::CanvasPassOptions {
                 clear: Some(clear),
                 damage: damage.clone(),
             },
@@ -2228,7 +2231,7 @@ pub(super) fn begin_desktop_output<'c, 'surface>(
         }
         canvas.begin_session(
             frame,
-            optics_flux::CanvasPassOptions {
+            optics_gfx::CanvasPassOptions {
                 clear: None,
                 damage,
             },
@@ -2236,7 +2239,7 @@ pub(super) fn begin_desktop_output<'c, 'surface>(
     } else {
         let s = canvas.begin_session(
             frame,
-            optics_flux::CanvasPassOptions {
+            optics_gfx::CanvasPassOptions {
                 clear: Some(clear),
                 damage,
             },
@@ -2709,7 +2712,7 @@ fn drain_shell_chrome_events_parts(parts: ShellChromeDrainParts<'_>) {
             // chrome the portal flows use, so a stray click on the
             // panel's power knob never powers the machine off.
             // The consent chrome opens in the iteration loop right
-            // after this frame (the flux frame's borrow below
+            // after this frame (the gfx frame's borrow below
             // forbids the `&mut parts` call here).
             if matches!(
                 action,
@@ -2787,7 +2790,7 @@ fn drain_shell_chrome_events_parts(parts: ShellChromeDrainParts<'_>) {
         let result = if parts.server.session_locked() {
             Err("session is locked".into())
         } else {
-            // Disjoint-field form: a Flux frame borrows
+            // Disjoint-field form: a gfx frame borrows
             // `parts.surface` across this whole section.
             settings::commit_settings_parts(
                 expected_revision,

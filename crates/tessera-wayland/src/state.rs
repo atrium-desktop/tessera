@@ -291,7 +291,6 @@ impl State {
             pending_pointer_rehit: std::collections::BTreeSet::new(),
             session_lock: std::ptr::null_mut(),
             session_lock_phase: SessionLockPhase::Unlocked,
-            allow_quit_while_locked: false,
             lock_focus_dirty: false,
             pending_lock_focus: std::ptr::null_mut(),
             pre_lock_keyboard_focus: std::ptr::null_mut(),

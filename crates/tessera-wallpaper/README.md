@@ -10,7 +10,7 @@ wallpaper sources as the bottom-most compositor layers.
 - Pace multi-frame media and upload a new texture only when content changes.
 - Cover-scale image planes with displacement-safe overscan.
 - Interpolate exposed-wallpaper pointer targets across missing observations.
-- Load binary glTF scenes through `vista` and auto-frame their
+- Load binary glTF scenes through `scene` and auto-frame their
   world-space bounds.
 - Animate an orbiting camera, directional light, and Phong highlights.
 - Keep one depth target per frame-in-flight slot and recreate it on resize.
@@ -20,7 +20,7 @@ wallpaper sources as the bottom-most compositor layers.
 ## Boundaries
 
 This crate owns wallpaper decode, GPU scene resources, and animation state. It
-does not choose a wallpaper, watch configuration, own the flux device or
+does not choose a wallpaper, watch configuration, own the gfx device or
 surface, composite client surfaces, or draw shell chrome.
 
 ## Runtime Effect

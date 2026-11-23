@@ -3,7 +3,7 @@
 //! Pure: a [`GestureMap`] is an ordered list of [`GestureBinding`]s —
 //! (finger count, axis) → [`GestureAction`]. The binary layers the
 //! configuration file over the built-in defaults and matches each touchpad
-//! swipe against it. Keeping this module in `tessera-desktop` (no flux, lens, or
+//! swipe against it. Keeping this module in `tessera-desktop` (no gfx, optics-ui, or
 //! Wayland dependency) lets the binding table and name resolvers be
 //! unit-tested in isolation.
 //!

@@ -80,19 +80,19 @@ fn screenshot_freeze_lifecycle_tracks_capture_and_opened_phases() {
 
 #[test]
 fn opaque_frame_fill_replaces_undefined_and_previous_contents() {
-    let Ok(device) = optics_flux::Device::new(true, &[], &[], 0) else {
+    let Ok(device) = optics_gfx::Device::new(true, &[], &[], 0) else {
         return;
     };
     let size = (32, 24);
-    let surface = optics_flux::Surface::offscreen(&device, size.0, size.1).unwrap();
-    let mut canvas = optics_flux::Canvas::new(&surface).unwrap();
+    let surface = optics_gfx::Surface::offscreen(&device, size.0, size.1).unwrap();
+    let mut canvas = optics_gfx::Canvas::new(&surface).unwrap();
 
     for expected in [[13, 77, 191, 255], [211, 43, 29, 255]] {
         let mut frame = surface.begin_frame().unwrap();
         let session = begin_opaque_frame(
             &mut canvas,
             &mut frame,
-            optics_flux::rgba(expected[0], expected[1], expected[2], expected[3]),
+            optics_gfx::rgba(expected[0], expected[1], expected[2], expected[3]),
         )
         .unwrap();
         session.end().unwrap();
@@ -117,16 +117,16 @@ fn opaque_frame_fill_replaces_undefined_and_previous_contents() {
 
 #[test]
 fn base_and_overlay_passes_composite_in_order() {
-    let Ok(device) = optics_flux::Device::new(true, &[], &[], 1) else {
+    let Ok(device) = optics_gfx::Device::new(true, &[], &[], 1) else {
         return;
     };
     let size = (32, 24);
-    let surface = optics_flux::Surface::offscreen(&device, size.0, size.1).unwrap();
-    let mut canvas = optics_flux::Canvas::new(&surface).unwrap();
+    let surface = optics_gfx::Surface::offscreen(&device, size.0, size.1).unwrap();
+    let mut canvas = optics_gfx::Canvas::new(&surface).unwrap();
 
     let mut frame = surface.begin_frame().unwrap();
     let session =
-        begin_opaque_frame(&mut canvas, &mut frame, optics_flux::rgba(200, 30, 20, 255)).unwrap();
+        begin_opaque_frame(&mut canvas, &mut frame, optics_gfx::rgba(200, 30, 20, 255)).unwrap();
     session.end().unwrap();
     frame.submit().unwrap().present().unwrap();
 
@@ -134,7 +134,7 @@ fn base_and_overlay_passes_composite_in_order() {
     /* Whole-output repaint on purpose. This test proves the *pass boundary*
      * between the base pass and a later overlay pass, not damage
      * localization — the latter is covered by `frame_damage_scope_*` above.
-     * Using a narrow rect here would make the assertions depend on flux's
+     * Using a narrow rect here would make the assertions depend on gfx's
      * swapchain epoch history, which is a different subsystem's contract and
      * would silently couple the two. */
     let repaint = FrameDamage::Full;
@@ -142,12 +142,12 @@ fn base_and_overlay_passes_composite_in_order() {
         &mut canvas,
         &mut frame,
         size,
-        optics_flux::rgba(10, 80, 220, 255),
+        optics_gfx::rgba(10, 80, 220, 255),
         &repaint,
     )
     .unwrap();
     // End the base pass, then reopen a LOAD pass for the overlay. A
-    // self-intersecting fill is intentional: flux's analytic rasterizer
+    // self-intersecting fill is intentional: gfx's analytic rasterizer
     // resolves overlapping contours without a stencil attachment, so the
     // bowtie must draw in the second pass and leave the base pass intact.
     session.end().unwrap();
@@ -157,8 +157,8 @@ fn base_and_overlay_passes_composite_in_order() {
         frame_damage_scope(&repaint, (256, 256)),
     )
     .unwrap();
-    let arena = optics_flux::Arena::with_capacity(4096).unwrap();
-    let path = optics_flux::Path::new(&arena).unwrap();
+    let arena = optics_gfx::Arena::with_capacity(4096).unwrap();
+    let path = optics_gfx::Path::new(&arena).unwrap();
     path.move_to(11.0, 8.0)
         .line_to(15.0, 12.0)
         .line_to(11.0, 12.0)
@@ -166,8 +166,8 @@ fn base_and_overlay_passes_composite_in_order() {
         .close();
     session.fill_path(
         &path,
-        optics_flux::FillRule::NonZero,
-        &optics_flux::Brush::solid(optics_flux::rgba(20, 220, 70, 255)),
+        optics_gfx::FillRule::NonZero,
+        &optics_gfx::Brush::solid(optics_gfx::rgba(20, 220, 70, 255)),
     );
     session.end().unwrap();
     frame.submit().unwrap().present().unwrap();
@@ -217,7 +217,7 @@ fn base_and_overlay_passes_composite_in_order() {
 ///
 /// A compositor frame's damage is routinely two distant bands — a top HUD and a
 /// bottom dock — whose union is the whole output. Collapsing the set to that box
-/// before flux sees it would make every chrome repaint an output-wide composite
+/// before gfx sees it would make every chrome repaint an output-wide composite
 /// and destroy the localisation the damage pipeline exists to carry
 /// (ADR-0203, Optics ADR-0149). The list is therefore the contract here.
 #[test]
@@ -230,32 +230,32 @@ fn frame_damage_scope_preserves_the_set_instead_of_its_bounding_box() {
     assert_eq!(
         scope,
         vec![
-            optics_flux::CanvasRenderArea {
+            optics_gfx::CanvasRenderArea {
                 x: 11.0,
                 y: 7.0,
                 width: 5.0,
                 height: 9.0,
             },
-            optics_flux::CanvasRenderArea {
+            optics_gfx::CanvasRenderArea {
                 x: 29.0,
                 y: 3.0,
                 width: 4.0,
                 height: 8.0,
             },
         ],
-        "each damaged region must reach flux as its own rectangle"
+        "each damaged region must reach gfx as its own rectangle"
     );
 
-    /* `Full` and `None` both mean the whole destination, which flux expresses
+    /* `Full` and `None` both mean the whole destination, which gfx expresses
      * as an empty scope. A non-empty scope would be a *narrower* claim. */
     assert!(frame_damage_scope(&FrameDamage::Full, (256, 256)).is_empty());
     assert!(frame_damage_scope(&FrameDamage::None, (256, 256)).is_empty());
 }
 
-/// Both flux backends reject a scope naming no pixel of the target, or a rect
+/// Both gfx backends reject a scope naming no pixel of the target, or a rect
 /// with a degenerate dimension. Handing one out does not merely skip a
 /// rectangle: the pass fails to begin and the frame loses its chrome, which
-/// surfaced as `shell chrome render failed: Render(FLUX_ERROR_INVALID_ARGUMENT)`
+/// surfaced as `shell chrome render failed: Render(OPTICS_GFX_ERROR_INVALID_ARGUMENT)`
 /// and then, on the shell side, as a per-frame rebuild loop.
 #[test]
 fn test_inv_arch_94_every_scope_rect_is_clamped_to_the_framebuffer() {
@@ -268,13 +268,13 @@ fn test_inv_arch_94_every_scope_rect_is_clamped_to_the_framebuffer() {
     assert_eq!(
         frame_damage_scope(&edge, (1920, 1080)),
         vec![
-            optics_flux::CanvasRenderArea {
+            optics_gfx::CanvasRenderArea {
                 x: 1800.0,
                 y: 1000.0,
                 width: 120.0,
                 height: 80.0,
             },
-            optics_flux::CanvasRenderArea {
+            optics_gfx::CanvasRenderArea {
                 x: 10.0,
                 y: 10.0,
                 width: 20.0,
@@ -287,7 +287,7 @@ fn test_inv_arch_94_every_scope_rect_is_clamped_to_the_framebuffer() {
     let negative = FrameDamage::Area(vec![tessera_primitives::Rect::new(-30, -20, 100, 90)]);
     assert_eq!(
         frame_damage_scope(&negative, (1920, 1080)),
-        vec![optics_flux::CanvasRenderArea {
+        vec![optics_gfx::CanvasRenderArea {
             x: 0.0,
             y: 0.0,
             width: 70.0,
@@ -302,7 +302,7 @@ fn test_inv_arch_94_every_scope_rect_is_clamped_to_the_framebuffer() {
     let offscreen = FrameDamage::Area(vec![tessera_primitives::Rect::new(5000, 5000, 100, 100)]);
     assert_eq!(
         frame_damage_scope(&offscreen, (1920, 1080)),
-        vec![optics_flux::CanvasRenderArea {
+        vec![optics_gfx::CanvasRenderArea {
             x: 0.0,
             y: 0.0,
             width: 1920.0,
@@ -312,7 +312,7 @@ fn test_inv_arch_94_every_scope_rect_is_clamped_to_the_framebuffer() {
     let negative_far = FrameDamage::Area(vec![tessera_primitives::Rect::new(-500, 0, 100, 100)]);
     assert_eq!(
         frame_damage_scope(&negative_far, (1920, 1080)),
-        vec![optics_flux::CanvasRenderArea {
+        vec![optics_gfx::CanvasRenderArea {
             x: 0.0,
             y: 0.0,
             width: 1920.0,
@@ -328,7 +328,7 @@ fn test_inv_arch_94_every_scope_rect_is_clamped_to_the_framebuffer() {
     ]);
     assert_eq!(
         frame_damage_scope(&mixed, (1920, 1080)),
-        vec![optics_flux::CanvasRenderArea {
+        vec![optics_gfx::CanvasRenderArea {
             x: 10.0,
             y: 10.0,
             width: 1.0,
@@ -348,11 +348,11 @@ fn test_inv_arch_94_every_scope_rect_is_clamped_to_the_framebuffer() {
 fn window_shadows_are_materialized_before_they_are_composited() {
     use tessera_desktop::window::{Window, WindowShadowStyle};
 
-    let Ok(device) = optics_flux::Device::new(true, &[], &[], 0) else {
+    let Ok(device) = optics_gfx::Device::new(true, &[], &[], 0) else {
         return;
     };
-    let surface = optics_flux::Surface::offscreen(&device, 320, 240).unwrap();
-    let mut canvas = optics_flux::Canvas::new(&surface).unwrap();
+    let surface = optics_gfx::Surface::offscreen(&device, 320, 240).unwrap();
+    let mut canvas = optics_gfx::Canvas::new(&surface).unwrap();
     let mut renderer = WindowShadowRenderer::new(&device).unwrap();
     let mut window = Window::new(tessera_desktop::window::WindowId(1));
     window.size = tessera_primitives::Size { w: 120, h: 80 };
@@ -386,24 +386,24 @@ fn window_shadows_are_materialized_before_they_are_composited() {
     let session = canvas
         .begin_session(
             &mut frame,
-            optics_flux::CanvasPassOptions {
+            optics_gfx::CanvasPassOptions {
                 // A white clear, not a black one: the shadow's tint is black
                 // (`ShadowParams::tint_*` are 0), so a black backdrop would
                 // make "the shadow arrived" and "nothing was drawn"
                 // indistinguishable pixel-for-pixel.
-                clear: Some(optics_flux::rgba(255, 255, 255, 255)),
+                clear: Some(optics_gfx::rgba(255, 255, 255, 255)),
                 ..Default::default()
             },
         )
         .unwrap();
     let shadow = &shadows[0];
-    let geometry = optics_flux::sys::flux_geometry {
-        kind: optics_flux::sys::flux_geom_kind::FLUX_GEOM_RECT,
+    let geometry = optics_gfx::sys::optics_gfx_geometry {
+        kind: optics_gfx::sys::optics_gfx_geom_kind::OPTICS_GFX_GEOM_RECT,
         _pad: [0; 3],
-        stroke: optics_flux::sys::flux_stroke_style::default(),
-        __bindgen_anon_1: optics_flux::sys::flux_geometry__bindgen_ty_1 {
-            rect: optics_flux::sys::flux_geom_rect_data {
-                rect: optics_flux::sys::flux_rect {
+        stroke: optics_gfx::sys::optics_gfx_stroke_style::default(),
+        __bindgen_anon_1: optics_gfx::sys::optics_gfx_geometry__bindgen_ty_1 {
+            rect: optics_gfx::sys::optics_gfx_geom_rect_data {
+                rect: optics_gfx::sys::optics_gfx_rect {
                     x: shadow.x,
                     y: shadow.y,
                     w: shadow.w,
@@ -412,15 +412,15 @@ fn window_shadows_are_materialized_before_they_are_composited() {
             },
         },
     };
-    let brush = optics_flux::sys::flux_brush {
-        kind: optics_flux::sys::flux_brush_kind::FLUX_BRUSH_IMAGE_PATTERN,
-        blend: optics_flux::sys::flux_blend_mode::FLUX_BLEND_SRC_OVER,
+    let brush = optics_gfx::sys::optics_gfx_brush {
+        kind: optics_gfx::sys::optics_gfx_brush_kind::OPTICS_GFX_BRUSH_IMAGE_PATTERN,
+        blend: optics_gfx::sys::optics_gfx_blend_mode::OPTICS_GFX_BLEND_SRC_OVER,
         opacity: 1.0,
-        __bindgen_anon_1: optics_flux::sys::flux_brush__bindgen_ty_1 {
-            image: optics_flux::sys::flux_brush_image_data {
+        __bindgen_anon_1: optics_gfx::sys::optics_gfx_brush__bindgen_ty_1 {
+            image: optics_gfx::sys::optics_gfx_brush_image_data {
                 image: shadow.raw,
                 sampler: std::ptr::null_mut(),
-                src_rect: optics_flux::sys::flux_rect {
+                src_rect: optics_gfx::sys::optics_gfx_rect {
                     x: 0.0,
                     y: 0.0,
                     w: 0.0,
@@ -428,7 +428,7 @@ fn window_shadows_are_materialized_before_they_are_composited() {
                 },
                 opaque_only: false,
                 tint: 0xFFFFFFFF,
-                clip_rect: optics_flux::sys::flux_rect {
+                clip_rect: optics_gfx::sys::optics_gfx_rect {
                     x: 0.0,
                     y: 0.0,
                     w: 0.0,
@@ -439,9 +439,9 @@ fn window_shadows_are_materialized_before_they_are_composited() {
         },
     };
     unsafe {
-        optics_flux::sys::flux_canvas_draw_geometry(
+        optics_gfx::sys::optics_gfx_canvas_draw_geometry(
             canvas_raw,
-            &optics_flux::sys::flux_canvas_draw_geometry_opts {
+            &optics_gfx::sys::optics_gfx_canvas_draw_geometry_opts {
                 geom: &geometry,
                 brush: &brush,
             },
@@ -449,11 +449,12 @@ fn window_shadows_are_materialized_before_they_are_composited() {
     };
     session.end().unwrap();
     assert!(
-        optics_flux::ErrorInfo::last().is_none_or(|info| {
-            info.code == optics_flux::sys::flux_result::FLUX_OK || info.function.is_none()
+        optics_gfx::ErrorInfo::last().is_none_or(|info| {
+            info.code == optics_gfx::sys::optics_gfx_result::OPTICS_GFX_OK
+                || info.function.is_none()
         }),
         "the shadow draw must not be rejected: {:?}",
-        optics_flux::ErrorInfo::last()
+        optics_gfx::ErrorInfo::last()
     );
 
     frame.submit().unwrap().present().unwrap();

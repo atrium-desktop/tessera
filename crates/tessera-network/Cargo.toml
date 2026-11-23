@@ -4,6 +4,7 @@ description = "Backend-neutral network snapshots, service protocol, and daemon-n
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
+publish = false
 license.workspace = true
 rust-version.workspace = true
 

@@ -1,10 +1,10 @@
-//! lens theme factories for product-level surfaces.
+//! optics-ui theme factories for product-level surfaces.
 
-use optics_lens::{Color, Theme};
+use optics_ui::{Color, Theme};
 
 use crate::Design;
 
-/// Apply the shared compact menu appearance to an existing lens theme.
+/// Apply the shared compact menu appearance to an existing optics-ui theme.
 #[must_use]
 pub fn menu(base: Theme, design: &Design) -> Theme {
     base.with_bg(design.colors.popover_surface)
@@ -30,7 +30,7 @@ pub fn menu_disabled(menu: Theme, design: &Design) -> Theme {
 
 /// The application theme used by System Settings and trusted chrome surfaces.
 ///
-/// The lens base must match the design's scheme: it supplies the widget
+/// The optics-ui base must match the design's scheme: it supplies the widget
 /// defaults the tokens below do not override (caret, selection, focus ring),
 /// which would sit on the wrong tonal side otherwise.
 #[must_use]
@@ -51,15 +51,15 @@ pub fn application(design: &Design) -> Theme {
         .with_scrollbar_radius(design.radii.scrollbar)
         // Thumb-only bar: a permanent track strip reads as a stray divider
         // on cards and chrome surfaces. The scheme-correct rest/hover/active
-        // thumb ramp comes from the lens base theme.
+        // thumb ramp comes from the optics-ui base theme.
         .with_scrollbar_track_color(Color::TRANSPARENT)
 }
 
-/// The scheme-correct lens base (light or dark) with only the foreground
+/// The scheme-correct optics-ui base (light or dark) with only the foreground
 /// re-toned to the design's text color.
 ///
-/// Hosts that own the lens context push this onto `Ui::set_theme` when the
-/// desktop scheme changes so bare lens widgets — vector icons and anything
+/// Hosts that own the optics-ui context push this onto `Ui::set_theme` when the
+/// desktop scheme changes so bare optics-ui widgets — vector icons and anything
 /// not explicitly styled — draw on the same tonal side as the design
 /// instead of the creation-time dark token set. It deliberately carries no
 /// background, border, or accent overrides: components supply their own

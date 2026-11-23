@@ -18,12 +18,17 @@ fi
 # When started from a greeter, re-exec through the login shell first so
 # profile environment (PATH, locale, proxies) reaches the systemd user
 # manager below.
-if [ -n "$SHELL" ] &&
-    grep -q "$SHELL" /etc/shells &&
+if [ -n "${SHELL:-}" ] &&
+    grep -qx "$SHELL" /etc/shells &&
     ! (echo "$SHELL" | grep -q "false") &&
     ! (echo "$SHELL" | grep -q "nologin"); then
-    if [ "$1" != '-l' ]; then
-        exec bash -c "exec -l '$SHELL' -c 'exec $0 -l $@'"
+    if [ "${1:-}" != '-l' ]; then
+        # Re-exec once under a login shell so its profile is read. The script
+        # path and every argument are passed as positional parameters, never
+        # pasted into a command string: a path with a space or a quote stays
+        # one argument, and `$@` never collapses into a single word.
+        exec bash -c 'exec -l "$SHELL" -c '"'"'exec "$0" -l "$@"'"'"' "$0" "$@"' \
+            "$0" "$@"
     else
         shift
     fi
@@ -40,12 +45,18 @@ if hash systemctl >/dev/null 2>&1; then
     systemctl --user reset-failed
 
     # Import the login manager environment. systemd >= 256 deprecates
-    # `import-environment` without an explicit variable list, so enumerate
-    # the login environment names; values are read from this process.
-    login_env_names=$(env | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' | tr '\n' ' ')
-    if [ -n "$login_env_names" ]; then
-        # Word splitting is intended: each name is a separate argument.
-        systemctl --user import-environment $login_env_names
+    # `import-environment` without an explicit variable list, so enumerate the
+    # login environment names; values are read from this process.
+    #
+    # Names are collected as separate positional arguments rather than as one
+    # space-joined word, so nothing is re-split or globbed when the list is
+    # handed to systemctl.
+    set --
+    for name in $(env | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p'); do
+        set -- "$@" "$name"
+    done
+    if [ "$#" -gt 0 ]; then
+        systemctl --user import-environment "$@"
     fi
 
     # DBus activation environment is independent from systemd. While most of

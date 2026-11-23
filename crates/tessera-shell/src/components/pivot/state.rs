@@ -1,7 +1,7 @@
 //! Headless state machine for Pivot (ADR-0157, ADR-0174).
 //!
 //! Owns application filtering, query state, category selections, and action execution
-//! with zero graphical, GPU, or Lens dependencies.
+//! with zero graphical, GPU, or optics-ui dependencies.
 
 use crate::component::{ChromeEvents, Message};
 use tessera_desktop::app::{BuiltInApplication, Entry};

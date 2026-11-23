@@ -6,8 +6,8 @@
 //!
 //! Follows the Model-Motion-View (MMV) architecture:
 //! - [`state`]: Headless, deterministic search, catalog, and action execution state machine.
-//! - [`motion`]: Progressive disclosure visibility dynamics driven via Optics `transit`.
-//! - [`rendering`]: Stateless UI projection using Lens Frame, typography tokens, and painted fills.
+//! - [`motion`]: Progressive disclosure visibility dynamics driven via Optics `optics-motion`.
+//! - [`rendering`]: Stateless UI projection using optics-ui Frame, typography tokens, and painted fills.
 
 pub mod motion;
 pub mod rendering;
@@ -24,7 +24,7 @@ use crate::component::{
     AppCatalog, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape, IconSet, Localizer,
 };
 use crate::widgets::geom::contains;
-use optics_lens::{Frame, Input, Rect};
+use optics_ui::{Frame, Input, Rect};
 use tessera_design::Design;
 use tessera_desktop::window::Window;
 use tessera_desktop::workspace::WorkspaceSnapshot;

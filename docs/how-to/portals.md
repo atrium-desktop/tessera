@@ -28,7 +28,7 @@ that private protocol incompatible.
 
 Use the distribution package when one is available. The
 `xdg-desktop-portal-atrium` package must install all of these files from the
-[xdg-desktop-portal-atrium repository](https://github.com/aegis-shell/xdg-desktop-portal-atrium):
+[xdg-desktop-portal-atrium repository](https://github.com/atrium-desktop/xdg-desktop-portal-atrium):
 
 | Source | Destination |
 |--------|-------------|
@@ -50,12 +50,14 @@ private helper on demand.
 
 ### Install a source build system-wide
 
-Clone the compatible Portal tag listed in the reference, then build from the
-Portal repository root:
+Clone a Portal release tag from the
+[compatibility reference](https://github.com/atrium-desktop/xdg-desktop-portal-atrium/blob/main/docs/reference/compatibility.md)
+that serves this Tessera release, then build from the Portal repository root:
 
 ```bash
-git clone --branch "v<PORTAL_VERSION>" --depth 1 \
-  https://github.com/aegis-shell/xdg-desktop-portal-atrium.git \
+portal_tag=v0.0.38   # a release the compatibility table lists for this Tessera
+git clone --branch "$portal_tag" --depth 1 \
+  https://github.com/atrium-desktop/xdg-desktop-portal-atrium.git \
   ../xdg-desktop-portal-atrium
 cd ../xdg-desktop-portal-atrium
 cargo build --locked --release -p xdg-desktop-portal-atrium -p atrium-portal-prompter

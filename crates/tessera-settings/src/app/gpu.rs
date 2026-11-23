@@ -1,11 +1,11 @@
-//! Flux/Lens rendering for the Settings window's single surface.
+//! gfx/optics-ui rendering for the Settings window's single surface.
 
 use std::ffi::CStr;
 use std::os::raw::c_void;
 use std::ptr;
 
 use ash::vk::{self, Handle};
-use optics_lens::{CursorHint, Input, Ui};
+use optics_ui::{CursorHint, Input, Ui};
 use tessera_design::{Design, themes};
 use tessera_i18n::Localizer;
 use tessera_settings::SettingsHost;
@@ -19,16 +19,16 @@ const DEVICE_EXTENSIONS: [&CStr; 1] = [c"VK_KHR_swapchain"];
 #[derive(Debug)]
 pub enum RenderError {
     Vulkan,
-    Flux(optics_flux::Error),
-    Lens(optics_lens::Error),
+    Gfx(optics_gfx::Error),
+    Ui(optics_ui::Error),
 }
 
 impl std::fmt::Display for RenderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Vulkan => f.write_str("Vulkan is unavailable"),
-            Self::Flux(err) => write!(f, "{err}"),
-            Self::Lens(err) => write!(f, "{err}"),
+            Self::Gfx(err) => write!(f, "{err}"),
+            Self::Ui(err) => write!(f, "{err}"),
         }
     }
 }
@@ -36,22 +36,22 @@ impl std::fmt::Display for RenderError {
 impl std::error::Error for RenderError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Flux(err) => Some(err),
-            Self::Lens(err) => Some(err),
+            Self::Gfx(err) => Some(err),
+            Self::Ui(err) => Some(err),
             Self::Vulkan => None,
         }
     }
 }
 
-impl From<optics_flux::Error> for RenderError {
-    fn from(err: optics_flux::Error) -> Self {
-        Self::Flux(err)
+impl From<optics_gfx::Error> for RenderError {
+    fn from(err: optics_gfx::Error) -> Self {
+        Self::Gfx(err)
     }
 }
 
-impl From<optics_lens::Error> for RenderError {
-    fn from(err: optics_lens::Error) -> Self {
-        Self::Lens(err)
+impl From<optics_ui::Error> for RenderError {
+    fn from(err: optics_ui::Error) -> Self {
+        Self::Ui(err)
     }
 }
 
@@ -63,13 +63,13 @@ pub struct FrameOutcome {
 }
 
 pub struct Graphics {
-    device: optics_flux::Device,
+    device: optics_gfx::Device,
     ash: AshBridge,
 }
 
 impl Graphics {
     pub fn new(connection: &Connection) -> Result<Self, RenderError> {
-        let device = optics_flux::Device::new(true, &INSTANCE_EXTENSIONS, &DEVICE_EXTENSIONS, 2)?;
+        let device = optics_gfx::Device::new(true, &INSTANCE_EXTENSIONS, &DEVICE_EXTENSIONS, 2)?;
         let ash = AshBridge::new(connection, &device)?;
         Ok(Self { device, ash })
     }
@@ -85,9 +85,9 @@ impl Graphics {
         let physical = physical_size(logical_size, scale);
         let vk_surface = self.ash.create_surface(connection, wl_surface)?;
         // SAFETY: `vk_surface` was created on this device's instance and lives
-        // until `destroy_surface`, which drops the flux surface first.
+        // until `destroy_surface`, which drops the gfx surface first.
         let surface = match unsafe {
-            optics_flux::Surface::from_vk(
+            optics_gfx::Surface::from_vk(
                 &self.device,
                 vk_surface.as_raw() as usize as *mut c_void,
                 physical.0,
@@ -101,37 +101,40 @@ impl Graphics {
                 return Err(error.into());
             }
         };
-        let canvas = optics_flux::Canvas::new(&surface)?;
+        let canvas = optics_gfx::Canvas::new(&surface)?;
         // SAFETY: the device outlives the Ui; both are owned by `Graphics`'
         // caller in drop order (surface before graphics). The clipboard
         // pointer is the boxed `clipboard::Host` owned by `App`; it outlives
         // this surface and is stable across resizes.
         let mut raw = ptr::null_mut();
-        let desc = optics_lens::sys::lens_desc {
-            size: std::mem::size_of::<optics_lens::sys::lens_desc>() as u32,
-            device: self.device.as_raw().cast::<optics_lens::sys::flux_device>(),
-            theme: unsafe { optics_lens::sys::lens_theme_dark() },
-            clipboard: optics_lens::sys::lens_clipboard {
+        let desc = optics_ui::sys::optics_ui_desc {
+            size: std::mem::size_of::<optics_ui::sys::optics_ui_desc>() as u32,
+            device: self
+                .device
+                .as_raw()
+                .cast::<optics_ui::sys::optics_gfx_device>(),
+            theme: unsafe { optics_ui::sys::optics_ui_theme_dark() },
+            clipboard: optics_ui::sys::optics_ui_clipboard {
                 request_text: Some(clipboard::request_text),
                 set_text: Some(clipboard::set_text),
                 user: clipboard_user,
             },
             ..unsafe { std::mem::zeroed() }
         };
-        let result = unsafe { optics_lens::sys::lens_create(&desc, &mut raw) };
-        if result != optics_lens::sys::flux_result::FLUX_OK || raw.is_null() {
-            return Err(RenderError::Lens(optics_lens::Error::Create(
-                optics_lens::FluxDiagnostic::for_test(result),
+        let result = unsafe { optics_ui::sys::optics_ui_create(&desc, &mut raw) };
+        if result != optics_ui::sys::optics_gfx_result::OPTICS_GFX_OK || raw.is_null() {
+            return Err(RenderError::Ui(optics_ui::Error::Create(
+                optics_ui::GfxDiagnostic::for_test(result),
             )));
         }
-        let owned_lens = OwnedLens(raw);
+        let owned_ui = OwnedUi(raw);
         let mut ui = unsafe { Ui::borrow_raw(raw) };
         ui.set_scale(scale);
         Ok(RenderSurface {
             surface,
             canvas,
             ui,
-            _lens: owned_lens,
+            _ui: owned_ui,
             vk_surface,
             logical_size,
             scale,
@@ -147,28 +150,28 @@ impl Graphics {
     }
 }
 
-/// Owns a raw Lens context created with the host clipboard descriptor.
+/// Owns a raw Optics UI context created with the host clipboard descriptor.
 /// [`Ui::borrow_raw`] does not release a borrowed context, so this guard is
 /// the single owner and drops after `ui` in declaration order.
-struct OwnedLens(*mut optics_lens::sys::lens);
+struct OwnedUi(*mut optics_ui::sys::optics_ui);
 
-impl Drop for OwnedLens {
+impl Drop for OwnedUi {
     fn drop(&mut self) {
-        // SAFETY: `lens_create` returned this context and this guard has not
+        // SAFETY: `optics_ui_create` returned this context and this guard has not
         // released it; the borrowed `Ui` is dropped first.
-        unsafe { optics_lens::sys::lens_release(self.0) };
+        unsafe { optics_ui::sys::optics_ui_release(self.0) };
     }
 }
 
 pub struct RenderSurface {
-    surface: optics_flux::Surface,
-    canvas: optics_flux::Canvas,
+    surface: optics_gfx::Surface,
+    canvas: optics_gfx::Canvas,
     ui: Ui,
-    _lens: OwnedLens,
+    _ui: OwnedUi,
     vk_surface: vk::SurfaceKHR,
     logical_size: (u32, u32),
     scale: f32,
-    /// The design the Lens base theme was last set from.
+    /// The design the optics-ui base theme was last set from.
     design: Option<Design>,
 }
 
@@ -188,7 +191,7 @@ impl RenderSurface {
         Ok(())
     }
 
-    /// Deliver clipboard text to the focused Lens text widget. The payload is
+    /// Deliver clipboard text to the focused optics-ui text widget. The payload is
     /// consumed by the next frame's build.
     pub fn paste(&mut self, text: &str) {
         self.ui.paste(text);
@@ -212,8 +215,8 @@ impl RenderSurface {
         let background = design.colors.application_surface;
         let session = self.canvas.begin_session(
             &mut frame,
-            optics_flux::CanvasPassOptions {
-                clear: Some(optics_flux::rgba(
+            optics_gfx::CanvasPassOptions {
+                clear: Some(optics_gfx::rgba(
                     background.r(),
                     background.g(),
                     background.b(),
@@ -227,7 +230,7 @@ impl RenderSurface {
         let snapshot = self.ui.snapshot()?;
         // SAFETY: the canvas session is live until `end` below.
         unsafe {
-            snapshot.submit(session.as_raw().cast::<optics_lens::sys::flux_canvas>())?;
+            snapshot.submit(session.as_raw().cast::<optics_ui::sys::optics_gfx_canvas>())?;
         }
         self.ui.activate(&snapshot)?;
         session.end()?;
@@ -256,10 +259,10 @@ struct AshBridge {
 }
 
 impl AshBridge {
-    fn new(connection: &Connection, device: &optics_flux::Device) -> Result<Self, RenderError> {
+    fn new(connection: &Connection, device: &optics_gfx::Device) -> Result<Self, RenderError> {
         // SAFETY: loading the system Vulkan loader has no preconditions.
         let entry = unsafe { ash::Entry::load() }.map_err(|_| RenderError::Vulkan)?;
-        // SAFETY: flux created this instance and keeps it alive with the device.
+        // SAFETY: gfx created this instance and keeps it alive with the device.
         let instance = unsafe {
             ash::Instance::load(
                 entry.static_fn(),
@@ -297,7 +300,7 @@ impl AshBridge {
     }
 
     fn destroy_surface(&self, surface: vk::SurfaceKHR) {
-        // SAFETY: callers destroy the flux surface built on it first.
+        // SAFETY: callers destroy the gfx surface built on it first.
         unsafe {
             self.surface.destroy_surface(surface, None);
         }

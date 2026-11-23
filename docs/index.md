@@ -1,8 +1,8 @@
 # tessera Documentation
 
 tessera is a Wayland compositor for Linux, written in Rust on
-[flux](https://github.com/ming2k/optics/tree/main/libs/flux) and
-[lens](https://github.com/ming2k/optics/tree/main/libs/lens). Start with the
+[gfx](https://github.com/ming2k/optics/tree/main/libs/gfx) and
+[optics-ui](https://github.com/ming2k/optics/tree/main/libs/ui). Start with the
 [README](../README.md) for the project pitch and the shortest run path.
 
 ## Sections

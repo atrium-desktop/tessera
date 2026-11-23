@@ -11,7 +11,7 @@ dispatch library for the unified `tessera` binary.
 - Format query results for humans or as JSON.
 - Stream compositor and mutation-journal events.
 - Generate shell completions for the unified `tessera` command.
-- Keep command dispatch testable without Flux, Lens, Vulkan, or Wayland server
+- Keep command dispatch testable without gfx, optics-ui, Vulkan, or Wayland server
   dependencies.
 
 ## Boundaries

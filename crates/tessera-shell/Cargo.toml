@@ -4,6 +4,7 @@ description = "Compositor chrome host and contract: Shell, Chrome, launcher, wor
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
+publish = false
 license.workspace = true
 rust-version.workspace = true
 build = "build.rs"
@@ -32,21 +33,21 @@ required-features = ["persona"]
 tessera-launch-services = { workspace = true, optional = true }
 tessera-assets = { workspace = true, optional = true }
 tessera-dbus = { workspace = true, optional = true }
-optics-vista-sys.workspace = true
+optics-scene-sys.workspace = true
 tessera-authority.workspace = true
 tessera-desktop.workspace = true
 tessera-primitives.workspace = true
 tessera-design = { workspace = true }
 tessera-i18n = { workspace = true }
 tessera-avatar = { workspace = true, optional = true, features = ["persona"] }
-optics-flux = { workspace = true }
-optics-flux-sys = { workspace = true }
-optics-lens = { workspace = true }
-optics-lens-sys = { workspace = true }
-# Direct dep so this crate's build script receives DEP_RETICLE_RPATHS for the
+optics-gfx = { workspace = true }
+optics-gfx-sys = { workspace = true }
+optics-ui = { workspace = true }
+optics-ui-sys = { workspace = true }
+# Direct dep so this crate's build script receives DEP_OPTICS_SVG_RPATHS for the
 # test harness; the decoder itself lives in `tessera-assets` (ADR-0233).
-optics-reticle-sys = { workspace = true }
-optics-transit = { workspace = true }
+optics-svg-sys = { workspace = true }
+optics-motion = { workspace = true }
 log.workspace = true
 # statvfs for the resource probe's root-filesystem usage sample.
 libc.workspace = true
@@ -58,7 +59,7 @@ zeroize = { workspace = true }
 flate2 = { workspace = true }
 
 [package.metadata.cargo-machete]
-ignored = ["optics-flux-sys", "optics-lens-sys", "optics-reticle-sys", "optics-vista-sys"]
+ignored = ["optics-gfx-sys", "optics-ui-sys", "optics-svg-sys", "optics-scene-sys"]
 
 [lints]
 workspace = true

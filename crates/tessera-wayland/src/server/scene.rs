@@ -474,7 +474,7 @@ impl Server {
 
     /// Mapped xdg-toplevel surfaces backed by a dma-buf, for the renderer to
     /// import zero-copy. The `fd` is borrowed; the renderer duplicates it
-    /// before Flux consumes the duplicate. The server keeps ownership until
+    /// before gfx consumes the duplicate. The server keeps ownership until
     /// the backing buffer is replaced or destroyed.
     pub fn toplevel_dmabuf_frames(&self) -> Vec<SurfaceDmabuf> {
         let visible = self.render_visible();
@@ -602,7 +602,7 @@ impl Server {
     /// pointer — not the `SurfaceRec` address. Reporting the record pointer
     /// made every cached texture look dead each frame: the GC dropped all of
     /// them, and the next composite re-created every texture through
-    /// `flux_image_create` (a full CPU→GPU copy per surface per frame, the
+    /// `optics_gfx_image_create` (a full CPU→GPU copy per surface per frame, the
     /// dominant main-thread cost while dragging windows).
     pub fn live_surface_ids(&self) -> impl Iterator<Item = usize> + '_ {
         self.state

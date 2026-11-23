@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use optics_vista::{Animation, Scene};
+use optics_scene::{Animation, Scene};
 
 use super::model::VrmError;
 

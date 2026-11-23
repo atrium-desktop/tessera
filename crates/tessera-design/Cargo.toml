@@ -4,19 +4,20 @@ description = "Product design tokens, themes, and materials for tessera chrome"
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
+publish = false
 license.workspace = true
 rust-version.workspace = true
 build = "build.rs"
 
 [dependencies]
 tessera-desktop.workspace = true
-optics-lens = { workspace = true }
-# Direct dep so this crate's test harness receives DEP_LENS_RPATHS and can
-# resolve the selected Lens/Flux native libraries through build.rs.
-optics-lens-sys = { workspace = true }
+optics-ui = { workspace = true }
+# Direct dep so this crate's test harness receives DEP_OPTICS_UI_RPATHS and can
+# resolve the selected optics-ui/gfx native libraries through build.rs.
+optics-ui-sys = { workspace = true }
 
 [package.metadata.cargo-machete]
-ignored = ["optics-lens-sys"]
+ignored = ["optics-ui-sys"]
 
 [lints]
 workspace = true

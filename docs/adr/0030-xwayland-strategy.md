@@ -15,7 +15,7 @@ superseded_by: null
 
 ass is Wayland-native. The [vision](../explanation/vision.md#design-principles)
 commits the project to never shipping an X11 session and to reaching X11
-applications only through XWayland. The [comparative survey](../explanation/comparative-survey.md#what-aegis-rejects)
+applications only through XWayland. The [comparative survey](../explanation/comparative-survey.md#what-tessera-rejects)
 records the precedent: KDE Plasma 6 keeps an X11 session (`kwin_x11`) on a
 deprecation track and is removing it; GNOME, sway, river, and niri are
 Wayland-native with XWayland for legacy clients. niri routes XWayland

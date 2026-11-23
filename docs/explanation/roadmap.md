@@ -21,9 +21,9 @@ committed; the verification criteria are.
 
 | Milestone | Outcome | Status |
 |-----------|---------|--------|
-| [M0](#m0-nested-bring-up) | Nested window: flux presents cleared frames with lens chrome | Complete |
+| [M0](#m0-nested-bring-up) | Nested window: gfx presents cleared frames with optics-ui chrome | Complete |
 | [M1](#m1-core-wayland-server) | Core globals, `wl_shm` client surface composited, input routed | Complete |
-| [M2](#m2-gpu-client-buffers) | `zwp_linux_dmabuf_v1` with flux dmabuf import | Complete |
+| [M2](#m2-gpu-client-buffers) | `zwp_linux_dmabuf_v1` with gfx dmabuf import | Complete |
 | [M3](#m3-window-management-and-first-chrome) | Window management and first-party chrome | Complete |
 | [M4](#m4-drmkms-backend) | DRM/KMS backend with libinput and libseat | In progress (hardware verification) |
 | [M5](#m5-configuration-and-ipc) | Declarative configuration and versioned IPC | Complete |
@@ -35,8 +35,8 @@ committed; the verification criteria are.
 
 ## M0: Nested Bring-up
 
-**Outcome.** tessera runs as a client of an existing Wayland session and flux
-presents cleared frames into the host window, with lens chrome visible.
+**Outcome.** tessera runs as a client of an existing Wayland session and gfx
+presents cleared frames into the host window, with optics-ui chrome visible.
 
 **Status.** Complete. See [ADR-0003](../adr/0003-nested-first-bring-up.md).
 
@@ -59,7 +59,7 @@ displacing its owning toplevel.
 
 ## M2: GPU Client Buffers
 
-**Outcome.** `zwp_linux_dmabuf_v1` is implemented with flux dmabuf import,
+**Outcome.** `zwp_linux_dmabuf_v1` is implemented with gfx dmabuf import,
 so GPU clients composite zero-copy. Subsurfaces, `wp_viewport` crop and
 scale, `wl_surface.set_buffer_transform`, buffer scale, and per-commit damage
 tracking are all in place.
@@ -70,7 +70,7 @@ tracking are all in place.
 [ADR-0015](../adr/0015-damage-tracking.md), and
 [ADR-0020](../adr/0020-buffer-scale-applied-at-composite.md). Explicit-sync
 buffer release landed with `zwp_linux_explicit_synchronization_v1` (acquire
-fences through Flux import and KMS `IN_FENCE_FD`; deferred `wl_buffer.release`).
+fences through gfx import and KMS `IN_FENCE_FD`; deferred `wl_buffer.release`).
 Nested subsurfaces are walked recursively for both rendering and input: a
 subsurface's own subsurfaces anchor in its buffer space, stack relative to
 it, and receive pointer input directly when topmost.
@@ -116,7 +116,7 @@ ownership. The nested backend remains for development. Both implement the
 backend abstraction ships in
 ([`tessera-platform`](../../crates/tessera-platform)) with two implementations behind
 the `Backend` trait: nested (development) and DRM/KMS. The DRM backend does
-atomic modesetting with a TEST_ONLY preflight, scans out Flux offscreen
+atomic modesetting with a TEST_ONLY preflight, scans out gfx offscreen
 dma-bufs (GBM-less) through a two-slot page-flip ring with explicit-sync
 `IN_FENCE_FD` when the plane set allows, takes input from libinput
 (pointer, keyboard, touch, touchpad gestures, tablet tools), owns the session
@@ -270,7 +270,7 @@ revisited.
 ## M9: Polish and Completeness
 
 **Outcome.** The remaining surfaces that make a desktop feel finished: a
-declarative animation layer owned by lens with reduced-motion
+declarative animation layer owned by optics-ui with reduced-motion
 ([ADR-0029](../adr/0029-animation-and-effect-policy.md)), a unified overview
 that combines window and workspace picking (the GNOME Activities / niri
 Overview model), notifications served by the `Chrome` trait, screen lock and
@@ -282,7 +282,7 @@ screen-reader and basic accessibility hooks.
 (`ext-session-lock-v1`, fail-closed with secure-frame confirmation) and idle
 (`ext-idle-notify-v1` + `zwp-idle-inhibit-v1`), the reduced-motion half
 of the animation policy ([ADR-0029](../adr/0029-animation-and-effect-policy.md)) —
-one `[ui] reduced_motion` switch resolves every chrome and lens transition
+one `[ui] reduced_motion` switch resolves every chrome and optics-ui transition
 in a single frame, live on reload — and the declarative transition mechanism
 itself: non-interactive window geometry changes (tiling, IPC geometry)
 record previous and target rectangles, publish them in the snapshot, and

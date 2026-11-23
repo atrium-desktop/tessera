@@ -14,8 +14,8 @@ pub use runtime::run;
 /// Persistent (level) input state carried across frames. Per-frame edges
 /// (mouse pressed/released, scroll, text, key events) are *not* held here;
 /// they are built fresh each frame from backend events and live only for the
-/// iteration. This matches lens's contract that the host owns edge derivation
-/// (see the `optics_lens::Input` docstring) and mirrors iris's wayland host
+/// iteration. This matches optics-ui's contract that the host owns edge derivation
+/// (see the `optics_ui::Input` docstring) and mirrors window's wayland host
 /// `drain_input` pattern. Keeping level state separate from per-frame edges
 /// guarantees a press/release edge can never leak into the next frame and
 /// trigger phantom clicks in immediate-mode widgets.
@@ -27,14 +27,14 @@ struct InputAccumulator {
 }
 
 impl InputAccumulator {
-    /// Mirror of `optics_lens::Input::set_mouse_down` so callers can update the
+    /// Mirror of `optics_ui::Input::set_mouse_down` so callers can update the
     /// level state alongside the per-frame snapshot through the same
-    /// `optics_lens::MouseButton` key.
-    fn set_mouse_down(&mut self, b: optics_lens::MouseButton, down: bool) {
+    /// `optics_ui::MouseButton` key.
+    fn set_mouse_down(&mut self, b: optics_ui::MouseButton, down: bool) {
         let idx = match b {
-            optics_lens::MouseButton::Left => 0,
-            optics_lens::MouseButton::Right => 1,
-            optics_lens::MouseButton::Middle => 2,
+            optics_ui::MouseButton::Left => 0,
+            optics_ui::MouseButton::Right => 1,
+            optics_ui::MouseButton::Middle => 2,
         };
         self.mouse_down[idx] = down;
     }

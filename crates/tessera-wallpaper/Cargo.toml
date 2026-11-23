@@ -4,20 +4,21 @@ description = "Compositor wallpaper: image, video, 3D, and multi-plane parallax 
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
+publish = false
 license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-optics-flux = { workspace = true }
-optics-flux-sys = { workspace = true }
-optics-vista = { workspace = true }
-optics-vista-sys = { workspace = true }
-optics-transit = { workspace = true }
+optics-gfx = { workspace = true }
+optics-gfx-sys = { workspace = true }
+optics-scene = { workspace = true }
+optics-scene-sys = { workspace = true }
+optics-motion = { workspace = true }
 tessera-image = { workspace = true }
 log.workspace = true
 
 [package.metadata.cargo-machete]
-ignored = ["optics-vista-sys", "optics-flux-sys"]
+ignored = ["optics-scene-sys", "optics-gfx-sys"]
 
 [lints]
 workspace = true

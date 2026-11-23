@@ -1,7 +1,7 @@
 # Architecture
 
 Tessera is a Linux Wayland compositor with a compositor-owned desktop shell.
-Flux provides GPU rendering and Lens provides immediate-mode UI primitives;
+gfx provides GPU rendering and optics-ui provides immediate-mode UI primitives;
 Tessera owns protocol, policy, lifecycle, and platform integration.
 
 The current architecture is recorded by [ADR-0158](../adr/0158-clean-break-workspace-boundaries.md), [ADR-0159](../adr/0159-package-boundaries-follow-capabilities.md), [ADR-0160](../adr/0160-consolidate-application-subsystem.md), [ADR-0161](../adr/0161-rename-backend-to-platform.md), [ADR-0163](../adr/0163-decoupled-backdrop-blur-cache-and-continuous-fade.md), and [ADR-0164](../adr/0164-universal-domain-pruning-and-primitives-canonization.md).
@@ -23,7 +23,7 @@ The current architecture is recorded by [ADR-0158](../adr/0158-clean-break-works
                            ▼               ▼
       ┌───────────────────────┐         ┌─────────────────────────┐
       │tessera-launch-services│         │    tessera-composite    │  [GPU Optics & Composition]
-      │(XDG apps/icons/bwrap) │         │(Vulkan / Kawase / Prism)│
+      │(XDG apps/icons/bwrap) │         │(Vulkan / Kawase / materials)│
       └───────────┬───────────┘         └────────────┬────────────┘
                   │                                  │
                   │ (Process leases)                 │ (KMS Framebuffer)
@@ -49,7 +49,7 @@ canvas, renderer, and Wayland server) with strict teardown ordering, session
 orchestration, configuration application, shell registration, IPC handler
 implementation, security decisions, and process supervision.
 
-`tessera-shell` owns the Lens host and built-in UI chrome components (`dock`,
+`tessera-shell` owns the optics-ui host and built-in UI chrome components (`dock`,
 `hud`, `pivot`, `control_center`, `settings`, and shared `widgets`). Components
 emit typed events. The compositor decides whether an event is authorized and
 applies the corresponding desktop mutation.

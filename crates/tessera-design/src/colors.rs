@@ -12,7 +12,7 @@
 //! consume these roles through [`crate::Design`] instead of constructing
 //! literal colors or selecting an appearance themselves.
 
-use optics_lens::Color;
+use optics_ui::Color;
 use tessera_desktop::settings::ColorScheme;
 
 /// Semantic color roles shared across Tessera-owned surfaces.

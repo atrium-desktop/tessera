@@ -1,6 +1,11 @@
 # .config/nextest.toml
 # Nextest execution and scheduling configuration for Tessera workspace.
 
+# Setup scripts run one command before a filtered set of tests. Enabling the
+# feature here (rather than asking every contributor to pass a flag) keeps a
+# single documented invocation for the root suites.
+experimental = ["setup-scripts"]
+
 [profile.default]
 # Kill hung tests after 30s to prevent infinite deadlocks in local test runs
 slow-timeout = { period = "30s", terminate-after = 1 }
@@ -11,6 +16,14 @@ retries = 0
 slow-timeout = { period = "60s", terminate-after = 1 }
 retries = 1
 failure-output = "immediate-final"
+
+[scripts.setup.workspace-binaries]
+# The root suites spawn the production binaries as separate processes. Cargo
+# does not build a dependency package's binaries for `cargo nextest run`, and a
+# test must never run `cargo build` itself: the run already holds the target
+# directory lock, so a nested build waits on that lock until the test timeout
+# kills it. Build the siblings once, before any test starts.
+command = "cargo build --locked --workspace --bins"
 
 [test-groups]
 # Single-thread execution group for tests that bind exclusive hardware/system resources
@@ -33,3 +46,14 @@ test-group = 'exclusive-system-tests'
 [[profile.default.overrides]]
 filter = 'package(tessera-wayland) or package(tessera-composite) or package(tessera-shell) or package(tessera-tests)'
 priority = 100
+
+# Every profile that runs the root suites needs the sibling binaries.
+[[profile.default.scripts]]
+filter = 'package(tessera-tests) and test(/^(command_entry|display_mirror|cast_networkmanager|tray_smoke)::|mcp_bridge::stdio_discovers/)'
+platform = "cfg(unix)"
+setup = "workspace-binaries"
+
+[[profile.ci.scripts]]
+filter = 'package(tessera-tests) and test(/^(command_entry|display_mirror|cast_networkmanager|tray_smoke)::|mcp_bridge::stdio_discovers/)'
+platform = "cfg(unix)"
+setup = "workspace-binaries"

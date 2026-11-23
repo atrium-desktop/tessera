@@ -3,9 +3,9 @@
 //! Every composition is a [`StylePainter`] plugged into the same four-stage
 //! frame pipeline owned by the render host:
 //!
-//! 1. `paint_background` — full-bleed flux layer (wallpaper, solid, or a
+//! 1. `paint_background` — full-bleed gfx layer (wallpaper, solid, or a
 //!    composition-owned identity color).
-//! 2. `paint_materials` — flux shapes that lens cannot express (discs,
+//! 2. `paint_materials` — gfx shapes that optics-ui cannot express (discs,
 //!    gradients, module grids), in physical pixels.
 //! 3. `paint_clock` — the clock shown even in the ambient presentation.
 //! 4. `paint_identity` — the authentication content that fades in ambient.
@@ -15,7 +15,7 @@
 
 use std::time::Instant;
 
-use optics_lens::{Align, Color, LayoutOpts, Theme};
+use optics_ui::{Align, Color, LayoutOpts, Theme};
 use tessera_config::LockScreenStyle;
 use tessera_lock::LockState;
 
@@ -25,7 +25,7 @@ use crate::render::{AvatarStatus, LockBackground, LockPalette, LockVisual};
 /// Inputs shared by every paint stage of one frame.
 pub struct FramePresentation<'a> {
     pub logical: (u32, u32),
-    pub avatar: Option<&'a optics_flux::Image>,
+    pub avatar: Option<&'a optics_gfx::Image>,
     pub avatar_status: AvatarStatus,
     pub state: &'a LockState,
     pub profile: &'a Profile,
@@ -46,31 +46,31 @@ pub trait StylePainter {
     /// other stage; `dim` is the configured artwork scrim strength.
     fn paint_background(
         &self,
-        canvas: &optics_flux::CanvasCommands<'_>,
-        device: &optics_flux::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
         background: &mut LockBackground,
         output: (u32, u32),
         dim: f32,
     );
 
-    /// Flux shapes below the lens text layer, in physical pixels.
+    /// gfx shapes below the optics-ui text layer, in physical pixels.
     fn paint_materials(
         &self,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         frame: &FramePresentation<'_>,
     );
 
-    /// Clock rendered in both engaged and ambient presentations (lens layer).
+    /// Clock rendered in both engaged and ambient presentations (UI layer).
     fn paint_clock(
         &self,
-        ui: &mut optics_lens::Frame,
+        ui: &mut optics_ui::Frame,
         frame: &FramePresentation<'_>,
         clock: &str,
         date: &str,
     );
 
     /// Authentication content, gated by the host on reveal progress.
-    fn paint_identity(&self, ui: &mut optics_lens::Frame, frame: &FramePresentation<'_>);
+    fn paint_identity(&self, ui: &mut optics_ui::Frame, frame: &FramePresentation<'_>);
 
     /// Whether the composition animates continuously while engaged; the
     /// host uses this to keep requesting frames. `false` is safe for static
@@ -103,7 +103,7 @@ pub fn keyboard_status(state: &LockState) -> Option<String> {
     }
 }
 
-/// Lens hides the `##` suffix while hashing the complete label as widget
+/// optics-ui hides the `##` suffix while hashing the complete label as widget
 /// profile. A monotonically changing suffix prevents deletion from reviving
 /// an older retained node for the same shorter text.
 pub fn credential_label(visible: &str, revision: u64) -> String {

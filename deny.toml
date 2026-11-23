@@ -1,0 +1,50 @@
+# Dependency-source policy for the Tessera workspace.
+#
+# `cargo deny check` runs in CI. There is no vendor tree: every dependency is
+# either a crates.io release, the pinned Optics tag, or a path inside this
+# workspace, and every one carries a license that permits MIT-licensed
+# distribution of the resulting binaries.
+
+[advisories]
+# Advisory database state changes independently of this repository, so the
+# gate fails on a known vulnerability but not on yanked-crate metadata.
+version = 2
+yanked = "deny"
+ignore = []
+
+[licenses]
+version = 2
+# Every dependency in the locked graph offers at least one of these. The
+# project distributes MIT-licensed binaries, so a copyleft-only crate would
+# need an explicit exemption here with a recorded decision.
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "ISC",
+    "MIT",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "allow"
+# Wildcard requirements are denied, except for path dependencies: the workspace
+# crates are versioned together and resolved by path, so `workspace = true`
+# carries no registry ambiguity.
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# The pinned Optics bindings. In a linked development worktree (a
+# `.cargo/config.toml` carrying the `[patch]` block) the graph resolves those
+# crates by path instead, so this allowance goes unmatched and cargo-deny
+# reports an `unmatched-source` warning. That is expected local state, not a
+# policy failure; canonical CI always matches it.
+allow-git = ["https://github.com/ming2k/optics"]

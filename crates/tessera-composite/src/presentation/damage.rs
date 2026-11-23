@@ -177,7 +177,7 @@ fn normalize_damage_rects(rects: Vec<Rect>) -> Vec<Rect> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssessedFrameDamage {
     /// The current frame's delta, in physical output pixels. This is the input
-    /// to Flux's epoch ledger; it is not the repaint scope and not the KMS
+    /// to gfx's epoch ledger; it is not the repaint scope and not the KMS
     /// scanout hint (both are derived by the engine).
     pub output: FrameDamage,
     /// Resource ids of the client surfaces this assessment sampled. The
@@ -227,17 +227,17 @@ pub fn union_frame_damage(left: FrameDamage, right: FrameDamage) -> FrameDamage 
 impl FrameDamage {
     /// Convert to the engine's native damage verdict.
     ///
-    /// Flux owns the per-image epoch ledger; the composition root supplies the
+    /// gfx owns the per-image epoch ledger; the composition root supplies the
     /// current frame's change set and receives the exact repaint scope back.
     /// There is deliberately no second per-image vocabulary here.
-    pub fn to_flux_damage(&self) -> optics_flux::Damage {
+    pub fn to_gfx_damage(&self) -> optics_gfx::Damage {
         match self {
-            FrameDamage::None => optics_flux::Damage::None,
-            FrameDamage::Full => optics_flux::Damage::Full,
-            FrameDamage::Area(rects) => optics_flux::Damage::Area(
+            FrameDamage::None => optics_gfx::Damage::None,
+            FrameDamage::Full => optics_gfx::Damage::Full,
+            FrameDamage::Area(rects) => optics_gfx::Damage::Area(
                 rects
                     .iter()
-                    .map(|r| optics_flux::CanvasRenderArea {
+                    .map(|r| optics_gfx::CanvasRenderArea {
                         x: r.origin.x as f32,
                         y: r.origin.y as f32,
                         width: r.size.w.max(0) as f32,
@@ -250,14 +250,14 @@ impl FrameDamage {
 
     /// Convert an engine verdict into the compositor's value type.
     ///
-    /// Flux rectangles are physical-pixel floats; the compositor's damage is
+    /// gfx rectangles are physical-pixel floats; the compositor's damage is
     /// integer pixel authority, so map outward to avoid stranding a partially
     /// covered edge pixel.
-    pub fn from_flux_damage(damage: optics_flux::Damage) -> Self {
+    pub fn from_gfx_damage(damage: optics_gfx::Damage) -> Self {
         match damage {
-            optics_flux::Damage::None => FrameDamage::None,
-            optics_flux::Damage::Full => FrameDamage::Full,
-            optics_flux::Damage::Area(areas) => {
+            optics_gfx::Damage::None => FrameDamage::None,
+            optics_gfx::Damage::Full => FrameDamage::Full,
+            optics_gfx::Damage::Area(areas) => {
                 let rects: Vec<Rect> = areas
                     .into_iter()
                     .filter_map(|a| {
@@ -631,9 +631,9 @@ pub fn offscreen_damage_to_target(
 /// set to a box before the pass sees it destroys the localisation the damage
 /// pipeline exists to carry [ADR-0203], [ADR-0149].
 ///
-/// Vulkan's dynamic `renderArea` must be fully inside the attachment: both flux
+/// Vulkan's dynamic `renderArea` must be fully inside the attachment: both gfx
 /// backends reject a scope naming no pixel of the target, and canvas.c degrades a
-/// set above `optics_flux::FLUX_DAMAGE_CAPACITY` to a full-extent pass. A damage rect
+/// set above `optics_gfx::OPTICS_GFX_DAMAGE_CAPACITY` to a full-extent pass. A damage rect
 /// reaching the output pass is usually clamped already, but three sources can
 /// still hand out a rect that is not:
 ///
@@ -645,20 +645,20 @@ pub fn offscreen_damage_to_target(
 ///
 /// Handing the backend a rejected scope is not a harmless no-op: the pass fails
 /// to begin and the frame loses its chrome (the `shell chrome render failed:
-/// Render(FLUX_ERROR_INVALID_ARGUMENT)` symptom). Clamping each rectangle here,
-/// and answering *empty* — which flux reads as a full-destination pass — when
+/// Render(OPTICS_GFX_ERROR_INVALID_ARGUMENT)` symptom). Clamping each rectangle here,
+/// and answering *empty* — which gfx reads as a full-destination pass — when
 /// nothing usable survives, keeps the failure in the damage domain where it
 /// belongs.
 pub fn frame_damage_scope(
     repaint: &FrameDamage,
     physical_size: (u32, u32),
-) -> Vec<optics_flux::CanvasRenderArea> {
+) -> Vec<optics_gfx::CanvasRenderArea> {
     let Some(rects) = repaint.area_rects() else {
         /* `Full` (and `None`) both mean "the whole destination": an empty scope
-         * is exactly that, and flux already interprets it that way. */
+         * is exactly that, and gfx already interprets it that way. */
         return Vec::new();
     };
-    let mut scope: Vec<optics_flux::CanvasRenderArea> = Vec::with_capacity(rects.len());
+    let mut scope: Vec<optics_gfx::CanvasRenderArea> = Vec::with_capacity(rects.len());
     for rect in rects {
         if let Some(area) = clamp_render_area(*rect, physical_size.0, physical_size.1) {
             scope.push(area);
@@ -668,7 +668,7 @@ pub fn frame_damage_scope(
      * cover something, so fall back to the full destination rather than an empty
      * scope that would be indistinguishable from `Full` arriving by accident. */
     if scope.is_empty() && !rects.is_empty() {
-        scope.push(optics_flux::CanvasRenderArea {
+        scope.push(optics_gfx::CanvasRenderArea {
             x: 0.0,
             y: 0.0,
             width: physical_size.0 as f32,
@@ -682,7 +682,7 @@ pub fn frame_damage_scope(
 /// `CanvasRenderArea`. `None` means "no usable area" — either the rect reaches
 /// no framebuffer pixel, or it degenerates in one dimension (which Vulkan would
 /// reject, and which visually means "nothing to draw").
-fn clamp_render_area(rect: Rect, max_w: u32, max_h: u32) -> Option<optics_flux::CanvasRenderArea> {
+fn clamp_render_area(rect: Rect, max_w: u32, max_h: u32) -> Option<optics_gfx::CanvasRenderArea> {
     if rect.is_empty() {
         return None;
     }
@@ -693,7 +693,7 @@ fn clamp_render_area(rect: Rect, max_w: u32, max_h: u32) -> Option<optics_flux::
     if x1 <= x0 || y1 <= y0 {
         return None;
     }
-    Some(optics_flux::CanvasRenderArea {
+    Some(optics_gfx::CanvasRenderArea {
         x: x0 as f32,
         y: y0 as f32,
         width: (x1 - x0) as f32,

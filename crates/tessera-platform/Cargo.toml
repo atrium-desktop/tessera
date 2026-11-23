@@ -4,6 +4,7 @@ description = "Compositor hardware and host platform adaptation: DRM/KMS outputs
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
+publish = false
 license.workspace = true
 rust-version.workspace = true
 build = "build.rs"
@@ -12,8 +13,8 @@ build = "build.rs"
 tessera-desktop.workspace = true
 tessera-primitives.workspace = true
 tessera-wayland-protocols = { workspace = true }
-optics-flux = { workspace = true }
-optics-flux-sys = { workspace = true }
+optics-gfx = { workspace = true }
+optics-gfx-sys = { workspace = true }
 ash = { workspace = true }
 drm.workspace = true
 libseat.workspace = true
@@ -26,7 +27,7 @@ log.workspace = true
 pkg-config.workspace = true
 
 [package.metadata.cargo-machete]
-ignored = ["optics-flux-sys", "pkg-config"]
+ignored = ["optics-gfx-sys", "pkg-config"]
 
 [lints]
 workspace = true

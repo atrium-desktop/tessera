@@ -4,7 +4,7 @@
 //! full canvas size. Animated GIF/WebP frames that cover only a sub-rect of the
 //! canvas are composited onto the previous frame's contents during
 //! decode, so consumers always see uniformly-sized buffers and can pass
-//! them straight to `optics_flux::Image::from_bytes`.
+//! them straight to `optics_gfx::Image::from_bytes`.
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -245,7 +245,7 @@ fn frame_duration(delay: Duration) -> Duration {
     delay.max(Duration::from_millis(16))
 }
 
-/// Convert tightly packed straight RGBA8 to premultiplied BGRA8. Flux canvas
+/// Convert tightly packed straight RGBA8 to premultiplied BGRA8. gfx canvas
 /// image draws use premultiplied source-over blending, so retaining straight
 /// RGB on a partially transparent edge would produce a bright fringe.
 fn rgba_to_premultiplied_bgra_inplace(buf: &mut [u8]) {

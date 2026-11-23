@@ -4,6 +4,7 @@ description = "Personalized profile and portrait runtime: local account defaults
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
+publish = false
 license.workspace = true
 rust-version.workspace = true
 
@@ -13,10 +14,10 @@ tessera-launch-services = { workspace = true }
 # POSIX account lookups (getpwuid) for the local profile defaults.
 libc = { workspace = true }
 # GPU texture upload path shared with the compositor.
-optics-flux = { workspace = true }
-optics-flux-sys = { workspace = true, optional = true }
-optics-vista = { workspace = true, optional = true }
-optics-vista-sys = { workspace = true, optional = true }
+optics-gfx = { workspace = true }
+optics-gfx-sys = { workspace = true, optional = true }
+optics-scene = { workspace = true, optional = true }
+optics-scene-sys = { workspace = true, optional = true }
 tessera-image = { workspace = true, optional = true }
 log.workspace = true
 
@@ -25,14 +26,14 @@ default = []
 # Full portrait runtime. The lightweight `persona::Profile` contract remains
 # available without this feature.
 persona = [
-    "dep:optics-flux-sys",
-    "dep:optics-vista",
-    "dep:optics-vista-sys",
+    "dep:optics-gfx-sys",
+    "dep:optics-scene",
+    "dep:optics-scene-sys",
     "dep:tessera-image",
 ]
 
 [package.metadata.cargo-machete]
-ignored = ["optics-vista-sys", "optics-flux-sys"]
+ignored = ["optics-scene-sys", "optics-gfx-sys"]
 
 [dev-dependencies]
 tempfile = { workspace = true }

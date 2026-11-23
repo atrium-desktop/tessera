@@ -2,7 +2,7 @@
 //! portrait texture already circle-masked in its alpha channel.
 //!
 //! VRM 0.x and VRM 1.0 are both binary glTF containers, so the model loads
-//! through `optics_vista::Scene::from_glb_with_materials`, including its
+//! through `optics_scene::Scene::from_glb_with_materials`, including its
 //! embedded base-colour textures and per-primitive alpha/culling state. VRMA
 //! motion-library clips are bound by humanoid bone identity, retargeted from
 //! their source T-pose, sampled on the CPU, and skinned on the GPU.
@@ -15,8 +15,8 @@
 
 use std::path::{Path, PathBuf};
 
-use optics_flux::{Camera, Canvas, Format, Image, SceneColorLoad, SceneLight, Surface, Target};
-use optics_vista::{Bounds, MaterialTarget, Scene};
+use optics_gfx::{Camera, Canvas, Format, Image, SceneColorLoad, SceneLight, Surface, Target};
+use optics_scene::{Bounds, MaterialTarget, Scene};
 
 #[cfg(debug_assertions)]
 use super::super::mask::circle_mask_premultiplied;
@@ -128,18 +128,18 @@ pub enum AnimationSupport {
 pub enum VrmError {
     Camera(CameraError),
     Io(PathBuf, std::io::Error),
-    Gltf(PathBuf, optics_vista::LoadError),
+    Gltf(PathBuf, optics_scene::LoadError),
     /// The model has no measurable bounding box, so a framing camera cannot
     /// be computed. Usually an empty or corrupt glTF.
     NoBounds(PathBuf),
-    Animation(PathBuf, optics_vista::Error),
+    Animation(PathBuf, optics_scene::Error),
     MotionDirectory(PathBuf),
     MotionFile(PathBuf),
     MotionName(PathBuf),
     DuplicateMotion(String, PathBuf, PathBuf),
     MotionDuration(PathBuf, f32),
     MotionChannels(PathBuf),
-    Render(PathBuf, optics_flux::Error),
+    Render(PathBuf, optics_gfx::Error),
 }
 
 impl std::fmt::Display for VrmError {
@@ -365,18 +365,18 @@ impl Model {
         self.scene.draw_materials(&pass, &camera, Some(&light));
         pass.end();
         // Blit the scene through an analytic circular clip into the published
-        // texture, so hosts (including the lens-based Control Center, which
+        // texture, so hosts (including the optics-ui-based Control Center, which
         // cannot clip images to a circle) composite it without their own
         // mask. The radius of half the edge makes the rrect a full circle.
         let session = self
             .canvas
             .begin_session(
-                optics_flux::ImageTarget {
+                optics_gfx::ImageTarget {
                     frame: &mut frame,
                     image: &mut self.texture,
                 },
-                optics_flux::CanvasPassOptions {
-                    clear: Some(optics_flux::rgba(0, 0, 0, 0)),
+                optics_gfx::CanvasPassOptions {
+                    clear: Some(optics_gfx::rgba(0, 0, 0, 0)),
                     ..Default::default()
                 },
             )
@@ -401,8 +401,8 @@ impl Model {
                 .canvas
                 .begin_session(
                     &mut frame,
-                    optics_flux::CanvasPassOptions {
-                        clear: Some(optics_flux::rgba(0, 0, 0, 0)),
+                    optics_gfx::CanvasPassOptions {
+                        clear: Some(optics_gfx::rgba(0, 0, 0, 0)),
                         ..Default::default()
                     },
                 )
@@ -420,7 +420,7 @@ impl Model {
         }
         frame
             .submit()
-            .and_then(optics_flux::SubmittedFrame::present)
+            .and_then(optics_gfx::SubmittedFrame::present)
             .map_err(|error| VrmError::Render(self.source_path.clone(), error))?;
 
         #[cfg(debug_assertions)]
@@ -501,8 +501,8 @@ fn portrait_frame(bounds: Bounds, aspect: f32, config: VrmCamera) -> PortraitFra
 const TARGET_FORMAT: Format = Format::Rgba8Unorm;
 const DEPTH_FORMAT: Format = Format::D32Sfloat;
 
-// The flux Device type alias; kept out of the public surface for clarity.
-use optics_flux::Device;
+// The gfx Device type alias; kept out of the public surface for clarity.
+use optics_gfx::Device;
 
 #[cfg(test)]
 mod tests {

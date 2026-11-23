@@ -6,7 +6,7 @@ use crate::widgets::menu::DEFAULT_MENU_PAD;
 use crate::widgets::menu::DEFAULT_MENU_ROW_HEIGHT;
 use crate::widgets::menu::DEFAULT_MENU_SECTION_HEIGHT;
 use crate::widgets::menu::DEFAULT_MENU_WIDTH;
-use optics_lens::{Frame, Input, LayoutOpts, Rect};
+use optics_ui::{Frame, Input, LayoutOpts, Rect};
 use tessera_design::{Design, materials, themes};
 use tessera_desktop::app::Entry;
 use tessera_desktop::window::Window;

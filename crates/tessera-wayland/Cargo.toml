@@ -4,6 +4,7 @@ description = "Hand-rolled Wayland server: socket, globals, and protocol object 
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
+publish = false
 license.workspace = true
 rust-version.workspace = true
 build = "build.rs"

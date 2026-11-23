@@ -1,7 +1,7 @@
 # tessera
 
 `tessera` is the executable composition root for autonomous surface shell, a
-Wayland compositor built on flux and lens.
+Wayland compositor built on gfx and optics-ui.
 
 ## Responsibilities
 

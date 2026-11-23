@@ -1,13 +1,13 @@
-//! Pure lens option factories for tessera surface materials.
+//! Pure optics-ui option factories for tessera surface materials.
 
-use optics_lens::{Align, Band, Color, LayoutOpts, PlaceMode, PlaceOpts, Rect};
+use optics_ui::{Align, Band, Color, LayoutOpts, PlaceMode, PlaceOpts, Rect};
 
 use crate::Design;
 use crate::tokens::SurfaceRole;
 
 /// Base layout for absolutely-placed tessera surfaces.
 ///
-/// Preserves the defaults of the retired lens `OverlayOpts` (4px child gap,
+/// Preserves the defaults of the retired optics-ui `OverlayOpts` (4px child gap,
 /// 6px padding) that the materials below were tuned against; the
 /// [`LayoutOpts`] default of zero gap and padding would silently compact
 /// every migrated surface.
@@ -174,7 +174,7 @@ pub fn elevation_halo_for_body(
 ///
 /// The halo steps are placed first (outermost first) and the body last, so the
 /// body always paints over its own shadow. `id` names the body; the halo steps
-/// derive stable child ids from it, which keeps lens's damage and hit-testing
+/// derive stable child ids from it, which keeps optics-ui's damage and hit-testing
 /// identity stable across frames.
 ///
 /// The halo takes the **body's** corner radius, not the role's styled one: a
@@ -182,14 +182,14 @@ pub fn elevation_halo_for_body(
 /// cast its own silhouette, and a halo rounded differently from the body it
 /// sits under is visible as a second shape.
 pub fn place_floating(
-    frame: &mut optics_lens::Frame,
+    frame: &mut optics_ui::Frame,
     id: &str,
     role: SurfaceRole,
     design: &Design,
     bounds: Rect,
     opacity: f32,
     body: LayoutOpts,
-    place: impl FnOnce(&mut optics_lens::Frame),
+    place: impl FnOnce(&mut optics_ui::Frame),
 ) {
     for (index, (rect, material)) in
         elevation_halo_for_body(design, role, bounds, body.radius, opacity)
@@ -298,7 +298,7 @@ pub fn sized(width: f32, height: f32) -> LayoutOpts {
 }
 
 /// A fixed-size container that paints a rounded `bg` — the reliable
-/// filled-rect primitive (lens paints a container's background at its solved
+/// filled-rect primitive (optics-ui paints a container's background at its solved
 /// size).
 #[must_use]
 pub fn sized_fill(width: f32, height: f32, color: Color, radius: f32) -> LayoutOpts {
@@ -313,7 +313,7 @@ pub fn sized_fill(width: f32, height: f32, color: Color, radius: f32) -> LayoutO
 
 #[cfg(test)]
 mod tests {
-    use optics_lens::Color;
+    use optics_ui::Color;
 
     use super::*;
 

@@ -38,7 +38,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::widgets::motion::{Spring, SpringParams};
 use crate::widgets::tiered::TieredIndicator;
-use optics_lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
+use optics_ui::{Align, Color, Frame, Input, LayoutOpts, Rect};
 use tessera_avatar::persona::{Portrait, PortraitConfig, PortraitWatcher, Profile};
 use tessera_design::tokens::TypeScale;
 use tessera_design::{AvatarRole, ControlCenterColors, Design, SurfaceRole, materials, themes};
@@ -139,7 +139,7 @@ const REVEAL_SETTLE_VALUE_EPS: f32 = 0.004;
 const REVEAL_SETTLE_VELOCITY_EPS: f32 = 0.04;
 /// Frames the sheet keeps reporting its footprint after its reveal settles
 /// (ADR-0227): every swapchain ring slot must repaint the pixels the cards
-/// covered or uncovered. One more than `FLUX_MAX_FRAMES_IN_FLIGHT` (3).
+/// covered or uncovered. One more than `OPTICS_GFX_MAX_FRAMES_IN_FLIGHT` (3).
 const RETIRE_FRAMES: u8 = 4;
 /// Delay before a hovered icon button's tooltip starts to appear.
 const TOOLTIP_DELAY: f32 = 0.45;
@@ -180,8 +180,8 @@ struct TrayCellVisual {
     key: String,
     title: String,
     has_menu: bool,
-    texture: Option<*mut optics_lens::sys::flux_image>,
-    fallback: Option<*mut optics_lens::sys::flux_image>,
+    texture: Option<*mut optics_ui::sys::optics_gfx_image>,
+    fallback: Option<*mut optics_ui::sys::optics_gfx_image>,
 }
 
 /// Render-side cache of the shared dbusmenu tree, tagged with the worker's
@@ -217,7 +217,7 @@ pub struct ControlCenter {
     portrait_config: PortraitConfig,
     /// Non-owning view of the compositor device, used only on the render
     /// thread to build a complete hot-reload replacement.
-    avatar_device: Option<optics_flux::Device>,
+    avatar_device: Option<optics_gfx::Device>,
     /// Filesystem observation is notification-only; decode and GPU work stay
     /// on the render thread.
     avatar_watcher: Option<PortraitWatcher>,
@@ -269,20 +269,20 @@ pub struct ControlCenter {
 }
 
 impl ControlCenter {
-    /// Construct the Control Center. The flux device is borrowed (non-owning,
+    /// Construct the Control Center. The gfx device is borrowed (non-owning,
     /// like [`crate::Shell::new`]) to upload tray pixmaps and the portrait; the
     /// caller keeps it alive past the panel. The tray handle comes from the
     /// composition root's single `crate::tray::spawn()`.
     pub fn new(
-        device: &optics_flux::Device,
+        device: &optics_gfx::Device,
         tray: Option<TrayHandle>,
         notifications: Arc<Mutex<NotificationQueue>>,
     ) -> ControlCenter {
         let tray = tray.map(|handle| {
-            // SAFETY: the composition root declares its flux device before the
+            // SAFETY: the composition root declares its gfx device before the
             // shell and drops it after; the panel touches it on the render
             // thread only.
-            let device = unsafe { optics_flux::Device::borrow_raw(device.as_raw()) };
+            let device = unsafe { optics_gfx::Device::borrow_raw(device.as_raw()) };
             TrayProjection::new(device, handle)
         });
         let portrait_config = PortraitConfig::current();
@@ -294,7 +294,7 @@ impl ControlCenter {
             }
         };
         // SAFETY: as above.
-        let avatar_device = unsafe { optics_flux::Device::borrow_raw(device.as_raw()) };
+        let avatar_device = unsafe { optics_gfx::Device::borrow_raw(device.as_raw()) };
         let avatar_watcher = match PortraitWatcher::new(&portrait_config) {
             Ok(watcher) => Some(watcher),
             Err(error) => {
@@ -823,7 +823,7 @@ impl Chrome for ControlCenter {
             ..rect
         };
 
-        // Lens stamps every built node with the context opacity, so one switch
+        // optics-ui stamps every built node with the context opacity, so one switch
         // fades a card's text, icons, images, and controls together.
         self.tip = None;
         f.set_opacity(reveal);

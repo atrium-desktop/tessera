@@ -13,10 +13,10 @@
 
 use super::*;
 
-/// A pressable's drawn box when lens resolved it, else the pure layout's
+/// A pressable's drawn box when optics-ui resolved it, else the pure layout's
 /// declared slot.
 ///
-/// The first frame a cell exists, lens has no snapshot to resolve the flow box
+/// The first frame a cell exists, optics-ui has no snapshot to resolve the flow box
 /// from and reports an empty rect. Every consumer of a cell's rect (the menu
 /// anchor, the pointer bands) must still get a real box, and the pure layout is
 /// the one authority that can supply it — deriving these two from different
@@ -96,7 +96,7 @@ impl ControlCenter {
                 } else {
                     None
                 },
-                fallback: fallback_themed.map(|icon| icon as *mut optics_lens::sys::flux_image),
+                fallback: fallback_themed.map(|icon| icon as *mut optics_ui::sys::optics_gfx_image),
             })
             .collect();
 
@@ -203,7 +203,7 @@ impl ControlCenter {
                                             });
                                         },
                                     );
-                                    // Trust the drawn box when lens resolved
+                                    // Trust the drawn box when optics-ui resolved
                                     // it; fall back to the pure layout's slot
                                     // on the first frame, so a menu opened by a
                                     // press can never anchor to a zero rect.

@@ -1,11 +1,11 @@
 # tessera-shell
 
-`tessera-shell` hosts compositor chrome built on lens and exposes user interaction
+`tessera-shell` hosts compositor chrome built on optics-ui and exposes user interaction
 as typed intents to the compositor loop.
 
 ## Responsibilities
 
-- Own the lens UI context bound to the compositor's flux device.
+- Own the optics-ui context bound to the compositor's gfx device.
 - Host pluggable `Chrome` components in a defined render order.
 - Own the shared chrome contract — `Chrome`, `ChromeCommand`, `ChromeUpdate`,
   `ChromeEvents`, and the `AppCatalog` snapshot — and provide the built-in
@@ -31,9 +31,9 @@ as typed intents to the compositor loop.
 
 Chrome components do not mutate Wayland state, discover or spawn applications,
 or issue presentation commands. The executable drains their intents into
-`tessera-wayland` and `tessera-launch-services`, while `tessera-platform` and flux own presentation.
+`tessera-wayland` and `tessera-launch-services`, while `tessera-platform` and gfx own presentation.
 Product-specific tokens and materials come from `tessera-design`; generic UI
-behavior remains in lens.
+behavior remains in optics-ui.
 
 Persona fields are display content, never authenticated Actor identity. The
 portrait backend chooses and prepares content; each host owns its camera,
@@ -61,7 +61,7 @@ outside directed Interaction Domain capture.
 
 ## Use
 
-Create one `Shell` from a live flux device pointer, register the required
+Create one `Shell` from a live gfx device pointer, register the required
 `Chrome` components, and update its snapshots before rendering each frame.
 After rendering, drain the typed intent accessors and apply them through the
 owning crate. The unsafe device pointer passed to `Shell::new` must outlive the

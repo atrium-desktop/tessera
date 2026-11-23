@@ -3,8 +3,8 @@
 //!
 //! Pure, backend- and renderer-agnostic model of the color space a
 //! client says its buffer is in. The compositor server stores these per
-//! surface; the renderer maps them onto flux image tags
-//! (`flux_image_color_space_desc`). The numeric enums mirror the
+//! surface; the renderer maps them onto gfx image tags
+//! (`optics_gfx_image_color_space_desc`). The numeric enums mirror the
 //! protocol's named primaries / transfer functions one to one.
 
 use std::sync::Arc;

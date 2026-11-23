@@ -19,18 +19,18 @@
 //! Optics:
 //!
 //! - Optics already ships the *static* form of this control
-//!   (`lens_segmented_control`, `libs/lens/include/lens/patterns.h`), so the
+//!   (`optics_ui_segmented_control`, `libs/ui/include/optics/ui/patterns.h`), so the
 //!   shape is not novel surface for upstream.
 //! - The *animated* part is exactly what Optics' own ADRs exclude: ADR-0082
 //!   sends compound widgets to userland, and ADR-0061 classifies spring
 //!   physics and slides as "flavor" that "must not ship in the library". A
-//!   spring-driven indicator inside lens would also force lens to depend on
-//!   `transit`, the arrow ADR-0077 forbids.
+//!   spring-driven indicator inside optics-ui would also force optics-ui to depend on
+//!   `optics-motion`, the arrow ADR-0077 forbids.
 //! - The motion math comes from the single authorized seam,
 //!   [`crate::widgets::motion`] (`[INV-ARCH-49]`): this module never integrates
 //!   a spring by hand.
 
-use optics_lens::{Align, Color, Frame, LayoutOpts};
+use optics_ui::{Align, Color, Frame, LayoutOpts};
 use tessera_design::{ControlCenterColors, themes};
 
 use crate::widgets::motion::{Spring, SpringParams};
@@ -293,7 +293,7 @@ const DISPLAY_WEIGHT: f32 = 700.0;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use optics_lens::{Input, MouseButton, Ui};
+    use optics_ui::{Input, MouseButton, Ui};
 
     fn tiers() -> Vec<Tier> {
         vec![

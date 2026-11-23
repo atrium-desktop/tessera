@@ -4,7 +4,8 @@ This document is the technical map of Tessera's first-party Miracast (Wi-Fi
 Display, WFD) source. It explains what protocols are used, how the pieces fit
 together, which parts are hardware-validated, and where the remaining limits
 are. The operational runbook, diagnostic playbook, and hardware quirks
-are in [`docs/dev/runbooks/miracast.md`](../dev/runbooks/miracast.md). Decisions are
+are recorded in the maintainer Miracast runbook (contributor documentation).
+Decisions are
 recorded in [ADR-0192](../adr/0192-first-party-miracast-caster.md) and
 [ADR-0191](../adr/0191-casting-p2p-belongs-to-the-system-wifi-authority.md).
 
@@ -253,7 +254,7 @@ both.
 
 These are protocol requirements for this sink, not optional tuning. Each one was
 observed as a hard failure; the detailed case files are in
-[`miracast runbook`](../dev/runbooks/miracast.md).
+the maintainer Miracast runbook (contributor documentation).
 
 1. **The trigger belongs in the M5 body.** `wfd_trigger_method: SETUP` inside
    M5 is accepted. A separate source `SET_PARAMETER` after M6 (M7) gets no
@@ -538,6 +539,5 @@ was already spawned does not pick up new spawn arguments.
 
 - [ADR-0192: first-party Miracast caster](../adr/0192-first-party-miracast-caster.md)
 - [ADR-0191: P2P belongs to the system Wi-Fi authority](../adr/0191-casting-p2p-belongs-to-the-system-wifi-authority.md)
-- [Miracast operational runbook](../dev/runbooks/miracast.md)
 - [tessera-cast CLI reference](../reference/tessera-cast.md)
 - [Configuration reference](../reference/config.md)

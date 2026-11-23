@@ -112,8 +112,8 @@ pub(super) fn wallpaper_source_overridden() -> bool {
 pub(super) fn load_wallpaper(
     config: Option<&tessera_config::Config>,
     config_path: Option<&std::path::Path>,
-    device: &optics_flux::Device,
-    surface: &optics_flux::Surface,
+    device: &optics_gfx::Device,
+    surface: &optics_gfx::Surface,
     target_size: (u32, u32),
     bundled_image: &[u8],
 ) -> Result<(wallpaper::Wallpaper, String), wallpaper::Error> {
@@ -168,8 +168,8 @@ pub(super) fn load_wallpaper(
 fn load_configured_wallpaper(
     config: Option<&tessera_config::WallpaperConfig>,
     config_path: Option<&std::path::Path>,
-    device: &optics_flux::Device,
-    surface: &optics_flux::Surface,
+    device: &optics_gfx::Device,
+    surface: &optics_gfx::Surface,
     target_size: (u32, u32),
     bundled_image: &[u8],
 ) -> Result<(wallpaper::Wallpaper, String), wallpaper::Error> {
@@ -437,7 +437,6 @@ pub(super) fn reload_config(
             server.set_decoration_policy(c.ui.window_decorations);
             server.set_output_policies(c.output_policies());
             server.set_display_topology(c.display_topology());
-            server.set_allow_quit_while_locked(c.dev.allow_quit_while_locked);
             server.set_keyboard_repeat(c.input.keyboard);
             server.set_keyboard_accessibility(c.accessibility.keyboard);
         } else {
@@ -449,7 +448,6 @@ pub(super) fn reload_config(
             server.set_decoration_policy(tessera_desktop::window::DecorationPolicy::default());
             server.set_output_policies(std::collections::HashMap::new());
             server.set_display_topology(tessera_desktop::output::DisplayTopology::default());
-            server.set_allow_quit_while_locked(false);
             server.set_keyboard_repeat(tessera_primitives::input::KeyboardConfig::default());
             server.set_keyboard_accessibility(preferences.accessibility.keyboard);
         }
@@ -490,7 +488,7 @@ pub(super) fn reload_config(
 /// Persist and apply one validated System Settings display edit through the
 /// same configuration path used by startup and external file changes.
 /// Explicit field borrows let this run after chrome rendering while the
-/// current Flux frame still borrows the unrelated presentation surface.
+/// current gfx frame still borrows the unrelated presentation surface.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn apply_display_settings(
     settings: tessera_desktop::settings::DisplaySettings,

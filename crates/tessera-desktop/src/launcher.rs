@@ -1,6 +1,6 @@
 //! The launcher's pure state machine — query, filtering, and selection.
 //!
-//! No flux, lens, or Wayland dependency. The chrome component in
+//! No gfx, optics-ui, or Wayland dependency. The chrome component in
 //! `tessera-shell` owns one of these and delegates key handling and rendering to
 //! it; this module is unit-tested in isolation. See ADR-0022.
 

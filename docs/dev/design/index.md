@@ -9,7 +9,7 @@ normative for contributor-written Tessera UI.
 Chrome is a quiet functional layer above client content. Every surface is a flat
 painted body: an opaque fill, a hairline boundary, and a painted elevation halo
 that separates it from whatever it floats over. The compositor draws no material
-behind chrome — no backdrop capture, no blur operator, no per-pixel lens shader
+behind chrome — no backdrop capture, no blur operator, no per-pixel refraction shader
 (ADR-0213). That is a visual decision as much as a cost one: a surface that bends
 the pixels beneath it is a surface asking to be looked at, and chrome is
 infrastructure.
@@ -80,7 +80,7 @@ implemented; deleting a local literal is not sufficient by itself.
 
 | Layer | Owner |
 |------|-------|
-| Generic drawing, widgets, layout, and input mechanics | Optics `lens` and `flux` |
+| Generic drawing, widgets, layout, and input mechanics | Optics `optics-ui` and `gfx` |
 | Semantic surface roles, palettes, and material option factories | `tessera-design` |
 | Composition of design values into a rendered frame | `tessera-shell` and its components |
 | Presentation, damage, and output | `tessera` (composition root) |

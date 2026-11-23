@@ -311,11 +311,11 @@ def not_allowed() -> str:
 
 
 def zoom(plus: bool) -> str:
-    lens = [("circle", 108, 108, 54), ("capsule", 150, 150, 206, 206, 22)]
+    zoom_body = [("circle", 108, 108, 54), ("capsule", 150, 150, 206, 206, 22)]
     mark = line(88, 108, 128, 108, 12)
     if plus:
         mark = line(108, 88, 108, 128, 12) + mark
-    return union(lens) + mark
+    return union(zoom_body) + mark
 
 
 def zoom_in() -> str:

@@ -237,8 +237,8 @@ mechanism that makes both positions hold is the `Chrome` trait
 - **macOS** owns input routing in WindowServer and runs all final
   composition on the GPU through Metal.
 
-tessera builds on Vulkan through flux rather than OpenGL/GLES, so HDR, color
-management, and explicit sync land as flux capabilities rather than
+tessera builds on Vulkan through gfx rather than OpenGL/GLES, so HDR, color
+management, and explicit sync land as gfx capabilities rather than
 compositor workarounds, following [ADR-0001](../adr/0001-scope-and-responsibility-boundary.md).
 HiDPI and fractional scale are output-model concerns
 ([ADR-0028](../adr/0028-output-and-monitor-model.md)); touchpad gestures and

@@ -13,17 +13,16 @@ autobenches = false
 
 [features]
 default = ["native"]
-# Tests that cross a native boundary (Wayland, flux/lens, or a real binary
-# built from the compositor stack). Flux-free CI runs this package with
+# Tests that cross a native boundary (Wayland, gfx/optics-ui, or a real binary
+# built from the compositor stack). Native-free CI runs this package with
 # --no-default-features.
 native = [
-    "dep:tessera",
     "dep:tessera-composite",
     "dep:tessera-shell",
-    "dep:optics-flux-sys",
-    "dep:optics-lens-sys",
-    "dep:optics-reticle-sys",
-    "dep:optics-vista-sys",
+    "dep:optics-gfx-sys",
+    "dep:optics-ui-sys",
+    "dep:optics-svg-sys",
+    "dep:optics-scene-sys",
     "dep:tessera-dbus",
     "dep:tessera-cast",
 ]
@@ -46,7 +45,6 @@ tessera-primitives.workspace = true
 tessera-protocol.workspace = true
 tessera-test-support.workspace = true
 
-tessera = { workspace = true, optional = true }
 # Casting suites: a fake NetworkManager on a private bus (zbus) drives the
 # caster's radio; gated with `native` alongside the other zbus suites.
 tessera-cast = { workspace = true, optional = true }
@@ -56,10 +54,10 @@ tessera-shell = { workspace = true, optional = true, default-features = false, f
 ] }
 # Native `-sys` edges are not linked from the suites directly; they publish the
 # local Optics rpaths that the test harnesses must re-emit (see `build.rs`).
-optics-flux-sys = { workspace = true, optional = true }
-optics-lens-sys = { workspace = true, optional = true }
-optics-reticle-sys = { workspace = true, optional = true }
-optics-vista-sys = { workspace = true, optional = true }
+optics-gfx-sys = { workspace = true, optional = true }
+optics-ui-sys = { workspace = true, optional = true }
+optics-svg-sys = { workspace = true, optional = true }
+optics-scene-sys = { workspace = true, optional = true }
 tessera-dbus = { workspace = true, optional = true }
 
 [[test]]
@@ -71,8 +69,15 @@ name = "e2e"
 path = "e2e/main.rs"
 
 [package.metadata.cargo-machete]
-# Native rpath metadata for the test harnesses; not referenced from source.
-ignored = ["optics-flux-sys", "optics-lens-sys", "optics-reticle-sys", "optics-vista-sys"]
+# Native rpath metadata for the test harnesses, plus the shared test
+# infrastructure that only `tests/common/mod.rs` re-exports.
+ignored = [
+    "optics-gfx-sys",
+    "optics-ui-sys",
+    "optics-svg-sys",
+    "optics-scene-sys",
+    "tessera-test-support",
+]
 
 [lints]
 workspace = true

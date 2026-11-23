@@ -4,6 +4,7 @@ description = "Shared Tessera state machine: system state, identities, geometry,
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
+publish = false
 license.workspace = true
 rust-version.workspace = true
 

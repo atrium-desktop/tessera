@@ -13,7 +13,7 @@ operating system platform interfaces, and development host targets.
   directly from a bare TTY with `libinput` event processing and `libseat` session
   management (VT console switching, hotplug detection, explicit sync via `IN_FENCE_FD`).
 - Expose the platform-specific device extensions and surface factory required by
-  the flux output surface (`host::Host`).
+  the gfx output surface (`host::Host`).
 
 ## Boundaries
 

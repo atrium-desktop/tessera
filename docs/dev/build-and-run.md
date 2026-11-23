@@ -8,11 +8,11 @@ and bare-metal DRM/KMS hardware.
 
 ## 1. Prerequisites & Toolchain Setup
 
-Tessera requires Rust 1.89+ and the native Optics graphics stack (`flux`, `vista`, `lens`, `iris`, `reticle`):
+Tessera requires Rust 1.89+ and the native Optics graphics stack (`optics-gfx`, `optics-scene`, `optics-ui`, `optics-svg`, `optics-text`):
 
 ```bash
 rustc --version                  # rustc >= 1.89
-pkg-config --modversion flux vista lens iris reticle
+pkg-config --modversion optics-gfx optics-scene optics-ui optics-svg optics-text
 ```
 
 When maintaining Tessera and Optics together in this `tessera-dev` worktree, ensure
@@ -114,7 +114,7 @@ cargo run --locked -p tessera-shell --features persona --example debug_avatar
 Verify changes before opening a pull request:
 
 ```bash
-# Flux-free rapid logic tests (zero C / GPU dependencies, sub-second)
+# native-free rapid logic tests (zero C / GPU dependencies, sub-second)
 cargo nextest run --locked \
   -p tessera-desktop -p tessera-primitives -p tessera-authority -p tessera-audit \
   -p tessera-config -p tessera-ipc -p tessera-protocol -p tessera-launch-services \
@@ -126,6 +126,17 @@ cargo nextest run --locked --workspace
 # Lint & static analysis
 cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
+shellcheck -x system/bin/* scripts/*.sh
+cargo deny check
+cargo run -p xtask -- package-conformity
+cargo run -p xtask -- check-boundaries
+cargo run -p xtask -- check-bootstrap-admission
+cargo run -p xtask -- check-vtables
+cargo run -p xtask -- check-adrs
+cargo run -p xtask -- check-system-files
+cargo run -p xtask -- check-install-manifest
+cargo run -p xtask -- check-docs
+cargo run -p xtask -- check-panics
 ```
 
 ---

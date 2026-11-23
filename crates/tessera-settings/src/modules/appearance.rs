@@ -1,4 +1,4 @@
-use optics_lens::{Align, Frame, LayoutOpts, TextBuf};
+use optics_ui::{Align, Frame, LayoutOpts, TextBuf};
 use tessera_design::Design;
 use tessera_desktop::settings::AccentColor;
 use tessera_desktop::settings::ColorScheme;
@@ -112,7 +112,7 @@ impl SettingsModule for AppearanceModule {
         ModuleMetadata {
             id: APPEARANCE_MODULE_ID,
             title: Message::Appearance,
-            icon: optics_lens::sys::lens_icon_id::LENS_ICON_IMAGE,
+            icon: optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_IMAGE,
             category: ModuleCategory::Personalization,
             keywords: &[
                 "theme",

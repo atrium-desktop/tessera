@@ -466,13 +466,13 @@ impl App {
     }
 }
 
-fn cursor_shape(hint: optics_lens::CursorHint) -> Shape {
+fn cursor_shape(hint: optics_ui::CursorHint) -> Shape {
     match hint {
-        optics_lens::CursorHint::Default => Shape::Default,
-        optics_lens::CursorHint::Pointer => Shape::Pointer,
-        optics_lens::CursorHint::Text => Shape::Text,
-        optics_lens::CursorHint::ResizeNs => Shape::NsResize,
-        optics_lens::CursorHint::ResizeEw => Shape::EwResize,
+        optics_ui::CursorHint::Default => Shape::Default,
+        optics_ui::CursorHint::Pointer => Shape::Pointer,
+        optics_ui::CursorHint::Text => Shape::Text,
+        optics_ui::CursorHint::ResizeNs => Shape::NsResize,
+        optics_ui::CursorHint::ResizeEw => Shape::EwResize,
     }
 }
 

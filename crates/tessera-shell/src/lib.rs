@@ -12,8 +12,8 @@ pub use crate::component::{
     WindowAction, WindowSwitcherPresentation,
 };
 #[cfg(test)]
-use optics_lens::Frame;
-use optics_lens::Ui;
+use optics_ui::Frame;
+use optics_ui::Ui;
 
 mod chrome;
 pub mod clock;
@@ -26,14 +26,14 @@ pub use chrome::{
 pub mod accessibility;
 
 /// Upper bound on the rectangles [`Shell::chrome_damage_regions`] collects from a
-/// single Lens frame. Matches `LENS_DAMAGE_RECTS_CAPACITY`; fixing it at compile
+/// single optics-ui frame. Matches `OPTICS_UI_DAMAGE_RECTS_CAPACITY`; fixing it at compile
 /// time keeps the damage path allocation-free.
-pub const LENS_DAMAGE_CAPACITY: usize = 64;
+pub const UI_DAMAGE_CAPACITY: usize = 64;
 
 /// How long a failed chrome-scene build waits before the next attempt
 /// (ADR-0223).
 ///
-/// A build failure is normally one degenerate draw command, and flux's encoder
+/// A build failure is normally one degenerate draw command, and gfx's encoder
 /// makes it sticky for the remainder of that frame — so the retry cannot
 /// succeed sooner than the next build with different inputs. 250 ms is the
 /// window's own idle-tick order of magnitude: fast enough that a transient
@@ -44,14 +44,14 @@ pub const BUILD_RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_m
 
 /// How often a live caret blink clock must be allowed to advance.
 ///
-/// A blink is a *phase* lens integrates from the frame delta, so a host that
+/// A blink is a *phase* optics-ui integrates from the frame delta, so a host that
 /// stopped producing frames could never reach its next flip and the caret
 /// would freeze mid-blink (Optics ADR-0151). This is the low idle tick that
 /// keeps the clock moving — not a paint cadence: the tick itself draws
 /// nothing, and the frame a flip lands on is owed a paint through that
 /// frame's own damage.
 ///
-/// 250 ms matches Optics' own `iris` pacer, whose idle tick target is that same
+/// 250 ms matches Optics' own `window` pacer, whose idle tick target is that same
 /// value: four samples per second against a 530 ms half-cycle, so a flip is
 /// observed and presented within one tick of becoming due. Slower would let the
 /// caret sit in the wrong phase for a visible interval; faster is pure wakeup
@@ -89,15 +89,15 @@ fn participates_in_shell_pass(
 
 /// Errors from the shell.
 ///
-/// Each variant carries the lens error, which carries flux's own diagnostic
+/// Each variant carries the optics-ui error, which carries gfx's own diagnostic
 /// (Optics ADR-0153). Formatting that with `{:?}` — as this type used to —
 /// prints the binding's `Error` enum structurally and hides the one field a
-/// reader needs: the flux entry point, its source line, and the message that
+/// reader needs: the gfx entry point, its source line, and the message that
 /// says *which* argument or state was wrong. `Display` forwards to it.
 #[derive(Debug)]
 pub enum ShellError {
-    Create(optics_lens::Error),
-    Render(optics_lens::Error),
+    Create(optics_ui::Error),
+    Render(optics_ui::Error),
 }
 
 impl std::fmt::Display for ShellError {
@@ -119,7 +119,7 @@ impl std::error::Error for ShellError {
 
 /// The core chrome host.
 ///
-/// Owns a lens context bound to the compositor's flux device, the per-frame
+/// Owns an optics-ui context bound to the compositor's gfx device, the per-frame
 /// window snapshot, the interaction sink, and a registry of [`Chrome`]
 /// components. The host renders the chrome into the output canvas each frame by
 /// running every registered component inside one `Ui::frame` envelope. It has
@@ -150,7 +150,7 @@ pub struct Shell {
     events: ChromeEvents,
     components: Vec<Box<dyn Chrome>>,
     /// Accessibility reduced-motion policy (ADR-0029), fanned out to every
-    /// registered component (including ones added later) and to lens.
+    /// registered component (including ones added later) and to optics-ui.
     reduced_motion: bool,
     /// Most recently reported device-pixel scale, fanned out to components as
     /// [`ChromeUpdate::Scale`].
@@ -168,22 +168,22 @@ pub struct Shell {
     ///
     /// Building the tree and drawing it are two phases of one frame. Damage
     /// assessment must observe the tree the renderer is about to draw — the
-    /// lens damage query is only meaningful for a frame already built — but it
+    /// optics-ui damage query is only meaningful for a frame already built — but it
     /// cannot run between a canvas pass's begin and its draws. Holding the
     /// built scene here lets `prepare_frame` (before damage assessment) do the
     /// building and `submit` (inside the pass) do only the drawing.
-    pending_scene: Option<optics_lens::Snapshot>,
+    pending_scene: Option<optics_ui::Snapshot>,
     /// The last scene that was successfully built, retained so a failed build
     /// degrades to the previous chrome instead of to no chrome at all.
     ///
     /// A build failure is almost always one degenerate draw command (a
     /// non-finite rect, radius or opacity from a layout that divided by a
-    /// collapsed extent). Flux's encoder makes that sticky for the rest of the
+    /// collapsed extent). gfx's encoder makes that sticky for the rest of the
     /// frame, so the whole tree is lost, not the one offending widget. Holding
     /// the last good snapshot keeps the desktop usable while the defect exists,
     /// and — together with the retry backoff below — stops the failure from
     /// becoming a per-frame rebuild loop.
-    last_good_scene: Option<optics_lens::Snapshot>,
+    last_good_scene: Option<optics_ui::Snapshot>,
     /// Backoff gate for rebuilding after a failed build.
     ///
     /// Without it, `pending_scene == None` makes `needs_build` permanently
@@ -192,16 +192,16 @@ pub struct Shell {
     /// deadline keeps the recovery (a transient failure heals on the next
     /// attempt) without paying the cost on every frame.
     build_retry_at: Option<std::time::Instant>,
-    /// The caret blink's damage state as lens reported it for the frame just
+    /// The caret blink's damage state as optics-ui reported it for the frame just
     /// built (Optics ADR-0151). Both answers are only meaningful between
-    /// `lens_end` and the next `lens_begin`, and damage assessment runs after
+    /// `optics_ui_end` and the next `optics_ui_begin`, and damage assessment runs after
     /// the build but before draw time — so they are latched here rather than
     /// re-queried at an interval where they would describe nothing.
     caret: CaretBlink,
     /// When the next caret tick is due, or `None` when no blink clock is live.
     ///
-    /// A blink clock only advances inside a build (lens integrates the frame
-    /// delta in `lens_begin`), so a host that stopped building could never
+    /// A blink clock only advances inside a build (optics-ui integrates the frame
+    /// delta in `optics_ui_begin`), so a host that stopped building could never
     /// reach the next flip and the caret would freeze mid-blink. The tick is
     /// the low idle wakeup that keeps the clock moving; it is not a paint
     /// cadence, and the loop hints it through
@@ -216,7 +216,7 @@ pub struct Shell {
 
 /// What the last chrome build said about the caret (Optics ADR-0151).
 ///
-/// Lens owns the blink clock — it integrates the phase from the frame delta and
+/// optics-ui owns the blink clock — it integrates the phase from the frame delta and
 /// compares it against the phase a *presented* snapshot put on screen — so the
 /// shell must neither model a blink nor derive one. The two facts it reports
 /// are separate because they call for different host behaviour:
@@ -232,25 +232,25 @@ pub struct Shell {
 /// display interval for a window displaying a static document.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct CaretBlink {
-    /// `lens_caret_flip_pending`: the current phase differs from the presented
+    /// `optics_ui_caret_flip_pending`: the current phase differs from the presented
     /// one.
     flip_pending: bool,
-    /// `lens_caret_clock_live`: a text widget holds focus and the blink is
+    /// `optics_ui_caret_clock_live`: a text widget holds focus and the blink is
     /// enabled.
     clock_live: bool,
 }
 
 impl Shell {
-    /// Bind to the compositor's flux device. The host starts with no chrome
+    /// Bind to the compositor's gfx device. The host starts with no chrome
     /// registered; add components with [`Shell::add`].
     ///
     /// # Safety
-    /// `device` must be a live `flux_device` (from `optics_flux::Device::as_raw`) and
-    /// outlive the `Shell`. The pointer crosses from the `flux` bindings' type
-    /// to lens's distinct-but-ABI-identical `flux_device`.
+    /// `device` must be a live `optics_gfx_device` (from `optics_gfx::Device::as_raw`) and
+    /// outlive the `Shell`. The pointer crosses from the `gfx` bindings' type
+    /// to optics-ui's distinct-but-ABI-identical `optics_gfx_device`.
     pub unsafe fn new(device: *mut c_void) -> Result<Shell, ShellError> {
         unsafe {
-            let ui = Ui::with_device(device as *mut optics_lens::sys::flux_device)
+            let ui = Ui::with_device(device as *mut optics_ui::sys::optics_gfx_device)
                 .map_err(ShellError::Create)?;
             Ok(Shell {
                 ui,
@@ -384,10 +384,10 @@ impl Shell {
     }
 
     /// Set the shell-wide reduced-motion policy (ADR-0029): every component
-    /// transition and every lens eased value resolves in one frame when on.
+    /// transition and every optics-ui eased value resolves in one frame when on.
     ///
-    /// The caret blink is part of that policy and belongs to lens (Optics
-    /// ADR-0151): the host owns the *preference*, lens owns the clock. Reducing
+    /// The caret blink is part of that policy and belongs to optics-ui (Optics
+    /// ADR-0151): the host owns the *preference*, optics-ui owns the clock. Reducing
     /// motion disables the blink outright rather than slowing it, so the caret
     /// stays solid and reports no damage at all — a blink is motion, and
     /// "resolve it in one frame" has no meaning for a state that repeats
@@ -404,18 +404,18 @@ impl Shell {
         }
     }
 
-    /// Push the reduced-motion preference into lens's caret blink clock.
+    /// Push the reduced-motion preference into optics-ui's caret blink clock.
     ///
-    /// `period <= 0` is lens's spelling of "no blink" and there is no
+    /// `period <= 0` is optics-ui's spelling of "no blink" and there is no
     /// "restore the library default" call, so re-enabling names the binding's
-    /// [`optics_lens::DEFAULT_CARET_BLINK_PERIOD_S`] — the library's own value, not a
+    /// [`optics_ui::DEFAULT_CARET_BLINK_PERIOD_S`] — the library's own value, not a
     /// number copied here, which is what keeps a preference toggle from
     /// silently changing the blink rate when Optics tunes it.
     fn apply_caret_blink(&mut self) {
         let period = if self.reduced_motion {
             0.0
         } else {
-            optics_lens::DEFAULT_CARET_BLINK_PERIOD_S
+            optics_ui::DEFAULT_CARET_BLINK_PERIOD_S
         };
         self.ui.set_caret_blink(period);
     }
@@ -426,7 +426,7 @@ impl Shell {
     }
 
     /// Set the device-pixel (HiDPI) scale for the chrome. Layout and input
-    /// stay in logical pixels; lens scales the canvas transform on render so
+    /// stay in logical pixels; optics-ui scales the canvas transform on render so
     /// chrome rasterises crisply on a scaled output. The main loop reports the
     /// backend's output scale here each time it changes.
     pub fn set_scale(&mut self, scale: f32) {
@@ -455,7 +455,7 @@ impl Shell {
         if self.design != design {
             self.design = design;
             self.dirty = true;
-            // Keep lens's own widget defaults on the same tonal side as the
+            // Keep optics-ui's own widget defaults on the same tonal side as the
             // design: bare icons and any unstyled widget draw with the
             // context theme's foreground, which otherwise stays on the
             // creation-time dark token set even in the light appearance
@@ -1311,8 +1311,8 @@ impl Shell {
     /// Whether any registered component has a multi-frame animation in flight.
     /// The main loop consults this to decide whether to keep ticking frames
     /// (advance the animation) or block on the host event queue for the next
-    /// wakeup. Also folds in lens's own eased-value state so hover/active
-    /// fades on lens widgets (buttons, etc.) settle correctly.
+    /// wakeup. Also folds in optics-ui's own eased-value state so hover/active
+    /// fades on optics-ui widgets (buttons, etc.) settle correctly.
     ///
     /// A caret blink is deliberately **absent** (Optics ADR-0151). This query
     /// means "the display is being driven at its own rate", and a 2 Hz blink
@@ -1382,9 +1382,9 @@ impl Shell {
     ///   (a dock tile's context menu opening or closing). The whole scene was
     ///   rebuilt, so every participating component repainted its pixels.
     /// * otherwise — only components with an animation in flight repaint, plus
-    ///   Lens's own eased values and caret blink.
+    ///   optics-ui's own eased values and caret blink.
     ///
-    /// Lens reports its damage through [`optics_lens::Ui::damage_rects`], which
+    /// optics-ui reports its damage through [`optics_ui::Ui::damage_rects`], which
     /// localizes per placed body and per drawn leaf, so a settling widget
     /// narrows the repaint exactly like a component's [`Chrome::damage_regions`].
     /// Only a component that returns `None` widens the frame — that is a genuine
@@ -1446,20 +1446,20 @@ impl Shell {
                 }
             }
         }
-        // Lens's own damage list is the answer for both a settling eased value
+        // optics-ui's own damage list is the answer for both a settling eased value
         // and the caret's blink *edge* (Optics ADR-0151). `anim_pending` covers
         // only the eased values, so the query is also asked on a flip — that is
         // the one frame on which the caret's rect is the whole answer.
         if scene_changed || self.ui.anim_pending() || self.caret.flip_pending {
-            // Lens answers with the frame's regional damage list, already
+            // optics-ui answers with the frame's regional damage list, already
             // localized per drawn leaf and per placed body. Taking it as-is is
             // the whole point of the list contract: a direction that must be
             // second-guessed here (band substitution, "looks too big" clamping)
             // would reintroduce exactly the guessed footprint the list replaces.
-            let mut buffer = [optics_lens::Rect::default(); LENS_DAMAGE_CAPACITY];
+            let mut buffer = [optics_ui::Rect::default(); UI_DAMAGE_CAPACITY];
             let count = self.ui.damage_rects(&mut buffer[..]);
             for damage in buffer.iter().take(count) {
-                /* Lens already rounds its damage outward to whole logical pixels,
+                /* optics-ui already rounds its damage outward to whole logical pixels,
                  * so a truncating conversion is exact here. */
                 let rect = tessera_primitives::Rect::new(
                     damage.x as i32,
@@ -1479,7 +1479,7 @@ impl Shell {
     /// ADR-0151).
     ///
     /// This is the caret's *only* paint signal. It is true for exactly the
-    /// frames on which the phase lens painted differs from the phase a
+    /// frames on which the phase optics-ui painted differs from the phase a
     /// presented snapshot put on screen, so a settled desktop with a focused
     /// text field alternates between "one frame owed" and "nothing owed" — not
     /// permanently true, which is what made every focused field an animation
@@ -1492,10 +1492,10 @@ impl Shell {
         self.caret.flip_pending
     }
 
-    /// Whether lens has a caret blink clock running (Optics ADR-0151).
+    /// Whether optics-ui has a caret blink clock running (Optics ADR-0151).
     ///
     /// A level, and deliberately not a paint request: it says the loop must
-    /// keep its low idle tick alive, because lens advances the blink phase by
+    /// keep its low idle tick alive, because optics-ui advances the blink phase by
     /// the frame delta inside a build. Exposed for the loop's diagnostics and
     /// for tests; the pacing hint itself is folded into
     /// [`Self::next_animation_deadline`].
@@ -1541,7 +1541,7 @@ impl Shell {
     /// position and needs no `reserved` arithmetic in physical space.
     pub fn chrome_intersects_render_area(
         &self,
-        area: optics_flux::CanvasRenderArea,
+        area: optics_gfx::CanvasRenderArea,
         scale: f32,
         logical_size: (u32, u32),
     ) -> bool {
@@ -1672,7 +1672,7 @@ impl Shell {
     /// `None` when nothing needs one.
     ///
     /// The caret contributes here and **not** to [`Self::anim_pending`] (Optics
-    /// ADR-0151). A blink is a phase lens integrates from the frame delta, so a
+    /// ADR-0151). A blink is a phase optics-ui integrates from the frame delta, so a
     /// loop that stopped building could never reach the next flip and the caret
     /// would freeze mid-blink; but that is a reason to *tick*, not a reason to
     /// paint at the panel rate. The tick draws nothing — the frame a flip lands
@@ -1714,10 +1714,10 @@ impl Shell {
     ///
     /// The scene is built here rather than at draw time so that everything
     /// damage assessment reads — `anim_pending`, `chrome_damage_regions`, and
-    /// lens's own `damage_rect` — describes the tree the renderer is about to
-    /// draw. Building at draw time made the lens damage query describe the
+    /// optics-ui's own `damage_rect` — describes the tree the renderer is about to
+    /// draw. Building at draw time made the optics-ui damage query describe the
     /// *previous* frame, which is why `chrome_damage_regions` had to fall back to
-    /// a full-output repaint for any settling lens widget.
+    /// a full-output repaint for any settling optics-ui widget.
     pub fn prepare_frame(&mut self, input: &Input) {
         let modal_active = self
             .components
@@ -1755,7 +1755,7 @@ impl Shell {
         // Pure pointer motion outside every chrome component's capture area
         // (and when neither the old nor the new cursor position was captured by
         // chrome) cannot alter any widget's hover state, so it must not force a
-        // full Lens scene rebuild on every mouse report over client windows or
+        // full optics-ui scene rebuild on every mouse report over client windows or
         // the desktop wallpaper. Any edge trigger handled by `component.prepare_frame`
         // above (such as auto-hide dock edge reveal) sets `anim_pending()`,
         // which independently triggers `needs_build` below.
@@ -1779,8 +1779,8 @@ impl Shell {
             || raw.preedit_utf8[0] != 0;
         self.last_input_cursor = cursor;
 
-        // The caret blink advances only inside a build (lens integrates the
-        // frame delta in `lens_begin`), so a live clock makes the next *tick* a
+        // The caret blink advances only inside a build (optics-ui integrates the
+        // frame delta in `optics_ui_begin`), so a live clock makes the next *tick* a
         // reason to build — not a reason to paint. The distinction is the whole
         // point of Optics ADR-0151: building is layout plus a display-list
         // capture, painting is a full composite, and a blink only needs the
@@ -1830,9 +1830,9 @@ impl Shell {
             // build. A chrome-less desktop is a much worse failure mode than
             // slightly stale chrome: the dock is how the user recovers.
             self.build_retry_at = Some(std::time::Instant::now() + BUILD_RETRY_BACKOFF);
-            // The error carries flux's own diagnostic — which entry point
+            // The error carries gfx's own diagnostic — which entry point
             // rejected the call, at which source line, and why. Without it this
-            // log line said only `FLUX_ERROR_INVALID_ARGUMENT`, which cannot
+            // log line said only `OPTICS_GFX_ERROR_INVALID_ARGUMENT`, which cannot
             // distinguish a non-finite rect from an out-of-bounds render area
             // from a double-begun pass, so no reader could act on it.
             log::warn!(
@@ -1843,7 +1843,7 @@ impl Shell {
         }
 
         if !needs_build {
-            // Nothing was built, so lens qualified nothing new; the answers
+            // Nothing was built, so optics-ui qualified nothing new; the answers
             // latched by the last build still describe the frame on screen, and
             // the caret deadline it armed is still correct.
             return;
@@ -1851,11 +1851,11 @@ impl Shell {
 
         // Read the caret's damage state from the frame that was just built.
         // This has to happen here, on the same frame: both answers are
-        // *transition* queries, valid only between `lens_end` and the next
-        // `lens_begin`, and damage assessment runs after the build but before
+        // *transition* queries, valid only between `optics_ui_end` and the next
+        // `optics_ui_begin`, and damage assessment runs after the build but before
         // draw time.
         //
-        // `as_raw` is the binding's documented escape hatch: `lens-rs` exposes
+        // `as_raw` is the binding's documented escape hatch: `optics-ui` exposes
         // no accessor for these queries yet, and modelling a blink host-side is
         // precisely what Optics ADR-0151 forbids — two clocks in one system
         // drift, and the host cannot know which phase actually reached the
@@ -1966,7 +1966,7 @@ impl Shell {
     /// twice in one frame draws once and then nothing.
     ///
     /// # Safety
-    /// `canvas` must be a live `flux_canvas` (from `optics_flux::Canvas::as_raw`)
+    /// `canvas` must be a live `optics_gfx_canvas` (from `optics_gfx::Canvas::as_raw`)
     /// whose pass is currently open for drawing and whose target outlives the
     /// call. It must outlive every `Snapshot` this `Shell` has produced.
     pub unsafe fn submit(&mut self, canvas: *mut c_void) -> Result<(), ShellError> {
@@ -1984,9 +1984,9 @@ impl Shell {
             // nothing: the pass keeps the desktop it already holds.
             return Ok(());
         };
-        // SAFETY: `canvas` is the caller's live `flux_canvas`, open for
+        // SAFETY: `canvas` is the caller's live `optics_gfx_canvas`, open for
         // drawing; the snapshot borrows only its own display list.
-        unsafe { scene.submit(canvas as *mut optics_lens::sys::flux_canvas) }
+        unsafe { scene.submit(canvas as *mut optics_ui::sys::optics_gfx_canvas) }
             .map_err(ShellError::Render)?;
         self.ui.activate(scene).map_err(ShellError::Render)?;
         // Present exactly once: the scene has been drawn and activated. Only a
@@ -1998,7 +1998,7 @@ impl Shell {
 
     /// Build this frame's chrome scene without drawing it.
     ///
-    /// Runs the lens frame and captures the resulting snapshot into
+    /// Runs the optics-ui frame and captures the resulting snapshot into
     /// [`Shell::pending_scene`], so [`Shell::chrome_damage_regions`] can report the
     /// real damage footprint (ADR-0203) and [`Shell::submit`] can draw it later
     /// inside a canvas pass. Every state mutation of a frame happens here.

@@ -1,10 +1,10 @@
 //! Presentation rendering for Pivot (ADR-0151, ADR-0174).
 //!
-//! Stateless UI projection using Lens Frame, typography tokens, and painted fills.
+//! Stateless UI projection using optics-ui Frame, typography tokens, and painted fills.
 
 use std::ffi::c_void;
 
-use optics_lens::{Align, Color, Frame, Icon, LayoutOpts, Rect};
+use optics_ui::{Align, Color, Frame, Icon, LayoutOpts, Rect};
 use tessera_design::materials::{chrome_place, surface_layout};
 use tessera_design::{Design, materials};
 use tessera_desktop::app::Entry;
@@ -34,8 +34,8 @@ pub const BROWSE_COLS: usize = 6;
 pub enum ItemIcon {
     App(Option<*mut c_void>),
     System(Icon),
-    /// A built-in lens glyph the Rust [`Icon`] enum does not bind.
-    Raw(optics_lens::sys::lens_icon_id),
+    /// A built-in optics-ui glyph the Rust [`Icon`] enum does not bind.
+    Raw(optics_ui::sys::optics_ui_icon_id),
     Math,
     Agent,
 }
@@ -90,17 +90,17 @@ pub fn panel_rect(
 
 /// The glyph for a system command in the Pivot surface.
 ///
-/// Uses the raw lens ids for the padlock and power symbols because the Rust
+/// Uses the raw optics-ui ids for the padlock and power symbols because the Rust
 /// [`Icon`] enum binds only a subset of the built-in table; `Shield` (security
 /// posture) and `X` (dismiss) misrepresent "lock session" and "power off".
 pub fn cmd_to_icon(cmd: SystemCmd) -> ItemIcon {
-    use optics_lens::sys::lens_icon_id;
+    use optics_ui::sys::optics_ui_icon_id;
     match cmd {
-        SystemCmd::Lock => ItemIcon::Raw(lens_icon_id::LENS_ICON_LOCK),
-        SystemCmd::Screenshot => ItemIcon::Raw(lens_icon_id::LENS_ICON_CROP),
-        SystemCmd::Suspend => ItemIcon::Raw(lens_icon_id::LENS_ICON_MOON),
-        SystemCmd::Restart => ItemIcon::Raw(lens_icon_id::LENS_ICON_REFRESH_CW),
-        SystemCmd::PowerOff => ItemIcon::Raw(lens_icon_id::LENS_ICON_POWER),
+        SystemCmd::Lock => ItemIcon::Raw(optics_ui_icon_id::OPTICS_UI_ICON_LOCK),
+        SystemCmd::Screenshot => ItemIcon::Raw(optics_ui_icon_id::OPTICS_UI_ICON_CROP),
+        SystemCmd::Suspend => ItemIcon::Raw(optics_ui_icon_id::OPTICS_UI_ICON_MOON),
+        SystemCmd::Restart => ItemIcon::Raw(optics_ui_icon_id::OPTICS_UI_ICON_REFRESH_CW),
+        SystemCmd::PowerOff => ItemIcon::Raw(optics_ui_icon_id::OPTICS_UI_ICON_POWER),
     }
 }
 
@@ -556,7 +556,7 @@ pub fn render_icon(frame: &mut Frame, icon: Option<*mut c_void>, progress: f32) 
     let size = ICON_SIZE * (0.92 + progress.clamp(0.0, 1.0) * 0.08);
     frame.centered(ICON_SIZE, ICON_SIZE, |frame| match icon {
         Some(pointer) => unsafe {
-            frame.image(pointer as *mut optics_lens::sys::flux_image, size, size);
+            frame.image(pointer as *mut optics_ui::sys::optics_gfx_image, size, size);
         },
         None => {
             frame.column_ex(

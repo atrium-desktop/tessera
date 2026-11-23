@@ -1,6 +1,6 @@
 # tessera-composite
 
-`tessera-composite` converts committed client buffers into flux textures and
+`tessera-composite` converts committed client buffers into gfx textures and
 composites the surface tree into the current output frame.
 
 ## Responsibilities
@@ -12,7 +12,7 @@ composites the surface tree into the current output frame.
   destination-space `opaque_region` where one applies.
 - Draw mapped surfaces in compositor z-order.
 - Cache textures by surface generation and release unused GPU resources.
-- Create the flux device configuration required by the compositor.
+- Create the gfx device configuration required by the compositor.
 - Stage GPU pixel readbacks, encode PNG/RGBA frames, composite cursor footprints,
   and calculate capture geometry (`capture` module).
 - Re-export Optics' composition-DAG planner at the renderer boundary for
@@ -28,7 +28,7 @@ to `tessera-wayland`, `tessera-platform`, `tessera-desktop`, `tessera-shell`, an
 ## Runtime Effect
 
 For each frame, the renderer turns the server's surface snapshots into draw
-calls on a caller-owned flux canvas. It retains only the texture cache needed
+calls on a caller-owned gfx canvas. It retains only the texture cache needed
 to avoid re-uploading unchanged buffers.
 
 ## Use

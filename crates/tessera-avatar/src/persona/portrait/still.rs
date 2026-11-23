@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use optics_flux::{Device, Format, Image};
+use optics_gfx::{Device, Format, Image};
 
 use super::{Error, mask::circle_mask_premultiplied};
 
@@ -23,7 +23,7 @@ pub fn build(device: &Device, path: &Path) -> Result<Image, Error> {
         Format::Rgba8Unorm,
         masked.as_raw(),
     )
-    .map_err(Error::Flux)
+    .map_err(Error::Gfx)
 }
 
 #[cfg(test)]

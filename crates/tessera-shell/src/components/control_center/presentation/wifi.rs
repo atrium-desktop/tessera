@@ -55,7 +55,7 @@ impl ControlCenter {
                                         ..Default::default()
                                     },
                                     |f, _| {
-                                        f.icon_raw(optics_lens::sys::lens_icon_id::LENS_ICON_CHEVRON_LEFT, 16.0);
+                                        f.icon_raw(optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_CHEVRON_LEFT, 16.0);
                                         display_label(f, i18n.text(Message::Back), type_scale.body);
                                     },
                                 );
@@ -84,7 +84,7 @@ impl ControlCenter {
                                     |f, _| {
                                         f.flex(1.0);
                                         f.spacer(0.0);
-                                        f.icon_raw(optics_lens::sys::lens_icon_id::LENS_ICON_REFRESH_CW, 16.0);
+                                        f.icon_raw(optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_REFRESH_CW, 16.0);
                                         f.flex(1.0);
                                         f.spacer(0.0);
                                     },
@@ -218,7 +218,7 @@ impl ControlCenter {
                                                         hud.text_muted
                                                     };
                                                     f.set_theme(themes::hud(&hud).with_fg(icon_fg));
-                                                    f.icon_raw(optics_lens::sys::lens_icon_id::LENS_ICON_WIFI, 18.0);
+                                                    f.icon_raw(optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_WIFI, 18.0);
 
                                                     // SSID
                                                     f.set_theme(themes::hud(&hud).with_fg(hud.text));
@@ -228,7 +228,7 @@ impl ControlCenter {
                                                     if net.security != tessera_desktop::system::WifiSecurity::Open {
                                                         f.spacer(4.0);
                                                         f.set_theme(themes::hud(&hud).with_fg(hud.text_muted));
-                                                        f.icon_raw(optics_lens::sys::lens_icon_id::LENS_ICON_LOCK, 14.0);
+                                                        f.icon_raw(optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_LOCK, 14.0);
                                                     }
 
                                                     // Frequency band badge if known
@@ -245,7 +245,7 @@ impl ControlCenter {
                                                     // Status indicator / action on right
                                                     if is_curr {
                                                         f.set_theme(themes::hud(&hud).with_fg(hud.accent));
-                                                        f.icon_raw(optics_lens::sys::lens_icon_id::LENS_ICON_CHECK, 16.0);
+                                                        f.icon_raw(optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_CHECK, 16.0);
                                                         f.spacer(4.0);
                                                         let (disconn_resp, _) = f.pressable_row(
                                                             &format!("tessera-wifi-disconn-{idx}"),
@@ -418,7 +418,7 @@ impl ControlCenter {
                                                     |f| {
                                                         f.spacer(4.0);
                                                         f.set_theme(themes::hud(&hud).with_fg(hud.accent));
-                                                        f.icon_raw(optics_lens::sys::lens_icon_id::LENS_ICON_LOCK, 14.0);
+                                                        f.icon_raw(optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_LOCK, 14.0);
                                                         f.set_theme(themes::hud(&hud).with_fg(if self.wifi_input_passphrase.is_empty() { hud.text_muted } else { hud.text }));
                                                         display_label(f, &display_field, type_scale.caption);
 

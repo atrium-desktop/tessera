@@ -5,7 +5,7 @@
 //! The grid is a near-square arrangement of equal *slots*; each window's
 //! thumbnail is then aspect-fitted inside its slot. Windows claim the slot
 //! nearest their on-screen center (`assign_slots`), so the picker keeps a
-//! spatial echo of the real desktop. No flux, lens, or Wayland dependency,
+//! spatial echo of the real desktop. No gfx, optics-ui, or Wayland dependency,
 //! so the layout is unit-tested in isolation.
 
 use tessera_primitives::{Point, Rect, Size};

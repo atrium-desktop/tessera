@@ -7,7 +7,7 @@
 //!
 //! Both halves of a cursor theme are read:
 //!
-//! - `cursors/<name>.svg` is compiled by the Optics reticle compiler
+//! - `cursors/<name>.svg` is compiled by the `optics-svg` compiler
 //!   into premultiplied pixels at exactly the size the output needs. There is no
 //!   pre-baked bitmap, no subprocess, and no runtime SVG library beyond that one
 //!   device-less compiler.
@@ -326,7 +326,7 @@ impl CursorTheme {
 
 /// One resolved, uploaded cursor ready to draw: a texture plus its hotspot.
 pub struct LoadedCursor {
-    pub image: optics_flux::Image,
+    pub image: optics_gfx::Image,
     /// Original premultiplied BGRA pixels retained for cursor-inclusive
     /// screenshots on nested backends, whose host cursor is not part of the
     /// compositor framebuffer.
@@ -407,7 +407,7 @@ impl CursorCache {
     /// only if rasterization itself fails.
     pub fn get(
         &mut self,
-        device: &optics_flux::Device,
+        device: &optics_gfx::Device,
         shape: u32,
         scale: f32,
     ) -> Option<&LoadedCursor> {
@@ -450,11 +450,11 @@ impl CursorCache {
             .or_insert_with(|| {
                 let img = theme.load_shape(shape, scale)?;
                 let pixels: std::sync::Arc<[u8]> = img.pixels.into();
-                let image = optics_flux::Image::from_bytes(
+                let image = optics_gfx::Image::from_bytes(
                     device,
                     img.width,
                     img.height,
-                    optics_flux::Format::Bgra8Unorm,
+                    optics_gfx::Format::Bgra8Unorm,
                     &pixels,
                 )
                 .ok()?;

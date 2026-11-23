@@ -1,8 +1,8 @@
 # Vision and Scope
 
 tessera is a Wayland compositor and graphical shell for Linux, written in Rust
-on [flux](https://github.com/ming2k/optics/tree/main/libs/flux) and
-[lens](https://github.com/ming2k/optics/tree/main/libs/lens). This page
+on [gfx](https://github.com/ming2k/optics/tree/main/libs/gfx) and
+[optics-ui](https://github.com/ming2k/optics/tree/main/libs/ui). This page
 states what the project is for, what it is not for, and the design principles
 that keep it small as it grows toward the feature richness of a full desktop
 shell. The concrete milestone sequence is [Roadmap](roadmap.md); the
@@ -37,7 +37,7 @@ tessera reaches it with a fraction of the code and a single coherent model.
 "More simple and more pure" is the differentiator. Simple means a small
 core that owns its responsibilities directly rather than wrapping a toolkit.
 Pure means each concern has one home: the compositor owns the Wayland server
-and window model, flux owns rendering, lens owns the immediate-mode UI, and
+and window model, gfx owns rendering, optics-ui owns the immediate-mode UI, and
 the chrome is a pluggable component. Nothing is duplicated across seams.
 
 ## Design Principles
@@ -67,7 +67,7 @@ the explicit rejection of GNOME's fragmented stores, sway's mixed-syntax
 file, and river's unstructured startup script
 ([ADR-0026](../adr/0026-configuration-system.md)).
 
-**Rendering and UI are delegated.** flux renders; lens draws the chrome. tessera
+**Rendering and UI are delegated.** gfx renders; optics-ui draws the chrome. tessera
 does not grow a scene graph, a text shaper, or an animation framework in
 tree. When a capability is missing, it is added where it belongs
 ([ADR-0001](../adr/0001-scope-and-responsibility-boundary.md)).
@@ -102,7 +102,7 @@ The following are in scope for the desktop phase:
   ([ADR-0027](../adr/0027-ipc-and-introspection.md)).
 - Multi-output with mixed DPI and fractional scale
   ([ADR-0028](../adr/0028-output-and-monitor-model.md)).
-- A declarative animation layer owned by lens, with reduced-motion
+- A declarative animation layer owned by optics-ui, with reduced-motion
   ([ADR-0029](../adr/0029-animation-and-effect-policy.md)).
 
 ## Non-Goals
@@ -116,8 +116,8 @@ To stay small, tessera explicitly does not aim to provide the following:
   installed.
 - **An in-process extension runtime.** No JavaScript, QML, or Lua inside the
   compositor. All automation is out-of-process over IPC.
-- **A second renderer.** flux is the renderer. There is no fallback software
-  path beyond what flux itself provides.
+- **A second renderer.** gfx is the renderer. There is no fallback software
+  path beyond what gfx itself provides.
 - **A settings GUI in the compositor.** Configuration is a file. A separate
   GUI may exist later as a normal Wayland client, but it is not part of the
   compositor.

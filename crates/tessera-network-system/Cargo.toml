@@ -4,6 +4,7 @@ description = "NetworkManager and iwd backends plus the out-of-process Tessera n
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
+publish = false
 license.workspace = true
 rust-version.workspace = true
 

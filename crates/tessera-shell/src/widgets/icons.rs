@@ -1,25 +1,25 @@
 //! Runtime-registered product glyphs for shell chrome.
 //!
-//! Lens ships a fixed built-in icon table (`optics_lens::sys::lens_icon_id`) that has
+//! optics-ui ships a fixed built-in icon table (`optics_ui::sys::optics_ui_icon_id`) that has
 //! no keyboard-hardware vocabulary; the closest match for a keyboard backlight
-//! was `LENS_ICON_EDIT` (a pencil in a box), which reads as "edit", not
-//! "illumination". `optics_lens::register_svg_icon` lets a host register its own SVG
+//! was `OPTICS_UI_ICON_EDIT` (a pencil in a box), which reads as "edit", not
+//! "illumination". `optics_ui::register_svg_icon` lets a host register its own SVG
 //! at runtime and then draw it through every icon widget exactly like a
-//! built-in (`lens_icon_register_svg`, Optics `libs/lens/src/icon_runtime.c`).
+//! built-in (`optics_ui_icon_register_svg`, Optics `libs/ui/src/icon_runtime.c`).
 //!
 //! These glyphs are registered lazily on the UI thread, once per process. The
-//! lens registry is process-global and never reclaimed, so the ids are stable
+//! optics-ui registry is process-global and never reclaimed, so the ids are stable
 //! for the life of the process; [`keyboard_backlight`] caches the id in a
 //! `OnceLock` and returns `None` if registration ever fails, letting callers
 //! fall back to a built-in rather than drawing nothing.
 
 use std::sync::OnceLock;
 
-use optics_lens::sys::lens_icon_id;
+use optics_ui::sys::optics_ui_icon_id;
 
 /// Keyboard outline with three illumination rays above it — the keyboard
 /// backlight glyph. Drawn in the built-in icon set's 2/24 stroke weight; the
-/// reticle parser ignores the document's own paint and draws in the theme
+/// `optics-svg` parser ignores the document's own paint and draws in the theme
 /// colour, so this is stroke-only geometry with no `fill`.
 const KEYBOARD_BACKLIGHT_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 <path d="M3 14h18v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>
@@ -31,19 +31,19 @@ const KEYBOARD_BACKLIGHT_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg"
 <path d="M17 4v3"/>
 </svg>"##;
 
-static KEYBOARD_BACKLIGHT: OnceLock<Option<lens_icon_id>> = OnceLock::new();
+static KEYBOARD_BACKLIGHT: OnceLock<Option<optics_ui_icon_id>> = OnceLock::new();
 
 /// The keyboard-backlight icon id, registering the glyph on first use.
 ///
-/// Returns `None` if the SVG was rejected by the lens parser; callers should
+/// Returns `None` if the SVG was rejected by the optics-ui parser; callers should
 /// then fall back to a built-in icon id.
-pub fn keyboard_backlight() -> Option<lens_icon_id> {
-    *KEYBOARD_BACKLIGHT.get_or_init(|| optics_lens::register_svg_icon(KEYBOARD_BACKLIGHT_SVG))
+pub fn keyboard_backlight() -> Option<optics_ui_icon_id> {
+    *KEYBOARD_BACKLIGHT.get_or_init(|| optics_ui::register_svg_icon(KEYBOARD_BACKLIGHT_SVG))
 }
 
 /// The Bluetooth rune — the standard mark for the Bluetooth radio (ADR-0175).
 ///
-/// Lens has no Bluetooth vector glyph (`Icon` covers no `Bluetooth` variant),
+/// optics-ui has no Bluetooth vector glyph (`Icon` covers no `Bluetooth` variant),
 /// so the HUD's fallback path needs one registered at runtime, exactly like
 /// the keyboard-backlight glyph above. Drawn as the conventional polyline at
 /// the same 2/24 stroke weight as the built-in set.
@@ -57,17 +57,17 @@ const BLUETOOTH_DISABLED_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg"
 <line x1="3" y1="3" x2="21" y2="21"/>
 </svg>"##;
 
-static BLUETOOTH: OnceLock<Option<lens_icon_id>> = OnceLock::new();
-static BLUETOOTH_DISABLED: OnceLock<Option<lens_icon_id>> = OnceLock::new();
+static BLUETOOTH: OnceLock<Option<optics_ui_icon_id>> = OnceLock::new();
+static BLUETOOTH_DISABLED: OnceLock<Option<optics_ui_icon_id>> = OnceLock::new();
 
 /// The Bluetooth radio glyph id: active when `enabled`, struck through when
 /// not. Registers the SVG on first use; `None` if the parser rejected it, in
 /// which case callers fall back to a built-in id.
-pub fn bluetooth(enabled: bool) -> Option<lens_icon_id> {
+pub fn bluetooth(enabled: bool) -> Option<optics_ui_icon_id> {
     if enabled {
-        *BLUETOOTH.get_or_init(|| optics_lens::register_svg_icon(BLUETOOTH_SVG))
+        *BLUETOOTH.get_or_init(|| optics_ui::register_svg_icon(BLUETOOTH_SVG))
     } else {
-        *BLUETOOTH_DISABLED.get_or_init(|| optics_lens::register_svg_icon(BLUETOOTH_DISABLED_SVG))
+        *BLUETOOTH_DISABLED.get_or_init(|| optics_ui::register_svg_icon(BLUETOOTH_DISABLED_SVG))
     }
 }
 
@@ -77,13 +77,13 @@ mod tests {
 
     #[test]
     fn keyboard_backlight_registers_and_is_stable() {
-        // Registration needs a live lens context only for *drawing*; the
+        // Registration needs a live optics-ui context only for *drawing*; the
         // registry itself is process-global, so a headless frame is enough to
         // prove the SVG parses and the id is reusable.
         let first = keyboard_backlight();
         assert!(first.is_some(), "keyboard backlight SVG must parse");
         assert_eq!(first, keyboard_backlight(), "id is cached across calls");
         // Runtime ids continue past the built-in table.
-        assert!(first.unwrap().0 >= lens_icon_id::LENS_ICON_COUNT.0);
+        assert!(first.unwrap().0 >= optics_ui_icon_id::OPTICS_UI_ICON_COUNT.0);
     }
 }

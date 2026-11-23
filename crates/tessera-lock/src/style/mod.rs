@@ -12,7 +12,7 @@ pub mod cinematic;
 pub mod common;
 pub(crate) mod qr;
 
-use optics_flux::{CanvasCommands, GradientStop};
+use optics_gfx::{CanvasCommands, GradientStop};
 use tessera_config::LockScreenStyle;
 
 pub use common::FramePresentation;
@@ -28,7 +28,7 @@ use cinematic::cinematic_scrim_stops;
 /// this.
 pub(crate) fn paint_artwork_background(
     canvas: &CanvasCommands<'_>,
-    device: &optics_flux::Device,
+    device: &optics_gfx::Device,
     background: &mut LockBackground,
     output: (u32, u32),
     style: LockScreenStyle,
@@ -45,7 +45,7 @@ pub(crate) fn paint_artwork_background(
                 0.0,
                 output.0 as f32,
                 output.1 as f32,
-                optics_flux::rgba(*red, *green, *blue, 255),
+                optics_gfx::rgba(*red, *green, *blue, 255),
             );
         }
     }
@@ -58,7 +58,7 @@ pub(crate) fn paint_artwork_background(
         0.0,
         output.0 as f32,
         output.1 as f32,
-        optics_flux::rgba(3, 6, 12, dim),
+        optics_gfx::rgba(3, 6, 12, dim),
     );
     let (start, end, stops): ((f32, f32), (f32, f32), &[GradientStop]) = match style {
         LockScreenStyle::Centered => ((0.0, 0.0), (0.0, output.1 as f32), &centered_scrim_stops()),

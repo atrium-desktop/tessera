@@ -1159,7 +1159,7 @@ fn backdrop_prepass_reveals_only_from_the_capsule_body() {
 
 #[test]
 fn running_app_preview_layout_exposes_every_window_inside_the_output() {
-    let owner = optics_lens::Rect {
+    let owner = optics_ui::Rect {
         x: 910.0,
         y: 980.0,
         w: 84.0,
@@ -1204,7 +1204,7 @@ fn running_app_preview_layout_exposes_every_window_inside_the_output() {
 #[test]
 fn live_preview_adds_one_panel_body_and_keeps_its_pointer_bridge() {
     let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
-    let owner = optics_lens::Rect {
+    let owner = optics_ui::Rect {
         x: 900.0,
         y: 970.0,
         w: 84.0,
@@ -1224,7 +1224,7 @@ fn live_preview_adds_one_panel_body_and_keeps_its_pointer_bridge() {
     let panel = presentation.panel;
     dock.motion.tooltip_alpha = 1.0;
     dock.hover_owner_bounds = Some(owner);
-    dock.hover_surface_bounds = Some(optics_lens::Rect {
+    dock.hover_surface_bounds = Some(optics_ui::Rect {
         x: panel.origin.x as f32,
         y: panel.origin.y as f32,
         w: panel.size.w as f32,
@@ -1258,7 +1258,7 @@ fn live_preview_adds_one_panel_body_and_keeps_its_pointer_bridge() {
 #[test]
 fn hovered_live_preview_uses_one_parent_body_with_an_optical_focus_field() {
     let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
-    let owner = optics_lens::Rect {
+    let owner = optics_ui::Rect {
         x: 900.0,
         y: 970.0,
         w: 84.0,
@@ -1275,7 +1275,7 @@ fn hovered_live_preview_uses_one_parent_body_with_an_optical_focus_field() {
     );
     let panel = presentation.panel;
     dock.motion.tooltip_alpha = 1.0;
-    dock.hover_surface_bounds = Some(optics_lens::Rect {
+    dock.hover_surface_bounds = Some(optics_ui::Rect {
         x: panel.origin.x as f32,
         y: panel.origin.y as f32,
         w: panel.size.w as f32,
@@ -2111,7 +2111,7 @@ fn preview_hover_locks_magnification_axis_to_owner_tile_centre() {
 #[test]
 fn app_menu_follows_dock_dark_and_light_theme() {
     let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
-    let owner = optics_lens::Rect {
+    let owner = optics_ui::Rect {
         x: 900.0,
         y: 970.0,
         w: 84.0,
@@ -2201,7 +2201,7 @@ fn autohide_collapse_settle_drains_swapchain_ring_frames() {
     let i18n = Localizer::default();
     let mut out = ChromeEvents::default();
 
-    let mut ui = optics_lens::Ui::headless().unwrap();
+    let mut ui = optics_ui::Ui::headless().unwrap();
     let mut input = Input::new(display, 0.05);
     input.set_cursor(display.0 * 0.5, 100.0);
 
@@ -2264,19 +2264,19 @@ fn dismiss_latch_prevents_rebound_oscillation_during_collapse() {
     let i18n = Localizer::default();
     let mut out = ChromeEvents::default();
 
-    let mut ui = optics_lens::Ui::headless().unwrap();
+    let mut ui = optics_ui::Ui::headless().unwrap();
     // Cursor parked in the terminal area above the expanded dock
     let mut input = Input::new(display, 0.016);
     input.set_cursor(display.0 * 0.5, 950.0);
 
     // Click outside to trigger Escape hatch dismiss
-    input.set_mouse_down(optics_lens::MouseButton::Left, true);
+    input.set_mouse_down(optics_ui::MouseButton::Left, true);
     ui.frame(&input, |f| {
         dock.render(f, &input, &windows, &workspaces, &i18n, &mut out);
     });
     assert!(dock.dismiss_latched, "click outside engages dismiss latch");
 
-    input.set_mouse_down(optics_lens::MouseButton::Left, false);
+    input.set_mouse_down(optics_ui::MouseButton::Left, false);
 
     // Advance collapse partially. While collapsing, move cursor into the morphing panel area.
     for _ in 0..5 {
@@ -2323,7 +2323,7 @@ fn obscured_dock_clears_collapse_pending_once_rested_so_dwell_can_reopen() {
     let workspaces = workspace_snapshot();
     let i18n = Localizer::default();
     let mut out = ChromeEvents::default();
-    let mut ui = optics_lens::Ui::headless().unwrap();
+    let mut ui = optics_ui::Ui::headless().unwrap();
 
     // A window overlapping the bottom resting dock area
     let mut invading = window(10, "terminal", true);
@@ -2415,7 +2415,7 @@ fn dock_interaction_sets_interacted_flag_and_standard_timeout() {
     let windows = Vec::new();
     let i18n = Localizer::default();
     let mut out = ChromeEvents::default();
-    let mut ui = optics_lens::Ui::headless().unwrap();
+    let mut ui = optics_ui::Ui::headless().unwrap();
 
     assert!(!dock.dock_interacted);
 
@@ -2460,7 +2460,7 @@ fn prepass_and_render_agree_on_the_hovered_tile() {
     let windows = Vec::new();
     let i18n = Localizer::default();
     let mut out = ChromeEvents::default();
-    let mut ui = optics_lens::Ui::headless().unwrap();
+    let mut ui = optics_ui::Ui::headless().unwrap();
 
     // First frame primes the tile spring table; the pre-pass intentionally
     // skips an empty table so a never-shown Dock does not allocate springs.
@@ -2505,7 +2505,7 @@ fn prepass_and_render_agree_on_the_hovered_tile() {
     dock.tooltip_tile = Some(keys[1].clone());
     dock.motion.tooltip_alpha = 1.0;
     dock.hover_owner_bounds = Some(target);
-    dock.hover_surface_bounds = Some(optics_lens::Rect {
+    dock.hover_surface_bounds = Some(optics_ui::Rect {
         x: target.x,
         y: target.y,
         w: target.w,
@@ -2623,7 +2623,7 @@ fn the_tile_context_menu_is_part_of_the_dock_damage() {
         "foot",
         Some(app("foot")),
         std::iter::empty(),
-        lens_rect(600.0, 980.0, 84.0, 74.0),
+        ui_rect(600.0, 980.0, 84.0, 74.0),
         None,
     );
     let menu = dock
@@ -2678,7 +2678,7 @@ fn a_dismissed_context_menu_retires_its_vacated_band() {
         "foot",
         Some(app("foot")),
         std::iter::empty(),
-        lens_rect(600.0, 980.0, 84.0, 74.0),
+        ui_rect(600.0, 980.0, 84.0, 74.0),
         None,
     );
     assert!(dock.captures_keyboard());
@@ -2709,8 +2709,8 @@ fn a_dismissed_context_menu_retires_its_vacated_band() {
 #[test]
 fn a_moving_menu_footprint_keeps_the_vacated_band() {
     let mut dock = dock_with(vec![app("foot")]);
-    let first = lens_rect(600.0, 980.0, 84.0, 74.0);
-    let second = lens_rect(900.0, 980.0, 84.0, 74.0);
+    let first = ui_rect(600.0, 980.0, 84.0, 74.0);
+    let second = ui_rect(900.0, 980.0, 84.0, 74.0);
 
     Dock::record_menu_damage(&mut dock.menu_damage_rect, first);
     let after_first = dock.menu_damage_rect.expect("recorded");
@@ -2727,8 +2727,8 @@ fn a_moving_menu_footprint_keeps_the_vacated_band() {
     );
 }
 
-/// A `optics_lens::Rect` from corners, so the popup fixtures stay readable.
-fn lens_rect(x: f32, y: f32, w: f32, h: f32) -> Rect {
+/// A `optics_ui::Rect` from corners, so the popup fixtures stay readable.
+fn ui_rect(x: f32, y: f32, w: f32, h: f32) -> Rect {
     Rect { x, y, w, h }
 }
 
@@ -2807,7 +2807,7 @@ fn an_open_menu_holds_the_dock_open_past_its_idle_timeout() {
 
     assert!(!dock.interaction_locked(), "a resting dock locks nothing");
 
-    let owner = lens_rect(900.0, 970.0, 84.0, 84.0);
+    let owner = ui_rect(900.0, 970.0, 84.0, 84.0);
     dock.app_menu.open(
         "Editor",
         None,
@@ -2865,7 +2865,7 @@ fn a_locked_dock_does_not_collapse_no_matter_how_long_it_idles() {
     dock.autohide_timeout = 0.01;
     dock.motion.reveal = SpringState::new(1.0);
 
-    let owner = lens_rect(900.0, 970.0, 84.0, 84.0);
+    let owner = ui_rect(900.0, 970.0, 84.0, 84.0);
     dock.app_menu.open(
         "Editor",
         None,
@@ -3002,7 +3002,7 @@ fn workspace_rail_click_switches_workspace() {
 
     // Hover to let magnification settle
     input.set_cursor(tick1_x, tick1_y);
-    let mut ui = optics_lens::Ui::headless().unwrap();
+    let mut ui = optics_ui::Ui::headless().unwrap();
     let mut out = ChromeEvents::default();
     let i18n = Localizer::default();
     ui.frame(&input, |f| {
@@ -3010,13 +3010,13 @@ fn workspace_rail_click_switches_workspace() {
     });
 
     // Press on tick 1
-    input.set_mouse_down(optics_lens::MouseButton::Left, true);
+    input.set_mouse_down(optics_ui::MouseButton::Left, true);
     ui.frame(&input, |f| {
         dock.render(f, &input, &[], &workspaces, &i18n, &mut out);
     });
 
     // Release on tick 1
-    input.set_mouse_down(optics_lens::MouseButton::Left, false);
+    input.set_mouse_down(optics_ui::MouseButton::Left, false);
 
     let mut out2 = ChromeEvents::default();
     ui.frame(&input, |f| {
@@ -3050,7 +3050,7 @@ fn workspace_rail_wheel_scroll_switches_workspace() {
 
     // Hover over rail to let magnification and hover settle
     input.set_cursor(rail_x, rail_y);
-    let mut ui = optics_lens::Ui::headless().unwrap();
+    let mut ui = optics_ui::Ui::headless().unwrap();
     let mut out = ChromeEvents::default();
     let i18n = Localizer::default();
     ui.frame(&input, |f| {
@@ -3086,7 +3086,7 @@ fn workspace_rail_renders_on_vertical_dock_positions() {
         assert!(bounds.x >= 0.0, "{position:?} dock x is inside display");
 
         let input = Input::new(display, 0.05);
-        let mut ui = optics_lens::Ui::headless().unwrap();
+        let mut ui = optics_ui::Ui::headless().unwrap();
         let mut out = ChromeEvents::default();
         let i18n = Localizer::default();
         ui.frame(&input, |f| {
@@ -3179,7 +3179,7 @@ fn pressing_a_reading_opens_the_control_center() {
     let display = (1920.0, 1080.0);
     let workspaces = workspace_snapshot();
     let mut input = Input::new(display, 0.05);
-    let mut ui = optics_lens::Ui::headless().unwrap();
+    let mut ui = optics_ui::Ui::headless().unwrap();
     let i18n = Localizer::default();
 
     // The rest plate comes from the same placement rule the frame uses, so the
@@ -3221,11 +3221,11 @@ fn pressing_a_reading_opens_the_control_center() {
         "the row hit test uses the same algebra as the tiling"
     );
 
-    input.set_mouse_down(optics_lens::MouseButton::Left, true);
+    input.set_mouse_down(optics_ui::MouseButton::Left, true);
     ui.frame(&input, |f| {
         dock.render(f, &input, &[], &workspaces, &i18n, &mut out);
     });
-    input.set_mouse_down(optics_lens::MouseButton::Left, false);
+    input.set_mouse_down(optics_ui::MouseButton::Left, false);
     ui.frame(&input, |f| {
         dock.render(f, &input, &[], &workspaces, &i18n, &mut out);
     });
@@ -3372,7 +3372,7 @@ fn a_pointer_between_two_equal_tiles_keeps_one_hover() {
     let windows = [window(1, "org.example.Editor", true)];
     dock.update_windows(&windows);
     let workspaces = workspace_snapshot();
-    let mut ui = optics_lens::Ui::headless().unwrap();
+    let mut ui = optics_ui::Ui::headless().unwrap();
     let i18n = Localizer::default();
 
     // The exact midpoint of the two-tile strip: the geometry that made the
@@ -3437,7 +3437,7 @@ fn a_raised_popover_stays_while_the_pointer_enters_it() {
     let mut dock = dock_with(vec![app("org.example.Editor.desktop")]);
     let windows = [window(1, "org.example.Editor", true)];
     dock.update_windows(&windows);
-    let mut ui = optics_lens::Ui::headless().unwrap();
+    let mut ui = optics_ui::Ui::headless().unwrap();
     let mut out = ChromeEvents::default();
 
     let bounds = Dock::rest_bounds(1, 0, DockPosition::Bottom, display);
@@ -3526,7 +3526,7 @@ fn collapsing_into_the_capsule_keeps_every_scene_build_valid() {
     let workspaces = workspace_snapshot();
     let i18n = Localizer::default();
     let mut out = ChromeEvents::default();
-    let mut ui = optics_lens::Ui::headless().unwrap();
+    let mut ui = optics_ui::Ui::headless().unwrap();
     ui.set_scale(2.0);
     let mut input = Input::new(display, 1.0 / 120.0);
     input.set_cursor(display.0 * 0.5, display.1 - 20.0);
@@ -3635,7 +3635,7 @@ fn dock_render_preserves_hover_dwell_and_fade_animation_after_spring_settles() {
     let workspaces = workspace_snapshot();
     let i18n = Localizer::default();
     let mut out = ChromeEvents::default();
-    let mut ui = optics_lens::Ui::headless().unwrap();
+    let mut ui = optics_ui::Ui::headless().unwrap();
 
     // Place the pointer over the pinned Foot tile and advance with 60 Hz steps.
     // The magnification spring settles around ~180 ms, while `TOOLTIP_DWELL` is
@@ -3701,7 +3701,7 @@ fn the_damage_regions_contain_tooltip_and_shadow_at_full_magnification() {
             display,
         );
         let owner = geometry.icon_rects[1];
-        let mut ui = optics_lens::Ui::headless().unwrap();
+        let mut ui = optics_ui::Ui::headless().unwrap();
         let input = Input::new(display, 1.0 / 60.0);
         let mut pill = Rect::default();
         ui.frame(&input, |f| {

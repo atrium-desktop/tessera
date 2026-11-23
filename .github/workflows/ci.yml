@@ -50,6 +50,16 @@ jobs:
         run: cargo run --package xtask -- check-adrs
       - name: Dist files (ADR-0241)
         run: cargo run --package xtask -- check-system-files
+      - name: Install manifest completeness
+        run: cargo run --package xtask -- check-install-manifest
+      - name: Documentation links, anchors, and audience scope
+        run: cargo run --package xtask -- check-docs
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - name: Supply chain policy
+        run: cargo deny check
       - name: Panic discipline (ADR-0195)
         run: cargo run --package xtask -- check-panics
       - name: Install system dependencies
@@ -57,10 +67,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libwayland-dev wayland-protocols \
-            libclang-dev pkg-config mold desktop-file-utils
+            libclang-dev pkg-config mold desktop-file-utils shellcheck
       - name: Validate desktop entries
         run: desktop-file-validate system/share/applications/*.desktop
-      - name: Clippy (flux-free crates)
+      - name: Shell script lint
+        run: shellcheck -x system/bin/* scripts/*.sh
+      - name: Clippy (native-free crates)
         run: >-
           cargo clippy --locked
           -p tessera-desktop -p tessera-primitives -p tessera-authority -p tessera-audit
@@ -68,7 +80,7 @@ jobs:
           -p tessera-control -p tessera-mcp -p tessera-idle
           -p tessera-wayland-protocols -p tessera-wayland
           --all-targets -- -D warnings
-      - name: Doc check (flux-free crates)
+      - name: Doc check (native-free crates)
         run: >-
           cargo doc --locked --no-deps
           -p tessera-desktop -p tessera-primitives -p tessera-authority -p tessera-audit
@@ -76,7 +88,7 @@ jobs:
           -p tessera-control -p tessera-mcp -p tessera-idle
           -p tessera-wayland-protocols -p tessera-wayland
 
-  flux-free-tests:
+  native-free-tests:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -92,14 +104,14 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest
-      - name: Test flux-free crates
+      - name: Test native-free crates
         run: >-
           cargo nextest run --profile ci --locked
           -p tessera-desktop -p tessera-primitives -p tessera-authority -p tessera-audit
           -p tessera-config -p tessera-ipc -p tessera-protocol -p tessera-launch-services -p tessera-env
           -p tessera-control -p tessera-mcp -p tessera-idle
           -p tessera-wayland
-      - name: Test flux-free root suites
+      - name: Test native-free root suites
         run: cargo nextest run --profile ci --locked -p tessera-tests --no-default-features
       - name: Build tessera-wayland-protocols
         run: cargo build --locked -p tessera-wayland-protocols
@@ -151,13 +163,13 @@ jobs:
           meson compile -C optics/build
           sudo meson install -C optics/build
           sudo ldconfig
-          pkg-config --modversion flux vista lens iris reticle
+          pkg-config --modversion optics-gfx optics-scene optics-ui optics-svg optics-text
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest
       - name: Build workspace binaries
         run: cargo build --locked --workspace --bins
-      # The fast job lints only flux-free crates; this covers the rest,
+      # The fast job lints only native-free crates; this covers the rest,
       # including the tessera-shell motion rule (ADR-0174, ADR-0240).
       - name: Clippy (full workspace)
         run: cargo clippy --locked --workspace --all-targets -- -D warnings

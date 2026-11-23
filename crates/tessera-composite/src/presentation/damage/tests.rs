@@ -440,21 +440,21 @@ fn client_damage_maps_degrading_to_full() {
 }
 
 #[test]
-fn flux_damage_round_trip_preserves_the_set_and_rounds_outward() {
+fn gfx_damage_round_trip_preserves_the_set_and_rounds_outward() {
     let damage = FrameDamage::Area(vec![Rect::new(10, 20, 30, 40), Rect::new(100, 120, 5, 7)]);
-    let round_trip = FrameDamage::from_flux_damage(damage.to_flux_damage());
+    let round_trip = FrameDamage::from_gfx_damage(damage.to_gfx_damage());
     assert_eq!(round_trip, damage);
     assert_eq!(
-        FrameDamage::from_flux_damage(optics_flux::Damage::None),
+        FrameDamage::from_gfx_damage(optics_gfx::Damage::None),
         FrameDamage::None
     );
     assert_eq!(
-        FrameDamage::from_flux_damage(optics_flux::Damage::Area(Vec::new())),
+        FrameDamage::from_gfx_damage(optics_gfx::Damage::Area(Vec::new())),
         FrameDamage::None
     );
     assert_eq!(
-        FrameDamage::from_flux_damage(optics_flux::Damage::Area(vec![
-            optics_flux::CanvasRenderArea {
+        FrameDamage::from_gfx_damage(optics_gfx::Damage::Area(vec![
+            optics_gfx::CanvasRenderArea {
                 x: 10.4,
                 y: 20.6,
                 width: 3.2,

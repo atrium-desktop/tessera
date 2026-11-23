@@ -519,7 +519,7 @@ impl DrmBackend {
             || self.displays.color_mode != self.surface_color_mode
             || self.displays.icc_profile != self.surface_icc
         {
-            // The live Flux surface was created with the old intersection
+            // The live gfx surface was created with the old intersection
             // and pixel encoding; resize cannot retcon either — the main
             // loop must recreate it (see Backend::surface_needs_recreate).
             log::info!(
@@ -1755,7 +1755,7 @@ pub(super) fn parse_format_modifiers(blob: &[u8], format: u32) -> Result<Vec<u64
     // every animated full-output frame into an uncompressed linear write,
     // which is particularly expensive at HiDPI/high refresh rates. Keep the
     // ordering deterministic while placing LINEAR after every native layout;
-    // Flux consumes this list as a producer preference order.
+    // gfx consumes this list as a producer preference order.
     modifiers.sort_by_key(|modifier| (*modifier == u64::from(DrmModifier::Linear), *modifier));
     Ok(modifiers)
 }

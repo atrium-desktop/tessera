@@ -4,9 +4,9 @@ Pure presentation-domain value layer for the tessera compositor, housed within `
 
 This module holds the compositor-side *facts* of the output-damage pipeline —
 the current frame's `FrameDamage`, surface damage baselines, the logical→
-physical damage mapping, and the conversion to/from Flux's native damage
+physical damage mapping, and the conversion to/from gfx's native damage
 verdict — as pure functions over `tessera-primitives` geometry types. Per-image
-epoch history and the derived repaint/scanout scopes belong to Flux (Optics
+epoch history and the derived repaint/scanout scopes belong to gfx (Optics
 ADR-0155); this module deliberately keeps no second ledger. It also defines the
 narrow `SurfaceDamageFrame` observation seam that the composition root
 implements when feeding client surfaces into the `ClientDamageTracker`.

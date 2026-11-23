@@ -1,6 +1,6 @@
 //! Geometry, hit-testing, and layout utility primitives.
 
-use optics_lens::{Align, LayoutOpts, Rect};
+use optics_ui::{Align, LayoutOpts, Rect};
 
 /// Return true if the rectangle contains the point `(x, y)`.
 #[inline]

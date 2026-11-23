@@ -5,7 +5,7 @@
 //! compositor scene rendering, shell chrome, hit-testing, and Liquid Glass
 //! focus.
 
-use optics_lens::LayoutOpts;
+use optics_ui::LayoutOpts;
 use tessera_design::{Design, PreviewSelectionStyle, materials};
 use tessera_desktop::window::WindowId;
 
@@ -67,7 +67,7 @@ pub enum PreviewCardState {
 
 /// Minimal painted foreground for the parent preview panel.
 ///
-/// Enter/exit fades belong to the lens opacity switch (`Frame::set_opacity`),
+/// Enter/exit fades belong to the optics-ui opacity switch (`Frame::set_opacity`),
 /// so the material stays at full alpha.
 #[must_use]
 pub fn panel_material(design: &Design) -> LayoutOpts {
@@ -147,7 +147,7 @@ pub fn selected_geometry(
 
 #[cfg(test)]
 mod tests {
-    use optics_lens::Color;
+    use optics_ui::Color;
 
     use super::*;
 

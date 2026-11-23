@@ -12,7 +12,7 @@ global tokens.
 
 | Space | Use | Rule |
 |------|-----|------|
-| Logical pixels | Component size, gaps, padding, pointer targets | Default unit for `lens` layout and Tessera tokens. |
+| Logical pixels | Component size, gaps, padding, pointer targets | Default unit for `optics-ui` layout and Tessera tokens. |
 | Physical pixels | Raster coverage, optical sampling, hairline verification | Derive from logical values at the output scale. |
 | Output space | Chrome placement and work areas | Respect output geometry, usable area, and scale. |
 | Content space | Client buffers and captured previews | Convert explicitly; do not reuse chrome coordinates by accident. |

@@ -153,7 +153,7 @@ pixel it covers, which is why chrome/software-cursor overlap is a hard reject.
 This ADR is accepted as the binding contract for the opt-in path. Removing
 `TESSERA_OVERLAY_OFFLOAD` and enabling overlay by default is a separate,
 evidence-based rollout step: it requires the [KMS Overlay System
-Test](../dev/testing/kms-overlay-system-test.md) exit criteria on at least one
+Test](../how-to/kms-overlay-validation.md) exit criteria on at least one
 real KMS driver. “Draft” is not used as a feature-flag lifecycle; the ADR
 records the architecture, and the runbook records the hardware gate.
 
@@ -270,7 +270,7 @@ records the architecture, and the runbook records the hardware gate.
   placement → buffer update → movement → deactivation through the public
   presentation boundary.
 - `cargo run -p xtask -- check-adrs` validates this record and its lineage.
-- [KMS Overlay System Test](../dev/testing/kms-overlay-system-test.md) is the
+- [How to Validate KMS Overlay Offload](../how-to/kms-overlay-validation.md) is the
   hardware acceptance gate for default-on and documents the full scenario
   matrix, log expectations, and rejection-label triage.
 
@@ -303,4 +303,4 @@ records the architecture, and the runbook records the hardware gate.
   class, plane capability matching, window exclusion, and transition damage.
 - KMS system test procedure, scenario matrix, log expectations, and
   rejection-label triage are documented in
-  [KMS Overlay System Test](../dev/testing/kms-overlay-system-test.md).
+  [How to Validate KMS Overlay Offload](../how-to/kms-overlay-validation.md).

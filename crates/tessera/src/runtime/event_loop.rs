@@ -66,7 +66,7 @@ impl CompositorRuntime<'_> {
                 self.damage.force_full_redraw = true;
                 self.last_composited_fence = None;
                 self.vblank_wait_groups.clear();
-                // The display content did not survive the VT round-trip. Flux
+                // The display content did not survive the VT round-trip. gfx
                 // must not let an image epoch claim otherwise.
                 self.invalidate_all_surface_damage();
                 self.damage.last_presented_cursor = None;

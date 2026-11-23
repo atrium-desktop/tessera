@@ -2,7 +2,7 @@
 //!
 //! A pure queue of dismissible, time-expiring notifications. The IPC `Notify`
 //! command and external sources push here; a chrome toast component renders
-//! the live entries; the IPC queries them. No flux, lens, or Wayland
+//! the live entries; the IPC queries them. No gfx, optics-ui, or Wayland
 //! dependency, so the queue and its expiry are unit-tested in isolation.
 
 /// One notification. `id` is stable for the notification's life; `at_ms` is

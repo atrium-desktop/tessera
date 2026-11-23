@@ -44,7 +44,11 @@ user-visible.
 | ADR registry | `cargo run -p xtask -- check-adrs` | Unique ids, frontmatter, index sync, and lineage-link resolution across `docs/adr/` | Yes |
 | Panic discipline | `cargo run -p xtask -- check-panics` | ADR-0195: no poisonable-lock panics, no new panic sites | Yes |
 | System files | `cargo run -p xtask -- check-system-files` | ADR-0241: `system/` mirrors the install tree; manifest, file modes, and documented `system/` paths agree | Yes |
+| Install manifest | `cargo run -p xtask -- check-install-manifest` | Every binary the workspace builds is installed by `scripts/install.sh` and listed in the packaging manifest, and vice versa | Yes |
+| Documentation | `cargo run -p xtask -- check-docs` | Relative links and anchors resolve, no public page links into `docs/dev/`, no retired repository owner, no unresolved version placeholder | Yes |
 | Desktop entries | `desktop-file-validate system/share/applications/*.desktop` | freedesktop Desktop Entry specification | Yes |
+| Shell scripts | `shellcheck -x system/bin/* scripts/*.sh` | The session entry point, installer, and developer run scripts | Yes |
+| Supply chain | `cargo deny check` | Advisories, license allowlist, wildcard requirements, and dependency sources (`deny.toml`) | Yes |
 | Lockfile validity | `cargo metadata --locked` | Canonical `Cargo.lock` matches the manifests | Yes |
 | Tests | `cargo nextest run --locked --workspace` | Unit, integration, and end-to-end tests | Yes |
 | Motion purity | `cargo clippy -p tessera-shell --all-targets` | ADR-0174: `f32::exp`/`f64::exp` are `disallowed-methods` in `crates/tessera-shell/clippy.toml`; only `widgets::motion` may opt out | Yes (full-workspace clippy) |

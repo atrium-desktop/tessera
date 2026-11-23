@@ -202,7 +202,7 @@ impl DrmBackend {
                                 );
                             }
                             if let Some(retired) = retired {
-                                log::trace!("drm: releasing Flux scanout slot {}", retired.slot);
+                                log::trace!("drm: releasing gfx scanout slot {}", retired.slot);
                                 self.release_scanout(retired);
                             }
                             if self.retiring_overlay.as_ref().is_some_and(|overlay| {

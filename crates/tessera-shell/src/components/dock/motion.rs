@@ -4,11 +4,11 @@
 //! - Autohide reveal & collapse travels on a critically damped [`Spring`] (ζ = 1.0, ω₀² = 320.0).
 //! - Tile magnification wave travels on an under-damped [`Spring`] (ζ = 0.85, ω₀² = 900.0).
 //! - Tooltip alpha decays/approaches via [`approach`].
-//! - Swapchain ring drain counter guarantees clean purges across all `FLUX_MAX_FRAMES_IN_FLIGHT` slots.
+//! - Swapchain ring drain counter guarantees clean purges across all `OPTICS_GFX_MAX_FRAMES_IN_FLIGHT` slots.
 
 use std::collections::HashMap;
 
-use optics_lens::Rect;
+use optics_ui::Rect;
 use tessera_desktop::dock::DockPosition;
 
 use crate::widgets::motion::{Spring, SpringParams, approach, smoothstep};

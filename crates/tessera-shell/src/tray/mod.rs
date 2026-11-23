@@ -85,7 +85,7 @@ pub enum TrayIcon {
     /// Freedesktop theme icon name (`IconName`).
     Name(String),
     /// Raw pixels (`IconPixmap`), converted to premultiplied BGRA8 — the
-    /// format flux samples (`Bgra8Unorm`) and the one `tessera-assets` emits
+    /// format gfx samples (`Bgra8Unorm`) and the one `tessera-assets` emits
     /// for file-backed icons.
     Pixmap(TrayPixmap),
     #[default]

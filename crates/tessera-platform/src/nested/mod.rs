@@ -1,7 +1,7 @@
 //! Nested backend: tessera as a client of a host Wayland session.
 //!
 //! Brings up an xdg-shell toplevel over raw libwayland-client and creates a
-//! `VkSurfaceKHR` on flux's Vulkan instance via `ash`, so flux can present into
+//! `VkSurfaceKHR` on gfx's Vulkan instance via `ash`, so gfx can present into
 //! the host window. This is the development backend; a DRM/KMS backend replaces
 //! it for bare-TTY operation.
 
@@ -26,10 +26,10 @@ use tessera_primitives::input::TextInputState;
 
 use crate::Backend;
 
-/// Vulkan instance extensions flux must enable for a nested Wayland surface.
+/// Vulkan instance extensions gfx must enable for a nested Wayland surface.
 pub const INSTANCE_EXTENSIONS: [&CStr; 2] = [c"VK_KHR_surface", c"VK_KHR_wayland_surface"];
 
-/// Vulkan device extensions flux must enable to present (swapchain).
+/// Vulkan device extensions gfx must enable to present (swapchain).
 pub const DEVICE_EXTENSIONS: [&CStr; 1] = [c"VK_KHR_swapchain"];
 
 /// Errors bringing up the nested backend.
@@ -150,8 +150,8 @@ pub struct NestedHost {
     // Boxed so the address handed to the C callbacks stays stable across moves.
     state: Box<State>,
     // Retained so the surface can be destroyed on drop. The `ash::Instance` is
-    // `load`ed (not created) from flux's instance, so dropping it does not
-    // destroy flux's instance.
+    // `load`ed (not created) from gfx's instance, so dropping it does not
+    // destroy gfx's instance.
     ash: Option<(ash::Entry, ash::Instance)>,
     vk_surface: u64,
     /// Persisted profile for direct-display sessions. The outer compositor

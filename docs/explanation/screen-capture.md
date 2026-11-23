@@ -4,7 +4,7 @@ How pixels travel from a recording or casting application to compositor
 frames, and why tessera deliberately does not expose the standard Wayland
 capture protocols. The frame path spans two repositories; this page is the
 compositor-side view. The portal backend's own reference is
-[its documentation](https://github.com/aegis-shell/xdg-desktop-portal-atrium).
+[its documentation](https://github.com/atrium-desktop/xdg-desktop-portal-atrium).
 
 ## The Four Processes
 

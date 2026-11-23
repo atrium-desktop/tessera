@@ -9,7 +9,7 @@
 //! presentation state; the human still cannot focus, resize, close, or
 //! deliver content input to it).
 
-use optics_lens::{Frame, Input, LayoutOpts, Rect};
+use optics_ui::{Frame, Input, LayoutOpts, Rect};
 use tessera_authority::interaction_domain::InteractionDomain;
 use tessera_authority::interaction_domain::InteractionDomainSnapshot;
 use tessera_authority::interaction_domain::InteractionDomainState;

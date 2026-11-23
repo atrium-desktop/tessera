@@ -13,23 +13,23 @@ pub struct Engine {
     // Declaration order is teardown order. The canvas and WSI surface must
     // disappear before the host destroys its wl_display/VkSurfaceKHR; the
     // device and VkInstance remain alive until every dependent resource drops.
-    canvas: optics_flux::Canvas,
-    surface: optics_flux::Surface,
+    canvas: optics_gfx::Canvas,
+    surface: optics_gfx::Surface,
     renderer: Renderer,
     server: Server,
     host: Host,
-    device: optics_flux::Device,
+    device: optics_gfx::Device,
 }
 
 /// Exclusive, disjoint resource borrows for the session's frame loop.
 /// These are borrowed capabilities, not ownership transfers or re-exports.
 pub struct EngineSession<'a> {
-    pub canvas: &'a mut optics_flux::Canvas,
-    pub surface: &'a mut optics_flux::Surface,
+    pub canvas: &'a mut optics_gfx::Canvas,
+    pub surface: &'a mut optics_gfx::Surface,
     pub renderer: &'a mut Renderer,
     pub server: &'a mut Server,
     pub host: &'a mut Host,
-    pub device: &'a mut optics_flux::Device,
+    pub device: &'a mut optics_gfx::Device,
 }
 
 impl Engine {
@@ -45,18 +45,18 @@ impl Engine {
         if let Err(error) = surface.prepare_readback() {
             log::warn!(
                 "capture: could not preallocate readback staging: {error}{}",
-                tessera_composite::presentation::flux_last_error_detail()
+                tessera_composite::presentation::gfx_last_error_detail()
             );
         }
-        let canvas = optics_flux::Canvas::new(&surface)?;
+        let canvas = optics_gfx::Canvas::new(&surface)?;
         host.set_buffer_scale();
         let main_device = host.dmabuf_feedback_device(&device);
         if host.name() == "drm" && main_device.is_none() {
             log::warn!("drm: linux-dmabuf v4 feedback disabled: main DRM device is unknown");
         }
         let server = Server::new_with_dmabuf_feedback(
-            optics_flux::dmabuf_supported(&device),
-            optics_flux::dmabuf_sync_supported(&device),
+            optics_gfx::dmabuf_supported(&device),
+            optics_gfx::dmabuf_sync_supported(&device),
             tessera_composite::formats_with_modifiers(&device),
             main_device,
             host.dmabuf_scanout_formats(),

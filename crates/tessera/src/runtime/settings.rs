@@ -186,7 +186,7 @@ pub(super) fn publish_settings_parts(
     }
 }
 
-/// Disjoint-field form used while a Flux frame borrows `surface`. Keeping the
+/// Disjoint-field form used while a gfx frame borrows `surface`. Keeping the
 /// arguments explicit lets the renderer borrow and settings mutation coexist
 /// without turning the whole runtime into one mutable borrow.
 #[allow(clippy::too_many_arguments)]

@@ -12,7 +12,7 @@
 
 use std::time::{Duration, Instant};
 
-use optics_lens::{Color, Frame, Input, LayoutOpts, Rect};
+use optics_ui::{Color, Frame, Input, LayoutOpts, Rect};
 
 use crate::component::{
     AppCatalog, AppPickParams, Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, CursorShape,
@@ -407,7 +407,11 @@ impl Chrome for AppPicker {
                     frame.spacer(10.0);
                     frame.centered(ICON, ROW_H, |frame| match icon {
                         Some(pointer) => unsafe {
-                            frame.image(pointer as *mut optics_lens::sys::flux_image, ICON, ICON);
+                            frame.image(
+                                pointer as *mut optics_ui::sys::optics_gfx_image,
+                                ICON,
+                                ICON,
+                            );
                         },
                         None => {
                             frame.spacer(0.0);
@@ -480,7 +484,7 @@ impl Chrome for AppPicker {
             }
         }
 
-        // Shell input carries lens-convention scroll deltas: scrolling down
+        // Shell input carries optics-ui-convention scroll deltas: scrolling down
         // is negative. Negate so wheel-down advances the list downward.
         let wheel = -(raw.scroll_y * WHEEL_ROWS + raw.scroll_pixels_y / ROW_H);
         if contains(layout.list, cursor.x, cursor.y) && wheel != 0.0 {

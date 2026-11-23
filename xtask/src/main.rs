@@ -21,6 +21,8 @@ fn print_usage() {
            check-bootstrap-admission\n  \
            check-vtables\n  \
            check-adrs\n  \
+           check-docs\n  \
+           check-install-manifest\n  \
            check-system-files\n  \
            check-panics [--update]\n  \
            optics [--tag-only | --set <TAG>]"
@@ -52,6 +54,8 @@ fn main() -> Result<()> {
         "check-bootstrap-admission" => tasks::check_bootstrap_admission::run(),
         "check-vtables" => tasks::check_vtables::run(),
         "check-adrs" => tasks::check_adrs::run(),
+        "check-docs" => tasks::check_docs::run(),
+        "check-install-manifest" => tasks::check_install_manifest::run(),
         "check-system-files" => tasks::check_system_files::run(),
         "check-panics" => {
             let mut parsed = tasks::check_panics::Args::default();

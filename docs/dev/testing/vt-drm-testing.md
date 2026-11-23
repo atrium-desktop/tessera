@@ -145,7 +145,7 @@ the visible output.
 ## Verify Client GPU Acceleration
 
 Check the client's renderer before profiling frame pacing. OpenGL is not
-itself a problem: Mesa's Wayland EGL path exports dma-bufs that Flux imports
+itself a problem: Mesa's Wayland EGL path exports dma-bufs that gfx imports
 with Vulkan. A software renderer means device selection failed before
 compositing.
 

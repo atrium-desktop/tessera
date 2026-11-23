@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-/// Capture-surface slot ring depth: the device-wide flux frames-in-flight
+/// Capture-surface slot ring depth: the device-wide gfx frames-in-flight
 /// count the compositor's DRM device is created with.
 pub const STREAM_SLOT_COUNT: usize = 3;
 
@@ -24,7 +24,7 @@ pub enum SlotState {
 }
 
 /// Ring position and per-slot ownership of one dmabuf stream's capture
-/// surface. Flux advances its frame ring in lockstep with submissions
+/// surface. gfx advances its frame ring in lockstep with submissions
 /// starting at slot 0, so the slot a submission lands in is known before
 /// `begin_frame`; submitting only into `Free` slots keeps the two rings
 /// synchronized and never overwrites a consumer-owned image.
@@ -51,7 +51,7 @@ impl SlotRing {
     /// Record a submission into `slot` (the ring position at render time)
     /// and advance the ring.
     pub fn submitted(&mut self, slot: usize) {
-        debug_assert_eq!(slot, self.next, "flux ring and slot tracking diverged");
+        debug_assert_eq!(slot, self.next, "gfx ring and slot tracking diverged");
         if slot < self.states.len() {
             self.states[slot] = SlotState::Rendering;
             self.next = (slot + 1) % self.states.len();

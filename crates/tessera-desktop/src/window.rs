@@ -25,7 +25,7 @@ pub enum DecorationPolicy {
 
 /// Compositor drop-shadow style for floating windows (ADR-0139): the
 /// *policy* is data here; the drawing mechanism lives in the Optics stack
-/// (`optics_flux::shadow_filter` renders a blurred mask; `tessera-composite` composites
+/// (`optics_gfx::shadow_filter` renders a blurred mask; `tessera-composite` composites
 /// the result). Effect-free by design — pure data, no renderer types.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
@@ -37,7 +37,7 @@ pub enum WindowShadowStyle {
     /// renderer (no GPU effect work).
     #[default]
     Resize,
-    /// A blurred drop shadow through the Optics `flux_shadow_filter`
+    /// A blurred drop shadow through the Optics `optics_gfx_shadow_filter`
     /// operator: rounded-rect mask, Gaussian blur, directional offset,
     /// focus-modulated opacity.
     Soft,

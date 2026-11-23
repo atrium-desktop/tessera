@@ -1,4 +1,4 @@
-use optics_lens::Frame;
+use optics_ui::Frame;
 use tessera_design::Design;
 use tessera_desktop::settings::{DesktopPreferences, SettingsAction, SettingsSnapshot};
 use tessera_i18n::{Localizer, Message};
@@ -35,7 +35,7 @@ impl SettingsModule for AccessibilityModule {
         ModuleMetadata {
             id: ACCESSIBILITY_MODULE_ID,
             title: Message::Accessibility,
-            icon: optics_lens::sys::lens_icon_id::LENS_ICON_EYE,
+            icon: optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_EYE,
             category: ModuleCategory::Personalization,
             keywords: &[
                 "accessibility",

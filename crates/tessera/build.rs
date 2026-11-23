@@ -12,16 +12,16 @@ fn main() {
     // them the intended link-search precedence.
     let mut link_dirs = Vec::new();
     for var in [
-        "DEP_LENS_LINK_PATHS",
-        "DEP_RETICLE_LINK_PATHS",
-        "DEP_FLUX_LINK_PATHS",
-        "DEP_VISTA_LINK_PATHS",
-        "DEP_PRISM_LINK_PATHS",
-        "DEP_LENS_RPATHS",
-        "DEP_RETICLE_RPATHS",
-        "DEP_FLUX_RPATHS",
-        "DEP_VISTA_RPATHS",
-        "DEP_PRISM_RPATHS",
+        "DEP_OPTICS_UI_LINK_PATHS",
+        "DEP_OPTICS_SVG_LINK_PATHS",
+        "DEP_OPTICS_GFX_LINK_PATHS",
+        "DEP_OPTICS_SCENE_LINK_PATHS",
+        "DEP_OPTICS_MATERIAL_LINK_PATHS",
+        "DEP_OPTICS_UI_RPATHS",
+        "DEP_OPTICS_SVG_RPATHS",
+        "DEP_OPTICS_GFX_RPATHS",
+        "DEP_OPTICS_SCENE_RPATHS",
+        "DEP_OPTICS_MATERIAL_RPATHS",
     ] {
         if let Ok(paths) = std::env::var(var) {
             for dir in paths.split(';').filter(|s| !s.is_empty()) {
@@ -37,11 +37,11 @@ fn main() {
 
     let mut rpath_dirs = Vec::new();
     for var in [
-        "DEP_FLUX_RPATHS",
-        "DEP_VISTA_RPATHS",
-        "DEP_LENS_RPATHS",
-        "DEP_RETICLE_RPATHS",
-        "DEP_PRISM_RPATHS",
+        "DEP_OPTICS_GFX_RPATHS",
+        "DEP_OPTICS_SCENE_RPATHS",
+        "DEP_OPTICS_UI_RPATHS",
+        "DEP_OPTICS_SVG_RPATHS",
+        "DEP_OPTICS_MATERIAL_RPATHS",
     ] {
         if let Ok(rpaths) = std::env::var(var) {
             for dir in rpaths.split(';').filter(|s| !s.is_empty()) {
@@ -53,7 +53,7 @@ fn main() {
     }
     if !rpath_dirs.is_empty() {
         // DT_RPATH (not DT_RUNPATH) so the search also covers transitive
-        // NEEDED libs (libflux is liblens's NEEDED, not ours).
+        // NEEDED libs (liboptics_gfx is liboptics_ui's NEEDED, not ours).
         println!("cargo:rustc-link-arg=-Wl,--disable-new-dtags");
         for dir in &rpath_dirs {
             println!("cargo:rustc-link-arg=-Wl,-rpath,{dir}");

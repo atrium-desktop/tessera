@@ -4,14 +4,14 @@ use std::f32::consts::{PI, TAU};
 use std::path::Path;
 use std::time::Instant;
 
-use optics_flux::{
+use optics_gfx::{
     Camera, Material, MaterialDesc, MaterialKind, SceneColorLoad, SceneLight, Target,
 };
-use optics_vista::{Bounds, Scene};
+use optics_scene::{Bounds, Scene};
 
 use crate::Error;
 
-const DEPTH_FORMAT: optics_flux::Format = optics_flux::Format::D32Sfloat;
+const DEPTH_FORMAT: optics_gfx::Format = optics_gfx::Format::D32Sfloat;
 const FOV_Y: f32 = 48.0 * PI / 180.0;
 const ORBIT_SPEED: f32 = 0.10;
 const ORBIT_PITCH: f32 = 0.16;
@@ -32,8 +32,8 @@ pub(super) struct ModelLayer {
 
 impl ModelLayer {
     pub(super) fn from_path(
-        device: &optics_flux::Device,
-        surface: &optics_flux::Surface,
+        device: &optics_gfx::Device,
+        surface: &optics_gfx::Surface,
         path: &Path,
     ) -> Result<Self, Error> {
         let bytes = std::fs::read(path).map_err(|error| Error::Open(path.to_path_buf(), error))?;
@@ -41,8 +41,8 @@ impl ModelLayer {
     }
 
     pub(super) fn builtin(
-        device: &optics_flux::Device,
-        surface: &optics_flux::Surface,
+        device: &optics_gfx::Device,
+        surface: &optics_gfx::Surface,
     ) -> Result<Self, Error> {
         let bytes = procedural_knot_glb();
         Self::from_bytes(
@@ -54,8 +54,8 @@ impl ModelLayer {
     }
 
     fn from_bytes(
-        device: &optics_flux::Device,
-        surface: &optics_flux::Surface,
+        device: &optics_gfx::Device,
+        surface: &optics_gfx::Surface,
         bytes: &[u8],
         label: &Path,
     ) -> Result<Self, Error> {
@@ -91,17 +91,17 @@ impl ModelLayer {
 
     pub(super) fn draw(
         &mut self,
-        device: &optics_flux::Device,
-        frame: &mut optics_flux::Frame<'_>,
-        color_target: Option<&optics_flux::Image>,
-    ) -> Result<(), optics_flux::Error> {
+        device: &optics_gfx::Device,
+        frame: &mut optics_gfx::Frame<'_>,
+        color_target: Option<&optics_gfx::Image>,
+    ) -> Result<(), optics_gfx::Error> {
         let slot = frame.index() as usize;
         if self.depth_by_slot.len() <= slot {
             self.depth_by_slot.resize_with(slot + 1, Vec::new);
         }
 
         let surface_size =
-            color_target.map_or_else(|| frame.surface_size(), optics_flux::Image::size);
+            color_target.map_or_else(|| frame.surface_size(), optics_gfx::Image::size);
         let target_index = self.depth_by_slot[slot]
             .iter()
             .position(|target| target.size() == surface_size);
@@ -216,7 +216,7 @@ fn procedural_knot_glb() -> Vec<u8> {
             let b = (i * TUBE_SEGMENTS + nj) as u32;
             let c = (ni * TUBE_SEGMENTS + j) as u32;
             let d = (ni * TUBE_SEGMENTS + nj) as u32;
-            // Include both windings. Flux materials cull back faces, so only
+            // Include both windings. gfx materials cull back faces, so only
             // the outward-facing winding survives while the knot remains
             // robust to coordinate-system handedness in imported cameras.
             indices.extend_from_slice(&[a, c, b, b, c, d, a, b, c, b, d, c]);
@@ -342,19 +342,19 @@ mod tests {
 
     #[test]
     fn procedural_model_renders_when_vulkan_is_available() {
-        let Ok(device) = optics_flux::Device::new(true, &[], &[], 0) else {
+        let Ok(device) = optics_gfx::Device::new(true, &[], &[], 0) else {
             return;
         };
-        let surface = optics_flux::Surface::offscreen(&device, 160, 96).unwrap();
-        let mut canvas = optics_flux::Canvas::new(&surface).unwrap();
+        let surface = optics_gfx::Surface::offscreen(&device, 160, 96).unwrap();
+        let mut canvas = optics_gfx::Canvas::new(&surface).unwrap();
         let mut model = ModelLayer::builtin(&device, &surface).unwrap();
 
         let mut frame = surface.begin_frame().unwrap();
         let session = canvas
             .begin_session(
                 &mut frame,
-                optics_flux::CanvasPassOptions {
-                    clear: Some(optics_flux::rgba(2, 3, 6, 255)),
+                optics_gfx::CanvasPassOptions {
+                    clear: Some(optics_gfx::rgba(2, 3, 6, 255)),
                     ..Default::default()
                 },
             )
@@ -374,25 +374,25 @@ mod tests {
 
     #[test]
     fn procedural_model_participates_in_downsampled_live_blur() {
-        let Ok(device) = optics_flux::Device::new(true, &[], &[], 0) else {
+        let Ok(device) = optics_gfx::Device::new(true, &[], &[], 0) else {
             return;
         };
-        let surface = optics_flux::Surface::offscreen(&device, 160, 96).unwrap();
-        let mut canvas = optics_flux::Canvas::new(&surface).unwrap();
+        let surface = optics_gfx::Surface::offscreen(&device, 160, 96).unwrap();
+        let mut canvas = optics_gfx::Canvas::new(&surface).unwrap();
         let mut target =
-            optics_flux::Image::render_target(&device, 80, 48, surface.format()).unwrap();
-        let mut blur = optics_flux::BlurFilter::new(&device).unwrap();
+            optics_gfx::Image::render_target(&device, 80, 48, surface.format()).unwrap();
+        let mut blur = optics_gfx::BlurFilter::new(&device).unwrap();
         let mut model = ModelLayer::builtin(&device, &surface).unwrap();
 
         let mut frame = surface.begin_frame().unwrap();
         let session = canvas
             .begin_session(
-                optics_flux::ImageTarget {
+                optics_gfx::ImageTarget {
                     frame: &mut frame,
                     image: &mut target,
                 },
-                optics_flux::CanvasPassOptions {
-                    clear: Some(optics_flux::rgba(2, 3, 6, 255)),
+                optics_gfx::CanvasPassOptions {
+                    clear: Some(optics_gfx::rgba(2, 3, 6, 255)),
                     ..Default::default()
                 },
             )
@@ -408,8 +408,8 @@ mod tests {
         let session = canvas
             .begin_session(
                 &mut frame,
-                optics_flux::CanvasPassOptions {
-                    clear: Some(optics_flux::rgba(0, 0, 0, 255)),
+                optics_gfx::CanvasPassOptions {
+                    clear: Some(optics_gfx::rgba(0, 0, 0, 255)),
                     ..Default::default()
                 },
             )
@@ -429,24 +429,24 @@ mod tests {
 
     #[test]
     fn procedural_model_keeps_two_same_frame_depth_targets_alive() {
-        let Ok(device) = optics_flux::Device::new(true, &[], &[], 0) else {
+        let Ok(device) = optics_gfx::Device::new(true, &[], &[], 0) else {
             return;
         };
-        let surface = optics_flux::Surface::offscreen(&device, 160, 96).unwrap();
-        let mut canvas = optics_flux::Canvas::new(&surface).unwrap();
+        let surface = optics_gfx::Surface::offscreen(&device, 160, 96).unwrap();
+        let mut canvas = optics_gfx::Canvas::new(&surface).unwrap();
         let mut target =
-            optics_flux::Image::render_target(&device, 80, 48, surface.format()).unwrap();
+            optics_gfx::Image::render_target(&device, 80, 48, surface.format()).unwrap();
         let mut model = ModelLayer::builtin(&device, &surface).unwrap();
 
         let mut frame = surface.begin_frame().unwrap();
         let session = canvas
             .begin_session(
-                optics_flux::ImageTarget {
+                optics_gfx::ImageTarget {
                     frame: &mut frame,
                     image: &mut target,
                 },
-                optics_flux::CanvasPassOptions {
-                    clear: Some(optics_flux::rgba(2, 3, 6, 255)),
+                optics_gfx::CanvasPassOptions {
+                    clear: Some(optics_gfx::rgba(2, 3, 6, 255)),
                     ..Default::default()
                 },
             )
@@ -457,8 +457,8 @@ mod tests {
         let session = canvas
             .begin_session(
                 &mut frame,
-                optics_flux::CanvasPassOptions {
-                    clear: Some(optics_flux::rgba(2, 3, 6, 255)),
+                optics_gfx::CanvasPassOptions {
+                    clear: Some(optics_gfx::rgba(2, 3, 6, 255)),
                     ..Default::default()
                 },
             )

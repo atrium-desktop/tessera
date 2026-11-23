@@ -14,6 +14,90 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Added
+
+- **The root test suites build their sibling binaries before they run.**
+  `.config/nextest.toml` gains a setup script, so `cargo nextest run` no longer
+  lets a test invoke `cargo build` while the runner holds the target-directory
+  lock — the cause of the 30-second timeouts in the three suites that spawn a
+  production binary.
+
+### Changed
+
+- **Follow the post-`v0.0.82` Optics binding changes.** Optics finished the
+  semantic rename in its Rust layer: `optics_ui::FluxDiagnostic` is now
+  `GfxDiagnostic`, and `optics_scene::LoadError::Flux` is `LoadError::Gfx`.
+  Newer Optics sources also default the Rust bindings to shared-preferred
+  linking; the installer still builds a static Optics tree and sets
+  `OPTICS_STATIC=1`, so released executables keep the archives. `OPTICS_DYNAMIC=1`
+  selects the shared objects with an RPATH. The pin stays at `v0.0.82` until
+  Optics cuts the next release.
+- **Adopt Optics v0.0.82's unified `optics-<module>` naming.** The workspace
+  pins the Optics `v0.0.82` release, whose semantic-module rename (Optics
+  ADR-0169, ADR-0170) replaced the codename libraries with `optics-gfx`,
+  `optics-text`, `optics-svg`, `optics-scene`, `optics-material`,
+  `optics-motion`, `optics-window`, `optics-ui`, and `optics-app`. The local
+  `[patch]` template, the `xtask` release-pin fixtures, the CI `pkg-config`
+  check, the installer, and the developer docs use those names end to end.
+  In-tree prose, identifiers, and error variants that named the retired engines
+  were renamed to match (`Flux`/`Lens` error variants are now `Gfx`/`Ui`,
+  `flux_last_error_detail` is `gfx_last_error_detail`, and the damage
+  conversion pair is `to_gfx_damage`/`from_gfx_damage`), and the `*-sys` build
+  scripts relay the new `DEP_OPTICS_*` metadata variables. Immutable ADRs and
+  historical changelog entries keep their original wording.
+
+### Removed
+
+- **The `[dev]` escape hatch is gone; a locked session owns the keyboard.**
+  `[dev] allow_quit_while_locked` existed so a wedged lock surface could not
+  trap a development session, and the configuration reference said it would be
+  removed before release. It is removed now: while a session lock is active the
+  compositor matches **no** global binding, including the quit shortcuts, so
+  input cannot dismiss or tear down a locked session. A configuration file that
+  still carries `[dev]` fails to load with a diagnostic naming the table instead
+  of being silently accepted; delete the table to continue. Recovery from a
+  wedged lock is a VT switch or the session manager, not a compositor shortcut.
+
+### Fixed
+
+- **Hardware-accelerated clients are released on the real fencing signal.**
+  Client DMA-BUF release now follows the render target's completion sync file
+  instead of a fixed four-frame defer, so a 2–4 slot browser swapchain is no
+  longer starved into multi-frame stalls. The `FrameDamage::None` fast path also
+  releases retired buffers, so a client that stops committing is never left
+  waiting for unrelated damage; implicit-sync sessions request the KMS
+  `OUT_FENCE_PTR` and import the compositor's read sync file, and returning from
+  direct scanout no longer drops the fence.
+- **Mirror composition reuses its cached imports and damage.** A mirror target
+  keeps its imported source image for the life of the ring slot and blits only
+  the projected source/cursor damage instead of re-importing and repainting the
+  full resolution every frame. A software-cursor shape change repaints the
+  cursor rectangle, not the whole output.
+- **Enhanced Open (OWE) networks are no longer presented as open Wi-Fi.** The
+  Kestrel backend mapped `owe` to `WifiSecurity::Open`, so the Control Center
+  drew no lock badge and offered a passphrase-less connect on an encrypted
+  network. OWE now reports as secured, like the NetworkManager backend already
+  did; the connect path still builds an `owe` profile because Enhanced Open
+  carries no passphrase.
+- **Kestrel backend version check matches the daemon.** `tessera-network-system`
+  accepts Kestrel API version `1`, which is what `com.hihusky.Kestrel` has
+  published since its first release; the v0.0.98 note that described it as API
+  v2 was wrong. The version check carries a regression test that a different
+  version is refused by name instead of being read as a compatible layout.
+- **The packaged install manifest ships the casting service.** `tessera-cast`
+  and `tessera-castd` were installed by `scripts/install.sh` and supervised by
+  the compositor, but the documented package manifest omitted them, so a
+  distribution package silently lost casting. A new
+  `cargo run -p xtask -- check-install-manifest` gate now holds the workspace
+  binary targets, the installer, and the manifest in agreement.
+- **Every documented relative link and anchor resolves.** A new
+  `cargo run -p xtask -- check-docs` gate fails on a dead link or anchor, on a
+  user-facing page that links into `docs/dev/`, on a retired repository owner,
+  and on an unresolved `<..._VERSION>` placeholder in the front-door docs. The
+  KMS overlay validation procedure moved from `docs/dev/testing/` to
+  `docs/how-to/kms-overlay-validation.md` so the reference pages that send
+  users to it no longer cross the audience boundary.
+
 ## [0.0.99] - 2026-11-20
 
 ### Changed

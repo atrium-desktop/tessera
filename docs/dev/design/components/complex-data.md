@@ -18,7 +18,7 @@ grow incompatible component families.
 ## Boundary
 
 Generic selection, text editing, accessibility roles, and virtualized layout
-mechanics belong in Optics `lens`. Tessera owns product-specific columns,
+mechanics belong in Optics `optics-ui`. Tessera owns product-specific columns,
 commands, semantic colors, empty states, and domain actions. A feature must
 not implement a private editor engine or data-grid interaction model merely
 to ship a single screen.

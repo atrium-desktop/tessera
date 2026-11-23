@@ -8,7 +8,7 @@ assets in the renderer's native pixel layout.
 - **Vector sources (`vector`)**: Read SVG text and bounded SVGZ (gzip)
   decompression. One decompression rule for cursors, icons, and tray assets.
 - **Vector documents (`VectorDocument`)**: The only type in the workspace that
-  owns a reticle document. Rasterizes to premultiplied BGRA8 and reads the
+  owns an `optics-svg` document. Rasterizes to premultiplied BGRA8 and reads the
   `data-hotspot-*` convention.
 - **Rasters (`RasterImage`)**: PNG/JPEG/GIF/WebP decode, premultiplication before
   scaling, and the single premultiplied-BGRA8 upload layout.
@@ -16,7 +16,7 @@ assets in the renderer's native pixel layout.
   `colour * coverage`, preserving premultiplied alpha.
 
 Every result is premultiplied BGRA8: callers pass `as_bgra()` to
-`flux::Image::from_bytes(..., Bgra8Unorm, ...)` without swapping channels or
+`optics_gfx::Image::from_bytes(..., Bgra8Unorm, ...)` without swapping channels or
 converting alpha.
 
 ## Related Documentation

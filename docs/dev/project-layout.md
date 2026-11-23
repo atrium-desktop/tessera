@@ -31,16 +31,27 @@ crates/
   tessera-platform        DRM/KMS, nested display, seat, and input adapters
   tessera-primitives      foundational physical geometry, color, buffer descriptor, identity, and input primitives (ADR-0164)
   tessera-protocol        versioned wire DTOs and audit vocabulary (zero socket/GPU dependencies)
-  tessera-shell           Lens UI host and built-in chrome components (dock, hud, pivot, control-center, settings, tray)
+  tessera-shell           Optics UI host and built-in chrome components (dock, hud, pivot, control-center, settings, tray)
   tessera-wallpaper       desktop wallpaper and continuous parallax runtime
   tessera-wayland         Wayland protocol handlers and client state machines
   tessera-wayland-protocols generated Wayland C ABI interface tables
   tessera-test-support    shared test-only infrastructure (dev-dependency only)
 tests/                    root external suites: common/, integration/, e2e/
 assets/                   data compiled into binaries (cursors, icons, wallpapers)
-system/                     files installed beside the binaries; mirrors the install prefix (ADR-0241)
+system/                   files installed beside the binaries; mirrors the install prefix (ADR-0241)
 xtask/                    repository architecture gates and Optics pin management (`cargo run -p xtask --`)
 ```
+
+Repository-level tool configuration sits at the root:
+
+| File | Owns |
+|------|------|
+| `rust-toolchain.toml` | The pinned compiler and the `rustfmt`/`clippy` components CI uses |
+| `clippy.toml` | Workspace lints shared by every crate |
+| `typos.toml` | Spell-check allowances for protocol identifiers and project vocabulary |
+| `deny.toml` | Supply-chain policy: advisories, license allowlist, wildcard requirements, dependency sources |
+| `.config/nextest.toml` | Test profile, exclusive-resource groups, and the setup script that builds the sibling binaries |
+| `.cargo/optics-local.toml` | The opt-in sibling-Optics `[patch]` template (never the committed configuration) |
 
 `test-support` is not a production package. It owns environment guards, scratch
 directories, socket names, polling, and workspace/binary lookup shared by
@@ -67,7 +78,7 @@ abstractions live in `tessera-ipc`. Durable event storage lives in
 Application discovery, icon lookup, process launching, and intent search live
 in `tessera-launch-services` (ADR-0164). Theme asset bytes and pixels — SVG/SVGZ
 sources, icon rasters, symbolic recolouring — live in `tessera-assets`, the only
-package with a `reticle` normal edge (ADR-0233). GPU capture encoding is
+package with an `optics-svg` normal edge (ADR-0233). GPU capture encoding is
 integrated into `tessera-composite`.
 
 Create a new package only for an independent public API, process, feature or

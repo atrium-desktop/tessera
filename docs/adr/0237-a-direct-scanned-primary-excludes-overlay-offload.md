@@ -180,7 +180,7 @@ because the overlay planner never sees an accepted direct primary plan.
   `crates/tessera-platform/src/drm.rs` proves the backend source guard.
 - `crates/tessera/src/runtime/scanout.rs` uses `overlay_plan_permitted` as the
   only overlay gate in the frame orchestration.
-- [KMS Overlay System Test](../dev/testing/kms-overlay-system-test.md) includes
+- [How to Validate KMS Overlay Offload](../how-to/kms-overlay-validation.md) includes
   the direct-scanout precedence scenario: a fullscreen opaque client must log
   `direct scanout active` and must not produce an overlay placement.
 

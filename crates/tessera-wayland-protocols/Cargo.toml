@@ -4,6 +4,7 @@ description = "Wayland protocol interface tables generated once and shared by ba
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
+publish = false
 license.workspace = true
 rust-version.workspace = true
 build = "build.rs"

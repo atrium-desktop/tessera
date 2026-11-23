@@ -212,20 +212,6 @@ fn audit_storage_bounds_parse_and_validate() {
 }
 
 #[test]
-fn dev_escape_hatches_default_off_and_parse() {
-    let defaults = Config::parse("schema_version = 2\n").unwrap();
-    assert!(!defaults.dev.allow_quit_while_locked);
-
-    let configured = Config::parse(
-        "schema_version = 2\n\
-         [dev]\n\
-         allow_quit_while_locked = true\n",
-    )
-    .unwrap();
-    assert!(configured.dev.allow_quit_while_locked);
-}
-
-#[test]
 fn night_light_defaults_off_and_parses_schedule() {
     let defaults = Config::parse("schema_version = 2\n").unwrap();
     assert!(!defaults.night_light.enable);
@@ -1932,4 +1918,26 @@ fn byte_to_line_is_one_based_and_clamps() {
     // An offset past the final newline is the line that follows it; a
     // huge offset clamps to the text end rather than indexing past it.
     assert_eq!(byte_to_line(text, usize::MAX), 4);
+}
+
+#[test]
+fn removed_dev_table_is_rejected_by_name() {
+    // The development-only `[dev] allow_quit_while_locked` escape hatch was
+    // removed before release: the lock guarantee has no override. A file that still carries it must fail with a diagnostic
+    // naming the key, not load with the table silently ignored.
+    let diagnostics = Config::parse(
+        "schema_version = 2\n\
+         [dev]\n\
+         allow_quit_while_locked = true\n",
+    )
+    .expect_err("a removed table must be rejected");
+    let message = diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        message.contains("dev") || message.contains("unknown"),
+        "diagnostic must name the removed table: {message}"
+    );
 }

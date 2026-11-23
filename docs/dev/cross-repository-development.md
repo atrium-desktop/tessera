@@ -114,22 +114,22 @@ without dirtying version control:
 
 ```toml
 [patch."https://github.com/ming2k/optics"]
-optics-flux = { path = "../optics/crates/optics-flux" }
-optics-flux-sys = { path = "../optics/crates/optics-flux-sys" }
-optics-vista = { path = "../optics/crates/optics-vista" }
-optics-vista-sys = { path = "../optics/crates/optics-vista-sys" }
-optics-lens = { path = "../optics/crates/optics-lens" }
-optics-lens-sys = { path = "../optics/crates/optics-lens-sys" }
-optics-transit = { path = "../optics/crates/optics-transit" }
-optics-reticle = { path = "../optics/crates/optics-reticle" }
-optics-reticle-sys = { path = "../optics/crates/optics-reticle-sys" }
+optics-gfx = { path = "../optics/crates/optics-gfx" }
+optics-gfx-sys = { path = "../optics/crates/optics-gfx-sys" }
+optics-scene = { path = "../optics/crates/optics-scene" }
+optics-scene-sys = { path = "../optics/crates/optics-scene-sys" }
+optics-ui = { path = "../optics/crates/optics-ui" }
+optics-ui-sys = { path = "../optics/crates/optics-ui-sys" }
+optics-motion = { path = "../optics/crates/optics-motion" }
+optics-svg = { path = "../optics/crates/optics-svg" }
+optics-svg-sys = { path = "../optics/crates/optics-svg-sys" }
 ```
 
 Optics places every Rust crate directly under repository-root `crates/` with
-the `optics-*` namespace (Optics ADR-0169), symmetric with C libraries under
-`libs/`. `optics-transit` has no `-sys` crate because it is pure Safe Rust
-(Optics ADR-0158), and the vector compiler is `optics-reticle` rather than the
-former `svg` (Optics ADR-0161).
+the `optics-*` semantic module namespace (Optics ADR-0169, ADR-0170), symmetric
+with C libraries under `libs/`. `optics-motion` has no `-sys` crate because it
+is pure Safe Rust (Optics ADR-0158), and the vector compiler is `optics-svg`
+(Optics ADR-0170).
 
 This configuration achieves two things:
 
@@ -156,8 +156,8 @@ Verify that Cargo resolves the sibling paths instead of Git tags:
 
 ```bash
 # In projects/tessera-dev/ (branch dev):
-cargo tree -i optics-flux
-cargo tree -i optics-lens
+cargo tree -i optics-gfx
+cargo tree -i optics-ui
 ```
 
 Both trees must display paths pointing into `../optics/crates/`.
@@ -320,8 +320,8 @@ cargo run -p xtask -- optics --set vX.Y.Z
 cargo check -p tessera
 
 # 4. Verify that dependencies resolve to remote Git sources, not local paths:
-cargo tree -i optics-flux
-cargo tree -i optics-lens
+cargo tree -i optics-gfx
+cargo tree -i optics-ui
 
 # 5. Full workspace verification under --locked enforcement:
 # (If the newly tagged native C libraries are not yet installed to /usr/lib,
@@ -380,7 +380,7 @@ To transition back to active development with zero friction:
 ```bash
 # In projects/tessera-dev/ (development worktree, branch dev):
 cargo check -p tessera
-cargo tree -i optics-flux   # confirm ../optics/crates/ paths reappear
+cargo tree -i optics-gfx    # confirm ../optics/crates/ paths reappear
 ```
 
 Running `cargo check` instantly rewrites the local `Cargo.lock` to reconnect to

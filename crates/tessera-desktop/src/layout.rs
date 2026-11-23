@@ -8,7 +8,7 @@
 //! move does. There is no separate tiling-container type; a tiled window is
 //! still a [`Window`](crate::window::Window) with a position and size.
 //!
-//! This module is pure: no flux, lens, or Wayland dependency, so a policy is
+//! This module is pure: no gfx, optics-ui, or Wayland dependency, so a policy is
 //! unit-tested in isolation. The server-side application (reconfigure clients
 //! when the layout changes) is a follow-up.
 

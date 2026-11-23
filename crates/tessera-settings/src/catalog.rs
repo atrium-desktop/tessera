@@ -1,6 +1,6 @@
 //! The built-in module set, in stable sidebar order.
 
-use optics_lens::sys::lens_icon_id;
+use optics_ui::sys::optics_ui_icon_id;
 use tessera_i18n::Message;
 
 use crate::module::{
@@ -24,7 +24,7 @@ pub fn builtin_modules() -> ModuleRegistry {
         ModuleMetadata {
             id: ModuleId::new("users"),
             title: Message::UserAccounts,
-            icon: lens_icon_id::LENS_ICON_USERS,
+            icon: optics_ui_icon_id::OPTICS_UI_ICON_USERS,
             category: ModuleCategory::System,
             keywords: &["users", "accounts", "password", "avatar", "administrator"],
             apply_policy: ApplyPolicy::Explicit,
@@ -36,7 +36,7 @@ pub fn builtin_modules() -> ModuleRegistry {
         ModuleMetadata {
             id: ModuleId::new("window-rules"),
             title: Message::WindowRules,
-            icon: lens_icon_id::LENS_ICON_GRID,
+            icon: optics_ui_icon_id::OPTICS_UI_ICON_GRID,
             category: ModuleCategory::System,
             keywords: &["window", "rules", "application", "workspace", "floating"],
             apply_policy: ApplyPolicy::Explicit,
@@ -92,7 +92,7 @@ mod tests {
             ModuleMetadata {
                 id: ModuleId::new("display"),
                 title: Message::Display,
-                icon: lens_icon_id::LENS_ICON_MONITOR,
+                icon: optics_ui_icon_id::OPTICS_UI_ICON_MONITOR,
                 category: ModuleCategory::Hardware,
                 keywords: &[],
                 apply_policy: ApplyPolicy::Explicit,

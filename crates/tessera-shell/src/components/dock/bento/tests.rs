@@ -107,11 +107,11 @@ fn row_count_ceiling_is_derived_from_the_floor() {
 fn off_and_idle_radios_draw_different_marks() {
     assert_eq!(
         wifi_icon(ReadingTone::Off),
-        optics_lens::sys::lens_icon_id::LENS_ICON_WIFI_OFF
+        optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_WIFI_OFF
     );
     assert_eq!(
         wifi_icon(ReadingTone::Idle),
-        optics_lens::sys::lens_icon_id::LENS_ICON_WIFI
+        optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_WIFI
     );
     assert_ne!(
         bluetooth_icon(ReadingTone::Off),

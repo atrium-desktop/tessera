@@ -10,19 +10,26 @@ Tessera has two separate Optics dependency surfaces:
 
 - `Cargo.lock` pins the Rust bindings to the Optics tag reported by
   `cargo run -p xtask -- optics --tag-only`.
-- The native `flux`, `vista`, `lens`, `iris`, and `reticle` libraries are
-  system build and runtime dependencies discovered through `pkg-config` and
-  the dynamic loader.
+- The native `optics-gfx`, `optics-scene`, `optics-ui`, `optics-svg`, and
+  `optics-text` libraries are system build and runtime dependencies discovered
+  through `pkg-config` and the dynamic loader. `optics-text` arrives through
+  `optics-ui`'s own `Requires`; Tessera links no `optics-window` binary.
+
+Every workspace crate declares `publish = false`: the distribution channel is
+this source package, not crates.io, and an internal crate API is not a
+supported registry surface. That declaration is also what makes a path
+dependency an unambiguous source for the supply-chain policy in `deny.toml`.
 
 A package build must not depend on an `../optics` checkout or enable
 `.cargo/optics-local.toml`. Package the matching Optics release first and
 verify the native development files before building Tessera:
 
 ```bash
-pkg-config --modversion flux vista lens iris reticle
+pkg-config --modversion optics-gfx optics-scene optics-ui optics-svg optics-text
 ```
 
-Each command must report exactly `<OPTICS_VERSION>`. Pre-1.0 the `-sys` crates
+Each command must report exactly the pinned release (`0.0.82` for this tree; the
+tag is `v0.0.82`). Pre-1.0 the `-sys` crates
 probe `pkg-config` with an exact version, and the SONAME carries the full
 version, so a mismatched native release fails at build or load time rather than
 reading a different descriptor layout. Distribution package names vary, so
@@ -37,7 +44,7 @@ for binding generation. The core runtime uses Linux PAM, logind, and
 dimming.
 
 The compatible
-[Tessera Portal source release](https://github.com/aegis-shell/xdg-desktop-portal-atrium)
+[Tessera Portal source release](https://github.com/atrium-desktop/xdg-desktop-portal-atrium)
 has its own `Cargo.lock` and additionally requires GTK 4.10, PipeWire/SPA,
 Meson, and Ninja. Linux PAM development files are required only for the
 optional unlock module. Its Portal-owned protocol projection has no Tessera
@@ -113,6 +120,8 @@ inside the package build root.
 | `target/release/tessera-settings` | `/usr/bin/tessera-settings` | core |
 | `target/release/tessera-mcp` | `/usr/bin/tessera-mcp` | agent integration |
 | `target/release/tessera-networkd` | `/usr/bin/tessera-networkd` | core |
+| `target/release/tessera-cast` | `/usr/bin/tessera-cast` | casting |
+| `target/release/tessera-castd` | `/usr/bin/tessera-castd` | casting |
 | `system/bin/tessera-session` | `/usr/bin/tessera-session` | core |
 | `system/lib/systemd/user/tessera.service` | `/usr/lib/systemd/user/tessera.service` | core |
 | `system/lib/systemd/user/tessera-shutdown.target` | `/usr/lib/systemd/user/tessera-shutdown.target` | core |
@@ -127,13 +136,16 @@ under `system/bin/` are executable (`0755`); every other file is `0644`.
 `cargo run -p xtask -- check-system-files` keeps this table, the tree, and every
 `system/` path quoted in the documentation in agreement.
 
-`tessera-networkd` is the out-of-process station-network service (ADR-0242).
-It must be installed beside `tessera`: the compositor locates it as a trusted
-sibling and supervises it. Without it, the Control Center reports the network
-service as unavailable rather than fabricating state (ADR-0190).
+`tessera-networkd` is the out-of-process station-network service (ADR-0242)
+and `tessera-castd` is the out-of-process casting service (ADR-0188,
+ADR-0192). Both must be installed beside `tessera`: the compositor locates
+them as trusted siblings, verifies ownership and mode, and supervises them.
+Without them the Control Center reports the network or cast service as
+unavailable rather than fabricating state (ADR-0190). `tessera-cast` is the
+same package's operator CLI; the compositor never links it.
 
 The Portal package installs from the
-[xdg-desktop-portal-atrium repository](https://github.com/aegis-shell/xdg-desktop-portal-atrium);
+[xdg-desktop-portal-atrium repository](https://github.com/atrium-desktop/xdg-desktop-portal-atrium);
 these source paths are relative to that repository, not to this one:
 
 | Source (portal repository) | Destination |
@@ -145,16 +157,23 @@ these source paths are relative to that repository, not to this one:
 | Portal-provided `atrium-portals.conf` | `/usr/share/xdg-desktop-portal/atrium-portals.conf` |
 | `LICENSE` | `/usr/share/licenses/xdg-desktop-portal-atrium/LICENSE` |
 
+`cargo run -p xtask -- check-install-manifest` checks this table, the
+installer's `BINARIES` list, and the workspace's binary targets against each
+other, so a new supervised sibling cannot be shipped by one and forgotten by
+the other.
+
 `tessera-lock-preview` is a feature-gated contributor tool, not a distribution
 artifact. Package builds must not enable the `dev-preview` feature and must
 not install `target/release/tessera-lock-preview`. Keep the explicit
 `target/release/tessera-lock` install entry above; do not replace it with an
 `tessera-*` wildcard.
 
-The bundled Aegis cursor theme is embedded into the `tessera` binary via
-`include_dir`. The art is original and MIT-licensed (generated by
-`scripts/prepare-aegis-cursors.py`), so the shipped binary is MIT through and
-through and no third-party license staging is required for it.
+The bundled Tessera cursor theme is embedded into the `tessera` binary at
+build time: `crates/tessera-assets/build.rs` reads `assets/cursors/` and
+emits generated Rust source, so no cursor files are installed. The art is
+original and MIT-licensed (generated by
+`scripts/prepare-tessera-cursors.py`), so the shipped binary is MIT through
+and through and no third-party license staging is required for it.
 
 Each independently installable package also carries the project `LICENSE`
 under its own `/usr/share/licenses/<package>/` directory.
@@ -171,8 +190,14 @@ install -Dm0755 target/release/tessera-lock \
   "$package_root/usr/bin/tessera-lock"
 install -Dm0755 target/release/tessera-mcp \
   "$package_root/usr/bin/tessera-mcp"
+install -Dm0755 target/release/tessera-settings \
+  "$package_root/usr/bin/tessera-settings"
 install -Dm0755 target/release/tessera-networkd \
   "$package_root/usr/bin/tessera-networkd"
+install -Dm0755 target/release/tessera-cast \
+  "$package_root/usr/bin/tessera-cast"
+install -Dm0755 target/release/tessera-castd \
+  "$package_root/usr/bin/tessera-castd"
 ```
 
 Stage the portal executable and all portal-owned data files from the separate
@@ -233,10 +258,13 @@ Test the completed packages in a clean environment rather than running out of
 
 ```bash
 systemd-analyze --user verify tessera.service tessera-shutdown.target
-pkg-config --modversion flux vista lens iris reticle
+pkg-config --modversion optics-gfx optics-scene optics-ui optics-svg optics-text
 test -x /usr/bin/tessera-idle
 test -x /usr/bin/tessera-lock
 test -x /usr/bin/tessera-settings
+test -x /usr/bin/tessera-networkd
+test -x /usr/bin/tessera-castd
+test -x /usr/bin/tessera-cast
 desktop-file-validate /usr/share/applications/com.hihusky.Tessera.Settings.desktop
 test -r /etc/pam.d/tessera-lock
 systemctl --user daemon-reload
@@ -266,14 +294,14 @@ Tessera on Arch uses three installable packages from three source repositories.
 Package Optics first, then package the explicitly compatible Tessera and Tessera
 Portal tags independently.
 
-Replace `<OPTICS_VERSION>`, `<TESSERA_VERSION>`, and `<PORTAL_VERSION>` below
-with the compatible release versions being packaged.
+Replace `<TESSERA_VERSION>` and `<PORTAL_VERSION>` below with the release
+versions being packaged. The Optics pin is fixed by this tree: `v0.0.82`.
 
 | Package | Provides | Built by |
 |---------|----------|----------|
-| `optics` | `libflux.so`, `libvista.so`, `liblens.so`, `libiris.so`, `libreticle.so`, headers, `flux.pc` … `reticle.pc` | Meson/Ninja from the `ming2k/optics` `v<OPTICS_VERSION>` tag |
+| `optics` | `liboptics_gfx.so`, `liboptics_scene.so`, `liboptics_ui.so`, `liboptics_svg.so`, `liboptics_text.so`, headers, `optics-gfx.pc` … `optics-text.pc` | Meson/Ninja from the `ming2k/optics` `v0.0.82` tag |
 | `tessera` | Compositor, CLI and agent integration binaries, systemd user unit, and cursor license disclosure | Cargo from the `atrium-desktop/tessera` `v<TESSERA_VERSION>` tag |
-| `xdg-desktop-portal-atrium` | Private portal backend plus its D-Bus activation, `.portal`, backend-selection files, and PAM helper | Cargo from the `tessera-shell/xdg-desktop-portal-atrium` `v<PORTAL_VERSION>` tag |
+| `xdg-desktop-portal-atrium` | Private portal backend plus its D-Bus activation, `.portal`, backend-selection files, and PAM helper | Cargo from the `atrium-desktop/xdg-desktop-portal-atrium` `v<PORTAL_VERSION>` tag |
 
 Each repository's CI validates its own dependency surface; the
 `makedepends`/`depends` lists below are their Arch equivalents.
@@ -283,9 +311,9 @@ Each repository's CI validates its own dependency surface; the
 ```bash
 # Maintainer: <you>
 pkgname=optics
-pkgver='<OPTICS_VERSION>'
+pkgver='0.0.82'
 pkgrel=1
-pkgdesc='Vulkan-first rendering stack: flux, vista, lens, iris, reticle'
+pkgdesc='Vulkan-first rendering stack: optics-gfx, optics-scene, optics-ui, optics-svg, optics-text'
 arch=(x86_64)
 url='https://github.com/ming2k/optics'
 license=(MIT)
@@ -308,7 +336,7 @@ package() {
 ```
 
 `meson install` lays the libraries, headers, and `.pc` files under `/usr`, so
-`pkg-config --modversion flux vista lens iris reticle` resolves after the
+`pkg-config --modversion optics-gfx optics-scene optics-ui optics-svg optics-text` resolves after the
 package is installed.
 
 #### `tessera` PKGBUILD
@@ -329,13 +357,13 @@ sha256sums=('SKIP')   # replace with the real release-tarball checksum
 build() {
   cd "$pkgbase-$pkgver"
   # Hard contract from the dependency section: Optics native libs must be present.
-  pkg-config --modversion flux vista lens iris reticle
+  pkg-config --modversion optics-gfx optics-scene optics-ui optics-svg optics-text
   cargo build --locked --release --workspace
 }
 
 package() {
   pkgdesc='Wayland compositor and desktop shell'
-  # Project code and the embedded Aegis cursor art are all MIT.
+  # Project code and the embedded Tessera cursor art are all MIT.
   license=(MIT)
   depends=(optics vulkan-icd-loader wayland libxkbcommon libinput seatd
            systemd-libs dbus pam brightnessctl)
@@ -353,6 +381,8 @@ package() {
   install -Dm0755 target/release/tessera-settings "$dest/bin/tessera-settings"
   install -Dm0755 target/release/tessera-mcp "$dest/bin/tessera-mcp"
   install -Dm0755 target/release/tessera-networkd "$dest/bin/tessera-networkd"
+  install -Dm0755 target/release/tessera-cast "$dest/bin/tessera-cast"
+  install -Dm0755 target/release/tessera-castd "$dest/bin/tessera-castd"
 
   # system/ mirrors the installed tree; see the Install Manifest.
   install -Dm0755 system/bin/tessera-session "$dest/bin/tessera-session"
@@ -377,7 +407,7 @@ _tesseraver='<TESSERA_VERSION>'
 pkgrel=1
 pkgdesc='xdg-desktop-portal backend for the Tessera compositor'
 arch=(x86_64)
-url='https://github.com/aegis-shell/xdg-desktop-portal-atrium'
+url='https://github.com/atrium-desktop/xdg-desktop-portal-atrium'
 license=(MIT GPL-3.0-only)
 depends=("tessera=$_tesseraver" gtk4 pam pipewire wireplumber xdg-desktop-portal xdg-email)
 makedepends=(rust meson ninja pkgconf clang pipewire pam)

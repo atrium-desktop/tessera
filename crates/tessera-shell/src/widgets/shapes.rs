@@ -1,6 +1,6 @@
 //! Concentric geometric shapes, discs, rings, and dots.
 
-use optics_lens::{Color, Frame, LayoutOpts, Rect};
+use optics_ui::{Color, Frame, LayoutOpts, Rect};
 use tessera_design::materials;
 
 /// Place a filled circular disc centered at `(center.0, center.1)`.

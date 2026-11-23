@@ -1,11 +1,12 @@
-[Testing Index](index.md) > [Manual Testing Playbook](manual-testing.md) > KMS Overlay System Test
+[How-to Guides](index.md) > Validate KMS Overlay Offload
 
 ---
 
-# KMS Overlay System Test
+# How to Validate KMS Overlay Offload
 
-This is the manual **KMS system test** for the one-candidate overlay path from
-[ADR-0235](../../adr/0235-overlay-offload-is-a-topmost-opaque-single-surface-candidate.md).
+This is the hardware validation procedure for the one-candidate overlay path
+from
+[ADR-0235](../adr/0235-overlay-offload-is-a-topmost-opaque-single-surface-candidate.md).
 It validates real DRM/KMS behavior that unit, integration, and nested tests
 cannot prove.
 
@@ -16,7 +17,7 @@ Automated coverage before this hardware layer:
 
 - **Unit/property**: `crates/tessera-composite/src/presentation/overlay.rs`
   covers candidate policy, rejection ordering, placement identity, and the
-  Primary-repaint contract ([ADR-0236](../../adr/0236-overlay-placement-is-a-pure-state-machine.md)).
+  Primary-repaint contract ([ADR-0236](../adr/0236-overlay-placement-is-a-pure-state-machine.md)).
 - **Backend unit**: `crates/tessera-platform/src/drm.rs` covers the pure
   overlay request values (source/destination 16.16 geometry, alpha, zpos,
   fence, damage support) without a DRM card.
@@ -328,16 +329,14 @@ default may happen only after:
       and documented.
 
 The architecture is already ratified by
-[ADR-0235](../../adr/0235-overlay-offload-is-a-topmost-opaque-single-surface-candidate.md);
+[ADR-0235](../adr/0235-overlay-offload-is-a-topmost-opaque-single-surface-candidate.md);
 this runbook is the hardware gate for changing the default policy from
 `Disabled` to enabled.
 
 ## Related Documents
 
-- [Manual Testing Playbook](manual-testing.md)
-- [VT/DRM Manual Testing](vt-drm-testing.md)
-- [Rendering and KMS Plane Reference](../../reference/rendering.md)
-- [How to Run tessera on Bare Metal](../../how-to/bare-metal-drm.md)
-- [ADR-0234: Output layers are plane-allocation contracts](../../adr/0234-output-layers-are-plane-allocation-contracts-not-scene-layers.md)
-- [ADR-0235: Overlay offload candidate policy](../../adr/0235-overlay-offload-is-a-topmost-opaque-single-surface-candidate.md)
-- [ADR-0237: A direct-scanned Primary excludes overlay offload](../../adr/0237-a-direct-scanned-primary-excludes-overlay-offload.md)
+- [Rendering and KMS Plane Reference](../reference/rendering.md)
+- [How to Run tessera on Bare Metal](bare-metal-drm.md)
+- [ADR-0234: Output layers are plane-allocation contracts](../adr/0234-output-layers-are-plane-allocation-contracts-not-scene-layers.md)
+- [ADR-0235: Overlay offload candidate policy](../adr/0235-overlay-offload-is-a-topmost-opaque-single-surface-candidate.md)
+- [ADR-0237: A direct-scanned Primary excludes overlay offload](../adr/0237-a-direct-scanned-primary-excludes-overlay-offload.md)

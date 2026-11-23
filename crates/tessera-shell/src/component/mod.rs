@@ -13,7 +13,7 @@
 //! # Boundary
 //!
 //! The contract is `#![forbid(unsafe_code)]` and stateless: the host that
-//! binds lens to the compositor's flux device lives in `tessera-shell`.
+//! binds optics-ui to the compositor's gfx device lives in `tessera-shell`.
 //! Component crates implement [`Chrome`] against this crate alone and must
 //! never depend on the host or on each other; anything two surfaces share
 //! belongs here. Design values come from `tessera-design`; this crate holds
@@ -120,7 +120,7 @@ pub struct Reserved {
 /// Decoded icon texture handles shared with chrome components.
 ///
 /// The textures are owned by the composition root's icon cache; an `IconSet`
-/// is a map of borrowed raw `flux_image` pointers keyed by every lowercase id
+/// is a map of borrowed raw `optics_gfx_image` pointers keyed by every lowercase id
 /// an application may run as (StartupWMClass, desktop-id stem, icon name).
 /// The owner must keep the textures alive until it has pushed a replacement
 /// catalog via [`crate::Shell::set_app_catalog`]; components only dereference handles
@@ -132,7 +132,7 @@ pub struct IconSet {
 }
 
 impl IconSet {
-    /// Wrap a raw handle map (`app_id` → borrowed `flux_image` pointer).
+    /// Wrap a raw handle map (`app_id` → borrowed `optics_gfx_image` pointer).
     pub fn from_raw(map: HashMap<String, *mut c_void>) -> IconSet {
         IconSet {
             map,
@@ -200,14 +200,14 @@ pub enum CursorShape {
 }
 
 impl CursorShape {
-    /// Map a Lens immediate-mode UI cursor hint to the corresponding Wayland cursor shape.
-    pub fn from_hint(hint: optics_lens::CursorHint) -> Option<Self> {
+    /// Map an optics-ui immediate-mode UI cursor hint to the corresponding Wayland cursor shape.
+    pub fn from_hint(hint: optics_ui::CursorHint) -> Option<Self> {
         match hint {
-            optics_lens::CursorHint::Default => None,
-            optics_lens::CursorHint::Pointer => Some(Self::Pointer),
-            optics_lens::CursorHint::Text => Some(Self::Text),
-            optics_lens::CursorHint::ResizeNs => Some(Self::ResizeNs),
-            optics_lens::CursorHint::ResizeEw => Some(Self::ResizeEw),
+            optics_ui::CursorHint::Default => None,
+            optics_ui::CursorHint::Pointer => Some(Self::Pointer),
+            optics_ui::CursorHint::Text => Some(Self::Text),
+            optics_ui::CursorHint::ResizeNs => Some(Self::ResizeNs),
+            optics_ui::CursorHint::ResizeEw => Some(Self::ResizeEw),
         }
     }
 }
@@ -228,11 +228,11 @@ impl Reserved {
     }
 }
 
-use optics_lens::{Frame, Rect};
+use optics_ui::{Frame, Rect};
 
 /// Re-export so callers can construct input snapshots without depending on
-/// lens directly.
-pub use optics_lens::Input;
+/// optics-ui directly.
+pub use optics_ui::Input;
 
 /// Parameters of one user-consent application pick, mapped from the IPC
 /// request by the compositor runtime.
@@ -722,7 +722,7 @@ pub use Chrome as Panel;
 ///
 /// A component renders itself for one frame from the shared window and
 /// workspace snapshots and the input, drawing through `frame` and pushing
-/// any user intents into `out`. The core owns the lens context, the
+/// any user intents into `out`. The core owns the optics-ui context, the
 /// snapshots, and the sink; the component owns only its own appearance and
 /// state. Register implementations with [`crate::Shell::add`].
 pub trait Chrome {

@@ -7,8 +7,8 @@
 //!
 //! Follows the Model-Motion-View (MMV) architecture (ADR-0174):
 //! - [`state`]: Headless state machine (apps, selections, drag-reorder, autohide latching).
-//! - [`motion`]: Motion dynamics powered by Optics `transit` (reveal & magnification springs).
-//! - [`rendering`]: Pure presentation projection onto Lens Frame, painted fills, and elevation.
+//! - [`motion`]: Motion dynamics powered by Optics `optics-motion` (reveal & magnification springs).
+//! - [`rendering`]: Pure presentation projection onto optics-ui Frame, painted fills, and elevation.
 
 pub mod bento;
 pub mod motion;
@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::hash::Hasher;
 
-pub(crate) use optics_lens::{Align, Color, Frame, Icon, Input, LayoutOpts, Rect};
+pub(crate) use optics_ui::{Align, Color, Frame, Icon, Input, LayoutOpts, Rect};
 pub(crate) use tessera_design::materials::{chrome_place, surface_layout};
 pub(crate) use tessera_design::{Design, SurfaceRole, materials};
 
@@ -174,7 +174,7 @@ pub struct Dock {
     pub last_cursor: Option<(f32, f32)>,
     /// Most recently rendered logical display size.
     pub last_display: Option<(f32, f32)>,
-    /// Motion dynamics state (Optics `transit` reveal spring and drain ring).
+    /// Motion dynamics state (Optics `optics-motion` reveal spring and drain ring).
     ///
     /// The single owner of every value that advances with `dt`: the reveal
     /// spring, the swapchain drain counter, and the bubble's fade. `Dock` reads
@@ -981,20 +981,14 @@ impl Dock {
     /// duplicates. Anchored bands can coincide (the tooltip band contains the
     /// strip), and a repeated region would make the host walk the same scissor
     /// twice.
-    pub(crate) fn push_damage(
-        regions: &mut Vec<optics_lens::Rect>,
-        x: f32,
-        y: f32,
-        w: f32,
-        h: f32,
-    ) {
+    pub(crate) fn push_damage(regions: &mut Vec<optics_ui::Rect>, x: f32, y: f32, w: f32, h: f32) {
         if w <= 0.0 || h <= 0.0 {
             return;
         }
         /* Outward on both edges, so the far edge is never short. */
         let x0 = x.floor();
         let y0 = y.floor();
-        let rect = optics_lens::Rect {
+        let rect = optics_ui::Rect {
             x: x0,
             y: y0,
             w: (x + w).ceil() - x0,

@@ -1,8 +1,8 @@
 //! Product-specific design policy for tessera chrome.
 //!
-//! This crate is deliberately data-only: it builds semantic lens themes and
+//! This crate is deliberately data-only: it builds semantic optics-ui themes and
 //! material option values, but never receives a `Frame` or `Input`, retains UI
-//! state, or emits application intents. Generic UI behavior belongs in lens;
+//! state, or emits application intents. Generic UI behavior belongs in optics-ui;
 //! component behavior stays in the owning tessera chrome crate.
 
 #![forbid(unsafe_code)]

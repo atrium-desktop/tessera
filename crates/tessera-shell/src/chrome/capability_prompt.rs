@@ -14,7 +14,7 @@
 
 use std::collections::BTreeSet;
 
-use optics_lens::{Color, Frame, Input, LayoutOpts, Rect};
+use optics_ui::{Color, Frame, Input, LayoutOpts, Rect};
 
 use crate::component::{
     CapabilityFamily, CapabilityPickParams, CapabilityPickResult, Chrome, ChromeCommand,
@@ -637,7 +637,7 @@ impl Chrome for CapabilityPrompt {
             self.press_at(cursor.x, cursor.y, display, out);
         }
 
-        // Shell input carries lens-convention scroll deltas: scrolling down
+        // Shell input carries optics-ui-convention scroll deltas: scrolling down
         // is negative. Negate so wheel-down advances the list downward.
         let wheel = -(raw.scroll_y * WHEEL_ROWS + raw.scroll_pixels_y / ROW_H);
         if contains(layout.list, cursor.x, cursor.y) && wheel != 0.0 {

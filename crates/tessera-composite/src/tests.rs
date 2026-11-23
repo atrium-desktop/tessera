@@ -133,7 +133,7 @@ fn reusable_dmabuf_wait_is_once_per_commit_generation() {
 }
 
 /// GC drops only the textures for ids not present in the live set. The
-/// cache itself is empty here (no flux device in unit tests), but the
+/// cache itself is empty here (no gfx device in unit tests), but the
 /// bookkeeping on `failed_imports` is exercised by the same path.
 #[test]
 fn gc_keeps_live_drops_dead() {

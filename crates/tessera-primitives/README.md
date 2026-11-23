@@ -16,7 +16,7 @@ Universal foundational physical, geometric, color, identity, and buffer primitiv
 
 - Zero dependency (optional `serde` only).
 - No I/O, no filesystem, no sockets, no process spawning.
-- No GPU device, Ash, Vulkan, Flux, or Lens handles.
+- No GPU device, Ash, Vulkan, gfx, or optics-ui handles.
 - No Wayland protocol C bindings.
 
 ## Related Documentation

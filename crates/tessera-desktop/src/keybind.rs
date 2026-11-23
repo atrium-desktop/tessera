@@ -3,7 +3,7 @@
 //! Pure: a [`Keymap`] is an ordered list of [`Keybind`]s — (modifier mask,
 //! keysym) → [`Action`]. The binary layers the configuration file over the
 //! built-in defaults and matches each non-captured key press against it.
-//! Keeping this module in `tessera-desktop` (no flux, lens, or Wayland dependency)
+//! Keeping this module in `tessera-desktop` (no gfx, optics-ui, or Wayland dependency)
 //! lets the binding table and name resolvers be unit-tested in isolation.
 //!
 //! Matching is exact on the depressed modifier mask: a binding fires only when

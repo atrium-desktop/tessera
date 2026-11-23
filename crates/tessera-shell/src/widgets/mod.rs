@@ -3,7 +3,7 @@
 //!
 //! # Architecture & Boundary
 //!
-//! This module builds on top of `lens` (the immediate-mode UI engine) and `tessera-design`
+//! This module builds on top of `optics-ui` (the immediate-mode UI engine) and `tessera-design`
 //! (the product design tokens and materials). It provides reusable composite UI patterns
 //! and enforces UI design consistency across Tessera compositor chrome components
 //! without coupling to compositor server state.

@@ -1211,17 +1211,6 @@ impl Server {
         unsafe { extensions::update_idle_notifications(self.state.as_mut()) };
     }
 
-    /// Development-only escape hatch (`[dev] allow_quit_while_locked`): while
-    /// set, the global Quit binding still matches during an active session
-    /// lock. Will be removed before release; do not rely on it.
-    pub fn set_allow_quit_while_locked(&mut self, allow: bool) {
-        if self.state.allow_quit_while_locked == allow {
-            return;
-        }
-        log::info!("input: allow quit while locked {allow}");
-        self.state.allow_quit_while_locked = allow;
-    }
-
     /// Whether normal client content and compositor chrome must be hidden.
     /// This becomes true as soon as a lock request is accepted, before the
     /// protocol's `locked` event, so the next frame fails closed.

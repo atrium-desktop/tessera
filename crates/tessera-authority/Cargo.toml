@@ -4,6 +4,7 @@ description = "Transport-neutral Actor authority and integrity-checked audit mec
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
+publish = false
 license.workspace = true
 rust-version.workspace = true
 

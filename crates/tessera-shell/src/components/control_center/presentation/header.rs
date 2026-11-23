@@ -79,7 +79,7 @@ impl ControlCenter {
             (
                 HeaderAction::Settings,
                 Tip::Settings,
-                optics_lens::sys::lens_icon_id::LENS_ICON_SETTINGS,
+                optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_SETTINGS,
                 i18n.text(Message::Settings),
             ),
             (
@@ -87,13 +87,13 @@ impl ControlCenter {
                 Tip::Lock,
                 // A padlock, not a shield: this locks the session; it does not
                 // vouch for security posture (ADR-0080).
-                optics_lens::sys::lens_icon_id::LENS_ICON_LOCK,
+                optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_LOCK,
                 i18n.text(Message::LockNow),
             ),
             (
                 HeaderAction::Power,
                 Tip::Power,
-                optics_lens::sys::lens_icon_id::LENS_ICON_POWER,
+                optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_POWER,
                 i18n.text(Message::PowerAndSession),
             ),
         ];
@@ -236,17 +236,17 @@ impl ControlCenter {
         let actions = [
             (
                 SystemAction::Suspend,
-                optics_lens::sys::lens_icon_id::LENS_ICON_MOON,
+                optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_MOON,
                 i18n.text(Message::Suspend),
             ),
             (
                 SystemAction::Reboot,
-                optics_lens::sys::lens_icon_id::LENS_ICON_ROTATE_CW,
+                optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_ROTATE_CW,
                 i18n.text(Message::Restart),
             ),
             (
                 SystemAction::PowerOff,
-                optics_lens::sys::lens_icon_id::LENS_ICON_POWER,
+                optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_POWER,
                 i18n.text(Message::PowerOff),
             ),
         ];

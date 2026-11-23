@@ -16,3 +16,4 @@ Task-oriented instructions for operating an tessera session.
 - [How to Connect an MCP Agent to Tessera](agent.md)
 - [How to Run tessera on Bare Metal (DRM/KMS)](bare-metal-drm.md)
 - [How to Install and Verify the Portal Backend](portals.md)
+- [How to Validate KMS Overlay Offload](kms-overlay-validation.md)

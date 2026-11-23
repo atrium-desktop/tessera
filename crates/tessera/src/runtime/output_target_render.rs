@@ -5,12 +5,12 @@
 //! desktop no longer presents a union image. Each extended output renders its
 //! own logical rectangle into a mode-sized target; a mirror target receives a
 //! blit of its source target with the fitted letterbox. Every target has its
-//! own Flux ring, KMS slot, and page flip.
+//! own gfx ring, KMS slot, and page flip.
 
 use super::output_target::{
     RetainedSourceExport, TARGET_ACQUIRE_TIMEOUT_NS, TargetImportCache, TargetImportDesc,
-    drm_target_commit_is_transient, export_target_dmabuf, flux_format_for_drm,
-    flux_target_acquire_is_transient,
+    drm_target_commit_is_transient, export_target_dmabuf, gfx_format_for_drm,
+    gfx_target_acquire_is_transient,
 };
 use super::*;
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -66,10 +66,10 @@ pub(super) fn plan_retired_release(
 struct RenderedSource {
     connector: String,
     target_idx: usize,
-    format: optics_flux::Format,
+    format: optics_gfx::Format,
     color_pipeline: tessera_desktop::output::ColorPipeline,
-    dmabuf: optics_flux::SurfaceDmabuf,
-    lease: std::rc::Rc<optics_flux::DmabufLease>,
+    dmabuf: optics_gfx::SurfaceDmabuf,
+    lease: std::rc::Rc<optics_gfx::DmabufLease>,
     origin: tessera_primitives::Point,
     scale: f32,
     mode: (u32, u32),
@@ -83,22 +83,22 @@ struct MirrorSourceView<'a> {
     height: u32,
     stride: u32,
     modifier: u64,
-    format: optics_flux::Format,
+    format: optics_gfx::Format,
     color_pipeline: tessera_desktop::output::ColorPipeline,
     origin: tessera_primitives::Point,
     scale: f32,
     mode: (u32, u32),
-    lease: &'a std::rc::Rc<optics_flux::DmabufLease>,
+    lease: &'a std::rc::Rc<optics_gfx::DmabufLease>,
     source_damage: Option<&'a FrameDamage>,
 }
 
 struct TargetMeta {
     connector: String,
     last_source_export: Option<RetainedSourceExport>,
-    source_lease: Option<std::rc::Rc<optics_flux::DmabufLease>>,
+    source_lease: Option<std::rc::Rc<optics_gfx::DmabufLease>>,
     import_cache: TargetImportCache,
     mode: (u32, u32),
-    format: optics_flux::Format,
+    format: optics_gfx::Format,
     color_pipeline: tessera_desktop::output::ColorPipeline,
     source: String,
     needs_present: bool,
@@ -112,12 +112,12 @@ struct TargetMeta {
 ///
 /// Field drop order is safety-critical: `meta` (holding `last_source_export`,
 /// `source_lease`, and `import_cache`) and `canvases` are declared before
-/// `surfaces` so all `optics_flux::DmabufLease` handles and canvas pass states drop
-/// before the underlying `optics_flux::Surface`s even on early exit.
+/// `surfaces` so all `optics_gfx::DmabufLease` handles and canvas pass states drop
+/// before the underlying `optics_gfx::Surface`s even on early exit.
 struct GroupTargets {
     meta: Vec<TargetMeta>,
-    canvases: Vec<optics_flux::Canvas>,
-    surfaces: Vec<optics_flux::Surface>,
+    canvases: Vec<optics_gfx::Canvas>,
+    surfaces: Vec<optics_gfx::Surface>,
 }
 
 impl GroupTargets {
@@ -413,7 +413,7 @@ impl CompositorRuntime<'_> {
         let software_cursor = self.host.uses_software_cursor();
         let explicit_sync = self.host.explicit_sync();
         let cursor = self.input_acc.cursor;
-        let format = flux_format_for_drm(presented.fourcc);
+        let format = gfx_format_for_drm(presented.fourcc);
 
         let mut targets = std::mem::take(&mut self.output_targets);
         let mut presented_sources = Vec::new();
@@ -435,7 +435,7 @@ impl CompositorRuntime<'_> {
             let mut group_ok = true;
 
             {
-                let mut submitted_frames: Vec<(usize, optics_flux::SubmittedFrame<'_>)> =
+                let mut submitted_frames: Vec<(usize, optics_gfx::SubmittedFrame<'_>)> =
                     Vec::with_capacity(group.outputs.len());
                 let mut commit_batch: Vec<RenderTargetCommit> =
                     Vec::with_capacity(group.outputs.len());
@@ -503,7 +503,7 @@ impl CompositorRuntime<'_> {
                     let mut frame = match group_targets.surfaces[idx]
                         .begin_frame_timeout_with_damage(
                             TARGET_ACQUIRE_TIMEOUT_NS,
-                            &optics_flux::Damage::Full,
+                            &optics_gfx::Damage::Full,
                         ) {
                         Ok(frame) => frame,
                         Err(error) => {
@@ -511,19 +511,19 @@ impl CompositorRuntime<'_> {
                                 "{}: capture target frame unavailable for {connector}: {error}",
                                 self.host.name()
                             );
-                            if !flux_target_acquire_is_transient(&error) {
+                            if !gfx_target_acquire_is_transient(&error) {
                                 permanently_failed.insert(connector.clone());
                             }
                             group_ok = false;
                             break;
                         }
                     };
-                    let submitted = (|| -> Result<optics_flux::SubmittedFrame<'_>, String> {
+                    let submitted = (|| -> Result<optics_gfx::SubmittedFrame<'_>, String> {
                         let session = group_targets.canvases[idx]
                             .begin_session(
                                 &mut frame,
-                                optics_flux::CanvasPassOptions {
-                                    clear: Some(optics_flux::rgba(0, 0, 0, 255)),
+                                optics_gfx::CanvasPassOptions {
+                                    clear: Some(optics_gfx::rgba(0, 0, 0, 255)),
                                     damage: Vec::new(),
                                 },
                             )
@@ -710,7 +710,7 @@ impl CompositorRuntime<'_> {
     ///   their damage history or tearing down their targets.
     /// - Undamaged groups (and undamaged peers inside a multi-source group)
     ///   skip rendering cleanly.
-    /// - Source targets use Flux's native damage ledger (`repaint_scope()`)
+    /// - Source targets use gfx's native damage ledger (`repaint_scope()`)
     ///   and single-pass desktop rendering (`begin_desktop_output`).
     /// - `SubmittedFrame`s are held until `present_render_targets()` accepts
     ///   the atomic commit; transient KMS/acquire errors abandon the slot
@@ -829,7 +829,7 @@ impl CompositorRuntime<'_> {
             let mut group_ok = true;
 
             {
-                let mut submitted_frames: Vec<(usize, optics_flux::SubmittedFrame<'_>)> =
+                let mut submitted_frames: Vec<(usize, optics_gfx::SubmittedFrame<'_>)> =
                     Vec::with_capacity(active_connectors.len());
                 let mut rendered_sources: Vec<RenderedSource> =
                     Vec::with_capacity(plan.sources.len());
@@ -837,7 +837,7 @@ impl CompositorRuntime<'_> {
                     Vec::with_capacity(plan.mirrors.len());
                 let mut mirror_updates: Vec<(
                     usize,
-                    std::rc::Rc<optics_flux::DmabufLease>,
+                    std::rc::Rc<optics_gfx::DmabufLease>,
                     Option<tessera_primitives::Rect>,
                 )> = Vec::with_capacity(plan.mirrors.len());
 
@@ -857,9 +857,9 @@ impl CompositorRuntime<'_> {
                     let logical_size = (logical.w.max(1) as u32, logical.h.max(1) as u32);
                     let scale = output.geometry.scale.as_f32().max(0.01);
                     let origin = output.geometry.logical_origin;
-                    let flux_damage = target_current_damage.to_flux_damage();
+                    let gfx_damage = target_current_damage.to_gfx_damage();
                     let mut frame = match group_targets.surfaces[idx]
-                        .begin_frame_timeout_with_damage(TARGET_ACQUIRE_TIMEOUT_NS, &flux_damage)
+                        .begin_frame_timeout_with_damage(TARGET_ACQUIRE_TIMEOUT_NS, &gfx_damage)
                     {
                         Ok(frame) => frame,
                         Err(error) => {
@@ -867,9 +867,11 @@ impl CompositorRuntime<'_> {
                                 "{}: target frame unavailable for {connector}: {error}",
                                 self.host.name()
                             );
-                            if error.0 == optics_flux_sys::flux_result::FLUX_ERROR_BUSY {
+                            if error.0 == optics_gfx_sys::optics_gfx_result::OPTICS_GFX_ERROR_BUSY {
                                 transient_retry = Some(RetryWait::BackendEvent);
-                            } else if error.0 == optics_flux_sys::flux_result::FLUX_ERROR_TIMEOUT {
+                            } else if error.0
+                                == optics_gfx_sys::optics_gfx_result::OPTICS_GFX_ERROR_TIMEOUT
+                            {
                                 transient_retry.get_or_insert(RetryWait::Deadline);
                             } else {
                                 permanently_failed.insert(connector.clone());
@@ -879,7 +881,7 @@ impl CompositorRuntime<'_> {
                         }
                     };
                     let repaint = match frame.repaint_scope() {
-                        Ok(scope) => FrameDamage::from_flux_damage(scope),
+                        Ok(scope) => FrameDamage::from_gfx_damage(scope),
                         Err(error) => {
                             log::warn!(
                                 "{}: repaint_scope query failed for {connector}: {error}",
@@ -935,7 +937,7 @@ impl CompositorRuntime<'_> {
                         },
                     );
                     let is_primary = primary.as_deref() == Some(connector.as_str());
-                    let submitted = (|| -> Result<optics_flux::SubmittedFrame<'_>, String> {
+                    let submitted = (|| -> Result<optics_gfx::SubmittedFrame<'_>, String> {
                         let session = super::presentation::begin_desktop_output(
                             &mut group_targets.canvases[idx],
                             self.device,
@@ -1046,7 +1048,9 @@ impl CompositorRuntime<'_> {
                                     "{}: target export failed for {connector}: {error}",
                                     self.host.name()
                                 );
-                                if error.0 == optics_flux_sys::flux_result::FLUX_ERROR_BUSY {
+                                if error.0
+                                    == optics_gfx_sys::optics_gfx_result::OPTICS_GFX_ERROR_BUSY
+                                {
                                     transient_retry = Some(RetryWait::BackendEvent);
                                 } else {
                                     permanently_failed.insert(connector.clone());
@@ -1202,11 +1206,11 @@ impl CompositorRuntime<'_> {
                                 break;
                             }
                         };
-                        let mirror_flux_damage = mirror_current_damage.to_flux_damage();
+                        let mirror_gfx_damage = mirror_current_damage.to_gfx_damage();
                         let mut frame = match group_targets.surfaces[idx]
                             .begin_frame_timeout_with_damage(
                                 TARGET_ACQUIRE_TIMEOUT_NS,
-                                &mirror_flux_damage,
+                                &mirror_gfx_damage,
                             ) {
                             Ok(frame) => frame,
                             Err(error) => {
@@ -1214,10 +1218,12 @@ impl CompositorRuntime<'_> {
                                     "{}: mirror target frame unavailable for {connector}: {error}",
                                     self.host.name()
                                 );
-                                if error.0 == optics_flux_sys::flux_result::FLUX_ERROR_BUSY {
+                                if error.0
+                                    == optics_gfx_sys::optics_gfx_result::OPTICS_GFX_ERROR_BUSY
+                                {
                                     transient_retry = Some(RetryWait::BackendEvent);
                                 } else if error.0
-                                    == optics_flux_sys::flux_result::FLUX_ERROR_TIMEOUT
+                                    == optics_gfx_sys::optics_gfx_result::OPTICS_GFX_ERROR_TIMEOUT
                                 {
                                     transient_retry.get_or_insert(RetryWait::Deadline);
                                 } else {
@@ -1228,7 +1234,7 @@ impl CompositorRuntime<'_> {
                             }
                         };
                         let mirror_repaint = match frame.repaint_scope() {
-                            Ok(scope) => FrameDamage::from_flux_damage(scope),
+                            Ok(scope) => FrameDamage::from_gfx_damage(scope),
                             Err(error) => {
                                 log::warn!(
                                     "{}: mirror repaint_scope query failed for {connector}: {error}",
@@ -1238,12 +1244,12 @@ impl CompositorRuntime<'_> {
                             }
                         };
                         let mirror_canvas_damage = frame_damage_scope(&mirror_repaint, mode);
-                        let submitted = (|| -> Result<optics_flux::SubmittedFrame<'_>, String> {
+                        let submitted = (|| -> Result<optics_gfx::SubmittedFrame<'_>, String> {
                             let session = group_targets.canvases[idx]
                                 .begin_session(
                                     &mut frame,
-                                    optics_flux::CanvasPassOptions {
-                                        clear: Some(optics_flux::rgba(0, 0, 0, 255)),
+                                    optics_gfx::CanvasPassOptions {
+                                        clear: Some(optics_gfx::rgba(0, 0, 0, 255)),
                                         damage: mirror_canvas_damage,
                                     },
                                 )
@@ -1289,7 +1295,9 @@ impl CompositorRuntime<'_> {
                                         "{}: mirror target export failed for {connector}: {error}",
                                         self.host.name()
                                     );
-                                    if error.0 == optics_flux_sys::flux_result::FLUX_ERROR_BUSY {
+                                    if error.0
+                                        == optics_gfx_sys::optics_gfx_result::OPTICS_GFX_ERROR_BUSY
+                                    {
                                         transient_retry = Some(RetryWait::BackendEvent);
                                     } else {
                                         permanently_failed.insert(connector.clone());
@@ -1396,7 +1404,7 @@ impl CompositorRuntime<'_> {
                             submitted_groups.push(committed_group_outputs);
                         }
                         Err(error) => {
-                            // Drop submitted frames without advancing the Flux
+                            // Drop submitted frames without advancing the gfx
                             // ring so the abandoned slot is reused cleanly.
                             drop(submitted_frames);
                             match classify_target_commit_error(&error) {
@@ -1712,7 +1720,7 @@ fn target_namespace(connector: &str) -> u64 {
 
 fn last_hotspot(
     cache: &mut cursor::CursorCache,
-    device: &optics_flux::Device,
+    device: &optics_gfx::Device,
     shape: u32,
     scale: f32,
 ) -> (u32, u32) {
@@ -1723,7 +1731,7 @@ fn last_hotspot(
 
 fn last_sprite(
     cache: &mut cursor::CursorCache,
-    device: &optics_flux::Device,
+    device: &optics_gfx::Device,
     shape: u32,
     scale: f32,
 ) -> (u32, u32) {
@@ -1985,7 +1993,7 @@ mod tests {
     }
 
     #[test]
-    fn transient_drm_and_flux_errors_preserve_output_targets() {
+    fn transient_drm_and_gfx_errors_preserve_output_targets() {
         assert_eq!(
             classify_target_commit_error(&HostError::Drm(DrmError::Busy)),
             TargetCommitFailure::TransientBusy
@@ -2010,57 +2018,57 @@ mod tests {
             classify_target_commit_error(&HostError::Drm(DrmError::ScanoutUnsupported)),
             TargetCommitFailure::Permanent
         );
-        assert!(flux_target_acquire_is_transient(&optics_flux::Error(
-            optics_flux_sys::flux_result::FLUX_ERROR_BUSY
+        assert!(gfx_target_acquire_is_transient(&optics_gfx::Error(
+            optics_gfx_sys::optics_gfx_result::OPTICS_GFX_ERROR_BUSY
         )));
-        assert!(flux_target_acquire_is_transient(&optics_flux::Error(
-            optics_flux_sys::flux_result::FLUX_ERROR_TIMEOUT
+        assert!(gfx_target_acquire_is_transient(&optics_gfx::Error(
+            optics_gfx_sys::optics_gfx_result::OPTICS_GFX_ERROR_TIMEOUT
         )));
-        assert!(!flux_target_acquire_is_transient(&optics_flux::Error(
-            optics_flux_sys::flux_result::FLUX_ERROR_SURFACE_LOST
+        assert!(!gfx_target_acquire_is_transient(&optics_gfx::Error(
+            optics_gfx_sys::optics_gfx_result::OPTICS_GFX_ERROR_SURFACE_LOST
         )));
     }
 
     #[test]
     fn offscreen_target_damage_ledger_tracks_initial_full_partial_and_invalidation() {
         const RING_DEPTH: usize = 3;
-        let Ok(device) = optics_flux::Device::new(true, &[], &[], RING_DEPTH as u32) else {
+        let Ok(device) = optics_gfx::Device::new(true, &[], &[], RING_DEPTH as u32) else {
             return;
         };
         let size = (64, 64);
-        let surface = optics_flux::Surface::offscreen(&device, size.0, size.1).unwrap();
-        let mut canvas = optics_flux::Canvas::new(&surface).unwrap();
+        let surface = optics_gfx::Surface::offscreen(&device, size.0, size.1).unwrap();
+        let mut canvas = optics_gfx::Canvas::new(&surface).unwrap();
 
         // Frame 1 (initial Full): must report Full repaint scope.
         {
             let mut frame = surface
                 .begin_frame_timeout_with_damage(
                     TARGET_ACQUIRE_TIMEOUT_NS,
-                    &optics_flux::Damage::Full,
+                    &optics_gfx::Damage::Full,
                 )
                 .unwrap();
-            let repaint = FrameDamage::from_flux_damage(frame.repaint_scope().unwrap());
+            let repaint = FrameDamage::from_gfx_damage(frame.repaint_scope().unwrap());
             assert_eq!(repaint, FrameDamage::Full);
             let session =
-                begin_opaque_frame(&mut canvas, &mut frame, optics_flux::rgba(0, 0, 0, 255))
+                begin_opaque_frame(&mut canvas, &mut frame, optics_gfx::rgba(0, 0, 0, 255))
                     .unwrap();
             session.end().unwrap();
             frame.submit().unwrap().present().unwrap();
         }
 
         // Remaining uninitialized slots receive partial current-frame damage;
-        // Flux automatically forces Full repaint on each slot's first use while
+        // gfx automatically forces Full repaint on each slot's first use while
         // recording only the partial damage in the epoch ledger.
         let rect = tessera_primitives::Rect::new(8, 12, 16, 16);
         let local = FrameDamage::Area(vec![rect]);
         for _ in 1..RING_DEPTH {
             let mut frame = surface
-                .begin_frame_timeout_with_damage(TARGET_ACQUIRE_TIMEOUT_NS, &local.to_flux_damage())
+                .begin_frame_timeout_with_damage(TARGET_ACQUIRE_TIMEOUT_NS, &local.to_gfx_damage())
                 .unwrap();
-            let repaint = FrameDamage::from_flux_damage(frame.repaint_scope().unwrap());
+            let repaint = FrameDamage::from_gfx_damage(frame.repaint_scope().unwrap());
             assert_eq!(repaint, FrameDamage::Full);
             let session =
-                begin_opaque_frame(&mut canvas, &mut frame, optics_flux::rgba(0, 0, 0, 255))
+                begin_opaque_frame(&mut canvas, &mut frame, optics_gfx::rgba(0, 0, 0, 255))
                     .unwrap();
             session.end().unwrap();
             frame.submit().unwrap().present().unwrap();
@@ -2070,9 +2078,9 @@ mod tests {
         // epoch after slot 0 was partial: reusing slot 0 must yield a scoped
         // Area repaint, NOT Full.
         let mut frame = surface
-            .begin_frame_timeout_with_damage(TARGET_ACQUIRE_TIMEOUT_NS, &local.to_flux_damage())
+            .begin_frame_timeout_with_damage(TARGET_ACQUIRE_TIMEOUT_NS, &local.to_gfx_damage())
             .unwrap();
-        let repaint = FrameDamage::from_flux_damage(frame.repaint_scope().unwrap());
+        let repaint = FrameDamage::from_gfx_damage(frame.repaint_scope().unwrap());
         assert!(
             matches!(repaint, FrameDamage::Area(ref rects) if !rects.is_empty()),
             "expected scoped repaint area on primed offscreen target, got {repaint:?}"
@@ -2081,8 +2089,8 @@ mod tests {
         let session = canvas
             .begin_session(
                 &mut frame,
-                optics_flux::CanvasPassOptions {
-                    clear: Some(optics_flux::rgba(10, 20, 30, 255)),
+                optics_gfx::CanvasPassOptions {
+                    clear: Some(optics_gfx::rgba(10, 20, 30, 255)),
                     damage: areas,
                 },
             )
@@ -2094,30 +2102,30 @@ mod tests {
         // must force a Full repaint on the next acquire.
         surface.invalidate_damage();
         let mut frame = surface
-            .begin_frame_timeout_with_damage(TARGET_ACQUIRE_TIMEOUT_NS, &local.to_flux_damage())
+            .begin_frame_timeout_with_damage(TARGET_ACQUIRE_TIMEOUT_NS, &local.to_gfx_damage())
             .unwrap();
-        let repaint = FrameDamage::from_flux_damage(frame.repaint_scope().unwrap());
+        let repaint = FrameDamage::from_gfx_damage(frame.repaint_scope().unwrap());
         assert_eq!(repaint, FrameDamage::Full);
         let session =
-            begin_opaque_frame(&mut canvas, &mut frame, optics_flux::rgba(0, 0, 0, 255)).unwrap();
+            begin_opaque_frame(&mut canvas, &mut frame, optics_gfx::rgba(0, 0, 0, 255)).unwrap();
         session.end().unwrap();
         frame.submit().unwrap().present().unwrap();
     }
 
     #[test]
     fn abandoned_target_submission_preserves_ring_slot_on_kms_rejection() {
-        let Ok(device) = optics_flux::Device::new(true, &[], &[], 0) else {
+        let Ok(device) = optics_gfx::Device::new(true, &[], &[], 0) else {
             return;
         };
-        let surface = optics_flux::Surface::offscreen(&device, 64, 64).unwrap();
-        let mut canvas = optics_flux::Canvas::new(&surface).unwrap();
+        let surface = optics_gfx::Surface::offscreen(&device, 64, 64).unwrap();
+        let mut canvas = optics_gfx::Canvas::new(&surface).unwrap();
 
         let mut frame = surface
-            .begin_frame_timeout_with_damage(TARGET_ACQUIRE_TIMEOUT_NS, &optics_flux::Damage::Full)
+            .begin_frame_timeout_with_damage(TARGET_ACQUIRE_TIMEOUT_NS, &optics_gfx::Damage::Full)
             .unwrap();
         let slot_before = frame.index();
         let session =
-            begin_opaque_frame(&mut canvas, &mut frame, optics_flux::rgba(0, 0, 0, 255)).unwrap();
+            begin_opaque_frame(&mut canvas, &mut frame, optics_gfx::rgba(0, 0, 0, 255)).unwrap();
         session.end().unwrap();
         // Simulate KMS rejecting present_render_targets(Busy): drop without
         // calling present(), so the ring slot must not advance.
@@ -2125,7 +2133,7 @@ mod tests {
         drop(submitted);
 
         let mut retry_frame = surface
-            .begin_frame_timeout_with_damage(TARGET_ACQUIRE_TIMEOUT_NS, &optics_flux::Damage::Full)
+            .begin_frame_timeout_with_damage(TARGET_ACQUIRE_TIMEOUT_NS, &optics_gfx::Damage::Full)
             .unwrap();
         assert_eq!(
             retry_frame.index(),
@@ -2135,7 +2143,7 @@ mod tests {
         let session = begin_opaque_frame(
             &mut canvas,
             &mut retry_frame,
-            optics_flux::rgba(0, 0, 0, 255),
+            optics_gfx::rgba(0, 0, 0, 255),
         )
         .unwrap();
         session.end().unwrap();

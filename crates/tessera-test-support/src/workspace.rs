@@ -1,7 +1,6 @@
 //! Workspace paths and built-binary lookup for external test suites.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// Absolute path to the workspace root.
 ///
@@ -49,12 +48,16 @@ pub fn target_dir() -> PathBuf {
         .to_path_buf()
 }
 
-/// Path to a workspace binary, building it on first use when necessary.
+/// Path to an already-built workspace binary.
 ///
 /// Nextest does not set `CARGO_BIN_EXE_*` for binaries that belong to another
 /// package, so the root external-test crate resolves the artifact from the
-/// target directory and asks Cargo to build it once when missing. The build is
-/// an ordinary `cargo build`; no xtask is involved in running tests.
+/// target directory. Building here is deliberately not supported: a test runs
+/// while the test runner holds Cargo's target-directory lock, so a nested
+/// `cargo build` blocks on that lock until the test times out and looks like a
+/// product hang. `.config/nextest.toml` builds the siblings once per run with a
+/// setup script, and this lookup fails with the exact remediation when that
+/// did not happen.
 pub fn binary(name: &str) -> PathBuf {
     if let Some(path) = env_binary(name) {
         return path;
@@ -70,25 +73,17 @@ pub fn binary(name: &str) -> PathBuf {
         return release;
     }
 
-    let package = package_for_binary(name)
-        .unwrap_or_else(|| panic!("no package mapping for test binary {name}"));
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let status = Command::new(cargo)
-        .args(["build", "--locked", "-p", package, "--bin", name])
-        .current_dir(workspace_root())
-        .status()
-        .unwrap_or_else(|error| panic!("build {name}: {error}"));
-    assert!(
-        status.success(),
-        "cargo build -p {package} --bin {name} failed"
+    let package = package_for_binary(name).unwrap_or("<unknown package>");
+    panic!(
+        "workspace binary `{name}` is missing from {}.\n\
+         The root suites spawn production binaries and never build them: this \
+         test already holds Cargo's target-directory lock, so a nested build \
+         would deadlock until the test timeout.\n\
+         Run `cargo build --locked -p {package} --bin {name}` first, or run the \
+         suites through `cargo nextest run`, whose setup script builds every \
+         workspace binary once before the tests start.",
+        target.display()
     );
-
-    assert!(
-        candidate.is_file(),
-        "expected {name} at {} after cargo build",
-        candidate.display()
-    );
-    candidate
 }
 
 fn env_binary(name: &str) -> Option<PathBuf> {

@@ -650,7 +650,7 @@ pub struct ClosingGhostView<'a> {
 }
 
 /// A single-plane dma-buf-backed surface, handed from the server to the
-/// renderer for zero-copy import. The `fd` is borrowed: the renderer (flux)
+/// renderer for zero-copy import. The `fd` is borrowed: the renderer (gfx)
 /// duplicates it before import; the server keeps ownership and closes it when
 /// the surface backing is replaced or destroyed. `drm_format` is a DRM fourcc.
 #[derive(Debug, Clone)]

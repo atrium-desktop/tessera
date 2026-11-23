@@ -21,7 +21,7 @@ compositor invariant violation.
 | A 1.5×/2× fractional-scale window repaints only the top-left fraction of the changed region | Viewport destination applied as a second output scale | `[INV-ARCH-113]` |
 | A `wp_viewport.set_source` client leaves the right/bottom strip stale, or a rotated buffer shows shifted rows | Scale-only surface→buffer conversion; crop origin/transform dropped | `[INV-ARCH-114]` |
 | Changing viewport/transform/buffer scale leaves stale bands for one frame | Accumulated damage reinterpreted through new geometry | `[INV-ARCH-117]` |
-| Whole-output strip tearing/displaced blocks, independent of SHM | Overlapping `VkImageCopy` or repeated output passes in flux | Optics ADR-0154/0155, not this page |
+| Whole-output strip tearing/displaced blocks, independent of SHM | Overlapping `VkImageCopy` or repeated output passes in gfx | Optics ADR-0154/0155, not this page |
 | A damage set that should name a few cells repaints the output | Damage overflow dropped unvisited input | `[INV-ARCH-116]` |
 
 ---
@@ -33,7 +33,7 @@ compositor invariant violation.
 - **Per-commit damage** (`pending_damage` / `SnapshotRepair::Rects`): what to
   copy from **this commit's buffer** into the retained SHM snapshot.
 - **Frame damage** (`committed_damage`): what the frame must assess, repaint,
-  upload, and (via Flux) hint to KMS.
+  upload, and (via gfx) hint to KMS.
 
 A synthetic frame can contain several commits with different `wl_buffer`s. The
 frame list is a union across buffers; the snapshot repair may only take the
@@ -136,11 +136,11 @@ this order:
   before one present. The snapshot must be `A` content at A's rect and `B`
   content at B's rect, never B at A's rect.
 
-### 3.3 Rule out flux/optics
+### 3.3 Rule out gfx/optics
 
 If the snapshot pixels are correct and the texture upload box is correct, but
 the presented image still tears or shows displaced blocks, stop looking at SHM.
-Check the flux output-copy path: overlapping `VkImageCopy` regions and
+Check the gfx output-copy path: overlapping `VkImageCopy` regions and
 per-rectangle render passes are Optics ADR-0154 territory.
 
 ---

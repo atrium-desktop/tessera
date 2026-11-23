@@ -28,7 +28,7 @@ pub(super) struct IterationWork {
     pub(super) pending_screenshots: Vec<PendingScreenshot>,
 }
 
-/// Disjoint-field form used while a Flux frame borrows `surface` (the same
+/// Disjoint-field form used while a gfx frame borrows `surface` (the same
 /// split as `commit_settings`/`commit_settings_parts`).
 pub(super) fn queue_app_scan_parts(
     server: &tessera_wayland::Server,
@@ -389,7 +389,7 @@ impl CompositorRuntime<'_> {
             let readiness = self.surface.read_pixels_ready().map_err(|error| {
                 format!(
                     "shot readback readiness: {error}{}",
-                    flux_last_error_detail()
+                    gfx_last_error_detail()
                 )
             });
             match readiness {
@@ -447,7 +447,7 @@ impl CompositorRuntime<'_> {
                 .map_err(|error| {
                     format!(
                         "window capture readback readiness: {error}{}",
-                        flux_last_error_detail()
+                        gfx_last_error_detail()
                     )
                 });
             match readiness {
@@ -459,7 +459,7 @@ impl CompositorRuntime<'_> {
                         reply: pending.reply,
                     };
                     // The per-capture offscreen target is a require_readback
-                    // surface: flux keeps its staging surface-owned and refuses
+                    // surface: gfx keeps its staging surface-owned and refuses
                     // take_readback there, so copy the completed frame into an
                     // owned buffer instead of detaching it.
                     match read_captured_pixels_owned(&pending.surface, pending.readback) {
@@ -519,7 +519,7 @@ impl CompositorRuntime<'_> {
                         format!(
                             "interaction_domain {} readback readiness: {error}{}",
                             interaction_domain.0,
-                            flux_last_error_detail()
+                            gfx_last_error_detail()
                         )
                     })
                 });
@@ -539,7 +539,7 @@ impl CompositorRuntime<'_> {
                         reply: pending.reply,
                     };
                     // The Interaction Domain render target is a require_readback
-                    // offscreen surface: flux keeps its staging surface-owned and
+                    // offscreen surface: gfx keeps its staging surface-owned and
                     // refuses take_readback there, so copy the completed frame into
                     // an owned buffer instead of detaching it.
                     match read_captured_pixels_owned(&target.surface, pending.readback) {

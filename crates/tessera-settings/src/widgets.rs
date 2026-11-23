@@ -1,7 +1,7 @@
 //! Form scaffolding shared by the settings pages: card and section-heading
 //! layouts and the honest "unavailable" row.
 
-use optics_lens::{Align, Frame, LayoutOpts};
+use optics_ui::{Align, Frame, LayoutOpts};
 use tessera_design::{Design, materials};
 use tessera_i18n::{Localizer, Message};
 

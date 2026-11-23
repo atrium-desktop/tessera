@@ -1,7 +1,7 @@
 # tessera-design
 
 `tessera-design` defines the product-specific visual language shared by tessera
-chrome components on top of lens.
+chrome components on top of optics-ui.
 
 ## Responsibilities
 
@@ -11,7 +11,7 @@ chrome components on top of lens.
   presentation policies in `tokens`.
 - Own the scheme palettes for chrome surfaces, the compositor scene (clear
   colors, scrims, glass tint), and the scheme-invariant dock palette.
-- Build lens themes for shared product surfaces, including theme-wide alpha
+- Build optics-ui themes for shared product surfaces, including theme-wide alpha
   fades for entry/exit motion.
 - Build data-only material options for popovers, panels, and cards, plus the
   shared transparent and fixed-size container helpers.
@@ -24,9 +24,9 @@ chrome components on top of lens.
 
 ## Boundaries
 
-The crate depends only on lens and contains no rendering calls, input
+The crate depends only on optics-ui and contains no rendering calls, input
 handling, retained UI state, or application intents. Generic widget and
-layout capabilities belong in lens. Component-specific geometry, state, and
+layout capabilities belong in optics-ui. Component-specific geometry, state, and
 behavior stay in the owning chrome crate.
 
 ## Use

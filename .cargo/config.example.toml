@@ -25,18 +25,6 @@ rustflags = ["-C", "symbol-mangling-version=v0", "-C", "link-arg=-fuse-ld=mold"]
 [target.aarch64-unknown-linux-gnu]
 rustflags = ["-C", "symbol-mangling-version=v0", "-C", "link-arg=-fuse-ld=mold"]
 
-# When developing against a local checkout of Optics, append the source patches below:
-# [patch."https://github.com/ming2k/optics"]
-# optics-flux = { path = "../optics/crates/optics-flux" }
-# optics-flux-sys = { path = "../optics/crates/optics-flux-sys" }
-# optics-vista = { path = "../optics/crates/optics-vista" }
-# optics-vista-sys = { path = "../optics/crates/optics-vista-sys" }
-# optics-glyph = { path = "../optics/crates/optics-glyph" }
-# optics-glyph-sys = { path = "../optics/crates/optics-glyph-sys" }
-# optics-transit = { path = "../optics/crates/optics-transit" }
-# optics-lens = { path = "../optics/crates/optics-lens" }
-# optics-lens-sys = { path = "../optics/crates/optics-lens-sys" }
-# optics-reticle = { path = "../optics/crates/optics-reticle" }
-# optics-reticle-sys = { path = "../optics/crates/optics-reticle-sys" }
-# optics-iris = { path = "../optics/crates/optics-iris" }
-# optics-iris-sys = { path = "../optics/crates/optics-iris-sys" }
+# When developing against a local checkout of Optics, copy
+# `.cargo/optics-local.toml` over this file instead: it carries the complete
+# `[patch]` block for every Optics binding the workspace uses.

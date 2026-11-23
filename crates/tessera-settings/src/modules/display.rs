@@ -1,4 +1,4 @@
-use optics_lens::{Align, Frame, LayoutOpts, TextBuf};
+use optics_ui::{Align, Frame, LayoutOpts, TextBuf};
 use tessera_design::Design;
 use tessera_desktop::output::ModeSpec;
 use tessera_desktop::output::OutputInfo;
@@ -175,7 +175,7 @@ impl SettingsModule for DisplayModule {
         ModuleMetadata {
             id: DISPLAY_MODULE_ID,
             title: Message::Display,
-            icon: optics_lens::sys::lens_icon_id::LENS_ICON_MONITOR,
+            icon: optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_MONITOR,
             category: ModuleCategory::Hardware,
             keywords: &["display", "monitor", "resolution", "refresh", "scale"],
             apply_policy: ApplyPolicy::Explicit,

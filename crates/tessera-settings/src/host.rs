@@ -7,8 +7,8 @@
 //! everything here is plain state, so it is exercised by unit tests without a
 //! compositor.
 
-use optics_lens::sys::lens_icon_id;
-use optics_lens::{Align, Color, Frame, LayoutOpts, TextBuf};
+use optics_ui::sys::optics_ui_icon_id;
+use optics_ui::{Align, Color, Frame, LayoutOpts, TextBuf};
 use tessera_design::{ControlCenterColors, Design, themes};
 use tessera_desktop::settings::{SettingsAction, SettingsSnapshot};
 use tessera_i18n::{Localizer, Message};
@@ -61,7 +61,7 @@ pub struct SettingsHost {
     selected: ModuleId,
     search: TextBuf,
     /// A Ctrl+F request waiting for the next sidebar build, where the search
-    /// field's scoped Lens id is known.
+    /// field's scoped optics-ui id is known.
     focus_search: bool,
     connection: Connection,
     notice: Option<Notice>,
@@ -230,7 +230,7 @@ impl SettingsHost {
     }
 
     /// Focus the search field on the next frame. The request is applied while
-    /// the sidebar builds, because Lens widget ids are scoped to their
+    /// the sidebar builds, because optics-ui widget ids are scoped to their
     /// container and cannot be resolved from outside the frame.
     pub fn focus_search(&mut self) {
         self.focus_search = true;
@@ -313,15 +313,15 @@ impl SettingsHost {
                         // id scope, while that scope is still on the stack.
                         let raw = f.as_raw();
                         // SAFETY: `raw` is live inside the frame, `label` is
-                        // NUL-terminated, and `lens_set_focus` only records an
+                        // NUL-terminated, and `optics_ui_set_focus` only records an
                         // id for the next build.
                         unsafe {
-                            let id = optics_lens::sys::lens_current_id(
-                                raw as *const optics_lens::sys::lens,
+                            let id = optics_ui::sys::optics_ui_current_id(
+                                raw as *const optics_ui::sys::optics_ui,
                                 label.as_ptr(),
                             );
                             if id != 0 {
-                                optics_lens::sys::lens_set_focus(raw, id);
+                                optics_ui::sys::optics_ui_set_focus(raw, id);
                             }
                         }
                     }
@@ -423,7 +423,7 @@ impl SettingsHost {
                         |f| {
                             let original = f.theme();
                             f.set_theme(original.with_fg(palette.text_muted));
-                            f.icon_raw(lens_icon_id::LENS_ICON_INFO, 16.0);
+                            f.icon_raw(optics_ui_icon_id::OPTICS_UI_ICON_INFO, 16.0);
                             f.label_sized(text, design.typography.footnote);
                             f.set_theme(original);
                         },
@@ -532,7 +532,7 @@ fn notice_banner(
             ..Default::default()
         },
         |f| {
-            f.icon_raw(lens_icon_id::LENS_ICON_ALERT_TRIANGLE, 18.0);
+            f.icon_raw(optics_ui_icon_id::OPTICS_UI_ICON_ALERT_TRIANGLE, 18.0);
             f.column_ex(
                 &LayoutOpts {
                     flex: 1.0,
@@ -552,7 +552,7 @@ fn notice_banner(
                     );
                 },
             );
-            dismissed = f.icon_button_raw(lens_icon_id::LENS_ICON_X);
+            dismissed = f.icon_button_raw(optics_ui_icon_id::OPTICS_UI_ICON_X);
         },
     );
     dismissed
@@ -676,12 +676,12 @@ mod tests {
     fn focus_search_targets_the_scoped_text_field() {
         let i18n = Localizer::new("en-US");
         let mut host = connected();
-        let mut ui = optics_lens::Ui::headless().unwrap();
+        let mut ui = optics_ui::Ui::headless().unwrap();
         let size = (960.0, 680.0);
-        let idle = optics_lens::Input::new(size, 0.016);
+        let idle = optics_ui::Input::new(size, 0.016);
         host.focus_search();
         ui.frame(&idle, |f| host.render(f, size, &i18n));
-        let mut typed = optics_lens::Input::new(size, 0.016);
+        let mut typed = optics_ui::Input::new(size, 0.016);
         typed.set_text("dock");
         ui.frame(&typed, |f| host.render(f, size, &i18n));
         assert_eq!(host.search_query(), "dock");

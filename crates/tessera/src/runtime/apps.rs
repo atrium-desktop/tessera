@@ -5,7 +5,7 @@
 /// `tessera_shell::component::AppCatalog` (see `tessera_shell::component::IconSet`), so a refreshed cache is
 /// swapped in only after the new catalog has been fanned out.
 pub(super) struct IconCache {
-    pub(super) _images: Vec<optics_flux::Image>,
+    pub(super) _images: Vec<optics_gfx::Image>,
     pub(super) map: std::collections::HashMap<String, *mut std::ffi::c_void>,
     pub(super) default_icon: Option<*mut std::ffi::c_void>,
 }
@@ -234,7 +234,7 @@ pub(super) fn materialize_pins_for_manual_edit(
 
 /// One icon decoded to GPU-ready BGRA8 pixels. Produced off the frame loop
 /// (icon decoding reads files and compiles SVGs — far too slow for the main
-/// thread); the main loop only uploads the pixels as flux textures.
+/// thread); the main loop only uploads the pixels as gfx textures.
 pub(super) struct DecodedIcon {
     /// Every map key the texture is inserted under. For applications these
     /// are the ids a window might report as `app_id` (StartupWMClass, the
@@ -304,7 +304,7 @@ pub(super) fn decode_icons(
     }
 
     // HUD status assets come from the same icon theme as applications. Vectors
-    // are rasterized at output scale (and subsequently sampled down by lens),
+    // are rasterized at output scale (and subsequently sampled down by optics-ui),
     // avoiding the coarse single-pixel strokes of compositor glyphs while
     // retaining the host theme's silhouettes and proportions.
     let mut symbolic_names: Vec<String> = HUD_SYMBOLIC_ICON_NAMES
@@ -344,21 +344,21 @@ pub(super) fn decode_icons(
     decoded
 }
 
-/// Upload decoded icons as flux textures, keyed by every id the window might
+/// Upload decoded icons as gfx textures, keyed by every id the window might
 /// report as `app_id`. Pure GPU work: all file I/O and decoding happened in
 /// [`decode_icons`] on the worker thread.
-pub(super) fn build_icon_cache(device: &optics_flux::Device, decoded: &[DecodedIcon]) -> IconCache {
+pub(super) fn build_icon_cache(device: &optics_gfx::Device, decoded: &[DecodedIcon]) -> IconCache {
     use std::ffi::c_void;
-    let mut images: Vec<optics_flux::Image> = Vec::new();
+    let mut images: Vec<optics_gfx::Image> = Vec::new();
     let mut map: std::collections::HashMap<String, *mut c_void> = std::collections::HashMap::new();
     let mut hud_count = 0usize;
 
     for icon in decoded {
-        match optics_flux::Image::from_bytes(
+        match optics_gfx::Image::from_bytes(
             device,
             icon.width,
             icon.height,
-            optics_flux::Format::Bgra8Unorm,
+            optics_gfx::Format::Bgra8Unorm,
             &icon.bgra,
         ) {
             Ok(img) => {

@@ -1,6 +1,6 @@
 //! Direct-display backend built on atomic DRM/KMS, libseat, and libinput.
 //!
-//! Flux renders into exportable offscreen Vulkan images. Each completed image
+//! gfx renders into exportable offscreen Vulkan images. Each completed image
 //! is imported as a DRM framebuffer and attached to the primary plane with an
 //! atomic commit. The device runs three in-flight frame slots (see
 //! `host::FRAMES_IN_FLIGHT`), so the slot a new frame renders into was retired
@@ -99,7 +99,7 @@ pub enum DrmError {
     DesktopTooLarge(u32, u32),
     MissingProperty(&'static str),
     InputSeat(String),
-    Flux(optics_flux::Error),
+    Gfx(optics_gfx::Error),
     DmabufUnsupported,
     Inactive,
     Busy,
@@ -129,9 +129,9 @@ impl std::fmt::Display for DrmError {
                 write!(f, "DRM object is missing required atomic property {prop}")
             }
             Self::InputSeat(seat) => write!(f, "libinput could not bind seat {seat}"),
-            Self::Flux(err) => write!(f, "Flux: {err}"),
+            Self::Gfx(err) => write!(f, "gfx: {err}"),
             Self::DmabufUnsupported => {
-                f.write_str("Flux could not create exportable dma-buf render targets")
+                f.write_str("gfx could not create exportable dma-buf render targets")
             }
             Self::Inactive => f.write_str("DRM session is inactive"),
             Self::Busy => f.write_str("previous DRM atomic commit is still being cleaned up"),
@@ -152,7 +152,7 @@ impl std::error::Error for DrmError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(err) => Some(err),
-            Self::Flux(err) => Some(err),
+            Self::Gfx(err) => Some(err),
             _ => None,
         }
     }
@@ -164,9 +164,9 @@ impl From<std::io::Error> for DrmError {
     }
 }
 
-impl From<optics_flux::Error> for DrmError {
-    fn from(err: optics_flux::Error) -> Self {
-        Self::Flux(err)
+impl From<optics_gfx::Error> for DrmError {
+    fn from(err: optics_gfx::Error) -> Self {
+        Self::Gfx(err)
     }
 }
 
@@ -756,10 +756,10 @@ struct PrimaryScanout {
     slot: u32,
     acquire_fence: Option<OwnedFd>,
     ownership: PrimaryScanoutOwnership,
-    /// Flux image lease shared by every CRTC scanning this composited frame.
+    /// gfx image lease shared by every CRTC scanning this composited frame.
     /// The ring slot becomes reusable only when the last slot referencing the
     /// image retires and drops its lease (ADR-0185).
-    lease: Option<std::rc::Rc<optics_flux::DmabufLease>>,
+    lease: Option<std::rc::Rc<optics_gfx::DmabufLease>>,
 }
 
 #[derive(Debug)]
@@ -856,7 +856,7 @@ struct DmabufIdentity {
     inode: u64,
 }
 
-/// Complete identity of one Flux compositor-output swapchain image.
+/// Complete identity of one gfx compositor-output swapchain image.
 ///
 /// A slot number alone is insufficient: resize or surface recreation reuses
 /// slot numbers for new dma-buf objects. The inode identity distinguishes the
@@ -1074,9 +1074,9 @@ pub struct DrmBackend {
     /// after every hotplug reprobe so a selected topology cannot silently
     /// enable or disable it.
     overlay_offload_enabled: bool,
-    /// KMS framebuffer imports for Flux compositor-output swapchain images.
+    /// KMS framebuffer imports for gfx compositor-output swapchain images.
     composite_fb_cache: HashMap<CompositeFbKey, CachedCompositeFb>,
-    /// Generation of the live Flux surface/storage. Resize and recreation
+    /// Generation of the live gfx surface/storage. Resize and recreation
     /// advance it before the next exported frame can be imported.
     composite_fb_epoch: u64,
     /// Reused scratch storage for cache reaping; invalidation is rare, but it
@@ -1120,11 +1120,11 @@ pub struct DrmBackend {
     presented_composite: Option<PresentedComposite>,
     hotplug_pending: bool,
     pending_resize: Option<Size>,
-    /// Modifier intersection the live Flux surface was created with.
+    /// Modifier intersection the live gfx surface was created with.
     surface_modifiers: Vec<u64>,
-    /// Color pipeline mode the live Flux surface was created with.
+    /// Color pipeline mode the live gfx surface was created with.
     surface_color_mode: DisplayColorMode,
-    /// ICC profile path the live Flux surface's content space came from.
+    /// ICC profile path the live gfx surface's content space came from.
     surface_icc: Option<String>,
     /// Live `GAMMA_LUT` blob id (night light). Replaced on each new table;
     /// destroyed when neutral restores the driver default ramp.
@@ -1245,7 +1245,7 @@ impl DrmBackend {
     /// The identity comes from the live descriptor rather than a second path
     /// lookup, so Vulkan selection is bound to the exact device libseat
     /// granted even if `/dev/dri` changes concurrently.
-    pub fn kms_device(&self) -> Result<(PathBuf, optics_flux::DrmNode), DrmError> {
+    pub fn kms_device(&self) -> Result<(PathBuf, optics_gfx::DrmNode), DrmError> {
         let card = self.card.as_ref().ok_or(DrmError::Inactive)?;
         let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
         if unsafe { libc::fstat(card.as_fd().as_raw_fd(), stat.as_mut_ptr()) } < 0 {
@@ -1261,7 +1261,7 @@ impl DrmBackend {
         }
         Ok((
             card.path.clone(),
-            optics_flux::DrmNode {
+            optics_gfx::DrmNode {
                 major: libc::major(stat.st_rdev),
                 minor: libc::minor(stat.st_rdev),
             },
@@ -1489,7 +1489,7 @@ impl Backend for DrmBackend {
         self.configured_color = policies;
         // Same reconciliation path as mode changes: re-selection re-runs the
         // color-mode negotiation, and a framebuffer format change flags the
-        // Flux surface stale for recreation.
+        // gfx surface stale for recreation.
         self.hotplug_pending = true;
     }
 
@@ -1594,7 +1594,7 @@ impl Backend for DrmBackend {
     fn take_resize(&mut self) -> Option<Size> {
         let resize = self.pending_resize.take();
         if resize.is_some() {
-            // Runtime will resize or recreate the Flux surface immediately
+            // Runtime will resize or recreate the gfx surface immediately
             // after consuming this event. Prevent same-slot reuse across that
             // storage boundary while retaining any still-scanned framebuffer.
             self.invalidate_composite_fb_cache();
@@ -1629,13 +1629,13 @@ impl Backend for DrmBackend {
     }
 
     fn presentation_pending(&self) -> bool {
-        // Only a composite flip blocks the next composite frame: the Flux
+        // Only a composite flip blocks the next composite frame: the gfx
         // ring image is shared by every composite output. A direct client
         // flip owns an independent buffer and may remain in flight while the
         // next composite targets other CRTCs (ADR-0185 §3).
         // Pending is only a scheduler gate when *no* composite output can
         // advance. If a fast output is idle, the runtime may present it while
-        // a slower output still retires its own flip; Flux leases protect the
+        // a slower output still retires its own flip; gfx leases protect the
         // ring image that the slow CRTC is reading.
         let mut any_composite = false;
         let mut any_ready = false;

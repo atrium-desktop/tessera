@@ -72,6 +72,7 @@ impl Dependency {
 
 #[derive(Debug, Deserialize)]
 pub struct Target {
+    pub name: String,
     pub kind: Vec<String>,
     pub src_path: PathBuf,
 }

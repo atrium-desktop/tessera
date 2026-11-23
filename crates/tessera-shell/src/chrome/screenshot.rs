@@ -27,7 +27,7 @@
 //! [`ChromeEvents::pick_cancelled`]; the compositor closes the loop by
 //! answering the IPC request.
 
-use optics_lens::{Align, Color, Frame, Input, LayoutOpts, Rect as LensRect, Style};
+use optics_ui::{Align, Color, Frame, Input, LayoutOpts, Rect as UiRect, Style};
 use tessera_design::{Design, materials};
 
 use crate::component::{
@@ -56,7 +56,7 @@ const SELECTION_BORDER_WIDTH: f32 = 1.5;
 const STATUS_PAD: f32 = 8.0;
 const STATUS_MARGIN: f32 = 12.0;
 /// Sub-logical-pixel bands keep the inverse rounded-corner mask smooth on
-/// both 1× and HiDPI outputs without creating extra floating Lens layers.
+/// both 1× and HiDPI outputs without creating extra floating optics-ui layers.
 const SCRIM_CORNER_BAND_HEIGHT: f32 = 0.5;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -281,14 +281,14 @@ impl ScreenshotSelector {
     /// it is an optical instrument. Region, window, and output targets are
     /// markers over pixels the user is about to capture; blurring or
     /// refracting them would obscure exactly what is being framed, so those
-    /// modes render plain Lens borders instead.
-    fn lens_body_rect(&self, display: (f32, f32)) -> Option<LensRect> {
+    /// modes render plain optics-ui borders instead.
+    fn loupe_body_rect(&self, display: (f32, f32)) -> Option<UiRect> {
         match self.mode {
             PickerMode::Region => None,
             PickerMode::Pixel => {
                 let w = PIXEL_LENS_SIZE.min(display.0.max(1.0));
                 let h = PIXEL_LENS_SIZE.min(display.1.max(1.0));
-                Some(LensRect {
+                Some(UiRect {
                     x: (self.current.x - w * 0.5).clamp(0.0, (display.0 - w).max(0.0)),
                     y: (self.current.y - h * 0.5).clamp(0.0, (display.1 - h).max(0.0)),
                     w,
@@ -300,7 +300,7 @@ impl ScreenshotSelector {
         .filter(|rect| rect.w > 0.0 && rect.h > 0.0)
     }
 
-    fn loupe_radius(&self, rect: LensRect) -> f32 {
+    fn loupe_radius(&self, rect: UiRect) -> f32 {
         self.design
             .radii
             .panel_lg
@@ -311,16 +311,16 @@ impl ScreenshotSelector {
     /// The rect the scrim must leave undimmed. This is the pick target
     /// itself — the region being framed, the hovered window or output, or
     /// the pixel loupe.
-    fn scrim_hole(&self, display: (f32, f32), windows: &[Window]) -> Option<LensRect> {
+    fn scrim_hole(&self, display: (f32, f32), windows: &[Window]) -> Option<UiRect> {
         match self.mode {
             PickerMode::Region => self
                 .shown_rect()
-                .and_then(|rect| (rect.size.w > 0 && rect.size.h > 0).then_some(to_lens(rect))),
-            PickerMode::Pixel => self.lens_body_rect(display),
+                .and_then(|rect| (rect.size.w > 0 && rect.size.h > 0).then_some(to_ui(rect))),
+            PickerMode::Pixel => self.loupe_body_rect(display),
             PickerMode::Window => self
                 .hovered
                 .and_then(|id| windows.iter().find(|window| window.id == id))
-                .map(|window| LensRect {
+                .map(|window| UiRect {
                     x: window.position.x as f32,
                     y: window.position.y as f32,
                     w: window.size.w.max(1) as f32,
@@ -336,7 +336,7 @@ impl ScreenshotSelector {
                 })
                 .map(|output| {
                     let rect = output.geometry.logical_rect();
-                    LensRect {
+                    UiRect {
                         x: rect.origin.x as f32,
                         y: rect.origin.y as f32,
                         w: rect.size.w.max(1) as f32,
@@ -354,12 +354,12 @@ impl ScreenshotSelector {
     /// will be captured, with no corners previewed as excluded that the
     /// capture actually includes. Only the pixel loupe keeps a rounded
     /// body, so only it gets corner infill.
-    fn render_scrim(&self, frame: &mut Frame, display: (f32, f32), hole: Option<LensRect>) {
+    fn render_scrim(&self, frame: &mut Frame, display: (f32, f32), hole: Option<UiRect>) {
         let scrim = LayoutOpts {
             bg: self.design.colors.modal_scrim.with_alpha(128),
             ..materials::surface_layout()
         };
-        let full = LensRect {
+        let full = UiRect {
             x: 0.0,
             y: 0.0,
             w: display.0,
@@ -385,7 +385,7 @@ impl ScreenshotSelector {
         frame: &mut Frame,
         id: &str,
         text: &str,
-        anchor: LensRect,
+        anchor: UiRect,
         display: (f32, f32),
         selected: bool,
         design: &Design,
@@ -440,7 +440,7 @@ impl ScreenshotSelector {
         let Some(rect) = self.shown_rect() else {
             return;
         };
-        let lens_rect = LensRect {
+        let body_rect = UiRect {
             x: rect.origin.x as f32,
             y: rect.origin.y as f32,
             w: rect.size.w.max(1) as f32,
@@ -457,7 +457,7 @@ impl ScreenshotSelector {
         };
         frame.place(
             "tessera-screenshot-selection",
-            &materials::chrome_place(lens_rect, border),
+            &materials::chrome_place(body_rect, border),
             |_| {},
         );
 
@@ -478,7 +478,7 @@ impl ScreenshotSelector {
                 frame,
                 "tessera-screenshot-status",
                 &status,
-                lens_rect,
+                body_rect,
                 display,
                 self.confirmed.is_some(),
                 design,
@@ -489,7 +489,7 @@ impl ScreenshotSelector {
     /// Draw a compact optical loupe instead of classic full-screen crosshair
     /// rules. The analytic body is supplied through `bodies`.
     fn render_pixel_lens(&self, frame: &mut Frame, display: (f32, f32)) {
-        let Some(rect) = self.lens_body_rect(display) else {
+        let Some(rect) = self.loupe_body_rect(display) else {
             return;
         };
         let design = &self.design;
@@ -503,7 +503,7 @@ impl ScreenshotSelector {
         frame.place(
             "tessera-picker-pixel-centre",
             &materials::chrome_place(
-                LensRect {
+                UiRect {
                     x: self.current.x.round() - 2.0,
                     y: self.current.y.round() - 2.0,
                     w: 4.0,
@@ -531,7 +531,7 @@ impl ScreenshotSelector {
             // body.
             return;
         };
-        let rect = LensRect {
+        let rect = UiRect {
             x: window.position.x as f32,
             y: window.position.y as f32,
             w: window.size.w.max(1) as f32,
@@ -564,7 +564,7 @@ impl ScreenshotSelector {
             return;
         };
         let logical = output.geometry.logical_rect();
-        let rect = LensRect {
+        let rect = UiRect {
             x: logical.origin.x as f32,
             y: logical.origin.y as f32,
             w: logical.size.w.max(1) as f32,
@@ -586,7 +586,7 @@ impl ScreenshotSelector {
     /// selection, a pick highlight marks pixels the user is about to commit
     /// to — it is a marker, not a surface, so it gets no body and no
     /// rounded corners that would misrepresent the captured geometry.
-    fn render_pick_highlight(&self, frame: &mut Frame, id: &str, rect: LensRect) {
+    fn render_pick_highlight(&self, frame: &mut Frame, id: &str, rect: UiRect) {
         let highlight = LayoutOpts {
             bg: Color::TRANSPARENT,
             border: self.design.colors.modal_scrim_text.with_alpha(230),
@@ -608,8 +608,8 @@ impl ScreenshotSelector {
     }
 }
 
-fn to_lens(rect: tessera_primitives::Rect) -> LensRect {
-    LensRect {
+fn to_ui(rect: tessera_primitives::Rect) -> UiRect {
+    UiRect {
         x: rect.origin.x as f32,
         y: rect.origin.y as f32,
         w: rect.size.w.max(1) as f32,
@@ -617,7 +617,7 @@ fn to_lens(rect: tessera_primitives::Rect) -> LensRect {
     }
 }
 
-fn status_rect(anchor: LensRect, size: (f32, f32), display: (f32, f32)) -> LensRect {
+fn status_rect(anchor: UiRect, size: (f32, f32), display: (f32, f32)) -> UiRect {
     let w = size.0.min(display.0.max(1.0));
     let h = size.1.min(display.1.max(1.0));
     let inside = anchor.w >= w + STATUS_MARGIN * 2.0 && anchor.h >= h + STATUS_MARGIN * 2.0;
@@ -635,12 +635,12 @@ fn status_rect(anchor: LensRect, size: (f32, f32), display: (f32, f32)) -> LensR
         anchor.y - STATUS_MARGIN - h
     }
     .clamp(0.0, (display.1 - h).max(0.0));
-    LensRect { x, y, w, h }
+    UiRect { x, y, w, h }
 }
 
-fn scrim_regions(full: LensRect, hole: Option<LensRect>) -> [LensRect; 4] {
+fn scrim_regions(full: UiRect, hole: Option<UiRect>) -> [UiRect; 4] {
     let Some(hole) = hole else {
-        let empty = LensRect {
+        let empty = UiRect {
             x: 0.0,
             y: 0.0,
             w: 0.0,
@@ -653,25 +653,25 @@ fn scrim_regions(full: LensRect, hole: Option<LensRect>) -> [LensRect; 4] {
     let right = (hole.x + hole.w).clamp(left, full.x + full.w);
     let bottom = (hole.y + hole.h).clamp(top, full.y + full.h);
     [
-        LensRect {
+        UiRect {
             x: full.x,
             y: full.y,
             w: full.w,
             h: top - full.y,
         },
-        LensRect {
+        UiRect {
             x: full.x,
             y: bottom,
             w: full.w,
             h: full.y + full.h - bottom,
         },
-        LensRect {
+        UiRect {
             x: full.x,
             y: top,
             w: left - full.x,
             h: bottom - top,
         },
-        LensRect {
+        UiRect {
             x: right,
             y: top,
             w: full.x + full.w - right,
@@ -703,7 +703,7 @@ fn rounded_corner_bands(radius: f32) -> Vec<CornerBand> {
     bands
 }
 
-fn render_rounded_scrim_corners(frame: &mut Frame, hole: LensRect, radius: f32, color: Color) {
+fn render_rounded_scrim_corners(frame: &mut Frame, hole: UiRect, radius: f32, color: Color) {
     let bands = rounded_corner_bands(radius);
     if bands.is_empty() {
         return;

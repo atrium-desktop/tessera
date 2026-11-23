@@ -726,15 +726,9 @@ impl CompositorRuntime<'_> {
         let mut input = tessera_shell::component::Input::default();
         input.set_display_size(self.input_acc.display_size.0, self.input_acc.display_size.1);
         input.set_cursor(self.input_acc.cursor.0, self.input_acc.cursor.1);
-        input.set_mouse_down(optics_lens::MouseButton::Left, self.input_acc.mouse_down[0]);
-        input.set_mouse_down(
-            optics_lens::MouseButton::Right,
-            self.input_acc.mouse_down[1],
-        );
-        input.set_mouse_down(
-            optics_lens::MouseButton::Middle,
-            self.input_acc.mouse_down[2],
-        );
+        input.set_mouse_down(optics_ui::MouseButton::Left, self.input_acc.mouse_down[0]);
+        input.set_mouse_down(optics_ui::MouseButton::Right, self.input_acc.mouse_down[1]);
+        input.set_mouse_down(optics_ui::MouseButton::Middle, self.input_acc.mouse_down[2]);
         let mut shell_scroll = (0.0_f32, 0.0_f32);
         let mut shell_scroll_pixels = (0.0_f32, 0.0_f32);
         let pointer_before = self.input_acc.cursor;
@@ -837,12 +831,12 @@ impl CompositorRuntime<'_> {
                     }
                     PointerButton { button, state } => {
                         // Map Linux BTN_* codes (0x110=left, 0x111=right,
-                        // 0x112=middle) to lens's MouseButton. Other buttons
+                        // 0x112=middle) to optics-ui's MouseButton. Other buttons
                         // are dropped; the chrome only consumes these three.
                         let mapped = match button {
-                            0x110 => Some(optics_lens::MouseButton::Left),
-                            0x111 => Some(optics_lens::MouseButton::Right),
-                            0x112 => Some(optics_lens::MouseButton::Middle),
+                            0x110 => Some(optics_ui::MouseButton::Left),
+                            0x111 => Some(optics_ui::MouseButton::Right),
+                            0x112 => Some(optics_ui::MouseButton::Middle),
                             _ => None,
                         };
                         if let Some(b) = mapped {
@@ -934,12 +928,12 @@ impl CompositorRuntime<'_> {
                     PointerAxis(frame) => {
                         use tessera_primitives::input::PointerAxisSource;
                         // Wayland axis values are positive for a downward
-                        // scroll gesture, while lens input follows the
+                        // scroll gesture, while optics-ui input follows the
                         // conventional UI delta contract in which scrolling
                         // down is negative (its scroll containers apply
                         // `offset -= delta`). Invert once at this platform
-                        // boundary, the same way iris does for standalone
-                        // lens apps.
+                        // boundary, the same way window does for standalone
+                        // optics-ui apps.
                         if matches!(
                             frame.source,
                             Some(PointerAxisSource::Wheel | PointerAxisSource::WheelTilt)
@@ -1350,7 +1344,7 @@ impl CompositorRuntime<'_> {
                     // retcon a modifier, so recreate the surface and its canvas
                     // at the new display set instead.
                     *self.surface = self.host.create_surface(self.device)?;
-                    *self.canvas = optics_flux::Canvas::new(self.surface)?;
+                    *self.canvas = optics_gfx::Canvas::new(self.surface)?;
                 } else {
                     self.surface.resize(pw, ph)?;
                 }
@@ -1358,7 +1352,7 @@ impl CompositorRuntime<'_> {
                 if let Err(error) = self.surface.prepare_readback() {
                     log::warn!(
                         "capture: could not preallocate resized readback staging: {error}{}",
-                        flux_last_error_detail()
+                        gfx_last_error_detail()
                     );
                 }
             }
@@ -1726,22 +1720,22 @@ mod tests {
         let mut first = tessera_shell::component::Input::new((100.0, 80.0), 0.0);
         first
             .set_cursor(10.0, 20.0)
-            .set_mouse_down(optics_lens::MouseButton::Left, true)
-            .set_mouse_pressed(optics_lens::MouseButton::Left, true)
+            .set_mouse_down(optics_ui::MouseButton::Left, true)
+            .set_mouse_pressed(optics_ui::MouseButton::Left, true)
             .set_scroll(1.0, 2.0)
             .set_text("a")
-            .push_key(optics_lens::key::LEFT, true, false);
+            .push_key(optics_ui::key::LEFT, true, false);
         first.as_raw_mut().ime_delete_before = 2;
         let mut merged = frame(first, true);
 
         let mut second = tessera_shell::component::Input::new((120.0, 90.0), 0.0);
         second
             .set_cursor(30.0, 40.0)
-            .set_mouse_down(optics_lens::MouseButton::Left, false)
-            .set_mouse_released(optics_lens::MouseButton::Left, true)
+            .set_mouse_down(optics_ui::MouseButton::Left, false)
+            .set_mouse_released(optics_ui::MouseButton::Left, true)
             .set_scroll(3.0, 4.0)
             .set_text("b")
-            .push_key(optics_lens::key::RIGHT, true, false);
+            .push_key(optics_ui::key::RIGHT, true, false);
         second.as_raw_mut().ime_delete_before = 3;
         second.as_raw_mut().ime_delete_after = 4;
         merged.merge(frame(second, true));
@@ -1749,13 +1743,20 @@ mod tests {
         let raw = merged.input.as_raw();
         assert_eq!((raw.cursor.x, raw.cursor.y), (30.0, 40.0));
         assert_eq!((raw.display_size.x, raw.display_size.y), (120.0, 90.0));
-        assert!(!raw.mouse_down[optics_lens_sys::lens_mouse_button::LENS_MOUSE_LEFT as usize]);
-        assert!(raw.mouse_pressed[optics_lens_sys::lens_mouse_button::LENS_MOUSE_LEFT as usize]);
-        assert!(raw.mouse_released[optics_lens_sys::lens_mouse_button::LENS_MOUSE_LEFT as usize]);
+        assert!(
+            !raw.mouse_down[optics_ui_sys::optics_ui_mouse_button::OPTICS_UI_MOUSE_LEFT as usize]
+        );
+        assert!(
+            raw.mouse_pressed[optics_ui_sys::optics_ui_mouse_button::OPTICS_UI_MOUSE_LEFT as usize]
+        );
+        assert!(
+            raw.mouse_released
+                [optics_ui_sys::optics_ui_mouse_button::OPTICS_UI_MOUSE_LEFT as usize]
+        );
         assert_eq!((raw.scroll_x, raw.scroll_y), (4.0, 6.0));
         assert_eq!(raw.key_count, 2);
-        assert_eq!(raw.keys[0].key, optics_lens::key::LEFT);
-        assert_eq!(raw.keys[1].key, optics_lens::key::RIGHT);
+        assert_eq!(raw.keys[0].key, optics_ui::key::LEFT);
+        assert_eq!(raw.keys[1].key, optics_ui::key::RIGHT);
         assert_eq!(raw.ime_delete_before, 5);
         assert_eq!(raw.ime_delete_after, 4);
         let text = raw

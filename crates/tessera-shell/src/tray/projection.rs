@@ -31,21 +31,21 @@ pub struct TrayCell {
 /// Render-thread half of the SNI tray: the shared snapshot handle plus the
 /// uploaded icon textures, projecting the visible cells once per frame.
 pub struct TrayProjection {
-    device: optics_flux::Device,
+    device: optics_gfx::Device,
     handle: TrayHandle,
     /// Uploaded SNI textures keyed by item key, tagged with the snapshot's icon
     /// generation so status-only updates do not re-upload.
-    textures: HashMap<String, (u64, optics_flux::Image)>,
+    textures: HashMap<String, (u64, optics_gfx::Image)>,
     /// Last frame's cells, reused when the snapshot lock is contended (the
     /// worker publishing a large menu tree must never stall rendering).
     cached: Vec<TrayCell>,
 }
 
 impl TrayProjection {
-    /// Wrap a borrowed flux device and the shared tray handle. The caller must
+    /// Wrap a borrowed gfx device and the shared tray handle. The caller must
     /// keep the underlying device alive past the projection; see the
     /// composition root's drop order.
-    pub fn new(device: optics_flux::Device, handle: TrayHandle) -> Self {
+    pub fn new(device: optics_gfx::Device, handle: TrayHandle) -> Self {
         TrayProjection {
             device,
             handle,
@@ -74,11 +74,11 @@ impl TrayProjection {
                 .unwrap_or(true);
             if let TrayIcon::Pixmap(pixmap) = &item.icon {
                 if stale {
-                    match optics_flux::Image::from_bytes(
+                    match optics_gfx::Image::from_bytes(
                         &self.device,
                         pixmap.width,
                         pixmap.height,
-                        optics_flux::Format::Bgra8Unorm,
+                        optics_gfx::Format::Bgra8Unorm,
                         &pixmap.bgra,
                     ) {
                         Ok(image) => {
@@ -110,7 +110,7 @@ impl TrayProjection {
     }
 
     /// The uploaded texture for `key`, if any, for the surface's glyph draw.
-    pub fn texture(&self, key: &str) -> Option<&optics_flux::Image> {
+    pub fn texture(&self, key: &str) -> Option<&optics_gfx::Image> {
         self.textures.get(key).map(|(_, image)| image)
     }
 

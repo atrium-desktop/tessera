@@ -10,7 +10,7 @@ is the bare-metal bring-up and smoke checklist.
   `seat` group. Verify with `seatd-launch true` or `loginctl seat-status`.
 - KMS permissions: your user can open `/dev/dri/cardN` through the seat
   manager (no root needed when the seat manager works).
-- Optics `<OPTICS_VERSION>` native libraries installed and visible to
+- Optics `v0.0.82` native libraries installed and visible to
   `pkg-config`.
 
 ## Build
@@ -85,8 +85,9 @@ button) to:
    logical X and Y coordinates.
 7. Select **Apply Display Settings**.
 
-With the default `[display] topology = "auto"`, the first smaller external
-display mirrors the primary panel and a larger one extends. The resolved role
+With the default `[display] topology = "mirror"`, every external display
+mirrors the primary panel. `topology = "auto"` mirrors a smaller external
+display and extends a larger one. The resolved role
 is shown in Settings and in `tessera display`; applying it writes an explicit
 role so later hotplugs keep the user's choice.
 
@@ -99,7 +100,7 @@ size, calculated PPI, output kind, automatic scale, and the assigned primary,
 cursor, and available overlay plane counts. Overlay offload is disabled by
 default; `TESSERA_OVERLAY_OFFLOAD=1` enables the explicit hardware-validation
 path for one eligible candidate. Follow the
-[KMS Overlay System Test](../dev/testing/kms-overlay-system-test.md) for the
+[How to Validate KMS Overlay Offload](kms-overlay-validation.md) for the
 full scenario matrix, persistent log paths, and rejection-label triage. The
 enabled run is:
 
@@ -164,7 +165,7 @@ returns to the TTY. Switch back to the original graphical VT afterward.
 - Black screen with a running log — check the modifier intersection in the
   log; set `TESSERA_DRM_DEVICE` to the other card on hybrid-GPU machines.
 - `cannot create a Vulkan renderer for KMS device` — the selected card has no
-  matching Vulkan physical device that satisfies Flux. Install the Vulkan ICD
+  matching Vulkan physical device that satisfies gfx. Install the Vulkan ICD
   for that GPU or select the card backed by the available ICD.
 - An OpenGL application reports `llvmpipe` — check linux-dmabuf v4 feedback
   and the Flatpak or sandbox's `/dev/dri` access before changing the

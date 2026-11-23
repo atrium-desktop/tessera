@@ -4,6 +4,7 @@ description = "Tessera Miracast caster: WFD session over a session-scoped virtua
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
+publish = false
 license.workspace = true
 rust-version.workspace = true
 

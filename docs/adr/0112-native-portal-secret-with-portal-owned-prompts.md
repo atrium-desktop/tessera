@@ -26,11 +26,11 @@ and [ADR-0099](0099-resource-authority-and-out-of-process-file-chooser.md)
 kept it there while declaring the ADR-0085 secret decision unchanged. The
 portal repository then reworked its production boundary on its own ADR
 sequence. Its
-[ADR-0003](https://github.com/aegis-shell/xdg-desktop-portal-aegis/blob/main/docs/adr/0003-production-interface-boundary.md)
+[ADR-0003](https://github.com/atrium-desktop/xdg-desktop-portal-atrium/blob/main/docs/adr/0003-production-interface-boundary.md)
 removed the partial `org.freedesktop.secrets` shim — a partial
 credential-storage API lets clients observe missing semantics and creates
 silent corruption and interoperability risk — and its
-[ADR-0004](https://github.com/aegis-shell/xdg-desktop-portal-aegis/blob/main/docs/adr/0004-portal-ownership-and-runtime-ipc-boundary.md)
+[ADR-0004](https://github.com/atrium-desktop/xdg-desktop-portal-atrium/blob/main/docs/adr/0004-portal-ownership-and-runtime-ipc-boundary.md)
 moved Account, FileChooser, and Secret password input into a Portal-owned,
 supervised GTK prompter process instead of compositor IPC.
 

@@ -1,7 +1,7 @@
 //! DRM dma-buf format metadata shared across the compositor and renderer.
 //!
-//! These are plain DRM fourcc / modifier constants — independent of flux or
-//! Wayland — so a renderer (which knows flux and the Vulkan device) can
+//! These are plain DRM fourcc / modifier constants — independent of gfx or
+//! Wayland — so a renderer (which knows gfx and the Vulkan device) can
 //! produce the advertised format/modifier set and hand it to the compositor
 //! (which speaks `zwp_linux_dmabuf_v1`) without either crate depending on the
 //! other.
@@ -65,7 +65,7 @@ pub const DRM_FORMAT_MOD_INVALID: u64 = 0x00ff_ffff_ffff_ffff;
 /// The fourccs the compositor can import, in advertisement order. The
 /// 10-bit entries serve HDR and deep-color client content (decoded into
 /// the working space at sample time; see the renderer's
-/// `drm_format_to_flux`).
+/// `drm_format_to_gfx`).
 pub const ADVERTISED_FOURCCS: [u32; 6] = [
     DRM_FORMAT_ARGB8888,
     DRM_FORMAT_XRGB8888,

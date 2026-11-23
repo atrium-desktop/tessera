@@ -1,6 +1,6 @@
 //! Compositor-owned presentation target for physical outputs.
 //!
-//! A target is a mode-sized exportable surface with its own Flux ring and
+//! A target is a mode-sized exportable surface with its own gfx ring and
 //! canvas. The normal DRM path renders each extended output's local scene into
 //! its target; a mirror target is blitted from its source target with a fitted
 //! letterbox, and KMS scans every target 1:1. The union path remains only for
@@ -20,14 +20,14 @@ pub(super) const TARGET_ACQUIRE_TIMEOUT_NS: u64 = 250_000_000;
 
 /// Maximum number of cached source DMA-BUF Vulkan imports per target.
 ///
-/// A source target's Flux ring has 3 slots (`FRAMES_IN_FLIGHT`), plus up to 3
+/// A source target's gfx ring has 3 slots (`FRAMES_IN_FLIGHT`), plus up to 3
 /// union fallback slots during capture/stream transitions. Bounding the cache
 /// at 8 covers both rings with zero steady-state churn while preventing
 /// unbounded descriptor growth across topology changes (ADR-0250,
 /// `[INV-ARCH-160]`).
 const MAX_TARGET_IMPORTS: usize = 8;
 
-/// Number of target frames an evicted `optics_flux::Image` stays alive before drop,
+/// Number of target frames an evicted `optics_gfx::Image` stays alive before drop,
 /// exceeding `FRAMES_IN_FLIGHT` (3) so no in-flight command buffer can still
 /// reference a destroyed Vulkan image view.
 const TARGET_IMPORT_RETIRE_EPOCHS: usize = 4;
@@ -41,7 +41,7 @@ pub(super) struct TargetImportKey {
     pub(super) height: u32,
     pub(super) stride: u32,
     pub(super) modifier: u64,
-    pub(super) format: optics_flux::Format,
+    pub(super) format: optics_gfx::Format,
     pub(super) color_pipeline: tessera_desktop::output::ColorPipeline,
 }
 
@@ -52,18 +52,18 @@ pub(super) struct TargetImportDesc<'a> {
     pub(super) height: u32,
     pub(super) stride: u32,
     pub(super) modifier: u64,
-    pub(super) format: optics_flux::Format,
+    pub(super) format: optics_gfx::Format,
     pub(super) color_pipeline: tessera_desktop::output::ColorPipeline,
     pub(super) acquire_fence: Option<&'a OwnedFd>,
 }
 
 struct TargetImportEntry {
     key: TargetImportKey,
-    image: optics_flux::Image,
+    image: optics_gfx::Image,
     last_used: u64,
 }
 
-/// Per-target bounded LRU cache of imported source DMA-BUF `optics_flux::Image`s
+/// Per-target bounded LRU cache of imported source DMA-BUF `optics_gfx::Image`s
 /// (ADR-0250, `[INV-ARCH-160]`).
 ///
 /// Eliminates per-frame `vkCreateImage`/`vkAllocateMemory`/layout-transition
@@ -73,7 +73,7 @@ struct TargetImportEntry {
 #[derive(Default)]
 pub(super) struct TargetImportCache {
     entries: Vec<TargetImportEntry>,
-    retired: VecDeque<Vec<optics_flux::Image>>,
+    retired: VecDeque<Vec<optics_gfx::Image>>,
     tick: u64,
 }
 
@@ -103,7 +103,7 @@ impl TargetImportCache {
         }
     }
 
-    fn retire_image(&mut self, image: optics_flux::Image) {
+    fn retire_image(&mut self, image: optics_gfx::Image) {
         if self.retired.is_empty() {
             self.retired.push_back(Vec::new());
         }
@@ -112,10 +112,10 @@ impl TargetImportCache {
         }
     }
 
-    /// Return a cached `optics_flux::Image` for `desc`, importing it on cache miss.
+    /// Return a cached `optics_gfx::Image` for `desc`, importing it on cache miss.
     ///
     /// On a **cache miss**, `desc.acquire_fence` is handed to
-    /// `optics_flux::Image::import_dmabuf_with_color_space` so the initial Vulkan
+    /// `optics_gfx::Image::import_dmabuf_with_color_space` so the initial Vulkan
     /// layout transition waits on the producer, and `None` is returned as the
     /// pending acquire fence.
     ///
@@ -124,9 +124,9 @@ impl TargetImportCache {
     /// canvas session via `session.wait_dmabuf_acquire(image, fence)`.
     pub(super) fn get_or_import(
         &mut self,
-        device: &optics_flux::Device,
+        device: &optics_gfx::Device,
         desc: TargetImportDesc<'_>,
-    ) -> Result<(&optics_flux::Image, Option<OwnedFd>), String> {
+    ) -> Result<(&optics_gfx::Image, Option<OwnedFd>), String> {
         let (st_dev, st_ino) =
             dmabuf_inode(desc.fd.as_raw_fd()).ok_or_else(|| "fstat dma-buf failed".to_owned())?;
         let key = TargetImportKey {
@@ -170,14 +170,14 @@ impl TargetImportCache {
             None => None,
         };
         let color_space = match desc.color_pipeline {
-            tessera_desktop::output::ColorPipeline::Hdr => Some(optics_flux::ColorSpace::BT2020_PQ),
-            _ => Some(optics_flux::ColorSpace::SRGB),
+            tessera_desktop::output::ColorPipeline::Hdr => Some(optics_gfx::ColorSpace::BT2020_PQ),
+            _ => Some(optics_gfx::ColorSpace::SRGB),
         };
         // SAFETY: `fd` describes a valid single-plane DMA-BUF with the exact
         // dimensions, stride, format, and modifier recorded in `desc`; the
         // optional `import_fence` orders producer rendering before sampling.
         let image = unsafe {
-            optics_flux::Image::import_dmabuf_with_color_space(
+            optics_gfx::Image::import_dmabuf_with_color_space(
                 device,
                 desc.width,
                 desc.height,
@@ -187,7 +187,7 @@ impl TargetImportCache {
                 0,
                 desc.stride,
                 import_fence,
-                optics_flux::ImageColorSpace {
+                optics_gfx::ImageColorSpace {
                     space: color_space,
                     icc: None,
                 },
@@ -238,7 +238,7 @@ pub(super) fn dmabuf_inode(fd: RawFd) -> Option<(u64, u64)> {
 /// target, held only while at least one mirror consumer references it.
 ///
 /// The `lease` shares ownership with DRM's active scanout slot (`Rc::clone`) so
-/// it never consumes an additional Flux ring slot (ADR-0250, `[INV-ARCH-160]`).
+/// it never consumes an additional gfx ring slot (ADR-0250, `[INV-ARCH-160]`).
 pub(super) struct RetainedSourceExport {
     pub(super) fd: OwnedFd,
     pub(super) acquire_fence: Option<OwnedFd>,
@@ -246,21 +246,21 @@ pub(super) struct RetainedSourceExport {
     pub(super) height: u32,
     pub(super) stride: u32,
     pub(super) modifier: u64,
-    pub(super) format: optics_flux::Format,
+    pub(super) format: optics_gfx::Format,
     pub(super) color_pipeline: tessera_desktop::output::ColorPipeline,
     pub(super) origin: tessera_primitives::Point,
     pub(super) scale: f32,
     pub(super) mode: (u32, u32),
-    pub(super) lease: std::rc::Rc<optics_flux::DmabufLease>,
+    pub(super) lease: std::rc::Rc<optics_gfx::DmabufLease>,
 }
 
 /// Export the most recently submitted target frame using the backend's
 /// negotiated synchronization mode (`IN_FENCE_FD` explicit sync vs. CPU fence
 /// wait).
 pub(super) fn export_target_dmabuf(
-    surface: &optics_flux::Surface,
+    surface: &optics_gfx::Surface,
     explicit_sync: bool,
-) -> Result<optics_flux::ExportedDmabuf, optics_flux::Error> {
+) -> Result<optics_gfx::ExportedDmabuf, optics_gfx::Error> {
     if explicit_sync {
         surface.export_dmabuf_explicit()
     } else {
@@ -268,11 +268,11 @@ pub(super) fn export_target_dmabuf(
     }
 }
 
-/// Whether a Flux target acquire failure is transient (an in-flight lease or
+/// Whether a gfx target acquire failure is transient (an in-flight lease or
 /// GPU fence not yet retired) and must retry without destroying the target.
-pub(super) fn flux_target_acquire_is_transient(error: &optics_flux::Error) -> bool {
-    error.0 == optics_flux_sys::flux_result::FLUX_ERROR_BUSY
-        || error.0 == optics_flux_sys::flux_result::FLUX_ERROR_TIMEOUT
+pub(super) fn gfx_target_acquire_is_transient(error: &optics_gfx::Error) -> bool {
+    error.0 == optics_gfx_sys::optics_gfx_result::OPTICS_GFX_ERROR_BUSY
+        || error.0 == optics_gfx_sys::optics_gfx_result::OPTICS_GFX_ERROR_TIMEOUT
 }
 
 /// Whether a DRM target commit failure is transient or a recoverable cursor
@@ -347,7 +347,7 @@ impl CompositorRuntime<'_> {
                 continue;
             }
             match self.host.create_render_target(self.device, mode.0, mode.1) {
-                Ok(surface) => match optics_flux::Canvas::new(&surface) {
+                Ok(surface) => match optics_gfx::Canvas::new(&surface) {
                     Ok(canvas) => {
                         let format = surface.info().format;
                         let color_pipeline = self.host.color_pipeline();
@@ -437,7 +437,7 @@ impl CompositorRuntime<'_> {
                 continue;
             };
             let lease = std::rc::Rc::clone(&presented.lease);
-            let format = flux_format_for_drm(presented.fourcc);
+            let format = gfx_format_for_drm(presented.fourcc);
             target.import_cache.begin_frame();
             let (image, pending_acquire_fence) = match target.import_cache.get_or_import(
                 self.device,
@@ -482,7 +482,7 @@ impl CompositorRuntime<'_> {
             };
             let frame = match target.surface.begin_frame_timeout_with_damage(
                 TARGET_ACQUIRE_TIMEOUT_NS,
-                &optics_flux::Damage::Full,
+                &optics_gfx::Damage::Full,
             ) {
                 Ok(frame) => frame,
                 Err(error) => {
@@ -490,7 +490,7 @@ impl CompositorRuntime<'_> {
                         "{}: mirror {connector} target frame unavailable: {error}",
                         self.host.name()
                     );
-                    if !flux_target_acquire_is_transient(&error) {
+                    if !gfx_target_acquire_is_transient(&error) {
                         failed.push(connector.clone());
                     }
                     continue;
@@ -503,19 +503,19 @@ impl CompositorRuntime<'_> {
             let (dst_w, dst_h) = (fw * mode_w as f32, fh * mode_h as f32);
             let full_w = presented.width.max(1) as f32;
             let full_h = presented.height.max(1) as f32;
-            let source = optics_flux::CanvasRenderArea {
+            let source = optics_gfx::CanvasRenderArea {
                 x: source_rect.origin.x as f32,
                 y: source_rect.origin.y as f32,
                 width: source_rect.size.w.max(1) as f32,
                 height: source_rect.size.h.max(1) as f32,
             };
-            let submitted = (|| -> Result<optics_flux::SubmittedFrame<'_>, String> {
+            let submitted = (|| -> Result<optics_gfx::SubmittedFrame<'_>, String> {
                 let session = target
                     .canvas
                     .begin_session(
                         &mut frame,
-                        optics_flux::CanvasPassOptions {
-                            clear: Some(optics_flux::rgba(0, 0, 0, 255)),
+                        optics_gfx::CanvasPassOptions {
+                            clear: Some(optics_gfx::rgba(0, 0, 0, 255)),
                             damage: Vec::new(),
                         },
                     )
@@ -614,48 +614,48 @@ impl CompositorRuntime<'_> {
     }
 }
 
-/// Map the DRM fourcc of the union framebuffer to a Flux sampled format.
-pub(super) fn flux_format_for_drm(fourcc: u32) -> optics_flux::Format {
+/// Map the DRM fourcc of the union framebuffer to a gfx sampled format.
+pub(super) fn gfx_format_for_drm(fourcc: u32) -> optics_gfx::Format {
     match fourcc {
         // DRM_FORMAT_XRGB8888 / ARGB8888: little-endian words are B,G,R,X.
-        0x3432_5258 | 0x3432_5241 => optics_flux::Format::Bgra8Unorm,
+        0x3432_5258 | 0x3432_5241 => optics_gfx::Format::Bgra8Unorm,
         // DRM_FORMAT_XBGR8888 / ABGR8888: little-endian words are R,G,B,X.
-        0x3432_4258 | 0x3432_4241 => optics_flux::Format::Rgba8Unorm,
+        0x3432_4258 | 0x3432_4241 => optics_gfx::Format::Rgba8Unorm,
         // 10-bit RGB targets use the RGB10A2 container. The 8-bit fallback
-        // is conservative when a driver exposes a packed order Flux cannot
+        // is conservative when a driver exposes a packed order gfx cannot
         // swizzle; the target frame will still be rejected by KMS rather than
         // showing wrong colors.
-        0x3033_5258 | 0x3033_5241 | 0x3033_4258 | 0x3033_4241 => optics_flux::Format::Rgb10a2Unorm,
-        _ => optics_flux::Format::Bgra8Unorm,
+        0x3033_5258 | 0x3033_5241 | 0x3033_4258 | 0x3033_4241 => optics_gfx::Format::Rgb10a2Unorm,
+        _ => optics_gfx::Format::Bgra8Unorm,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{TargetImportKey, dmabuf_inode, flux_format_for_drm};
+    use super::{TargetImportKey, dmabuf_inode, gfx_format_for_drm};
     use std::os::fd::{AsRawFd, FromRawFd};
 
     #[test]
-    fn drm_fourcc_to_flux_format_is_byte_order_correct() {
+    fn drm_fourcc_to_gfx_format_is_byte_order_correct() {
         assert_eq!(
-            flux_format_for_drm(0x3432_5258),
-            optics_flux::Format::Bgra8Unorm
+            gfx_format_for_drm(0x3432_5258),
+            optics_gfx::Format::Bgra8Unorm
         );
         assert_eq!(
-            flux_format_for_drm(0x3432_5241),
-            optics_flux::Format::Bgra8Unorm
+            gfx_format_for_drm(0x3432_5241),
+            optics_gfx::Format::Bgra8Unorm
         );
         assert_eq!(
-            flux_format_for_drm(0x3432_4258),
-            optics_flux::Format::Rgba8Unorm
+            gfx_format_for_drm(0x3432_4258),
+            optics_gfx::Format::Rgba8Unorm
         );
         assert_eq!(
-            flux_format_for_drm(0x3432_4241),
-            optics_flux::Format::Rgba8Unorm
+            gfx_format_for_drm(0x3432_4241),
+            optics_gfx::Format::Rgba8Unorm
         );
         assert_eq!(
-            flux_format_for_drm(0x3033_5258),
-            optics_flux::Format::Rgb10a2Unorm
+            gfx_format_for_drm(0x3033_5258),
+            optics_gfx::Format::Rgb10a2Unorm
         );
     }
 
@@ -693,7 +693,7 @@ mod tests {
             height: 1920,
             stride: 12288,
             modifier: 0,
-            format: optics_flux::Format::Bgra8Unorm,
+            format: optics_gfx::Format::Bgra8Unorm,
             color_pipeline: tessera_desktop::output::ColorPipeline::Sdr,
         };
         let key2 = TargetImportKey {

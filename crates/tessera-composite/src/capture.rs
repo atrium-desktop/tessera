@@ -1,4 +1,4 @@
-use crate::presentation::{crop_rgba, flux_last_error_detail};
+use crate::presentation::{crop_rgba, gfx_last_error_detail};
 
 /// Immutable GPU readback staging detached from the presentation surface and
 /// handed to the capture worker. Region captures already contain only their
@@ -15,18 +15,18 @@ pub struct CapturedPixels {
 }
 
 /// CPU-side source of a captured frame. The windowed presentation surface
-/// (and exportable offscreen targets) detach an on-demand [`optics_flux::Readback`]
+/// (and exportable offscreen targets) detach an on-demand [`optics_gfx::Readback`]
 /// snapshot whose staging can outlive the surface; `require_readback` surfaces
 /// such as Interaction Domain render targets keep their staging surface-owned
-/// (flux refuses `take_readback` there), so the frame is copied into an owned
+/// (gfx refuses `take_readback` there), so the frame is copied into an owned
 /// buffer on the main loop instead.
 pub enum CapturedPixelsSource {
-    Readback(optics_flux::Readback),
+    Readback(optics_gfx::Readback),
     Rgba(Vec<u8>),
 }
 
 /// Cursor pixels to composite into a saved screenshot after GPU readback.
-/// The source is premultiplied BGRA8, matching Xcursor/Flux; `(x, y)` is the
+/// The source is premultiplied BGRA8, matching Xcursor/gfx; `(x, y)` is the
 /// physical-pixel top-left after applying the hotspot.
 #[derive(Clone)]
 pub struct CaptureCursor {
@@ -46,11 +46,11 @@ pub struct PendingReadback {
 }
 
 /// Bind a screenshot readback and describe the tightly packed CPU-side layout
-/// it will produce. Region captures stay regional end-to-end: Flux copies only
+/// it will produce. Region captures stay regional end-to-end: gfx copies only
 /// the requested physical rectangle, the worker allocates only that extent,
 /// and no later CPU crop is needed.
 pub fn request_frame_readback(
-    frame: &mut optics_flux::Frame,
+    frame: &mut optics_gfx::Frame,
     full_size: (u32, u32),
     crop: Option<tessera_primitives::Rect>,
     mut cursor: Option<CaptureCursor>,
@@ -60,7 +60,7 @@ pub fn request_frame_readback(
         if crop.origin.x < 0 || crop.origin.y < 0 || crop.size.w <= 0 || crop.size.h <= 0 {
             return Err("frame readback request has an empty or out-of-bounds region".into());
         }
-        let region = optics_flux::ReadbackRegion {
+        let region = optics_gfx::ReadbackRegion {
             x: crop.origin.x as u32,
             y: crop.origin.y as u32,
             width: crop.size.w as u32,
@@ -69,17 +69,14 @@ pub fn request_frame_readback(
         frame.request_readback_region(region).map_err(|error| {
             format!(
                 "frame region readback request: {error}{}",
-                flux_last_error_detail()
+                gfx_last_error_detail()
             )
         })?;
         translate_cursor_to_region(&mut cursor, crop);
         (region.width, region.height, None)
     } else {
         frame.request_readback().map_err(|error| {
-            format!(
-                "frame readback request: {error}{}",
-                flux_last_error_detail()
-            )
+            format!("frame readback request: {error}{}", gfx_last_error_detail())
         })?;
         (full_size.0, full_size.1, None)
     };
@@ -103,12 +100,12 @@ fn translate_cursor_to_region(
 }
 
 pub fn read_captured_pixels(
-    surface: &optics_flux::Surface,
+    surface: &optics_gfx::Surface,
     pending: PendingReadback,
 ) -> Result<CapturedPixels, String> {
     let readback = surface
         .take_readback()
-        .map_err(|error| format!("detach shot readback: {error}{}", flux_last_error_detail()))?;
+        .map_err(|error| format!("detach shot readback: {error}{}", gfx_last_error_detail()))?;
     let region = readback.region();
     if region.width != pending.width || region.height != pending.height {
         return Err(format!(
@@ -127,18 +124,18 @@ pub fn read_captured_pixels(
 }
 
 /// Copy a completed frame from a `require_readback` surface directly into an
-/// owned buffer. Flux keeps require-readback staging surface-owned and refuses
-/// [`optics_flux::Surface::take_readback`] there, so the pixel copy happens on the
-/// main loop once [`optics_flux::Surface::read_pixels_ready`] reports the frame; the
+/// owned buffer. gfx keeps require-readback staging surface-owned and refuses
+/// [`optics_gfx::Surface::take_readback`] there, so the pixel copy happens on the
+/// main loop once [`optics_gfx::Surface::read_pixels_ready`] reports the frame; the
 /// capture worker only encodes the already CPU-side bytes.
 pub fn read_captured_pixels_owned(
-    surface: &optics_flux::Surface,
+    surface: &optics_gfx::Surface,
     pending: PendingReadback,
 ) -> Result<CapturedPixels, String> {
     let mut full_rgba = vec![0u8; pending.width as usize * pending.height as usize * 4];
     surface
         .read_pixels(&mut full_rgba)
-        .map_err(|error| format!("detach shot readback: {error}{}", flux_last_error_detail()))?;
+        .map_err(|error| format!("detach shot readback: {error}{}", gfx_last_error_detail()))?;
     Ok(CapturedPixels {
         width: pending.width,
         height: pending.height,
@@ -283,7 +280,7 @@ pub fn encode_rgba_capture(
     Ok((width, height, png))
 }
 
-/// Convert premultiplied RGBA8 (the flux/Wayland contract) to the straight
+/// Convert premultiplied RGBA8 (the gfx/Wayland contract) to the straight
 /// alpha PNG encoders expect.
 fn unpremultiply(pixels: &mut [u8]) {
     for px in pixels.chunks_exact_mut(4) {
@@ -380,7 +377,7 @@ fn compact_opaque_rgba(rgba: &mut Vec<u8>) -> PngColorType {
     PngColorType::Rgb8
 }
 
-/// Convert a readback to one raw stream frame (ADR-0052): the flux/Wayland
+/// Convert a readback to one raw stream frame (ADR-0052): the gfx/Wayland
 /// contract is premultiplied RGBA8, the wire format is opaque BGRA8 with the
 /// alpha channel forced to 255. Composited desktop frames are opaque, so the
 /// premultiplied→straight distinction cannot produce visible error here;
@@ -440,7 +437,7 @@ pub fn stream_pixels(capture: CapturedPixels) -> Result<StreamPixels, String> {
     })
 }
 
-/// flux's thread-local diagnostic for the most recent error, formatted for
+/// gfx's thread-local diagnostic for the most recent error, formatted for
 /// logs; empty when the call carried no detail.
 #[cfg(test)]
 mod tests {

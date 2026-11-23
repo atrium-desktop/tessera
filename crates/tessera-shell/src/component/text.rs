@@ -1,4 +1,4 @@
-use optics_lens::Frame;
+use optics_ui::Frame;
 
 const ELLIPSIS: &str = "…";
 
@@ -15,7 +15,7 @@ pub fn truncate(text: &str, max_chars: usize) -> String {
 
 /// Fit a single line of user-facing text inside `max_width` logical pixels.
 ///
-/// Lens uses proportional fonts, so a character-count limit cannot reliably
+/// optics-ui uses proportional fonts, so a character-count limit cannot reliably
 /// keep CJK text, wide glyphs, and mixed scripts inside the same rectangle.
 /// This helper shapes the text with the active frame font and replaces the
 /// longest overflowing suffix with an ellipsis. If the available width cannot
@@ -62,7 +62,7 @@ pub fn ellipsize(frame: &Frame, text: &str, size: f32, max_width: f32) -> String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use optics_lens::{Input, Ui};
+    use optics_ui::{Input, Ui};
 
     #[test]
     fn truncation_is_unicode_safe_and_bounded() {
@@ -73,7 +73,7 @@ mod tests {
 
     #[test]
     fn ellipsis_uses_measured_width_and_never_overflows() {
-        let mut ui = Ui::headless().expect("create headless Lens context");
+        let mut ui = Ui::headless().expect("create headless Optics UI context");
         let input = Input::new((800.0, 600.0), 1.0 / 60.0);
 
         ui.frame(&input, |frame| {

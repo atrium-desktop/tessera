@@ -1,6 +1,6 @@
 # IPC Reference
 
-The tessera IPC is protocol version 32, carried as length-framed JSON over the
+The tessera IPC is protocol version 34, carried as length-framed JSON over the
 owner-only Unix socket at `$XDG_RUNTIME_DIR/tessera.sock`. Every connection starts
 with `Hello`; commands are accepted only after capability and scope checks.
 JSON messages are limited to 16 MiB. Large immutable capture and frame
@@ -429,7 +429,7 @@ Display, input (keyboard repeat, mouse and touchpad motion and scrolling),
 desktop appearance, and idle power policy are settings domains in the current
 snapshot. Accounts and window-rule modules remain unavailable until their
 authoritative services expose typed state and actions.
-See the [Settings Reference](settings.md#modules) and
+See the [Settings Reference](settings.md#pages) and
 [ADR-0072](../adr/0072-desktop-preference-authority-and-toolkit-compatibility.md).
 
 ## Interaction Domain Authority

@@ -178,7 +178,7 @@ pub trait Backend {
 
     /// Whether the presentation surface must be recreated rather than resized
     /// because backend buffer constraints changed. Direct KMS reports this
-    /// when a hotplug alters the plane-modifier intersection the Flux surface
+    /// when a hotplug alters the plane-modifier intersection the gfx surface
     /// was created with; nested surfaces only ever resize, hence the default.
     fn surface_needs_recreate(&self) -> bool {
         false

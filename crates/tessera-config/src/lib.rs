@@ -8,8 +8,8 @@
 //! unsupported file is reported as structured [`Diagnostic`]s.
 //!
 //! The crate is pure: it depends on [`tessera_desktop`] for the shared keymap model
-//! and name resolvers, and on `serde`/`toml` for the schema. It has no flux,
-//! lens, or Wayland dependency, so it is unit-testable in isolation. See
+//! and name resolvers, and on `serde`/`toml` for the schema. It has no gfx,
+//! optics-ui, or Wayland dependency, so it is unit-testable in isolation. See
 //! [ADR-0026](../../docs/adr/0026-configuration-system.md).
 //!
 //! Live reload is mtime-based and driven by the caller's event loop: the
@@ -179,11 +179,6 @@ pub struct Config {
     /// starve the desktop.
     #[serde(default)]
     pub compositor: CompositorConfig,
-
-    /// Development-only escape hatches, written as a `[dev]` table.
-    /// Development-only; will be removed before release. Do not rely on it.
-    #[serde(default)]
-    pub dev: DevConfig,
 }
 
 /// The `[network]` section: which live network service owns the host's
@@ -460,20 +455,6 @@ impl Default for NightLightConfig {
             fade_seconds: default_night_light_fade(),
         }
     }
-}
-
-/// The `[dev]` section: development-only escape hatches.
-///
-/// Development-only escape hatch; will be removed before release. Do not
-/// rely on it.
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DevConfig {
-    /// Allow the `Quit` binding (Super+Ctrl+Q by default) to match while the
-    /// session is locked. Development-only escape hatch; will be removed
-    /// before release. Do not rely on it.
-    #[serde(default)]
-    pub allow_quit_while_locked: bool,
 }
 
 /// The `[compositor]` section: presentation-process scheduling and frame-loop
@@ -975,7 +956,7 @@ fn default_dock_autohide_dwell() -> f32 {
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UiConfig {
-    /// Accessibility reduced-motion switch. When true, every chrome and lens
+    /// Accessibility reduced-motion switch. When true, every chrome and optics-ui
     /// transition resolves to its end state in at most one frame — no fades,
     /// springs, or slides (ADR-0029). Individual effects do not override it.
     #[serde(default)]

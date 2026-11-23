@@ -7,21 +7,18 @@
 #
 #   cargo build --profile release-fast -p tessera
 #
-# Then switch VTs, log in, and run:
-#
-#   ./scripts/run-drm-dev.sh
-#
-# For the gated overlay KMS system test, follow:
-#   docs/dev/testing/kms-overlay-system-test.md
+# Then switch VTs (`Ctrl+Alt+F3`), log in, and run `./scripts/run-drm-dev.sh`.
+# For the gated overlay KMS validation, follow
+# docs/how-to/kms-overlay-validation.md.
 #
 # Environment overrides:
 #   TESSERA_DEV_DATA_HOME       isolated XDG_DATA_HOME (default /tmp/tessera-dev-drm)
-#   TESSERA_DEV_PROFILE         cargo profile (default release-fast; debug for symbols only)
+#   TESSERA_DEV_PROFILE         cargo profile (default release-fast; debug only for symbols)
 #   TESSERA_DEV_DBUS_RUN_SESSION=0
 #                               keep the host D-Bus session instead of isolating it
 set -eu
 
-repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 data_home=${TESSERA_DEV_DATA_HOME:-/tmp/tessera-dev-drm}
 profile=${TESSERA_DEV_PROFILE:-release-fast}
 
@@ -47,27 +44,41 @@ fi
 
 mkdir -p "$data_home/tessera"
 
-case "$profile" in
-    debug) run_flags="" ;;
-    release) run_flags="--release" ;;
-    *) run_flags="--profile $profile" ;;
-esac
-
-# Build the companion daemons and sibling first-party apps alongside the
-# compositor binary. A `cargo run -p tessera` alone does not build other
-# workspace package binaries.
-cargo build --locked $run_flags -p tessera-network-system -p tessera-cast -p tessera-settings
-
-set -- cargo run $run_flags -p tessera "$@"
-
-if command -v dbus-run-session >/dev/null 2>&1 &&
-    [ "${TESSERA_DEV_DBUS_RUN_SESSION:-1}" != 0 ]; then
-    set -- dbus-run-session -- "$@"
+# A DRM session that inherits the desktop's bus can reach unrelated session
+# services. Re-exec this script once inside a private bus session: the build and
+# the compositor then share one isolated environment, and no argument list has
+# to be re-quoted by hand.
+if [ "${TESSERA_DEV_DBUS_RUN_SESSION:-1}" != 0 ] &&
+    [ "${TESSERA_DEV_IN_DBUS_SESSION:-0}" != 1 ] &&
+    command -v dbus-run-session >/dev/null 2>&1; then
+    exec dbus-run-session -- env TESSERA_DEV_IN_DBUS_SESSION=1 "$0" "$@"
 fi
 
-exec env -u WAYLAND_DISPLAY \
-    TESSERA_PREVIEW=control-center \
-    TESSERA_BACKEND=drm \
-    XDG_DATA_HOME="$data_home" \
-    XDG_DATA_DIRS="$HOME/.local/share:/usr/local/share:/usr/share" \
-    "$@"
+build_args=""
+run_args=""
+case "$profile" in
+    debug) ;;
+    release) build_args="--release"; run_args="--release" ;;
+    *)
+        build_args="--profile $profile"
+        run_args="--profile $profile"
+        ;;
+esac
+
+# `cargo run -p tessera` does not build the binaries of other workspace
+# packages, and the compositor supervises those as trusted siblings.
+# The argument words are fixed and quoted above; the expansions are intentional
+# and never carry user input.
+# shellcheck disable=SC2086
+cargo build --locked $build_args \
+    -p tessera-network-system -p tessera-cast -p tessera-settings
+
+export TESSERA_PREVIEW=control-center
+export TESSERA_BACKEND=drm
+export XDG_DATA_HOME="$data_home"
+export XDG_DATA_DIRS="$HOME/.local/share:/usr/local/share:/usr/share"
+unset WAYLAND_DISPLAY
+
+# `--` keeps compositor arguments out of Cargo's own flag parsing.
+# shellcheck disable=SC2086
+exec cargo run --locked $run_args -p tessera -- "$@"

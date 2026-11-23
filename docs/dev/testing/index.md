@@ -15,10 +15,9 @@ scenarios:
 
 | Document | Scope & Purpose |
 | :--- | :--- |
-| **[`manual-testing.md`](manual-testing.md)** | **Manual Testing Playbook**: Unified scenario-based decision matrix, copy-paste ready isolated execution recipes, client injection, flux-free fast tests, and smoke checklists. |
+| **[`manual-testing.md`](manual-testing.md)** | **Manual Testing Playbook**: Unified scenario-based decision matrix, copy-paste ready isolated execution recipes, client injection, native-free fast tests, and smoke checklists. |
 | **[`surface-testing.md`](surface-testing.md)** | **Surface Testing**: Detailed specification of the 4-layer testing model, preview harness contracts, non-default feature gating, and agent pixel capture. |
 | **[`vt-drm-testing.md`](vt-drm-testing.md)** | **VT/DRM Manual Testing**: In-depth hardware verification runbook for KMS atomic modesetting, multi-output pacing, GPU device selection, and TTY switching. |
-| **[`kms-overlay-system-test.md`](kms-overlay-system-test.md)** | **KMS Overlay System Test**: Manual hardware test for one topmost opaque overlay candidate, complete-set `TEST_ONLY`, chrome/lock/screenshot deactivation, and failure triage. |
 | **[`network-hardware.md`](network-hardware.md)** | **Network and Casting Hardware Acceptance**: Live NetworkManager/iwd checks, isolated-AP station operations, Miracast group formation, and the release gate for ADR-0242. |
 | **[`../nested-backend.md`](../nested-backend.md)** | **Nested Backend Development**: Subsystem architectural details on nested Vulkan swapchains, FIFO timing, and dma-buf tranche negotiation. |
 
@@ -36,11 +35,10 @@ Low Cost / High Speed                            High Cost / Broad Scope
 
 | Layer | Environment | Key Coverage | Reference Guide |
 | :--- | :--- | :--- | :--- |
-| **Layer 1: Unit & Logic** | In-crate tests, zero GPU / display dependencies | State machines, layout math, protocol encoding, IPC schemas, config parsing | [`manual-testing.md`](manual-testing.md#scenario-0-flux-free-rapid-logic-verification) |
+| **Layer 1: Unit & Logic** | In-crate tests, zero GPU / display dependencies | State machines, layout math, protocol encoding, IPC schemas, config parsing | [`manual-testing.md`](manual-testing.md#2-scenario-0-native-free-rapid-logic-verification-zero-c-dependencies) |
 | **Layer 2: Surface Previews** | Standalone inspection harness (`dev-preview`), mock sources | Isolated surface layout, animations, VRM avatar rendering, credential input | [`surface-testing.md`](surface-testing.md#inspection-harnesses-separate-development-only-binaries) |
-| **Layer 3: Nested Integration** | Nested Wayland compositor window (`TESSERA_BACKEND=nested`) | Full compositor runtime, multi-window stacking, client injection, input routing | [`manual-testing.md`](manual-testing.md#scenario-2-testing-inside-an-existing-desktop-nested-mode) |
-| **[`mirror-and-multi-output-system-test.md`](mirror-and-multi-output-system-test.md)** | **Mirror and Multi-Output System Test**: Physical evidence for roles, mirror letterbox, absolute input, multiple direct scanouts, and tentative display revert. |
-| **Layer 4: Physical Hardware** | Direct KMS/DRM session from bare Linux TTY | Atomic modeset, page flips, multi-GPU affinity, physical outputs, PAM login | [`vt-drm-testing.md`](vt-drm-testing.md), [`kms-overlay-system-test.md`](kms-overlay-system-test.md) |
+| **Layer 3: Nested Integration** | Nested Wayland compositor window (`TESSERA_BACKEND=nested`) | Full compositor runtime, multi-window stacking, client injection, input routing | [`manual-testing.md`](manual-testing.md#4-scenario-2-testing-inside-an-existing-desktop-nested-mode) |
+| **Layer 4: Physical Hardware** | Direct KMS/DRM session from bare Linux TTY | Atomic modeset, page flips, multi-GPU affinity, physical outputs, PAM login, output roles and mirror letterbox, overlay offload | [`vt-drm-testing.md`](vt-drm-testing.md), [`mirror-and-multi-output-system-test.md`](mirror-and-multi-output-system-test.md), [Validate KMS Overlay Offload](../../how-to/kms-overlay-validation.md) |
 
 ---
 
@@ -49,7 +47,7 @@ Low Cost / High Speed                            High Cost / Broad Scope
 CI runs unit, property, Cargo integration, protocol-probe, CLI/IPC, and nested
 logic tests. It does **not** run a real KMS/DRM session: physical atomic
 commits, VT ownership, and overlay planes require a hardware lab or a dedicated
-TTY run. Use the [KMS Overlay System Test](kms-overlay-system-test.md)
+TTY run. Use [How to Validate KMS Overlay Offload](../../how-to/kms-overlay-validation.md)
 runbook for that layer; do not treat a unit or nested result as proof of KMS
 scanout.
 
@@ -70,9 +68,17 @@ The workspace has no `cargo test` fallback and no xtask test command. xtask
 owns architecture and packaging checks only; test execution is always
 `cargo nextest`.
 
+The root suites spawn the production binaries (`tessera`, `tessera-mcp`,
+`tessera-cast`, ...) as separate processes. `.config/nextest.toml` declares a
+setup script that builds `--workspace --bins` once before the tests that spawn
+them start, because a test that runs `cargo build` itself would block on the
+target-directory lock the runner already holds. The script is filtered to those
+suites, so the native-free lane (where they are compiled out) never builds a
+binary. Outside nextest the siblings must be built first.
+
 For zero-native-dependency development (without compiling Optics C libraries),
-use the [Flux-Free Test Pathway](manual-testing.md#scenario-0-flux-free-rapid-logic-verification)
-to validate the flux-free crates and the root suites in sub-second time.
+use the [Native-Free Test Pathway](manual-testing.md#2-scenario-0-native-free-rapid-logic-verification-zero-c-dependencies)
+to validate the native-free crates and the root suites in sub-second time.
 
 ### Test layout rules
 
@@ -90,7 +96,9 @@ the crate boundary rather than forcing everything into one test package.
 | Test fixtures | `crates/<crate>/tests/fixtures/` | Data and probe sources live in the package whose tests consume them, resolved through `env!("CARGO_MANIFEST_DIR")`. A missing fixture fails the test; it never skips. |
 
 The root `tests/` package is the single external-test entry point. It depends on
-the workspace crates, but no production crate depends on it. Large modules are
+the workspace libraries, but no production crate depends on it, and it never
+links the compositor application crate: the production binaries are driven as
+separate processes through `tessera-test-support`'s artifact lookup. Large modules are
 moved to a sibling `tests` file only when the test block is genuinely bloated;
 business complexity stays in focused crate-local modules. End-to-end tests that
 must drive private protocol state (for example

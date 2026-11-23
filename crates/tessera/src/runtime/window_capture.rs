@@ -20,14 +20,14 @@ pub(super) struct WindowCaptureContext {
 /// flight. The offscreen surface is deliberately not cached: it is created
 /// per capture, owned here until the readback completes, and then dropped.
 pub(super) struct PendingWindowCapture {
-    pub(super) surface: optics_flux::Surface,
+    pub(super) surface: optics_gfx::Surface,
     pub(super) readback: PendingReadback,
     pub(super) context: WindowCaptureContext,
     pub(super) reply: std::sync::mpsc::Sender<Result<tessera_ipc::CaptureWindowPayload, String>>,
 }
 
 pub(super) struct PreparedWindowCapture {
-    pub(super) surface: optics_flux::Surface,
+    pub(super) surface: optics_gfx::Surface,
     pub(super) readback: PendingReadback,
     pub(super) context: WindowCaptureContext,
 }
@@ -119,10 +119,10 @@ fn window_capture_scale_milli(
 /// clipped by the target extent (mirroring `StreamTarget::Window`
 /// semantics). Shared by the one-shot capture and per-window streams.
 pub(super) fn draw_window_tree(
-    device: &optics_flux::Device,
+    device: &optics_gfx::Device,
     renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
-    canvas: &optics_flux::CanvasCommands<'_>,
+    canvas: &optics_gfx::CanvasCommands<'_>,
     window: tessera_desktop::window::WindowId,
     geometry: &OffscreenGeometry,
 ) {
@@ -155,7 +155,7 @@ pub(super) fn draw_window_tree(
 /// toplevel bounds are clipped by the target extent (mirroring
 /// `StreamTarget::Window` semantics).
 pub(super) fn begin_window_capture(
-    device: &optics_flux::Device,
+    device: &optics_gfx::Device,
     renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     window: tessera_desktop::window::WindowId,
@@ -165,33 +165,33 @@ pub(super) fn begin_window_capture(
     let geometry = window_tree_geometry(server, window)?;
     let physical_width = geometry.physical_width;
     let physical_height = geometry.physical_height;
-    let surface = optics_flux::Surface::offscreen_readback(device, physical_width, physical_height)
+    let surface = optics_gfx::Surface::offscreen_readback(device, physical_width, physical_height)
         .map_err(|error| {
             format!(
                 "allocate window {} render target: {error}{}",
                 window.0,
-                flux_last_error_detail()
+                gfx_last_error_detail()
             )
         })?;
     surface.prepare_readback().map_err(|error| {
         format!(
             "prepare window {} readback: {error}{}",
             window.0,
-            flux_last_error_detail()
+            gfx_last_error_detail()
         )
     })?;
-    let mut canvas = optics_flux::Canvas::new(&surface).map_err(|error| {
+    let mut canvas = optics_gfx::Canvas::new(&surface).map_err(|error| {
         format!(
             "create window {} canvas: {error}{}",
             window.0,
-            flux_last_error_detail()
+            gfx_last_error_detail()
         )
     })?;
     let mut frame = surface.begin_frame_timeout(5_000_000).map_err(|error| {
         format!(
             "begin window {} frame: {error}{}",
             window.0,
-            flux_last_error_detail()
+            gfx_last_error_detail()
         )
     })?;
     let session = begin_opaque_frame(&mut canvas, &mut frame, interaction_domain_clear(scheme))
@@ -199,7 +199,7 @@ pub(super) fn begin_window_capture(
             format!(
                 "begin window {} canvas: {error}{}",
                 window.0,
-                flux_last_error_detail()
+                gfx_last_error_detail()
             )
         })?;
     draw_window_tree(device, renderer, server, &session, window, &geometry);
@@ -207,24 +207,24 @@ pub(super) fn begin_window_capture(
         format!(
             "end window {} canvas: {error}{}",
             window.0,
-            flux_last_error_detail()
+            gfx_last_error_detail()
         )
     })?;
     frame.request_readback().map_err(|error| {
         format!(
             "request window {} readback: {error}{}",
             window.0,
-            flux_last_error_detail()
+            gfx_last_error_detail()
         )
     })?;
     frame
         .submit()
-        .and_then(optics_flux::SubmittedFrame::present)
+        .and_then(optics_gfx::SubmittedFrame::present)
         .map_err(|error| {
             format!(
                 "submit window {} frame: {error}{}",
                 window.0,
-                flux_last_error_detail()
+                gfx_last_error_detail()
             )
         })?;
     Ok(PreparedWindowCapture {

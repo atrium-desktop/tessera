@@ -18,12 +18,13 @@ use tessera_network::{BackendKind, NetworkBackend, NetworkError, NetworkSnapshot
 
 const KESTREL_SERVICE: &str = "com.hihusky.Kestrel";
 const KESTREL_ROOT: &str = "/com/hihusky/Kestrel";
-const API_VERSION: &str = "2";
+const API_VERSION: &str = "1";
 
 const MANAGER_IFACE: &str = "com.hihusky.Kestrel.Manager";
 const DEVICE_IFACE: &str = "com.hihusky.Kestrel.Device";
 const PROFILE_IFACE: &str = "com.hihusky.Kestrel.Profile";
 const OBJECT_MANAGER_IFACE: &str = "org.freedesktop.DBus.ObjectManager";
+const PROPERTIES_IFACE: &str = "org.freedesktop.DBus.Properties";
 const DBUS_SERVICE: &str = "org.freedesktop.DBus";
 const DBUS_PATH: &str = "/org/freedesktop/DBus";
 const DBUS_IFACE: &str = "org.freedesktop.DBus";
@@ -108,6 +109,28 @@ struct ZbusKestrelApi {
 
 impl KestrelApi for ZbusKestrelApi {
     fn managed_objects(&self) -> Result<KestrelObjects, NetworkError> {
+        // Per the D-Bus ObjectManager specification, GetManagedObjects only
+        // returns descendant paths strictly below the ObjectManager root, so
+        // `com.hihusky.Kestrel.Manager` on `/com/hihusky/Kestrel` must be
+        // queried directly through `org.freedesktop.DBus.Properties.GetAll`.
+        let manager_reply = blocking_call(
+            &self.connection,
+            Some(KESTREL_SERVICE),
+            KESTREL_ROOT,
+            Some(PROPERTIES_IFACE),
+            "GetAll",
+            &(MANAGER_IFACE,),
+        )
+        .map_err(|error| map_call("Manager.GetAll", error))?;
+        let manager_props: HashMap<String, Value> = FromArgs::from_args(manager_reply.body)
+            .map_err(|error| NetworkError::Service(format!("Manager.GetAll body: {error}")))?;
+        let manager = KestrelManager {
+            version: get_str(&manager_props, "Version").unwrap_or_default(),
+            wireless_enabled: get_bool(&manager_props, "WirelessEnabled").unwrap_or(true),
+            wireless_hardware_enabled: get_bool(&manager_props, "WirelessHardwareEnabled")
+                .unwrap_or(true),
+        };
+
         let reply = blocking_call(
             &self.connection,
             Some(KESTREL_SERVICE),
@@ -122,17 +145,13 @@ impl KestrelApi for ZbusKestrelApi {
         let objects: ManagedObjects = FromArgs::from_args(reply.body)
             .map_err(|error| NetworkError::Service(format!("GetManagedObjects body: {error}")))?;
 
-        let mut parsed = KestrelObjects::default();
+        let mut parsed = KestrelObjects {
+            manager: Some(manager),
+            devices: Vec::new(),
+            profiles: Vec::new(),
+        };
         for (path, interfaces) in objects {
             let path_str = path.into_inner();
-            if let Some(props) = interfaces.get(MANAGER_IFACE) {
-                parsed.manager = Some(KestrelManager {
-                    version: get_str(props, "Version").unwrap_or_default(),
-                    wireless_enabled: get_bool(props, "WirelessEnabled").unwrap_or(true),
-                    wireless_hardware_enabled: get_bool(props, "WirelessHardwareEnabled")
-                        .unwrap_or(true),
-                });
-            }
             if let Some(props) = interfaces.get(DEVICE_IFACE) {
                 parsed.devices.push(KestrelDevice {
                     path: path_str.clone(),
@@ -816,8 +835,14 @@ fn dbm_to_bars(dbm: i16) -> u8 {
 
 fn map_bss_security(security: &str) -> WifiSecurity {
     match security {
+        // OWE (Enhanced Open) is encrypted: it keeps no passphrase, but it is
+        // not an open network and must never be presented as one.
         "open" => WifiSecurity::Open,
         "enterprise" | "wpa3-enterprise" => WifiSecurity::Enterprise,
+        "owe" | "wpa-psk" | "wpa2-psk" | "wpa2-wpa3" | "wpa3-sae" | "wep" => WifiSecurity::WpaPsk,
+        // An unknown token is reported as secured. Guessing "open" would
+        // understate an AP's protection; the connect path still refuses what
+        // it cannot build.
         _ => WifiSecurity::WpaPsk,
     }
 }
@@ -1127,7 +1152,7 @@ mod tests {
     fn base_state() -> FakeState {
         FakeState {
             manager: KestrelManager {
-                version: "2".to_string(),
+                version: API_VERSION.to_string(),
                 wireless_enabled: true,
                 wireless_hardware_enabled: true,
             },
@@ -1285,5 +1310,27 @@ mod tests {
         assert_eq!(snapshot.wifi_state, WifiLinkState::Disabled);
         assert_eq!(snapshot.network, NetworkState::Offline);
         assert!(snapshot.wifi_networks.is_empty());
+    }
+
+    #[test]
+    fn unexpected_api_version_is_rejected() {
+        assert!(check_api_version("1").is_ok());
+        let error = check_api_version("2").expect_err("version 2 must be rejected");
+        assert!(error.to_string().contains("expected '1'"), "{error}");
+    }
+
+    #[test]
+    #[ignore = "requires a running Kestrel daemon with a Wi-Fi device"]
+    fn live_kestrel_backend_reads_real_snapshot() {
+        let backend = KestrelBackend::open().expect("open live Kestrel backend");
+        let snapshot = backend.snapshot();
+        eprintln!("live Kestrel snapshot: {snapshot:?}");
+        assert!(
+            snapshot.available,
+            "live snapshot unavailable: {snapshot:?}"
+        );
+        assert_eq!(snapshot.backend, BackendKind::Kestrel);
+        assert!(snapshot.wifi_enabled.is_some());
+        assert!(!snapshot.network_interface.is_empty());
     }
 }

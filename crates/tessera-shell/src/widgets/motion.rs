@@ -2,11 +2,11 @@
 //!
 //! This module is the shared motion vocabulary every chrome component draws
 //! from (ADR-0139, ADR-0172): closed-form analytic springs, decays, easing curves,
-//! and the reduced-motion rule, powered by Optics' canonical `transit` motion library
+//! and the reduced-motion rule, powered by Optics' canonical `optics-motion` library
 //! (Optics ADR-0077, ADR-0106).
 //!
 //! It is pure math on caller-owned state — mechanism without a timeline. A component
-//! decides *what* moves and *when* (policy); `transit` says *how a scalar travels
+//! decides *what* moves and *when* (policy); `optics-motion` says *how a scalar travels
 //! between two values* (mechanism). Nothing here schedules frames, owns a clock,
 //! or draws: components keep driving `dt` from the frame input and retain their own
 //! animation state.
@@ -15,21 +15,21 @@
 //!
 //! The ADR-0029 rule is one global switch, not a per-effect one: when reduced motion
 //! is on, every animation resolves to its end state in at most one frame. Every
-//! `transit` advance primitive takes it as a final `reduced_motion: bool`, so callers
+//! `optics-motion` advance primitive takes it as a final `reduced_motion: bool`, so callers
 //! pass the flag straight through ([`approach`], [`decay`], [`blend`], [`Spring::advance`],
 //! [`Smoother::step`], [`Hysteresis::step`]) instead of hand-writing a per-site snap.
 
 #[allow(unused_imports)]
-pub use optics_transit::{
+pub use optics_motion::{
     Hysteresis, Smoother, Spring, SpringParams, approach, decay, dt_clamp, ease_in_cubic,
     ease_in_out_cubic, ease_out_back, ease_out_cubic, smoothstep,
 };
 
 /// One frame's delta time clamped to the range an animation may integrate
-/// over. Delegates directly to [`optics_transit::dt_clamp`].
+/// over. Delegates directly to [`optics_motion::dt_clamp`].
 #[inline]
 pub fn frame_dt(dt_seconds: f32) -> f32 {
-    optics_transit::dt_clamp(dt_seconds)
+    optics_motion::dt_clamp(dt_seconds)
 }
 
 /// Advance a spring toward `target` using bounded sub-steps (each <= 1/60 s)
@@ -51,9 +51,9 @@ pub fn spring_advance_substep(
 /// This is exactly the coefficient [`approach`] applies internally, exposed for
 /// callers that drive their own persistence — a rect that eases toward a target
 /// through a `lerp`, a per-slot card blend — while still delegating the *math*
-/// to Optics `transit` per `[INV-ARCH-49]`. Never re-derive this with a bare
+/// to Optics `optics-motion` per `[INV-ARCH-49]`. Never re-derive this with a bare
 /// `1.0 - (-rate * dt).exp()`: that duplicates mechanism the ADR places in
-/// `transit` and loses the NaN/dt clamping the library guarantees. Under
+/// `optics-motion` and loses the NaN/dt clamping the library guarantees. Under
 /// reduced motion the coefficient is `1.0` (one-frame resolve).
 #[inline]
 pub fn blend(rate: f32, dt_seconds: f32, reduced_motion: bool) -> f32 {

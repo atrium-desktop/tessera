@@ -4,6 +4,7 @@ description = "Idle policy coordinator for the Tessera desktop"
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
+publish = false
 license.workspace = true
 rust-version.workspace = true
 

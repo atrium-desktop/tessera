@@ -2,6 +2,7 @@
 name = "tessera-audit"
 version.workspace = true
 edition.workspace = true
+publish = false
 license.workspace = true
 rust-version.workspace = true
 

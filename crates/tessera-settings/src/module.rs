@@ -11,8 +11,8 @@
 //! in-process `.so`; the metadata and state model here are what such a
 //! protocol would carry.
 
-use optics_lens::Frame;
-use optics_lens::sys::lens_icon_id;
+use optics_ui::Frame;
+use optics_ui::sys::optics_ui_icon_id;
 use tessera_design::Design;
 use tessera_desktop::settings::{SettingsAction, SettingsSnapshot};
 use tessera_i18n::{Localizer, Message};
@@ -78,7 +78,7 @@ pub enum ModuleAvailability {
 pub struct ModuleMetadata {
     pub id: ModuleId,
     pub title: Message,
-    pub icon: lens_icon_id,
+    pub icon: optics_ui_icon_id,
     pub category: ModuleCategory,
     /// Lower-case search terms beyond the localized title.
     pub keywords: &'static [&'static str],

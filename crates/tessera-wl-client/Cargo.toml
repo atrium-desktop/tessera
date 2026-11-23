@@ -3,6 +3,7 @@ name = "tessera-wl-client"
 description = "Minimal Wayland client event loop, wakeup channel, and xkbcommon keyboard helpers"
 version.workspace = true
 edition.workspace = true
+publish = false
 license.workspace = true
 rust-version.workspace = true
 

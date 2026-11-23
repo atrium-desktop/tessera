@@ -13,10 +13,10 @@ Install:
 - Meson, Ninja, `pkg-config`, a C23 compiler, libclang, and `slangc` (Slang
   2026.17+; recent Vulkan SDKs bundle it);
 - Vulkan, Wayland, xkbcommon, libinput, and libseat development files; and
-- the Optics `v<OPTICS_VERSION>` native libraries.
+- the Optics `v0.0.82` native libraries.
 
 The independently sourced
-[xdg-desktop-portal-atrium](https://github.com/aegis-shell/xdg-desktop-portal-atrium)
+[xdg-desktop-portal-atrium](https://github.com/atrium-desktop/xdg-desktop-portal-atrium)
 additionally requires PipeWire and SPA development files. The nested
 compositor tutorial does not clone, build, or install that package.
 
@@ -24,18 +24,19 @@ Build and install the matching Optics release when the distribution does not
 provide it:
 
 ```bash
-git clone --branch "v<OPTICS_VERSION>" --depth 1 \
+git clone --branch "v0.0.82" --depth 1 \
   https://github.com/ming2k/optics.git ../optics
 meson setup ../optics/build ../optics \
   -Dtests=false -Dbuildtype=debugoptimized
 meson compile -C ../optics/build
 sudo meson install -C ../optics/build
 sudo ldconfig
-pkg-config --modversion flux vista lens iris reticle
+pkg-config --modversion optics-gfx optics-scene optics-ui optics-svg optics-text
 ```
 
-Each version printed by the final command must be exactly `<OPTICS_VERSION>`:
-the pre-1.0 bindings and SONAME reject a different native release.
+Every version printed by that command must be exactly `0.0.82` (the tag is
+`v0.0.82`; `pkg-config` reports the version without the prefix). The pre-1.0
+bindings and SONAME reject a different native release.
 
 ## Start the Nested Compositor
 
@@ -68,7 +69,8 @@ sheet against the right edge, with the desktop still visible. Its ⚙ button
 opens Settings, whose edits commit through the compositor's revisioned
 settings transaction. A debug compositor recognizes the sibling development
 binary; if the compositor and Settings come from different build directories,
-allowlist the binary as described in [Nested Backend](../dev/nested-backend.md).
+allowlist the binary through `[ipc.scope_executables]` in the
+[Configuration Reference](../reference/config.md#ipc).
 
 ## Query Compositor State
 

@@ -3,7 +3,7 @@
 Chrome surfaces pick one surface role each. Every role resolves to a flat painted
 body: an opaque fill, a hairline boundary, a corner radius, and a painted
 elevation halo. The compositor draws no material behind chrome — there is no
-backdrop capture, blur operator, or lens shader anywhere in a frame (ADR-0213).
+backdrop capture, blur operator, or refraction shader anywhere in a frame (ADR-0213).
 Tokens live in `tessera-design` (see
 [ADR-0046](../../adr/0046-design-system-crate.md)); components read them through
 material factories instead of hard-coding values.

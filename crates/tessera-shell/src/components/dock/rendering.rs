@@ -227,7 +227,7 @@ impl Chrome for Dock {
 
         // The bar and collapsed indicator are the same placed surface, and
         // both are analytic glass bodies: as it drains, the bar morphs into
-        // the stadium handle while keeping lensing, tint and its drop shadow.
+        // the stadium handle while keeping the loupe, tint and its drop shadow.
         // Edge definition comes from the glass rim, not a painted border.
         let panel_thick = if vertical { panel_rect.w } else { panel_rect.h };
         let dwell_progress = (self.autohide_dwell / AUTOHIDE_DWELL_THRESHOLD).clamp(0.0, 1.0);
@@ -1738,7 +1738,7 @@ fn sized(w: f32, h: f32) -> LayoutOpts {
 }
 
 /// A fixed-size container that paints a rounded `bg` — the reliable filled-rect
-/// primitive (lens paints a container's background at its solved size).
+/// primitive (optics-ui paints a container's background at its solved size).
 fn sized_fill(w: f32, h: f32, bg: Color, radius: f32) -> LayoutOpts {
     LayoutOpts {
         width: w,
@@ -1898,7 +1898,7 @@ fn render_tooltip(frame: &mut Frame, design: &Design, label: &str, rect: Rect, a
     frame.set_opacity(alpha);
     let mut material = materials::panel(design);
     // The bubble is one painted body: a rounded fill, a hairline, and the
-    // elevation halo that lifts it off the desktop. The fade rides the lens
+    // elevation halo that lifts it off the desktop. The fade rides the optics-ui
     // opacity switch, so the halo drains with the body rather than popping.
     material.radius = TOOLTIP_HEIGHT * 0.5;
     materials::place_floating(
@@ -2061,9 +2061,9 @@ fn render_live_preview_chrome(
     windows: &[Window],
     hovered: Option<tessera_desktop::window::WindowId>,
 ) {
-    let panel = to_lens_rect(presentation.panel);
+    let panel = to_ui_rect(presentation.panel);
     let material = preview::panel_material(design);
-    // The whole popover fades through the lens opacity switch; per-card
+    // The whole popover fades through the optics-ui opacity switch; per-card
     // content dimming multiplies on top of it below.
     frame.set_opacity(presentation.visibility);
     materials::place_floating(
@@ -2085,7 +2085,7 @@ fn render_live_preview_chrome(
         let Some(window) = windows.iter().find(|window| window.id == card.window) else {
             continue;
         };
-        let outer = to_lens_rect(card.geometry.outer);
+        let outer = to_ui_rect(card.geometry.outer);
         let is_hovered = hovered == Some(window.id) && !window.read_only;
         let content_brightness = preview::content_brightness(
             presentation.focused,
@@ -2110,7 +2110,7 @@ fn render_live_preview_chrome(
             |frame| frame.column_ex(&sized(outer.w, outer.h), |_| {}),
         );
 
-        let label_rect = to_lens_rect(card.geometry.label);
+        let label_rect = to_ui_rect(card.geometry.label);
         let title = window
             .title
             .as_deref()
@@ -2169,7 +2169,7 @@ fn core_rect(rect: Rect) -> tessera_primitives::Rect {
     )
 }
 
-fn to_lens_rect(rect: tessera_primitives::Rect) -> Rect {
+fn to_ui_rect(rect: tessera_primitives::Rect) -> Rect {
     Rect {
         x: rect.origin.x as f32,
         y: rect.origin.y as f32,
@@ -2656,7 +2656,7 @@ impl Dock {
         let centre = |i: usize| centres[i];
         let dock_colors = self.design.dock;
         if content_progress > AUTOHIDE_CONTENT_INTERACTION_MIN {
-            // The drained content fades through the lens opacity switch;
+            // The drained content fades through the optics-ui opacity switch;
             // restored after the section divider below.
             f.set_opacity(content_progress);
             for (i, t) in tiles.iter().enumerate() {
@@ -2684,7 +2684,7 @@ impl Dock {
                     // pixels. While the Dock drains into its collapsed capsule
                     // `s` approaches zero and `d` becomes a sub-pixel sliver.
                     // Snapping such a cell to the device grid can move its
-                    // leading edge past its trailing edge, which flux rejects
+                    // leading edge past its trailing edge, which gfx rejects
                     // as a negative rect — and a rejected encoder discards the
                     // whole chrome scene. A cell below one device pixel paints
                     // nothing visible, so do not emit it at all.
@@ -2713,10 +2713,10 @@ impl Dock {
                 } else {
                     f.place(&icon_id, &chrome_place(rect, tile_opts()), |f| {
                         match t.icon.or_else(|| self.icons.default_icon()) {
-                            // The pointer crosses from the binary's flux binding type to
-                            // lens's ABI-identical flux_image.
+                            // The pointer crosses from the binary's gfx binding type to
+                            // optics-ui's ABI-identical optics_gfx_image.
                             Some(ptr) => unsafe {
-                                f.image(ptr as *mut optics_lens::sys::flux_image, s, s)
+                                f.image(ptr as *mut optics_ui::sys::optics_gfx_image, s, s)
                             },
                             None => f.icon(Icon::FileText, s * 0.6),
                         }
@@ -2818,7 +2818,7 @@ impl Dock {
                             dock_colors.section_divider,
                             // Deliberately sharp: the divider is a hairline,
                             // and any radius at or below 0.5 falls back to the
-                            // same sharp rect path in lens anyway.
+                            // same sharp rect path in optics-ui anyway.
                             0.0,
                         ),
                         |_| {},
@@ -3149,7 +3149,7 @@ impl Dock {
                     self.tooltip_alpha(),
                     position,
                 );
-                let panel_rect = to_lens_rect(presentation.panel);
+                let panel_rect = to_ui_rect(presentation.panel);
                 self.hover_surface_bounds = Some(panel_rect);
                 Self::record_hover_surface_damage(
                     &mut self.hover_damage_rect,

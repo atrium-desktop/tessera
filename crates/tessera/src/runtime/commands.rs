@@ -10,8 +10,8 @@ pub(super) struct RenderGeometry {
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_direct_desktop_scene(
-    canvas: &optics_flux::CanvasCommands<'_>,
-    device: &optics_flux::Device,
+    canvas: &optics_gfx::CanvasCommands<'_>,
+    device: &optics_gfx::Device,
     renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     geometry: RenderGeometry,
@@ -22,7 +22,7 @@ pub(super) fn draw_direct_desktop_scene(
     soft_shadows: Option<&tessera_composite::SoftShadowLayer<'_>>,
     shadow_style: tessera_desktop::window::WindowShadowStyle,
     overlay_window: Option<tessera_desktop::window::WindowId>,
-) -> Result<(), optics_flux::Error> {
+) -> Result<(), optics_gfx::Error> {
     let RenderGeometry {
         logical_size,
         scale,

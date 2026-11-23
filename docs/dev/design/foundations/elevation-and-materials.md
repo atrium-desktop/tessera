@@ -7,7 +7,7 @@ Elevation is a semantic role, not a freely chosen shadow. A surface selects one
 surface role based on its function.
 
 The product paints every chrome body. The compositor draws no material behind
-chrome: there is no backdrop capture, no blur operator, and no per-pixel lens
+chrome: there is no backdrop capture, no blur operator, and no per-pixel optics-ui
 shader anywhere in a frame (ADR-0213). A surface's per-frame cost is therefore
 proportional to the pixels it covers, which is what lets chrome sit on screen all
 day on a laptop panel.
@@ -55,7 +55,7 @@ together, so no surface can emit one without the other.
 
 ## Ownership boundary
 
-`tessera-design` owns semantic surface parameters and pure `lens` option
+`tessera-design` owns semantic surface parameters and pure `optics-ui` option
 factories. The compositor connects those parameters to rendering. This boundary
 follows [ADR-0139](../../../adr/0139-animation-effect-placement.md).
 

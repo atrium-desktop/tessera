@@ -15,7 +15,7 @@ fn scene(scheme: ColorScheme) -> tessera_design::SceneColors {
 /// light appearance's surface gray.
 pub(super) fn clear_color(scheme: ColorScheme) -> u32 {
     let (r, g, b, a) = scene(scheme).clear_color.components();
-    optics_flux::rgba(r, g, b, a)
+    optics_gfx::rgba(r, g, b, a)
 }
 
 /// Base RGB of the overview scrim; the caller scales its alpha by the
@@ -36,7 +36,7 @@ pub(super) fn window_switcher_scrim(scheme: ColorScheme) -> (u8, u8, u8) {
 /// has no client pixels.
 pub(super) fn interaction_domain_clear(scheme: ColorScheme) -> u32 {
     let (r, g, b, a) = scene(scheme).interaction_domain_clear.components();
-    optics_flux::rgba(r, g, b, a)
+    optics_gfx::rgba(r, g, b, a)
 }
 
 #[cfg(test)]

@@ -210,10 +210,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .map(|c| c.input.keyboard)
         .unwrap_or_default();
     log::info!(
-        "flux: native runtime {}; device created for {} backend; dma-buf {}",
-        optics_flux::version(),
+        "optics_gfx: native runtime {}; device created for {} backend; dma-buf {}",
+        optics_gfx::version(),
         host.name(),
-        if optics_flux::dmabuf_supported(device) {
+        if optics_gfx::dmabuf_supported(device) {
             "supported"
         } else {
             "unavailable"
@@ -300,10 +300,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         launcher_apps.len(),
         icon_theme
     );
-    // Decode each app entry's icon into a flux texture once, keyed by every
+    // Decode each app entry's icon into a gfx texture once, keyed by every
     // app_id the entry might run as (StartupWMClass, desktop-id stem, icon name)
     // so the dock can look a running toplevel up by its `app_id`. SVG icons are
-    // compiled in process by the Optics reticle compiler. The cache owns the GPU
+    // compiled in process by the `optics-svg` compiler. The cache owns the GPU
     // textures and must outlive the shell, so it is declared before it.
     let decoded_icons = decode_icons(&launcher_apps, &icon_theme, icon_scale);
     let icon_cache = build_icon_cache(device, &decoded_icons);
@@ -466,7 +466,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         server.set_decoration_policy(c.ui.window_decorations);
         server.set_output_policies(c.output_policies());
         server.set_display_topology(c.display_topology());
-        server.set_allow_quit_while_locked(c.dev.allow_quit_while_locked);
         server.set_minimize_animation(c.dock.minimize_animation);
         server.set_keyboard_repeat(c.input.keyboard);
         server.set_keyboard_accessibility(c.accessibility.keyboard);

@@ -1,14 +1,14 @@
-//! Wayland clipboard integration for Lens text fields.
+//! Wayland clipboard integration for optics-ui text fields.
 //!
-//! Lens owns text editing and reports copy/paste intent through its
-//! [`lens_clipboard`](optics_lens::sys::lens_clipboard) host callbacks. This module
+//! optics-ui owns text editing and reports copy/paste intent through its
+//! [`optics_ui_clipboard`](optics_ui::sys::optics_ui_clipboard) host callbacks. This module
 //! turns those callbacks into one calloop event each, and implements the
 //! Wayland side against the seat's `wl_data_device`:
 //!
 //! - **copy** creates a `wl_data_source`, offers UTF-8 text MIME types, and
 //!   answers every `send` with the selected text;
 //! - **paste** reads the current `wl_data_offer` on a worker thread with a
-//!   bounded timeout, then delivers the payload to Lens through `Ui::paste`.
+//!   bounded timeout, then delivers the payload to optics-ui through `Ui::paste`.
 //!
 //! The clipboard is explicit-only ([ADR-0043]): no primary selection is
 //! advertised or consumed. Both directions use the standard
@@ -28,7 +28,7 @@ use std::time::Duration;
 
 use tessera_wl_client::WakeSender as LoopSender;
 
-/// Largest clipboard payload accepted, matching Lens's staging buffer. Text
+/// Largest clipboard payload accepted, matching optics-ui's staging buffer. Text
 /// fields cannot use more, and an unbounded peer must not grow our heap.
 const MAX_CLIPBOARD_BYTES: usize = 1024 * 1024;
 /// A clipboard owner that neither sends nor closes its pipe must not pin a
@@ -39,7 +39,7 @@ const READ_TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) const TEXT_MIME_TYPES: [&str; 3] =
     ["text/plain;charset=utf-8", "text/plain", "UTF8_STRING"];
 
-/// Requests Lens raises on the host side of the clipboard interface.
+/// Requests optics-ui raises on the host side of the clipboard interface.
 #[derive(Debug, PartialEq, Eq)]
 pub enum HostEvent {
     /// Ctrl+V: read the current selection.
@@ -52,9 +52,9 @@ pub enum HostEvent {
 #[derive(Debug)]
 pub struct ReadFinished(pub Option<String>);
 
-/// Owns the calloop sender behind Lens's C callbacks. The boxed value has a
+/// Owns the calloop sender behind optics-ui's C callbacks. The boxed value has a
 /// stable address for the lifetime of the window, so the raw user pointer in
-/// `lens_desc` stays valid across surface reconfiguration.
+/// `optics_ui_desc` stays valid across surface reconfiguration.
 pub struct Host {
     events: LoopSender<HostEvent>,
 }
@@ -64,7 +64,7 @@ impl Host {
         Box::new(Self { events })
     }
 
-    /// Stable pointer for `lens_desc.clipboard.user`.
+    /// Stable pointer for `optics_ui_desc.clipboard.user`.
     pub fn as_user_data(&self) -> *mut c_void {
         (self as *const Self).cast_mut().cast()
     }
@@ -74,24 +74,24 @@ impl Host {
     }
 }
 
-/// `lens_clipboard.request_text`: the focused text widget wants a paste.
+/// `optics_ui_clipboard.request_text`: the focused text widget wants a paste.
 ///
 /// # Safety
 /// `user` must be the pointer from [`Host::as_user_data`] and remain valid
 /// for the call.
 pub(crate) unsafe extern "C" fn request_text(user: *mut c_void) {
-    // SAFETY: Lens echoes the pointer we gave it; it stays owned by `App`.
+    // SAFETY: optics-ui echoes the pointer we gave it; it stays owned by `App`.
     let Some(host) = (unsafe { (user as *const Host).as_ref() }) else {
         return;
     };
     host.send(HostEvent::Paste);
 }
 
-/// `lens_clipboard.set_text`: a text widget copied or cut a selection.
+/// `optics_ui_clipboard.set_text`: a text widget copied or cut a selection.
 ///
 /// # Safety
 /// `utf8` must point to `len` readable bytes; `user` must be the pointer from
-/// [`Host::as_user_data`]. Lens satisfies both for the duration of the call.
+/// [`Host::as_user_data`]. optics-ui satisfies both for the duration of the call.
 pub(crate) unsafe extern "C" fn set_text(utf8: *const c_char, len: usize, user: *mut c_void) {
     if utf8.is_null() || len == 0 {
         return;
@@ -228,7 +228,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn lens_callbacks_become_loop_events() {
+    fn ui_callbacks_become_loop_events() {
         let wake = tessera_wl_client::WakeSignal::new().unwrap();
         let (events, received) = tessera_wl_client::wake_channel(wake);
         let host = Host::new(events);

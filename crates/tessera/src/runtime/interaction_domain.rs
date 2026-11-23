@@ -192,8 +192,8 @@ impl InteractionDomainProcesses {
 
 pub(super) struct InteractionDomainRenderTarget {
     pub(super) output: tessera_authority::interaction_domain::VirtualOutput,
-    pub(super) surface: optics_flux::Surface,
-    pub(super) canvas: optics_flux::Canvas,
+    pub(super) surface: optics_gfx::Surface,
+    pub(super) canvas: optics_gfx::Canvas,
 }
 
 pub(super) struct InteractionDomainCaptureContext {
@@ -241,7 +241,7 @@ pub(super) fn begin_interaction_domain_capture(
         tessera_authority::interaction_domain::InteractionDomainId,
         InteractionDomainRenderTarget,
     >,
-    device: &optics_flux::Device,
+    device: &optics_gfx::Device,
     renderer: &mut tessera_composite::Renderer,
     server: &tessera_wayland::Server,
     interaction_domain: tessera_authority::interaction_domain::InteractionDomainId,
@@ -290,26 +290,26 @@ pub(super) fn begin_interaction_domain_capture(
         .is_none_or(|target| target.output != output)
     {
         let surface =
-            optics_flux::Surface::offscreen_readback(device, physical_size.0, physical_size.1)
+            optics_gfx::Surface::offscreen_readback(device, physical_size.0, physical_size.1)
                 .map_err(|error| {
                     format!(
                         "allocate interaction_domain {} render target: {error}{}",
                         interaction_domain.0,
-                        flux_last_error_detail()
+                        gfx_last_error_detail()
                     )
                 })?;
         surface.prepare_readback().map_err(|error| {
             format!(
                 "prepare interaction_domain {} readback: {error}{}",
                 interaction_domain.0,
-                flux_last_error_detail()
+                gfx_last_error_detail()
             )
         })?;
-        let canvas = optics_flux::Canvas::new(&surface).map_err(|error| {
+        let canvas = optics_gfx::Canvas::new(&surface).map_err(|error| {
             format!(
                 "create interaction_domain {} canvas: {error}{}",
                 interaction_domain.0,
-                flux_last_error_detail()
+                gfx_last_error_detail()
             )
         })?;
         targets.insert(
@@ -331,7 +331,7 @@ pub(super) fn begin_interaction_domain_capture(
             format!(
                 "begin interaction_domain {} frame: {error}{}",
                 interaction_domain.0,
-                flux_last_error_detail()
+                gfx_last_error_detail()
             )
         })?;
     let session = begin_opaque_frame(
@@ -343,7 +343,7 @@ pub(super) fn begin_interaction_domain_capture(
         format!(
             "begin interaction_domain {} canvas: {error}{}",
             interaction_domain.0,
-            flux_last_error_detail()
+            gfx_last_error_detail()
         )
     })?;
     let scale = output.scale_milli as f32 / 1000.0;
@@ -360,24 +360,24 @@ pub(super) fn begin_interaction_domain_capture(
         format!(
             "end interaction_domain {} canvas: {error}{}",
             interaction_domain.0,
-            flux_last_error_detail()
+            gfx_last_error_detail()
         )
     })?;
     frame.request_readback().map_err(|error| {
         format!(
             "request interaction_domain {} readback: {error}{}",
             interaction_domain.0,
-            flux_last_error_detail()
+            gfx_last_error_detail()
         )
     })?;
     frame
         .submit()
-        .and_then(optics_flux::SubmittedFrame::present)
+        .and_then(optics_gfx::SubmittedFrame::present)
         .map_err(|error| {
             format!(
                 "submit interaction_domain {} frame: {error}{}",
                 interaction_domain.0,
-                flux_last_error_detail()
+                gfx_last_error_detail()
             )
         })?;
     let full_region =

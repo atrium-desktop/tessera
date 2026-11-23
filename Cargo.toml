@@ -37,31 +37,32 @@ tessera-dbus = { path = "crates/tessera-dbus" }
 tessera-wl-client = { path = "crates/tessera-wl-client" }
 tessera-protocol = { path = "crates/tessera-protocol" }
 tessera-audit = { path = "crates/tessera-audit" }
-# flux (rendering engine) + lens (immediate-mode UI engine) Rust bindings.
+# optics-gfx (rendering engine) + optics-ui (immediate-mode UI engine) Rust bindings.
 # The canonical build resolves the binding sources from the tagged optics
 # monorepo and links the C libraries discovered by pkg-config. A linked
 # development worktree can patch these sources through
 # .cargo/optics-local.toml without making a sibling checkout mandatory for CI
 # or downstream packagers.
-optics-flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
-optics-flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
-optics-vista = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
-optics-vista-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
-# Renderer-neutral offscreen DAG planning above Flux image operators.
-optics-lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
-optics-lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
-# transit (motion vocabulary; ADR-0172) provides analytic springs and easing;
-# v0.0.53 adds the explicit `reduced_motion` flag to every advance entry point.
-# Optics v0.0.79 makes transit a header-only vocabulary on the C side and pure
-# Safe Rust here (Optics ADR-0158), so there is no transit-sys FFI crate and no
-# native library to discover or rpath.
-optics-transit = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
-# reticle (vector-document compiler; ADR-0220, renamed from svg in Optics
-# ADR-0161) is the single SVG implementation in the stack: cursors, application
-# icons and tray icons all compile through it instead of shelling out to
-# rsvg-convert or shipping pre-baked bitmaps.
-optics-reticle = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
-optics-reticle-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.81" }
+optics-gfx = { git = "https://github.com/ming2k/optics", tag = "v0.0.82" }
+optics-gfx-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.82" }
+optics-scene = { git = "https://github.com/ming2k/optics", tag = "v0.0.82" }
+optics-scene-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.82" }
+# optics-ui (immediate-mode UI engine) is the Chrome layer above the graphics
+# canvas: layout, widget store, damage tracking, and the accessibility tree.
+optics-ui = { git = "https://github.com/ming2k/optics", tag = "v0.0.82" }
+optics-ui-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.82" }
+# optics-motion (motion vocabulary; ADR-0172, Optics ADR-0170) provides analytic
+# springs and easing; v0.0.53 adds the explicit `reduced_motion` flag to every
+# advance entry point. Header-only on the C side and pure Safe Rust here
+# (Optics ADR-0158), so there is no optics-motion-sys FFI crate and no native
+# library to discover or rpath.
+optics-motion = { git = "https://github.com/ming2k/optics", tag = "v0.0.82" }
+# optics-svg (vector-document compiler; ADR-0220, Optics ADR-0170) is the single
+# SVG implementation in the stack: cursors, application icons and tray icons all
+# compile through it instead of shelling out to rsvg-convert or shipping
+# pre-baked bitmaps.
+optics-svg = { git = "https://github.com/ming2k/optics", tag = "v0.0.82" }
+optics-svg-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.82" }
 
 # Observability: crates emit through the `log` facade; each binary installs a
 # `tracing`-based subscriber through the shared `tessera-env` crate, which

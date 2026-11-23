@@ -1,4 +1,4 @@
-use optics_lens::{Align, Frame, Icon, LayoutOpts};
+use optics_ui::{Align, Frame, Icon, LayoutOpts};
 use tessera_design::Design;
 use tessera_desktop::settings::SettingsSnapshot;
 use tessera_i18n::{Localizer, Message};

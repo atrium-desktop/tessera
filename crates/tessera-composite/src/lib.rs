@@ -1,6 +1,6 @@
-//! Compositing for tessera, built on flux.
+//! Compositing for tessera, built on gfx.
 //!
-//! Turns the surface tree into draw calls: each client buffer becomes a flux
+//! Turns the surface tree into draw calls: each client buffer becomes a gfx
 //! texture (shm via CPU upload, dmabuf via zero-copy import), composited in
 //! z-order into the output's frame.
 
@@ -25,49 +25,49 @@ const DRM_FORMAT_XBGR8888: u32 = drm_fmt::DRM_FORMAT_XBGR8888;
 const DRM_FORMAT_ABGR2101010: u32 = drm_fmt::DRM_FORMAT_ABGR2101010;
 const DRM_FORMAT_XBGR2101010: u32 = drm_fmt::DRM_FORMAT_XBGR2101010;
 
-fn drm_format_to_flux(drm: u32) -> Option<optics_flux::Format> {
+fn drm_format_to_gfx(drm: u32) -> Option<optics_gfx::Format> {
     match drm {
-        DRM_FORMAT_ARGB8888 | DRM_FORMAT_XRGB8888 => Some(optics_flux::Format::Bgra8Unorm),
-        DRM_FORMAT_ABGR8888 | DRM_FORMAT_XBGR8888 => Some(optics_flux::Format::Rgba8Unorm),
-        DRM_FORMAT_ABGR2101010 | DRM_FORMAT_XBGR2101010 => Some(optics_flux::Format::Rgb10a2Unorm),
+        DRM_FORMAT_ARGB8888 | DRM_FORMAT_XRGB8888 => Some(optics_gfx::Format::Bgra8Unorm),
+        DRM_FORMAT_ABGR8888 | DRM_FORMAT_XBGR8888 => Some(optics_gfx::Format::Rgba8Unorm),
+        DRM_FORMAT_ABGR2101010 | DRM_FORMAT_XBGR2101010 => Some(optics_gfx::Format::Rgb10a2Unorm),
         _ => None,
     }
 }
 
-/// Map a `wp_color_management_v1` parametric image description onto a flux
-/// color space. `None` when the pair is not representable (flux validates:
+/// Map a `wp_color_management_v1` parametric image description onto an
+/// `optics-gfx` color space. `None` when the pair is not representable (gfx validates:
 /// sane primaries, gamma > 0 for power curves).
-fn flux_color_space(
+fn gfx_color_space(
     color: &tessera_primitives::color::ParametricColor,
-) -> Option<optics_flux::ColorSpace> {
+) -> Option<optics_gfx::ColorSpace> {
     use tessera_primitives::color::ContentPrimaries;
     use tessera_primitives::color::ContentTransfer;
     use tessera_primitives::color::NamedPrimaries;
     use tessera_primitives::color::NamedTransfer;
     let (transfer, gamma) = match color.transfer {
         ContentTransfer::Named(NamedTransfer::Linear) => {
-            (optics_flux::TransferFunction::Linear, 0.0)
+            (optics_gfx::TransferFunction::Linear, 0.0)
         }
         ContentTransfer::Named(NamedTransfer::Gamma22) => {
-            (optics_flux::TransferFunction::Gamma, 2.2)
+            (optics_gfx::TransferFunction::Gamma, 2.2)
         }
-        ContentTransfer::Named(NamedTransfer::Srgb) => (optics_flux::TransferFunction::Srgb, 0.0),
-        ContentTransfer::Named(NamedTransfer::Pq) => (optics_flux::TransferFunction::Pq, 0.0),
-        ContentTransfer::Named(NamedTransfer::Hlg) => (optics_flux::TransferFunction::Hlg, 0.0),
-        ContentTransfer::Gamma(g) => (optics_flux::TransferFunction::Gamma, g),
+        ContentTransfer::Named(NamedTransfer::Srgb) => (optics_gfx::TransferFunction::Srgb, 0.0),
+        ContentTransfer::Named(NamedTransfer::Pq) => (optics_gfx::TransferFunction::Pq, 0.0),
+        ContentTransfer::Named(NamedTransfer::Hlg) => (optics_gfx::TransferFunction::Hlg, 0.0),
+        ContentTransfer::Gamma(g) => (optics_gfx::TransferFunction::Gamma, g),
     };
     let space = match color.primaries {
         ContentPrimaries::Named(named) => {
             let primaries = match named {
-                NamedPrimaries::Srgb => optics_flux::ColorPrimaries::Bt709,
-                NamedPrimaries::Bt2020 => optics_flux::ColorPrimaries::Bt2020,
-                NamedPrimaries::DisplayP3 => optics_flux::ColorPrimaries::DisplayP3,
-                NamedPrimaries::AdobeRgb => optics_flux::ColorPrimaries::AdobeRgb,
+                NamedPrimaries::Srgb => optics_gfx::ColorPrimaries::Bt709,
+                NamedPrimaries::Bt2020 => optics_gfx::ColorPrimaries::Bt2020,
+                NamedPrimaries::DisplayP3 => optics_gfx::ColorPrimaries::DisplayP3,
+                NamedPrimaries::AdobeRgb => optics_gfx::ColorPrimaries::AdobeRgb,
             };
-            optics_flux::ColorSpace::new(primaries, transfer).with_gamma(gamma)
+            optics_gfx::ColorSpace::new(primaries, transfer).with_gamma(gamma)
         }
-        ContentPrimaries::Custom(xy) => optics_flux::ColorSpace::custom(
-            optics_flux::PrimariesXy {
+        ContentPrimaries::Custom(xy) => optics_gfx::ColorSpace::custom(
+            optics_gfx::PrimariesXy {
                 rx: xy.rx,
                 ry: xy.ry,
                 gx: xy.gx,
@@ -95,23 +95,23 @@ fn prefer_native_modifiers(modifiers: &mut [u64]) {
 /// `zwp_linux_dmabuf_v1`, by querying the render device for the modifiers it
 /// can both sample and import per fourcc.
 ///
-/// Each advertised fourcc is paired only with modifiers Flux proves both
+/// Each advertised fourcc is paired only with modifiers gfx proves both
 /// sampleable and externally importable on the selected device. Unsupported
 /// formats are omitted; in particular, LINEAR is never synthesized when the
 /// driver does not report it.
 ///
-/// Call this once at startup, after the flux device is created, and pass the
+/// Call this once at startup, after the gfx device is created, and pass the
 /// result to `tessera_wayland::Server::new_with_render_caps`.
-pub fn formats_with_modifiers(device: &optics_flux::Device) -> Vec<drm_fmt::DmabufFormat> {
+pub fn formats_with_modifiers(device: &optics_gfx::Device) -> Vec<drm_fmt::DmabufFormat> {
     use drm_fmt::DmabufFormat;
-    if !optics_flux::dmabuf_supported(device) {
+    if !optics_gfx::dmabuf_supported(device) {
         return Vec::new();
     }
     ADVERTISED_FOURCCS
         .iter()
         .filter_map(|&fourcc| {
-            let format = drm_format_to_flux(fourcc)?;
-            let mut modifiers = optics_flux::dmabuf_format_modifiers(device, format);
+            let format = drm_format_to_gfx(fourcc)?;
+            let mut modifiers = optics_gfx::dmabuf_format_modifiers(device, format);
             if modifiers.is_empty() {
                 return None;
             }
@@ -134,7 +134,7 @@ const ADVERTISED_FOURCCS: [u32; 6] = drm_fmt::ADVERTISED_FOURCCS;
 /// and its new dimensions (swapped for the 90°/270° rotations).
 ///
 /// This is the CPU-staging fallback. A GPU-side transform (per-vertex UVs
-/// in flux's image fragment shader) is the long-term path; until that lands,
+/// in gfx's image fragment shader) is the long-term path; until that lands,
 /// the cost is one pixel copy per commit on transformed surfaces, which is
 /// negligible for the static-image case and acceptable for video.
 ///
@@ -554,17 +554,17 @@ pub struct Renderer {
     /// not rebuild a VkImage on every commit.
     dmabuf_cache: HashMap<(usize, u64), CachedImage>,
     failed_imports: HashMap<usize, ()>,
-    /// Images removed from the live cache stay alive beyond Flux's maximum
+    /// Images removed from the live cache stay alive beyond gfx's maximum
     /// three in-flight frame slots. Vulkan resources must not be destroyed
     /// while an older command buffer may still sample them.
-    retired: Vec<(optics_flux::Image, u64)>,
+    retired: Vec<(optics_gfx::Image, u64)>,
     frame_epoch: u64,
     /// Scratch buffers reused across [`Renderer::gc`] calls so the live-id
     /// set and dead-id lists are never freshly heap-allocated each frame.
     gc_live: std::collections::HashSet<usize>,
     gc_dead_shm: Vec<usize>,
     gc_dead_dmabuf: Vec<(usize, u64)>,
-    /// Parsed ICC profiles (flux) keyed by a hash of the profile bytes, so a
+    /// Parsed ICC profiles (gfx) keyed by a hash of the profile bytes, so a
     /// color-tagged surface does not re-parse per texture creation. The
     /// value's second field is the frame epoch of the last lookup (LRU).
     ///
@@ -572,7 +572,7 @@ pub struct Renderer {
     /// 16 MiB cap each), so an unbounded map is a remote memory-exhaustion
     /// vector. Eviction only costs a re-parse on the next texture
     /// recreation; an already-imported texture keeps its baked color tag.
-    icc_profiles: HashMap<u64, (optics_flux::IccProfile, u64)>,
+    icc_profiles: HashMap<u64, (optics_gfx::IccProfile, u64)>,
     /// ICC byte-hashes that failed to parse; suppresses per-frame retries
     /// and log floods (the content falls back to sRGB interpretation).
     /// Cleared wholesale when it exceeds [`MAX_ICC_FAILED`] — the worst case
@@ -592,7 +592,7 @@ pub struct Renderer {
 /// `color` pins the color-space tag the texture was created with: a tag
 /// change on the same buffer forces a fresh upload/import.
 struct CachedImage {
-    image: optics_flux::Image,
+    image: optics_gfx::Image,
     generation: u64,
     modifier: u64,
     width: u32,
@@ -683,14 +683,14 @@ pub struct SoftShadowLayer<'a> {
 /// drawing it straight composites correctly.
 pub struct SoftShadowEntry<'a> {
     pub window: tessera_desktop::window::WindowId,
-    /// Raw `flux_image` borrowed from the composition root's shadow filter
+    /// Raw `optics_gfx_image` borrowed from the composition root's shadow filter
     /// for this frame slot (ADR-0074 frame-slot lifetime). The renderer only
     /// reads it inside this frame's canvas passes.
-    pub raw: *mut optics_flux::sys::flux_image,
+    pub raw: *mut optics_gfx::sys::optics_gfx_image,
     /// Marker tying the borrow to the layer's lifetime without taking a
     /// reference the filter owns (the filter is re-applied only on the next
     /// frame rotation, after this frame submits).
-    pub _borrow: std::marker::PhantomData<&'a optics_flux::Image>,
+    pub _borrow: std::marker::PhantomData<&'a optics_gfx::Image>,
     /// Placement in physical pixels, already accounting for the blur margin.
     pub x: f32,
     pub y: f32,
@@ -789,7 +789,7 @@ fn ordered_window_surfaces(
 }
 
 fn draw_window_feedback(
-    canvas: &optics_flux::CanvasCommands<'_>,
+    canvas: &optics_gfx::CanvasCommands<'_>,
     window: &tessera_desktop::window::Window,
 ) {
     if window.minimized {
@@ -800,10 +800,10 @@ fn draw_window_feedback(
     let width = window.size.w as f32;
     let height = window.size.h as f32;
     if window.suspended_by_modal {
-        canvas.fill_rect(x, y, width, height, optics_flux::rgba(10, 12, 22, 130));
+        canvas.fill_rect(x, y, width, height, optics_gfx::rgba(10, 12, 22, 130));
     }
     if window.attention_pulse {
-        let color = optics_flux::rgba(120, 175, 255, 245);
+        let color = optics_gfx::rgba(120, 175, 255, 245);
         let t = 2.5;
         canvas.fill_rect(x, y, width, t, color);
         canvas.fill_rect(x, y + height - t, width, t, color);
@@ -847,7 +847,7 @@ fn window_casts_resize_shadow(window: &tessera_desktop::window::Window) -> bool 
 /// floating window. Its visual extent is intentionally independent from the
 /// larger direct-resize hit target.
 fn draw_window_resize_shadow(
-    canvas: &optics_flux::CanvasCommands<'_>,
+    canvas: &optics_gfx::CanvasCommands<'_>,
     window: &tessera_desktop::window::Window,
 ) {
     const SHADOW_MARGIN: u32 = 4;
@@ -871,7 +871,7 @@ fn draw_window_resize_shadow(
             w + inset * 2.0,
             h + inset * 2.0,
             extent as f32 + 2.0,
-            optics_flux::rgba(0, 0, 0, alpha as u8),
+            optics_gfx::rgba(0, 0, 0, alpha as u8),
             1.0,
         );
     }
@@ -902,32 +902,32 @@ impl Renderer {
             .retain(|(_, retired_at)| epoch.wrapping_sub(*retired_at) <= 4);
     }
 
-    /// Build the flux image color tag for a surface's content description
+    /// Build the gfx image color tag for a surface's content description
     /// (`wp_color_management_v1`), parsing and caching ICC profiles on
     /// demand. An empty/default tag selects the format-derived color space
     /// (sRGB for 8-bit content).
     fn image_color_tag(
         &mut self,
         color: Option<&tessera_primitives::color::ContentColor>,
-    ) -> optics_flux::ImageColorSpace<'_> {
+    ) -> optics_gfx::ImageColorSpace<'_> {
         match color {
             Some(tessera_primitives::color::ContentColor::Parametric(parametric)) => {
-                optics_flux::ImageColorSpace {
-                    space: flux_color_space(parametric),
+                optics_gfx::ImageColorSpace {
+                    space: gfx_color_space(parametric),
                     icc: None,
                 }
             }
             Some(tessera_primitives::color::ContentColor::Icc(bytes)) => {
-                optics_flux::ImageColorSpace {
+                optics_gfx::ImageColorSpace {
                     space: None,
                     icc: self.icc_profile_for(bytes),
                 }
             }
-            None => optics_flux::ImageColorSpace::default(),
+            None => optics_gfx::ImageColorSpace::default(),
         }
     }
 
-    fn icc_profile_for(&mut self, bytes: &[u8]) -> Option<&optics_flux::IccProfile> {
+    fn icc_profile_for(&mut self, bytes: &[u8]) -> Option<&optics_gfx::IccProfile> {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         bytes.hash(&mut hasher);
@@ -941,7 +941,7 @@ impl Renderer {
         if self.icc_failed.contains(&key) {
             return None;
         }
-        let profile = match optics_flux::IccProfile::new(bytes) {
+        let profile = match optics_gfx::IccProfile::new(bytes) {
             Ok(profile) => profile,
             Err(error) => {
                 log::warn!("[render] ICC profile parse failed ({error}); content renders as sRGB");
@@ -1073,14 +1073,14 @@ impl Renderer {
     }
 
     /// Composite toplevel surfaces into `canvas`. Each is uploaded to a cached
-    /// flux texture (re-uploaded only when its generation changes) and drawn
+    /// gfx texture (re-uploaded only when its generation changes) and drawn
     /// at the position declared in its `geometry`. `origin` is kept for API
     /// stability but no longer offsets the draw — surface positions are
     /// authoritative.
     pub fn draw_toplevels(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         frames: &[SurfacePixels<'_>],
         _origin: (f32, f32),
     ) {
@@ -1093,8 +1093,8 @@ impl Renderer {
     /// mapped mode; `map` fully owns placement.
     pub fn draw_toplevels_mapped(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         frames: &[SurfacePixels<'_>],
         map: &dyn Fn(
             Option<tessera_desktop::window::WindowId>,
@@ -1110,8 +1110,8 @@ impl Renderer {
     /// can violate window-tree occlusion.
     pub fn draw_surfaces_ordered(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         order: &[usize],
         shm: &[SurfacePixels<'_>],
         dmabuf: &[SurfaceDmabuf],
@@ -1137,8 +1137,8 @@ impl Renderer {
     #[allow(clippy::too_many_arguments)]
     pub fn draw_surfaces_ordered_with_window_shadows(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         order: &[usize],
         shm: &[SurfacePixels<'_>],
         dmabuf: &[SurfaceDmabuf],
@@ -1171,8 +1171,8 @@ impl Renderer {
     #[allow(clippy::too_many_arguments)]
     pub fn draw_surfaces_ordered_with_window_shadows_excluding(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         order: &[usize],
         shm: &[SurfacePixels<'_>],
         dmabuf: &[SurfaceDmabuf],
@@ -1203,8 +1203,8 @@ impl Renderer {
     /// internal mixed-backing Z-order.
     pub fn draw_workspace_surface_layer(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         order: &[usize],
         shm: &[SurfacePixels<'_>],
         dmabuf: &[SurfaceDmabuf],
@@ -1227,8 +1227,8 @@ impl Renderer {
     /// Ordered mixed-backing surface drawing with overview placement applied.
     pub fn draw_surfaces_ordered_mapped(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         order: &[usize],
         shm: &[SurfacePixels<'_>],
         dmabuf: &[SurfaceDmabuf],
@@ -1256,8 +1256,8 @@ impl Renderer {
     #[allow(clippy::too_many_arguments)]
     pub fn draw_surfaces_ordered_mapped_with_style(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         order: &[usize],
         shm: &[SurfacePixels<'_>],
         dmabuf: &[SurfaceDmabuf],
@@ -1286,8 +1286,8 @@ impl Renderer {
     /// [`draw_surfaces_ordered`](Self::draw_surfaces_ordered).
     pub fn draw_toplevels_ordered(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         order: &[usize],
         shm: &[SurfacePixels<'_>],
         dmabuf: &[SurfaceDmabuf],
@@ -1298,8 +1298,8 @@ impl Renderer {
     /// Compatibility entry point for mapped xdg-role-only drawing.
     pub fn draw_toplevels_ordered_mapped(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         order: &[usize],
         shm: &[SurfacePixels<'_>],
         dmabuf: &[SurfaceDmabuf],
@@ -1313,8 +1313,8 @@ impl Renderer {
 
     fn draw_surfaces_ordered_impl(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         order: &[usize],
         shm: &[SurfacePixels<'_>],
         dmabuf: &[SurfaceDmabuf],
@@ -1369,34 +1369,35 @@ impl Renderer {
                             // through this frame's passes (ADR-0074
                             // frame-slot lifetime). One draw call, read-only,
                             // inside this canvas pass.
-                            let destination = optics_flux::sys::flux_rect {
+                            let destination = optics_gfx::sys::optics_gfx_rect {
                                 x: entry.x,
                                 y: entry.y,
                                 w: entry.w,
                                 h: entry.h,
                             };
-                            let geom = optics_flux::sys::flux_geometry {
-                                kind: optics_flux::sys::flux_geom_kind::FLUX_GEOM_RECT,
+                            let geom = optics_gfx::sys::optics_gfx_geometry {
+                                kind: optics_gfx::sys::optics_gfx_geom_kind::OPTICS_GFX_GEOM_RECT,
                                 _pad: [0; 3],
-                                stroke: optics_flux::sys::flux_stroke_style {
+                                stroke: optics_gfx::sys::optics_gfx_stroke_style {
                                     width: 0.0,
                                     ..Default::default()
                                 },
-                                __bindgen_anon_1: optics_flux::sys::flux_geometry__bindgen_ty_1 {
-                                    rect: optics_flux::sys::flux_geom_rect_data {
-                                        rect: destination,
+                                __bindgen_anon_1:
+                                    optics_gfx::sys::optics_gfx_geometry__bindgen_ty_1 {
+                                        rect: optics_gfx::sys::optics_gfx_geom_rect_data {
+                                            rect: destination,
+                                        },
                                     },
-                                },
                             };
-                            let brush = optics_flux::sys::flux_brush {
-                                kind: optics_flux::sys::flux_brush_kind::FLUX_BRUSH_IMAGE_PATTERN,
-                                blend: optics_flux::sys::flux_blend_mode::FLUX_BLEND_SRC_OVER,
+                            let brush = optics_gfx::sys::optics_gfx_brush {
+                                kind: optics_gfx::sys::optics_gfx_brush_kind::OPTICS_GFX_BRUSH_IMAGE_PATTERN,
+                                blend: optics_gfx::sys::optics_gfx_blend_mode::OPTICS_GFX_BLEND_SRC_OVER,
                                 opacity: 1.0,
-                                __bindgen_anon_1: optics_flux::sys::flux_brush__bindgen_ty_1 {
-                                    image: optics_flux::sys::flux_brush_image_data {
+                                __bindgen_anon_1: optics_gfx::sys::optics_gfx_brush__bindgen_ty_1 {
+                                    image: optics_gfx::sys::optics_gfx_brush_image_data {
                                         image: entry.raw,
                                         sampler: std::ptr::null_mut(),
-                                        src_rect: optics_flux::sys::flux_rect {
+                                        src_rect: optics_gfx::sys::optics_gfx_rect {
                                             x: 0.0,
                                             y: 0.0,
                                             w: 0.0,
@@ -1404,7 +1405,7 @@ impl Renderer {
                                         },
                                         opaque_only: false,
                                         tint: 0xFFFFFFFF,
-                                        clip_rect: optics_flux::sys::flux_rect {
+                                        clip_rect: optics_gfx::sys::optics_gfx_rect {
                                             x: 0.0,
                                             y: 0.0,
                                             w: 0.0,
@@ -1415,9 +1416,9 @@ impl Renderer {
                                 },
                             };
                             unsafe {
-                                optics_flux::sys::flux_canvas_draw_geometry(
+                                optics_gfx::sys::optics_gfx_canvas_draw_geometry(
                                     canvas.as_raw(),
-                                    &optics_flux::sys::flux_canvas_draw_geometry_opts {
+                                    &optics_gfx::sys::optics_gfx_canvas_draw_geometry_opts {
                                         geom: &geom,
                                         brush: &brush,
                                     },
@@ -1456,8 +1457,8 @@ impl Renderer {
     /// that id and dies with the ghost's cache retirement below.
     pub fn draw_closing_frames(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         ghosts: &[tessera_primitives::ClosingGhostView],
     ) {
         // One upload batch for all ghost uploads; see
@@ -1468,24 +1469,24 @@ impl Renderer {
             if alpha == 0 {
                 continue;
             }
-            let style = optics_flux::ImageStyle {
-                tint: optics_flux::rgba(255, 255, 255, alpha),
-                blend: optics_flux::BlendMode::SrcOver,
+            let style = optics_gfx::ImageStyle {
+                tint: optics_gfx::rgba(255, 255, 255, alpha),
+                blend: optics_gfx::BlendMode::SrcOver,
             };
             if ghost.dmabuf_fd >= 0
-                && let Some(fmt) = drm_format_to_flux(ghost.drm_format)
+                && let Some(fmt) = drm_format_to_gfx(ghost.drm_format)
             {
                 let key = (ghost.id, ghost.dmabuf_fd as u64);
                 if !self.dmabuf_cache.contains_key(&key) {
-                    // Flux owns and closes the plane fd on a successful
-                    // import (see flux/dmabuf.h). The ghost's fd is owned by
+                    // gfx owns and closes the plane fd on a successful
+                    // import (see <optics/gfx/dmabuf.h>). The ghost's fd is owned by
                     // its `DmabufBuffer`, which still closes it when the
-                    // closing frame settles — handing flux that same
+                    // closing frame settles — handing gfx that same
                     // descriptor would double-close it and could take an
-                    // unrelated fd down with it. Hand flux a fresh duplicate,
+                    // unrelated fd down with it. Hand gfx a fresh duplicate,
                     // exactly as the live path does. The duplicate is an
                     // `OwnedFd` from the start: a failed import closes it via
-                    // its own drop, and success hands it to flux.
+                    // its own drop, and success hands it to gfx.
                     let import_fd =
                         unsafe { BorrowedFd::borrow_raw(ghost.dmabuf_fd) }.try_clone_to_owned();
                     let import_fd = match import_fd {
@@ -1499,7 +1500,7 @@ impl Renderer {
                     // manual `libc::close` needed anymore.
                     let imported = unsafe {
                         let tag = self.image_color_tag(ghost.color.as_ref());
-                        optics_flux::Image::import_dmabuf_with_color_space(
+                        optics_gfx::Image::import_dmabuf_with_color_space(
                             device,
                             ghost.buffer_width as u32,
                             ghost.buffer_height as u32,
@@ -1547,11 +1548,11 @@ impl Renderer {
             } else if !ghost.pixels.is_empty() && !self.cache.contains_key(&ghost.id) {
                 let uploaded = {
                     let tag = self.image_color_tag(ghost.color.as_ref());
-                    optics_flux::Image::from_bytes_with_color_space(
+                    optics_gfx::Image::from_bytes_with_color_space(
                         device,
                         ghost.buffer_width as u32,
                         ghost.buffer_height as u32,
-                        optics_flux::Format::Bgra8Unorm,
+                        optics_gfx::Format::Bgra8Unorm,
                         ghost.pixels,
                         tag,
                     )
@@ -1587,8 +1588,8 @@ impl Renderer {
 
     fn draw_toplevels_impl(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         frames: &[SurfacePixels<'_>],
         map: Option<
             &dyn Fn(
@@ -1637,7 +1638,7 @@ impl Renderer {
                 // 1. An upright, same-tag texture whose cached size still
                 //    matches can be refreshed **in place** with a full
                 //    `update_region`. The pixel copy is the same staging
-                //    upload `flux_image_create` performs, but it skips
+                //    upload `optics_gfx_image_create` performs, but it skips
                 //    re-allocating the VkImage, re-registering it in the
                 //    bindless heap, retiring the old texture through the
                 //    deferred-release queue, and the per-upload queue
@@ -1648,7 +1649,7 @@ impl Renderer {
                 // 2. Same conditions *plus* usable surface-local damage:
                 //    upload only the damage bounding box.
                 // 3. Anything else (first frame, resize, color-tag change,
-                //    rotated buffer): recreate through `flux_image_create`.
+                //    rotated buffer): recreate through `optics_gfx_image_create`.
                 let upright = f.geometry.transform == Transform::Normal;
                 let in_place =
                     dims_match && !tag_changed && upright && self.cache.contains_key(&f.id);
@@ -1778,7 +1779,7 @@ impl Renderer {
                     // Apply the buffer transform on the CPU at upload time.
                     // For the common case (Normal) this is a borrowed Cow
                     // with no allocation; axis-swapping rotations return an
-                    // owned staging buffer. GPU-side transforms in flux's
+                    // owned staging buffer. GPU-side transforms in gfx's
                     // image shader are the long-term path.
                     let transformed = transform_pixels(
                         f.pixels,
@@ -1788,11 +1789,11 @@ impl Renderer {
                     );
                     let uploaded = {
                         let tag = self.image_color_tag(f.color.as_ref());
-                        optics_flux::Image::from_bytes_with_color_space(
+                        optics_gfx::Image::from_bytes_with_color_space(
                             device,
                             tex_w as u32,
                             tex_h as u32,
-                            optics_flux::Format::Bgra8Unorm,
+                            optics_gfx::Format::Bgra8Unorm,
                             &transformed,
                             tag,
                         )
@@ -1850,9 +1851,9 @@ impl Renderer {
                 let fade_style = if map.is_none() {
                     f.geometry.transition_opacity.map(|opacity| {
                         let alpha = (opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
-                        optics_flux::ImageStyle {
-                            tint: optics_flux::rgba(255, 255, 255, alpha),
-                            blend: optics_flux::BlendMode::SrcOver,
+                        optics_gfx::ImageStyle {
+                            tint: optics_gfx::rgba(255, 255, 255, alpha),
+                            blend: optics_gfx::BlendMode::SrcOver,
                         }
                     })
                 } else {
@@ -1868,9 +1869,9 @@ impl Renderer {
                     let mapped = map(f.window, natural);
                     if let Some(style) = mapped_style {
                         let (brightness, alpha) = mapped_surface_modulation(style);
-                        let image_style = optics_flux::ImageStyle {
-                            tint: optics_flux::rgba(brightness, brightness, brightness, alpha),
-                            blend: optics_flux::BlendMode::SrcOver,
+                        let image_style = optics_gfx::ImageStyle {
+                            tint: optics_gfx::rgba(brightness, brightness, brightness, alpha),
+                            blend: optics_gfx::BlendMode::SrcOver,
                         };
                         let clip = style.rounded_clip;
                         canvas.draw_image_clipped_rrect_with_style(
@@ -2002,12 +2003,12 @@ impl Renderer {
     }
 
     /// Composite dma-buf-backed toplevels by zero-copy import. Each surface's
-    /// fd is imported into a cached flux texture (re-imported only when the
+    /// fd is imported into a cached gfx texture (re-imported only when the
     /// generation changes) and drawn at the position declared in its geometry.
     pub fn draw_dmabuf_toplevels(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         frames: &[SurfaceDmabuf],
         _origin: (f32, f32),
     ) {
@@ -2019,8 +2020,8 @@ impl Renderer {
     /// overview's grid placement, M9).
     pub fn draw_dmabuf_toplevels_mapped(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         frames: &[SurfaceDmabuf],
         map: &dyn Fn(
             Option<tessera_desktop::window::WindowId>,
@@ -2032,8 +2033,8 @@ impl Renderer {
 
     fn draw_dmabuf_toplevels_impl(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         frames: &[SurfaceDmabuf],
         map: Option<
             &dyn Fn(
@@ -2059,7 +2060,7 @@ impl Renderer {
             if reusable {
                 // Explicit-sync fences describe each new producer commit, not
                 // the lifetime of the backing buffer. Attach the new fence to
-                // this frame's use of the existing VkImage; Flux waits it on
+                // this frame's use of the existing VkImage; gfx waits it on
                 // the GPU before the FOREIGN -> graphics ownership acquire.
                 let needs_acquire_wait = self.dmabuf_cache.get(&key).is_some_and(|cached| {
                     reusable_acquire_wait_required(cached.generation, f.generation, f.acquire_fence)
@@ -2102,10 +2103,10 @@ impl Renderer {
                 self.failed_imports.remove(&f.id);
             } else {
                 self.retire_dmabuf(key);
-                if let Some(fmt) = drm_format_to_flux(f.drm_format) {
-                    // Flux consumes the descriptor fd on success. The frame's
+                if let Some(fmt) = drm_format_to_gfx(f.drm_format) {
+                    // gfx consumes the descriptor fd on success. The frame's
                     // fd is borrowed from the server and must remain valid for
-                    // later commits, so hand Flux a fresh duplicate. Wrapping
+                    // later commits, so hand gfx a fresh duplicate. Wrapping
                     // the duplicate in `OwnedFd` right away means every early
                     // `continue` below drops (and closes) it.
                     let import_fd = match unsafe { BorrowedFd::borrow_raw(f.fd) }
@@ -2144,7 +2145,7 @@ impl Renderer {
                     };
                     let img = unsafe {
                         let tag = self.image_color_tag(f.color.as_ref());
-                        optics_flux::Image::import_dmabuf_with_color_space(
+                        optics_gfx::Image::import_dmabuf_with_color_space(
                             device,
                             f.width as u32,
                             f.height as u32,
@@ -2190,7 +2191,7 @@ impl Renderer {
                             );
                         }
                         Err(e) => {
-                            // The `OwnedFd` drops close the duplicates; flux
+                            // The `OwnedFd` drops close the duplicates; gfx
                             // only consumes them on a successful import.
                             // Suppress repeated identical failures; otherwise a
                             // persistent import problem floods the log every
@@ -2243,9 +2244,9 @@ impl Renderer {
                 let fade_style = if map.is_none() {
                     f.geometry.transition_opacity.map(|opacity| {
                         let alpha = (opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
-                        optics_flux::ImageStyle {
-                            tint: optics_flux::rgba(255, 255, 255, alpha),
-                            blend: optics_flux::BlendMode::SrcOver,
+                        optics_gfx::ImageStyle {
+                            tint: optics_gfx::rgba(255, 255, 255, alpha),
+                            blend: optics_gfx::BlendMode::SrcOver,
                         }
                     })
                 } else {
@@ -2261,9 +2262,9 @@ impl Renderer {
                     let mapped = map(f.window, natural);
                     if let Some(style) = mapped_style {
                         let (brightness, alpha) = mapped_surface_modulation(style);
-                        let image_style = optics_flux::ImageStyle {
-                            tint: optics_flux::rgba(brightness, brightness, brightness, alpha),
-                            blend: optics_flux::BlendMode::SrcOver,
+                        let image_style = optics_gfx::ImageStyle {
+                            tint: optics_gfx::rgba(brightness, brightness, brightness, alpha),
+                            blend: optics_gfx::BlendMode::SrcOver,
                         };
                         let clip = style.rounded_clip;
                         canvas.draw_image_clipped_rrect_with_style(
@@ -2428,8 +2429,8 @@ impl Renderer {
     /// with the toplevel draw path.
     pub fn draw_subsurfaces(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         frames: &[SurfacePixels<'_>],
     ) {
         self.draw_toplevels(device, canvas, frames, (0.0, 0.0));
@@ -2439,8 +2440,8 @@ impl Renderer {
     /// grid mapping applied to every frame's natural rect (M9).
     pub fn draw_subsurfaces_mapped(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         frames: &[SurfacePixels<'_>],
         map: &dyn Fn(
             Option<tessera_desktop::window::WindowId>,
@@ -2454,8 +2455,8 @@ impl Renderer {
     /// the zero-copy import path.
     pub fn draw_dmabuf_subsurfaces(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         frames: &[SurfaceDmabuf],
     ) {
         self.draw_dmabuf_toplevels(device, canvas, frames, (0.0, 0.0));
@@ -2465,8 +2466,8 @@ impl Renderer {
     /// the overview's grid mapping applied (M9).
     pub fn draw_dmabuf_subsurfaces_mapped(
         &mut self,
-        device: &optics_flux::Device,
-        canvas: &optics_flux::CanvasCommands<'_>,
+        device: &optics_gfx::Device,
+        canvas: &optics_gfx::CanvasCommands<'_>,
         frames: &[SurfaceDmabuf],
         map: &dyn Fn(
             Option<tessera_desktop::window::WindowId>,
@@ -2477,18 +2478,18 @@ impl Renderer {
     }
 }
 
-/// Create a flux device suitable for compositing.
+/// Create a gfx device suitable for compositing.
 ///
 /// `headless` skips swapchain/presentation requirements — used for smoke tests
 /// and any logic that never presents. A windowed backend passes `false` plus
-/// the surface extensions it needs. Frame slots stay at the flux default (0);
+/// the surface extensions it needs. Frame slots stay at the gfx default (0);
 /// hosts that present choose their own count (see `Host::create_device`).
 pub fn create_device(
     headless: bool,
     instance_extensions: &[&std::ffi::CStr],
     device_extensions: &[&std::ffi::CStr],
-) -> Result<optics_flux::Device, optics_flux::Error> {
-    optics_flux::Device::new(headless, instance_extensions, device_extensions, 0)
+) -> Result<optics_gfx::Device, optics_gfx::Error> {
+    optics_gfx::Device::new(headless, instance_extensions, device_extensions, 0)
 }
 
 #[cfg(test)]

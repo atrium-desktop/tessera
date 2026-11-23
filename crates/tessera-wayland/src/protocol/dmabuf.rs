@@ -12,7 +12,7 @@ const DRM_FORMAT_ARGB8888: u32 = 0x3432_5241;
 const DRM_FORMAT_XRGB8888: u32 = 0x3432_5258;
 const DRM_FORMAT_ABGR8888: u32 = 0x3432_4241;
 const DRM_FORMAT_XBGR8888: u32 = 0x3432_4258;
-/// DRM modifier advertised. Flux imports an explicit single-plane layout, so
+/// DRM modifier advertised. gfx imports an explicit single-plane layout, so
 /// do not advertise INVALID/implicit and let clients select a layout we cannot
 /// validate or sample.
 const DRM_FORMAT_MOD_LINEAR: u64 = 0;
@@ -346,7 +346,7 @@ unsafe fn send_dmabuf_feedback(feedback: *mut ffi::wl_resource, state: &State) -
             &mut main_device_array as *mut ffi::wl_array,
         );
 
-        // Prefer buffers that both Flux can import and every active primary
+        // Prefer buffers that both gfx can import and every active primary
         // plane can scan out. This tranche must precede the renderer fallback
         // so Mesa/Firefox chooses a KMS-compatible modifier for video frames.
         let scanout_indices = scanout_format_indices(&pairs, &state.dmabuf_scanout_formats);

@@ -1473,7 +1473,7 @@ impl Server {
     }
 
     /// Install the session color pipeline reported by the backend (ADR-0001
-    /// boundary: the pixel encoding is a flux capability; this server only
+    /// boundary: the pixel encoding is a gfx capability; this server only
     /// advertises it). On change, broadcast
     /// `wp_color_management_output_v1.image_description_changed` and
     /// `wp_color_management_surface_feedback_v1.preferred_changed`.

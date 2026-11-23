@@ -3,6 +3,7 @@ name = "tessera-dbus"
 description = "Minimal synchronous D-Bus v1 wire-protocol client and object dispatcher over Unix sockets"
 version.workspace = true
 edition.workspace = true
+publish = false
 license.workspace = true
 rust-version.workspace = true
 

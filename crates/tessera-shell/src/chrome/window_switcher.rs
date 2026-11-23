@@ -7,7 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use optics_lens::{Align, Color, Frame, Input, LayoutOpts, Rect};
+use optics_ui::{Align, Color, Frame, Input, LayoutOpts, Rect};
 use tessera_design::materials::{chrome_place, surface_layout};
 use tessera_design::{Design, PreviewSelectionStyle};
 
@@ -213,7 +213,7 @@ impl WindowSwitcher {
             selected_index,
             self.mode,
         );
-        // Reduced motion is a one-frame resolve, expressed once by `transit`
+        // Reduced motion is a one-frame resolve, expressed once by `optics-motion`
         // (`blend == 1.0`), so no separate branch is needed for the panel or
         // the fixed strip.
         let blend = crate::widgets::motion::blend(SLIDE_RATE, dt, self.reduced_motion);
@@ -393,7 +393,7 @@ impl WindowSwitcher {
         for (halo, _) in tessera_design::materials::elevation_halo_for_body(
             &self.design,
             tessera_design::SurfaceRole::FloatingPanel,
-            to_lens(panel),
+            to_ui(panel),
             self.design.radii.panel_lg,
             1.0,
         ) {
@@ -410,9 +410,7 @@ impl WindowSwitcher {
             display.0.max(1.0) as i32,
             display.1.max(1.0) as i32,
         );
-        region
-            .intersect(display)
-            .map(|region| vec![to_lens(region)])
+        region.intersect(display).map(|region| vec![to_ui(region)])
     }
 }
 
@@ -452,11 +450,11 @@ impl Chrome for WindowSwitcher {
             self.finish_window_switcher();
         }
 
-        // The whole strip fades through the lens opacity switch; per-item
+        // The whole strip fades through the optics-ui opacity switch; per-item
         // dimming multiplies on top of it below.
         frame.set_opacity(presentation.visibility);
         let design = self.design;
-        let panel = to_lens(presentation.panel);
+        let panel = to_ui(presentation.panel);
         let panel_material = preview::panel_material(&design);
         tessera_design::materials::place_floating(
             frame,
@@ -480,7 +478,7 @@ impl Chrome for WindowSwitcher {
 
         // The panel body and its elevation halo are painted above; everything
         // below is content that belongs to the strip and must not paint into
-        // the desktop outside it. A scoped lens clip stamps every node built
+        // the desktop outside it. A scoped optics-ui clip stamps every node built
         // here — including the absolutely placed labels and hover washes that
         // escape the panel container's flow — so the boundary is enforced by
         // the renderer, not only by per-rect arithmetic.
@@ -489,7 +487,7 @@ impl Chrome for WindowSwitcher {
         if let Some(indicator) = presentation.selection_indicator
             && let Some(visible) = visible_rect(indicator.outer, presentation.panel)
         {
-            let selection = to_lens(visible);
+            let selection = to_ui(visible);
             frame.place(
                 "tessera-window-switcher-selection",
                 &chrome_place(
@@ -526,7 +524,7 @@ impl Chrome for WindowSwitcher {
                 && !selected
                 && let Some(visible) = visible_rect(presented.geometry.outer, presentation.panel)
             {
-                let outer = to_lens(visible);
+                let outer = to_ui(visible);
                 frame.place(
                     &format!("tessera-window-switcher-card-{index}"),
                     &chrome_place(
@@ -552,7 +550,7 @@ impl Chrome for WindowSwitcher {
             else {
                 continue;
             };
-            let label_rect = to_lens(label_visible);
+            let label_rect = to_ui(label_visible);
             let fallback_title = i18n.text(Message::UntitledWindow);
             let hierarchy_title = resolve_switcher_hierarchy_title(window, windows, fallback_title);
             let icon = window
@@ -592,7 +590,7 @@ impl Chrome for WindowSwitcher {
                             if let Some(icon) = icon {
                                 unsafe {
                                     frame.image_tinted(
-                                        icon as *mut optics_lens::sys::flux_image,
+                                        icon as *mut optics_ui::sys::optics_gfx_image,
                                         20.0,
                                         20.0,
                                         icon_tint,
@@ -752,7 +750,7 @@ impl Chrome for WindowSwitcher {
     }
 }
 
-fn to_lens(rect: tessera_primitives::Rect) -> Rect {
+fn to_ui(rect: tessera_primitives::Rect) -> Rect {
     Rect {
         x: rect.origin.x as f32,
         y: rect.origin.y as f32,
@@ -809,7 +807,7 @@ fn visible_rect(
 /// The label rect narrowed to the panel's right edge, or `None` when the card
 /// has not entered far enough to show one.
 ///
-/// Lens has no general nested clip for non-scrolling containers, so the card
+/// optics-ui has no general nested clip for non-scrolling containers, so the card
 /// label is the one piece of chrome that must enforce the same boundary as the
 /// compositor's preview scissor by construction. The left edge is required to
 /// be inside the panel: shifting a left-clipped label to the panel edge would

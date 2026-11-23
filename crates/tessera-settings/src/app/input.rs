@@ -1,6 +1,6 @@
-//! Wayland seat events folded into one Lens input snapshot per frame.
+//! Wayland seat events folded into one optics-ui input snapshot per frame.
 
-use optics_lens::{Input, MouseButton};
+use optics_ui::{Input, MouseButton};
 use tessera_wl_client::{AxisScroll, BTN_LEFT, BTN_MIDDLE, BTN_RIGHT, KeyEvent, Keysym, Modifiers};
 
 /// Pixels one discrete wheel notch scrolls when the device reports only
@@ -76,32 +76,31 @@ impl InputState {
     pub fn modifiers(&mut self, modifiers: Modifiers) {
         let mut mask = 0;
         if modifiers.shift {
-            mask |= optics_lens::mods::SHIFT;
+            mask |= optics_ui::mods::SHIFT;
         }
         if modifiers.ctrl {
-            mask |= optics_lens::mods::CTRL;
+            mask |= optics_ui::mods::CTRL;
         }
         if modifiers.alt {
-            mask |= optics_lens::mods::ALT;
+            mask |= optics_ui::mods::ALT;
         }
         if modifiers.logo {
-            mask |= optics_lens::mods::SUPER;
+            mask |= optics_ui::mods::SUPER;
         }
         self.mods = mask;
     }
 
     pub fn ctrl(&self) -> bool {
-        self.mods & optics_lens::mods::CTRL != 0
+        self.mods & optics_ui::mods::CTRL != 0
     }
 
     pub fn key(&mut self, event: &KeyEvent, pressed: bool, repeat: bool) {
-        if let Some(key) = lens_key(event.keysym) {
+        if let Some(key) = ui_key(event.keysym) {
             self.keys.push((key, pressed, repeat));
         }
         // Text enters through the layout commit path, never as shortcuts.
         if pressed
-            && self.mods
-                & (optics_lens::mods::CTRL | optics_lens::mods::ALT | optics_lens::mods::SUPER)
+            && self.mods & (optics_ui::mods::CTRL | optics_ui::mods::ALT | optics_ui::mods::SUPER)
                 == 0
             && let Some(text) = &event.utf8
             && text.chars().all(|c| !c.is_control())
@@ -119,7 +118,7 @@ impl InputState {
             || !self.keys.is_empty()
     }
 
-    /// Build this frame's Lens input and reset the edges.
+    /// Build this frame's optics-ui input and reset the edges.
     pub fn take_frame(&mut self, size: (f32, f32), dt: f32) -> Input {
         let mut input = Input::new(size, dt);
         let (x, y) = self.cursor.unwrap_or((-10_000.0, -10_000.0));
@@ -148,11 +147,11 @@ impl InputState {
     }
 }
 
-/// Map a keysym onto Lens's key vocabulary: portable sentinels for editing
+/// Map a keysym onto optics-ui's key vocabulary: portable sentinels for editing
 /// and navigation keys, unshifted ASCII for printable keys (so `ctrl+a`
 /// arrives as `'a'`), nothing for the rest.
-pub fn lens_key(keysym: Keysym) -> Option<i32> {
-    use optics_lens::key;
+pub fn ui_key(keysym: Keysym) -> Option<i32> {
+    use optics_ui::key;
     let special = match keysym {
         Keysym::Escape => key::ESCAPE,
         Keysym::Tab | Keysym::ISO_Left_Tab => key::TAB,
@@ -193,17 +192,17 @@ mod tests {
 
     #[test]
     fn editing_keys_map_to_portable_sentinels() {
-        assert_eq!(lens_key(Keysym::Escape), Some(optics_lens::key::ESCAPE));
-        assert_eq!(lens_key(Keysym::KP_Enter), Some(optics_lens::key::RETURN));
-        assert_eq!(lens_key(Keysym::ISO_Left_Tab), Some(optics_lens::key::TAB));
+        assert_eq!(ui_key(Keysym::Escape), Some(optics_ui::key::ESCAPE));
+        assert_eq!(ui_key(Keysym::KP_Enter), Some(optics_ui::key::RETURN));
+        assert_eq!(ui_key(Keysym::ISO_Left_Tab), Some(optics_ui::key::TAB));
     }
 
     #[test]
     fn printable_keys_arrive_as_unshifted_ascii() {
-        assert_eq!(lens_key(Keysym::a), Some(i32::from(b'a')));
-        assert_eq!(lens_key(Keysym::A), Some(i32::from(b'a')));
-        assert_eq!(lens_key(Keysym::comma), Some(i32::from(b',')));
-        assert_eq!(lens_key(Keysym::Shift_L), None);
+        assert_eq!(ui_key(Keysym::a), Some(i32::from(b'a')));
+        assert_eq!(ui_key(Keysym::A), Some(i32::from(b'a')));
+        assert_eq!(ui_key(Keysym::comma), Some(i32::from(b',')));
+        assert_eq!(ui_key(Keysym::Shift_L), None);
     }
 
     #[test]

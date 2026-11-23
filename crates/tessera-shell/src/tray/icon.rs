@@ -1,7 +1,7 @@
 //! Theme-icon resolution for SNI items, run on the worker threads.
 //!
 //! An `IconName` arrives as a theme lookup plus a decode (raster in-process, SVG
-//! compiled in process by the Optics reticle compiler) — far too slow for the
+//! compiled in process by the `optics-svg` compiler) — far too slow for the
 //! render thread. The watcher resolves names into premultiplied BGRA8 pixmaps
 //! before publishing them in the shared snapshot, so the shell only ever uploads
 //! ready pixels (ADR-0233).

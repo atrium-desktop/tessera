@@ -9,7 +9,7 @@
 //! [`ChromeEvents::confirm_pick_answered`]. Ordinary modal chrome over the
 //! live scene: no freeze, no screen-content capture.
 
-use optics_lens::{Frame, Input, Rect};
+use optics_ui::{Frame, Input, Rect};
 
 use crate::component::{
     Chrome, ChromeCommand, ChromeEvents, ChromeUpdate, ConfirmAnswer, ConfirmPickParams,
@@ -162,7 +162,7 @@ impl ConfirmPrompt {
         self.active = true;
     }
 
-    /// The body renders one label per line: lens labels do not break on
+    /// The body renders one label per line: optics-ui labels do not break on
     /// `\n`, so the panel height derives from the line count here.
     fn body_lines(&self) -> Vec<&str> {
         self.body.split('\n').collect()

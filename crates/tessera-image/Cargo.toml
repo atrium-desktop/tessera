@@ -3,6 +3,7 @@ name = "tessera-image"
 description = "Minimal Linux image decode/encode/resize crate over libpng16, libturbojpeg, libwebp, and pure-Rust GIF"
 version.workspace = true
 edition.workspace = true
+publish = false
 license.workspace = true
 rust-version.workspace = true
 

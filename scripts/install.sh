@@ -36,7 +36,7 @@ fi
 [ -x /usr/bin/pkg-config ] || die "/usr/bin/pkg-config not found"
 command -v cargo >/dev/null 2>&1 || die "cargo not found in PATH"
 
-repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 bin_dir="$repo_root/target/release"
 
 BINARIES='
@@ -52,10 +52,10 @@ tessera-castd
 
 optics_src=""
 if [ -n "${OPTICS_SOURCE_DIR:-}" ]; then
-    optics_src=$(CDPATH= cd -- "$OPTICS_SOURCE_DIR" && pwd -P)
+    optics_src=$(CDPATH='' cd -- "$OPTICS_SOURCE_DIR" && pwd -P)
     [ -f "$optics_src/meson.build" ] || die "OPTICS_SOURCE_DIR has no meson.build: $optics_src"
 elif [ -f "$repo_root/../optics/meson.build" ]; then
-    optics_src=$(CDPATH= cd -- "$repo_root/../optics" && pwd -P)
+    optics_src=$(CDPATH='' cd -- "$repo_root/../optics" && pwd -P)
 fi
 
 if [ -n "$optics_src" ]; then
@@ -82,13 +82,13 @@ if [ -n "$optics_src" ]; then
         cd -- "$repo_root"
         unset CARGO_TARGET_DIR \
             OPTICS_DYNAMIC \
-            FLUX_USE_INSTALLED VISTA_USE_INSTALLED LENS_USE_INSTALLED \
-            IRIS_USE_INSTALLED RETICLE_USE_INSTALLED \
-            FLUX_BUILD_DIR FLUX_SOURCE_DIR \
-            VISTA_BUILD_DIR VISTA_SOURCE_DIR \
-            LENS_BUILD_DIR LENS_SOURCE_DIR \
-            IRIS_BUILD_DIR IRIS_SOURCE_DIR \
-            RETICLE_BUILD_DIR RETICLE_SOURCE_DIR
+            OPTICS_GFX_USE_INSTALLED OPTICS_SCENE_USE_INSTALLED OPTICS_UI_USE_INSTALLED \
+            OPTICS_SVG_USE_INSTALLED OPTICS_TEXT_USE_INSTALLED \
+            OPTICS_GFX_BUILD_DIR OPTICS_GFX_SOURCE_DIR \
+            OPTICS_SCENE_BUILD_DIR OPTICS_SCENE_SOURCE_DIR \
+            OPTICS_UI_BUILD_DIR OPTICS_UI_SOURCE_DIR \
+            OPTICS_SVG_BUILD_DIR OPTICS_SVG_SOURCE_DIR \
+            OPTICS_TEXT_BUILD_DIR OPTICS_TEXT_SOURCE_DIR
 
         OPTICS_STATIC=1 \
         OPTICS_SOURCE_DIR="$optics_src" \
@@ -103,7 +103,7 @@ if [ -n "$optics_src" ]; then
                 -p tessera-cast
     )
 else
-    for mod in flux vista lens reticle; do
+    for mod in optics-gfx optics-scene optics-ui optics-svg optics-text; do
         if ! /usr/bin/pkg-config --exists "$mod" 2>/dev/null; then
             die "missing system Optics pkg-config module: $mod (install matching static Optics or place checkout at ../optics)"
         fi
@@ -115,18 +115,18 @@ else
         unset CARGO_TARGET_DIR \
             OPTICS_DYNAMIC \
             OPTICS_BUILD_DIR OPTICS_SOURCE_DIR \
-            FLUX_BUILD_DIR FLUX_SOURCE_DIR \
-            VISTA_BUILD_DIR VISTA_SOURCE_DIR \
-            LENS_BUILD_DIR LENS_SOURCE_DIR \
-            IRIS_BUILD_DIR IRIS_SOURCE_DIR \
-            RETICLE_BUILD_DIR RETICLE_SOURCE_DIR
+            OPTICS_GFX_BUILD_DIR OPTICS_GFX_SOURCE_DIR \
+            OPTICS_SCENE_BUILD_DIR OPTICS_SCENE_SOURCE_DIR \
+            OPTICS_UI_BUILD_DIR OPTICS_UI_SOURCE_DIR \
+            OPTICS_SVG_BUILD_DIR OPTICS_SVG_SOURCE_DIR \
+            OPTICS_TEXT_BUILD_DIR OPTICS_TEXT_SOURCE_DIR
 
         OPTICS_STATIC=1 \
-        FLUX_USE_INSTALLED=1 \
-        VISTA_USE_INSTALLED=1 \
-        LENS_USE_INSTALLED=1 \
-        IRIS_USE_INSTALLED=1 \
-        RETICLE_USE_INSTALLED=1 \
+        OPTICS_GFX_USE_INSTALLED=1 \
+        OPTICS_SCENE_USE_INSTALLED=1 \
+        OPTICS_UI_USE_INSTALLED=1 \
+        OPTICS_SVG_USE_INSTALLED=1 \
+        OPTICS_TEXT_USE_INSTALLED=1 \
             cargo build --locked --release \
                 -p tessera \
                 -p tessera-idle \
@@ -171,7 +171,7 @@ check_no_optics_shared() {
     [ -x /usr/bin/readelf ] || return 0
 
     needed=$(/usr/bin/readelf -d -- "$bin" | sed -n \
-        's/.*(NEEDED).*Shared library: \[\(lib\(flux\|lens\|vista\|reticle\|glyph\|iris\|prism\|aperture\)\.so[^]]*\)\]/\1/p')
+        's/.*(NEEDED).*Shared library: \[\(liboptics_\(gfx\|ui\|scene\|svg\|text\|window\|material\|app\)\.so[^]]*\)\]/\1/p')
     if [ -n "$needed" ]; then
         die "refusing to install $bin with dynamically linked Optics library: $needed"
     fi
@@ -231,4 +231,4 @@ if [ -x /usr/bin/gtk-update-icon-cache ] && [ -d /usr/share/icons/hicolor ]; the
 fi
 
 printf '\nTessera installed.\n'
-printf 'Run `systemctl --user daemon-reload` and restart your session to use the new build.\n'
+printf 'Run systemctl --user daemon-reload and restart your session to use the new build.\n'

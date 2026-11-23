@@ -28,9 +28,9 @@ window opening.
 - **Binary** (`src/main.rs`, `src/app/`): the Wayland window and its plumbing.
   - `app/mod.rs` — one `xdg_toplevel` with server-side decorations,
     fractional scale, cursor shapes, and seat input.
-  - `app/gpu.rs` — Flux/Lens rendering of the host into the window.
-  - `app/input.rs` — seat events folded into one Lens input per frame.
-  - `app/clipboard.rs` — the standard Wayland clipboard behind Lens text
+  - `app/gpu.rs` — gfx/optics-ui rendering of the host into the window.
+  - `app/input.rs` — seat events folded into one optics-ui input per frame.
+  - `app/clipboard.rs` — the standard Wayland clipboard behind optics-ui text
     fields (`Ctrl+C`, `Ctrl+X`, `Ctrl+V`).
   - `app/link.rs` — the compositor link (below).
   - `app/instance.rs` — the per-session single-instance socket.

@@ -142,7 +142,7 @@ pub enum LaunchPlacement {
 }
 
 /// The workspace model: the pure, testable brain that owns outputs,
-/// workspaces, and the dynamic invariants (ADR-0025). No flux, lens, or
+/// workspaces, and the dynamic invariants (ADR-0025). No gfx, optics-ui, or
 /// Wayland dependency.
 #[derive(Debug, Default)]
 pub struct WorkspaceModel {

@@ -3,6 +3,7 @@ name = "tessera-launch-services"
 description = "System application discovery, icon-theme lookup, process launching, and intent search"
 version.workspace = true
 edition.workspace = true
+publish = false
 license.workspace = true
 rust-version.workspace = true
 

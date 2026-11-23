@@ -3,12 +3,12 @@
 fn main() {
     let mut local_link_dirs = Vec::new();
     for var in [
-        "DEP_LENS_LINK_PATHS",
-        "DEP_FLUX_LINK_PATHS",
-        "DEP_VISTA_LINK_PATHS",
-        "DEP_LENS_RPATHS",
-        "DEP_FLUX_RPATHS",
-        "DEP_VISTA_RPATHS",
+        "DEP_OPTICS_UI_LINK_PATHS",
+        "DEP_OPTICS_GFX_LINK_PATHS",
+        "DEP_OPTICS_SCENE_LINK_PATHS",
+        "DEP_OPTICS_UI_RPATHS",
+        "DEP_OPTICS_GFX_RPATHS",
+        "DEP_OPTICS_SCENE_RPATHS",
     ] {
         if let Ok(paths) = std::env::var(var) {
             for dir in paths.split(';').filter(|path| !path.is_empty()) {
@@ -19,7 +19,7 @@ fn main() {
         }
     }
 
-    // In local Optics mode an older system libflux may still live in
+    // In local Optics mode an older system liboptics_gfx may still live in
     // `/usr/lib`. Put the binding-published Meson directories first so the
     // linker selects the intended native build.
     for dir in &local_link_dirs {
@@ -35,7 +35,11 @@ fn main() {
         .expect("tessera-lock requires PAM");
 
     let mut local_rpaths = Vec::new();
-    for var in ["DEP_LENS_RPATHS", "DEP_FLUX_RPATHS", "DEP_VISTA_RPATHS"] {
+    for var in [
+        "DEP_OPTICS_UI_RPATHS",
+        "DEP_OPTICS_GFX_RPATHS",
+        "DEP_OPTICS_SCENE_RPATHS",
+    ] {
         if let Ok(rpaths) = std::env::var(var) {
             for dir in rpaths.split(';').filter(|path| !path.is_empty()) {
                 if !local_rpaths.iter().any(|existing| existing == dir) {

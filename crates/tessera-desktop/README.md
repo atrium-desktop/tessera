@@ -17,7 +17,7 @@ deterministic model contract shared by Tessera components.
 
 ## Boundaries
 
-`tessera-desktop` performs no Wayland, Vulkan, flux, lens, filesystem, socket, or
+`tessera-desktop` performs no Wayland, Vulkan, gfx, optics-ui, filesystem, socket, or
 process I/O. Mechanisms that require those dependencies belong in a more
 specific crate. Being effect-free is necessary but not sufficient for
 placement here: a helper with one owning component remains with that owner.

@@ -3,7 +3,7 @@ use super::*;
 // The damage *value layer* lives in `tessera-composite` (api tier): frame
 // damage verdicts, the assessment split, the logical→physical mapping, and the
 // `ClientDamageTracker` generation diff behind the narrow `SurfaceDamageFrame`
-// seam. Per-image epoch history belongs to Flux, not to this layer. This module
+// seam. Per-image epoch history belongs to gfx, not to this layer. This module
 // keeps only the composition-root orchestration: sampling the change signals
 // spread across the server, shell, notifications, and wallpaper, and deciding
 // what the current frame's delta is.
@@ -352,7 +352,7 @@ impl CompositorRuntime<'_> {
         // A caret blink *flip* is a third trigger and is not an animation
         // (Optics ADR-0151): it is a two-state phase, so exactly the frames on
         // which it landed owe a paint, and every other frame of a focused text
-        // field owes nothing. `Shell::lens_needs_repaint` is lens's own
+        // field owes nothing. `Shell::caret_flip_pending` is optics-ui's own
         // transition query and is what carries it — folding a caret into
         // `anim_pending` instead would make every focused field render at the
         // panel rate, the defect that held a compositor at ~50% GPU on an idle
@@ -512,7 +512,7 @@ impl CompositorRuntime<'_> {
                 }
             }
         };
-        // A frame that never reached Flux's submit point (acquire timeout,
+        // A frame that never reached gfx's submit point (acquire timeout,
         // surface loss before recording) has no epoch entry. Carry its damage
         // forward instead of collapsing to Full: the next successful submit is
         // the transaction that commits it.

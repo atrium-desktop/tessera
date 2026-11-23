@@ -3,6 +3,7 @@ name = "tessera-control"
 description = "Domain-oriented session control and command dispatch for Tessera"
 version.workspace = true
 edition.workspace = true
+publish = false
 license.workspace = true
 rust-version.workspace = true
 

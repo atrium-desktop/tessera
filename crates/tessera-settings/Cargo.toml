@@ -4,6 +4,7 @@ description = "Tessera Settings: the standalone application that edits the compo
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
+publish = false
 license.workspace = true
 rust-version.workspace = true
 build = "build.rs"
@@ -14,10 +15,10 @@ path = "src/main.rs"
 
 [dependencies]
 ash.workspace = true
-optics-flux.workspace = true
-optics-flux-sys.workspace = true
-optics-lens.workspace = true
-optics-lens-sys.workspace = true
+optics-gfx.workspace = true
+optics-gfx-sys.workspace = true
+optics-ui.workspace = true
+optics-ui-sys.workspace = true
 libc.workspace = true
 log.workspace = true
 tessera-design.workspace = true
@@ -28,7 +29,7 @@ tessera-i18n.workspace = true
 tessera-ipc.workspace = true
 tessera-primitives.workspace = true
 tessera-protocol.workspace = true
-optics-vista-sys.workspace = true
+optics-scene-sys.workspace = true
 wayland-client.workspace = true
 wayland-protocols.workspace = true
 
@@ -36,7 +37,7 @@ wayland-protocols.workspace = true
 pkg-config.workspace = true
 
 [package.metadata.cargo-machete]
-ignored = ["optics-flux-sys", "optics-vista-sys", "optics-lens-sys", "pkg-config"]
+ignored = ["optics-gfx-sys", "optics-scene-sys", "optics-ui-sys", "pkg-config"]
 
 [lints]
 workspace = true

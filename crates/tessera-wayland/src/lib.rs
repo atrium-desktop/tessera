@@ -1706,10 +1706,6 @@ pub(crate) struct State {
     /// exposing the session between clients.
     pub(crate) session_lock: *mut c_void,
     pub(crate) session_lock_phase: SessionLockPhase,
-    /// Development-only escape hatch (`[dev] allow_quit_while_locked`): while
-    /// the session is locked, the global Quit binding still matches. Will be
-    /// removed before release.
-    pub(crate) allow_quit_while_locked: bool,
     pub(crate) lock_focus_dirty: bool,
     pub(crate) pending_lock_focus: *mut ffi::wl_resource,
     pub(crate) pre_lock_keyboard_focus: *mut ffi::wl_resource,

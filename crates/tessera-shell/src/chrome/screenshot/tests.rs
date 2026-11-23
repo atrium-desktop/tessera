@@ -148,7 +148,7 @@ fn region_selection_is_a_painted_marker_not_a_surface() {
     assert_eq!(hole.y, staged.origin.y as f32);
     assert_eq!(hole.w, staged.size.w as f32);
     assert_eq!(hole.h, staged.size.h as f32);
-    assert_eq!(s.lens_body_rect((800.0, 600.0)), None);
+    assert_eq!(s.loupe_body_rect((800.0, 600.0)), None);
 }
 
 #[test]
@@ -162,7 +162,7 @@ fn the_pixel_loupe_is_a_painted_body_over_the_pixels_it_frames() {
     // so the loupe's own body is a flat fill that cannot obscure the
     // reading inside it.
     let rect = s
-        .lens_body_rect((800.0, 600.0))
+        .loupe_body_rect((800.0, 600.0))
         .expect("the loupe has a body");
     assert_eq!(rect.w, PIXEL_LENS_SIZE);
     let design = Design::dark();
@@ -175,7 +175,7 @@ fn the_pixel_loupe_is_a_painted_body_over_the_pixels_it_frames() {
 
 #[test]
 fn status_geometry_stays_inside_a_roomy_selection_and_centres_when_outside() {
-    let roomy = LensRect {
+    let roomy = UiRect {
         x: 100.0,
         y: 80.0,
         w: 500.0,
@@ -183,7 +183,7 @@ fn status_geometry_stays_inside_a_roomy_selection_and_centres_when_outside() {
     };
     assert_eq!(
         status_rect(roomy, (180.0, 32.0), (800.0, 600.0)),
-        LensRect {
+        UiRect {
             x: 112.0,
             y: 92.0,
             w: 180.0,
@@ -191,7 +191,7 @@ fn status_geometry_stays_inside_a_roomy_selection_and_centres_when_outside() {
         }
     );
 
-    let narrow = LensRect {
+    let narrow = UiRect {
         x: 100.0,
         y: 80.0,
         w: 80.0,
@@ -199,7 +199,7 @@ fn status_geometry_stays_inside_a_roomy_selection_and_centres_when_outside() {
     };
     assert_eq!(
         status_rect(narrow, (180.0, 32.0), (800.0, 600.0)),
-        LensRect {
+        UiRect {
             x: 50.0,
             y: 132.0,
             w: 180.0,
@@ -210,13 +210,13 @@ fn status_geometry_stays_inside_a_roomy_selection_and_centres_when_outside() {
 
 #[test]
 fn scrim_regions_leave_the_selection_body_undimmed() {
-    let full = LensRect {
+    let full = UiRect {
         x: 0.0,
         y: 0.0,
         w: 800.0,
         h: 600.0,
     };
-    let hole = LensRect {
+    let hole = UiRect {
         x: 100.0,
         y: 80.0,
         w: 200.0,

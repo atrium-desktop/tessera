@@ -13,7 +13,7 @@ authoritative today.
 |------|-------|----------|
 | Color definition | `tessera-design::colors` | Semantic color roles and literal values for every appearance |
 | Non-color definition | `tessera-design::tokens` | Shape, material, typography, and presentation policy |
-| Composition | `tessera-design::themes` and `materials` | Pure factories that convert roles into `lens` options |
+| Composition | `tessera-design::themes` and `materials` | Pure factories that convert roles into `optics-ui` options |
 | Reuse | `tessera-ui` | Shared component metrics and composition |
 | Consumption | Chrome and first-party application crates | Resolved design snapshot; no local replacement palette |
 | Verification | Rust unit tests | Exact values, literal placement, scheme invariance, and monotonic scales |

@@ -38,14 +38,12 @@ edges, so it stays reachable even when a modal dialog owns the keyboard and
 a stuck dialog cannot hold the session hostage. Like the VT-switch chords it
 is compositor-owned and not a configurable `[[keybind]]` entry.
 
-The launcher, Prism, and control-center toggles, `Super+L`, `Print`, and the quit
-shortcuts
-remain available while trusted Tessera chrome owns the keyboard. No global
-shortcut runs while the session is locked or while the focused client has
-active keyboard-shortcut inhibition. The development-only
-`[dev] allow_quit_while_locked` option lifts the lock-screen exclusion for
-the quit shortcuts alone; see the
-[Configuration Reference](config.md#development-options).
+The launcher, Prism, and control-center toggles, `Super+L`, `Print`, and the
+quit shortcuts remain available while trusted Tessera chrome owns the keyboard.
+No global shortcut runs while the session is locked or while the focused client
+has active keyboard-shortcut inhibition. A locked session owns the keyboard
+outright: the only ways out are the first-party lock client authenticating and
+a VT switch to another seat.
 
 `Super+L` starts the first-party `ext-session-lock-v1` client. The compositor
 then routes input only to its lock surfaces and retains an opaque fail-closed
