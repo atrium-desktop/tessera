@@ -29,7 +29,7 @@ pkg-config --modversion optics-gfx optics-scene optics-ui optics-svg optics-text
 ```
 
 Each command must report exactly the pinned release (`0.0.82` for this tree; the
-tag is `v0.0.82`). Pre-1.0 the `-sys` crates
+tag is `v0.0.83`). Pre-1.0 the `-sys` crates
 probe `pkg-config` with an exact version, and the SONAME carries the full
 version, so a mismatched native release fails at build or load time rather than
 reading a different descriptor layout. Distribution package names vary, so
@@ -295,11 +295,11 @@ Package Optics first, then package the explicitly compatible Tessera and Tessera
 Portal tags independently.
 
 Replace `<TESSERA_VERSION>` and `<PORTAL_VERSION>` below with the release
-versions being packaged. The Optics pin is fixed by this tree: `v0.0.82`.
+versions being packaged. The Optics pin is fixed by this tree: `v0.0.83`.
 
 | Package | Provides | Built by |
 |---------|----------|----------|
-| `optics` | `liboptics_gfx.so`, `liboptics_scene.so`, `liboptics_ui.so`, `liboptics_svg.so`, `liboptics_text.so`, headers, `optics-gfx.pc` … `optics-text.pc` | Meson/Ninja from the `ming2k/optics` `v0.0.82` tag |
+| `optics` | `liboptics_gfx.so`, `liboptics_scene.so`, `liboptics_ui.so`, `liboptics_svg.so`, `liboptics_text.so`, headers, `optics-gfx.pc` … `optics-text.pc` | Meson/Ninja from the `ming2k/optics` `v0.0.83` tag |
 | `tessera` | Compositor, CLI and agent integration binaries, systemd user unit, and cursor license disclosure | Cargo from the `atrium-desktop/tessera` `v<TESSERA_VERSION>` tag |
 | `xdg-desktop-portal-atrium` | Private portal backend plus its D-Bus activation, `.portal`, backend-selection files, and PAM helper | Cargo from the `atrium-desktop/xdg-desktop-portal-atrium` `v<PORTAL_VERSION>` tag |
 

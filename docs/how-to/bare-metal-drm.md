@@ -10,7 +10,7 @@ is the bare-metal bring-up and smoke checklist.
   `seat` group. Verify with `seatd-launch true` or `loginctl seat-status`.
 - KMS permissions: your user can open `/dev/dri/cardN` through the seat
   manager (no root needed when the seat manager works).
-- Optics `v0.0.82` native libraries installed and visible to
+- Optics `v0.0.83` native libraries installed and visible to
   `pkg-config`.
 
 ## Build

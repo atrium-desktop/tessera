@@ -13,7 +13,7 @@ Install:
 - Meson, Ninja, `pkg-config`, a C23 compiler, libclang, and `slangc` (Slang
   2026.17+; recent Vulkan SDKs bundle it);
 - Vulkan, Wayland, xkbcommon, libinput, and libseat development files; and
-- the Optics `v0.0.82` native libraries.
+- the Optics `v0.0.83` native libraries.
 
 The independently sourced
 [xdg-desktop-portal-atrium](https://github.com/atrium-desktop/xdg-desktop-portal-atrium)
@@ -24,7 +24,7 @@ Build and install the matching Optics release when the distribution does not
 provide it:
 
 ```bash
-git clone --branch "v0.0.82" --depth 1 \
+git clone --branch "v0.0.83" --depth 1 \
   https://github.com/ming2k/optics.git ../optics
 meson setup ../optics/build ../optics \
   -Dtests=false -Dbuildtype=debugoptimized
@@ -35,7 +35,7 @@ pkg-config --modversion optics-gfx optics-scene optics-ui optics-svg optics-text
 ```
 
 Every version printed by that command must be exactly `0.0.82` (the tag is
-`v0.0.82`; `pkg-config` reports the version without the prefix). The pre-1.0
+`v0.0.83`; `pkg-config` reports the version without the prefix). The pre-1.0
 bindings and SONAME reject a different native release.
 
 ## Start the Nested Compositor

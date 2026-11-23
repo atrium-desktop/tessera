@@ -7,7 +7,7 @@ How to build and run tessera for development.
 | Requirement | Notes |
 |-------------|-------|
 | Rust toolchain | `rustc` and `cargo`, edition 2024 (1.89+) |
-| Optics `v0.0.82` | Use a sibling checkout for cross-repository development or installed native libraries for the canonical build |
+| Optics `v0.0.83` | Use a sibling checkout for cross-repository development or installed native libraries for the canonical build |
 | meson and a C23 compiler | To build the optics libraries |
 | Slang compiler | `slangc` 2026.17+ (CI pins 2026.21; recent Vulkan SDKs bundle it) compiles Optics shaders |
 | Vulkan 1.3 runtime and loader | gfx is Vulkan-first |
@@ -23,7 +23,7 @@ everything below this table follows from it.
 
 | You are… | Workflow | Why |
 |----------|----------|-----|
-| **Contributing to Tessera only** | [Canonical workflow](#canonical-workflow-contributor) | You never touch Optics, so the locked `v0.0.82` bindings and the system-installed native libraries are all you need. No sibling checkout, no Cargo patch. |
+| **Contributing to Tessera only** | [Canonical workflow](#canonical-workflow-contributor) | You never touch Optics, so the locked `v0.0.83` bindings and the system-installed native libraries are all you need. No sibling checkout, no Cargo patch. |
 | **Maintaining Tessera and Optics together** | [Local workflow](#local-workflow-dual-maintainer) | You isolate the live sibling Optics patch, lockfile, and target directory in a linked Tessera worktree. |
 
 ### How the two roles differ
@@ -34,7 +34,7 @@ checkout without one forcing its setup on the other:
 
 | Concern | Canonical workflow | Local workflow |
 |---------|--------------------|----------------|
-| Rust bindings | Locked Optics `v0.0.82` Git source | `[patch]` entries for `../optics/crates` |
+| Rust bindings | Locked Optics `v0.0.83` Git source | `[patch]` entries for `../optics/crates` |
 | Native libraries | System `pkg-config` and dynamic-loader paths | The sibling uninstalled Meson tree (via `meson-uninstalled/*.pc`) |
 | `.cargo/config.toml` | Absent | A copy of `.cargo/optics-local.toml` |
 | `Cargo.lock` | Canonical and committed | Worktree-local and excluded from commits |
@@ -111,7 +111,7 @@ for daily commits, rebases, release promotion, and merging `dev` into
 ### Canonical workflow (contributor)
 
 For everyone contributing to Tessera only. You do **not** need a sibling
-`optics` checkout. Build the matching Optics `v0.0.82` once so its native
+`optics` checkout. Build the matching Optics `v0.0.83` once so its native
 libraries, headers, and `.pc` files land in the system paths, then drive Tessera
 with ordinary `cargo` commands against the locked bindings.
 
@@ -127,9 +127,9 @@ sudo ldconfig
 pkg-config --modversion optics-gfx optics-scene optics-ui optics-svg optics-text   # sanity check
 ```
 
-> If your distribution already ships an Optics `v0.0.82` package, install that
+> If your distribution already ships an Optics `v0.0.83` package, install that
 > instead and skip the manual build. What matters is that the five
-> `pkg-config --modversion` checks above each report exactly `v0.0.82`:
+> `pkg-config --modversion` checks above each report exactly `v0.0.83`:
 > pre-1.0 the bindings and the full-version SONAME reject any other release.
 
 **Daily development** needs no further Optics work — just Cargo:

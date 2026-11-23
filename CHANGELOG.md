@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.100] - 2026-11-23
+
 ### Added
 
 - **The root test suites build their sibling binaries before they run.**
@@ -24,27 +26,24 @@ project cuts a tagged release.
 
 ### Changed
 
-- **Follow the post-`v0.0.82` Optics binding changes.** Optics finished the
-  semantic rename in its Rust layer: `optics_ui::FluxDiagnostic` is now
-  `GfxDiagnostic`, and `optics_scene::LoadError::Flux` is `LoadError::Gfx`.
-  Newer Optics sources also default the Rust bindings to shared-preferred
-  linking; the installer still builds a static Optics tree and sets
-  `OPTICS_STATIC=1`, so released executables keep the archives. `OPTICS_DYNAMIC=1`
-  selects the shared objects with an RPATH. The pin stays at `v0.0.82` until
-  Optics cuts the next release.
-- **Adopt Optics v0.0.82's unified `optics-<module>` naming.** The workspace
-  pins the Optics `v0.0.82` release, whose semantic-module rename (Optics
-  ADR-0169, ADR-0170) replaced the codename libraries with `optics-gfx`,
-  `optics-text`, `optics-svg`, `optics-scene`, `optics-material`,
-  `optics-motion`, `optics-window`, `optics-ui`, and `optics-app`. The local
-  `[patch]` template, the `xtask` release-pin fixtures, the CI `pkg-config`
-  check, the installer, and the developer docs use those names end to end.
-  In-tree prose, identifiers, and error variants that named the retired engines
-  were renamed to match (`Flux`/`Lens` error variants are now `Gfx`/`Ui`,
-  `flux_last_error_detail` is `gfx_last_error_detail`, and the damage
-  conversion pair is `to_gfx_damage`/`from_gfx_damage`), and the `*-sys` build
-  scripts relay the new `DEP_OPTICS_*` metadata variables. Immutable ADRs and
-  historical changelog entries keep their original wording.
+- **Adopt Optics v0.0.83.** The workspace pins the Optics `v0.0.83` release.
+  Its semantic-module rename (Optics ADR-0169, ADR-0170) replaced the codename
+  libraries with `optics-gfx`, `optics-text`, `optics-svg`, `optics-scene`,
+  `optics-material`, `optics-motion`, `optics-window`, `optics-ui`, and
+  `optics-app`; the Rust layer finished that rename, so `FluxDiagnostic` is now
+  `GfxDiagnostic` and `optics_scene::LoadError::Flux` is `LoadError::Gfx`. The
+  local `[patch]` template, the `xtask` release-pin fixtures, the CI
+  `pkg-config` check, the installer, and the developer docs use those names end
+  to end. In-tree prose, identifiers, and error variants that named the retired
+  engines were renamed to match (`Flux`/`Lens` error variants are now
+  `Gfx`/`Ui`, `flux_last_error_detail` is `gfx_last_error_detail`, and the
+  damage conversion pair is `to_gfx_damage`/`from_gfx_damage`), and the `*-sys`
+  build scripts relay the new `DEP_OPTICS_*` metadata variables. Immutable ADRs
+  and historical changelog entries keep their original wording. v0.0.83 also
+  defaults the Rust bindings to shared-preferred linking; the installer still
+  builds a static Optics tree and sets `OPTICS_STATIC=1`, so released
+  executables keep the archives, while `OPTICS_DYNAMIC=1` selects the shared
+  objects with an RPATH.
 
 ### Removed
 
