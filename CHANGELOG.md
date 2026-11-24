@@ -14,6 +14,29 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.101] - 2026-11-24
+
+### Changed
+
+- **Default to static Optics linking for canonical and release builds.**
+  Workspace dependencies on native Optics crates (`optics-gfx`, `optics-scene`,
+  `optics-ui`, `optics-svg`, and their `-sys` crates) now enable the `static`
+  Cargo feature so canonical and release binaries embed `liboptics_*.a`
+  archives and carry no runtime dependency on pre-1.0 Optics SONAMEs. Linked
+  development worktrees copy `.cargo/optics-local.toml` to `.cargo/config.toml`,
+  which sets `[env] OPTICS_DYNAMIC = "1"` for fast shared-library iteration
+  against `../optics/build`; distribution packagers can also set
+  `OPTICS_DYNAMIC=1` to link shared system libraries. Crate build scripts
+  deduplicate `rpath` entries and emit `-Wl,--disable-new-dtags` / `-Wl,-rpath`
+  only when non-empty directories are present, and CI verifies with `readelf`
+  that none of the eight release binaries dynamically link `liboptics_*.so`.
+- **Adopt Optics v0.0.85.** The workspace pins Optics `v0.0.85` (from
+  `v0.0.83`), picking up the `v0.0.84` Rust `-sys` bindgen type-ownership,
+  dependency-prefix, and static-link CI fixes and the `v0.0.85` fixes for
+  canonical image plan handles and deferred-pass tracking across `DisplayList`
+  snapshots. Contributor setup, packaging, getting-started, and rendering
+  reference docs are updated to match `v0.0.85`.
+
 ## [0.0.100] - 2026-11-23
 
 ### Added
