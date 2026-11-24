@@ -254,74 +254,157 @@ fn interaction_domain_sandbox_is_fail_closed_and_parent_bound() {
     assert!(args.windows(2).any(|pair| pair == ["--tmpfs", "/dev/shm"]));
 }
 
+const SANDBOX_TEST_DELEGATED_ENV: &str = "TESSERA_SANDBOX_TEST_DELEGATED";
+const SANDBOX_TEST_MARKER_ENV: &str = "TESSERA_SANDBOX_TEST_MARKER";
+
+/// Run a kernel-level Interaction Domain sandbox test inside a transient
+/// delegated `systemd --user` unit when the current test process does not
+/// already own `cpu`/`memory`/`pids` controller delegation.
+fn run_in_delegated_cgroup_unit(test_name: &str, body: impl FnOnce()) {
+    if std::env::var_os(SANDBOX_TEST_DELEGATED_ENV).is_some() {
+        if let Some(marker) = std::env::var_os(SANDBOX_TEST_MARKER_ENV) {
+            std::fs::write(&marker, b"started").expect("write delegated test marker");
+        }
+        prepare_interaction_domain_host()
+            .expect("delegated systemd unit must provide cpu/memory/pids cgroup delegation");
+        body();
+        return;
+    }
+
+    if prepare_interaction_domain_host().is_ok() {
+        body();
+        return;
+    }
+
+    let current_exe = std::env::current_exe().expect("locate current test binary");
+    let marker_dir = tempfile_dir();
+    let marker_path = marker_dir.path().join("started");
+    let unit = format!(
+        "tessera-sandbox-test-{}-{}",
+        std::process::id(),
+        test_name.rsplit("::").next().unwrap_or("case")
+    );
+    let output = match Command::new("systemd-run")
+        .args([
+            "--user",
+            "--wait",
+            "--pipe",
+            "--collect",
+            "--quiet",
+            "--unit",
+            &unit,
+            "--property=Delegate=cpu memory pids",
+        ])
+        .arg(format!("--setenv={SANDBOX_TEST_DELEGATED_ENV}=1"))
+        .arg(format!(
+            "--setenv={SANDBOX_TEST_MARKER_ENV}={}",
+            marker_path.display()
+        ))
+        .arg(&current_exe)
+        .args(["--exact", test_name, "--test-threads=1", "--nocapture"])
+        .output()
+    {
+        Ok(output) => output,
+        Err(error) => {
+            eprintln!(
+                "skipping real Interaction Domain cgroup test ({test_name}): systemd-run unavailable: {error}"
+            );
+            return;
+        }
+    };
+
+    if !marker_path.exists() {
+        assert!(
+            !output.status.success(),
+            "delegated unit exited successfully without running {test_name}; check --exact test name"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        eprintln!(
+            "skipping real Interaction Domain cgroup test ({test_name}): delegated systemd user unit unavailable ({}): {}",
+            output.status,
+            stderr.trim()
+        );
+        return;
+    }
+
+    assert!(
+        output.status.success(),
+        "delegated Interaction Domain sandbox test {test_name} failed ({}):\nstdout:\n{}\nstderr:\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
 #[test]
 fn sandbox_portal_is_host_unlinked_and_accepts_multiple_connections() {
     if !Path::new(BWRAP).is_file() || !Path::new("/usr/bin/wayland-info").is_file() {
         return;
     }
-    if let Err(error) = prepare_interaction_domain_host() {
-        eprintln!("skipping real Interaction Domain portal test: {error}");
-        return;
-    }
-    let (_portal_dir, portal, portal_path) = wayland_portal();
-    let compositor_listener = portal.try_clone().unwrap();
-    let removed_path = portal_path.clone();
-    let mut pre_gate_connection = std::os::unix::net::UnixStream::connect(&portal_path)
-        .expect("model a same-UID pre-gate connection");
-    let source = Src {
-        exec: Some("sh -c %f"),
-        terminal: false,
-        icon: None,
-        wd: None,
-    };
-    let opts = LaunchOpts {
-        files: vec!["wayland-info & wayland-info & wait".into()],
-        sandbox: Some(InteractionDomainSandbox {
-            interaction_domain_id: 10,
-            wayland_listener: portal,
-            wayland_socket_path: portal_path,
-            app_id: "test.desktop".into(),
-            limits: InteractionDomainResourceLimits::default(),
-        }),
-        ..Default::default()
-    };
-    let mut launch = launch_managed(&source, &opts).unwrap();
-    assert!(
-        !removed_path.exists(),
-        "portal must have no host pathname after the sandbox gate opens"
-    );
-    pre_gate_connection
-        .set_read_timeout(Some(std::time::Duration::from_secs(1)))
-        .unwrap();
-    let mut discarded = [0u8; 1];
-    match pre_gate_connection.read(&mut discarded) {
-        Ok(0) => {}
-        Err(error)
-            if matches!(
-                error.kind(),
-                std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe
-            ) => {}
-        result => panic!("pre-gate connection remained usable: {result:?}"),
-    }
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
-    let mut accepted = 0;
-    while accepted < 2 && std::time::Instant::now() < deadline {
-        match compositor_listener.accept() {
-            Ok((connection, _)) => {
-                drop(connection);
-                accepted += 1;
+    run_in_delegated_cgroup_unit(
+        "launcher::tests::sandbox_portal_is_host_unlinked_and_accepts_multiple_connections",
+        || {
+            let (_portal_dir, portal, portal_path) = wayland_portal();
+            let compositor_listener = portal.try_clone().unwrap();
+            let removed_path = portal_path.clone();
+            let mut pre_gate_connection = std::os::unix::net::UnixStream::connect(&portal_path)
+                .expect("model a same-UID pre-gate connection");
+            let source = Src {
+                exec: Some("sh -c %f"),
+                terminal: false,
+                icon: None,
+                wd: None,
+            };
+            let opts = LaunchOpts {
+                files: vec!["wayland-info & wayland-info & wait".into()],
+                sandbox: Some(InteractionDomainSandbox {
+                    interaction_domain_id: 10,
+                    wayland_listener: portal,
+                    wayland_socket_path: portal_path,
+                    app_id: "test.desktop".into(),
+                    limits: InteractionDomainResourceLimits::default(),
+                }),
+                ..Default::default()
+            };
+            let mut launch = launch_managed(&source, &opts).unwrap();
+            assert!(
+                !removed_path.exists(),
+                "portal must have no host pathname after the sandbox gate opens"
+            );
+            pre_gate_connection
+                .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+                .unwrap();
+            let mut discarded = [0u8; 1];
+            match pre_gate_connection.read(&mut discarded) {
+                Ok(0) => {}
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe
+                    ) => {}
+                result => panic!("pre-gate connection remained usable: {result:?}"),
             }
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                std::thread::sleep(std::time::Duration::from_millis(5));
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+            let mut accepted = 0;
+            while accepted < 2 && std::time::Instant::now() < deadline {
+                match compositor_listener.accept() {
+                    Ok((connection, _)) => {
+                        drop(connection);
+                        accepted += 1;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("portal accept failed: {error}"),
+                }
             }
-            Err(error) => panic!("portal accept failed: {error}"),
-        }
-    }
-    assert_eq!(
-        accepted, 2,
-        "one sandboxed application instance must be able to open multiple Wayland connections"
+            assert_eq!(
+                accepted, 2,
+                "one sandboxed application instance must be able to open multiple Wayland connections"
+            );
+            launch.terminate().unwrap();
+        },
     );
-    launch.terminate().unwrap();
 }
 
 #[test]
@@ -329,95 +412,96 @@ fn managed_interaction_domain_process_can_be_paused_resumed_and_revoked() {
     if !Path::new(BWRAP).is_file() {
         return;
     }
-    if let Err(error) = prepare_interaction_domain_host() {
-        eprintln!("skipping real Interaction Domain cgroup test: {error}");
-        return;
-    }
-    let (_portal_dir, portal, portal_path) = wayland_portal();
-    let source = Src {
-        exec: Some("sh -c %f"),
-        terminal: false,
-        icon: None,
-        wd: None,
-    };
-    let opts = LaunchOpts {
-        // The worker deliberately escapes the bubblewrap supervisor's
-        // process group/session. Only the cgroup freezer/kill boundary can
-        // still control it as one unit.
-        files: vec!["setsid sh -c 'while :; do sleep 1; done' & wait".into()],
-        sandbox: Some(InteractionDomainSandbox {
-            interaction_domain_id: 11,
-            wayland_listener: portal,
-            wayland_socket_path: portal_path,
-            app_id: "test.desktop".into(),
-            limits: InteractionDomainResourceLimits::default(),
-        }),
-        ..Default::default()
-    };
-    let mut launch = launch_managed(&source, &opts).unwrap();
-    assert!(
-        launch.report().resource_limits_enforced,
-        "managed launches must fail instead of dropping resource controls"
+    run_in_delegated_cgroup_unit(
+        "launcher::tests::managed_interaction_domain_process_can_be_paused_resumed_and_revoked",
+        || {
+            let (_portal_dir, portal, portal_path) = wayland_portal();
+            let source = Src {
+                exec: Some("sh -c %f"),
+                terminal: false,
+                icon: None,
+                wd: None,
+            };
+            let opts = LaunchOpts {
+                // The worker deliberately escapes the bubblewrap supervisor's
+                // process group/session. Only the cgroup freezer/kill boundary can
+                // still control it as one unit.
+                files: vec!["setsid sh -c 'while :; do sleep 1; done' & wait".into()],
+                sandbox: Some(InteractionDomainSandbox {
+                    interaction_domain_id: 11,
+                    wayland_listener: portal,
+                    wayland_socket_path: portal_path,
+                    app_id: "test.desktop".into(),
+                    limits: InteractionDomainResourceLimits::default(),
+                }),
+                ..Default::default()
+            };
+            let mut launch = launch_managed(&source, &opts).unwrap();
+            assert!(
+                launch.report().resource_limits_enforced,
+                "managed launches must fail instead of dropping resource controls"
+            );
+            assert_eq!(
+                std::fs::read_to_string(launch.cgroup.path.join("memory.max"))
+                    .unwrap()
+                    .trim(),
+                InteractionDomainResourceLimits::default()
+                    .memory_max_bytes
+                    .to_string()
+            );
+            assert_eq!(
+                std::fs::read_to_string(launch.cgroup.path.join("pids.max"))
+                    .unwrap()
+                    .trim(),
+                InteractionDomainResourceLimits::default()
+                    .pids_max
+                    .to_string()
+            );
+            assert_eq!(
+                std::fs::read_to_string(launch.cgroup.path.join("cpu.weight"))
+                    .unwrap()
+                    .trim(),
+                InteractionDomainResourceLimits::default()
+                    .cpu_weight
+                    .to_string()
+            );
+            assert_eq!(
+                std::fs::read_to_string(launch.cgroup.path.join("memory.oom.group"))
+                    .unwrap()
+                    .trim(),
+                "1"
+            );
+            assert_eq!(
+                std::fs::read_to_string(launch.cgroup.path.join("memory.swap.max"))
+                    .unwrap()
+                    .trim(),
+                "0"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            assert!(
+                launch.is_running().unwrap(),
+                "bubblewrap exited during sandbox setup"
+            );
+            launch.pause().unwrap();
+            assert!(
+                std::fs::read_to_string(launch.cgroup.path.join("cgroup.events"))
+                    .unwrap()
+                    .lines()
+                    .any(|line| line == "frozen 1"),
+                "complete Interaction Domain cgroup was not frozen"
+            );
+            launch.resume().unwrap();
+            assert!(
+                std::fs::read_to_string(launch.cgroup.path.join("cgroup.events"))
+                    .unwrap()
+                    .lines()
+                    .any(|line| line == "frozen 0"),
+                "complete Interaction Domain cgroup did not resume"
+            );
+            launch.terminate().unwrap();
+            assert!(!launch.is_running().unwrap());
+        },
     );
-    assert_eq!(
-        std::fs::read_to_string(launch.cgroup.path.join("memory.max"))
-            .unwrap()
-            .trim(),
-        InteractionDomainResourceLimits::default()
-            .memory_max_bytes
-            .to_string()
-    );
-    assert_eq!(
-        std::fs::read_to_string(launch.cgroup.path.join("pids.max"))
-            .unwrap()
-            .trim(),
-        InteractionDomainResourceLimits::default()
-            .pids_max
-            .to_string()
-    );
-    assert_eq!(
-        std::fs::read_to_string(launch.cgroup.path.join("cpu.weight"))
-            .unwrap()
-            .trim(),
-        InteractionDomainResourceLimits::default()
-            .cpu_weight
-            .to_string()
-    );
-    assert_eq!(
-        std::fs::read_to_string(launch.cgroup.path.join("memory.oom.group"))
-            .unwrap()
-            .trim(),
-        "1"
-    );
-    assert_eq!(
-        std::fs::read_to_string(launch.cgroup.path.join("memory.swap.max"))
-            .unwrap()
-            .trim(),
-        "0"
-    );
-    std::thread::sleep(std::time::Duration::from_millis(100));
-    assert!(
-        launch.is_running().unwrap(),
-        "bubblewrap exited during sandbox setup"
-    );
-    launch.pause().unwrap();
-    assert!(
-        std::fs::read_to_string(launch.cgroup.path.join("cgroup.events"))
-            .unwrap()
-            .lines()
-            .any(|line| line == "frozen 1"),
-        "complete Interaction Domain cgroup was not frozen"
-    );
-    launch.resume().unwrap();
-    assert!(
-        std::fs::read_to_string(launch.cgroup.path.join("cgroup.events"))
-            .unwrap()
-            .lines()
-            .any(|line| line == "frozen 0"),
-        "complete Interaction Domain cgroup did not resume"
-    );
-    launch.terminate().unwrap();
-    assert!(!launch.is_running().unwrap());
 }
 
 fn tempfile_dir() -> tempfile::TempDir {

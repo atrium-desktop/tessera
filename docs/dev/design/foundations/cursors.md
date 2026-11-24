@@ -32,11 +32,11 @@ remain authoritative.
 
 ## Resource and runtime ownership
 
-`scripts/prepare-tessera-cursors.py` is the geometry source of truth. All
-four groups live under `assets/cursors/`, with original art covered by the
-repository MIT license. Lowercase kebab-case identifiers are stable;
-capitalization belongs only in display names. Generated SVGs are checked in
-and embedded without a network fetch or raster asset dependency.
+The SVG themes under `assets/cursors/` are the source of truth for all four
+groups, with original art covered by the repository MIT license. Lowercase
+kebab-case identifiers are stable; capitalization belongs only in display
+names. The SVGs are checked in and embedded without a network fetch or raster
+asset dependency.
 
 The two user groups are complete SVG themes: `index.theme` plus
 `cursors/<name>.svg`. Standard protocol names and legacy X11 aliases remain
@@ -59,13 +59,12 @@ User and AI pointers use a 256-unit viewBox and hotspot `(64, 28)`.
 Other shapes retain their semantic hotspots across both families.
 Changing polarity never changes geometry, alignment, or timing.
 
-## Regeneration and review
+## Authoring and review
 
-Run `python3 scripts/prepare-tessera-cursors.py` to regenerate the four
-groups. `--out DIR` writes the same layout into a scratch root. Generated
-files are overwritten; unrelated files in the output root are preserved.
-Run with `--preview docs/dev/design/foundations/cursors-preview.svg` to
-refresh the contact sheet from the same generated assets.
+Edit the SVG assets under `assets/cursors/tessera-{user,ai}-{light,dark}/cursors/`
+directly and keep `docs/dev/design/foundations/cursors-preview.svg` updated
+alongside visual changes. Stamp each SVG root with `data-hotspot-x` and
+`data-hotspot-y` in its `viewBox` coordinate space.
 
 Review at 24, 32, and 48 logical pixels on light, dark, and mixed content.
 Check arrow-tip alignment, text insertion alignment, all resize directions,

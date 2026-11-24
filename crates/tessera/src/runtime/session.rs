@@ -152,31 +152,121 @@ fn send_ready(socket: &[u8]) -> std::io::Result<()> {
     }
 }
 
+const ACTIVATION_EXPORT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+const ACTIVATION_EXPORT_POLL: std::time::Duration = std::time::Duration::from_millis(10);
+
+/// Returns true when the current D-Bus session bus is the user's systemd bus
+/// (`$XDG_RUNTIME_DIR/bus`). Passing `--systemd` to
+/// `dbus-update-activation-environment` on an isolated `dbus-run-session` bus
+/// stalls waiting for `org.freedesktop.systemd1` activation (and would target
+/// the wrong user manager), so `--systemd` is enabled only on the user bus.
+fn session_bus_serves_systemd(
+    dbus_session_bus_address: Option<&str>,
+    runtime_dir: Option<&std::path::Path>,
+) -> bool {
+    let Some(runtime_dir) = runtime_dir else {
+        return false;
+    };
+    let expected_bus = runtime_dir.join("bus");
+    match dbus_session_bus_address {
+        // When unset, libdbus defaults to `$XDG_RUNTIME_DIR/bus`.
+        None | Some("") => expected_bus.exists(),
+        Some(address) => dbus_unix_path_matches(address, &expected_bus),
+    }
+}
+
+/// Match any `unix:path=<path>[,...]` entry in a D-Bus address string against
+/// `expected`.
+fn dbus_unix_path_matches(address: &str, expected: &std::path::Path) -> bool {
+    address.split(';').any(|entry| {
+        let Some(params) = entry.strip_prefix("unix:") else {
+            return false;
+        };
+        params.split(',').any(|param| {
+            param
+                .strip_prefix("path=")
+                .is_some_and(|path| !path.is_empty() && std::path::Path::new(path) == expected)
+        })
+    })
+}
+
+/// Wait for `child` up to `timeout`, killing and reaping it if it stalls.
+fn wait_with_timeout(
+    child: &mut std::process::Child,
+    timeout: std::time::Duration,
+) -> std::io::Result<Option<std::process::ExitStatus>> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(Some(status));
+        }
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok(None);
+        }
+        std::thread::sleep(ACTIVATION_EXPORT_POLL.min(deadline.saturating_duration_since(now)));
+    }
+}
+
 /// Best-effort export of the session environment to the D-Bus activation
-/// environment and, via `--systemd`, the systemd --user manager, so services
-/// activated later (portals, flatpak-spawn helpers) inherit it. A missing
-/// binary or a failing command is not fatal: directly launched clients still
-/// receive the environment from the compositor process itself.
+/// environment and, when running on the user's systemd session bus, to the
+/// `systemd --user` manager via `--systemd`, so services activated later
+/// (portals, flatpak-spawn helpers) inherit it. Bounded by a short timeout so
+/// an unresponsive bus can never stall compositor startup; a missing binary or
+/// a failing command is not fatal because directly launched clients still
+/// inherit the environment from the compositor process itself.
 fn export_activation_environment() {
-    match std::process::Command::new("dbus-update-activation-environment")
-        .arg("--systemd")
+    let dbus_address = std::env::var("DBUS_SESSION_BUS_ADDRESS").ok();
+    let runtime_dir = std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from);
+    let include_systemd =
+        session_bus_serves_systemd(dbus_address.as_deref(), runtime_dir.as_deref());
+
+    let mut command = std::process::Command::new("dbus-update-activation-environment");
+    if include_systemd {
+        command.arg("--systemd");
+    }
+    command
         .args(SESSION_VARS)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-    {
-        Ok(status) if status.success() => {
+        .stderr(std::process::Stdio::null());
+    detach_from_frame_pin(&mut command);
+
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            log::warn!("session: could not run dbus-update-activation-environment: {error}");
+            return;
+        }
+    };
+
+    match wait_with_timeout(&mut child, ACTIVATION_EXPORT_TIMEOUT) {
+        Ok(Some(status)) if status.success() => {
+            let target = if include_systemd {
+                "D-Bus/systemd"
+            } else {
+                "private D-Bus"
+            };
             log::info!(
-                "session: exported {} to the D-Bus/systemd activation environment",
+                "session: exported {} to the {target} activation environment",
                 SESSION_VARS.join(" ")
             );
         }
-        Ok(status) => {
+        Ok(Some(status)) => {
             log::warn!("session: dbus-update-activation-environment exited with {status}");
         }
+        Ok(None) => {
+            log::warn!(
+                "session: dbus-update-activation-environment timed out after {:?}; continuing without activation export",
+                ACTIVATION_EXPORT_TIMEOUT
+            );
+        }
         Err(error) => {
-            log::warn!("session: could not run dbus-update-activation-environment: {error}");
+            log::warn!(
+                "session: failed while waiting for dbus-update-activation-environment: {error}"
+            );
         }
     }
 }
@@ -702,5 +792,35 @@ mod tests {
         // …exponentially up to the ceiling.
         assert_eq!(idle_restart_delay(6), RESTART_BACKOFF_MAX);
         assert_eq!(idle_restart_delay(50), RESTART_BACKOFF_MAX);
+    }
+
+    #[test]
+    fn systemd_activation_export_requires_the_user_session_bus() {
+        let runtime = std::path::Path::new("/run/user/1000");
+        assert!(session_bus_serves_systemd(
+            Some("unix:path=/run/user/1000/bus"),
+            Some(runtime),
+        ));
+        assert!(session_bus_serves_systemd(
+            Some("unix:path=/run/user/1000/bus,guid=0123456789abcdef"),
+            Some(runtime),
+        ));
+        assert!(session_bus_serves_systemd(
+            Some("unix:path=/run/user/1000/bus"),
+            Some(std::path::Path::new("/run/user/1000/")),
+        ));
+        // A private `dbus-run-session` daemon has no org.freedesktop.systemd1.
+        assert!(!session_bus_serves_systemd(
+            Some("unix:path=/tmp/dbus-5ZUWhYUHxr,guid=137bc4045ec5c56afc88b49b6b0535c6"),
+            Some(runtime),
+        ));
+        assert!(!session_bus_serves_systemd(
+            Some("unix:abstract=/tmp/dbus-private"),
+            Some(runtime),
+        ));
+        assert!(!session_bus_serves_systemd(
+            Some("unix:path=/run/user/1000/bus"),
+            None,
+        ));
     }
 }
