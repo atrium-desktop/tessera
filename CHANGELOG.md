@@ -14,6 +14,51 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.102] - 2026-11-24
+
+### Changed
+
+- **Adopt Optics v0.0.86.** The workspace pins Optics `v0.0.86` (from
+  `v0.0.85`), picking up `optics-build`'s falsy-value handling for
+  `OPTICS_STATIC` / `OPTICS_DYNAMIC` (so shell overrides such as
+  `OPTICS_DYNAMIC=0` take effect over a worktree `.cargo/config.toml`),
+  expanded Optics unit, GPU-integration, and E2E test coverage, and tooling
+  cleanup. Contributor setup, packaging, getting-started, DRM, and rendering
+  docs are updated to match `v0.0.86`.
+- **Self-delegating Interaction Domain sandbox tests.** Kernel-level cgroup
+  sandbox tests in `tessera-launch-services` now automatically re-execute
+  themselves inside a transient `systemd-run --user` unit with
+  `Delegate=cpu memory pids` when the outer test runner lacks controller
+  delegation, so `cargo nextest run -p tessera-launch-services` exercises them
+  directly without a separate shell wrapper.
+- **Streamlined nested and DRM development launchers.** `scripts/run-drm-dev.sh`
+  and `scripts/run-nested-dev.sh` add `--build-only`, `--no-build`,
+  `--profile`, `--help`, and `--` argument forwarding, build all supervised
+  companion binaries (`tessera-idle`, `tessera-lock`,
+  `tessera-network-system`, `tessera-cast`, `tessera-settings`), isolate
+  `XDG_STATE_HOME` alongside `XDG_DATA_HOME`, auto-detect local Optics
+  worktrees when deciding `--locked`, honor explicit `TESSERA_PREVIEW=""`, and
+  execute the compiled `tessera` binary directly (wrapping the DRM compositor
+  in `dbus-run-session`).
+
+### Fixed
+
+- **Prevent `dbus-update-activation-environment` from stalling startup on
+  isolated D-Bus sessions.** Compositor session startup now passes `--systemd`
+  only when `DBUS_SESSION_BUS_ADDRESS` targets the user's systemd session bus
+  (`$XDG_RUNTIME_DIR/bus`), detaches the helper from the frame pin, and bounds
+  waiting to 2 seconds so private `dbus-run-session` buses or unresponsive
+  daemons never stall startup.
+
+### Removed
+
+- **Removed retired cursor generator and sandbox wrapper scripts.** Deleted
+  `scripts/prepare-tessera-cursors.py` (the SVG cursor themes under
+  `assets/cursors/` are maintained directly in-tree) and
+  `scripts/test-interaction-domain-sandbox.sh` (superseded by self-delegating
+  tests in `tessera-launch-services`), and updated documentation and source
+  comments accordingly.
+
 ## [0.0.101] - 2026-11-24
 
 ### Changed
