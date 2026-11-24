@@ -1,520 +1,216 @@
 # Cross-Repository Development Workflow
 
-This guide establishes the standard engineering workflow for developing Tessera
-alongside its companion C rendering and material engine, **Optics**. It uses a
-dual Git worktree architecture to combine zero-friction local iteration on the
-development branch with strict, reproducible, and bisectable builds on `main`.
+This guide defines the dual-worktree workflow for developing Tessera alongside
+**Optics**. The primary worktree (`main`) stays canonical and statically linked
+for production and CI, while a linked worktree (`dev`) patches the sibling
+Optics checkout and links shared libraries for fast iteration.
 
 ## Architecture and Invariants
 
-Cross-repository development splits responsibilities across two linked Git
-worktrees sharing a single repository storage:
-
 | Concern | Primary worktree (`main`) | Development worktree (`dev`) |
 |---------|---------------------------|------------------------------|
-| Directory path | `../tessera/` | `../tessera-dev/` |
-| Active branch | `main` | `dev` |
-| Rust bindings | Tagged Optics Git source | Sibling `../optics` via `[patch]` |
+| Directory | `../tessera/` | `../tessera-dev/` |
+| Branch | `main` | `dev` |
+| `Cargo.toml` | Identical across both branches (`features = ["static"]` on native Optics deps) | Same |
+| Rust bindings | Tagged Optics Git source | Sibling `../optics/crates/*` via `[patch]` |
 | `Cargo.lock` | Canonical, tagged, committed | Worktree-local, never committed |
-| Cargo config | `.cargo/config.toml` absent | Copied from `.cargo/optics-local.toml` |
-| Native libraries | System-installed `/usr/lib/lib*.so` | Sibling `../optics/build/` via `-rpath` |
+| Cargo config | `.cargo/config.toml` absent | Copied from [.cargo/optics-local.toml](../../.cargo/optics-local.toml) |
+| Native linkage | Static `liboptics_*.a` archives (default `static` feature) | Shared `../optics/build/` via `[env] OPTICS_DYNAMIC = "1"` + `-rpath` |
 | Target cache | Primary `target/` | Worktree-local `target/` |
-
-### The Foundational Principle: Truth on Main vs Local Illusion
-
-A feature compiling and passing tests in `tessera-dev` is often a **local
-illusion**: it succeeds only because Cargo and the dynamic linker secretly link
-against the privileged, uncommitted state in your sibling `../optics/build`
-directory.
-
-The foundational principle of this dual-worktree architecture is:
-> **`main` represents external reality. It must genuinely build and run in
-> the wild for users, CI, and package managers—without depending on any
-> developer's private machine state.**
-
-Every rule in this workflow (Optics Upstream First, atomic promotion, canonical
-manifest updates, and locked lockfile validation) exists solely to prevent local
-development privilege from masquerading as a functional release on `main`.
 
 ### Core Invariants
 
-1. **Local Patch Containment**: `.cargo/config.toml` and path-resolved
-   `Cargo.lock` belong strictly to the `tessera-dev` worktree. The tracked
-   pre-commit hook automatically excludes them from regular commits.
-2. **Optics Upstream First**: Any feature merged into `main` that relies on
-   new or modified Optics APIs must depend solely on an immutable, tagged, public
-   Optics commit. `main` must never reference uncommitted or local-only
-   Optics revisions.
-3. **Always-Buildable Main (Atomic Promotion)**: Every commit on `main` must be
-   individually buildable with `cargo check --locked --workspace`. Feature
-   code changes and their corresponding upstream dependency tag bumps and
-   lockfiles must land together in a **single atomic commit**, ensuring zero
-   broken intermediate states for `git bisect`.
-4. **Target Directory Isolation**: Separate target directories are required.
-   Do not configure a shared `CARGO_TARGET_DIR` across worktrees, as mixing
-   incremental compilation artifacts between canonical Git dependencies and
-   local path overrides leads to cache invalidation churn.
-5. **Version Authority and User Intent**: All version elevations and release
-   actions—both internal workspace version bumps (`workspace.package.version`)
-   and external upstream dependency promotions (such as Optics Git release tags)—
-   are strictly governed by **explicit user intent**. Automated agents and AI
-   assistants MUST NOT autonomously decide, guess, or bump version numbers or
-   upstream tags without unambiguous user instruction. Automation and tooling
-   (such as `cargo run -p xtask -- optics --set <TAG>`) exist purely to execute
-   and validate the upgrade deterministically, never to usurp version policy.
+1. **Identical Manifests, Worktree-Local Overrides**: `main` and `dev` never
+   diverge on `Cargo.toml` link settings. `Cargo.toml` enables
+   `features = ["static"]` everywhere so canonical and production builds embed
+   Optics archives by default; only `tessera-dev`'s untracked
+   `.cargo/config.toml` overrides the mode with `OPTICS_DYNAMIC = "1"`.
+2. **Optics Upstream First**: `main` must depend solely on an immutable,
+   publicly tagged Optics release — never on local or uncommitted Optics state.
+3. **Always-Buildable Main (Atomic Promotion)**: Every commit on `main` must
+   build independently with `cargo check --locked --workspace`. Feature code,
+   the Optics tag bump in `Cargo.toml`, and the regenerated canonical
+   `Cargo.lock` land together in one atomic squash commit.
+4. **Target Directory Isolation**: Keep separate `target/` directories per
+   worktree; do not share `CARGO_TARGET_DIR` across canonical and patched trees.
+5. **Version Authority**: Internal workspace version bumps
+   (`workspace.package.version`) and upstream Optics tag bumps are strictly
+   governed by explicit user instruction. Tooling (`cargo run -p xtask -- optics --set <TAG>`)
+   executes approved upgrades and never decides version policy.
 
 ## Workspace Setup
 
-### Directory Topology
-
-Place all repositories under a common parent directory:
+Place the repositories under a common parent directory:
 
 ```text
 projects/
-├── tessera/       # Primary worktree on main (canonical, production-ready)
-├── tessera-dev/   # Linked development worktree on dev (local patch)
-└── optics/        # Sibling checkout of the Optics C engine
+├── tessera/       # Primary worktree on main (canonical, static Optics)
+├── tessera-dev/   # Linked worktree on dev (local patch, dynamic Optics)
+└── optics/        # Sibling Optics checkout
 ```
 
-### 1. Create the Linked Worktree
-
-Run from the primary `tessera` repository (`../tessera/`, branch `main`):
-
-```bash
-# In projects/tessera/ (branch main):
-git worktree add -b dev ../tessera-dev main
-```
-
-### 2. Activate Local Optics Mode
-
-Enter the development worktree, copy the local patch configuration, and
-install the repository-owned Git hooks:
-
-```bash
-# In projects/tessera-dev/ (branch dev):
-cd ../tessera-dev
-cp .cargo/optics-local.toml .cargo/config.toml
-git config core.hooksPath .githooks
-```
-
-Verify that the sibling Optics repository and Meson build exist:
-
-```bash
-# In projects/tessera-dev/ (branch dev):
-test -f ../optics/meson.build
-meson compile -C ../optics/build
-```
-
-#### Understanding `.cargo/optics-local.toml`
-
-The repository tracks `.cargo/optics-local.toml` as the reviewed template for
-local development. Because `.cargo/config.toml` is ignored by Git to keep
-worktree state isolated, copying this template activates source-replacement
-without dirtying version control:
-
-```toml
-[patch."https://github.com/ming2k/optics"]
-optics-gfx = { path = "../optics/crates/optics-gfx" }
-optics-gfx-sys = { path = "../optics/crates/optics-gfx-sys" }
-optics-scene = { path = "../optics/crates/optics-scene" }
-optics-scene-sys = { path = "../optics/crates/optics-scene-sys" }
-optics-ui = { path = "../optics/crates/optics-ui" }
-optics-ui-sys = { path = "../optics/crates/optics-ui-sys" }
-optics-motion = { path = "../optics/crates/optics-motion" }
-optics-svg = { path = "../optics/crates/optics-svg" }
-optics-svg-sys = { path = "../optics/crates/optics-svg-sys" }
-```
-
-Optics places every Rust crate directly under repository-root `crates/` with
-the `optics-*` semantic module namespace (Optics ADR-0169, ADR-0170), symmetric
-with C libraries under `libs/`. `optics-motion` has no `-sys` crate because it
-is pure Safe Rust (Optics ADR-0158), and the vector compiler is `optics-svg`
-(Optics ADR-0170).
-
-This configuration achieves two things:
-
-1. **Cargo Source Replacement**: It instructs Cargo to intercept every
-   dependency on the remote `ming2k/optics` repository and redirect it to
-   the local sibling directory `../optics/`.
-2. **Native Discovery and Precedence**: Loading `*-sys` crates locally
-   causes their `build.rs` scripts to run from disk. These scripts detect
-   `../optics/build/meson-uninstalled/`, prepend it to `PKG_CONFIG_PATH`,
-   and inject `-Wl,-rpath` so that uninstalled local C libraries take
-   absolute precedence over any system-installed versions.
-
-### 3. Resolve the Local Dependency Graph
-
-Run an initial check in `tessera-dev` to populate the local worktree
-lockfile with path dependencies:
-
-```bash
-# In projects/tessera-dev/ (branch dev):
-cargo check -p tessera
-```
-
-Verify that Cargo resolves the sibling paths instead of Git tags:
-
-```bash
-# In projects/tessera-dev/ (branch dev):
-cargo tree -i optics-gfx
-cargo tree -i optics-ui
-```
-
-Both trees must display paths pointing into `../optics/crates/`.
-
-## Daily Development in Local Mode
-
-> **Active Worktree**: All operations in this section execute inside the
-> development worktree (`../tessera-dev/`, branch `dev`), interacting with
-> the sibling directory `../optics/`.
->
-> Do not run these daily development commands in the primary `tessera/`
-> (`main`) worktree.
-
-### Compiling and Testing
-
-When modifying Optics and Tessera simultaneously:
-
-1. Recompile the native C libraries whenever Optics C sources change:
+1. **Create the linked worktree** from `projects/tessera/`:
    ```bash
-   # From either directory, build the shared Meson tree:
+   git worktree add -b dev ../tessera-dev main
+   ```
+2. **Enable local Optics mode and hooks** inside `projects/tessera-dev/`:
+   ```bash
+   cd ../tessera-dev
+   cp .cargo/optics-local.toml .cargo/config.toml
+   git config core.hooksPath .githooks
+   ```
+   [.cargo/optics-local.toml](../../.cargo/optics-local.toml) redirects every
+   `ming2k/optics` crate to `../optics/crates/*` and sets `[env] OPTICS_DYNAMIC = "1"`,
+   overriding the workspace `static` feature so local builds discover
+   `../optics/build/meson-uninstalled/*.pc` and inject `-Wl,-rpath`.
+3. **Build Optics and resolve the local graph**:
+   ```bash
+   meson setup ../optics/build ../optics -Dtests=false -Dbuildtype=debugoptimized  # first time only
    meson compile -C ../optics/build
-   ```
-2. Build and test Tessera in the development worktree. The `-sys` crates
-   automatically inject `-Wl,-rpath` pointing to `../optics/build`,
-   resolving uninstalled `.so` files at runtime:
-   ```bash
-   # In projects/tessera-dev/ (branch dev):
    cargo check -p tessera
-   cargo nextest run -p tessera
+   cargo tree -i optics-gfx   # confirm path points to ../optics/crates/optics-gfx
    ```
 
-Do not run concurrent Meson or Ninja builds against `../optics/build` from
-multiple terminals, as the build output directory is a shared write location.
+## Daily Development (`tessera-dev`)
 
-### Committing Tessera Changes on dev
-
-Stage and commit changes on `dev` as usual:
+Run all day-to-day commands inside `projects/tessera-dev/`:
 
 ```bash
-# In projects/tessera-dev/ (branch dev):
-git add .
-git commit -m "feat(dock): improve intent dwell hit testing"
+# Recompile Optics after C or shader edits (zero Rust relink when headers are unchanged):
+meson compile -C ../optics/build
+
+# Build and test Tessera against the shared libraries in ../optics/build:
+cargo check -p tessera
+cargo nextest run -p tessera
+
+# Verify the production static closure inside dev on demand:
+OPTICS_DYNAMIC=0 cargo build -p tessera
 ```
 
-The tracked `.githooks/pre-commit` hook automatically unstages:
-- `Cargo.lock` (mutated by the local patch); and
-- `.cargo/config.toml` (if accidentally staged).
+Do not run concurrent Meson/Ninja builds against `../optics/build` from
+multiple terminals.
 
-The commit proceeds with only your Tessera source changes. Never bypass this
-guard with `--no-verify`.
+Commit on `dev` normally (`git add . && git commit ...`). Never bypass the
+hook with `--no-verify` — [.githooks/pre-commit](../../.githooks/pre-commit)
+automatically unstages the path-patched `Cargo.lock` and `.cargo/config.toml`
+so local overrides never pollute commits, rebases, or squash merges.
 
-#### Why Cargo.lock Must Never Be Committed on dev
+## Feature-Level Atomic Promotion to `main`
 
-Even though features on `dev` are eventually squash-promoted onto `main`,
-allowing mutated `Cargo.lock` entries into `dev` commits introduces three
-severe failure modes:
+`dev` holds fine-grained WIP commits built against local Optics; `main` holds
+curated, individually buildable atomic commits. Never fast-forward `main` onto
+`dev`.
 
-1. **Rebase Lockfile Conflicts**: Whenever `main` updates any canonical
-   dependency, rebasing `dev` onto `main` triggers massive, opaque merge
-   conflicts across hundreds of lockfile lines. When `Cargo.lock` is kept
-   uncommitted on `dev`, rebasing is completely conflict-free: a quick
-   `git restore Cargo.lock && git rebase main` followed by `cargo check`
-   lets Cargo regenerate the local lockfile in milliseconds.
-2. **CI and Remote Collaboration Breakage**: If `dev` is pushed to remote,
-   remote CI runners or peer developers lack your machine's sibling
-   `../optics` directory. Pushing path-overridden lockfiles causes remote
-   `cargo check --locked` commands to immediately fail.
-3. **Poisoned Squash Risk**: If `Cargo.lock` were committed on `dev`, running
-   `git merge --squash dev` on `main` would pull `dev`'s local path lockfile
-   into `main`'s staging area. Any subsequent commit would accidentally publish
-   broken local path dependencies to `main`.
+### 1. Publish the Optics Tag First
 
-## Feature-Level Atomic Promotion to Main
-
-Promote changes from `dev` to `main` at **feature-level boundaries** rather
-than accumulating a monolithic, unreviewable multi-month release dump.
-
-### Relationship Between `dev` and `main` Commit Histories
-
-The commit history on `dev` and `main` is **deliberately distinct**:
-
-- **`dev` history**: Contains rapid, exploratory, and fine-grained iteration
-  commits created during co-development with local Optics. These commits were
-  built against the local path-patched lockfile, so they are **not**
-  individually buildable in canonical mode.
-- **`main` history**: Contains curated, atomic feature commits that are
-  guaranteed to build independently with `cargo check --locked --workspace`,
-  pinned to canonical remote Git tags.
-
-Because intermediate `dev` commits cannot build canonically, they must never
-be merged onto `main` verbatim via `--ff-only`. Promotion is always an
-**Atomic Squash Promotion**: the feature implementation, its updated Optics
-tag in `Cargo.toml`, and the canonical `Cargo.lock` land together in
-**exactly one atomic commit on `main`**. `dev` is then reset onto the promoted
-`main`. The fine-grained history survives through dated archive tags, not
-through `main`'s graph.
-
-Follow this protocol whenever a completed feature on `dev` depends on new or
-updated Optics functionality:
-
-### Step 1: Upstream Optics First
-
-Land and tag the required changes in `../optics` before making Tessera
-canonical:
-
-> **Version Policy Authority**: The release tag `vX.Y.Z` represents an external
-> release milestone and must be explicitly specified or approved by the user.
-> AI assistants and automated tools must never autonomously guess, invent, or
-> bump upstream version numbers.
+In `projects/optics/` (only after explicit tag approval):
 
 ```bash
-# In projects/optics/ (Optics repository, branch main):
 cd ../optics
-git checkout main
-git pull
-# Ensure the release tag exists and the build passes:
+git checkout main && git pull --ff-only
 git tag -v vX.Y.Z || git tag -a vX.Y.Z -m "vX.Y.Z"
 git push origin vX.Y.Z
 meson compile -C build
 ```
 
-### Step 2: Switch to Main Worktree and Fast-Forward
+### 2. Squash, Re-pin, Verify, and Commit on `main`
 
-Navigate to the primary `tessera/` worktree. Because the primary worktree is
-permanently bound to `branch main` and deliberately lacks `.cargo/config.toml`,
-it operates natively in canonical mode without disabling or toggling any local
-configurations or switching branches.
+In `projects/tessera/` (primary worktree, no `.cargo/config.toml`):
 
 ```bash
-# In projects/tessera/ (primary worktree, branch main):
 cd ../tessera
 git pull --ff-only
-```
 
-#### Why `--ff-only` Is Mandatory Here
-
-The `--ff-only` flag is an intentional safety fuse:
-- **Refuses Divergence**: If `main` has diverged or contains unpushed local
-  edits, `git pull --ff-only` immediately aborts rather than generating an
-  unintended `Merge branch 'main'` commit.
-- **Guarantees Clean Baseline**: It ensures the promotion squash executes
-  strictly on top of the authoritative remote HEAD, avoiding merge anomalies
-  and push rejections later.
-
-### Step 3: Atomic Promotion (Squash + Manifest + Lockfile + Verification)
-
-Execute the entire promotion sequence as a single, indivisible unit of work.
-**Do not commit the squashed feature before updating the dependency manifests.**
-
-```bash
-# In projects/tessera/ (primary worktree, branch main):
-
-# 1. Squash feature changes from dev into the staging area (DO NOT COMMIT YET):
+# Squash dev changes into the staging area (do not commit yet):
 git merge --squash dev
 
-# 2. Update all Optics dependency tags in Cargo.toml to the newly published tag:
+# Move all Optics workspace tags and regenerate canonical Cargo.lock:
 cargo run -p xtask -- optics --set vX.Y.Z
+OPTICS_SOURCE_DIR=../optics OPTICS_BUILD_DIR=../optics/build cargo check -p tessera
 
-# 3. Regenerate canonical Cargo.lock against the authoritative remote Git tags:
-cargo check -p tessera
-
-# 4. Verify that dependencies resolve to remote Git sources, not local paths:
+# Confirm remote Git resolution (no local ../optics paths):
 cargo tree -i optics-gfx
 cargo tree -i optics-ui
 
-# 5. Full workspace verification under --locked enforcement:
-# (If the newly tagged native C libraries are not yet installed to /usr/lib,
-# prepend PKG_CONFIG_PATH=../optics/build/meson-uninstalled so pkg-config finds them):
-PKG_CONFIG_PATH=../optics/build/meson-uninstalled cargo check --locked --workspace
-PKG_CONFIG_PATH=../optics/build/meson-uninstalled cargo nextest run --locked --workspace
-PKG_CONFIG_PATH=../optics/build/meson-uninstalled cargo build --locked -p tessera
+# Full locked static verification (omit OPTICS_* if matching Optics is installed system-wide):
+OPTICS_SOURCE_DIR=../optics OPTICS_BUILD_DIR=../optics/build cargo check --locked --workspace
+OPTICS_SOURCE_DIR=../optics OPTICS_BUILD_DIR=../optics/build cargo nextest run --locked --workspace
+OPTICS_SOURCE_DIR=../optics OPTICS_BUILD_DIR=../optics/build cargo build --locked --release -p tessera
 
-# 6. Create the SINGLE atomic promotion commit:
-git commit -m "feat(dock): improve intent dwell hit testing
+# Single atomic promotion commit:
+git commit -m "feat(<scope>): <summary>
 
 Adopt Optics vX.Y.Z."
-
-# 7. Push canonical commit to upstream:
 git push origin main
 ```
 
-Collect `Co-authored-by:` trailers in the commit message for any co-authors of
-the squashed iteration commits; squash merging discards intermediate commit
-authorship otherwise.
+For production host installation from `main`, run
+[scripts/install.sh](../../scripts/install.sh): it compiles release static
+archives in `../optics/build-static-release`, builds release binaries with
+`OPTICS_STATIC=1`, and runs `readelf` checks to reject any shared Optics
+dependency or non-system `RPATH` before installing.
 
-By combining the squashed feature diff and the dependency upgrade in one
-commit, **every single commit on `main` remains 100% buildable and bisectable**.
+### 3. Reset `dev` onto `main`
 
-### Step 4: Reset Dev and Seamlessly Resume
-
-Notice that **`tessera-dev` never touched or disabled its `.cargo/config.toml`**.
-Your local development environment remains fully configured throughout the entire
-promotion and release sequence.
-
-#### Synchronizing dev with main
-
-Reset `dev` onto the freshly promoted (or release-bumped) `main`. Do **not**
-rebase here: the dev content already lives inside the squash commit on `main`,
-so rebasing yields empty commits and conflicts—`reset --hard main` is the only
-correct, conflict-free synchronization:
+Because `dev`'s changes now live inside the squash commit on `main`, reset
+rather than rebase (`tessera-dev/.cargo/config.toml` stays untouched):
 
 ```bash
-# In projects/tessera-dev/ (development worktree, branch dev):
 cd ../tessera-dev
 git reset --hard main
+cargo check -p tessera   # regenerates the local patched Cargo.lock
 ```
 
-*(Optional History Archival)*: `git reset --hard` moves the branch pointer while
-Git's reflog (`dev@{1}`) retains the unpromoted iteration commit objects locally
-for ~90 days without cluttering repository tags. If long-term archival of raw WIP
-commits is specifically desired, a local tag or branch may be set prior to reset.
+If `dev` is tracked on a remote, update it with `git push --force-with-lease origin dev`.
 
-At this moment, `dev` and `main` point to the **exact same commit SHA**. The
-working tree inherits the clean, canonical lockfile from `main`.
+## Workspace Release Tagging
 
-#### Seamless Resumption of Local Development
-
-To transition back to active development with zero friction:
+When cutting a Tessera release (`vX.Y.Z`) on `main`:
 
 ```bash
-# In projects/tessera-dev/ (development worktree, branch dev):
-cargo check -p tessera
-cargo tree -i optics-gfx    # confirm ../optics/crates/ paths reappear
-```
-
-Running `cargo check` instantly rewrites the local `Cargo.lock` to reconnect to
-sibling `../optics` via `.cargo/config.toml`. 
-
-**The cycle is now complete and frictionless**:
-- `dev` is 100% synchronized with `main`'s latest release state;
-- Sibling local path resolution is live;
-- The `.githooks/pre-commit` guard is actively protecting the dirty lockfile;
-- The developer can immediately begin writing the next feature, running tests,
-  and committing—with zero manual cleanup or configuration juggling.
-
-If `dev` was previously pushed to remote, update the remote branch pointer
-safely using lease protection (never bare `--force`):
-
-```bash
-# In projects/tessera-dev/ (development worktree, branch dev):
-git push --force-with-lease origin dev
-```
-
-### Workspace Package Release, Tagging, and Synchronization
-
-When promoting a milestone to an official package release (`v0.0.X` bump):
-
-1. **Perform Version Bump on Main**: In `../tessera/` (`main`), update
-   `workspace.package.version` in `Cargo.toml`, update `CHANGELOG.md`, regenerate
-   the canonical `Cargo.lock` with `cargo check --locked --workspace`, and commit:
-   ```bash
-   # In projects/tessera/ (primary worktree, branch main):
-   git add Cargo.toml Cargo.lock CHANGELOG.md
-   git commit -m "chore(release): vX.Y.Z"
-   ```
-2. **Create Signed Release Tag on Main**:
-   Tag the canonical release commit on `main` following semantic versioning:
-   ```bash
-   # In projects/tessera/ (primary worktree, branch main):
-   git tag -a vX.Y.Z -m "vX.Y.Z"
-   ```
-3. **Publish Canonical Release and Tags**:
-   Push the canonical release commit and the release tag to upstream:
-   ```bash
-   # In projects/tessera/ (primary worktree, branch main):
-   git push origin main --follow-tags
-   ```
-4. **Synchronize dev Worktree**:
-   In `../tessera-dev/` (`dev`), align `dev` with the newly tagged release and
-   restore local Optics overrides:
-   ```bash
-   # In projects/tessera-dev/ (development worktree, branch dev):
-   git reset --hard main
-   cargo check -p tessera
-   ```
-   This guarantees `dev` immediately builds upon the newly released package
-   version baseline while keeping local Optics path overrides fully intact.
-
-## Automated Git Hook Guards (.githooks/pre-commit)
-
-To minimize cognitive overhead and prevent human error, repository constraints
-are codified into tracked Git hooks in `.githooks/`. Standard `.git/hooks/`
-scripts are private to a local checkout and cannot be synchronized or reviewed
-in version control. Setting `git config core.hooksPath .githooks` activates the
-repository-owned guardrails across linked worktrees. The hook implementation
-is tracked directly in [.githooks/pre-commit](../../.githooks/pre-commit).
-
-### Dual-Mode Guard Behavior
-
-The tracked `.githooks/pre-commit` hook dynamically detects the active
-worktree mode and enforces corresponding constraints:
-
-#### 1. In Local Optics Mode (`tessera-dev/`)
-
-- **Automatic Path Unstaging**: During regular feature commits, the hook
-  silently unstages `Cargo.lock` (mutated by the local patch) and
-  `.cargo/config.toml` (if force-staged), printing a non-intrusive notice:
-  ```text
-  Local Optics mode: excluded Cargo.lock from this commit.
-  ```
-  The commit proceeds with only your clean Tessera source changes.
-- **Refusing Release-Shaped Commits**: If you attempt to commit a version bump
-  (`+version = "..."` in `Cargo.toml`), the hook aborts the commit:
-  ```text
-  Local Optics mode: refusing a release-shaped commit.
-  The staged Cargo.toml bumps the workspace version, but local
-  mode cannot produce a committable canonical Cargo.lock.
-  Perform release version bumps and canonical lockfile generation
-  directly inside the primary main worktree (../tessera/).
-  ```
-
-#### 2. In Canonical Mode (`tessera/`, `main`)
-
-- **Lockfile Integrity Validation**: Whenever `Cargo.toml` is staged on `main`,
-  the hook automatically executes `cargo metadata --locked --format-version 1`.
-  If the canonical lockfile is out of sync or missing, the commit is blocked
-  until `cargo check` updates it against the remote Git tags.
-
-### Recovering Canonical State
-
-If a worktree's lockfile is accidentally polluted by path entries, restore it
-immediately:
-
-```bash
-# In projects/tessera/ (main) or projects/tessera-dev/ (dev):
-rm -f .cargo/config.toml
-git restore Cargo.lock
-cargo check --locked --workspace
-```
-
-### Rebasing dev when Main Advances
-
-If `main` advances independently through peer pull requests or hotfixes, rebase
-`dev` onto the updated `main`. This applies only to **unpromoted WIP commits**;
-after a feature has been squash-merged and promoted, use the
-`git reset --hard main` flow in Step 4 instead of rebasing:
-
-```bash
-# 1. Pull the primary worktree (in projects/tessera/, branch main):
 cd ../tessera
-git pull --ff-only
+# Update workspace.package.version in Cargo.toml and CHANGELOG.md, then:
+OPTICS_SOURCE_DIR=../optics OPTICS_BUILD_DIR=../optics/build cargo check --locked --workspace
+git add Cargo.toml Cargo.lock CHANGELOG.md
+git commit -m "chore(release): vX.Y.Z"
+git tag -a vX.Y.Z -m "vX.Y.Z"
+git push origin main --follow-tags
+```
 
-# 2. Rebase the development worktree (in projects/tessera-dev/, branch dev):
+Then resynchronize `tessera-dev` with `git reset --hard main && cargo check -p tessera`.
+
+## Git Hook Guard and Maintenance
+
+[.githooks/pre-commit](../../.githooks/pre-commit) switches behavior based on
+whether `.cargo/config.toml` contains `[patch."https://github.com/ming2k/optics"]`:
+
+- **Local Optics mode (`tessera-dev/`)**: unstages `Cargo.lock` and
+  `.cargo/config.toml` automatically, and rejects release-shaped version bumps
+  in `Cargo.toml`.
+- **Canonical mode (`tessera/`)**: validates `cargo metadata --locked` whenever
+  `Cargo.toml` is staged.
+
+### Rebasing Unpromoted `dev` Work When `main` Advances
+
+```bash
+cd ../tessera && git pull --ff-only
 cd ../tessera-dev
 git restore Cargo.lock
 git rebase main
 cargo check -p tessera
 ```
 
-## Sibling Project Alignment
+### Recovering Canonical State
 
-The same dual-worktree pattern, `.cargo/optics-local.toml` template, and Git
-hook guards apply uniformly across companion repositories in the desktop stack:
+If a worktree's `Cargo.lock` is accidentally polluted by local paths:
 
-- `arca-dev`: Desktop file manager and chooser.
-- `sigil-dev`: Secret service daemon and PAM provider.
-- `aphrodite-dev`: Companion workspace.
+```bash
+rm -f .cargo/config.toml
+git restore Cargo.lock
+cargo check --locked --workspace
+```
 
-All applications maintain clean canonical branches on `main` and use
-worktree-local patch files during daily development.
+## See Also
+
+- [Setup](setup.md) — prerequisites, contributor vs dual-maintainer setup, and troubleshooting.
+- [Distribution Packaging](packaging.md) — vendoring, install manifest, and shared-linking packager overrides.

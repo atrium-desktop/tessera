@@ -1,4 +1,5 @@
-# Local-only source patches for cross-repository development.
+# Local-only source patches and dynamic-linking override for cross-repository
+# development.
 #
 # Enable this file only in a linked Tessera worktree:
 #   cp .cargo/optics-local.toml .cargo/config.toml
@@ -17,3 +18,10 @@ optics-ui-sys = { path = "../optics/crates/optics-ui-sys" }
 optics-motion = { path = "../optics/crates/optics-motion" }
 optics-svg = { path = "../optics/crates/optics-svg" }
 optics-svg-sys = { path = "../optics/crates/optics-svg-sys" }
+
+# Override the workspace's default `static` Optics feature during local
+# iteration so C and shader changes in `../optics/build` take effect via rpath
+# without relinking Rust. Pass `OPTICS_DYNAMIC=0` in the shell to verify the
+# production static link on demand.
+[env]
+OPTICS_DYNAMIC = "1"

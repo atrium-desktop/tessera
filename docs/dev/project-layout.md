@@ -51,7 +51,7 @@ Repository-level tool configuration sits at the root:
 | `typos.toml` | Spell-check allowances for protocol identifiers and project vocabulary |
 | `deny.toml` | Supply-chain policy: advisories, license allowlist, wildcard requirements, dependency sources |
 | `.config/nextest.toml` | Test profile, exclusive-resource groups, and the setup script that builds the sibling binaries |
-| `.cargo/optics-local.toml` | The opt-in sibling-Optics `[patch]` template (never the committed configuration) |
+| `.cargo/optics-local.toml` | The opt-in sibling-Optics `[patch]` and `OPTICS_DYNAMIC=1` template (never the committed configuration) |
 
 `test-support` is not a production package. It owns environment guards, scratch
 directories, socket names, polling, and workspace/binary lookup shared by

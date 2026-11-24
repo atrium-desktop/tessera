@@ -11,9 +11,14 @@ Tessera has two separate Optics dependency surfaces:
 - `Cargo.lock` pins the Rust bindings to the Optics tag reported by
   `cargo run -p xtask -- optics --tag-only`.
 - The native `optics-gfx`, `optics-scene`, `optics-ui`, `optics-svg`, and
-  `optics-text` libraries are system build and runtime dependencies discovered
-  through `pkg-config` and the dynamic loader. `optics-text` arrives through
-  `optics-ui`'s own `Requires`; Tessera links no `optics-window` binary.
+  `optics-text` libraries are discovered through `pkg-config`. By default the
+  workspace enables the `static` Cargo feature so release binaries embed
+  `liboptics_*.a` and carry no runtime dependency on pre-1.0 Optics SONAMEs
+  (Optics' default `default_library=both` install ships both `.a` and `.so`).
+  Distributions that explicitly enforce shared linking against a packaged
+  `optics` runtime can override the feature with `OPTICS_DYNAMIC=1`.
+  `optics-text` arrives through `optics-ui`'s own `Requires`; Tessera links no
+  `optics-window` binary.
 
 Every workspace crate declares `publish = false`: the distribution channel is
 this source package, not crates.io, and an internal crate API is not a
@@ -28,8 +33,8 @@ verify the native development files before building Tessera:
 pkg-config --modversion optics-gfx optics-scene optics-ui optics-svg optics-text
 ```
 
-Each command must report exactly the pinned release (`0.0.82` for this tree; the
-tag is `v0.0.83`). Pre-1.0 the `-sys` crates
+Each command must report exactly the pinned release (`0.0.85` for this tree; the
+tag is `v0.0.85`). Pre-1.0 the `-sys` crates
 probe `pkg-config` with an exact version, and the SONAME carries the full
 version, so a mismatched native release fails at build or load time rather than
 reading a different descriptor layout. Distribution package names vary, so
@@ -295,11 +300,11 @@ Package Optics first, then package the explicitly compatible Tessera and Tessera
 Portal tags independently.
 
 Replace `<TESSERA_VERSION>` and `<PORTAL_VERSION>` below with the release
-versions being packaged. The Optics pin is fixed by this tree: `v0.0.83`.
+versions being packaged. The Optics pin is fixed by this tree: `v0.0.85`.
 
 | Package | Provides | Built by |
 |---------|----------|----------|
-| `optics` | `liboptics_gfx.so`, `liboptics_scene.so`, `liboptics_ui.so`, `liboptics_svg.so`, `liboptics_text.so`, headers, `optics-gfx.pc` … `optics-text.pc` | Meson/Ninja from the `ming2k/optics` `v0.0.83` tag |
+| `optics` | `liboptics_gfx.so`, `liboptics_scene.so`, `liboptics_ui.so`, `liboptics_svg.so`, `liboptics_text.so`, headers, `optics-gfx.pc` … `optics-text.pc` | Meson/Ninja from the `ming2k/optics` `v0.0.85` tag |
 | `tessera` | Compositor, CLI and agent integration binaries, systemd user unit, and cursor license disclosure | Cargo from the `atrium-desktop/tessera` `v<TESSERA_VERSION>` tag |
 | `xdg-desktop-portal-atrium` | Private portal backend plus its D-Bus activation, `.portal`, backend-selection files, and PAM helper | Cargo from the `atrium-desktop/xdg-desktop-portal-atrium` `v<PORTAL_VERSION>` tag |
 
@@ -311,7 +316,7 @@ Each repository's CI validates its own dependency surface; the
 ```bash
 # Maintainer: <you>
 pkgname=optics
-pkgver='0.0.82'
+pkgver='0.0.85'
 pkgrel=1
 pkgdesc='Vulkan-first rendering stack: optics-gfx, optics-scene, optics-ui, optics-svg, optics-text'
 arch=(x86_64)

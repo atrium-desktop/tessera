@@ -183,3 +183,15 @@ jobs:
             --features chrome-dock,chrome-pivot
       - name: Build release binaries
         run: cargo build --locked --release --workspace
+      - name: Verify release binaries link Optics statically
+        run: |
+          for bin in tessera tessera-idle tessera-lock tessera-settings tessera-mcp tessera-networkd tessera-cast tessera-castd; do
+            path="target/release/$bin"
+            test -x "$path"
+            needed=$(readelf -d -- "$path" | sed -n \
+              's/.*(NEEDED).*Shared library: \[\(liboptics_\(gfx\|ui\|scene\|svg\|text\|window\|material\|app\)\.so[^]]*\)\]/\1/p')
+            if [ -n "$needed" ]; then
+              echo "ERROR: $path dynamically links Optics: $needed" >&2
+              exit 1
+            fi
+          done
