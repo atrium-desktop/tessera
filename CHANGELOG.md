@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.103] - 2026-11-26
+
 ### Added
 
 - **Unified in-memory observability event bus (ADR-0260).** IPC protocol v35
