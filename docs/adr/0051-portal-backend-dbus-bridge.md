@@ -8,8 +8,9 @@ superseded_by: ADR-0075
 
 # ADR-0051: xdg-desktop-portal backend as an out-of-process D-Bus bridge
 
-- Status: Superseded by ADR-0075
+- Status: Superseded by [ADR-0075](0075-independent-portal-package-and-backend-contract.md)
 - Date: 2026-07-24
+- Amended by: [ADR-0207](0207-compositor-dbus-isolation-and-prebaked-cursor-strategy.md) — *Compositor D-Bus Isolation and Pre-Baked Hardware Cursor Strategy*
 
 ## Context
 

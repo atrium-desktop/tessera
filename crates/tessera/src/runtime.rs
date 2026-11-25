@@ -5,6 +5,7 @@ pub(super) use tessera_wallpaper as wallpaper;
 
 mod app_pick;
 mod apps;
+mod backdrop;
 mod battery;
 mod capability_pick;
 mod capture;
@@ -336,6 +337,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // stay in the toast strip; anything worth keeping belongs to the command
     // panel's history.
     shell.add(Box::new(tessera_shell::SystemOsd::new()));
+    // Transient read-only Glance HUD (ADR-0255): wall clock, workspace position,
+    // and ambient machine state raised by Double Super, workspace switch, or
+    // its mounted Hot Zone.
+    shell.add(Box::new(tessera_shell::GlanceHud::new()));
     shell.add(Box::new(tessera_shell::Toast::new(std::sync::Arc::clone(
         &notif_queue,
     ))));
@@ -473,7 +478,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     shell.set_reduced_motion(desktop_preferences.reduced_motion);
     server.set_reduced_motion(desktop_preferences.reduced_motion);
     server.set_keyboard_accessibility(desktop_preferences.accessibility.keyboard);
-    shell.set_color_scheme(desktop_preferences.color_scheme);
+    apply_appearance(&mut shell, &desktop_preferences);
     // The dock: a persistent strip of pinned `.desktop` app icons (ADR-0022).
     // Resolve the pinned entries from the config's `[dock] pinned` list.
     // Automatic selection remains an explicit opt-in; an unconfigured session
@@ -526,19 +531,38 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             .as_ref()
             .map(|c| c.dock.autohide_timeout)
             .unwrap_or(0.50);
-        let autohide_dwell = config
-            .as_ref()
-            .map(|c| c.dock.autohide_dwell)
-            .unwrap_or(0.18);
         let mut dock = tessera_shell::components::dock::Dock::new();
         dock.set_autohide(autohide);
         dock.set_autohide_timeout(autohide_timeout);
-        dock.set_autohide_dwell(autohide_dwell);
         shell.add(Box::new(dock));
     }
+    if let Some(config) = config.as_ref() {
+        config::warn_deprecated_keys(config);
+    }
+    // Unified eight-zone perimeter Hot Zones (ADR-0254): owns edge/corner
+    // proximity reveal and Hover/Click summoning for mounted chrome surfaces.
+    let hot_zone_policy = config
+        .as_ref()
+        .map(|c| c.hot_zones.resolve(dock_state.position))
+        .unwrap_or_else(|| {
+            tessera_desktop::hot_zone::HotZonePolicy::with_dock_position(dock_state.position)
+        });
+    shell.set_hot_zones(hot_zone_policy.clone());
+    shell.add(Box::new(tessera_shell::HotZones::new(hot_zone_policy)));
     // Register the held-Super switcher last so its selection chrome stacks
     // above the Dock while the renderer supplies live window previews below.
     shell.add(Box::new(tessera_shell::WindowSwitcher::new()));
+    // Every transient component is idle at startup. One that already claims
+    // visible pixels would veto direct scanout until it changes state, which
+    // may mean the whole session. Warn once now rather than leave the cost
+    // to be found from GPU load.
+    let idle_violations = shell.idle_composition_violations();
+    if !idle_violations.is_empty() {
+        log::warn!(
+            "chrome claims visible pixels while idle and will block direct scanout: {}",
+            idle_violations.join(", ")
+        );
+    }
 
     if let Ok(preview) = std::env::var("TESSERA_PREVIEW") {
         match preview.trim().to_ascii_lowercase().as_str() {
@@ -647,6 +671,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|e| e.into_inner())
         .do_not_disturb();
     shell.set_system_status(system_status.clone());
+    // The material's power rules read the status just published (ADR-0252).
+    apply_appearance(&mut shell, &desktop_preferences);
     // Resource sampling was retired with the Control Center's machine
     // monitor: no surface displays utilization anymore, and an always-on
     // CPU/GPU/RAM/network probe contradicted the panel's event-driven
@@ -810,23 +836,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         std::sync::mpsc::channel::<ConfirmPickControlRequest>();
     let (capability_pick_control_tx, capability_pick_control_rx) =
         std::sync::mpsc::channel::<CapabilityPickControlRequest>();
-    let state_home = if let Some(sandbox) = &preview_sandbox {
-        sandbox.0.join("state")
-    } else {
-        std::env::var_os("XDG_STATE_HOME")
-            .map(std::path::PathBuf::from)
-            .or_else(|| {
-                std::env::var_os("HOME")
-                    .map(|home| std::path::PathBuf::from(home).join(".local/state"))
-            })
-            .ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "XDG_STATE_HOME/HOME is required for durable audit state",
-                )
-            })?
-    };
-    let journal_path = state_home.join("tessera/audit/events-v2.jsonl");
     let data_home = if let Some(sandbox) = &preview_sandbox {
         sandbox.0.join("share")
     } else {
@@ -843,94 +852,15 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 )
             })?
     };
-    let journal = if is_preview {
-        log::info!("audit: running preview session; using ephemeral in-memory journal");
-        tessera_audit::AuditLog::<tessera_audit::journal::Entry>::new(
-            tessera_audit::DEFAULT_CAPACITY,
-        )
-    } else {
-        let audit_policy = config
-            .as_ref()
-            .map(|config| config.audit)
-            .unwrap_or_default();
-        const MIB: u64 = 1024 * 1024;
-        let audit_options = tessera_audit::AuditStoreOptions {
-            max_store_bytes: audit_policy.max_store_mib * MIB,
-            min_free_bytes: audit_policy.min_free_mib * MIB,
-            checkpoint_interval_bytes: audit_policy.checkpoint_interval_mib * MIB,
-            checkpoint_interval_events: tessera_audit::DEFAULT_CHECKPOINT_INTERVAL_EVENTS,
-            segment_max_bytes: audit_policy.segment_max_mib * MIB,
-            retain_segments: audit_policy.retain_segments,
-        };
-        let audit_open_started = std::time::Instant::now();
-        let j = match tessera_audit::AuditLog::<tessera_audit::journal::Entry>::open_persistent_with_options(
-            tessera_audit::DEFAULT_CAPACITY,
-            &journal_path,
-            audit_options,
-        ) {
-            Ok(journal) => journal,
-            Err(tessera_audit::AuditError::Locked(_)) if host.name() == "nested" => {
-                log::warn!(
-                    "audit: store at {} is locked by host session; using ephemeral in-memory journal for nested run",
-                    journal_path.display()
-                );
-                tessera_audit::AuditLog::<tessera_audit::journal::Entry>::new(tessera_audit::DEFAULT_CAPACITY)
-            }
-            Err(error) => {
-                return Err(match error {
-                    locked @ tessera_audit::AuditError::Locked(_) => {
-                        std::io::Error::other(format!("{locked}; is another tessera instance running?"))
-                    }
-                    capacity @ (tessera_audit::AuditError::QuotaExceeded { .. }
-                    | tessera_audit::AuditError::LowSpace { .. }
-                    | tessera_audit::AuditError::InvalidOptions(_)) => {
-                        std::io::Error::other(capacity.to_string())
-                    }
-                    checkpoint @ (tessera_audit::AuditError::CheckpointAuthentication
-                    | tessera_audit::AuditError::CheckpointDecode(_)
-                    | tessera_audit::AuditError::CheckpointState(_)) => std::io::Error::other(format!(
-                        "{checkpoint}; preserve {} and quarantine its .checkpoint and .key sidecars together; \
-                         the next start will completely verify the durable history and rebuild them",
-                        journal_path.display()
-                    )),
-                    io @ (tessera_audit::AuditError::Io { .. }
-                    | tessera_audit::AuditError::Entropy(_)) => std::io::Error::other(io.to_string()),
-                    error => std::io::Error::other(format!(
-                        "{} failed verification: {error}; quarantine the file (rename it aside, e.g. \
-                             with a .corrupt-<date>.bak suffix) to start a fresh chain",
-                        journal_path.display()
-                    )),
-                }.into());
-            }
-        };
-        log::info!(
-            "audit: restored {} live event(s), latest sequence {}, {:.1} MiB durable, {} in {:?}",
-            j.len(),
-            j.latest_seq(),
-            j.persistent_bytes().unwrap_or(0) as f64 / MIB as f64,
-            if j.historical_verification_pending() {
-                "authenticated checkpoint replay; complete history verification continues in background"
-            } else if j.checkpoint_accelerated() {
-                "authenticated checkpoint replay; complete history already covered by the bounded replay"
-            } else {
-                "complete initial verification"
-            },
-            audit_open_started.elapsed(),
-        );
-        j.verify_sealed_segments().map_err(|error| {
-            std::io::Error::other(format!("audit segment verification: {error}"))
-        })?;
-        if let Some(status) = j.audit_status() {
-            log::info!(
-                "audit: {} sealed segment(s) verified, {:.1} MiB compressed, {:.1} MiB active, {} pruned segment(s) on record",
-                status.sealed_segments,
-                status.sealed_compressed_bytes as f64 / MIB as f64,
-                status.active_bytes as f64 / MIB as f64,
-                status.pruned_segments,
-            );
-        }
-        j
-    };
+    let journal_capacity = config
+        .as_ref()
+        .map(|config| config.audit.capacity)
+        .unwrap_or(tessera_audit::DEFAULT_CAPACITY);
+    let journal = tessera_audit::AuditLog::<tessera_audit::journal::Entry>::new(journal_capacity);
+    log::info!(
+        "observability: in-memory event bus ready (capacity {} entries)",
+        journal.capacity()
+    );
     let journal = std::sync::Arc::new(std::sync::Mutex::new(journal));
     let agent_registry = PrincipalRegistry::load(data_home.join("tessera/principals.json"));
     let grant_store = GrantStore::load(data_home.join("tessera/grants.json"));
@@ -1006,13 +936,19 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 source: config.wallpaper.source.clone(),
             })
             .unwrap_or_default(),
+        material: shell.material_resolution(),
     };
     live.set_settings(settings_snapshot.clone());
     shell.set_settings(settings_snapshot);
     live.set_system_status(system_status.clone());
-    let ipc: Option<tessera_ipc::Server> = match tessera_env::runtime_dir()
-        .map(|dir| tessera_ipc::socket_paths::default_socket_path(&dir))
-    {
+    let ipc_path: Result<std::path::PathBuf, String> = match tessera_env::ipc_socket_override() {
+        Ok(Some(path)) => Ok(path),
+        Ok(None) => tessera_env::runtime_dir()
+            .map(|dir| tessera_ipc::socket_paths::default_socket_path(&dir))
+            .map_err(|error| error.to_string()),
+        Err(error) => Err(error.to_string()),
+    };
+    let ipc: Option<tessera_ipc::Server> = match ipc_path {
         Ok(path) => {
             match tessera_ipc::Server::start_with_journal_broadcaster(
                 &path,
@@ -1164,6 +1100,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         surface,
         canvas,
         window_shadows,
+        backdrop: backdrop::ChromeBackdrop::default(),
+        freeze_backdrop: backdrop::ChromeBackdrop::default(),
         screenshot_freeze,
         pending_capture,
         capture_worker,
@@ -1204,6 +1142,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         overlay_offload_enabled,
         overlay_state: tessera_composite::presentation::OverlayState::default(),
         keyboard_capture,
+        double_super: tessera_desktop::keybind::DoubleSuperDetector::new(),
         keymap,
         system_status,
         network,

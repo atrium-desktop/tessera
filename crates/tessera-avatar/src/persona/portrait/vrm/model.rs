@@ -221,12 +221,20 @@ impl Model {
     ) -> Result<Self, VrmError> {
         let camera = camera.validate()?;
         let bytes = std::fs::read(path).map_err(|error| VrmError::Io(path.to_path_buf(), error))?;
-        let scene = Scene::from_glb_with_materials(
+        let scene = Scene::from_glb_with_materials_and_decoder(
             device,
             &bytes,
             MaterialTarget {
                 color_format: TARGET_FORMAT,
                 depth_format: DEPTH_FORMAT,
+            },
+            |_mime, encoded| {
+                let img = tessera_image::decode_memory(encoded).map_err(|e| e.to_string())?;
+                Ok(optics_scene::DecodedImage {
+                    width: img.width(),
+                    height: img.height(),
+                    rgba: img.into_raw(),
+                })
             },
         )
         .map_err(|error| VrmError::Gltf(path.to_path_buf(), error))?;

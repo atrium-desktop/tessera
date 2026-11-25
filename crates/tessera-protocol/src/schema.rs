@@ -133,7 +133,11 @@ use crate::journal::{JournalEntry, JournalSnapshot};
 /// `Event::StreamFrame`, `Event::StreamEnded`, `StreamOutputStop`,
 /// ADR-0052). Version 4 adds revisioned desktop-settings snapshots,
 /// subscriptions, and confirmed settings transactions.
-pub const PROTOCOL_VERSION: u32 = 34;
+/// Version 35 (ADR-0260) upgrades the mutation journal into a unified
+/// in-memory observability event bus with `EventTopic`, `ts_wall_ms`,
+/// `correlation_id`, topic-filtered `GetJournal`/`SubscribeJournal`, and
+/// `PublishEvent`/`EventPublished` for `JournalMutation::External`.
+pub const PROTOCOL_VERSION: u32 = 35;
 /// Built-in owner-only scope used by native `tessera` commands for Interaction Domain
 /// recovery and administration. The Unix socket remains user-private; naming
 /// this scope opts the connection into the high-risk Interaction Domain operation allowlist
@@ -1554,10 +1558,15 @@ pub enum Request {
     /// [`Request::GetSettings`]. The reply is [`Response::Outputs`] without
     /// the rich `geometry`/`available_modes` fields.
     EnumerateOutputs,
-    /// Fetch journal entries with `seq > since` (ADR-0033). Requires `query`.
+    /// Fetch journal entries with `seq > since` (ADR-0033, ADR-0260). Requires `query`.
+    /// When `topics` is `Some`, only entries matching one of the listed topics are returned.
     /// The response carries the ring's `oldest_seq` and `latest_seq` so the
     /// client detects gaps from evicted entries.
-    GetJournal { since: u64 },
+    GetJournal {
+        since: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        topics: Option<Vec<crate::journal::EventTopic>>,
+    },
     /// Fetch the complete authority snapshot.
     GetInteractionDomains,
     /// List paired agent principals (ADR-0088). Requires `query`.
@@ -1633,10 +1642,26 @@ pub enum Request {
     Do { cmd: Command },
     /// Opt into server-pushed [`Event`]s on this connection. Idempotent.
     Subscribe,
-    /// Opt into server-pushed [`Event::Journal`] entries (ADR-0033). Separate
+    /// Opt into server-pushed [`Event::Journal`] entries (ADR-0033, ADR-0260). Separate
     /// from [`Subscribe`](Self::Subscribe) so status bars that only need the
     /// coarse re-query signal are not flooded with per-command entries.
-    SubscribeJournal,
+    /// When `topics` is `Some`, only entries matching one of the listed topics are pushed.
+    SubscribeJournal {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        topics: Option<Vec<crate::journal::EventTopic>>,
+    },
+    /// Publish an external semantic event onto the unified observability bus
+    /// (ADR-0260). Requires `control` capability; intended for trusted platform
+    /// services such as `tessera-mcp` to expose multi-dimensional telemetry.
+    PublishEvent {
+        topic: crate::journal::EventTopic,
+        source: String,
+        kind: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        correlation_id: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<serde_json::Value>,
+    },
     /// Renew the connection-bound privileged lease. A lease cannot outlive
     /// this connection and is capped by server policy.
     RenewLease { ttl_ms: u64 },
@@ -1893,9 +1918,13 @@ pub enum Response {
     Outputs {
         outputs: Vec<OutputInfo>,
     },
-    /// Reply to [`Request::GetJournal`] (ADR-0033).
+    /// Reply to [`Request::GetJournal`] (ADR-0033, ADR-0260).
     Journal {
         snapshot: JournalSnapshot,
+    },
+    /// Reply to [`Request::PublishEvent`] (ADR-0260).
+    EventPublished {
+        seq: u64,
     },
     InteractionDomains {
         snapshot: InteractionDomainSnapshot,
@@ -2069,6 +2098,7 @@ impl std::fmt::Debug for Response {
             Self::Notifications { .. } => "Notifications",
             Self::Outputs { .. } => "Outputs",
             Self::Journal { .. } => "Journal",
+            Self::EventPublished { .. } => "EventPublished",
             Self::InteractionDomains { .. } => "InteractionDomains",
             Self::AgentPrincipals { .. } => "AgentPrincipals",
             Self::AgentGrants { .. } => "AgentGrants",

@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-07-19
+- Amended by: [ADR-0169](0169-control-center-bento-grid-and-mpris-absorption.md) — *Control Center 2D Bento Grid and MPRIS Media Player Absorption*
 
 ## Context
 

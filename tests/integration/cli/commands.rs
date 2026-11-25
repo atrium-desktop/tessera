@@ -208,6 +208,9 @@ impl Handler for CtlHandler {
             entries: vec![tessera_protocol::JournalEntry {
                 seq: 3,
                 ts_mono_ms: 42,
+                ts_wall_ms: 1_700_000_000_042,
+                topic: tessera_protocol::EventTopic::Window,
+                correlation_id: None,
                 origin: tessera_protocol::Origin::Chrome,
                 mutation: tessera_protocol::JournalMutation::Command {
                     cmd: tessera_protocol::AuditedCommand::Focus { id: WindowId(1) },

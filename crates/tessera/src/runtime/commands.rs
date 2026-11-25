@@ -357,15 +357,10 @@ pub(super) fn journal_mutation_effect_and_broadcast(
 ) -> tessera_protocol::JournalEntry {
     let effect = mutation.privacy_minimize_effect(effect);
     let mut journal = journal.lock().unwrap_or_else(|e| e.into_inner());
-    let entry = match journal.try_append(ts_mono_ms, origin, mutation, effect) {
-        Ok(entry) => tessera_protocol::JournalEntry::from(entry),
-        Err(error) => {
-            log::error!("durable audit append failed; fail-stopping compositor: {error}");
-            std::process::abort();
-        }
-    };
+    let entry =
+        tessera_protocol::JournalEntry::from(journal.append(ts_mono_ms, origin, mutation, effect));
     if let Some(s) = ipc.as_ref() {
-        s.broadcast_journal(entry.clone());
+        s.broadcast_journal(std::sync::Arc::new(entry.clone()));
     }
     entry
 }

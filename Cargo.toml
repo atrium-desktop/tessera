@@ -45,26 +45,31 @@ tessera-audit = { path = "crates/tessera-audit" }
 # ../optics/crates/* and sets `OPTICS_DYNAMIC=1` for fast shared-library
 # iteration; downstream packagers that prefer shared system libraries can set
 # `OPTICS_DYNAMIC=1` in the build environment.
-optics-gfx = { git = "https://github.com/ming2k/optics", tag = "v0.0.86", features = ["static"] }
-optics-gfx-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.86", features = ["static"] }
-optics-scene = { git = "https://github.com/ming2k/optics", tag = "v0.0.86", features = ["static"] }
-optics-scene-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.86", features = ["static"] }
+optics-gfx = { git = "https://github.com/ming2k/optics", tag = "v0.0.87", features = ["static"] }
+optics-gfx-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.87", features = ["static"] }
+optics-scene = { git = "https://github.com/ming2k/optics", tag = "v0.0.87", features = ["static"] }
+optics-scene-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.87", features = ["static"] }
 # optics-ui (immediate-mode UI engine) is the Chrome layer above the graphics
 # canvas: layout, widget store, damage tracking, and the accessibility tree.
-optics-ui = { git = "https://github.com/ming2k/optics", tag = "v0.0.86", features = ["static"] }
-optics-ui-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.86", features = ["static"] }
+optics-ui = { git = "https://github.com/ming2k/optics", tag = "v0.0.87", features = ["static"] }
+optics-ui-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.87", features = ["static"] }
+# optics-material (backdrop materials on the gfx effect runtime) draws the
+# frosted and liquid-glass chrome materials (ADR-0253). Only the compositor
+# links it, and its filters exist only while such a material is in effect.
+optics-material = { git = "https://github.com/ming2k/optics", tag = "v0.0.87", features = ["static"] }
+optics-material-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.87", features = ["static"] }
 # optics-motion (motion vocabulary; ADR-0172, Optics ADR-0170) provides analytic
 # springs and easing; v0.0.53 adds the explicit `reduced_motion` flag to every
 # advance entry point. Header-only on the C side and pure Safe Rust here
 # (Optics ADR-0158), so there is no optics-motion-sys FFI crate and no native
 # library to discover or rpath.
-optics-motion = { git = "https://github.com/ming2k/optics", tag = "v0.0.86" }
+optics-motion = { git = "https://github.com/ming2k/optics", tag = "v0.0.87" }
 # optics-svg (vector-document compiler; ADR-0220, Optics ADR-0170) is the single
 # SVG implementation in the stack: cursors, application icons and tray icons all
 # compile through it instead of shelling out to rsvg-convert or shipping
 # pre-baked bitmaps.
-optics-svg = { git = "https://github.com/ming2k/optics", tag = "v0.0.86", features = ["static"] }
-optics-svg-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.86", features = ["static"] }
+optics-svg = { git = "https://github.com/ming2k/optics", tag = "v0.0.87", features = ["static"] }
+optics-svg-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.87", features = ["static"] }
 
 # Observability: crates emit through the `log` facade; each binary installs a
 # `tracing`-based subscriber through the shared `tessera-env` crate, which
@@ -77,7 +82,6 @@ log = "0.4"
 # agent can discover scoped desktop and Interaction Domain tools without
 # linking an agent stack into the compositor (ADR-0047, ADR-0087).
 flate2 = "1"
-hmac = "0.12"
 sha2 = "0.10"
 
 # Direct-display backend: drm-rs provides atomic KMS, libseat mediates
@@ -97,7 +101,7 @@ libc = "0.2"
 # Shared, effect-free Tessera state and deterministic state rules (ADR-0155).
 # Pure presentation-domain value layer: frame damage verdicts, slot-ring
 # repaint history, and the client-damage generation diff seam.
-# Transport-neutral Actor authority plus hash-chained audit persistence.
+# Transport-neutral Actor authority, sessions, and exact resource grants.
 tessera-authority = { path = "crates/tessera-authority" }
 # Shared process environment (observability init, panic hooks, runtime
 # directories, and socket hygiene) installed once by every executable.

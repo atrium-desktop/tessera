@@ -23,20 +23,25 @@ pub fn workspace_path(relative: impl AsRef<Path>) -> PathBuf {
 }
 
 /// Directory containing built artifacts for the current test profile.
+///
+/// `TESSERA_TARGET_DIR` overrides the lookup. Otherwise the directory is
+/// derived from the running test executable, which Cargo always places in
+/// `<target-dir>/[<triple>/]<profile>/deps/`. That path already accounts for
+/// `CARGO_TARGET_DIR`, `--profile` and `--target`, so `CARGO_TARGET_DIR` is
+/// deliberately not read here: it names only the root, and joining a binary
+/// name to it misses the profile directory the binaries are built into.
 pub fn target_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("TESSERA_TARGET_DIR") {
         return PathBuf::from(dir);
     }
-    if let Some(dir) = std::env::var_os("CARGO_TARGET_DIR") {
-        let dir = PathBuf::from(dir);
-        return if dir.is_absolute() {
-            dir
-        } else {
-            workspace_root().join(dir)
-        };
-    }
     let exe = std::env::current_exe().expect("current test executable path");
-    let mut ancestor = exe.as_path();
+    profile_dir_for_executable(&exe)
+}
+
+/// The profile artifact directory for a Cargo-built executable path: the
+/// parent of the nearest `deps` ancestor, or the executable's own directory.
+fn profile_dir_for_executable(exe: &Path) -> PathBuf {
+    let mut ancestor = exe;
     while let Some(parent) = ancestor.parent() {
         if parent.file_name().is_some_and(|name| name == "deps") {
             return parent.parent().unwrap_or(parent).to_path_buf();
@@ -107,6 +112,7 @@ fn package_for_binary(name: &str) -> Option<&'static str> {
         "tessera" => "tessera",
         "tessera-mcp" => "tessera-mcp",
         "tessera-lock" | "tessera-lock-preview" => "tessera-lock",
+        "tessera-settings" | "tessera-settings-preview" => "tessera-settings",
         "tessera-idle" => "tessera-idle",
         "tessera-cast" | "tessera-castd" => "tessera-cast",
         _ => return None,
@@ -120,5 +126,34 @@ mod tests {
     #[test]
     fn workspace_root_contains_the_workspace_manifest() {
         assert!(workspace_root().join("Cargo.toml").is_file());
+    }
+
+    #[test]
+    fn profile_dir_is_the_parent_of_deps_under_a_custom_target_dir() {
+        // `CARGO_TARGET_DIR=/build/custom cargo nextest run` puts the test
+        // executable here; sibling binaries live in `/build/custom/debug/`.
+        let exe = Path::new("/build/custom/debug/deps/e2e-0123456789abcdef");
+        assert_eq!(
+            profile_dir_for_executable(exe),
+            PathBuf::from("/build/custom/debug")
+        );
+    }
+
+    #[test]
+    fn profile_dir_keeps_the_target_triple_and_named_profile() {
+        let exe = Path::new("/w/target/x86_64-unknown-linux-gnu/release-fast/deps/e2e-0123");
+        assert_eq!(
+            profile_dir_for_executable(exe),
+            PathBuf::from("/w/target/x86_64-unknown-linux-gnu/release-fast")
+        );
+    }
+
+    #[test]
+    fn profile_dir_without_deps_is_the_executable_directory() {
+        let exe = Path::new("/w/target/debug/tessera");
+        assert_eq!(
+            profile_dir_for_executable(exe),
+            PathBuf::from("/w/target/debug")
+        );
     }
 }

@@ -1,14 +1,14 @@
 ---
 id: ADR-0120
 title: "Glass material roles and region-level backdrop adaptation"
-status: accepted
+status: superseded
 date: 2026-08-12
-superseded_by: null
+superseded_by: ADR-0213
 ---
 
 # ADR-0120: Glass material roles and region-level backdrop adaptation
 
-- Status: Accepted
+- Status: Superseded by [ADR-0213](0213-flat-chrome-and-removal-of-the-status-hud.md) — flat chrome removed the analytic-glass material model; the compositor draws no material.
 - Date: 2026-08-12
 
 ## Context

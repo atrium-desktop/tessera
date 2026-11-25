@@ -1,9 +1,9 @@
-//! Headless state machine for the macOS-style dock (ADR-0174).
+//! Headless state machine for the pure application Dock (ADR-0174, ADR-0254, ADR-0255).
 //!
 //! Owns pure functional state and transitions:
 //! - Pinned applications, drag & drop reorder states, press tracking.
-//! - Autohide intent dwell, idle timers, retreat vectors, and dismiss latching.
-//! - Obscurity collision tracking with client windows and workspace mode.
+//! - Four-edge horizontal (`Top`/`Bottom`) and vertical (`Left`/`Right`) layout.
+//! - Clean Hot Zone reveal/hide without collapsed capsule morphing.
 //! - 100% headless testable with zero GPU or display dependencies.
 
 use optics_ui::Rect;
@@ -12,10 +12,9 @@ use tessera_desktop::dock::DockPosition;
 use tessera_desktop::window::{SpaceUse, Window};
 
 use super::motion::{
-    AUTOHIDE_DWELL_THRESHOLD, AUTOHIDE_HANDLE_HEIGHT, AUTOHIDE_HANDLE_WIDTH, AUTOHIDE_IDLE_TIMEOUT,
-    DOCK_EDGE_MARGIN, DOCK_PAD, DOCK_PANEL_HEIGHT, DOCK_SECTION_GAP, DOCK_TILE, DOCK_TILE_GAP,
-    DRAG_THRESHOLD, EDGE_DRAG_PROXIMITY, collapse_surface_progress,
-    edge_margin_for_surface_progress,
+    AUTOHIDE_IDLE_TIMEOUT, DOCK_EDGE_MARGIN, DOCK_PAD, DOCK_PANEL_HEIGHT, DOCK_REVEAL_SLIDE_OFFSET,
+    DOCK_SECTION_GAP, DOCK_TILE, DOCK_TILE_GAP, DRAG_THRESHOLD, EDGE_DRAG_PROXIMITY,
+    smoothstep_progress,
 };
 
 /// One application pinned to the dock: the launchable entry plus the lowercased
@@ -37,13 +36,8 @@ pub enum PressTarget {
     PinnedTile(String),
     /// A transient application tile or the Launchpad.
     OtherTile(String),
-    /// Empty panel space (padding, gaps, or the collapsed autohide handle).
+    /// Empty panel space (padding or gaps) — supports edge-drag repositioning.
     Panel,
-    /// An interactive tick on the workspace rail.
-    WorkspaceTick(usize),
-    /// A row of the dock's reading column. The row index is carried so a
-    /// release is only a press when it lands on the row the press began on.
-    ReadingRow(usize),
 }
 
 /// The strip section under a dragged tile: the kept (pinned) strip, or the
@@ -74,45 +68,21 @@ pub struct PressState {
 /// Headless state of the Dock component.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DockState {
-    /// Pinned launchable apps, in dock order.
     pub apps: Vec<DockApp>,
-    /// The complete enumerated application catalog, refreshed with every rescan.
     pub all_apps: Vec<Entry>,
-    /// Monotonically increasing revision bumped when app ordering changes.
     pub catalog_revision: u64,
-    /// Pending reorder to commit through `ChromeEvents`.
     pub pending_order: Option<Vec<String>>,
-    /// Active mouse press or drag state.
     pub press: Option<PressState>,
-    /// Whether autohide mode is enabled by user configuration.
     pub autohide: bool,
-    /// Inactivity timer tracking elapsed seconds since pointer left the dock area.
     pub autohide_idle: f32,
-    /// Configurable inactivity timeout in seconds before an autohiding dock collapses.
     pub autohide_timeout: f32,
-    /// Configurable dwell threshold in seconds before collapsed indicator begins expanding.
-    pub autohide_dwell_threshold: f32,
-    /// Continuous hover dwell time in seconds on the collapsed indicator before expanding.
-    pub autohide_dwell: f32,
-    /// Whether the user engaged with the Dock during the current reveal session.
     pub dock_interacted: bool,
-    /// Anti-rebound latch: once an explicit dismiss is triggered (click-outside, Escape,
-    /// or window obscuration), the dock is latched into collapsing and CANNOT be re-opened
-    /// by dynamic panel hitboxes mid-transition. It only unlatches after reaching complete rest (0.0).
     pub dismiss_latched: bool,
-    /// Whether a visible window intersects the Dock's resting footprint.
     pub dock_obscured: bool,
-    /// Entering an obscured state must complete one uninterrupted collapse to 0.0.
     pub collapse_pending: bool,
-    /// Compositor-derived window space use (Available, Maximized, Fullscreen).
     pub space_use: SpaceUse,
-    /// The screen edge the dock is anchored to.
     pub position: DockPosition,
-    /// Whether a pointer entry may reveal the collapsed Dock.
-    pub hidden_trigger_armed: bool,
-    /// Previous frame's cursor position used to detect retreat vectors.
     pub last_cursor: Option<(f32, f32)>,
-    /// Most recently rendered logical output size.
     pub last_display: Option<(f32, f32)>,
 }
 
@@ -135,15 +105,12 @@ impl DockState {
             autohide: false,
             autohide_idle: 0.0,
             autohide_timeout: AUTOHIDE_IDLE_TIMEOUT,
-            autohide_dwell_threshold: AUTOHIDE_DWELL_THRESHOLD,
-            autohide_dwell: 0.0,
             dock_interacted: false,
             dismiss_latched: false,
             dock_obscured: false,
             collapse_pending: false,
             space_use: SpaceUse::Available,
             position: DockPosition::Bottom,
-            hidden_trigger_armed: true,
             last_cursor: None,
             last_display: None,
         }
@@ -164,22 +131,16 @@ impl DockState {
         self.autohide = enabled;
         if !enabled && self.space_use == SpaceUse::Available && !self.dock_obscured {
             self.autohide_idle = 0.0;
-            self.hidden_trigger_armed = true;
             self.dismiss_latched = false;
         }
     }
 
-    /// Set the inactivity timeout in seconds before the dock autohides.
+    /// Set the inactivity timeout in seconds before an autohiding dock hides.
     pub fn set_autohide_timeout(&mut self, timeout_secs: f32) {
         self.autohide_timeout = timeout_secs.max(0.1);
     }
 
-    /// Set the dwell threshold in seconds before the collapsed indicator expands.
-    pub fn set_autohide_dwell(&mut self, dwell_secs: f32) {
-        self.autohide_dwell_threshold = dwell_secs.clamp(0.05, 1.0);
-    }
-
-    /// Set the dock position (Bottom, Left, Right).
+    /// Set the dock position (`Top`, `Bottom`, `Left`, `Right`).
     pub fn set_position(&mut self, position: DockPosition) {
         self.position = position;
     }
@@ -193,7 +154,6 @@ impl DockState {
         self.space_use = space_use;
         if space_use == SpaceUse::Maximized && previous != SpaceUse::Maximized {
             self.autohide_idle = self.autohide_timeout;
-            self.hidden_trigger_armed = false;
             self.collapse_pending = true;
             self.dismiss_latched = true;
         } else if space_use == SpaceUse::Available
@@ -204,7 +164,6 @@ impl DockState {
             self.dismiss_latched = false;
             if !self.autohide {
                 self.autohide_idle = 0.0;
-                self.hidden_trigger_armed = true;
             }
         }
     }
@@ -217,7 +176,6 @@ impl DockState {
         self.dock_obscured = obscured;
         if obscured {
             self.autohide_idle = self.autohide_timeout;
-            self.hidden_trigger_armed = false;
             self.collapse_pending = true;
             self.dismiss_latched = true;
         } else {
@@ -225,60 +183,27 @@ impl DockState {
             self.dismiss_latched = false;
             if !self.effective_autohide() {
                 self.autohide_idle = 0.0;
-                self.hidden_trigger_armed = true;
             }
         }
     }
 
-    /// Request explicit dock dismissal (e.g. click outside or Escape pressed).
-    /// Latches dismissal until the dock completely settles at 0.0.
+    /// Request explicit dock dismissal (Escape or click outside).
     pub fn request_dismiss(&mut self) {
         self.dismiss_latched = true;
         self.autohide_idle = self.autohide_timeout;
-        self.autohide_dwell = 0.0;
         self.press = None;
     }
 
-    /// Step intent dwell timer for the collapsed indicator.
-    pub fn step_hidden_reveal(
-        position: DockPosition,
-        armed: &mut bool,
-        dwell: &mut f32,
-        threshold: f32,
-        cursor: (f32, f32),
-        display: (f32, f32),
-        dt: f32,
-    ) -> bool {
-        if !Self::collapsed_indicator_contains(position, cursor, display) {
-            *armed = true;
-            *dwell = 0.0;
-            return false;
-        }
-        if !*armed {
-            *dwell = 0.0;
-            return false;
-        }
-        *dwell += dt;
-        if *dwell >= threshold {
-            *armed = false;
-            *dwell = 0.0;
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Resolve whether the pointer position keeps the Dock revealed.
+    /// Resolve whether the pointer position keeps an already-revealed Dock open.
     ///
-    /// If `dismiss_latched` is active, this unconditionally returns `false`
-    /// to guarantee smooth, uninterrupted collapse without limit-cycle rebounding.
+    /// When `reveal <= 0.001` (hidden), the Dock does not self-reveal — it waits
+    /// for its bound Hot Zone to emit `ChromeCommand::SummonDock` (ADR-0254).
     #[allow(clippy::too_many_arguments)]
     #[must_use]
     pub fn pointer_keeps_revealed(
         &self,
         effective_autohide: bool,
         reveal: f32,
-        capsule_entry: bool,
         cursor: (f32, f32),
         current_panel: Rect,
         rest_bounds: Rect,
@@ -295,146 +220,36 @@ impl DockState {
                 && cursor.1 < rest_bounds.y + rest_bounds.h;
         }
         if reveal <= 0.001 {
-            return capsule_entry;
+            return false;
         }
         if reveal < 0.999 {
-            return capsule_entry
-                || Self::collapsed_indicator_contains(position, cursor, display)
-                || Self::live_panel_contains(position, cursor, current_panel, display);
+            return Self::live_panel_contains(position, cursor, current_panel, display);
         }
         Self::expanded_trigger_contains(position, cursor, rest_bounds, display)
     }
 
-    /// Geometric bounding box for the collapsed panel handle.
-    ///
-    /// One rectangle describes the whole morph: the stadium handle at
-    /// `reveal = 0.0`, the resting bar at `reveal = 1.0`. Length, thickness and
-    /// the edge gap all interpolate on the same eased progress, so the capsule
-    /// sits *on* its screen edge when collapsed and lifts to the bar's floating
-    /// offset as it opens. Every endpoint matches [`Self::panel_rect_for`].
+    /// Panel rectangle during edge slide reveal (`0.0` = slid toward edge,
+    /// `1.0` = resting at `DOCK_EDGE_MARGIN`). No capsule morphing (ADR-0254).
     #[must_use]
-    pub fn collapsed_panel_rect(
+    pub fn revealed_panel_rect(
         position: DockPosition,
         display: (f32, f32),
-        expanded_len: f32,
+        bar_len: f32,
         reveal: f32,
     ) -> Rect {
-        let progress = collapse_surface_progress(reveal);
-        let len = AUTOHIDE_HANDLE_WIDTH + (expanded_len - AUTOHIDE_HANDLE_WIDTH) * progress;
-        let thick =
-            AUTOHIDE_HANDLE_HEIGHT + (DOCK_PANEL_HEIGHT - AUTOHIDE_HANDLE_HEIGHT) * progress;
-        let margin = edge_margin_for_surface_progress(progress);
+        let mut rect = Self::panel_rect_for(position, bar_len, display);
+        let offset = DOCK_REVEAL_SLIDE_OFFSET * (1.0 - smoothstep_progress(reveal));
         match position {
-            DockPosition::Bottom => Rect {
-                x: (display.0 - len) * 0.5,
-                y: display.1 - margin - thick,
-                w: len,
-                h: thick,
-            },
-            DockPosition::Left => Rect {
-                x: margin,
-                y: (display.1 - len) * 0.5,
-                w: thick,
-                h: len,
-            },
-            DockPosition::Right => Rect {
-                x: display.0 - margin - thick,
-                y: (display.1 - len) * 0.5,
-                w: thick,
-                h: len,
-            },
+            DockPosition::Top => rect.y -= offset,
+            DockPosition::Bottom => rect.y += offset,
+            DockPosition::Left => rect.x -= offset,
+            DockPosition::Right => rect.x += offset,
         }
+        rect
     }
 
-    /// Bounding box of the collapsed stadium indicator at rest.
-    ///
-    /// The *visual* capsule, hugging its anchored edge
-    /// (`AUTOHIDE_HANDLE_EDGE_MARGIN`). Hit-testing uses the deeper
-    /// [`Self::collapsed_reveal_corridor`] instead, so the capsule can be
-    /// tucked against the edge without shrinking the strip a pointer must
-    /// reach.
-    #[inline]
-    #[must_use]
-    pub fn collapsed_indicator_bounds(position: DockPosition, display: (f32, f32)) -> Rect {
-        Self::collapsed_panel_rect(position, display, AUTOHIDE_HANDLE_WIDTH, 0.0)
-    }
-
-    /// Pointer-reachable reveal corridor owned by the collapsed capsule.
-    ///
-    /// Same span along the edge as the visible stadium, but
-    /// `AUTOHIDE_HANDLE_APPROACH_BAND` deep instead of merely as deep as the
-    /// tucked capsule. This is the rectangle ADR-0146's dwell verification
-    /// tests against: keeping it independent of the capsule's visual offset is
-    /// what lets the capsule hug the screen edge without becoming a harder
-    /// target.
-    #[must_use]
-    pub fn collapsed_reveal_corridor(position: DockPosition, display: (f32, f32)) -> Rect {
-        let visual = Self::collapsed_indicator_bounds(position, display);
-        match position {
-            // The corridor grows along the edge *normal* only — never from the
-            // capsule's long axis, which would inflate a bottom corridor to the
-            // handle's full 140 px width.
-            DockPosition::Bottom => {
-                let band = crate::components::dock::motion::collapsed_reveal_depth();
-                Rect {
-                    y: display.1 - band,
-                    w: visual.w,
-                    h: band,
-                    ..visual
-                }
-            }
-            DockPosition::Left => {
-                let band = crate::components::dock::motion::collapsed_reveal_depth();
-                Rect {
-                    x: 0.0,
-                    w: band,
-                    h: visual.h,
-                    ..visual
-                }
-            }
-            DockPosition::Right => {
-                let band = crate::components::dock::motion::collapsed_reveal_depth();
-                Rect {
-                    x: display.0 - band,
-                    w: band,
-                    h: visual.h,
-                    ..visual
-                }
-            }
-        }
-    }
-
-    /// Whether `cursor` is inside the collapsed reveal corridor.
-    #[must_use]
-    pub fn collapsed_indicator_contains(
-        position: DockPosition,
-        cursor: (f32, f32),
-        display: (f32, f32),
-    ) -> bool {
-        let corridor = Self::collapsed_reveal_corridor(position, display);
-        match position {
-            DockPosition::Bottom => {
-                cursor.0 >= corridor.x
-                    && cursor.0 < corridor.x + corridor.w
-                    && cursor.1 >= corridor.y
-                    && cursor.1 < display.1
-            }
-            DockPosition::Left => {
-                cursor.0 >= 0.0
-                    && cursor.0 < corridor.x + corridor.w
-                    && cursor.1 >= corridor.y
-                    && cursor.1 < corridor.y + corridor.h
-            }
-            DockPosition::Right => {
-                cursor.0 >= corridor.x
-                    && cursor.0 < display.0
-                    && cursor.1 >= corridor.y
-                    && cursor.1 < corridor.y + corridor.h
-            }
-        }
-    }
-
-    /// Whether cursor is inside the expanded dock's approach corridor.
+    /// Whether cursor is inside the expanded dock's approach corridor (reaching
+    /// all the way to the anchored physical screen edge).
     #[must_use]
     pub fn expanded_trigger_contains(
         position: DockPosition,
@@ -443,6 +258,12 @@ impl DockState {
         display: (f32, f32),
     ) -> bool {
         match position {
+            DockPosition::Top => {
+                cursor.0 >= rest_bounds.x
+                    && cursor.0 < rest_bounds.x + rest_bounds.w
+                    && cursor.1 >= 0.0
+                    && cursor.1 < rest_bounds.y + rest_bounds.h
+            }
             DockPosition::Bottom => {
                 cursor.0 >= rest_bounds.x
                     && cursor.1 >= rest_bounds.y
@@ -464,7 +285,7 @@ impl DockState {
         }
     }
 
-    /// Whether cursor is inside the live morphing panel and its anchored edge gap.
+    /// Whether cursor is inside the live sliding panel and its anchored edge gap.
     #[must_use]
     pub fn live_panel_contains(
         position: DockPosition,
@@ -473,6 +294,12 @@ impl DockState {
         display: (f32, f32),
     ) -> bool {
         match position {
+            DockPosition::Top => {
+                cursor.0 >= current_panel.x
+                    && cursor.0 < current_panel.x + current_panel.w
+                    && cursor.1 >= 0.0
+                    && cursor.1 < current_panel.y + current_panel.h
+            }
             DockPosition::Bottom => {
                 cursor.0 >= current_panel.x
                     && cursor.1 >= current_panel.y
@@ -494,7 +321,22 @@ impl DockState {
         }
     }
 
-    /// Calculate the stable resting bounds of the dock bar.
+    /// Pure 1D strip length for application tiles only (`[INV-DOCK-PURE-01]`).
+    #[must_use]
+    pub fn strip_length(widths: impl IntoIterator<Item = f32>, tile_gap: f32, pad: f32) -> f32 {
+        let mut count = 0usize;
+        let mut sum = 0.0f32;
+        for w in widths {
+            sum += w;
+            count += 1;
+        }
+        if count == 0 {
+            return pad * 2.0;
+        }
+        pad * 2.0 + sum + (count - 1) as f32 * tile_gap
+    }
+
+    /// Calculate the stable resting bounds of the pure application dock bar.
     #[must_use]
     pub fn rest_bounds(
         tile_count: usize,
@@ -502,31 +344,8 @@ impl DockState {
         position: DockPosition,
         display: (f32, f32),
     ) -> Rect {
-        Self::rest_bounds_with_cells(tile_count, pinned_count, &[], position, display)
-    }
-
-    /// The resting bar for `tile_count` icon tiles *preceded* by leading cells.
-    ///
-    /// Delegates the length to [`crate::components::dock::bento::strip_length`]
-    /// rather than re-deriving it. A second sum of the same bar is how the
-    /// leading section silently fell out of the layout once already, and it
-    /// provably diverges: the local sum counted a zero-width cell's gap while
-    /// `strip_length` (correctly) skips it. `[INV-DOCK-BENTO-5]` says one source,
-    /// so this is one source.
-    #[must_use]
-    pub fn rest_bounds_with_cells(
-        tile_count: usize,
-        pinned_count: usize,
-        cells: &[crate::components::dock::StripCell],
-        position: DockPosition,
-        display: (f32, f32),
-    ) -> Rect {
-        // The transient section divider widens one icon gap into the section gap;
-        // `strip_length` knows nothing of pinned/transient sections, so the extra
-        // is added here, at the one place that knows the split.
-        let bar_len = crate::components::dock::bento::strip_length(
+        let bar_len = Self::strip_length(
             std::iter::repeat_n(DOCK_TILE, tile_count),
-            cells,
             DOCK_TILE_GAP,
             DOCK_PAD,
         ) + Self::section_extra(pinned_count, tile_count);
@@ -537,6 +356,12 @@ impl DockState {
     #[must_use]
     pub fn panel_rect_for(position: DockPosition, bar_len: f32, display: (f32, f32)) -> Rect {
         match position {
+            DockPosition::Top => Rect {
+                x: (display.0 - bar_len) * 0.5,
+                y: DOCK_EDGE_MARGIN,
+                w: bar_len,
+                h: DOCK_PANEL_HEIGHT,
+            },
             DockPosition::Bottom => Rect {
                 x: (display.0 - bar_len) * 0.5,
                 y: display.1 - DOCK_PANEL_HEIGHT - DOCK_EDGE_MARGIN,
@@ -596,18 +421,21 @@ impl DockState {
         true
     }
 
-    /// Edge drag target screen edge.
+    /// Edge drag target screen edge (supports all four edges).
     #[must_use]
     pub fn edge_drag_target(cursor: (f32, f32), display: (f32, f32)) -> Option<DockPosition> {
-        let d_left = cursor.0;
+        let d_top = cursor.1.max(0.0);
+        let d_left = cursor.0.max(0.0);
         let d_right = (display.0 - cursor.0).max(0.0);
         let d_bottom = (display.1 - cursor.1).max(0.0);
-        let min = d_left.min(d_right).min(d_bottom);
+        let min = d_top.min(d_bottom).min(d_left).min(d_right);
         if min > EDGE_DRAG_PROXIMITY {
             return None;
         }
         if min == d_bottom {
             Some(DockPosition::Bottom)
+        } else if min == d_top {
+            Some(DockPosition::Top)
         } else if min == d_left {
             Some(DockPosition::Left)
         } else {
@@ -631,59 +459,18 @@ impl DockState {
             && bottom > bounds.y
     }
 
-    /// Estimated rest centre of tile `i` in row of `n`.
+    /// Estimated rest centre of tile `i` in a pure application strip of `n` tiles.
     #[must_use]
     pub fn rest_centre_estimate(i: usize, n: usize, pinned_count: usize, axis_len: f32) -> f32 {
-        Self::rest_centre_estimate_with_cells(i, n, pinned_count, &[], axis_len)
-    }
-
-    /// The resting centre of icon `i` for a bar that leads with `bento` cells.
-    ///
-    /// The resting centre of icon `i` for a bar that leads with `cells`.
-    ///
-    /// A resting centre is the position the magnification springs settle on, so
-    /// it has to measure the same bar the paint does. It reads its leading
-    /// offset from the same strip-length source instead of re-deriving the bar's
-    /// width: three independent sums of the same bar is how the reading section
-    /// silently fell out of the layout.
-    pub fn rest_centre_estimate_with_cells(
-        i: usize,
-        n: usize,
-        pinned_count: usize,
-        cells: &[crate::components::dock::StripCell],
-        axis_len: f32,
-    ) -> f32 {
         let section_extra = Self::section_extra(pinned_count, n);
-        let bar_w = crate::components::dock::bento::strip_length(
-            std::iter::repeat_n(DOCK_TILE, n),
-            cells,
-            DOCK_TILE_GAP,
-            DOCK_PAD,
-        );
+        let bar_w = Self::strip_length(std::iter::repeat_n(DOCK_TILE, n), DOCK_TILE_GAP, DOCK_PAD)
+            + section_extra;
         let bar_x = (axis_len - bar_w) * 0.5;
-        let reading = Self::reading_extent(cells);
         let extra = if i >= pinned_count {
             section_extra
         } else {
             0.0
         };
-        bar_x
-            + DOCK_PAD
-            + reading
-            + i as f32 * (DOCK_TILE + DOCK_TILE_GAP)
-            + extra
-            + DOCK_TILE * 0.5
-    }
-
-    /// Width of the leading section including the gap that follows it.
-    #[must_use]
-    pub fn reading_extent(cells: &[crate::components::dock::StripCell]) -> f32 {
-        let total: f32 = cells.iter().map(|cell| cell.rest_width()).sum();
-        if total <= 0.0 {
-            return 0.0;
-        }
-        let active_count = cells.iter().filter(|cell| cell.rest_width() > 0.0).count();
-        let gaps = active_count.saturating_sub(1) as f32 * DOCK_TILE_GAP;
-        total + gaps + crate::components::dock::bento::READING_BOUNDARY_GAP
+        bar_x + DOCK_PAD + i as f32 * (DOCK_TILE + DOCK_TILE_GAP) + extra + DOCK_TILE * 0.5
     }
 }

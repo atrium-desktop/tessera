@@ -14,6 +14,10 @@ negative_knowledge: true
 - Date: 2026-10-21
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0028](0028-output-and-monitor-model.md), [ADR-0052](0052-scoped-output-frame-streaming.md), [ADR-0103](0103-actor-authority-and-interaction-domain-architecture.md), [ADR-0126](0126-damage-driven-stream-pacing-and-geometry-renegotiation.md), [ADR-0127](0127-occlusion-safe-window-streams-and-cursor-compositing.md), [ADR-0130](0130-stream-paced-presentation-and-scanout-exclusion.md)
+- Amended by: [ADR-0187](0187-offscreen-stream-damage-from-the-stream-s-own-tree.md) — *Offscreen Stream Damage Comes From the Stream's Own Surface Tree*
+- Amended by: [ADR-0188](0188-out-of-process-casting-and-discovery-service.md) — *Out-of-Process Casting and Discovery Service, and the Control-Center Cast Surface*
+- Amended by: [ADR-0189](0189-suspending-presentation-ends-every-live-stream.md) — *Suspending Presentation Ends Every Live Stream*
+- Amended by: [ADR-0243](0243-output-roles-and-mirroring.md) — *Output Roles: Extend or Mirror, with an Automatic Topology Policy*
 
 ---
 

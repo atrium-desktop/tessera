@@ -14,6 +14,8 @@ negative_knowledge: true
 - Date: 2026-09-28
 - Deciders: Tessera Maintainers & Core Architects
 - Amends: [ADR-0044](0044-dock-and-control-center-crates.md), [ADR-0080](0080-hud-status-chips-and-sao-command-panel.md), [ADR-0114](0114-panel-hosted-settings-and-hud-command-panel.md), [ADR-0155](0155-workspace-tiering-shell-lexicon-and-state-canonization.md)
+- Amended by: [ADR-0171](0171-chrome-animation-pre-pass-synchronization-and-surface-placement-invariants.md) — *Chrome Animation Pre-Pass Synchronization and Surface Placement Invariants*
+- Extended by: [ADR-0175](0175-bluetooth-peripheral-subsystem-and-bluez-bridge.md) — *Bluetooth Peripheral Subsystem, BlueZ Bridge, and HUD/Control-Center Parity*
 
 ---
 

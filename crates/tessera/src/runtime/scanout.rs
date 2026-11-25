@@ -53,6 +53,7 @@ impl CompositorRuntime<'_> {
         logical_size: (u32, u32),
         scale: f32,
         cursor_hidden: bool,
+        client_cursor_on_hw_plane: bool,
         frame_capture_pending: bool,
     ) -> OutputLayerPlans {
         let shell = self
@@ -89,8 +90,15 @@ impl CompositorRuntime<'_> {
             overview_active: self.shell.overview_active(),
             window_switcher_active: self.shell.window_switcher_active(),
             shell_visible_pixels: shell.visible_pixels,
-            client_overlay_count: self.server.overlay_frames().len()
-                + self.server.overlay_dmabuf_frames().len(),
+            shell_blocker: shell.blocker,
+            client_overlay_count: self
+                .server
+                .overlay_frames_with_cursor(!client_cursor_on_hw_plane)
+                .len()
+                + self
+                    .server
+                    .overlay_dmabuf_frames_with_cursor(!client_cursor_on_hw_plane)
+                    .len(),
             software_cursor_visible: self.host.uses_software_cursor() && !cursor_hidden,
             shm_surface_count,
             dmabuf_surface_count,
@@ -239,6 +247,7 @@ impl CompositorRuntime<'_> {
                 logical_size,
                 scale,
                 cursor_hidden,
+                client_cursor_on_hw_plane,
                 frame_capture_pending,
             )
         });
@@ -278,6 +287,7 @@ impl CompositorRuntime<'_> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn plan_overlay_layer(
         &self,
         sets: &tessera_wayland::DesktopFrameSets<'_>,
@@ -285,6 +295,7 @@ impl CompositorRuntime<'_> {
         logical_size: (u32, u32),
         scale: f32,
         cursor_hidden: bool,
+        client_cursor_on_hw_plane: bool,
         frame_capture_pending: bool,
     ) -> OverlayAudit {
         let windows = self.server.render_windows();
@@ -388,8 +399,14 @@ impl CompositorRuntime<'_> {
                 candidate_is_topmost,
                 dma_buf_surfaces_for_window: dmabuf_count,
                 shm_surfaces_for_window: shm_count,
-                client_overlay_count: self.server.overlay_frames().len()
-                    + self.server.overlay_dmabuf_frames().len(),
+                client_overlay_count: self
+                    .server
+                    .overlay_frames_with_cursor(!client_cursor_on_hw_plane)
+                    .len()
+                    + self
+                        .server
+                        .overlay_dmabuf_frames_with_cursor(!client_cursor_on_hw_plane)
+                        .len(),
                 chrome_overlaps_candidate,
                 software_cursor_overlaps_candidate: software_cursor_visible,
                 output: output_rect,

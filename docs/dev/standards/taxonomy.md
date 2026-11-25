@@ -49,7 +49,8 @@ internal maintainers:
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ Internal Surface (Maintainers, Core Contributors, Agents)   │
-│ `docs/dev/` (setup, internals, testing, triage, runbooks, standards) │
+│ `docs/dev/` (setup, internals, verification, triage,        │
+│             runbooks, standards)                            │
 │ `docs/adr/` (binding architectural decision records)        │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -134,4 +135,9 @@ Engineering experience must be actively crystallized through a four-stage pipeli
    Residual operational knowledge that requires manual intervention, real-world
    hardware interaction, or packet inspection belongs in a dedicated runbook
    following [Runbook Standards](runbooks.md).
+
+Checks that a person must run against a live system are not knowledge to
+crystallize but procedures to execute; they live in `docs/dev/verification/`
+under [Verification Standards](verification.md), and every check that becomes
+automatable moves to Stage 1.
 

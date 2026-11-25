@@ -33,9 +33,10 @@ const PACKAGE: &str = "tessera";
 
 /// Binary targets that are not distribution artifacts.
 ///
-/// `xtask` is repository automation, and `tessera-lock-preview` is the
-/// feature-gated contributor harness the packaging guide explicitly excludes.
-const DEV_ONLY: [&str; 2] = ["xtask", "tessera-lock-preview"];
+/// `xtask` is repository automation, and `tessera-lock-preview` and
+/// `tessera-settings-preview` are the feature-gated contributor harnesses
+/// the packaging guide explicitly excludes.
+const DEV_ONLY: [&str; 3] = ["xtask", "tessera-lock-preview", "tessera-settings-preview"];
 
 /// Binary targets `scripts/install.sh` installs, from its quoted `BINARIES`
 /// list.
@@ -202,6 +203,7 @@ mod tests {
         // shipped or silently dropped.
         assert!(DEV_ONLY.contains(&"xtask"));
         assert!(DEV_ONLY.contains(&"tessera-lock-preview"));
+        assert!(DEV_ONLY.contains(&"tessera-settings-preview"));
         assert!(!DEV_ONLY.contains(&"tessera-castd"));
     }
 }

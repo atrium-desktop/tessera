@@ -8,7 +8,7 @@ superseded_by: ADR-0059
 
 # ADR-0057: System Settings canonical namespace
 
-- Status: Superseded by ADR-0059
+- Status: Superseded by [ADR-0059](0059-first-party-application-installation-and-development-staging.md)
 - Date: 2026-07-26
 
 ## Context

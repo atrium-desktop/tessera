@@ -18,8 +18,8 @@ documentation that must move in the same change:
 | **Render, scanout, damage, or plane-role behavior** | `docs/reference/rendering.md` |
 | **Subsystem architectural refactoring or crate boundary change** | New ADR under `docs/adr/`, plus `docs/dev/architecture.md` and `xtask/dependency-policy.toml` when edges move |
 | **Chrome, control surface, or user-visible workflow change** | The matching `docs/how-to/` guide and `docs/dev/design/` where visual language is affected |
-| **Build system, test runner, or CI pipeline change** | `docs/dev/setup.md`, `docs/dev/testing/surface-testing.md`, and this document |
-| **Contributor bootstrap or worktree workflow change** | `docs/dev/setup.md` or `docs/dev/cross-repository-development.md` |
+| **Build system, test runner, or CI pipeline change** | `docs/dev/setup.md`, `docs/dev/standards/testing.md`, and this document |
+| **Contributor bootstrap or local Optics workflow change** | `docs/dev/setup.md` or `docs/dev/optics-local-development.md` |
 | **New end-to-end user journey or capability** | `CHANGELOG.md`, a `docs/how-to/` guide, and `docs/tutorials/` when it changes first-run flow |
 | **Production outage, security incident, or data loss** | A postmortem following [Postmortem Standards](standards/postmortems.md), and a triage page when the symptom class is recurring |
 | **New invariant tag** | The declaring ADR's `### Invariants & Behavioral Boundaries` section, following [Invariant Standards](invariants.md) |
@@ -78,7 +78,7 @@ The CI column reflects `.github/workflows/ci.yml`. Every mechanical gate runs in
    `Cargo.toml` must be created with local Optics mode disabled, staging the
    regenerated canonical `Cargo.lock` together with the version bump, and
    verified with `cargo check --locked --workspace`. See
-   [Cross-Repository Development](cross-repository-development.md) for the
+   [Local Optics Development](optics-local-development.md) for the
    worktree mechanics.
 3. **Changelog Integrity**: Add user-visible features, breaking changes, and
    migrations to `CHANGELOG.md` under `## [Unreleased]`, following

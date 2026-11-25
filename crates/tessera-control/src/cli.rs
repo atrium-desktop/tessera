@@ -84,7 +84,7 @@ impl FromStr for Shell {
 
 impl Shell {
     pub fn generate(self, out: &mut dyn Write) {
-        let cmds = "run calc query display window workspace notification journal interaction-domain permissions config audit system overview events completions quit";
+        let cmds = "run calc query display window workspace notification journal interaction-domain permissions config system overview events completions quit";
         match self {
             Self::Bash => {
                 let _ = writeln!(
@@ -218,11 +218,10 @@ fn main_help() -> String {
        window               Inspect and control windows\n  \
        workspace            Inspect and control workspaces\n  \
        notification         Inspect and post notifications\n  \
-       journal              Inspect or follow the mutation journal\n  \
+       journal              Inspect or follow the unified observability event bus\n  \
        interaction-domain   Manage Agent Workspaces and Interaction Domain authority\n  \
        permissions          Manage agent permissions and grants\n  \
        config               Validate or explicitly migrate the local Tessera configuration\n  \
-       audit                Inspect and manage the durable security-audit history\n  \
        system               Inspect and control immediate live-system state\n  \
        overview             Toggle the window/workspace overview\n  \
        events               Stream coarse compositor state-change events\n  \
@@ -346,9 +345,6 @@ fn parse_command(args: &[String]) -> Result<Command, ParseError> {
         "config" => Ok(Command::Config {
             command: parse_config(rest)?,
         }),
-        "audit" => Ok(Command::Audit {
-            command: parse_audit(rest)?,
-        }),
         "system" => Ok(Command::System {
             command: parse_system(rest)?,
         }),
@@ -404,59 +400,6 @@ fn parse_config(args: &[String]) -> Result<Option<ConfigCmd>, ParseError> {
         "validate" => Ok(Some(ConfigCmd::Validate { path })),
         "migrate" => Ok(Some(ConfigCmd::Migrate { path })),
         other => Err(usage_err(format!("unknown config subcommand '{other}'"))),
-    }
-}
-
-fn parse_audit(args: &[String]) -> Result<Option<AuditCmd>, ParseError> {
-    check_help(args, "Usage: tessera audit [status|verify|export|prune]")?;
-    let Some((sub, rest)) = args.split_first() else {
-        return Ok(None);
-    };
-    match sub.as_str() {
-        "status" => {
-            ensure_no_extra(rest, "audit status")?;
-            Ok(Some(AuditCmd::Status))
-        }
-        "verify" => {
-            let mut full = false;
-            for a in rest {
-                if a == "--full" {
-                    full = true;
-                } else {
-                    return Err(usage_err(format!(
-                        "unknown argument '{a}' for audit verify"
-                    )));
-                }
-            }
-            Ok(Some(AuditCmd::Verify { full }))
-        }
-        "export" => {
-            if rest.len() != 1 {
-                return Err(usage_err("Usage: tessera audit export <DESTINATION>"));
-            }
-            Ok(Some(AuditCmd::Export {
-                destination: rest[0].clone(),
-            }))
-        }
-        "prune" => {
-            let mut force = false;
-            let mut keep = None;
-            for a in rest {
-                if a == "--force" {
-                    force = true;
-                } else if keep.is_none() {
-                    keep = Some(parse_val::<usize>(a, "keep")?);
-                } else {
-                    return Err(usage_err(format!(
-                        "unexpected argument '{a}' for audit prune"
-                    )));
-                }
-            }
-            let keep =
-                keep.ok_or_else(|| usage_err("Usage: tessera audit prune <KEEP> [--force]"))?;
-            Ok(Some(AuditCmd::Prune { keep, force }))
-        }
-        other => Err(usage_err(format!("unknown audit subcommand '{other}'"))),
     }
 }
 
@@ -769,14 +712,39 @@ fn parse_notification(args: &[String]) -> Result<Option<NotificationCmd>, ParseE
     }
 }
 
+fn parse_event_topic(raw: &str) -> Result<tessera_protocol::EventTopic, ParseError> {
+    match raw.to_ascii_lowercase().as_str() {
+        "window" => Ok(tessera_protocol::EventTopic::Window),
+        "workspace" => Ok(tessera_protocol::EventTopic::Workspace),
+        "interaction-domain" | "interaction_domain" => {
+            Ok(tessera_protocol::EventTopic::InteractionDomain)
+        }
+        "settings" => Ok(tessera_protocol::EventTopic::Settings),
+        "authority" => Ok(tessera_protocol::EventTopic::Authority),
+        "system" => Ok(tessera_protocol::EventTopic::System),
+        "mcp" => Ok(tessera_protocol::EventTopic::Mcp),
+        "custom" => Ok(tessera_protocol::EventTopic::Custom),
+        other => Err(ParseError::new(
+            ParseErrorKind::InvalidValue,
+            format!(
+                "unknown topic '{other}'; expected one of: window, workspace, interaction-domain, settings, authority, system, mcp, custom"
+            ),
+        )),
+    }
+}
+
 fn parse_journal(args: &[String]) -> Result<Option<JournalCmd>, ParseError> {
-    check_help(args, "Usage: tessera journal [list|follow]")?;
+    check_help(
+        args,
+        "Usage: tessera journal [list [--since <SEQ>] [--topic <TOPIC>]... | follow [--topic <TOPIC>]...]",
+    )?;
     let Some((sub, rest)) = args.split_first() else {
         return Ok(None);
     };
     match sub.as_str() {
         "list" => {
             let mut since = None;
+            let mut topics = Vec::new();
             let mut i = 0;
             while i < rest.len() {
                 match rest[i].as_str() {
@@ -786,15 +754,34 @@ fn parse_journal(args: &[String]) -> Result<Option<JournalCmd>, ParseError> {
                     s if s.starts_with("--since=") => {
                         since = Some(parse_val(&s["--since=".len()..], "since")?);
                     }
+                    "--topic" => {
+                        topics.push(parse_event_topic(next_opt_val(rest, &mut i, "--topic")?)?);
+                    }
+                    s if s.starts_with("--topic=") => {
+                        topics.push(parse_event_topic(&s["--topic=".len()..])?);
+                    }
                     other => return Err(usage_err(format!("unexpected argument '{other}'"))),
                 }
                 i += 1;
             }
-            Ok(Some(JournalCmd::List { since }))
+            Ok(Some(JournalCmd::List { since, topics }))
         }
         "follow" => {
-            ensure_no_extra(rest, "journal follow")?;
-            Ok(Some(JournalCmd::Follow))
+            let mut topics = Vec::new();
+            let mut i = 0;
+            while i < rest.len() {
+                match rest[i].as_str() {
+                    "--topic" => {
+                        topics.push(parse_event_topic(next_opt_val(rest, &mut i, "--topic")?)?);
+                    }
+                    s if s.starts_with("--topic=") => {
+                        topics.push(parse_event_topic(&s["--topic=".len()..])?);
+                    }
+                    other => return Err(usage_err(format!("unexpected argument '{other}'"))),
+                }
+                i += 1;
+            }
+            Ok(Some(JournalCmd::Follow { topics }))
         }
         other => Err(usage_err(format!("unknown journal subcommand '{other}'"))),
     }
@@ -1196,9 +1183,6 @@ pub enum Command {
     Config {
         command: Option<ConfigCmd>,
     },
-    Audit {
-        command: Option<AuditCmd>,
-    },
     System {
         command: Option<SystemCmd>,
     },
@@ -1214,14 +1198,6 @@ pub enum Command {
 pub enum ConfigCmd {
     Validate { path: Option<PathBuf> },
     Migrate { path: Option<PathBuf> },
-}
-
-#[derive(Debug)]
-pub enum AuditCmd {
-    Status,
-    Verify { full: bool },
-    Export { destination: String },
-    Prune { keep: usize, force: bool },
 }
 
 #[derive(Debug)]
@@ -1368,8 +1344,13 @@ pub enum NotificationCmd {
 
 #[derive(Debug)]
 pub enum JournalCmd {
-    List { since: Option<u64> },
-    Follow,
+    List {
+        since: Option<u64>,
+        topics: Vec<tessera_protocol::EventTopic>,
+    },
+    Follow {
+        topics: Vec<tessera_protocol::EventTopic>,
+    },
 }
 
 #[derive(Debug)]
@@ -1571,5 +1552,54 @@ impl FromStr for Region {
 impl From<Region> for Rect {
     fn from(value: Region) -> Self {
         value.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn journal_cli_parses_topic_filters_and_rejects_removed_audit_command() {
+        let cli = Cli::try_parse_from([
+            "tessera",
+            "journal",
+            "list",
+            "--since",
+            "10",
+            "--topic",
+            "mcp",
+            "--topic=interaction-domain",
+        ])
+        .unwrap();
+        match cli.command {
+            Some(Command::Journal {
+                command: Some(JournalCmd::List { since, topics }),
+            }) => {
+                assert_eq!(since, Some(10));
+                assert_eq!(
+                    topics,
+                    vec![
+                        tessera_protocol::EventTopic::Mcp,
+                        tessera_protocol::EventTopic::InteractionDomain,
+                    ]
+                );
+            }
+            other => panic!("unexpected parsed command: {other:?}"),
+        }
+
+        let follow =
+            Cli::try_parse_from(["tessera", "journal", "follow", "--topic", "window"]).unwrap();
+        match follow.command {
+            Some(Command::Journal {
+                command: Some(JournalCmd::Follow { topics }),
+            }) => {
+                assert_eq!(topics, vec![tessera_protocol::EventTopic::Window]);
+            }
+            other => panic!("unexpected follow command: {other:?}"),
+        }
+
+        assert!(Cli::try_parse_from(["tessera", "journal", "list", "--topic", "bogus"]).is_err());
+        assert!(Cli::try_parse_from(["tessera", "audit", "status"]).is_err());
     }
 }

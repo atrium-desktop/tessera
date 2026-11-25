@@ -1,16 +1,21 @@
 ---
 id: ADR-0080
 title: "HUD status chips and the SAO command panel"
-status: accepted
+status: superseded
 date: 2026-07-30
-superseded_by: null
+superseded_by: ADR-0239
 ---
 
 # ADR-0080: HUD status chips and the SAO command panel
 
-- Status: Accepted
+- Status: Superseded by [ADR-0239](0239-the-control-center-is-a-right-anchored-sheet.md) — the command panel is now the right-anchored Control Center sheet; the HUD status chips were removed by ADR-0213.
 - Date: 2026-07-30
 - Amended by: [ADR-0197](0197-control-center-tray-shelf-and-overflow-disclosure.md) (the panel's tray is now a bounded bottom-left shelf with overflow disclosure, not a scrolling column)
+- Extended by: [ADR-0132](0132-aegis-ui-composite-component-library.md) — *aegis-ui Composite Component Library and Chrome Scaffolding*
+- Amended by: [ADR-0169](0169-control-center-bento-grid-and-mpris-absorption.md) — *Control Center 2D Bento Grid and MPRIS Media Player Absorption*
+- Amended by: [ADR-0175](0175-bluetooth-peripheral-subsystem-and-bluez-bridge.md) — *Bluetooth Peripheral Subsystem, BlueZ Bridge, and HUD/Control-Center Parity*
+- Amended by: [ADR-0214](0214-tiered-system-readings-and-a-barrier-only-at-the-end.md) — *Tiered System Readings: A Glance for Thresholds, a Barrier Only at the End*
+- Amended by: [ADR-0221](0221-the-control-center-tray-is-a-horizontal-paging-lane.md) — *The Control-Center Tray Is a Horizontal Lane That Pages, and Both Ends of the Pager Are Real States*
 
 ## Context
 

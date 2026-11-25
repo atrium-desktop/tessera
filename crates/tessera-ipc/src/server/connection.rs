@@ -139,6 +139,14 @@ pub(super) fn serve_connection<H: Handler + 'static>(
                         result
                     }
                     Outbound::Event(e) => write_msg(&mut w, &e),
+                    Outbound::JournalEvent(entry) => {
+                        #[derive(serde::Serialize)]
+                        #[serde(tag = "type")]
+                        enum BorrowedEvent<'a> {
+                            Journal { entry: &'a JournalEntry },
+                        }
+                        write_msg(&mut w, &BorrowedEvent::Journal { entry: &entry })
+                    }
                     Outbound::StreamStarted { response, table } => {
                         write_stream_started(&mut w, &response, &table)
                     }

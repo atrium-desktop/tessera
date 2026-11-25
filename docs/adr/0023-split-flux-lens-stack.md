@@ -8,7 +8,7 @@ superseded_by: ADR-0067
 
 # ADR-0023: Depend on the split flux / lens stack via out-of-tree Rust bindings
 
-- Status: Superseded by ADR-0067
+- Status: Superseded by [ADR-0067](0067-remote-optics-dependencies-and-local-overrides.md)
 - Date: 2026-06-23
 
 ## Context

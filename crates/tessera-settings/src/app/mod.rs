@@ -4,6 +4,7 @@
 pub mod clipboard;
 pub mod gpu;
 pub mod input;
+#[allow(dead_code)]
 pub mod instance;
 pub mod link;
 
@@ -72,6 +73,9 @@ pub struct Options {
     pub socket: PathBuf,
     pub target: Option<String>,
     pub instance: Option<instance::Listener>,
+    pub app_id: String,
+    pub initial_size: Option<(u32, u32)>,
+    pub ready_fd: Option<i32>,
 }
 
 type OfferEntry = (WlDataOffer, Arc<Mutex<Vec<String>>>);
@@ -126,6 +130,7 @@ struct App {
     animating: bool,
     exit: bool,
     fatal: Option<String>,
+    ready_fd: Option<i32>,
 }
 
 pub fn run(options: Options) -> Result<(), Box<dyn std::error::Error>> {
@@ -156,7 +161,7 @@ pub fn run(options: Options) -> Result<(), Box<dyn std::error::Error>> {
     let xdg_surface = wm_base.get_xdg_surface(&wl_surface, &qh, ());
     let xdg_toplevel = xdg_surface.get_toplevel(&qh, ());
     xdg_toplevel.set_title(i18n.text(Message::Settings).to_string());
-    xdg_toplevel.set_app_id(tessera_settings::APP_ID.to_string());
+    xdg_toplevel.set_app_id(options.app_id);
     xdg_toplevel.set_min_size(MIN_SIZE.0 as i32, MIN_SIZE.1 as i32);
     let decoration = decoration_manager.map(|mgr| {
         let dec = mgr.get_toplevel_decoration(&xdg_toplevel, &qh, ());
@@ -182,6 +187,11 @@ pub fn run(options: Options) -> Result<(), Box<dyn std::error::Error>> {
         log::warn!("settings: unknown page {target:?}; opening the default page");
     }
 
+    let initial_size = options
+        .initial_size
+        .map(|(w, h)| (w.max(MIN_SIZE.0), h.max(MIN_SIZE.1)))
+        .unwrap_or(DEFAULT_SIZE);
+
     let mut app = App {
         connection: connection.clone(),
         qh: qh.clone(),
@@ -197,7 +207,7 @@ pub fn run(options: Options) -> Result<(), Box<dyn std::error::Error>> {
         viewport,
         _fractional_scale: fractional_scale,
         scale_120: 120,
-        logical_size: DEFAULT_SIZE,
+        logical_size: initial_size,
         pending_configure_size: None,
         graphics: Graphics::new(&connection)?,
         surface: None,
@@ -232,6 +242,7 @@ pub fn run(options: Options) -> Result<(), Box<dyn std::error::Error>> {
         animating: false,
         exit: false,
         fatal: None,
+        ready_fd: options.ready_fd,
     };
 
     run_event_loop(
@@ -427,6 +438,9 @@ impl App {
                 self.animating = outcome.animating;
                 self.dirty = false;
                 self.set_cursor(cursor_shape(outcome.cursor));
+                if let Some(fd) = self.ready_fd.take() {
+                    signal_ready_fd(fd);
+                }
             }
             Err(error) => self.fail(format!("render: {error}")),
         }
@@ -988,5 +1002,16 @@ impl Dispatch<WpFractionalScaleV1, ()> for App {
                 }
             }
         }
+    }
+}
+
+fn signal_ready_fd(fd: i32) {
+    let byte: [u8; 1] = *b"1";
+    // SAFETY: `fd` was passed by the caller as an open pipe/event descriptor
+    // for the first-frame readiness handshake; writing one byte and closing it
+    // completes the contract.
+    unsafe {
+        let _ = libc::write(fd, byte.as_ptr().cast(), byte.len());
+        let _ = libc::close(fd);
     }
 }

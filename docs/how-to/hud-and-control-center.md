@@ -1,8 +1,8 @@
 # How to Read Status and Use the Control Center
 
 Tessera has no status bar. The top of the screen belongs to windows, and status
-lives in two places: readings on the Dock, and transient readings that appear
-when a value changes (ADR-0213, ADR-0214). Every related daily interaction
+appears only when you ask for it or when it changes: the Glance HUD on demand,
+and transient readings when a value changes (ADR-0213, ADR-0214, ADR-0255). Every related daily interaction
 stays in one sheet, the Control Center (ADR-0080, ADR-0081, ADR-0083,
 ADR-0115, ADR-0239). The sheet is the display-and-control surface for
 desktop-computer behavior: the state and controls of the daily-use domains —
@@ -10,19 +10,27 @@ sound, displays, network and Bluetooth, power, the session, notifications, the
 tray, and your account persona. Persistent settings live in the Settings
 application. It is not a console for the compositor itself.
 
-## Read the Dock's Reading Cell
+## Glance at Status
 
-The Dock leads with one or more reading cells, then the application tiles. The
-shipped reading is the workspace pager: one tick per workspace, with the current
-one drawn as a lit capsule. Reading cells do not magnify under the cursor and are
-not launch targets — they are status.
+The Glance HUD is a small pill near the top centre of the screen. It shows the
+time, your position among the output's workspaces, and the machine's Wi-Fi,
+Bluetooth, battery, volume and Do Not Disturb state. A reading appears only
+for hardware the machine reports. The HUD stays for about two seconds and
+then fades. It never takes the pointer or the keyboard, and nothing on it can
+be clicked.
 
-This is why the reading lives here rather than in a band across the top of the
-screen: you ask "which desktop am I on" while reaching for the Dock, and the
-Dock's own reveal already puts the answer on screen at that moment. Tiled and
-maximized windows run over the Dock's space, so nothing is reserved for it.
+Raise it any of three ways:
 
-Press `Super+1` … `Super+9` to switch workspaces; the pager follows immediately.
+- Tap `Super` twice within 300 milliseconds without pressing another key or
+  a pointer button in between. `Super` shortcuts and `Super`-drag are not
+  affected.
+- Switch workspaces with `Super+Left`, `Super+Right`, or a touchpad swipe.
+  The HUD shows where you landed.
+- Move the pointer against the middle of the top screen edge (the bottom edge
+  when the Dock is on top). This Hot Zone can be moved or removed under
+  [Hot Zones](../reference/config.md#hot-zones).
+
+To change a setting the HUD shows, open the Control Center.
 
 ## Read a Transient Reading
 
@@ -46,8 +54,9 @@ With the default `warn_at = [20, 5]` you get a reading at 20% and a barrier at
 
 ## Read Notification Popups
 
-New notifications appear as a frameless strip at the top-right: plain
-floating text, newest on top, no background panel. A popup is display-only
+New notifications appear as a stack of small floating cards at the top-right,
+newest on top, drawn in the same chrome material as the Control Center. A popup
+is display-only
 — it never captures clicks — and disappears on its own after three seconds.
 The notification itself is not gone: it stays in the Control Center's
 notifications list for up to an hour, where you can dismiss it. Do Not Disturb

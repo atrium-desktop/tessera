@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-07-30
+- Amended by: [ADR-0232](0232-damage-diagnostics-link-tracing-never-a-subscriber.md) — *Damage diagnostics link tracing, never a subscriber*
 
 ## Context
 

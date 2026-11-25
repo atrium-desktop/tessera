@@ -1,9 +1,9 @@
 //! Semantic visual tokens for the built-in dark and light appearances.
 
 use optics_ui::Color;
-use tessera_desktop::settings::ColorScheme;
+use tessera_desktop::settings::{ColorScheme, Material};
 
-use crate::colors::{DockColors, ProductColors, SceneColors};
+use crate::colors::{ControlCenterColors, DockColors, ProductColors, SceneColors};
 
 /// The product design snapshot consumed by theme and material factories.
 ///
@@ -16,6 +16,10 @@ pub struct Design {
     /// The resolved color scheme this snapshot implements. Always explicit —
     /// `System` never survives [`Design::for_scheme`].
     pub scheme: ColorScheme,
+    /// The material every chrome body in this snapshot is drawn in. When it
+    /// samples the backdrop, the bodies are the tint layer over the
+    /// compositor's blurred capture: see [`Design::with_material`].
+    pub material: Material,
     pub colors: ProductColors,
     pub radii: Radii,
     pub strokes: Strokes,
@@ -49,6 +53,7 @@ impl Design {
         };
         Self {
             scheme: ColorScheme::Dark,
+            material: Material::Opaque,
             colors: colors.product,
             radii,
             strokes: Strokes {
@@ -120,6 +125,7 @@ impl Design {
         let colors = crate::colors::light_appearance();
         Self {
             scheme: ColorScheme::Light,
+            material: Material::Opaque,
             colors: colors.product,
             surfaces: SurfaceStyles::new(&colors.product, &colors.dock, Design::dark().radii, 1.0),
             selection: SelectionStyles {
@@ -171,6 +177,70 @@ impl Design {
         }
     }
 
+    /// The appearance for `scheme` drawn in `material`.
+    #[must_use]
+    pub fn for_appearance(scheme: ColorScheme, material: Material) -> Self {
+        Self::for_scheme(scheme).with_material(material)
+    }
+
+    /// The same appearance with every chrome body drawn in `material`.
+    ///
+    /// A material is one decision for the whole shell (ADR-0252): the panel,
+    /// popover and both dock bodies change together, and every
+    /// [`SurfaceRole`] is re-derived from them, so no component can end up
+    /// on a different material from its neighbours by reading a palette
+    /// color instead of a role.
+    ///
+    /// The palette declares every body fully opaque; a material only sets
+    /// their alpha. Translucency is pure alpha over unblurred content, so it
+    /// is tuned per body: text-bearing popovers stay the most solid, and the
+    /// dock — which carries glyphs, not prose — is the most open.
+    ///
+    /// A material that samples the backdrop keeps the same bodies as its
+    /// *tint*: the compositor draws the blurred (or refracted) capture
+    /// beneath each body, and the body's fill sits over it (ADR-0253). A
+    /// blurred backdrop carries no detail that competes with text, so these
+    /// bodies are more open than the translucent ones.
+    #[must_use]
+    pub fn with_material(mut self, material: Material) -> Self {
+        let alpha = BodyAlpha::for_material(self.scheme, material);
+        // Start from the palette's opaque bodies, never from this snapshot's:
+        // colors are premultiplied, so re-deriving a hue from an already
+        // translucent body drifts by a unit per switch.
+        let palette = Self::for_scheme(self.scheme);
+        self.colors.popover_surface = palette.colors.popover_surface.with_alpha(alpha.popover);
+        self.colors.panel_surface = palette.colors.panel_surface.with_alpha(alpha.panel);
+        self.dock.bar_surface_expanded = palette
+            .dock
+            .bar_surface_expanded
+            .with_alpha(alpha.dock_expanded);
+        self.dock.bar_surface_collapsed = palette
+            .dock
+            .bar_surface_collapsed
+            .with_alpha(alpha.dock_collapsed);
+        self.surfaces =
+            SurfaceStyles::new(&self.colors, &self.dock, self.radii, self.strokes.hairline);
+        self.material = material;
+        self
+    }
+
+    /// The Control Center's colors in this snapshot's material.
+    ///
+    /// The Control Center keeps its own solid-surface hierarchy (ADR-0176),
+    /// but its card bodies are chrome bodies like any other (ADR-0252): they
+    /// take the floating panel's alpha, so the sheet is translucent or glass
+    /// exactly when the Dock is. Recessed tiles inside a card take the same
+    /// alpha, so they stay a step darker than the card instead of punching an
+    /// opaque hole in it. Ink, accents and controls are untouched.
+    #[must_use]
+    pub fn control_center_colors(&self) -> ControlCenterColors {
+        let mut colors = ControlCenterColors::for_scheme(self.scheme);
+        let alpha = self.colors.panel_surface.components().3;
+        colors.surface = colors.surface.with_alpha(alpha);
+        colors.surface_recessed = colors.surface_recessed.with_alpha(alpha);
+        colors
+    }
+
     /// Whether this snapshot implements the light appearance.
     #[must_use]
     pub fn is_light(&self) -> bool {
@@ -181,6 +251,73 @@ impl Design {
 impl Default for Design {
     fn default() -> Self {
         Self::dark()
+    }
+}
+
+/// Body alpha per material.
+///
+/// Translucent values are chosen so that the worst case — a dark body over a
+/// white page, or a light body over a black one — still leaves the body's
+/// own text at well over 4.5:1: at 0.82 a dark panel over white composites
+/// to roughly (69, 69, 70), against near-white label text.
+#[derive(Debug, Clone, Copy)]
+struct BodyAlpha {
+    popover: u8,
+    panel: u8,
+    dock_expanded: u8,
+    dock_collapsed: u8,
+}
+
+impl BodyAlpha {
+    fn for_material(scheme: ColorScheme, material: Material) -> Self {
+        match (material, scheme.or_dark()) {
+            (Material::Translucent, ColorScheme::Light) => Self {
+                popover: 236,
+                panel: 214,
+                dock_expanded: 196,
+                dock_collapsed: 212,
+            },
+            (Material::Translucent, _) => Self {
+                popover: 230,
+                panel: 209,
+                dock_expanded: 189,
+                dock_collapsed: 204,
+            },
+            // Tint over a blurred capture: the frost already removes the
+            // detail that makes unblurred content compete with text.
+            (Material::Frosted, ColorScheme::Light) => Self {
+                popover: 222,
+                panel: 204,
+                dock_expanded: 188,
+                dock_collapsed: 204,
+            },
+            (Material::Frosted, _) => Self {
+                popover: 214,
+                panel: 194,
+                dock_expanded: 176,
+                dock_collapsed: 194,
+            },
+            // Tint over a refracting lens: the glass carries its own rim and
+            // frost, so the body is the most open of all.
+            (Material::LiquidGlass, ColorScheme::Light) => Self {
+                popover: 208,
+                panel: 184,
+                dock_expanded: 160,
+                dock_collapsed: 184,
+            },
+            (Material::LiquidGlass, _) => Self {
+                popover: 196,
+                panel: 168,
+                dock_expanded: 140,
+                dock_collapsed: 168,
+            },
+            _ => Self {
+                popover: 255,
+                panel: 255,
+                dock_expanded: 255,
+                dock_collapsed: 255,
+            },
+        }
     }
 }
 
@@ -264,9 +401,10 @@ pub enum SurfaceRole {
     FloatingPanel,
     /// The panel that owns attention: prompts, pickers, the pivot.
     ProminentPanel,
-    /// The dock bar and its collapsed capsule.
+    /// The dock bar.
     Dock,
-    /// A square chrome cell that holds an icon or a reading: Bento tiles.
+    /// A square chrome cell that holds an icon or a reading, such as a Control
+    /// Center tile.
     Tile,
 }
 
@@ -751,33 +889,153 @@ mod tests {
         assert_eq!(surfaces.for_role(SurfaceRole::Tile).shadow_alpha, 0.0);
     }
 
+    const FLOATING_ROLES: [SurfaceRole; 6] = [
+        SurfaceRole::Chip,
+        SurfaceRole::Tooltip,
+        SurfaceRole::Menu,
+        SurfaceRole::FloatingPanel,
+        SurfaceRole::ProminentPanel,
+        SurfaceRole::Dock,
+    ];
+
+    fn every_appearance(material: Material) -> [Design; 2] {
+        [
+            Design::for_appearance(ColorScheme::Dark, material),
+            Design::for_appearance(ColorScheme::Light, material),
+        ]
+    }
+
     #[test]
-    fn every_surface_role_resolves_to_an_opaque_painted_body() {
-        // The product has no material pass: a chrome body that leaned on a
-        // backdrop effect would be a translucent smear over application
-        // content. Every role must therefore be readable on its own fill.
-        for design in [Design::dark(), Design::light()] {
-            for role in [
-                SurfaceRole::Chip,
-                SurfaceRole::Tooltip,
-                SurfaceRole::Menu,
-                SurfaceRole::FloatingPanel,
-                SurfaceRole::ProminentPanel,
-                SurfaceRole::Dock,
-            ] {
-                let style = design.surfaces.for_role(role);
-                let alpha = style.body.components().3;
+    fn every_surface_role_is_a_rounded_body_with_a_defined_edge() {
+        for material in Material::ALL {
+            for design in every_appearance(material) {
+                for role in FLOATING_ROLES {
+                    let style = design.surfaces.for_role(role);
+                    assert!(
+                        style.border_width > 0.0,
+                        "{role:?} keeps a hairline boundary so its edge is defined \
+                         without an optical rim ({material:?})"
+                    );
+                    assert!(style.radius > 0.0, "{role:?} has a rounded body");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_opaque_material_lets_nothing_through() {
+        for design in every_appearance(Material::Opaque) {
+            assert_eq!(design.material, Material::Opaque);
+            for role in FLOATING_ROLES {
+                let alpha = design.surfaces.for_role(role).body.components().3;
+                assert_eq!(alpha, 255, "{role:?} in {:?}", design.scheme);
+            }
+            assert_eq!(design.dock.bar_surface_collapsed.components().3, 255);
+        }
+        assert_eq!(
+            Design::dark(),
+            Design::for_appearance(ColorScheme::Dark, Material::Opaque)
+        );
+        assert_eq!(
+            Design::light(),
+            Design::for_appearance(ColorScheme::Light, Material::Opaque)
+        );
+    }
+
+    #[test]
+    fn the_translucent_material_is_see_through_but_stays_legible() {
+        // Pure alpha over unblurred content: open enough to read as a
+        // material, solid enough that a body's own text survives any page
+        // beneath it. Text-bearing popovers are the most solid body.
+        for design in every_appearance(Material::Translucent) {
+            assert_eq!(design.material, Material::Translucent);
+            for role in FLOATING_ROLES {
+                let alpha = design.surfaces.for_role(role).body.components().3;
                 assert!(
-                    alpha >= 236,
-                    "{role:?} in {:?} is opaque enough to stand alone: {alpha}",
+                    (180..255).contains(&alpha),
+                    "{role:?} in {:?} is translucent but legible: {alpha}",
                     design.scheme
                 );
-                assert!(
-                    style.border_width > 0.0,
-                    "{role:?} keeps a hairline boundary so its edge is defined \
-                     without an optical rim"
-                );
-                assert!(style.radius > 0.0, "{role:?} has a rounded body");
+            }
+            let menu = design.surfaces.menu.body.components().3;
+            let panel = design.surfaces.floating_panel.body.components().3;
+            let dock = design.surfaces.dock.body.components().3;
+            assert!(menu > panel && panel > dock, "{menu} > {panel} > {dock}");
+        }
+    }
+
+    #[test]
+    fn a_material_changes_every_body_together_and_nothing_else() {
+        let opaque = Design::dark();
+        let translucent = opaque.with_material(Material::Translucent);
+        assert_ne!(opaque.surfaces, translucent.surfaces);
+        assert_ne!(
+            opaque.dock.bar_surface_expanded,
+            translucent.dock.bar_surface_expanded
+        );
+        // Hue is the palette's; the material only owns alpha. Colors are
+        // premultiplied, so un-premultiplying the translucent body may round
+        // by one unit per channel.
+        let (r0, g0, b0, _) = opaque.colors.panel_surface.components();
+        let (r1, g1, b1, _) = translucent
+            .colors
+            .panel_surface
+            .with_alpha(255)
+            .components();
+        for (a, b) in [(r0, r1), (g0, g1), (b0, b1)] {
+            assert!(a.abs_diff(b) <= 1, "{a} ~ {b}");
+        }
+        // Ink, geometry and every non-body token are untouched.
+        assert_eq!(opaque.colors.menu_text, translucent.colors.menu_text);
+        assert_eq!(opaque.colors.card_surface, translucent.colors.card_surface);
+        assert_eq!(opaque.radii, translucent.radii);
+        assert_eq!(opaque.typography, translucent.typography);
+        // Switching back is lossless.
+        assert_eq!(translucent.with_material(Material::Opaque), opaque);
+    }
+
+    #[test]
+    fn the_control_center_body_follows_the_material() {
+        for material in Material::ALL {
+            for design in every_appearance(material) {
+                let cc = design.control_center_colors();
+                let panel = design.colors.panel_surface.components().3;
+                assert_eq!(cc.surface.components().3, panel, "{material:?}");
+                assert_eq!(cc.surface_recessed.components().3, panel, "{material:?}");
+                let palette = ControlCenterColors::for_scheme(design.scheme);
+                assert_eq!(cc.text, palette.text, "ink is not a material");
+                assert_eq!(cc.accent, palette.accent);
+                if material == Material::Opaque {
+                    assert_eq!(cc, palette, "opaque is the palette itself");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_sampled_material_tints_its_backdrop_more_openly_than_bare_alpha() {
+        // Over a blurred capture the body is a tint, not the whole surface:
+        // it is more open than translucent, glass more open than frost, and
+        // the legibility order (menu > panel > dock) holds in every one.
+        for scheme in [ColorScheme::Dark, ColorScheme::Light] {
+            let alpha = |material| {
+                let design = Design::for_appearance(scheme, material);
+                assert_eq!(design.material, material);
+                (
+                    design.surfaces.menu.body.components().3,
+                    design.surfaces.floating_panel.body.components().3,
+                    design.surfaces.dock.body.components().3,
+                )
+            };
+            let translucent = alpha(Material::Translucent);
+            let frosted = alpha(Material::Frosted);
+            let glass = alpha(Material::LiquidGlass);
+            for (cheaper, dearer) in [(translucent, frosted), (frosted, glass)] {
+                assert!(cheaper.0 > dearer.0 && cheaper.1 > dearer.1 && cheaper.2 > dearer.2);
+            }
+            for (menu, panel, dock) in [frosted, glass] {
+                assert!(menu > panel && panel > dock, "{menu} > {panel} > {dock}");
+                assert!(dock >= 128, "a glass body still carries a visible tint");
             }
         }
     }
@@ -791,15 +1049,15 @@ mod tests {
         assert_eq!(dark.surfaces.menu.body, dark.colors.popover_surface);
         assert_eq!(
             dark.surfaces.menu.body.components().3,
-            248,
-            "dark menus are near-opaque"
+            255,
+            "dark menus are opaque in the opaque material"
         );
         let light = Design::light();
         assert_eq!(light.surfaces.menu.body, light.colors.popover_surface);
         assert_eq!(
             light.surfaces.menu.body.components().3,
-            250,
-            "light menus are near-opaque"
+            255,
+            "light menus are opaque in the opaque material"
         );
         // The tooltip shares the panel body but keeps a tighter shadow: it is
         // one line and must not read as a panel.

@@ -15,6 +15,8 @@ negative_knowledge: true
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0162](0162-wireless-network-subsystem-and-iwd-bridge.md)
 - Amended by: [ADR-0242](0242-networkmanager-owns-station-networking-behind-a-neutral-service.md) — the second candidate exists; selection now prefers NetworkManager, falls back to iwd only when NetworkManager is not running, never activates either daemon, and runs in the out-of-process network service.
+- Amended by: [ADR-0191](0191-casting-p2p-belongs-to-the-system-wifi-authority.md) — *Casting P2P Belongs to the System Wi-Fi Authority; the Caster Is a Portal Client*
+- Amended by: [ADR-0200](0200-event-driven-wireless-subsystem-and-station-lifecycle.md) — *Event-Driven Wireless Subsystem, D-Bus Signal Propagation, and Unconditional Station Association Telemetry*
 
 ---
 

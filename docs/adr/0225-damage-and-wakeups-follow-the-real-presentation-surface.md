@@ -24,6 +24,8 @@ negative_knowledge: true
   [ADR-0223](0223-a-failed-chrome-build-is-isolated-not-fatal.md)
 - Extends: Optics ADR-0143 (regional damage) and ADR-0149 (damage-scoped
   frames)
+- Amended by: [ADR-0226](0226-single-pass-chrome-composition-preview-layering-and-modal-dock-inhibition.md) — *Single-Pass Chrome Composition, Live-Preview Thumbnail Layering, and Modal Dock Inhibition*
+- Amended by: [ADR-0229](0229-the-compositor-supplies-current-damage-flux-owns-the-image-ledger.md) — *The compositor supplies current damage; Flux owns the per-image ledger*
 
 ---
 

@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-07-28
+- Amended by: [ADR-0234](0234-output-layers-are-plane-allocation-contracts-not-scene-layers.md) — scene stacking remains authoritative
 
 ## Context
 

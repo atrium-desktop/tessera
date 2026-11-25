@@ -184,10 +184,9 @@ output's current workspace, rendering and chrome see only the visible set,
 switching (`Super+Left`/`Super+Right`) drops keyboard focus from a now-hidden
 window, and removal reaps the emptied workspace. The IPC exposes
 `GetWorkspaces`, `SwitchWorkspace`/`SwitchWorkspaceTo`, and a
-`WorkspaceChanged` event (ADR-0027). A top-center workspace indicator
-(status readings, hosted by the Dock's Bento section and the transient OSD)
-shows one numbered tile per workspace,
-highlights the current, and switches on click. The tiling policy is
+`WorkspaceChanged` event (ADR-0027). The transient Glance HUD shows the
+current workspace position whenever you switch, and the Overview rail lists
+every workspace and switches on click (ADR-0255). The tiling policy is
 implemented end to end: a pure `tessera-desktop::layout` module (`LayoutRole`,
 `LayoutParams`, the `Layout` trait, a `MasterStack` policy), a `layout_role`
 field on `Window`, and server application — `Super+T` or the IPC

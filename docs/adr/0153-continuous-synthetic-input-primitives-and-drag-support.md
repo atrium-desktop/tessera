@@ -1,14 +1,14 @@
 ---
 id: ADR-0153
 title: "Continuous synthetic input primitives for drag-and-drop and modifier chording"
-status: draft
+status: accepted
 date: 2026-09-09
 superseded_by: null
 ---
 
 # ADR-0153: Continuous synthetic input primitives for drag-and-drop and modifier chording
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-09
 - Scope: `tessera-model`, `tessera-compositor`, `tessera-chrome`, `tessera-shell`, `tessera-mcp`, `tessera`;
   amends [ADR-0103](0103-actor-authority-and-interaction-domain-architecture.md)

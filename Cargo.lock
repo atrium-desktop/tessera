@@ -240,7 +240,6 @@ checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer",
  "crypto-common",
- "subtle",
 ]
 
 [[package]]
@@ -389,15 +388,6 @@ name = "hermit-abi"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d231dfb89cfffdbc30e7fc41579ed6066ad03abda9e567ccafae602b97ec5024"
-
-[[package]]
-name = "hmac"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
-dependencies = [
- "digest",
-]
 
 [[package]]
 name = "indexmap"
@@ -576,8 +566,8 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "optics-build"
-version = "0.0.86"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.86#d84a8b33e0897f10b104280fb9f42d8888b6557d"
+version = "0.0.87"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -585,8 +575,8 @@ dependencies = [
 
 [[package]]
 name = "optics-gfx"
-version = "0.0.86"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.86#d84a8b33e0897f10b104280fb9f42d8888b6557d"
+version = "0.0.87"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
 dependencies = [
  "optics-build",
  "optics-gfx-sys",
@@ -594,21 +584,41 @@ dependencies = [
 
 [[package]]
 name = "optics-gfx-sys"
-version = "0.0.86"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.86#d84a8b33e0897f10b104280fb9f42d8888b6557d"
+version = "0.0.87"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
 dependencies = [
  "optics-build",
 ]
 
 [[package]]
+name = "optics-material"
+version = "0.0.87"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
+dependencies = [
+ "optics-build",
+ "optics-gfx",
+ "optics-gfx-sys",
+ "optics-material-sys",
+]
+
+[[package]]
+name = "optics-material-sys"
+version = "0.0.87"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
+dependencies = [
+ "optics-build",
+ "optics-gfx-sys",
+]
+
+[[package]]
 name = "optics-motion"
-version = "0.0.86"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.86#d84a8b33e0897f10b104280fb9f42d8888b6557d"
+version = "0.0.87"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
 
 [[package]]
 name = "optics-scene"
-version = "0.0.86"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.86#d84a8b33e0897f10b104280fb9f42d8888b6557d"
+version = "0.0.87"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
 dependencies = [
  "optics-build",
  "optics-gfx",
@@ -617,8 +627,8 @@ dependencies = [
 
 [[package]]
 name = "optics-scene-sys"
-version = "0.0.86"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.86#d84a8b33e0897f10b104280fb9f42d8888b6557d"
+version = "0.0.87"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
 dependencies = [
  "optics-build",
  "optics-gfx-sys",
@@ -626,8 +636,8 @@ dependencies = [
 
 [[package]]
 name = "optics-svg"
-version = "0.0.86"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.86#d84a8b33e0897f10b104280fb9f42d8888b6557d"
+version = "0.0.87"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
 dependencies = [
  "optics-build",
  "optics-gfx",
@@ -636,8 +646,8 @@ dependencies = [
 
 [[package]]
 name = "optics-svg-sys"
-version = "0.0.86"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.86#d84a8b33e0897f10b104280fb9f42d8888b6557d"
+version = "0.0.87"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
 dependencies = [
  "optics-build",
  "optics-gfx-sys",
@@ -645,8 +655,8 @@ dependencies = [
 
 [[package]]
 name = "optics-ui"
-version = "0.0.86"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.86#d84a8b33e0897f10b104280fb9f42d8888b6557d"
+version = "0.0.87"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
 dependencies = [
  "optics-build",
  "optics-gfx",
@@ -655,8 +665,8 @@ dependencies = [
 
 [[package]]
 name = "optics-ui-sys"
-version = "0.0.86"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.86#d84a8b33e0897f10b104280fb9f42d8888b6557d"
+version = "0.0.87"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
 dependencies = [
  "optics-build",
  "optics-gfx-sys",
@@ -925,12 +935,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
 
 [[package]]
-name = "subtle"
-version = "2.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
-
-[[package]]
 name = "syn"
 version = "2.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -974,6 +978,8 @@ dependencies = [
  "log",
  "optics-gfx",
  "optics-gfx-sys",
+ "optics-material",
+ "optics-material-sys",
  "optics-scene-sys",
  "optics-svg-sys",
  "optics-ui",
@@ -1020,15 +1026,8 @@ dependencies = [
 name = "tessera-audit"
 version = "0.0.102"
 dependencies = [
- "flate2",
- "hmac",
- "libc",
  "serde",
- "serde_json",
- "sha2",
- "tempfile",
  "tessera-protocol",
- "zeroize",
 ]
 
 [[package]]
@@ -1105,7 +1104,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "tessera-audit",
  "tessera-authority",
  "tessera-config",
  "tessera-desktop",

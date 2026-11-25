@@ -17,6 +17,8 @@ negative_knowledge: true
   [ADR-0211](0211-regional-damage-is-consumed-as-a-list-and-chrome-footprints-are-measured.md),
   [ADR-0225](0225-damage-and-wakeups-follow-the-real-presentation-surface.md)
 - Implements: Optics ADR-0155 (frame damage is a native epoch ledger)
+- Amended by: [ADR-0230](0230-damage-is-surface-local-and-viewport-is-a-buffer-transfer-inverse.md) — *Damage is surface-local; viewport is a buffer-transfer inverse*
+- Amended by: [ADR-0231](0231-surface-damage-carries-an-explicit-full-verdict.md) — *Surface damage carries an explicit full verdict*
 
 ---
 

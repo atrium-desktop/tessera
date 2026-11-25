@@ -11,6 +11,9 @@ superseded_by: null
 - Status: Accepted (amended by [ADR-0172](0172-adopt-optics-transit-motion-vocabulary.md))
 - Date: 2026-08-22
 - Scope: whole workspace; amends [ADR-0029](0029-animation-and-effect-policy.md)
+- Amended by: [ADR-0213](0213-flat-chrome-and-removal-of-the-status-hud.md) — `LiquidGlassRegion` and every material or effect clause are void; the Optics-mechanism / Tessera-policy split still holds.
+- Amended by: [ADR-0174](0174-universal-model-motion-view-chrome-architecture.md) — *Universal Model-Motion-View Architecture and Full Transit Adoption Across Shell Chrome*
+- Amended by: [ADR-0179](0179-zero-redundancy-presentation-pipeline-substepped-motion-and-render-target-bucketing.md) — *Zero-Redundancy Presentation Pipeline, Sub-stepped Motion Dynamics, and Attachment Bucketing for 120Hz Animation Continuity*
 
 ## Context
 

@@ -1,19 +1,20 @@
 ---
 id: ADR-0154
 title: "Unified interaction grab architecture, touch drag-and-drop, and xdg-toplevel-drag"
-status: draft
+status: accepted
 date: 2026-09-10
 superseded_by: null
 ---
 
 # ADR-0154: Unified interaction grab architecture, touch drag-and-drop, and xdg-toplevel-drag
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-10
 - Scope: `tessera-compositor`, `tessera-model`, `tessera-wayland-protocols`;
   amends [ADR-0009](0009-input-pipeline-and-pointer-focus.md),
   [ADR-0013](0013-interactive-move-and-resize.md),
   and [ADR-0153](0153-continuous-synthetic-input-primitives-and-drag-support.md)
+- Note (2026-11-25): accepted as implemented. `xdg-toplevel-drag-v1`, touch and pointer drag-and-drop parity, and continuous synthetic input ([ADR-0153](0153-continuous-synthetic-input-primitives-and-drag-support.md)) shipped. The unified `InteractionGrab` type of Decision 1 was **not** implemented: no such type exists, and the Single Active Grab Invariant is not mechanically enforced.
 
 ## Context
 

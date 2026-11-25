@@ -769,6 +769,13 @@ impl DrmBackend {
                 .all(|output| output.planes.cursor.is_some())
     }
 
+    /// Maximum `(width, height)` in physical pixels accepted by the active KMS
+    /// cursor plane, or `None` when hardware cursors are unavailable.
+    pub fn hardware_cursor_extent(&self) -> Option<(u32, u32)> {
+        self.hardware_cursor_supported()
+            .then_some(self.cursor_extent)
+    }
+
     pub fn disable_hardware_cursor(&mut self) {
         self.cursor_state = None;
         self.hardware_cursor_failed = true;

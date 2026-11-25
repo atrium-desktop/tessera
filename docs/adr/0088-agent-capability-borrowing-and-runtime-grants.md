@@ -10,6 +10,7 @@ superseded_by: ADR-0090
 
 - Status: Superseded by [ADR-0090](0090-native-capability-broker-and-stateless-mcp-edge.md)
 - Date: 2026-07-31
+- Extended by: [ADR-0132](0132-aegis-ui-composite-component-library.md) — *aegis-ui Composite Component Library and Chrome Scaffolding*
 
 ## Context
 

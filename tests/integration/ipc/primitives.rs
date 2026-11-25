@@ -316,36 +316,45 @@ fn agent_journal_subscription_filters_by_subject_and_scope() {
         cmd: tessera_protocol::AuditedCommand::from(&Command::Close { id: WindowId(1) }),
     };
     // Another principal's mutation is never visible to this agent.
-    server.broadcast_journal(tessera_protocol::JournalEntry {
+    server.broadcast_journal(std::sync::Arc::new(tessera_protocol::JournalEntry {
         seq: 1,
         ts_mono_ms: 1,
+        ts_wall_ms: 1_700_000_000_001,
+        topic: tessera_protocol::EventTopic::Window,
+        correlation_id: None,
         origin: tessera_protocol::Origin::Actor {
             conn_id: 99,
             principal: "prin_other".into(),
         },
         mutation: focus.clone(),
         effect: tessera_protocol::Effect::Applied,
-    });
+    }));
     // A resource-permitted entry from a non-Actor origin passes through,
     // matching `GetJournal`'s filter exactly.
-    server.broadcast_journal(tessera_protocol::JournalEntry {
+    server.broadcast_journal(std::sync::Arc::new(tessera_protocol::JournalEntry {
         seq: 2,
         ts_mono_ms: 2,
+        ts_wall_ms: 1_700_000_000_002,
+        topic: tessera_protocol::EventTopic::Window,
+        correlation_id: None,
         origin: tessera_protocol::Origin::Ipc { conn_id: 3 },
         mutation: close,
         effect: tessera_protocol::Effect::Applied,
-    });
+    }));
     // The agent's own permitted mutation is delivered.
-    server.broadcast_journal(tessera_protocol::JournalEntry {
+    server.broadcast_journal(std::sync::Arc::new(tessera_protocol::JournalEntry {
         seq: 3,
         ts_mono_ms: 3,
+        ts_wall_ms: 1_700_000_000_003,
+        topic: tessera_protocol::EventTopic::Window,
+        correlation_id: None,
         origin: tessera_protocol::Origin::Actor {
             conn_id: 1,
             principal: "prin_prim".into(),
         },
         mutation: focus,
         effect: tessera_protocol::Effect::Applied,
-    });
+    }));
 
     client
         .set_io_timeout(Some(Duration::from_millis(500)))
@@ -482,5 +491,218 @@ fn connection_state_echoes_the_live_grant() {
         scope.ops,
         Some(vec![ActorCapability::Focus, ActorCapability::Close]),
         "ceiling changes are visible without reconnecting"
+    );
+}
+
+#[test]
+fn unified_event_bus_supports_topic_filtered_subscription_and_publish_event() {
+    struct BusHandler {
+        journal: std::sync::Mutex<tessera_audit::AuditLog<tessera_audit::journal::Entry>>,
+        broadcaster: tessera_ipc::JournalBroadcaster,
+    }
+
+    impl Handler for BusHandler {
+        fn policy_caps(&self) -> ConnectionCapabilities {
+            ConnectionCapabilities {
+                query: true,
+                control: true,
+                input: false,
+                session: false,
+                interaction_domain: false,
+            }
+        }
+        fn windows(&self) -> Vec<tessera_desktop::window::Window> {
+            Vec::new()
+        }
+        fn workspaces(&self) -> tessera_desktop::workspace::WorkspaceSnapshot {
+            tessera_desktop::workspace::WorkspaceSnapshot {
+                outputs: Vec::new(),
+            }
+        }
+        fn command(&self, _conn_id: u64, _principal: Option<&str>, _cmd: Command) {}
+        fn notifications(&self) -> Vec<tessera_desktop::notify::Notification> {
+            Vec::new()
+        }
+        fn outputs(&self) -> Vec<tessera_desktop::output::OutputInfo> {
+            Vec::new()
+        }
+        fn journal_since(&self, since: u64) -> tessera_protocol::JournalSnapshot {
+            self.journal.lock().unwrap().since(since).into()
+        }
+        fn publish_event(
+            &self,
+            conn_id: u64,
+            principal: Option<&str>,
+            topic: tessera_protocol::EventTopic,
+            source: String,
+            kind: String,
+            correlation_id: Option<u64>,
+            detail: Option<serde_json::Value>,
+        ) -> Result<u64, String> {
+            let entry = self.journal.lock().unwrap().append_correlated(
+                100,
+                tessera_audit::now_wall_ms(),
+                correlation_id,
+                tessera_protocol::Origin::ipc(conn_id, principal),
+                tessera_protocol::JournalMutation::External {
+                    topic,
+                    source,
+                    kind,
+                    detail,
+                },
+                tessera_protocol::Effect::Applied,
+            );
+            let seq = entry.seq;
+            self.broadcaster.broadcast(Arc::new(entry.into()));
+            Ok(seq)
+        }
+    }
+
+    let path = scratch();
+    let broadcaster = tessera_ipc::JournalBroadcaster::default();
+    let handler = Arc::new(BusHandler {
+        journal: std::sync::Mutex::new(tessera_audit::AuditLog::new(16)),
+        broadcaster: broadcaster.clone(),
+    });
+    let _server = Server::start_with_journal_broadcaster(&path, Arc::clone(&handler), broadcaster)
+        .expect("bind");
+
+    let mut mcp_sub = Client::connect_with(&path, ConnectionCapabilities::QUERY).expect("sub");
+    mcp_sub
+        .subscribe_journal_topics(Some(vec![tessera_protocol::EventTopic::Mcp]))
+        .expect("subscribe mcp topic");
+    mcp_sub
+        .set_io_timeout(Some(Duration::from_millis(500)))
+        .unwrap();
+
+    let mut publisher = Client::connect_with(
+        &path,
+        ConnectionCapabilities {
+            query: true,
+            control: true,
+            input: false,
+            session: false,
+            interaction_domain: false,
+        },
+    )
+    .expect("publisher");
+
+    // A non-MCP event must not reach the MCP-filtered subscriber.
+    let seq1 = publisher
+        .publish_event(
+            tessera_protocol::EventTopic::System,
+            "tessera-idle",
+            "display.dimmed",
+            Some(10),
+            None,
+        )
+        .expect("publish system event");
+    assert_eq!(seq1, 1);
+
+    // An MCP event with correlation_id and detail must reach the subscriber.
+    let seq2 = publisher
+        .publish_event(
+            tessera_protocol::EventTopic::Mcp,
+            "tessera-mcp",
+            "tool.called",
+            Some(42),
+            Some(serde_json::json!({"tool": "capture_window"})),
+        )
+        .expect("publish mcp event");
+    assert_eq!(seq2, 2);
+
+    match mcp_sub.next_event().expect("mcp event delivered") {
+        Event::Journal { entry } => {
+            assert_eq!(entry.seq, 2);
+            assert_eq!(entry.topic, tessera_protocol::EventTopic::Mcp);
+            assert_eq!(entry.correlation_id, Some(42));
+            match entry.mutation {
+                tessera_protocol::JournalMutation::External {
+                    topic,
+                    source,
+                    kind,
+                    detail,
+                } => {
+                    assert_eq!(topic, tessera_protocol::EventTopic::Mcp);
+                    assert_eq!(source, "tessera-mcp");
+                    assert_eq!(kind, "tool.called");
+                    assert_eq!(detail.unwrap()["tool"], "capture_window");
+                }
+                other => panic!("expected External mutation, got {other:?}"),
+            }
+        }
+        other => panic!("expected Journal event, got {other:?}"),
+    }
+
+    // Topic-filtered GetJournal returns only matching entries while preserving global bounds.
+    let filtered = publisher
+        .journal_filtered(0, Some(vec![tessera_protocol::EventTopic::Mcp]))
+        .expect("filtered snapshot");
+    assert_eq!(filtered.oldest_seq, 1);
+    assert_eq!(filtered.latest_seq, 2);
+    assert_eq!(filtered.entries.len(), 1);
+    assert_eq!(filtered.entries[0].seq, 2);
+
+    // Dynamic topic filter update on an already-subscribed lane works in-place.
+    mcp_sub
+        .subscribe_journal_topics(Some(vec![tessera_protocol::EventTopic::System]))
+        .expect("update topic filter");
+    let seq3 = publisher
+        .publish_event(
+            tessera_protocol::EventTopic::System,
+            "tessera-idle",
+            "display.resumed",
+            None,
+            None,
+        )
+        .expect("publish system resumed");
+    assert_eq!(seq3, 3);
+    match mcp_sub.next_event().expect("updated topic delivered") {
+        Event::Journal { entry } => {
+            assert_eq!(entry.seq, 3);
+            assert_eq!(entry.topic, tessera_protocol::EventTopic::System);
+        }
+        other => panic!("expected Journal event, got {other:?}"),
+    }
+
+    // Security & bounds enforcement on PublishEvent:
+    // 1. Query-only client without `control` is refused.
+    let mut query_only =
+        Client::connect_with(&path, ConnectionCapabilities::QUERY).expect("query client");
+    assert!(
+        query_only
+            .publish_event(
+                tessera_protocol::EventTopic::Mcp,
+                "tessera-mcp",
+                "tool.called",
+                None,
+                None,
+            )
+            .is_err()
+    );
+    // 2. Empty source/kind is refused.
+    assert!(
+        publisher
+            .publish_event(
+                tessera_protocol::EventTopic::Mcp,
+                "",
+                "tool.called",
+                None,
+                None
+            )
+            .is_err()
+    );
+    // 3. Oversized detail (> 16 KiB) is refused.
+    let huge = serde_json::json!({"blob": "x".repeat(20 * 1024)});
+    assert!(
+        publisher
+            .publish_event(
+                tessera_protocol::EventTopic::Mcp,
+                "tessera-mcp",
+                "tool.called",
+                None,
+                Some(huge),
+            )
+            .is_err()
     );
 }

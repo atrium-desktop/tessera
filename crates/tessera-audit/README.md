@@ -1,27 +1,22 @@
 # tessera-audit
 
-`tessera-audit` provides durable, tamper-evident, integrity-checked event storage
-and bounded audit projections for Tessera.
+`tessera-audit` provides the bounded, infallible, in-memory FIFO event ring buffer
+backing Tessera's unified observability event bus (ADR-0260).
 
 ## Responsibilities
 
-- Store mutation journal records in an append-only, disk-backed format.
-- Compute HMAC and SHA-256 hash chains across log records to detect tampering or corruption.
-- Manage segmented log files, automatic rotation, compression (`flate2`), and retention policies.
-- Provide bounded in-memory projections and sequence-based snapshot replay (`since(after)`).
-- Replay and verify past audit logs under authenticated scopes.
+- Maintain a bounded in-memory FIFO ring buffer of ordered `AuditEntry` records with monotonic `seq`.
+- Record monotonic timestamps, wall-clock timestamps, and optional causal `correlation_id`.
+- Produce gap-detectable `AuditSnapshot` views (`since(after)`, `since_filtered(after, pred)`).
 
 ## Boundaries
 
-`tessera-audit` is strictly focused on verifiable audit logging:
+`tessera-audit` is strictly an in-memory event ring:
+- No disk I/O, file locking, or synchronous `fdatasync` on compositor hot paths.
 - No IPC socket listening or framing (those belong in `tessera-ipc`).
 - No actor grant authorization decisions (those belong in `tessera-authority`).
-- No compositor runtime or window-management mutations.
 
 ## Related Documentation
 
-- [Architecture](../../docs/explanation/architecture.md)
-- [How-to: Manage Audit History](../../docs/how-to/manage-audit-history.md)
 - [ADR-0033: Mutation journal](../../docs/adr/0033-mutation-journal.md)
-- [ADR-0136: Authenticated bounded audit replay and storage guards](../../docs/adr/0136-authenticated-bounded-audit-replay-and-storage-guards.md)
-- [ADR-0137: Audit segment manifest and retention](../../docs/adr/0137-audit-segment-manifest-and-retention.md)
+- [ADR-0260: Unified In-Memory Observability Event Bus](../../docs/adr/0260-unified-in-memory-observability-event-bus.md)

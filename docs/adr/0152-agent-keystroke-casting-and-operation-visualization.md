@@ -1,14 +1,14 @@
 ---
 id: ADR-0152
 title: "Observability-first keystroke casting and operation visualization for Agent Interaction Domains"
-status: draft
+status: accepted
 date: 2026-09-09
 superseded_by: null
 ---
 
 # ADR-0152: Observability-first keystroke casting and operation visualization for Agent Interaction Domains
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-09
 - Scope: `tessera-chrome`, `tessera-shell`, `tessera-compositor`, `tessera`;
   amends [ADR-0121](0121-neutral-mask-feedback-movable-mirrors-and-non-raising-agent-input.md)

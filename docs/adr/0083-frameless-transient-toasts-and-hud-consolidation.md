@@ -10,6 +10,10 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-07-31
+- Note (2026-11-25): the *command panel* this record names is the **Control Center**; the surface was renamed, and [ADR-0239](0239-the-control-center-is-a-right-anchored-sheet.md) removed its last `command_panel` aliases and fixes its current shape. The decision applies to it unchanged.
+- Amended by: [ADR-0213](0213-flat-chrome-and-removal-of-the-status-hud.md) — the display-only status HUD and its `[hud]` table are removed
+- Amended by: [ADR-0214](0214-tiered-system-readings-and-a-barrier-only-at-the-end.md) — battery reporting leaves the modal band
+- Amended by: [ADR-0252](0252-chrome-materials-are-one-swappable-shell-wide-choice.md) — toasts gain a body in the shell's material; they stay display-only and transient
 
 ## Context
 

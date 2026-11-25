@@ -14,6 +14,9 @@ negative_knowledge: true
 - Date: 2026-11-17
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0028](0028-output-and-monitor-model.md), [ADR-0186](0186-session-scoped-virtual-extend-outputs-and-offscreen-output-streaming.md)
+- Amended by: [ADR-0244](0244-tentative-display-edits-revert.md) — *Tentative Display Edits Revert on a Compositor-Owned Deadline*
+- Amended by: [ADR-0245](0245-absolute-input-devices-bind-to-outputs.md) — *Absolute Input Devices Bind to Outputs and Use the Letterbox Content Rectangle*
+- Amended by: [ADR-0246](0246-mirror-scaling-falls-back-to-a-compositor-target.md) — *Mirrored Outputs Present Through a Compositor-Owned Mode-Sized Target*
 
 ---
 

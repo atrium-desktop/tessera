@@ -17,8 +17,10 @@
 #   --                    pass remaining arguments through to tessera
 #
 # Environment overrides:
+#   TESSERA_DEV_CONFIG_HOME isolated XDG_CONFIG_HOME (default /tmp/tessera-dev/config)
 #   TESSERA_DEV_DATA_HOME   isolated XDG_DATA_HOME (default /tmp/tessera-dev/data)
 #   TESSERA_DEV_STATE_HOME  isolated XDG_STATE_HOME (default /tmp/tessera-dev/state)
+#   TESSERA_DEV_IPC_SOCKET  isolated TESSERA_IPC_SOCKET (default /tmp/tessera-dev/tessera.sock)
 #   TESSERA_DEV_PROFILE     cargo profile (default release-fast; debug only for a debugger)
 #   TESSERA_DEV_BUILD_ONLY=1
 #                           same as --build-only
@@ -47,8 +49,10 @@ Options:
   --                  Forward all remaining arguments to tessera
 
 Environment overrides:
+  TESSERA_DEV_CONFIG_HOME Isolated XDG_CONFIG_HOME (default /tmp/tessera-dev/config)
   TESSERA_DEV_DATA_HOME   Isolated XDG_DATA_HOME (default /tmp/tessera-dev/data)
   TESSERA_DEV_STATE_HOME  Isolated XDG_STATE_HOME (default /tmp/tessera-dev/state)
+  TESSERA_DEV_IPC_SOCKET  Isolated TESSERA_IPC_SOCKET (default /tmp/tessera-dev/tessera.sock)
   TESSERA_DEV_PROFILE     Cargo profile (default release-fast)
   TESSERA_DEV_BUILD_ONLY=1
                           Same as --build-only
@@ -60,8 +64,10 @@ EOF
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
 repo_root=$(CDPATH='' cd -- "$script_dir/.." && pwd -P)
 
+config_home=${TESSERA_DEV_CONFIG_HOME:-/tmp/tessera-dev/config}
 data_home=${TESSERA_DEV_DATA_HOME:-/tmp/tessera-dev/data}
 state_home=${TESSERA_DEV_STATE_HOME:-/tmp/tessera-dev/state}
+ipc_socket=${TESSERA_DEV_IPC_SOCKET:-/tmp/tessera-dev/tessera.sock}
 profile=${TESSERA_DEV_PROFILE:-release-fast}
 build_only=${TESSERA_DEV_BUILD_ONLY:-0}
 no_build=${TESSERA_DEV_NO_BUILD:-0}
@@ -154,6 +160,7 @@ case "$profile" in
     *) profile_dir="$profile" ;;
 esac
 compositor_bin="$target_dir/$profile_dir/tessera"
+settings_bin="$target_dir/$profile_dir/tessera-settings"
 
 if [ "$no_build" != 1 ]; then
     build_workspace
@@ -168,10 +175,26 @@ if [ ! -x "$compositor_bin" ]; then
     die "missing executable $compositor_bin; run './scripts/run-nested-dev.sh --profile $profile --build-only' first"
 fi
 
-mkdir -p "$data_home/tessera" "$state_home/tessera"
+mkdir -p "$config_home/tessera" "$data_home/tessera" "$state_home/tessera" "$(dirname -- "$ipc_socket")"
+
+# Authorize the workspace-built tessera-settings binary inside the isolated dev
+# config so Settings is immediately writable under any profile (including
+# release-fast where debug_assertions is disabled) without touching the host
+# user's ~/.config/tessera/config.toml (ADR-0257).
+dev_config="$config_home/tessera/config.toml"
+if [ ! -f "$dev_config" ]; then
+    cat >"$dev_config" <<EOF
+schema_version = 2
+
+[ipc.scope_executables]
+tessera-settings = ["$settings_bin"]
+EOF
+fi
 
 printf '%s\n' \
     'run-nested-dev: the outer session composites this window; validate damage/pacing fixes with ./scripts/run-drm-dev.sh on a spare VT.' >&2
+printf 'run-nested-dev: isolated config=%s ipc=%s\n' "$dev_config" "$ipc_socket" >&2
+printf 'run-nested-dev: split-screen Settings -> TESSERA_IPC_SOCKET=%s %s\n' "$ipc_socket" "$settings_bin" >&2
 
 # Default to opening the Control Center preview for quick UI iteration, while
 # honoring an explicit override (including TESSERA_PREVIEW="" to disable it).
@@ -182,6 +205,8 @@ elif [ -z "$TESSERA_PREVIEW" ]; then
 fi
 
 export TESSERA_BACKEND=nested
+export TESSERA_IPC_SOCKET="$ipc_socket"
+export XDG_CONFIG_HOME="$config_home"
 export XDG_DATA_HOME="$data_home"
 export XDG_STATE_HOME="$state_home"
 export XDG_DATA_DIRS="$HOME/.local/share:/usr/local/share:/usr/share"

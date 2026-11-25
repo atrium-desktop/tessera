@@ -12,6 +12,7 @@ superseded_by: null
 - Date: 2026-09-17
 - Scope: Host display hardware, input device, and seat session management
 - Amends: [ADR-0158](0158-clean-break-workspace-boundaries.md), [ADR-0159](0159-package-boundaries-follow-capabilities.md)
+- Amended by: [ADR-0173](0173-rename-render-to-composite.md) — *Rename tessera-render to tessera-composite*
 
 ## Context
 

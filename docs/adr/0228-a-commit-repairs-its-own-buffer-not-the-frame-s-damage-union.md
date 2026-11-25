@@ -15,6 +15,7 @@ negative_knowledge: true
 - Deciders: Tessera Architecture Working Group
 - Consulted: `crates/tessera-wayland` (surface commit, SHM snapshot), `crates/tessera-composite` (client damage tracker), `crates/tessera` (frame damage)
 - Amends: [ADR-0203](0203-damage-is-a-placement-mapped-rectangle.md), [ADR-0211](0211-regional-damage-is-consumed-as-a-list-and-chrome-footprints-are-measured.md), [ADR-0210](0210-performance-core-affinity-allocation-zero-copy-strided-uploads-and-quiescent-lens-lifecycle.md)
+- Amended by: [ADR-0230](0230-damage-is-surface-local-and-viewport-is-a-buffer-transfer-inverse.md) — *Damage is surface-local; viewport is a buffer-transfer inverse*
 
 ---
 

@@ -12,6 +12,13 @@ superseded_by: null
 - Date: 2026-07-29
 - Amended by: [ADR-0182](0182-fullscreen-frame-pacing-and-direct-scanout-fidelity.md) — a non-input presentation wakeup is neutral for the coalesced frame's pointer-only/fast-path classification; it no longer clears them.
 - Amended by: [ADR-0196](0196-compositor-side-presentation-time-feedback.md) — `wp_presentation` is advertised and its feedback is completed from the presented frame (adopting Optics ADR-0122).
+- Amended by: [ADR-0171](0171-chrome-animation-pre-pass-synchronization-and-surface-placement-invariants.md) — *Chrome Animation Pre-Pass Synchronization and Surface Placement Invariants*
+- Amended by: [ADR-0179](0179-zero-redundancy-presentation-pipeline-substepped-motion-and-render-target-bucketing.md) — *Zero-Redundancy Presentation Pipeline, Sub-stepped Motion Dynamics, and Attachment Bucketing for 120Hz Animation Continuity*
+- Amended by: [ADR-0181](0181-canonical-chrome-prepass-seam-occlusion-elision-and-deferred-scanout-ownership.md) — *Canonical Chrome Pre-Pass Seam, Occlusion-Eliding Base Pass, and Deferred-Scanout Frame Ownership*
+- Amended by: [ADR-0203](0203-damage-is-a-placement-mapped-rectangle.md) — *Damage is a placement-mapped rectangle, never a full-repaint verdict*
+- Amended by: [ADR-0210](0210-performance-core-affinity-allocation-zero-copy-strided-uploads-and-quiescent-lens-lifecycle.md) — *Performance-Core Affinity Allocation, Zero-Copy Strided Uploads, and Quiescent Lens Lifecycle*
+- Amended by: [ADR-0219](0219-asynchronous-direct-scanout-and-wp-tearing-control.md) — presentation domain redraw lifecycle
+- Amended by: [ADR-0225](0225-damage-and-wakeups-follow-the-real-presentation-surface.md) — *Damage and Wakeups Follow the Real Presentation Surface*
 
 ## Context
 

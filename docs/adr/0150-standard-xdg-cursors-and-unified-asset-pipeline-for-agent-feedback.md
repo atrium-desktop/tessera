@@ -1,18 +1,19 @@
 ---
 id: ADR-0150
 title: "Dual-track standard XDG cursor themes and unified asset pipeline for Agent feedback"
-status: draft
+status: accepted
 date: 2026-09-09
 superseded_by: null
 ---
 
 # ADR-0150: Dual-track standard XDG cursor themes and unified asset pipeline for Agent feedback
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-09
 - Scope: `tessera-shell`, `tessera-compositor`, `scripts/prepare-tessera-cursors.py`, `assets/cursors`;
   amends [ADR-0121](0121-neutral-mask-feedback-movable-mirrors-and-non-raising-agent-input.md)
   and [ADR-0122](0122-original-mit-cursor-theme-replaces-bibata.md)
+- Amended by: [ADR-0222](0222-one-in-process-svg-compiler-for-every-vector-asset.md) — cursor art compiles through the in-process SVG compiler; the `prepare-tessera-cursors.py` asset script was not adopted.
 
 ## Context
 

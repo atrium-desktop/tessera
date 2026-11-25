@@ -1,6 +1,8 @@
-//! Notification toasts: a frameless, display-only strip stacked at the
-//! top-right, newest on top — plain floating text in the VR/AR manner, no
-//! background panel, no border, no pointer capture. Each toast is visible
+//! Notification toasts: a display-only strip stacked at the top-right, newest
+//! on top, with no pointer capture. Each toast is a floating body in the
+//! shell's material (ADR-0252) — the same body the system OSD and the
+//! Control Center are made of, so a notification reads as part of the same
+//! desktop rather than as text pasted over a window. Each toast is visible
 //! for [`TOAST_TTL_MS`] and then simply gone; every interaction (dismissal)
 //! lives in the Control Center's notifications card, which reads the same
 //! queue's much longer retention history.
@@ -13,11 +15,11 @@
 
 use std::sync::{Arc, Mutex};
 
-use optics_ui::{Align, Color, Frame, Input, LayoutOpts, Rect};
+use optics_ui::{Align, Frame, Input, LayoutOpts, Rect};
 
 use crate::component::{Chrome, ChromeEvents, ChromeUpdate, Localizer, ellipsize};
-use tessera_design::Design;
-use tessera_design::materials::{chrome_place, surface_layout};
+use tessera_design::materials;
+use tessera_design::{Design, SurfaceRole};
 use tessera_desktop::notify::Notification;
 use tessera_desktop::notify::NotificationQueue;
 use tessera_desktop::window::Window;
@@ -28,6 +30,9 @@ const TOAST_H: f32 = 64.0;
 const TOAST_GAP: f32 = 8.0;
 const TOAST_TOP_MARGIN: f32 = crate::component::SCREEN_CORNER_INSET;
 const TOAST_RIGHT_MARGIN: f32 = crate::component::SCREEN_CORNER_INSET;
+/// The role a toast's body is drawn in: a compact floating reading, like the
+/// system OSD.
+const TOAST_ROLE: SurfaceRole = SurfaceRole::Chip;
 /// Cap the visible stack so a flood does not fill the screen.
 const MAX_VISIBLE: usize = 5;
 /// How long a toast stays on screen. Aging out is not a queue mutation, so
@@ -94,12 +99,15 @@ impl Toast {
     }
 
     /// The stacked strip's painted band for `count` visible toasts.
-    fn band(display: (f32, f32), count: usize) -> Option<Rect> {
+    fn band(display: (f32, f32), count: usize, halo: f32) -> Option<Rect> {
         (count > 0).then(|| {
-            let width = (TOAST_W + TOAST_RIGHT_MARGIN).min(display.0.max(1.0));
+            // The painted elevation halo reaches past each body; the band owns
+            // it so a retiring toast leaves no shadow behind.
+            let width = (TOAST_W + TOAST_RIGHT_MARGIN + halo).min(display.0.max(1.0));
             let height = TOAST_TOP_MARGIN
                 + count as f32 * TOAST_H
-                + (count.saturating_sub(1)) as f32 * TOAST_GAP;
+                + (count.saturating_sub(1)) as f32 * TOAST_GAP
+                + halo;
             Rect {
                 x: (display.0 - width).max(0.0),
                 y: 0.0,
@@ -107,6 +115,13 @@ impl Toast {
                 h: height.ceil(),
             }
         })
+    }
+
+    /// How far a toast's elevation halo reaches past its body, below and to
+    /// the left (the band already runs to the top and right screen edges).
+    fn halo_reach(design: &Design) -> f32 {
+        let style = design.surfaces.for_role(TOAST_ROLE);
+        (style.shadow_blur + style.shadow_offset_y).ceil()
     }
 
     /// The entries eligible for presentation right now: do-not-disturb off,
@@ -187,19 +202,11 @@ impl Chrome for Toast {
                 h: TOAST_H,
             };
             slot += 1;
-            // Frameless: transparent background, no border, no radius —
-            // floating text over the desktop.
-            let opts = LayoutOpts {
-                bg: Color::TRANSPARENT,
-                border: Color::TRANSPARENT,
-                border_width: 0.0,
-                radius: 0.0,
-                pad: 0.0,
-                ..surface_layout()
-            };
+            let mut body = materials::panel(&design);
+            body.radius = design.radii.card;
             let id: usize = n.id as usize;
             let overlay_id = format!("tessera-toast-{id}");
-            f.place(&overlay_id, &chrome_place(rect, opts), |f| {
+            materials::place_floating(f, &overlay_id, TOAST_ROLE, &design, rect, 1.0, body, |f| {
                 let title = match &n.app_id {
                     Some(app) => format!("{} · {app}", n.summary),
                     None => n.summary.clone(),
@@ -230,7 +237,7 @@ impl Chrome for Toast {
         // The strip is static; its only lifecycle event is "the last toast
         // left". Arm a short retirement window so every ring image receives
         // the clear, even though no queue revision or animation reported it.
-        let band = Self::band((disp.x, disp.y), slot);
+        let band = Self::band((disp.x, disp.y), slot, Self::halo_reach(&design));
         let armed_now = band.is_none() && self.last_band.is_some();
         if armed_now {
             self.retire_band = self.last_band;
@@ -301,7 +308,11 @@ impl Chrome for Toast {
     }
 
     fn damage_regions(&self, _windows: &[Window], display: (f32, f32)) -> Option<Vec<Rect>> {
-        let current = Self::band(display, self.presentable().len());
+        let current = Self::band(
+            display,
+            self.presentable().len(),
+            Self::halo_reach(&self.design),
+        );
         let mut regions = Vec::new();
         if let Some(rect) = current {
             regions.push(rect);
@@ -354,6 +365,19 @@ mod tests {
         assert!(!within_window(&n, 13_001), "past 3s the toast is gone");
         // A clock reading older than the post time never underflows.
         assert!(within_window(&n, 5_000));
+    }
+
+    #[test]
+    fn the_band_owns_the_elevation_halo_of_the_last_toast() {
+        let design = Design::dark();
+        let halo = Toast::halo_reach(&design);
+        assert!(halo > 0.0, "a toast floats, so it casts");
+        let bare = Toast::band((1920.0, 1080.0), 2, 0.0).unwrap();
+        let owned = Toast::band((1920.0, 1080.0), 2, halo).unwrap();
+        assert_eq!(owned.h, bare.h + halo);
+        assert_eq!(owned.w, bare.w + halo);
+        assert_eq!(owned.x + owned.w, 1920.0, "the band still runs to the edge");
+        assert!(Toast::band((1920.0, 1080.0), 0, halo).is_none());
     }
 
     #[test]

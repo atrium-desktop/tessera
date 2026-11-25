@@ -38,15 +38,22 @@ never physically moved to an `archive/` directory:
 
 ```text
        [ draft ] ───► [ accepted ] ───► [ superseded ]
-           │
+           │               │
+           │               └──────────► [ deprecated ]
            └───► [ rejected ]
 ```
 
-- **draft**: Proposal under active deliberation.
-- **accepted**: Ratified contract binding on the repository.
-- **superseded**: Formally replaced by a subsequent ADR (`superseded_by: ADR-NNNN`).
-- **rejected**: Discarded alternative preserved in-place for negative knowledge.
-- **deprecated**: Retired because the subsystem it governed was removed.
+Exactly five statuses exist. No other term — *Proposed*, *Adopted*,
+*Implemented*, *Retired*, *Obsolete* — is a status, in the frontmatter, the
+body, or the index:
+
+| Status | Meaning | Use when |
+|--------|---------|----------|
+| `draft` | Proposal under active deliberation; not yet binding. | The decision is still being argued. A draft that ships is promoted to `accepted`; one that is abandoned becomes `rejected`. A draft never lingers after its code lands. |
+| `accepted` | Ratified contract binding on the repository. | The decision describes the tree as it is. Partial drift is recorded with an `Amended by:` or `Note:` line, not by a status change. |
+| `superseded` | Formally replaced by a later record in this registry. | A later ADR takes over the decision. `superseded_by: ADR-NNNN` is mandatory. |
+| `deprecated` | Retired without an in-registry replacement. | The subsystem it governed was removed, or the decision moved to another repository (cite that repository's record by full URL). |
+| `rejected` | Discarded alternative preserved for negative knowledge. | The proposal was declined or descoped and nothing it describes was built. |
 
 ### Frontmatter Schema
 
@@ -64,14 +71,23 @@ negative_knowledge: true
 
 `id`, `title`, `status`, and `date` are mandatory on every record. `scope` is
 recommended for records that touch more than one crate. `superseded_by` is
-required whenever `status: superseded`.
+required whenever `status: superseded` and must be `null` otherwise.
 
 ---
 
 ## 3. Status Line Convention
 
 The frontmatter is the machine-readable source of truth; the body repeats the
-status for readers:
+status for readers in exactly one `- Status:` line, and the index repeats it
+in the record's row. All three start with the same capitalized status word:
+
+| Frontmatter | Body `- Status:` line | `index.md` status cell |
+|-------------|-----------------------|------------------------|
+| `draft` | `Draft` | `Draft` |
+| `accepted` | `Accepted` (an optional parenthetical qualifier may follow) | `Accepted …` |
+| `superseded` | `Superseded by [ADR-NNNN](NNNN-slug.md)`, optionally `— reason` | `Superseded by [NNNN](NNNN-slug.md)` |
+| `deprecated` | `Deprecated — reason`, citing any out-of-tree replacement by full URL | `Deprecated — short reason` |
+| `rejected` | `Rejected — reason` | `Rejected — short reason` |
 
 ```markdown
 - Status: Accepted
@@ -80,9 +96,25 @@ status for readers:
 - Amends: [ADR-0021](../../adr/0021-chrome-component-trait.md)
 ```
 
-`Amends`, `Amended by`, and `Extends` lines are how intra-repository lineage is
-expressed. When a later ADR changes part of an earlier one, add the reciprocal
-`Amended by:` line to the earlier record rather than editing its decision text.
+### Lineage lines
+
+`Amends:`, `Extends:`, and `Supersedes:` lines in a record's header are how
+intra-repository lineage is expressed. Lineage is **reciprocal**: when a later
+ADR amends, extends, or supersedes part of an earlier one, the earlier record's
+header gains the matching back-link rather than an edit to its decision text:
+
+| Later record says | Earlier record gains |
+|-------------------|----------------------|
+| `- Amends: [ADR-0021](NNNN-slug.md)` | `- Amended by: [ADR-NNNN](NNNN-slug.md) — what changed` |
+| `- Extends: [ADR-0021](NNNN-slug.md)` | `- Extended by: [ADR-NNNN](NNNN-slug.md) — what was added` |
+| `- Supersedes: [ADR-0021](NNNN-slug.md)` | Full replacement: `status: superseded` and a `Superseded by` status line. Partial replacement: `- Superseded in part by: [ADR-NNNN](NNNN-slug.md) — which decision` |
+
+### Notes
+
+An accepted record whose wording drifted without a recording ADR — a rename,
+a feature that shipped differently from its draft — gains a dated
+`- Note (YYYY-MM-DD): …` line in its header that states the current fact. A
+note never rewrites the decision text and never changes the status.
 
 ---
 
@@ -175,5 +207,8 @@ rule, the regression test, the CI job, or the manual hardware validation step.
    tree (`cargo run -p xtask -- check-boundaries`, `check-vtables`, a
    clippy `disallowed-methods` entry, or the named test). The registry rules above are enforced
    mechanically by `cargo run -p xtask -- check-adrs`, which validates unique
-   ids, mandatory frontmatter, supersession targets, index sync and ordering,
-   and the resolution of every in-repo lineage link in the corpus.
+   ids, mandatory frontmatter, the five canonical statuses (§2), the agreement
+   of the frontmatter, body `- Status:` line, and index status cell (§3),
+   supersession targets, index sync and ordering, reciprocal lineage
+   back-links (§3), and the resolution of every in-repo lineage link in the
+   corpus.

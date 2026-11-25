@@ -1,8 +1,10 @@
 # Build & Run Guide
 
-This document is the authoritative developer guide for compiling, running, and
-verifying Tessera across nested desktop sessions, surface preview harnesses,
-and bare-metal DRM/KMS hardware.
+This document is the developer guide for compiling Tessera and starting it in
+a nested desktop session, a surface preview harness, or a bare-metal DRM/KMS
+session. Once it runs, check changes with the
+[Manual Verification Playbook](verification/manual-verification.md) and see
+what is already verified in the [Support Matrix](verification/support-matrix.md).
 
 ---
 
@@ -96,7 +98,9 @@ To boot on physical display hardware:
 
 ## 4. Standalone Surface Previews (Zero Compositor)
 
-Test UI surfaces in isolation without launching the full display compositor:
+Inspect UI surfaces in isolation without launching the full display compositor.
+Options and the harness contract are in
+[Preview Harnesses](verification/preview-harnesses.md):
 
 ```bash
 # Lock Screen Preview
@@ -111,7 +115,9 @@ cargo run --locked -p tessera-shell --features persona --example debug_avatar
 
 ## 5. Automated Verification & Testing
 
-Verify changes before opening a pull request:
+Run the automated gates before opening a pull request. Runner and layout rules
+are in [Testing Standards](standards/testing.md); manual checks follow the
+[Manual Verification Playbook](verification/manual-verification.md):
 
 ```bash
 # native-free rapid logic tests (zero C / GPU dependencies, sub-second)
@@ -143,5 +149,4 @@ cargo run -p xtask -- check-panics
 
 ## 6. Common Diagnostics
 
-- **Address in Use (`tessera.sock`)**: When running nested alongside an active host Tessera session, the nested instance logs a harmless warning and runs cleanly without IPC.
-- **Audit Store Lock (`events-v2.jsonl`)**: Always set `XDG_DATA_HOME=/tmp/tessera-dev` during nested runs.
+- **Address in Use (`tessera.sock`)**: When running nested alongside an active host Tessera session, set `TESSERA_IPC_SOCKET=/tmp/tessera-dev/tessera.sock` if you want IPC; otherwise the nested instance logs a harmless warning and runs cleanly without IPC.

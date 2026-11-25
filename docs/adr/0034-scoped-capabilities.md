@@ -8,7 +8,7 @@ superseded_by: ADR-0035
 
 # ADR-0034: Scoped capabilities
 
-- Status: Superseded by ADR-0035
+- Status: Superseded by [ADR-0035](0035-fail-closed-named-ipc-scopes.md)
 - Date: 2026-06-24
 
 ## Context

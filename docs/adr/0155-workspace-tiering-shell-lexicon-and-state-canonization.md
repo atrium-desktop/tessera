@@ -1,19 +1,20 @@
 ---
 id: ADR-0155
 title: "Workspace tiering, physical Panels/Design lexicon, and State purity"
-status: draft
+status: superseded
 date: 2026-09-15
-superseded_by: null
+superseded_by: ADR-0158
 ---
 
 # ADR-0155: Workspace tiering, physical Panels/Design lexicon, and State purity
 
-- Status: Proposed
+- Status: Superseded by [ADR-0158](0158-clean-break-workspace-boundaries.md) — the tiered `crates/panels/` and `design/` layout and the `tessera-state` rename were not adopted; the workspace stayed flat.
 - Date: 2026-09-15
 - Amended by: [ADR-0240](0240-repository-automation-at-the-root-and-fixtures-with-their-consumer.md) — xtask moved from `tooling/xtask` to the root `xtask/`.
 - Scope: Workspace topology, `crates/**`, `tooling/xtask`, `docs/explanation/architecture.md`;
   amends [ADR-0021](0021-chrome-component-trait.md), [ADR-0044](0044-dock-and-control-center-crates.md),
   [ADR-0046](0046-design-system-crate.md), [ADR-0110](0110-shared-model-crate-naming-and-placement.md)
+- Amended by: [ADR-0169](0169-control-center-bento-grid-and-mpris-absorption.md) — *Control Center 2D Bento Grid and MPRIS Media Player Absorption*
 
 ## Context
 

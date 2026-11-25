@@ -1,17 +1,18 @@
 ---
 id: ADR-0218
 title: "The Dock's Reading Column Is a Six-Unit Bento, and Status Lives Where the Hand Already Is"
-status: accepted
+status: superseded
 date: 2026-11-06
 scope: shell/dock, shell/component, design/tokens, runtime/presentation, architecture
-superseded_by: null
+superseded_by: ADR-0255
 negative_knowledge: true
 ---
 
 # 0218. The Dock's Reading Column Is a Six-Unit Bento, and Status Lives Where the Hand Already Is
 
-- Status: Accepted
+- Status: Superseded by [ADR-0255](0255-pure-dock-and-transient-glance-hud.md)
 - Date: 2026-11-06
+- Superseded by: [ADR-0255](0255-pure-dock-and-transient-glance-hud.md) — the Dock Bento reading column and workspace pager are removed in favour of a pure application Dock and a transient Glance HUD.
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0213](0213-flat-chrome-and-removal-of-the-status-hud.md) (the dock's Bento cell vocabulary grows from one kind to two), [ADR-0214](0214-tiered-system-readings-and-a-barrier-only-at-the-end.md) (a level reading gains a persistent surface, so the OSD is no longer the only place a charge is visible), [ADR-0175](0175-bluetooth-peripheral-subsystem-and-bluez-bridge.md) (a Bluetooth reading reaches the dock)
 - Related: [ADR-0146](0146-dock-intent-dwell-and-anti-trapping-interaction.md), [ADR-0198](0198-collapsed-dock-capsule-hugs-its-edge-behind-an-independent-reveal-corridor.md) (the reveal corridor this column lives inside), [ADR-0217](0217-idle-chrome-does-not-keep-the-frame-clock-and-hover-damage-is-bounded-by-the-component-that-owns-it.md) (the damage discipline the column inherits)

@@ -1,14 +1,14 @@
 ---
 id: ADR-0112
 title: "Native portal Secret with a hardened vault and Portal-owned prompts"
-status: accepted
+status: deprecated
 date: 2026-08-06
 superseded_by: null
 ---
 
 # ADR-0112: Native portal Secret with a hardened vault and Portal-owned prompts
 
-- Status: Accepted
+- Status: Deprecated — superseded by out-of-tree decisions, not by a record in this registry: the portal delegates its Secret vault to sigil and retired its prompter process ([portal ADR-0020](https://github.com/atrium-desktop/xdg-desktop-portal-atrium/blob/main/docs/adr/0020-secret-vault-delegation-to-sigil.md), [portal ADR-0021](https://github.com/atrium-desktop/xdg-desktop-portal-atrium/blob/main/docs/adr/0021-headless-portal-and-optics-retirement.md), [portal ADR-0026](https://github.com/atrium-desktop/xdg-desktop-portal-atrium/blob/main/docs/adr/0026-prompter-process-retirement.md)).
 - Date: 2026-08-06
 - Supersedes: [ADR-0085](0085-portal-secret-absorption-and-secret-service-compat.md)
 

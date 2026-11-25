@@ -15,6 +15,9 @@ impl CaretField {
 }
 
 impl Chrome for CaretField {
+    fn requires_composition(&self) -> bool {
+        true
+    }
     fn render(
         &mut self,
         frame: &mut Frame,
@@ -172,6 +175,9 @@ fn focus(shell: &mut Shell, label: &str) {
 struct OrdinaryChrome;
 
 impl Chrome for OrdinaryChrome {
+    fn requires_composition(&self) -> bool {
+        true
+    }
     fn render(
         &mut self,
         _frame: &mut Frame,
@@ -187,6 +193,9 @@ impl Chrome for OrdinaryChrome {
 struct PersistentDecoration;
 
 impl Chrome for PersistentDecoration {
+    fn requires_composition(&self) -> bool {
+        true
+    }
     fn render(
         &mut self,
         _frame: &mut Frame,
@@ -206,6 +215,9 @@ impl Chrome for PersistentDecoration {
 struct ExclusivePresentation;
 
 impl Chrome for ExclusivePresentation {
+    fn requires_composition(&self) -> bool {
+        true
+    }
     fn render(
         &mut self,
         _frame: &mut Frame,
@@ -233,6 +245,9 @@ impl Chrome for ExclusivePresentation {
 struct SwitcherPresentation;
 
 impl Chrome for SwitcherPresentation {
+    fn requires_composition(&self) -> bool {
+        true
+    }
     fn render(
         &mut self,
         _frame: &mut Frame,
@@ -256,6 +271,9 @@ impl Chrome for SwitcherPresentation {
 struct ScreenshotSessionChrome;
 
 impl Chrome for ScreenshotSessionChrome {
+    fn requires_composition(&self) -> bool {
+        true
+    }
     fn render(
         &mut self,
         _frame: &mut Frame,
@@ -381,6 +399,9 @@ fn cursor_shape_from_ui_cursor_hint() {
 fn cursor_shape_at_falls_back_to_ui_cursor_hint() {
     struct CapturingComponent;
     impl Chrome for CapturingComponent {
+        fn requires_composition(&self) -> bool {
+            true
+        }
         fn render(
             &mut self,
             frame: &mut Frame,
@@ -423,6 +444,9 @@ struct CoverChrome {
 }
 
 impl Chrome for CoverChrome {
+    fn requires_composition(&self) -> bool {
+        true
+    }
     fn render(
         &mut self,
         _frame: &mut Frame,
@@ -470,6 +494,9 @@ struct LocalizedAnim {
 }
 
 impl Chrome for LocalizedAnim {
+    fn requires_composition(&self) -> bool {
+        true
+    }
     fn render(
         &mut self,
         _f: &mut Frame,
@@ -501,6 +528,9 @@ struct HoveringChrome {
 }
 
 impl Chrome for HoveringChrome {
+    fn requires_composition(&self) -> bool {
+        true
+    }
     fn render(
         &mut self,
         _f: &mut Frame,
@@ -581,6 +611,9 @@ fn a_pointer_over_unbounded_chrome_stays_a_full_repaint() {
 fn a_pointer_outside_chrome_claims_nothing() {
     struct Silent;
     impl Chrome for Silent {
+        fn requires_composition(&self) -> bool {
+            true
+        }
         fn render(
             &mut self,
             _f: &mut Frame,
@@ -724,6 +757,9 @@ struct RetiringChrome {
 }
 
 impl Chrome for RetiringChrome {
+    fn requires_composition(&self) -> bool {
+        true
+    }
     fn render(
         &mut self,
         _frame: &mut Frame,
@@ -1044,5 +1080,178 @@ fn republishing_an_unchanged_snapshot_stays_quiescent() {
     assert!(
         !shell.dirty,
         "an unchanged Interaction Domain snapshot must not request a rebuild"
+    );
+}
+
+/// A component that floats one body through the shared material helper and
+/// retains its design the way real chrome does.
+struct FloatingBody {
+    design: tessera_design::Design,
+}
+
+const FLOATING_BODY: Rect = Rect {
+    x: 40.0,
+    y: 600.0,
+    w: 320.0,
+    h: 96.0,
+};
+
+impl Chrome for FloatingBody {
+    fn requires_composition(&self) -> bool {
+        true
+    }
+    fn render(
+        &mut self,
+        frame: &mut Frame,
+        _input: &Input,
+        _windows: &[Window],
+        _workspaces: &WorkspaceSnapshot,
+        _i18n: &Localizer,
+        _out: &mut ChromeEvents,
+    ) {
+        let body = tessera_design::materials::panel(&self.design);
+        tessera_design::materials::place_floating(
+            frame,
+            "floating-body",
+            tessera_design::SurfaceRole::FloatingPanel,
+            &self.design,
+            FLOATING_BODY,
+            1.0,
+            body,
+            |_| {},
+        );
+    }
+
+    fn update(&mut self, update: ChromeUpdate<'_>) {
+        if let ChromeUpdate::Appearance(design) = update {
+            self.design = *design;
+        }
+    }
+
+    fn anim_pending(&self) -> bool {
+        true
+    }
+}
+
+/// The compositor learns where to draw frost from the scene the shell built,
+/// and only while the material samples the backdrop (ADR-0253).
+#[test]
+fn a_backdrop_material_reports_the_bodies_of_the_built_scene() {
+    use tessera_desktop::settings::{ColorScheme, Material};
+    let mut shell = Shell::headless().unwrap();
+    shell.add(Box::new(FloatingBody {
+        design: tessera_design::Design::dark(),
+    }));
+    let input = Input::new((1920.0, 1080.0), 0.0);
+
+    shell.prepare_frame(&input);
+    assert!(
+        shell.backdrop_bodies().is_empty(),
+        "opaque takes no capture"
+    );
+
+    for material in [Material::Frosted, Material::LiquidGlass] {
+        shell.set_appearance(ColorScheme::Dark, material);
+        shell.prepare_frame(&input);
+        let bodies = shell.backdrop_bodies();
+        assert_eq!(bodies.len(), 1, "{material:?}");
+        assert_eq!(bodies[0].bounds, FLOATING_BODY);
+        assert_eq!(bodies[0].radius, shell.design().radii.panel_lg);
+        assert_eq!(bodies[0].opacity, 1.0);
+    }
+
+    shell.set_appearance(ColorScheme::Dark, Material::Translucent);
+    shell.prepare_frame(&input);
+    assert!(
+        shell.backdrop_bodies().is_empty(),
+        "leaving glass stops the capture on the next frame"
+    );
+}
+
+/// Every chrome component the compositor registers, registered the same way
+/// the runtime does (`crates/tessera/src/runtime.rs`), minus `AgentFeedback`,
+/// whose constructor needs a GPU device. Its idle answer is covered in
+/// `agent_feedback.rs`.
+///
+/// When you register a new component in the runtime, add it here too. The
+/// trait has no `requires_composition` default, so the compiler forces the
+/// decision. This test checks that the decision is right while idle.
+fn default_chrome_shell() -> Shell {
+    use tessera_desktop::notify::NotificationQueue;
+    let mut shell = Shell::headless().unwrap();
+    let queue = std::sync::Arc::new(std::sync::Mutex::new(NotificationQueue::new(3_600_000)));
+    shell.add(Box::new(crate::ControlledWindowGuard::new()));
+    shell.add(Box::new(crate::SystemOsd::new()));
+    shell.add(Box::new(crate::GlanceHud::new()));
+    shell.add(Box::new(crate::Toast::new(std::sync::Arc::clone(&queue))));
+    #[cfg(feature = "chrome-pivot")]
+    shell.add(Box::new(crate::components::pivot::Pivot::new()));
+    shell.add(Box::new(crate::Overview::new()));
+    #[cfg(feature = "chrome-control-center")]
+    shell.add(Box::new(
+        crate::components::control_center::ControlCenter::without_sources(),
+    ));
+    shell.add(Box::new(crate::ScreenshotSelector::new()));
+    shell.add(Box::new(crate::AppPicker::new()));
+    shell.add(Box::new(crate::SecretPrompt::new()));
+    shell.add(Box::new(crate::ConfirmPrompt::new()));
+    shell.add(Box::new(crate::CapabilityPrompt::new()));
+    shell.add(Box::new(crate::BatteryAlert::new()));
+    #[cfg(feature = "chrome-dock")]
+    shell.add(Box::new(crate::components::dock::Dock::new()));
+    shell.add(Box::new(crate::HotZones::new(
+        tessera_desktop::hot_zone::HotZonePolicy::default(),
+    )));
+    shell.add(Box::new(crate::WindowSwitcher::new()));
+    shell
+}
+
+/// Regression: an idle shell must not veto direct scanout. Pivot once
+/// inherited `requires_composition() == true` and blocked every fullscreen
+/// frame of every session.
+#[test]
+fn idle_default_chrome_never_blocks_direct_scanout() {
+    let shell = default_chrome_shell();
+    assert_eq!(
+        shell.idle_composition_violations(),
+        Vec::<&str>::new(),
+        "transient chrome claims visible pixels while idle and would block direct scanout"
+    );
+}
+
+/// The direct-scanout half: once a client owns the output, all chrome,
+/// including persistent decorations such as the Dock, stands down.
+#[test]
+fn fullscreen_client_leaves_no_shell_composition_requirement() {
+    let mut shell = default_chrome_shell();
+    shell.set_space_use(tessera_desktop::window::SpaceUse::Fullscreen);
+    let requirements = shell.composition_requirements((1536.0, 960.0));
+    assert_eq!(
+        requirements,
+        CompositionRequirements::default(),
+        "blocker: {:?}",
+        requirements.blocker
+    );
+    assert!(!shell.requires_composition());
+}
+
+/// A visible component is named in the requirement so the scanout log can
+/// point at it instead of only saying `visible-shell-pixels`.
+#[test]
+fn composition_requirements_name_the_first_blocker() {
+    let mut shell = Shell::headless().unwrap();
+    shell.add(Box::new(OrdinaryChrome));
+    shell.add(Box::new(ExclusivePresentation));
+    let requirements = shell.composition_requirements((1280.0, 800.0));
+    assert!(requirements.visible_pixels);
+    assert!(requirements.blocker.is_some());
+    assert!(requirements.blocker_count >= 1);
+    assert_eq!(
+        crate::component::short_type_name("tessera_shell::components::pivot::Pivot"),
+        "Pivot"
+    );
+    assert_eq!(
+        crate::component::short_type_name("a::b::Wrapper<c::d::Inner>"),
+        "Wrapper<c::d::Inner>"
     );
 }

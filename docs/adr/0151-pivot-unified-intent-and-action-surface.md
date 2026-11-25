@@ -1,18 +1,22 @@
 ---
 id: ADR-0151
 title: "Pivot: Unified system intent and action surface"
-status: draft
+status: accepted
 date: 2026-09-12
 superseded_by: null
 ---
 
 # ADR-0151: Pivot: Unified system intent and action surface
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-12
 - Scope: `tessera-pivot`, `tessera-prism`, `tessera-shell`, `tessera-model`, `tessera-dock`;
   supersedes [ADR-0073](0073-prism-search-and-explicit-application-shortcuts.md),
   amends [ADR-0022](0022-application-launcher.md) and [ADR-0021](0021-chrome-component-trait.md)
+- Amended by: [ADR-0158](0158-clean-break-workspace-boundaries.md) — Pivot ships as a `tessera-shell` component (`components/pivot`, feature `chrome-pivot`), not as a standalone `tessera-pivot` crate.
+- Amended by: [ADR-0213](0213-flat-chrome-and-removal-of-the-status-hud.md) — Pivot draws no liquid-glass material.
+- Amended by: [ADR-0170](0170-canonical-shell-preview-routing-and-workspace-debug-asset-topology.md) — *Canonical Shell Preview Routing and Workspace Debug Asset Topology*
+- Amended by: [ADR-0174](0174-universal-model-motion-view-chrome-architecture.md) — *Universal Model-Motion-View Architecture and Full Transit Adoption Across Shell Chrome*
 
 ## Context
 

@@ -11,6 +11,12 @@ superseded_by: null
 - Status: Accepted
 - Date: 2026-06-18
 - Amended by: [ADR-0198](0198-collapsed-dock-capsule-hugs-its-edge-behind-an-independent-reveal-corridor.md) — the collapsed capsule's visual edge gap is now independent of the reveal corridor's depth, so the capsule hugs its screen edge without shrinking the strip this record's dwell verification depends on.
+- Amended by: [ADR-0171](0171-chrome-animation-pre-pass-synchronization-and-surface-placement-invariants.md) — *Chrome Animation Pre-Pass Synchronization and Surface Placement Invariants*
+- Amended by: [ADR-0177](0177-dock-transit-spring-unification-and-anti-oscillation-latch.md) — *Dock Transit Spring Unification, Anti-Oscillation Dismiss Latching, and Non-Preemptible Swapchain Drain*
+- Amended by: [ADR-0251](0251-the-dock-sits-a-sliver-off-its-edge.md) — the collapsed reveal corridor shrinks from 32 px to 24 px deep because the edge gap it is composed on drops to 4 px; the approach band itself is unchanged.
+- Amended by: [ADR-0180](0180-single-pass-chrome-fades-backdrop-allocation-decoupling-and-dock-prepass-coherence.md) — *Single-Pass Chrome Fades, High-Water Backdrop Allocation Decoupling, and Dock Pre-Pass Coherence*
+- Amended by: [ADR-0254](0254-dual-channel-reachability-and-component-mounted-hot-zones.md) — Dock autohide reveal is now owned by the unified eight-zone Hot Zone system rather than a Dock-specific collapsed capsule.
+- Amended by: [ADR-0256](0256-dock-preview-safe-corridor-and-window-level-actions.md) — adds Live Preview Safe Corridor pointer transit protection and suppresses retreat-latch collapse during preview transit.
 
 ## Context
 

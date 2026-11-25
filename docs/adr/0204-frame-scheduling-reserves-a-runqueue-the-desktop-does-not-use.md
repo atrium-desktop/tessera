@@ -15,6 +15,7 @@ negative_knowledge: true
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0199](0199-realtime-compositor-scheduling.md)
 - Related: [ADR-0203](0203-damage-is-a-placement-mapped-rectangle.md)
+- Amended by: [ADR-0210](0210-performance-core-affinity-allocation-zero-copy-strided-uploads-and-quiescent-lens-lifecycle.md) — *Performance-Core Affinity Allocation, Zero-Copy Strided Uploads, and Quiescent Lens Lifecycle*
 
 ---
 

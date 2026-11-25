@@ -1,7 +1,8 @@
 # IPC Reference
 
 The tessera IPC is protocol version 34, carried as length-framed JSON over the
-owner-only Unix socket at `$XDG_RUNTIME_DIR/tessera.sock`. Every connection starts
+owner-only Unix socket at `$XDG_RUNTIME_DIR/tessera.sock`, or at
+`$TESSERA_IPC_SOCKET` when that is set (see [Socket Path](#socket-path)). Every connection starts
 with `Hello`; commands are accepted only after capability and scope checks.
 JSON messages are limited to 16 MiB. Large immutable capture and frame
 payloads use a separate sealed-file-descriptor transfer described under
@@ -11,6 +12,26 @@ Each connection has a bounded 64-item writer inbox. Request threads
 backpressure on that inbox; compositor event/journal producers never block.
 A subscriber that cannot keep up is disconnected instead of accumulating
 memory or silently missing an invalidation/audit event.
+
+## Socket Path
+
+The compositor binds one session socket and every first-party client finds it
+by the same rule
+([ADR-0257](../adr/0257-explicit-ipc-socket-override-and-settings-preview-harness.md)):
+
+1. An explicit flag: `--socket PATH` for `tessera` and `tessera-settings`, or
+   `TESSERA_MCP_SOCKET` for `tessera-mcp`.
+2. `TESSERA_IPC_SOCKET`, which must be an absolute path. The compositor
+   refuses to start on an empty or relative value, and clients refuse to
+   connect.
+3. `$XDG_RUNTIME_DIR/tessera.sock`.
+
+A compositor started with `TESSERA_IPC_SOCKET` keeps it in its environment,
+so the applications and services it launches reach the same instance. This
+is how a nested session runs inside a host Tessera session without either one
+taking the other's socket. The variable selects only the endpoint. Scope
+executable checks, capability checks, and lock-screen refusal apply unchanged,
+and the socket is created `0600` wherever it lives.
 
 ## Capabilities
 
@@ -170,54 +191,17 @@ Capability, lease, validation, and scope refusals are journaled even when the
 mutation never reaches the compositor main loop. Interaction Domain actions
 rejected by live state carry the unchanged revision in both revision fields.
 
-The live journal is backed by
-`$XDG_DATA_HOME/tessera/audit/events-v2.jsonl` (or the equivalent default data
-directory). The owner-only append store synchronizes successful writes and
-verifies monotonic sequence numbers, record bounds, and a SHA-256 hash chain.
-An owner-only local key authenticates an atomic replay checkpoint at
-`events-v2.jsonl.checkpoint`; the key is
-`events-v2.jsonl.key` ([ADR-0136](../adr/0136-authenticated-bounded-audit-replay-and-storage-guards.md)).
-Normal startup authenticates the checkpoint and synchronously verifies only
-the bounded live projection plus its uncheckpointed tail. A worker still
-verifies the complete older prefix from genesis, and no new authority record
-may be appended until that scan succeeds. An existing stream without a
-checkpoint pays one complete streaming scan to establish it; replay memory
-never grows beyond the live projection plus one record.
-
-An open store holds an exclusive advisory lock for its lifetime, so a second
-live compositor fails fast instead of interleaving appends from stale
-sequence state. Hash mismatches, unsafe ownership/mode, symlinks, malformed
-JSON, sequence gaps, an incomplete trailing record, or an invalid checkpoint
-fail closed. Creation and atomic checkpoint replacement synchronize the
-containing directory, so reported durable state cannot depend on an
-uncommitted directory entry. This is a durable decision/audit log, not a
-promise to resurrect external Wayland client state after compositor restart.
-
-`XDG_DATA_HOME` or `HOME` must resolve at startup; the production runtime does
-not downgrade the audit log to memory. Security lifecycle events and
-authorization refusals are persisted before their IPC response is returned.
-An append, flush, or sync failure fail-stops the entire compositor, including
-when detected on a connection worker.
-
-Tessera never deletes or silently rotates this authority history. Before each
-append it enforces the `[audit]` hard history ceiling (2048 MiB by default)
-and filesystem reserve (512 MiB by default). When the active stream reaches
-`[audit] segment_max_mib` it is sealed into a compressed immutable segment;
-an HMAC-authenticated manifest records every sealed segment's chain
-identity, and startup verifies each segment against it
-([ADR-0137](../adr/0137-audit-segment-manifest-and-retention.md)).
-Retention is explicit: pruning requires a configured `retain_segments`
-plus an export acknowledgement recorded by `tessera audit export`, and every
-removal is preserved in the manifest's pruned history. Production
-deployments must monitor those bounds and provide an operator-controlled,
-lossless archive/export policy; archival must preserve complete records,
-chain order, the manifest, and both checkpoint sidecars. If the active
-store cannot accept another durable record, fail-stop is intentional. The
-hash chain and local checkpoint HMAC detect accidental or blind edits under
-the owner trust model, but they are not proof against an attacker who
-controls the log, key, and every trusted verification copy. Deployments
-that require hostile-owner tamper evidence must continuously export records
-or independently signed anchors to a separately administered system.
+The live journal is backed by a bounded, infallible in-memory FIFO ring buffer
+(default `4096` entries, configurable via `[audit] capacity`) with zero-copy
+`Arc<JournalEntry>` fan-out across IPC subscription lanes ([ADR-0260](../adr/0260-unified-in-memory-observability-event-bus.md)).
+Each entry carries monotonic `seq`, `ts_mono_ms`, `ts_wall_ms`, an `EventTopic`
+classification (`window`, `workspace`, `interaction_domain`, `settings`,
+`authority`, `system`, `mcp`, `custom`), and an optional `correlation_id`.
+Clients can filter both `GetJournal { since, topics }` and
+`SubscribeJournal { topics }` by topic on the server, and authorized control
+connections (such as `tessera-mcp`) can inject external semantic events via
+`PublishEvent`. Publishing never performs synchronous disk I/O, never holds an
+exclusive filesystem lock, and never terminates the compositor.
 
 ## Commands
 
@@ -319,6 +303,7 @@ chrome and external IPC clients:
 | `microphone_active` | boolean | Whether a client currently captures audio: true exactly when a live link feeds a capture stream from an `Audio/Source` node (ADR-0216). Observed from the sound server's link graph, so a browser tab, an encoder, and an agent process all report the same way. A sink-monitor link (screen recording with sound) is **not** a microphone capture. Additive with a `false` default, which is the honest reading for a peer that predates the field: absence is not evidence of capture. |
 | `network` | `Offline`, `Wifi`, or `Wired` | Coarse active connectivity. |
 | `battery` | optional `{ percent, charging }` | Battery state when a battery is present. |
+| `power` | `{ on_battery, power_saver }` | Whether the machine runs on battery (a system battery discharging with no mains or USB supply online) and whether the firmware power profile is low-power. Both are `false` on a machine without a battery. |
 | `wifi_enabled` | optional boolean | Wi-Fi radio state; absent when its service is unavailable. |
 | `bluetooth_enabled` | optional boolean | Bluetooth radio state; absent when its service is unavailable. |
 | `bluetooth_state` | `Disabled`, `Unavailable`, `Idle`, `Scanning`, or `Connected` | Fine-grained Bluetooth adapter/link state (ADR-0175); additive with a `Disabled` default. |
@@ -376,6 +361,7 @@ compositor configuration.
 | `display` | `DisplayStatus` | Default topology, connected outputs (`role`, `role_source`, advertised modes, geometry), configurability, and the last apply error. |
 | `preferences` | `DesktopPreferences` | Complete effective desktop profile after configuration defaults and explicit startup overrides. |
 | `idle` | `IdleSettings` | Complete validated inactivity, lock, output-power, and suspend policy. |
+| `material` | optional `ResolvedMaterial` | What chrome is drawn in right now: `{ preferred, effective, limited_by }`, where `limited_by` is `renderer`, `high-contrast`, `on-battery`, `low-battery`, `power-saver`, or absent when the preference is drawn as chosen (ADR-0252). This is live state, not a setting: it changes with the power source without a new `revision`, followed by `SettingsChanged`. |
 
 `DesktopPreferences` contains:
 
@@ -384,6 +370,8 @@ compositor configuration.
 | `color_scheme` | enum | `system`, `dark`, or `light` |
 | `accent_color` | optional RGB object | `{ red, green, blue }`, each 0–255 |
 | `contrast` | enum | `normal` or `high` |
+| `material` | enum | `opaque`, `translucent`, `frosted`, or `liquid-glass`; the preference, not the drawn material (ADR-0252). Omitted by older clients, it defaults to `opaque`. |
+| `material_power` | object | `{ on_battery, low_battery, low_battery_percent, power_saver }`: material ceilings by power state; `low_battery_percent` is 1–99. Omitted, the defaults apply (`liquid-glass`, `translucent`, `20`, `translucent`). |
 | `reduced_motion` | boolean | Desktop and toolkit animation preference |
 | `font_name`, `monospace_font_name` | string | Non-empty, at most 256 bytes |
 | `text_scale` | float | 0.5–3.0 |

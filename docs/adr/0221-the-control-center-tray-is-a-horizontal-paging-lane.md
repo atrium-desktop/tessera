@@ -15,6 +15,7 @@ negative_knowledge: true
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0197](0197-control-center-tray-shelf-and-overflow-disclosure.md) (the shelf becomes horizontal and its overflow becomes paging instead of disclosure), [ADR-0080](0080-hud-status-chips-and-sao-command-panel.md)
 - Related: [ADR-0211](0211-regional-damage-is-consumed-as-a-list-and-chrome-footprints-are-measured.md) (footprints are measured, not guessed)
+- Amended by: [ADR-0239](0239-the-control-center-is-a-right-anchored-sheet.md) — the tray lane moves into the controls card's footer and its popover opens   above
 
 ---
 

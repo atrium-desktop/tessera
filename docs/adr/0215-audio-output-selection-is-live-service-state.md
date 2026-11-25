@@ -15,6 +15,7 @@ negative_knowledge: true
 - Deciders: Tessera Maintainers
 - Extends: [ADR-0060](0060-statusbar-system-controls-and-live-system-ipc.md) (live-system control surface), [ADR-0168](0168-standardized-keyboard-backlight-subsystem.md) (the host-probe + typed-action shape this reuses)
 - Related: [ADR-0140](0140-session-power-modes.md) (the additive `SystemStatus` evolution precedent)
+- Extended by: [ADR-0216](0216-audio-subsystem-owns-both-directions-and-capture-is-a-privacy-reading.md) — playback routing and the handle discipline this mirrors
 
 ---
 

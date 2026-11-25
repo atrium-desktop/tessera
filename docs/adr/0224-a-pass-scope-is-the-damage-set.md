@@ -19,6 +19,7 @@ negative_knowledge: true
 - Amends: [ADR-0203](0203-damage-is-a-placement-mapped-rectangle.md),
   [ADR-0211](0211-regional-damage-is-consumed-as-a-list-and-chrome-footprints-are-measured.md)
 - Extends: Optics ADR-0149 (damage-scoped frames on a windowed surface)
+- Amended by: [ADR-0226](0226-single-pass-chrome-composition-preview-layering-and-modal-dock-inhibition.md) — *Single-Pass Chrome Composition, Live-Preview Thumbnail Layering, and Modal Dock Inhibition*
 
 ---
 

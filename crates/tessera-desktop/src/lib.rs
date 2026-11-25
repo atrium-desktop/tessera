@@ -3,6 +3,7 @@
 pub mod app;
 pub mod dock;
 pub mod gesture;
+pub mod hot_zone;
 pub mod keybind;
 pub mod launcher;
 pub mod layout;

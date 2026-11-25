@@ -13,6 +13,7 @@ superseded_by: ADR-0106
 - Renumbered from ADR-0080, which collided with
   [ADR-0080](0080-hud-status-chips-and-sao-command-panel.md); this is the
   weaker (superseded) claim of the two, so it took the next free number.
+- Amended by: [ADR-0170](0170-canonical-shell-preview-routing-and-workspace-debug-asset-topology.md) — *Canonical Shell Preview Routing and Workspace Debug Asset Topology*
 
 ## Context
 

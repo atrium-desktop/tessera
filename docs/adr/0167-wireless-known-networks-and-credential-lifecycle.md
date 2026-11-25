@@ -14,6 +14,7 @@ negative_knowledge: true
 - Date: 2026-09-28
 - Deciders: Tessera Maintainers & Core Architects
 - Amends: [ADR-0162](0162-wireless-network-subsystem-and-iwd-bridge.md)
+- Extended by: [ADR-0168](0168-standardized-keyboard-backlight-subsystem.md) — *Standardized Keyboard Backlight Subsystem and Hardware-Agnostic Controls*
 
 ---
 

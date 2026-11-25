@@ -14,6 +14,7 @@ negative_knowledge: true
 - Date: 2026-09-19
 - Deciders: Tessera Maintainers & Core Architects
 - Amends: [ADR-0036](0036-scoped-semantic-automation.md), [ADR-0102](0102-actor-scoped-semantic-observation-and-transactional-actions.md), [ADR-0104](0104-actor-sessions-resource-grants-and-accessibility-adapter.md), [ADR-0164](0164-universal-domain-pruning-and-primitives-canonization.md)
+- Extended by: [ADR-0166](0166-decoupled-native-accessibility-architecture-across-compositor-and-optics.md) — *Decoupled Native Accessibility Architecture Across Compositor and Optics*
 
 ---
 

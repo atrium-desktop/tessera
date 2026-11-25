@@ -10,10 +10,11 @@ negative_knowledge: true
 
 # 0199. Realtime compositor scheduling: protecting the frame loop from CPU starvation
 
-- Status: Adopted
+- Status: Accepted
 - Date: 2026-10-31
 - Deciders: Tessera Maintainers
 - Related: [ADR-0077](0077-presentation-domain-redraw-state-machine.md), [ADR-0196](0196-compositor-side-presentation-time-feedback.md)
+- Amended by: [ADR-0204](0204-frame-scheduling-reserves-a-runqueue-the-desktop-does-not-use.md) — *Frame scheduling reserves a runqueue the desktop does not use*
 
 ---
 

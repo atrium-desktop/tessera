@@ -5,7 +5,7 @@
 [counts]
 tessera = 30
 tessera-assets = 0
-tessera-audit = 5
+tessera-audit = 0
 tessera-authority = 11
 tessera-avatar = 2
 tessera-cast = 4

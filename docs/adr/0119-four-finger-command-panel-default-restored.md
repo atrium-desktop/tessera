@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-08-11
+- Note (2026-11-25): the *command panel* this record names is the **Control Center**; the surface was renamed, and [ADR-0239](0239-the-control-center-is-a-right-anchored-sheet.md) removed its last `command_panel` aliases and fixes its current shape. The decision applies to it unchanged.
 
 ## Context
 

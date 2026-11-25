@@ -2212,3 +2212,56 @@ fn the_audio_capture_verbs_carry_a_protocol_bump() {
         );
     }
 }
+
+#[test]
+fn unified_event_bus_v35_requests_and_responses_round_trip() {
+    const { assert!(PROTOCOL_VERSION >= 35) };
+
+    let requests = [
+        Request::GetJournal {
+            since: 12,
+            topics: Some(vec![
+                crate::journal::EventTopic::Mcp,
+                crate::journal::EventTopic::Window,
+            ]),
+        },
+        Request::SubscribeJournal {
+            topics: Some(vec![crate::journal::EventTopic::Authority]),
+        },
+        Request::PublishEvent {
+            topic: crate::journal::EventTopic::Mcp,
+            source: "tessera-mcp".into(),
+            kind: "tool.invoked".into(),
+            correlation_id: Some(9001),
+            detail: Some(serde_json::json!({"tool": "focus_window"})),
+        },
+    ];
+    for request in requests {
+        let json = serde_json::to_string(&request).unwrap();
+        let decoded: Request = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            serde_json::to_value(&decoded).unwrap(),
+            serde_json::to_value(&request).unwrap()
+        );
+    }
+
+    // Legacy wire clients omitting `topics` still decode cleanly with `None`.
+    let legacy_get: Request = serde_json::from_str(r#"{"type":"GetJournal","since":5}"#).unwrap();
+    assert!(matches!(
+        legacy_get,
+        Request::GetJournal {
+            since: 5,
+            topics: None
+        }
+    ));
+    let legacy_sub: Request = serde_json::from_str(r#"{"type":"SubscribeJournal"}"#).unwrap();
+    assert!(matches!(
+        legacy_sub,
+        Request::SubscribeJournal { topics: None }
+    ));
+
+    let reply = Response::EventPublished { seq: 42 };
+    let json = serde_json::to_string(&reply).unwrap();
+    let decoded: Response = serde_json::from_str(&json).unwrap();
+    assert!(matches!(decoded, Response::EventPublished { seq: 42 }));
+}

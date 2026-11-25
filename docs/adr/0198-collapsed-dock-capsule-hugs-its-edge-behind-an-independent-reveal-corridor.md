@@ -1,19 +1,23 @@
 ---
 id: ADR-0198
 title: "The Collapsed Dock Capsule Hugs Its Edge Behind an Independent Reveal Corridor"
-status: accepted
+status: superseded
 date: 2026-10-29
 scope: shell/dock
-superseded_by: null
+superseded_by: ADR-0254
 negative_knowledge: true
 ---
 
 # ADR-0198: The Collapsed Dock Capsule Hugs Its Edge Behind an Independent Reveal Corridor
 
-- Status: Accepted
+- Status: Superseded by [ADR-0254](0254-dual-channel-reachability-and-component-mounted-hot-zones.md)
 - Date: 2026-10-29
+- Superseded by: [ADR-0254](0254-dual-channel-reachability-and-component-mounted-hot-zones.md) — the collapsed capsule and its independent reveal corridor are removed; a hidden Dock has no footprint and is summoned by its bound edge Hot Zone. §1 and §3 were already historical under ADR-0213; §2 is now historical too.
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0146](0146-dock-intent-dwell-and-anti-trapping-interaction.md)
+- Amended by: [ADR-0211](0211-regional-damage-is-consumed-as-a-list-and-chrome-footprints-are-measured.md) — *Regional Damage Is Consumed as a List, and Chrome Footprints Are Measured, Not Guessed*
+- Amended by: [ADR-0213](0213-flat-chrome-and-removal-of-the-status-hud.md) — the capsule no longer tucks to the edge: both states hold one `DOCK_EDGE_MARGIN`, `edge_margin_for_surface_progress` is constant, and `AUTOHIDE_HANDLE_EDGE_MARGIN` and the footprint's tuck band are gone. §1 and §3 below are historical; §2 (the independent reveal corridor) stands.
+- Amended by: [ADR-0251](0251-the-dock-sits-a-sliver-off-its-edge.md) — *The Dock Sits a Sliver off Its Edge* (`DOCK_EDGE_MARGIN` 12 → 4 px; this record's rejected "smaller global value" alternative is revisited there)
 
 ---
 

@@ -10,6 +10,9 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-07-26
+- Amended by: [ADR-0162](0162-wireless-network-subsystem-and-iwd-bridge.md) — *Wireless Network Subsystem Abstraction and iwd Bridge*
+- Amended by: [ADR-0175](0175-bluetooth-peripheral-subsystem-and-bluez-bridge.md) — *Bluetooth Peripheral Subsystem, BlueZ Bridge, and HUD/Control-Center Parity*
+- Extended by: [ADR-0215](0215-audio-output-selection-is-live-service-state.md) — live-system control surface
 
 ## Context
 

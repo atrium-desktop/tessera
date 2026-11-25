@@ -15,6 +15,7 @@ negative_knowledge: true
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0077](0077-presentation-domain-redraw-state-machine.md)
 - Adopts: Optics [ADR-0122](https://github.com/ming2k/optics/blob/main/docs/adr/0122-compositor-driven-presentation-pacing.md)
+- Amended by: [ADR-0210](0210-performance-core-affinity-allocation-zero-copy-strided-uploads-and-quiescent-lens-lifecycle.md) — *Performance-Core Affinity Allocation, Zero-Copy Strided Uploads, and Quiescent Lens Lifecycle*
 
 ---
 

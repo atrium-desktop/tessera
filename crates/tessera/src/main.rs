@@ -37,6 +37,10 @@ fn run_compositor() -> ExitCode {
         log::error!("tessera: {error}");
         return ExitCode::from(1);
     }
+    if let Err(error) = tessera_env::ipc_socket_override() {
+        log::error!("tessera: {error}");
+        return ExitCode::from(1);
+    }
     match tessera::run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {

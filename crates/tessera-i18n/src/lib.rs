@@ -193,6 +193,20 @@ pub enum Message {
     Contrast,
     NormalContrast,
     HighContrast,
+    Material,
+    MaterialOpaque,
+    MaterialTranslucent,
+    MaterialFrosted,
+    MaterialLiquidGlass,
+    MaterialDescription,
+    MaterialOnBattery,
+    MaterialNoLimit,
+    MaterialPowerDescription,
+    MaterialLimitRenderer,
+    MaterialLimitHighContrast,
+    MaterialLimitOnBattery,
+    MaterialLimitLowBattery,
+    MaterialLimitPowerSaver,
     ReducedMotion,
     ReducedMotionDescription,
     Accessibility,
@@ -486,6 +500,20 @@ impl Localizer {
             Message::Contrast => &catalog.contrast,
             Message::NormalContrast => &catalog.normal_contrast,
             Message::HighContrast => &catalog.high_contrast,
+            Message::Material => &catalog.material,
+            Message::MaterialOpaque => &catalog.material_opaque,
+            Message::MaterialTranslucent => &catalog.material_translucent,
+            Message::MaterialFrosted => &catalog.material_frosted,
+            Message::MaterialLiquidGlass => &catalog.material_liquid_glass,
+            Message::MaterialDescription => &catalog.material_description,
+            Message::MaterialOnBattery => &catalog.material_on_battery,
+            Message::MaterialNoLimit => &catalog.material_no_limit,
+            Message::MaterialPowerDescription => &catalog.material_power_description,
+            Message::MaterialLimitRenderer => &catalog.material_limit_renderer,
+            Message::MaterialLimitHighContrast => &catalog.material_limit_high_contrast,
+            Message::MaterialLimitOnBattery => &catalog.material_limit_on_battery,
+            Message::MaterialLimitLowBattery => &catalog.material_limit_low_battery,
+            Message::MaterialLimitPowerSaver => &catalog.material_limit_power_saver,
             Message::ReducedMotion => &catalog.reduced_motion,
             Message::ReducedMotionDescription => &catalog.reduced_motion_description,
             Message::Accessibility => &catalog.accessibility,
@@ -712,6 +740,27 @@ impl Localizer {
         )
     }
 
+    /// The Glance HUD's workspace position on its output (ADR-0255).
+    pub fn glance_workspace_position(self, current: usize, total: usize) -> String {
+        let catalog = catalog(self.language);
+        interpolate(
+            &interpolate(&catalog.glance_workspace_position, "current", current),
+            "total",
+            total,
+        )
+    }
+
+    /// Settings' note when a ceiling lowered the chrome material: what is
+    /// drawn right now and why (ADR-0252).
+    pub fn material_drawn_as(self, material: &str, reason: &str) -> String {
+        let catalog = catalog(self.language);
+        interpolate(
+            &interpolate(&catalog.material_drawn_as, "material", material),
+            "reason",
+            reason,
+        )
+    }
+
     /// The recording indicator's label: a localized "screen recording"
     /// marker carrying the live capture-stream count (ADR-0128).
     pub fn recording_stream_count(self, count: u32) -> String {
@@ -844,6 +893,7 @@ struct Catalog {
     osd_wireless_disabled: String,
     osd_bluetooth_enabled: String,
     osd_bluetooth_disabled: String,
+    glance_workspace_position: String,
     osd_audio_output: String,
     no_battery_detected: String,
     battery: String,
@@ -869,6 +919,21 @@ struct Catalog {
     contrast: String,
     normal_contrast: String,
     high_contrast: String,
+    material: String,
+    material_opaque: String,
+    material_translucent: String,
+    material_frosted: String,
+    material_liquid_glass: String,
+    material_description: String,
+    material_on_battery: String,
+    material_no_limit: String,
+    material_power_description: String,
+    material_limit_renderer: String,
+    material_limit_high_contrast: String,
+    material_limit_on_battery: String,
+    material_limit_low_battery: String,
+    material_limit_power_saver: String,
+    material_drawn_as: String,
     reduced_motion: String,
     reduced_motion_description: String,
     accessibility: String,
@@ -1065,6 +1130,8 @@ mod tests {
         assert_eq!(zh.text(Message::AgentKeyboard), "键盘输入");
         assert_eq!(zh.text(Message::NoActiveAgentWorkspaces), "暂无活动工作区");
         assert_eq!(en.agent_workspace_count(2), "2 workspaces");
+        assert_eq!(en.glance_workspace_position(2, 4), "Workspace 2/4");
+        assert_eq!(zh.glance_workspace_position(1, 1), "工作区 1/1");
         assert_eq!(en.text(Message::QuickControls), "Quick Controls");
         assert_eq!(zh.text(Message::QuickControls), "快捷控制");
         assert_eq!(en.text(Message::NotPlaying), "Not Playing");

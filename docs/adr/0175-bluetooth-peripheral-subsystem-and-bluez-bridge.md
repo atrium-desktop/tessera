@@ -16,6 +16,8 @@ negative_knowledge: true
 - Consulted: Compositor Runtime & Optics Graphics Team
 - Amends: [ADR-0060](0060-statusbar-system-controls-and-live-system-ipc.md), [ADR-0080](0080-hud-status-chips-and-sao-command-panel.md), [ADR-0114](0114-panel-hosted-settings-and-hud-command-panel.md), [ADR-0115](0115-command-panel-desktop-behavior-scope.md)
 - Extends: [ADR-0162](0162-wireless-network-subsystem-and-iwd-bridge.md), [ADR-0169](0169-control-center-bento-grid-and-mpris-absorption.md)
+- Extended by: [ADR-0216](0216-audio-subsystem-owns-both-directions-and-capture-is-a-privacy-reading.md) — the subsystem shape
+- Amended by: [ADR-0218](0218-dock-reading-column-is-a-six-unit-bento-and-status-lives-on-the-dock.md) — a Bluetooth reading reaches the dock
 
 ---
 

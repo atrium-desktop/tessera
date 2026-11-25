@@ -1,21 +1,23 @@
 ---
 id: ADR-0163
 title: "Decoupled Backdrop Blur Cache and Continuous Chrome Fade"
-status: accepted
+status: superseded
 date: 2026-09-19
 scope: core/rendering, shell/control-center
-superseded_by: null
+superseded_by: ADR-0213
 negative_knowledge: true
 ---
 
 # 0163. Decoupled Backdrop Blur Cache and Continuous Chrome Fade
 
-- Status: Accepted
+- Status: Superseded by [ADR-0213](0213-flat-chrome-and-removal-of-the-status-hud.md) — flat chrome removed the backdrop blur cache this record decouples.
 - Date: 2026-09-19
 - Deciders: Tessera Graphics & Shell Architects
 - Consulted: Compositor & Rendering Team
 - Informed: System Team
 - Amended by: [ADR-0181](0181-canonical-chrome-prepass-seam-occlusion-elision-and-deferred-scanout-ownership.md) — the pre-pass this record names `prepare_backdrop` is canonically `Chrome::prepare_frame`; the alias was removed ([INV-ARCH-64]). `[INV-CHROME-01]` remains in force.
+- Amended by: [ADR-0176](0176-control-center-painted-canvas-beyond-backdrop-cover.md) — *Control Center Painted Canvas, Bounded Reveal, and Retired Backdrop Cover*
+- Amended by: [ADR-0180](0180-single-pass-chrome-fades-backdrop-allocation-decoupling-and-dock-prepass-coherence.md) — *Single-Pass Chrome Fades, High-Water Backdrop Allocation Decoupling, and Dock Pre-Pass Coherence*
 
 ---
 

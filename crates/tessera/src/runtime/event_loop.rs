@@ -33,10 +33,7 @@ impl CompositorRuntime<'_> {
                 self.vblank_wait_groups.clear();
                 // The hardware cursor plane is blanked when outputs go away;
                 // drop the sprite baseline so the next commit reprograms it.
-                self.damage.last_presented_cursor = None;
-                self.damage.last_presented_cursor_position = None;
-                self.damage.last_presented_cursor_hotspot = None;
-                self.damage.last_presented_cursor_pixels = None;
+                self.damage.reset_cursor_baseline();
                 if reason == PresentationAvailability::BackendUnavailable {
                     self.invalidate_input_epoch();
                 }
@@ -50,10 +47,7 @@ impl CompositorRuntime<'_> {
                 self.primary_plane_state.invalidate();
                 self.last_composited_fence = None;
                 self.vblank_wait_groups.clear();
-                self.damage.last_presented_cursor = None;
-                self.damage.last_presented_cursor_position = None;
-                self.damage.last_presented_cursor_hotspot = None;
-                self.damage.last_presented_cursor_pixels = None;
+                self.damage.reset_cursor_baseline();
                 self.invalidate_input_epoch();
                 self.previous_render_at = now;
             }
@@ -69,10 +63,7 @@ impl CompositorRuntime<'_> {
                 // The display content did not survive the VT round-trip. gfx
                 // must not let an image epoch claim otherwise.
                 self.invalidate_all_surface_damage();
-                self.damage.last_presented_cursor = None;
-                self.damage.last_presented_cursor_position = None;
-                self.damage.last_presented_cursor_hotspot = None;
-                self.damage.last_presented_cursor_pixels = None;
+                self.damage.reset_cursor_baseline();
                 self.previous_render_at = now;
             }
         }

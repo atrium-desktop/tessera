@@ -607,6 +607,15 @@ impl Host {
         matches!(self, Self::Drm(host) if host.hardware_cursor_supported())
     }
 
+    /// Maximum `(width, height)` in physical pixels accepted by the active KMS
+    /// cursor plane, or `None` when hardware cursors are unavailable.
+    pub fn hardware_cursor_extent(&self) -> Option<(u32, u32)> {
+        match self {
+            Self::Nested(_) => None,
+            Self::Drm(host) => host.hardware_cursor_extent(),
+        }
+    }
+
     pub fn disable_hardware_cursor(&mut self) {
         if let Self::Drm(host) = self {
             host.disable_hardware_cursor();

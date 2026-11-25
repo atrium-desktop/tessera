@@ -10,6 +10,8 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-08-16
+- Amended by: [ADR-0188](0188-out-of-process-casting-and-discovery-service.md) — *Out-of-Process Casting and Discovery Service, and the Control-Center Cast Surface*
+- Amended by: [ADR-0238](0238-settings-is-a-standalone-application-behind-its-own-scope.md) — a fifth   built-in scope
 
 ## Context
 

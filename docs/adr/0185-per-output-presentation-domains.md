@@ -39,6 +39,10 @@ negative_knowledge: true
   remains pending. Two-output hardware
   verification is pending.
 - Amends: [ADR-0101](0101-dual-presentation-paths-and-conservative-kms-plane-allocation.md), [ADR-0130](0130-stream-paced-presentation-and-scanout-exclusion.md), [ADR-0182](0182-fullscreen-frame-pacing-and-direct-scanout-fidelity.md)
+- Amended by: [ADR-0246](0246-mirror-scaling-falls-back-to-a-compositor-target.md) — *Mirrored Outputs Present Through a Compositor-Owned Mode-Sized Target*
+- Amended by: [ADR-0247](0247-per-output-render-targets.md) — *Per-Output Render Targets Replace the Union Swapchain*
+- Amended by: [ADR-0248](0248-capture-composition-is-separate-from-presentation.md) — *Capture Composition Is Separate from Per-Output Presentation*
+- Amended by: [ADR-0249](0249-presentation-groups-and-per-output-pacing.md) — *Presentation Groups Synchronize Shared Content Without Reintroducing a Union Swapchain*
 
 ---
 
@@ -201,7 +205,7 @@ lands ([Invariant Governance](../dev/invariants.md) §3).
   framebuffer must not destroy it.
 - Unit: `plan_scanout` against per-output targets, including a candidate on the
   second output and a candidate spanning two outputs (rejected).
-- Hardware ([VT and DRM Testing](../dev/testing/vt-drm-testing.md)), 165 Hz + 60 Hz:
+- Hardware ([VT/DRM Verification](../dev/verification/vt-drm-verification.md)), 165 Hz + 60 Hz:
   a full-output game on the fast output logs `direct scanout active`, its
   presented frame rate follows the fast output's vblank, and the slow output
   keeps a static frame without flipping.

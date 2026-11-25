@@ -1,4 +1,6 @@
-//! Integrity-checked durable event storage and bounded live projections.
+//! In-memory bounded event ring buffer for Tessera's unified observability bus (ADR-0260).
+#![forbid(unsafe_code)]
+
 mod audit;
 pub use audit::*;
 

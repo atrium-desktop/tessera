@@ -15,6 +15,7 @@ negative_knowledge: true
 - Deciders: Tessera Maintainers & Core Architects
 - Amends: [ADR-0194](0194-avatar-crate-xdg-conformant-vrm-aware.md), [ADR-0106](0106-shared-identity-portrait-contract-and-vrm-renderer-boundary.md), [ADR-0111](0111-persona-as-shell-domain-with-feature-gated-portrait-runtime.md), [ADR-0151](0151-pivot-unified-intent-and-action-surface.md), [ADR-0158](0158-clean-break-workspace-boundaries.md)
 - Amended by: [ADR-0201](0201-decouple-documentation-governance-from-agent-configuration-and-canonize-sandbox-isolation.md) — replaces citation to AGENTS.md with canonical architectural invariant [INV-ARCH-87]
+- Note (2026-11-25): the *command panel* this record names is the **Control Center**; the surface was renamed, and [ADR-0239](0239-the-control-center-is-a-right-anchored-sheet.md) removed its last `command_panel` aliases and fixes its current shape. The decision applies to it unchanged. The `command-panel` and `command_panel` preview aliases no longer exist.
 
 ---
 

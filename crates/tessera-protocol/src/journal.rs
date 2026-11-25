@@ -16,8 +16,26 @@ use crate::schema::{ActorCapability, Command, InteractionDomainAction, Scope, Se
 use tessera_authority::interaction_domain::InteractionDomainId;
 use tessera_primitives::input::SyntheticInputAction;
 
-/// Privacy-preserving synthetic input counts retained in the durable audit.
-/// Input coordinates and text keys never enter the event store.
+/// Multi-dimensional event topic for filtering and routing on the unified
+/// observability bus (ADR-0260).
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum EventTopic {
+    Window,
+    Workspace,
+    InteractionDomain,
+    Settings,
+    Authority,
+    System,
+    Mcp,
+    #[default]
+    Custom,
+}
+
+/// Privacy-preserving synthetic input counts retained on the observability bus.
+/// Input coordinates and text keys never enter the event bus.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AuditedInputAction {
     pub pointer_moves: u32,
@@ -47,7 +65,7 @@ pub fn audit_input_actions(actions: &[SyntheticInputAction]) -> AuditedInputActi
     audited
 }
 
-/// Privacy-minimized command projection retained in the durable audit.
+/// Privacy-minimized command projection retained on the observability bus.
 /// Resource ids needed for scope filtering remain visible, while free-form
 /// text, filesystem paths, input coordinates, and key/button codes do not.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -416,11 +434,63 @@ pub enum JournalMutation {
     ScopeClaim {
         scope: String,
     },
+    /// An external semantic event published into the unified observability bus
+    /// by an authorized component (e.g., `tessera-mcp`) (ADR-0260).
+    External {
+        topic: EventTopic,
+        source: String,
+        kind: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<serde_json::Value>,
+    },
 }
 
 impl JournalMutation {
+    /// Deterministic topic classification for multi-dimensional subscription
+    /// filtering (ADR-0260).
+    #[must_use]
+    pub fn topic(&self) -> EventTopic {
+        match self {
+            Self::Command { cmd } => match cmd {
+                AuditedCommand::Focus { .. }
+                | AuditedCommand::Minimize { .. }
+                | AuditedCommand::SetMaximized { .. }
+                | AuditedCommand::SetFullscreen { .. }
+                | AuditedCommand::SetAlwaysOnTop { .. }
+                | AuditedCommand::Close { .. }
+                | AuditedCommand::Move { .. }
+                | AuditedCommand::SetWindowGeometry { .. }
+                | AuditedCommand::InjectInput { .. }
+                | AuditedCommand::Cycle { .. } => EventTopic::Window,
+                AuditedCommand::SwitchWorkspace { .. }
+                | AuditedCommand::SwitchWorkspaceTo { .. }
+                | AuditedCommand::MoveToWorkspace { .. }
+                | AuditedCommand::LaunchApp { .. }
+                | AuditedCommand::ToggleOverview => EventTopic::Workspace,
+                AuditedCommand::LaunchInInteractionDomain { .. } => EventTopic::InteractionDomain,
+                AuditedCommand::InjectOutputInput { .. }
+                | AuditedCommand::System { .. }
+                | AuditedCommand::Notify { .. }
+                | AuditedCommand::DismissNotification { .. }
+                | AuditedCommand::Screenshot { .. }
+                | AuditedCommand::Quit => EventTopic::System,
+            },
+            Self::InteractionDomain { .. } | Self::ActorAction { .. } => {
+                EventTopic::InteractionDomain
+            }
+            Self::Settings { .. } => EventTopic::Settings,
+            Self::AgentAuth { .. }
+            | Self::ActorSession { .. }
+            | Self::ResourceGrant { .. }
+            | Self::ResourceGrantAttempt { .. }
+            | Self::CapabilityUse { .. }
+            | Self::ScopeClaim { .. } => EventTopic::Authority,
+            Self::External { topic, .. } => *topic,
+        }
+    }
+
     /// Replace an arbitrary downstream refusal string with a stable,
-    /// payload-free category before durable persistence. Runtime errors can
+    /// payload-free category before recording on the observability bus. Runtime errors can
     /// contain paths, titles, toolkit text, or other values deliberately
     /// omitted from the audited mutation shape.
     pub fn privacy_minimize_effect(&self, mut effect: Effect) -> Effect {
@@ -441,6 +511,7 @@ impl JournalMutation {
             }
             Self::CapabilityUse { .. } => "capability use refused",
             Self::ScopeClaim { .. } => "scope claim refused",
+            Self::External { .. } => "external event refused",
         }
         .into();
         effect
@@ -553,12 +624,17 @@ pub enum GrantPersistence {
     DeniedSession,
 }
 
-/// One ordered mutation event. Storage and bounded projection mechanics live
-/// in `tessera-security::audit`; IPC owns only this wire-visible event vocabulary.
+/// One ordered observability event on the unified event bus (ADR-0033, ADR-0260).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct JournalEntry {
     pub seq: u64,
     pub ts_mono_ms: u64,
+    #[serde(default)]
+    pub ts_wall_ms: u64,
+    #[serde(default)]
+    pub topic: EventTopic,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<u64>,
     pub origin: Origin,
     pub mutation: JournalMutation,
     pub effect: Effect,
@@ -658,6 +734,9 @@ mod tests {
         let entry = JournalEntry {
             seq: 42,
             ts_mono_ms: 12345,
+            ts_wall_ms: 1_700_000_000_000,
+            topic: EventTopic::Window,
+            correlation_id: Some(7),
             origin: Origin::Ipc { conn_id: 7 },
             mutation: command(99),
             effect: Effect::Refused {
@@ -667,6 +746,20 @@ mod tests {
         let json = serde_json::to_string(&entry).unwrap();
         let back: JournalEntry = serde_json::from_str(&json).unwrap();
         assert_eq!(entry, back);
+    }
+
+    fn to_wire(entry: tessera_audit::AuditEntry<Origin, JournalMutation, Effect>) -> JournalEntry {
+        let topic = entry.mutation.topic();
+        JournalEntry {
+            seq: entry.seq,
+            ts_mono_ms: entry.ts_mono_ms,
+            ts_wall_ms: entry.ts_wall_ms,
+            topic,
+            correlation_id: entry.correlation_id,
+            origin: entry.origin,
+            mutation: entry.mutation,
+            effect: entry.effect,
+        }
     }
 
     #[test]
@@ -689,12 +782,11 @@ mod tests {
             Effect::Applied,
         );
         assert_eq!(entry.mutation, mutation);
-        let encoded = serde_json::to_string(&entry).unwrap();
+        let wire = to_wire(entry);
+        assert_eq!(wire.topic, EventTopic::InteractionDomain);
+        let encoded = serde_json::to_string(&wire).unwrap();
         let decoded: JournalEntry = serde_json::from_str(&encoded).unwrap();
-        assert_eq!(
-            serde_json::to_value(decoded).unwrap(),
-            serde_json::to_value(entry).unwrap()
-        );
+        assert_eq!(decoded, wire);
     }
 
     #[test]
@@ -745,12 +837,11 @@ mod tests {
             Effect::Applied,
         );
         assert_eq!(entry.mutation, mutation);
-        let encoded = serde_json::to_string(&entry).unwrap();
+        let wire = to_wire(entry);
+        assert_eq!(wire.topic, EventTopic::Authority);
+        let encoded = serde_json::to_string(&wire).unwrap();
         let decoded: JournalEntry = serde_json::from_str(&encoded).unwrap();
-        assert_eq!(
-            serde_json::to_value(decoded).unwrap(),
-            serde_json::to_value(entry).unwrap()
-        );
+        assert_eq!(decoded, wire);
     }
 
     #[test]
@@ -775,7 +866,9 @@ mod tests {
                 reason: "resource grant consume refused".into(),
             },
         );
-        let encoded = serde_json::to_string(&entry).unwrap();
+        let wire = to_wire(entry);
+        assert_eq!(wire.topic, EventTopic::Authority);
+        let encoded = serde_json::to_string(&wire).unwrap();
         assert!(encoded.contains("filesystem_path"));
         for secret in ["/private/customer.db", "rg_secret"] {
             assert!(
@@ -784,10 +877,7 @@ mod tests {
             );
         }
         let decoded: JournalEntry = serde_json::from_str(&encoded).unwrap();
-        assert_eq!(
-            serde_json::to_value(decoded).unwrap(),
-            serde_json::to_value(entry).unwrap()
-        );
+        assert_eq!(decoded, wire);
     }
 
     #[test]
@@ -831,13 +921,12 @@ mod tests {
             mutation,
             Effect::Applied,
         );
-        let encoded = serde_json::to_string(&entry).unwrap();
+        let wire = to_wire(entry);
+        assert_eq!(wire.topic, EventTopic::InteractionDomain);
+        let encoded = serde_json::to_string(&wire).unwrap();
         assert!(!encoded.contains("observation"));
         let decoded: JournalEntry = serde_json::from_str(&encoded).unwrap();
-        assert_eq!(
-            serde_json::to_value(decoded).unwrap(),
-            serde_json::to_value(entry).unwrap()
-        );
+        assert_eq!(decoded, wire);
     }
 
     #[test]

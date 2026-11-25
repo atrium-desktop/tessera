@@ -25,6 +25,8 @@ negative_knowledge: true
 - Related: [ADR-0049](0049-standalone-modular-control-center.md),
   [ADR-0056](0056-system-settings-identity-and-boundary.md),
   [ADR-0239](0239-the-control-center-is-a-right-anchored-sheet.md)
+- Extended by: [ADR-0257](0257-explicit-ipc-socket-override-and-settings-preview-harness.md)
+  (explicit IPC socket override and standalone preview harness)
 
 ---
 

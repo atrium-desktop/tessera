@@ -33,6 +33,7 @@ untouched.
 | `[display]` | table | `topology = "mirror"` | Default extend-or-mirror policy for connectors without an explicit role. See [Displays](#displays). |
 | `[layout]` | table | gaps `8`, master_ratio `0.5` | Tiling policy parameters. See [Layout](#layout). |
 | `[dock]` | table | automatic pins | Applications pinned to the dock. See [Dock](#dock). |
+| `[hot_zones]` | table | Dock, Glance HUD, Overview and Control Center zones; 48 px proximity; 140 ms dwell | Screen-edge and corner triggers that summon chrome surfaces. See [Hot Zones](#hot-zones). |
 | `[ui]` | table | `hicolor` icons, `default` 24 px cursor, borderless windows, full motion | Desktop-wide UI and window-presentation policy. See [UI](#ui). |
 | `[input.keyboard]`, `[input.mouse]`, `[input.touchpad]`, `[[input.mapping]]` | tables | repeat 25/250 ms, neutral mouse, natural touchpad, no bindings | Keyboard repeat, mouse/touchpad motion, and absolute-device output bindings. See [Input](#input). |
 | `[wallpaper]` | table | built-in image | Image, video, 3D, or multi-plane parallax wallpaper. See [Wallpaper](#wallpaper). |
@@ -46,9 +47,9 @@ untouched.
 | `[accessibility]` | table | no zoom, no inversion, no high contrast, no sticky/slow/bounce keys, accessibility bus off | Visual, keyboard, and screen-reader assistance. See [Accessibility](#accessibility). |
 | `[screenshot]` | table | XDG Pictures directory, cursor included | Screenshot output policy. See [Screenshots](#screenshots). |
 | `[compositor]` | table | realtime on, frame pinned, rt 10, nice −10, watchdog 100 ms | Frame-loop scheduling protection: realtime priority, CPU pinning, mlock, stall watchdog. See [Compositor Scheduling](#compositor-scheduling). |
-| `[appearance]` | table | system color scheme, normal contrast, standard fonts and scale | Desktop-wide color, contrast, and typography preferences. See [Appearance](#appearance). |
+| `[appearance]` | table | system color scheme, normal contrast, opaque material, standard fonts and scale | Desktop-wide color, contrast, chrome material, and typography preferences. See [Appearance](#appearance). |
 | `[agent]` | table | lockdown on | Agent authorization policy: whether unpaired connections keep privileged capabilities. See [Agent Authorization](#agent-authorization). |
-| `[audit]` | table | 2048 MiB ceiling, 512 MiB reserve | Durable authority-history storage and checkpoint policy. See [Audit Storage](#audit-storage). |
+| `[audit]` | table | `capacity = 4096` | In-memory FIFO ring buffer backing the unified observability event bus. See [Audit (Observability Event Bus)](#audit-observability-event-bus). |
 | `[interaction_domain_sandbox]` | table | default deny | Process-resource budgets for new Interaction Domain application launches; network and host files remain isolated. See [Interaction Domain Sandbox](#interaction-domain-sandbox). |
 
 ## Environment
@@ -65,6 +66,7 @@ not written back to TOML.
 | `TESSERA_WALLPAPER` | `[wallpaper]`, then bundled image | Process-start source override. Accepts an image, animated image, short video, or model-only `.glb` and disables the configured source mode for that process. |
 | `TESSERA_WALLPAPER_MODEL` | configured model, then unset | Process-start 3D-model override. Set to `builtin` for the procedural knot or to a `.glb` path. Ignored when `TESSERA_WALLPAPER` is a `.glb` or the configured mode is parallax. |
 | `TESSERA_BACKEND` | `auto` | Presentation backend target: `auto`, `drm`, or `nested`. When `auto`, automatically selects `nested` if `$WAYLAND_DISPLAY` is present, or `drm` on bare-metal virtual terminals. Explicit values override detection for CI, direct DRM testing within existing sessions, or display-manager transitions. |
+| `TESSERA_IPC_SOCKET` | `$XDG_RUNTIME_DIR/tessera.sock` | Session IPC socket path. The compositor binds it, and `tessera-idle`, the `tessera` CLI, `tessera-settings` and `tessera-mcp` connect to it when no `--socket` flag is given. It must be an absolute path: the compositor refuses to start on an empty or relative value, and clients refuse to connect. It selects only the endpoint: scope executable checks and lock-screen refusal still apply. The compositor passes it on to the applications it launches. See [IPC](ipc.md). |
 | `TESSERA_PREVIEW` | unset | Direct component preview routing: `pivot` (or `launcher`, `spotlight`), `control-center` (or `control_center`), `overview`, or `switcher`. Opens directly into the requested surface on startup and isolates state in a temporary disposable sandbox directory. |
 | `TESSERA_OVERLAY_OFFLOAD` | unset | Set to `1` to enable the hardware-validation path for one topmost opaque overlay candidate (ADR-0235). Requires a complete-set atomic `TEST_ONLY` pass; rejection falls back to composition. Unset keeps overlay allocation and presentation disabled. See [How to Validate KMS Overlay Offload](../how-to/kms-overlay-validation.md). |
 | `TESSERA_COLOR_SCHEME` | `[appearance] color_scheme`, then `system` | Process-start appearance scheme override: `dark`, `light`, or `system`. Overrides persistent configuration for the session and exports to toolkit portals without mutating configuration. Also accepts `TESSERA_THEME` as an alias. |
@@ -604,6 +606,8 @@ preference-related `[ui]` fields as one validated transaction.
 | `color_scheme` | string | `"system"` | `system` advertises no preference (portal `color-scheme` 0); `dark` and `light` map to 1 and 2. |
 | `accent_color` | string | unset | Optional sRGB accent color in `#RRGGBB` form. When unset, the portal omits `accent-color`. |
 | `contrast` | string | `"normal"` | `normal` advertises no special contrast preference; `high` requests high contrast. |
+| `material` | string | `"opaque"` | The material every chrome surface is drawn in: the Dock, Control Center, notifications, alerts, prompts and menus switch together. `opaque` is a solid neutral body; `translucent` is a uniformly see-through body with no blur; `frosted` and `liquid-glass` sample and filter the content beneath. This is a preference. The compositor draws the cheapest of it and every ceiling in force: high contrast (`contrast = "high"` or `[accessibility.visual] high_contrast`) always draws `opaque`. `frosted` and `liquid-glass` capture and blur the desktop beneath each body, which costs GPU time on every frame that repaints near chrome; if the capture fails, the session falls back to `translucent`. The log names the ceiling or fallback when one applies. See [ADR-0252](../adr/0252-chrome-materials-are-one-swappable-shell-wide-choice.md) and [ADR-0253](../adr/0253-a-backdrop-capture-beneath-chrome-draws-the-glass-materials.md). |
+| `material_power` | table | see below | Automatic power ceilings on `material`. See [Material power rules](#material-power-rules). |
 | `font_name` | string | `"Sans 10"` | Proportional interface font description exported to compatible GTK applications. |
 | `monospace_font_name` | string | `"Monospace 10"` | Monospace interface font description exported to compatible GTK applications. |
 | `text_scale` | float | `1.0` | Text scaling multiplier from 0.5 through 3.0. |
@@ -613,9 +617,35 @@ preference-related `[ui]` fields as one validated transaction.
 color_scheme = "dark"
 accent_color = "#3584E4"
 contrast = "normal"
+material = "translucent"
 font_name = "Inter 11"
 monospace_font_name = "Iosevka 11"
 text_scale = 1.0
+```
+
+### Material power rules
+
+`[appearance.material_power]` caps the material while the machine is
+running on power it should save. Each rule names the most expensive
+material drawn in that state. A rule can only lower `material`, never
+raise it, so `liquid-glass` means "no limit". Changes apply as soon as
+the power state changes, and Settings → Appearance says when a rule is
+lowering the material. See
+[ADR-0252](../adr/0252-chrome-materials-are-one-swappable-shell-wide-choice.md).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `on_battery` | string | `"liquid-glass"` | While a system battery is discharging and no mains or USB supply is online. Also editable in Settings → Appearance → On battery. |
+| `low_battery` | string | `"translucent"` | While on battery at or below `low_battery_percent`. |
+| `low_battery_percent` | integer | `20` | The low-battery line, 1 through 99. |
+| `power_saver` | string | `"translucent"` | While the firmware power profile is `low-power` (power-profiles-daemon's power-saver mode), on any power source. |
+
+```toml
+[appearance.material_power]
+on_battery = "translucent"
+low_battery = "opaque"
+low_battery_percent = 15
+power_saver = "translucent"
 ```
 
 ## Displays
@@ -722,10 +752,10 @@ case-insensitively.
 |-------|------|---------|-------------|
 | `pinned` | array of strings | `[]` | Persistent applications shown in the listed order. An empty array leaves only the `Applications` tile plus transient running applications. |
 | `autopopulate` | boolean | `false` | Whether an empty `pinned` list auto-selects up to 12 applications with decoded icons. Manual pin or unpin actions write this as `false`. |
-| `position` | string | `"bottom"` | Screen edge the dock anchors to: `"bottom"`, `"left"`, or `"right"`. |
-| `autohide` | boolean | `false` | Whether the dock automatically hides offscreen into a thin glass capsule when not in use. Maximized windows force autohide overlay behavior regardless of this setting. |
-| `autohide_timeout` | float | `0.50` | Inactivity delay in seconds before an autohidden dock collapses after interaction. Retreating from an unengaged reveal uses an accelerated 0.15s exit. |
-| `autohide_dwell` | float | `0.18` | Continuous hover dwell time in seconds required on the collapsed indicator before expanding. Prevents accidental reveals while skimming bottom-edge content. |
+| `position` | string | `"bottom"` | Screen edge the dock anchors to: `"bottom"`, `"top"`, `"left"`, or `"right"`. The dock is horizontal on `top` and `bottom` and vertical on `left` and `right`. |
+| `autohide` | boolean | `false` | Whether the dock hides completely when not in use. A hidden dock leaves nothing on screen and is summoned by its edge [Hot Zone](#hot-zones). Maximized windows force autohide overlay behavior regardless of this setting. |
+| `autohide_timeout` | float | `0.50` | Inactivity delay in seconds before an autohidden dock hides again after interaction. Retreating from an unengaged reveal uses an accelerated 0.15s exit. |
+| `autohide_dwell` | float | none | **Deprecated and ignored.** The reveal dwell is now `[hot_zones] hover_dwell_ms`. The key still loads so existing files stay valid, and the compositor logs a warning while it is set. |
 | `minimize_animation` | string | `"genie"` | The effect played when a window minimizes into its dock tile (and, reversed, when it restores): `"genie"` funnels the window's lower edge into the icon first, `"scale"` shrinks the window uniformly into the icon, and `"suck"` collapses it into the icon's centre with accelerating ease-in. Also selectable on the Settings Dock page. |
 
 ```toml
@@ -734,7 +764,6 @@ pinned = ["foot.desktop", "firefox", "org.gnome.Nautilus"]
 position = "bottom"
 autohide = true
 autohide_timeout = 0.50
-autohide_dwell = 0.18
 minimize_animation = "genie"
 ```
 
@@ -755,6 +784,70 @@ file changes. Raster icons are decoded in process and SVG icons are compiled in
 process by the same library that compiles cursors, so no external rasterizer
 needs to be installed; an icon whose document cannot be parsed falls back to the
 generic application glyph.
+
+## Hot Zones
+
+The `[hot_zones]` table binds chrome surfaces to the eight screen-perimeter
+slots ([ADR-0254](../adr/0254-dual-channel-reachability-and-component-mounted-hot-zones.md)).
+An unbound slot is inert and never draws. Moving the pointer within
+`proximity_px` of a bound slot fades in a thin affordance flush with the
+screen edge. Only a narrow strip against the edge itself triggers, so window
+controls near a screen edge stay clickable. Every zone is silent while a
+fullscreen window owns the output or Pivot is open. A Dock zone also stands
+down while the Dock is already showing on that edge. Changes apply on live
+reload.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `proximity_px` | float | `48.0` | Pointer distance in logical pixels at which a bound slot's affordance begins to appear. Must be between `12.0` and `240.0`. |
+| `hover_dwell_ms` | integer | `140` | Continuous time in milliseconds the pointer must rest in a `hover` slot's trigger strip before it fires. Must be between `20` and `2000`. |
+| `[[hot_zones.binding]]` | array of tables | see below | Explicit slot bindings. When present, the list **replaces** the default mapping entirely. |
+
+Each `[[hot_zones.binding]]` entry has these fields:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `slot` | string | required | `top`, `bottom`, `left`, `right`, `top-left`, `top-right`, `bottom-left`, or `bottom-right`. |
+| `target` | string | required | The surface to summon (see the table below). |
+| `trigger` | string | the target's default | `hover` fires after `hover_dwell_ms`; `click` fires on a press and release inside the trigger strip without dragging. |
+
+| Target | Allowed slots | Default trigger | Effect |
+|--------|---------------|-----------------|--------|
+| `dock` | edges only | `hover` | Reveals the Dock on the slot's edge. |
+| `glance-hud` | any | `hover` | Shows the read-only Glance HUD (clock, workspace, system readings). |
+| `overview` | any | `click` | Toggles the window and workspace overview. |
+| `control-center` | `left`, `right`, and corners | `click` | Opens the Control Center; re-triggering does not close it. |
+| `pivot` | any | `click` | Toggles Pivot. |
+
+Without explicit bindings, the defaults follow `[dock] position`. The Dock
+takes its own edge, and the Glance HUD takes `top`, or `bottom` when the dock
+is on top. Overview takes `top-left`, and the Control Center takes `right`, or
+`top-right` when the dock is on the right.
+
+Validation rejects a file that binds one slot twice, binds the dock to more
+than one slot, or mounts a target on a slot outside its allowed slots. Two
+consequences of replacing the defaults are worth knowing. A `dock` binding on
+another edge moves the Dock to that edge when it is summoned. A list without a
+`dock` binding leaves an autohidden Dock with no pointer route back on screen.
+
+```toml
+[hot_zones]
+proximity_px = 48.0
+hover_dwell_ms = 140
+
+[[hot_zones.binding]]
+slot = "bottom"
+target = "dock"
+
+[[hot_zones.binding]]
+slot = "top-left"
+target = "overview"
+
+[[hot_zones.binding]]
+slot = "top-right"
+target = "control-center"
+trigger = "hover"
+```
 
 ## Status readings
 
@@ -895,42 +988,21 @@ Pairing prompts, capability ceilings, and runtime grants are enforced per
 request by the IPC server. See the [tessera-mcp Bridge
 Reference](tessera-mcp.md) for the agent-side contract.
 
-## Audit Storage
+## Audit (Observability Event Bus)
 
-The startup-only `[audit]` table bounds the active durable authority history
-at `$XDG_DATA_HOME/tessera/audit/events-v2.jsonl`. Saving valid changes does not
-reconfigure an already-open stream; they apply on the next compositor start.
-See the [IPC Reference](ipc.md) for durability, verification, archival, and
-fail-stop behavior.
+The startup-only `[audit]` table configures the in-memory FIFO ring buffer
+backing Tessera's unified observability event bus ([ADR-0260](../adr/0260-unified-in-memory-observability-event-bus.md)).
+Events are session-scoped and retained in memory without disk I/O or exclusive
+file locking.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `max_store_mib` | integer | `2048` | Hard ceiling for the whole authority history (sealed plus active), 64–1048576 MiB. The next append is refused before crossing it; history is never deleted automatically. |
-| `min_free_mib` | integer | `512` | Filesystem space reserved from audit growth, 64–1048576 MiB. An append is refused while preserving at least this much space. |
-| `checkpoint_interval_mib` | integer | `8` | Maximum uncheckpointed byte tail, 1–256 MiB and no larger than `max_store_mib`. A checkpoint is also refreshed after 4096 events. |
-| `segment_max_mib` | integer | `64` | Active-stream size that triggers sealing into a compressed immutable segment, 1–256 MiB and no larger than `max_store_mib` ([ADR-0137](../adr/0137-audit-segment-manifest-and-retention.md)). |
-| `retain_segments` | integer | `0` | Sealed segments kept on disk (the newest); `0` keeps everything. Pruning also requires an export acknowledgement recorded via `tessera audit export`. |
+| `capacity` | integer | `4096` | Maximum number of events retained in the in-memory FIFO ring buffer, `64`–`65536`. Oldest entries are evicted FIFO while sequence numbers stay strictly monotonic. |
 
 ```toml
 [audit]
-max_store_mib = 2048
-min_free_mib = 512
-checkpoint_interval_mib = 8
-segment_max_mib = 64
-retain_segments = 8
+capacity = 4096
 ```
-
-The first upgraded start of an existing stream performs one complete
-verification to create its authenticated checkpoint. Later starts restore
-the bounded live projection first and verify older history in the background;
-new audit writes wait for that complete verification to succeed.
-
-When the active stream reaches `segment_max_mib`, it is sealed into a
-compressed immutable segment under `audit/segments/`, and the chain
-continues in a fresh active file without resetting sequence numbers. Manage
-the lifecycle — status, verification, export acknowledgement, and retention
-pruning — with `tessera audit`; see [How to Manage Audit
-History](../how-to/manage-audit-history.md).
 
 ## IPC
 
@@ -1019,6 +1091,7 @@ Letters (`a`–`z`, lowercased), digits (`0`–`9`), and the common controls:
 | `workspace_next` | `next_workspace`, `ws_next` | Switch to the next workspace |
 | `workspace_prev` | `prev_workspace`, `ws_prev` | Switch to the previous workspace |
 | `fullscreen` | `toggle_fullscreen`, `togglefullscreen` | Toggle the focused toplevel between fullscreen and its prior state |
+| `always_on_top` | `alwaysontop`, `toggle_always_on_top`, `pin_window` | Keep the focused toplevel above ordinary windows, or release it |
 | `screenshot` | `snapshot`, `prtsc` | Open the interactive screenshot region selector |
 | `lock` | `lockscreen`, `lock_screen` | Secure the session with the first-party lock screen |
 | `quit` | `exit` | Quit the compositor |
@@ -1042,6 +1115,7 @@ configured:
 | `Super+Right` | `workspace_next` |
 | `Super+Left` | `workspace_prev` |
 | `Super+F11` | `fullscreen` |
+| `Super+Shift+T` | `always_on_top` |
 | `Super+L` | `lock` |
 | `Print` | `screenshot` |
 | `Super+Ctrl+Q` | `quit` |

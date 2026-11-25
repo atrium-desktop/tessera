@@ -21,6 +21,7 @@ topology constraints, A/B diagnostic procedures, and packet inspection recipes.
 | :--- | :--- | :--- | :--- |
 | **Explanation** | Conceptual understanding | High-level architecture, protocol state machines, mathematical/timing models. | `docs/explanation/` |
 | **ADR** | Decision contracts | Why an architecture or dependency was chosen, rejected alternatives, trade-offs. | `docs/adr/` |
+| **Verification** | Pass/fail checks | Procedures and acceptance gates that check a running system against stated criteria; the support matrix. See [Verification Standards](verification.md). | `docs/dev/verification/` |
 | **Runbook** | Operational execution | Real-world hardware setup, diagnostic commands, quirks registries, A/B recipes. | `docs/dev/runbooks/` |
 | **Triage** | Symptom attribution | Rapid classification of user-visible bug reports (client vs. compositor vs. driver). | `docs/dev/triage/` |
 | **Postmortem** | Failure retrospective | Blameless timeline and defense-in-depth analysis of major production/session failures. | `docs/dev/postmortems/` |

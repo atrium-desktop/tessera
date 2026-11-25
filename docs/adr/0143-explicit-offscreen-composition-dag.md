@@ -1,14 +1,14 @@
 ---
 id: ADR-0143
 title: "Explicit offscreen composition DAG for cumulative layers"
-status: accepted
+status: superseded
 date: 2026-08-25
-superseded_by: null
+superseded_by: ADR-0213
 ---
 
 # ADR-0143: Explicit offscreen composition DAG for cumulative layers
 
-- Status: Accepted
+- Status: Superseded by [ADR-0213](0213-flat-chrome-and-removal-of-the-status-hud.md) — flat chrome removed the offscreen glass composition graph; the compositor draws no material.
 - Date: 2026-08-25
 - Scope: `aegis-shell`, `aegis-render`, and the compositor backdrop executor;
   supersedes [ADR-0142](0142-layered-glass-backdrop-compositor.md)

@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-07-18
+- Amended by: [ADR-0103](0103-actor-authority-and-interaction-domain-architecture.md) — the Realm is now the Interaction Domain; the mount-scoped socket and launch gate keep this design.
 
 ## Context
 

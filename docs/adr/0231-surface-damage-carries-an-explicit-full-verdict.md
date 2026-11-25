@@ -17,6 +17,7 @@ negative_knowledge: true
   (client damage tracker and SHM upload), `tessera-wayland` (scene frames)
 - Amends: [ADR-0229](0229-the-compositor-supplies-current-damage-flux-owns-the-image-ledger.md),
   [ADR-0230](0230-damage-is-surface-local-and-viewport-is-a-buffer-transfer-inverse.md)
+- Amended by: [ADR-0232](0232-damage-diagnostics-link-tracing-never-a-subscriber.md) — *Damage diagnostics link tracing, never a subscriber*
 
 ---
 

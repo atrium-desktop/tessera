@@ -16,6 +16,9 @@ negative_knowledge: true
 - Consulted: `crates/tessera` (presentation, damage assessment), `crates/tessera-composite` (damage normalization, swapchain image history), `crates/tessera-shell` (modal coordination, Dock hover/preview lifecycle)
 - Amends: [ADR-0021](0021-chrome-component-trait.md), [ADR-0211](0211-regional-damage-is-consumed-as-a-list-and-chrome-footprints-are-measured.md), [ADR-0213](0213-flat-chrome-and-removal-of-the-status-hud.md), [ADR-0220](0220-a-close-ghost-dissolves-separate-alpha-and-geometry-clocks-and-an-owned-handoff-frame.md), [ADR-0224](0224-a-pass-scope-is-the-damage-set.md), [ADR-0225](0225-damage-and-wakeups-follow-the-real-presentation-surface.md)
 - Adopts: Optics ADR-0154 (pairwise-disjoint damage decomposition and idempotent UNORM8 output dither)
+- Note (2026-11-25): the *command panel* this record names is the **Control Center**; the surface was renamed, and [ADR-0239](0239-the-control-center-is-a-right-anchored-sheet.md) removed its last `command_panel` aliases and fixes its current shape. The decision applies to it unchanged.
+- Amended by: [ADR-0234](0234-output-layers-are-plane-allocation-contracts-not-scene-layers.md) — single-pass composition remains authoritative
+- Amended by: [ADR-0253](0253-a-backdrop-capture-beneath-chrome-draws-the-glass-materials.md) — a glass material adds offscreen capture passes before the output pass; the output pass stays single
 
 ---
 

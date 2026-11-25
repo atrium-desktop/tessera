@@ -8,7 +8,7 @@ superseded_by: ADR-0069
 
 # ADR-0068: Cargo-native development and environment-only backend selection
 
-- Status: Superseded by ADR-0069
+- Status: Superseded by [ADR-0069](0069-documentation-owned-installation-and-throwaway-development-staging.md)
 - Date: 2026-07-29
 
 ## Context

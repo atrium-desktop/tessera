@@ -15,6 +15,13 @@ negative_knowledge: true
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0198](0198-collapsed-dock-capsule-hugs-its-edge-behind-an-independent-reveal-corridor.md), [ADR-0203](0203-damage-is-a-placement-mapped-rectangle.md), [ADR-0210](0210-performance-core-affinity-allocation-zero-copy-strided-uploads-and-quiescent-lens-lifecycle.md)
 - Depends on: Optics ADR-0143 (regional frame damage as a rect list and paint-bounds localization)
+- Amended by: [ADR-0217](0217-idle-chrome-does-not-keep-the-frame-clock-and-hover-damage-is-bounded-by-the-component-that-owns-it.md) — chrome footprints are measured, not guessed — this extends the rule to the pointer
+- Amended by: [ADR-0224](0224-a-pass-scope-is-the-damage-set.md) — *A Canvas pass scope is the damage set, not its bounding box — and a fence's reference is not its scope*
+- Amended by: [ADR-0225](0225-damage-and-wakeups-follow-the-real-presentation-surface.md) — *Damage and Wakeups Follow the Real Presentation Surface*
+- Amended by: [ADR-0226](0226-single-pass-chrome-composition-preview-layering-and-modal-dock-inhibition.md) — *Single-Pass Chrome Composition, Live-Preview Thumbnail Layering, and Modal Dock Inhibition*
+- Amended by: [ADR-0227](0227-a-timed-chrome-strip-owns-a-retirement-window.md) — *A Timed Chrome Strip Owns a Retirement Window*
+- Amended by: [ADR-0228](0228-a-commit-repairs-its-own-buffer-not-the-frame-s-damage-union.md) — *A Commit Repairs Its Own Buffer, Not the Frame's Damage Union*
+- Amended by: [ADR-0229](0229-the-compositor-supplies-current-damage-flux-owns-the-image-ledger.md) — *The compositor supplies current damage; Flux owns the per-image ledger*
 
 ---
 

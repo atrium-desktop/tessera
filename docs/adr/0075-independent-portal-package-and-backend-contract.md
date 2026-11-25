@@ -8,7 +8,7 @@ superseded_by: ADR-0095
 
 # ADR-0075: Independent portal package and backend contract
 
-- Status: Superseded by ADR-0095
+- Status: Superseded by [ADR-0095](0095-independent-portal-repository-and-component-workspace.md)
 - Date: 2026-07-29
 
 ## Context

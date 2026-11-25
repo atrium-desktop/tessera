@@ -483,6 +483,7 @@ fn detect_system_status_lightweight(last: &ForkedStatus) -> SystemStatus {
         network_interface,
         wifi_ssid: last.wifi_ssid.clone(),
         battery: detect_battery(),
+        power: detect_power(),
         wifi_enabled: last.wifi_enabled,
         wifi_state,
         wifi_networks: Vec::new(),
@@ -563,6 +564,49 @@ fn detect_battery() -> Option<BatteryStatus> {
         return Some(BatteryStatus { percent, charging });
     }
     None
+}
+
+/// The power source and profile the chrome material policy reads.
+fn detect_power() -> tessera_desktop::system::PowerState {
+    power_state_from(
+        Path::new("/sys/class/power_supply"),
+        Path::new("/sys/firmware/acpi/platform_profile"),
+    )
+}
+
+/// On battery means a system battery is discharging and no external supply
+/// (mains, USB, USB-C) reports itself online. Discharging is the signal that
+/// holds on hardware that exposes no adapter node; "online" guards the
+/// firmware that reports a full battery as discharging while plugged in. A
+/// peripheral battery (`scope` = `Device`, a mouse or headset) is ignored.
+/// Power saver is the firmware profile power-profiles-daemon writes for its
+/// "power-saver" mode.
+fn power_state_from(supplies: &Path, profile: &Path) -> tessera_desktop::system::PowerState {
+    let mut discharging = false;
+    let mut external = false;
+    if let Ok(entries) = fs::read_dir(supplies) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let read = |name: &str| {
+                fs::read_to_string(path.join(name))
+                    .map(|value| value.trim().to_owned())
+                    .unwrap_or_default()
+            };
+            match read("type").as_str() {
+                "Battery" if read("scope") != "Device" => {
+                    discharging |= read("status").eq_ignore_ascii_case("discharging");
+                }
+                "Mains" | "USB" | "USB_C" | "USB_PD" | "USB_PD_DRP" | "Wireless" => {
+                    external |= read_u64(&path.join("online")) == Some(1);
+                }
+                _ => {}
+            }
+        }
+    }
+    tessera_desktop::system::PowerState {
+        on_battery: discharging && !external,
+        power_saver: fs::read_to_string(profile).is_ok_and(|value| value.trim() == "low-power"),
+    }
 }
 
 fn detect_wifi_radio() -> Option<bool> {
@@ -667,6 +711,82 @@ fn read_u64(path: &Path) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A fake `/sys/class/power_supply` tree with the given supplies.
+    fn supplies(name: &str, nodes: &[(&str, &[(&str, &str)])]) -> std::path::PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("tessera-power-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        for (node, files) in nodes {
+            let dir = root.join(node);
+            fs::create_dir_all(&dir).unwrap();
+            for (file, value) in *files {
+                fs::write(dir.join(file), format!("{value}\n")).unwrap();
+            }
+        }
+        root
+    }
+
+    #[test]
+    fn power_source_follows_the_battery_and_the_external_supplies() {
+        let profile = std::path::Path::new("/nonexistent/platform_profile");
+        let unplugged = supplies(
+            "unplugged",
+            &[
+                ("BAT0", &[("type", "Battery"), ("status", "Discharging")]),
+                ("AC", &[("type", "Mains"), ("online", "0")]),
+                // A discharging mouse does not put the laptop on battery.
+                (
+                    "hidpp_battery_0",
+                    &[
+                        ("type", "Battery"),
+                        ("scope", "Device"),
+                        ("status", "Discharging"),
+                    ],
+                ),
+            ],
+        );
+        assert!(power_state_from(&unplugged, profile).on_battery);
+
+        let plugged = supplies(
+            "plugged",
+            &[
+                ("BAT0", &[("type", "Battery"), ("status", "Discharging")]),
+                (
+                    "ucsi-source-psy-USBC000:001",
+                    &[("type", "USB"), ("online", "1")],
+                ),
+            ],
+        );
+        assert!(!power_state_from(&plugged, profile).on_battery);
+
+        let desktop = supplies(
+            "desktop",
+            &[(
+                "hidpp_battery_0",
+                &[
+                    ("type", "Battery"),
+                    ("scope", "Device"),
+                    ("status", "Discharging"),
+                ],
+            )],
+        );
+        assert!(!power_state_from(&desktop, profile).on_battery);
+        assert_eq!(
+            power_state_from(std::path::Path::new("/nonexistent"), profile),
+            tessera_desktop::system::PowerState::default()
+        );
+
+        let profile_file = unplugged.join("platform_profile");
+        fs::write(&profile_file, "low-power\n").unwrap();
+        assert!(power_state_from(&unplugged, &profile_file).power_saver);
+        fs::write(&profile_file, "balanced\n").unwrap();
+        assert!(!power_state_from(&unplugged, &profile_file).power_saver);
+
+        for root in [unplugged, plugged, desktop] {
+            let _ = fs::remove_dir_all(root);
+        }
+    }
 
     #[test]
     fn default_status_marks_optional_devices_unavailable() {

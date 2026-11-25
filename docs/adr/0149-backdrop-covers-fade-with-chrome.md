@@ -1,19 +1,20 @@
 ---
 id: ADR-0149
 title: "Backdrop covers fade with the chrome they back"
-status: accepted
+status: superseded
 date: 2026-09-07
-superseded_by: null
+superseded_by: ADR-0213
 ---
 
 # ADR-0149: Backdrop covers fade with the chrome they back
 
-- Status: Accepted
+- Status: Superseded by [ADR-0213](0213-flat-chrome-and-removal-of-the-status-hud.md) — flat chrome removed the backdrop covers this record fades.
 - Date: 2026-09-07
 - Scope: `tessera-chrome`, `tessera-command-panel`, `tessera-shell`,
   `tessera-prism`, and the compositor backdrop executor; extends
   [ADR-0123](0123-chrome-fades-via-lens-opacity.md) and rides the material
   half of [ADR-0143](0143-explicit-offscreen-composition-dag.md)
+- Amended by: [ADR-0176](0176-control-center-painted-canvas-beyond-backdrop-cover.md) — *Control Center Painted Canvas, Bounded Reveal, and Retired Backdrop Cover*
 
 ## Context
 

@@ -8,11 +8,7 @@ fn minimal_valid_config_loads() {
     assert_eq!(cfg.schema_version, 2);
     assert!(cfg.keybinds.is_empty());
     assert!(cfg.agent.lockdown, "agent IPC must fail closed by default");
-    assert_eq!(cfg.audit.max_store_mib, 2_048);
-    assert_eq!(cfg.audit.min_free_mib, 512);
-    assert_eq!(cfg.audit.checkpoint_interval_mib, 8);
-    assert_eq!(cfg.audit.segment_max_mib, 64);
-    assert_eq!(cfg.audit.retain_segments, 0, "retention is opt-in");
+    assert_eq!(cfg.audit.capacity, 4_096);
 }
 
 #[test]
@@ -178,35 +174,19 @@ fn compositor_realtime_defaults_and_validation() {
 }
 
 #[test]
-fn audit_storage_bounds_parse_and_validate() {
+fn audit_ring_capacity_parses_and_validates() {
     let configured = Config::parse(
         "schema_version = 2\n\
          [audit]\n\
-         max_store_mib = 4096\n\
-         min_free_mib = 1024\n\
-         checkpoint_interval_mib = 16\n\
-         segment_max_mib = 128\n\
-         retain_segments = 12\n",
+         capacity = 8192\n",
     )
     .unwrap();
-    assert_eq!(configured.audit.max_store_mib, 4_096);
-    assert_eq!(configured.audit.min_free_mib, 1_024);
-    assert_eq!(configured.audit.checkpoint_interval_mib, 16);
-    assert_eq!(configured.audit.segment_max_mib, 128);
-    assert_eq!(configured.audit.retain_segments, 12);
+    assert_eq!(configured.audit.capacity, 8_192);
 
-    for body in [
-        "max_store_mib = 32",
-        "min_free_mib = 0",
-        "checkpoint_interval_mib = 0",
-        "max_store_mib = 64\ncheckpoint_interval_mib = 128",
-        "segment_max_mib = 0",
-        "segment_max_mib = 4096\nmax_store_mib = 2048",
-        "retain_segments = 200000",
-    ] {
+    for body in ["capacity = 32", "capacity = 100000"] {
         assert!(
             Config::parse(&format!("schema_version = 2\n[audit]\n{body}\n")).is_err(),
-            "invalid audit policy was accepted: {body}"
+            "invalid audit capacity was accepted: {body}"
         );
     }
 }
@@ -347,6 +327,57 @@ fn config_store_persists_idle_policy_without_losing_other_sections() {
 }
 
 #[test]
+fn appearance_material_defaults_to_opaque_and_parses_every_material() {
+    let cfg = Config::parse("schema_version = 2\n").unwrap();
+    assert_eq!(cfg.appearance.material, Material::Opaque);
+    for (spelling, material) in [
+        ("opaque", Material::Opaque),
+        ("translucent", Material::Translucent),
+        ("frosted", Material::Frosted),
+        ("liquid-glass", Material::LiquidGlass),
+    ] {
+        let cfg = Config::parse(&format!(
+            "schema_version = 2\n[appearance]\nmaterial = \"{spelling}\"\n"
+        ))
+        .unwrap();
+        assert_eq!(cfg.appearance.material, material);
+        assert_eq!(material.as_str(), spelling, "writer and parser agree");
+        assert_eq!(cfg.desktop_preferences().material, material);
+    }
+    assert!(Config::parse("schema_version = 2\n[appearance]\nmaterial = \"glass\"\n").is_err());
+}
+
+#[test]
+fn appearance_material_power_defaults_parse_and_validate() {
+    use tessera_desktop::settings::MaterialPowerPolicy;
+    let cfg = Config::parse("schema_version = 2\n").unwrap();
+    assert_eq!(
+        cfg.appearance.material_power,
+        MaterialPowerPolicy::default()
+    );
+    let cfg = Config::parse(
+        "schema_version = 2\n[appearance.material_power]\non_battery = \"translucent\"\nlow_battery_percent = 30\n",
+    )
+    .unwrap();
+    let power = cfg.desktop_preferences().material_power;
+    assert_eq!(power.on_battery, Material::Translucent);
+    assert_eq!(power.low_battery_percent, 30);
+    assert_eq!(
+        power.low_battery,
+        MaterialPowerPolicy::default().low_battery,
+        "an omitted rule keeps its default"
+    );
+    assert!(
+        Config::parse("schema_version = 2\n[appearance.material_power]\nlow_battery_percent = 0\n")
+            .is_err()
+    );
+    assert!(
+        Config::parse("schema_version = 2\n[appearance.material_power]\non_battery = \"glass\"\n")
+            .is_err()
+    );
+}
+
+#[test]
 fn appearance_color_scheme_parses_portal_vocabulary() {
     let cfg = Config::parse("schema_version = 2\n[appearance]\ncolor_scheme = \"dark\"\n").unwrap();
     assert_eq!(cfg.appearance.color_scheme, ColorScheme::Dark);
@@ -425,6 +456,13 @@ fn config_store_persists_desktop_preferences_without_losing_ui_policy() {
             blue: 255,
         }),
         contrast: Contrast::High,
+        material: Material::LiquidGlass,
+        material_power: tessera_desktop::settings::MaterialPowerPolicy {
+            on_battery: Material::Frosted,
+            low_battery: Material::Opaque,
+            low_battery_percent: 15,
+            power_saver: Material::Translucent,
+        },
         reduced_motion: true,
         font_name: "Inter 11".into(),
         monospace_font_name: "Iosevka 11".into(),
@@ -458,22 +496,38 @@ fn dock_defaults_to_an_empty_user_owned_strip() {
     assert!(cfg.dock.pinned.is_empty());
     assert!(!cfg.dock.autopopulate);
     assert_eq!(cfg.dock.autohide_timeout, 0.50);
-    assert_eq!(cfg.dock.autohide_dwell, 0.18);
+    assert_eq!(cfg.dock.autohide_dwell, None);
 }
 
 #[test]
-fn dock_autohide_dwell_and_timeout_can_be_configured() {
+fn dock_autohide_timeout_can_be_configured() {
     let cfg = Config::parse(
         "schema_version = 2\n\
          [dock]\n\
          autohide = true\n\
-         autohide_timeout = 0.8\n\
-         autohide_dwell = 0.25\n",
+         autohide_timeout = 0.8\n",
     )
     .unwrap();
     assert!(cfg.dock.autohide);
     assert_eq!(cfg.dock.autohide_timeout, 0.8);
-    assert_eq!(cfg.dock.autohide_dwell, 0.25);
+}
+
+#[test]
+fn deprecated_dock_autohide_dwell_still_loads_and_is_recorded() {
+    // ADR-0254 moved the reveal dwell to `[hot_zones] hover_dwell_ms`. A file
+    // written before that keeps loading under `deny_unknown_fields`, and the
+    // key's presence is kept so the compositor can warn about it.
+    let cfg = Config::parse(
+        "schema_version = 2\n\
+         [dock]\n\
+         autohide_dwell = 0.25\n",
+    )
+    .unwrap();
+    assert_eq!(cfg.dock.autohide_dwell, Some(0.25));
+    assert_eq!(
+        cfg.hot_zones.hover_dwell_ms,
+        tessera_desktop::hot_zone::DEFAULT_HOT_ZONE_HOVER_DWELL_MS
+    );
 }
 
 #[test]
@@ -496,6 +550,7 @@ fn dock_position_defaults_to_bottom_and_parses_kebab_case_edges() {
     );
 
     for (spelling, want) in [
+        ("top", tessera_desktop::dock::DockPosition::Top),
         ("left", tessera_desktop::dock::DockPosition::Left),
         ("bottom", tessera_desktop::dock::DockPosition::Bottom),
         ("right", tessera_desktop::dock::DockPosition::Right),
@@ -509,8 +564,8 @@ fn dock_position_defaults_to_bottom_and_parses_kebab_case_edges() {
 }
 
 #[test]
-fn dock_position_rejects_the_top_edge_and_unknown_spellings() {
-    for spelling in ["top", "floating", "BOTTOM"] {
+fn dock_position_rejects_unknown_spellings() {
+    for spelling in ["floating", "BOTTOM", "center"] {
         assert!(
             Config::parse(&format!(
                 "schema_version = 2\n[dock]\nposition = \"{spelling}\"\n"
@@ -519,6 +574,56 @@ fn dock_position_rejects_the_top_edge_and_unknown_spellings() {
             "position = {spelling:?} must be rejected"
         );
     }
+}
+
+#[test]
+fn hot_zones_config_validates_slots_and_component_capabilities() {
+    // Valid explicit bindings
+    let cfg = Config::parse(
+        "schema_version = 2\n\
+         [hot_zones]\n\
+         proximity_px = 64.0\n\
+         hover_dwell_ms = 120\n\
+         [[hot_zones.binding]]\n\
+         slot = \"top\"\n\
+         target = \"dock\"\n\
+         [[hot_zones.binding]]\n\
+         slot = \"top-left\"\n\
+         target = \"overview\"\n",
+    )
+    .unwrap();
+    let policy = cfg.hot_zones.resolve(cfg.dock.position);
+    assert_eq!(policy.proximity_px, 64.0);
+    assert_eq!(policy.hover_dwell_ms, 120);
+    assert_eq!(
+        policy.dock_slot(),
+        Some(tessera_desktop::hot_zone::HotZoneSlot::Top)
+    );
+
+    // Dock cannot mount on a corner
+    assert!(
+        Config::parse(
+            "schema_version = 2\n\
+             [[hot_zones.binding]]\n\
+             slot = \"top-left\"\n\
+             target = \"dock\"\n",
+        )
+        .is_err()
+    );
+
+    // Duplicate slot is rejected
+    assert!(
+        Config::parse(
+            "schema_version = 2\n\
+             [[hot_zones.binding]]\n\
+             slot = \"top\"\n\
+             target = \"glance-hud\"\n\
+             [[hot_zones.binding]]\n\
+             slot = \"top\"\n\
+             target = \"overview\"\n",
+        )
+        .is_err()
+    );
 }
 
 #[test]

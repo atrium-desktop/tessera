@@ -1,9 +1,22 @@
-# Mirror and Multi-Output System Test
+[Verification Index](index.md) > [Manual Verification Playbook](manual-verification.md) > Multi-Output Acceptance
 
-Use this after nested tests pass. It is the physical evidence gate for output
-roles, per-output presentation, mirror letterboxing, absolute input, and
-tentative display changes. It requires two real outputs on one DRM card; a
-single-panel laptop cannot complete it.
+---
+
+# Multi-Output Acceptance
+
+## Scope
+
+The Layer 4 acceptance gate for output roles and mirroring
+([ADR-0243](../../adr/0243-output-roles-and-mirroring.md),
+[ADR-0246](../../adr/0246-mirror-scaling-falls-back-to-a-compositor-target.md)),
+tentative display edits ([ADR-0244](../../adr/0244-tentative-display-edits-revert.md)),
+absolute input binding ([ADR-0245](../../adr/0245-absolute-input-devices-bind-to-outputs.md)),
+and per-output presentation
+([ADR-0247](../../adr/0247-per-output-render-targets.md),
+[ADR-0248](../../adr/0248-capture-composition-is-separate-from-presentation.md),
+[ADR-0249](../../adr/0249-presentation-groups-and-per-output-pacing.md)).
+Run it after the nested checks pass. It requires two real outputs on one DRM
+card; a single-panel laptop cannot complete it.
 
 ## Build and identify hardware
 
@@ -16,7 +29,14 @@ done
 ```
 
 Record the card and connector names. At least two connectors must read
-`connected`. Keep an SSH session or a second VT available.
+`connected`.
+
+## Recovery
+
+Keep an SSH session or a second VT available before starting. If the outputs
+become unusable, run `pgrep -a -x tessera` from it, verify the PID, and stop
+that process with `kill -TERM <pid>`. Never unplug the only display that shows
+the recovery console.
 
 ## Start with verbose output diagnostics
 
@@ -151,11 +171,16 @@ Check:
       merge while it spans, then split after it leaves the seam.
 - [ ] `wp_presentation_feedback.refresh` follows the target output's refresh,
       not the session-wide slowest rate.
-- [ ] Capture/stream migration remains a separate gate before ADR-0247 can be
-      marked accepted.
 
 ## Evidence
 
 Keep `/tmp/tessera-mirror.log`, `tessera display --json` before and after, and
-the exact connector/mode matrix. A pass requires all applicable boxes; note
-the hardware, kernel driver, GPU, and firmware in the report.
+the exact connector/mode matrix. A pass requires all applicable boxes; record
+the date, hardware, kernel driver, GPU, and firmware in the
+[Support Matrix](support-matrix.md).
+
+## Release rule
+
+A change to output roles, mirroring, display configuration, absolute input
+mapping, or the per-output presentation path is not release-ready until every
+applicable section of this gate passes on two physical outputs.

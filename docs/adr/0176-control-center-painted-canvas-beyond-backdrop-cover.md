@@ -17,6 +17,8 @@ negative_knowledge: true
 - Informed: Design System & Accessibility Working Group
 - Amends: [ADR-0021](0021-chrome-component-trait.md), [ADR-0029](0029-animation-and-effect-policy.md), [ADR-0149](0149-backdrop-covers-fade-with-chrome.md), [ADR-0163](0163-decoupled-backdrop-blur-cache-and-continuous-fade.md), [ADR-0171](0171-chrome-animation-pre-pass-synchronization-and-surface-placement-invariants.md), [ADR-0172](0172-adopt-optics-transit-motion-vocabulary.md)
 - Amended by: [ADR-0197](0197-control-center-tray-shelf-and-overflow-disclosure.md) (the tray section's scroll viewport is replaced by a bounded shelf with overflow disclosure)
+- Amended by: [ADR-0177](0177-dock-transit-spring-unification-and-anti-oscillation-latch.md) — *Dock Transit Spring Unification, Anti-Oscillation Dismiss Latching, and Non-Preemptible Swapchain Drain*
+- Amended by: [ADR-0178](0178-optics-transit-smoothstep-unification-and-chrome-prepass-lifecycle.md) — *Optics Transit Smoothstep Unification, Chrome Prepass Lifecycle Decoupling, and Responsive Reveal Spring Tuning*
 
 ---
 

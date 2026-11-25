@@ -9,8 +9,8 @@ pub use tessera_authority::authority::{
 
 pub use journal::{
     ActorSessionAuditAction, AgentAuthAction, AuditedCommand, AuditedInputAction,
-    CapabilityUseAction, Effect, GrantPersistence, JournalEntry, JournalMutation, JournalSnapshot,
-    Origin, ResourceGrantAttemptAction, ResourceGrantAuditAction, ResourceKind,
+    CapabilityUseAction, Effect, EventTopic, GrantPersistence, JournalEntry, JournalMutation,
+    JournalSnapshot, Origin, ResourceGrantAttemptAction, ResourceGrantAuditAction, ResourceKind,
     audit_input_actions,
 };
 pub use schema::{

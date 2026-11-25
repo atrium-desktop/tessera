@@ -368,7 +368,7 @@ impl ControlCenter {
 
     /// Test constructor without a GPU device, tray, or bus.
     #[cfg(test)]
-    fn without_sources() -> ControlCenter {
+    pub(crate) fn without_sources() -> ControlCenter {
         Self::bare(Arc::new(Mutex::new(NotificationQueue::new(3_600_000))))
     }
 
@@ -387,7 +387,9 @@ impl ControlCenter {
     }
 
     fn panel_colors(&self) -> ControlCenterColors {
-        ControlCenterColors::for_scheme(self.design.scheme)
+        // In the shell's material, not the bare palette: the sheet's cards are
+        // chrome bodies and switch with the Dock (ADR-0252).
+        self.design.control_center_colors()
     }
 
     /// Reach of the cards' elevation halo beyond their bodies.
@@ -774,6 +776,9 @@ impl ControlCenter {
 mod presentation;
 
 impl Chrome for ControlCenter {
+    fn hot_zone_capability(&self) -> Option<tessera_desktop::hot_zone::HotZoneCapability> {
+        Some(tessera_desktop::hot_zone::HotZoneTarget::ControlCenter.capability())
+    }
     fn prepare_frame(
         &mut self,
         input: &Input,

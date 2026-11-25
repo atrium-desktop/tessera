@@ -2,8 +2,9 @@
 
 `tessera` starts the compositor and provides the native management surface for
 a running Tessera session. Running it with no subcommand, or with `run`, starts
-the compositor. Resource subcommands connect to
-`$XDG_RUNTIME_DIR/tessera.sock`.
+the compositor. Resource subcommands connect to the socket given by
+`--socket PATH`, then `$TESSERA_IPC_SOCKET`, then
+`$XDG_RUNTIME_DIR/tessera.sock` (see [Socket Path](ipc.md#socket-path)).
 
 `--help`, `-h`, `--version`, `completions`, and `config` work without a
 running compositor or an `XDG_RUNTIME_DIR` value. Run `tessera <domain> --help`
@@ -25,19 +26,6 @@ for per-domain usage.
 | `tessera config` | Validate the standard XDG Tessera configuration file. |
 | `tessera config validate [path]` | Validate the current schema and every semantic invariant without contacting the compositor. |
 | `tessera config migrate [path]` | Explicitly migrate a supported legacy schema after creating a durable, non-overwriting owner-only backup. |
-
-## Audit Commands
-
-Local operations on the durable security-audit history. They never contact a
-running compositor; a live session holds the store's advisory lock, so run
-them while the session is stopped.
-
-| Command | Description |
-|---------|-------------|
-| `tessera audit status` | Summarize the active stream, sealed segments, compressed sizes, pruned history, and the last export destination. |
-| `tessera audit verify [--full]` | Verify sealed segments against the authenticated manifest; `--full` decompresses every segment and replays the complete chain. |
-| `tessera audit export <destination>` | Record an export acknowledgement for every sealed segment in the manifest. Required before pruning without `--force`. |
-| `tessera audit prune <keep> [--force]` | Delete old sealed segments, keeping the newest `keep`. Refuses to remove export-unacknowledged segments unless `--force` is given. |
 
 Migration preserves comments and refuses legacy ambient network or host-path
 authority instead of silently dropping it. See the

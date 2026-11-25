@@ -1,14 +1,14 @@
 ---
 id: ADR-0073
 title: "Prism search and explicit application shortcuts"
-status: accepted
+status: superseded
 date: 2026-07-29
-superseded_by: null
+superseded_by: ADR-0151
 ---
 
 # ADR-0073: Prism search and explicit application shortcuts
 
-- Status: Accepted
+- Status: Superseded by [ADR-0151](0151-pivot-unified-intent-and-action-surface.md) — Prism and the full-screen launcher were consolidated into Pivot.
 - Date: 2026-07-29
 
 ## Context

@@ -4,6 +4,9 @@ use tessera_desktop::settings::AccentColor;
 use tessera_desktop::settings::ColorScheme;
 use tessera_desktop::settings::Contrast;
 use tessera_desktop::settings::DesktopPreferences;
+use tessera_desktop::settings::Material;
+use tessera_desktop::settings::MaterialCeilingReason;
+use tessera_desktop::settings::ResolvedMaterial;
 use tessera_desktop::settings::SettingsAction;
 use tessera_desktop::settings::SettingsSnapshot;
 use tessera_i18n::{Localizer, Message};
@@ -30,6 +33,9 @@ pub(crate) struct AppearanceModule {
     monospace_font_name: TextBuf,
     icon_theme: TextBuf,
     cursor_theme: TextBuf,
+    /// What the shell draws right now, from the snapshot (ADR-0252). Live
+    /// state: it is shown, never drafted.
+    resolution: Option<ResolvedMaterial>,
     dirty: bool,
     invalid: bool,
 }
@@ -49,6 +55,7 @@ impl AppearanceModule {
             monospace_font_name: TextBuf::new(256, ""),
             icon_theme: TextBuf::new(256, ""),
             cursor_theme: TextBuf::new(256, ""),
+            resolution: None,
             dirty: false,
             invalid: false,
         };
@@ -101,6 +108,56 @@ impl AppearanceModule {
     }
 }
 
+/// The localized name of `material`, as the dropdown lists it.
+fn material_name(material: Material, i18n: &Localizer) -> &str {
+    i18n.text(match material {
+        Material::Opaque => Message::MaterialOpaque,
+        Material::Translucent => Message::MaterialTranslucent,
+        Material::Frosted => Message::MaterialFrosted,
+        Material::LiquidGlass => Message::MaterialLiquidGlass,
+    })
+}
+
+/// "Drawn as … right now: …" when the live resolution lowered the saved
+/// preference. `None` while the preference is drawn as chosen, before the
+/// compositor reported a resolution, or when the resolution belongs to a
+/// different preference than the one shown (a just-applied edit).
+fn drawn_as_note(
+    resolution: Option<ResolvedMaterial>,
+    preference: Material,
+    i18n: &Localizer,
+) -> Option<String> {
+    let resolution = resolution?;
+    let reason = resolution.limited_by?;
+    if resolution.preferred != preference || resolution.effective == resolution.preferred {
+        return None;
+    }
+    let why = i18n.text(match reason {
+        MaterialCeilingReason::Renderer => Message::MaterialLimitRenderer,
+        MaterialCeilingReason::HighContrast => Message::MaterialLimitHighContrast,
+        MaterialCeilingReason::OnBattery => Message::MaterialLimitOnBattery,
+        MaterialCeilingReason::LowBattery => Message::MaterialLimitLowBattery,
+        MaterialCeilingReason::PowerSaver => Message::MaterialLimitPowerSaver,
+    });
+    Some(i18n.material_drawn_as(material_name(resolution.effective, i18n), why))
+}
+
+/// Dropdown row of `material`; rows follow [`Material::ALL`], cheapest first.
+fn material_index(material: Material) -> i32 {
+    Material::ALL
+        .iter()
+        .position(|candidate| *candidate == material)
+        .map_or(0, |index| index as i32)
+}
+
+/// The material on dropdown row `index`; an out-of-range row is Opaque.
+fn material_at(index: i32) -> Material {
+    usize::try_from(index)
+        .ok()
+        .and_then(|index| Material::ALL.get(index).copied())
+        .unwrap_or_default()
+}
+
 impl Default for AppearanceModule {
     fn default() -> Self {
         Self::new()
@@ -120,6 +177,10 @@ impl SettingsModule for AppearanceModule {
                 "wallpaper",
                 "background",
                 "contrast",
+                "material",
+                "glass",
+                "blur",
+                "transparency",
                 "icons",
                 "fonts",
                 "cursor",
@@ -210,6 +271,67 @@ impl SettingsModule for AppearanceModule {
                     self.dirty = true;
                 }
             });
+
+            frame.row_ex(&section_heading_layout(), |frame| {
+                frame.label_sized(i18n.text(Message::Material), design.typography.label);
+                frame.flex(1.0);
+                frame.spacer(0.0);
+                let mut selected = material_index(self.draft.material);
+                frame.size_next(180.0, 30.0);
+                if frame.dropdown(
+                    "##settings-material",
+                    &mut selected,
+                    &[
+                        i18n.text(Message::MaterialOpaque),
+                        i18n.text(Message::MaterialTranslucent),
+                        i18n.text(Message::MaterialFrosted),
+                        i18n.text(Message::MaterialLiquidGlass),
+                    ],
+                ) {
+                    self.draft.material = material_at(selected);
+                    self.dirty = true;
+                }
+            });
+            frame.label_wrapped_sized(
+                i18n.text(Message::MaterialDescription),
+                design.typography.footnote,
+                560.0,
+            );
+            // The preference is what is edited; when a ceiling lowered it,
+            // say what is drawn and why instead of letting the two differ
+            // silently.
+            if let Some(note) = drawn_as_note(self.resolution, self.authoritative.material, i18n) {
+                frame.label_wrapped_sized(&note, design.typography.footnote, 560.0);
+            }
+
+            frame.row_ex(&section_heading_layout(), |frame| {
+                frame.label_sized(
+                    i18n.text(Message::MaterialOnBattery),
+                    design.typography.label,
+                );
+                frame.flex(1.0);
+                frame.spacer(0.0);
+                let mut selected = material_index(self.draft.material_power.on_battery);
+                frame.size_next(180.0, 30.0);
+                if frame.dropdown(
+                    "##settings-material-on-battery",
+                    &mut selected,
+                    &[
+                        i18n.text(Message::MaterialOpaque),
+                        i18n.text(Message::MaterialTranslucent),
+                        i18n.text(Message::MaterialFrosted),
+                        i18n.text(Message::MaterialNoLimit),
+                    ],
+                ) {
+                    self.draft.material_power.on_battery = material_at(selected);
+                    self.dirty = true;
+                }
+            });
+            frame.label_wrapped_sized(
+                i18n.text(Message::MaterialPowerDescription),
+                design.typography.footnote,
+                560.0,
+            );
 
             if frame
                 .setting_switch(
@@ -415,6 +537,7 @@ impl SettingsModule for AppearanceModule {
     fn update_settings(&mut self, snapshot: &SettingsSnapshot) {
         self.authoritative = snapshot.preferences.clone();
         self.authoritative_wallpaper = snapshot.wallpaper.clone();
+        self.resolution = snapshot.material;
         if !self.dirty {
             self.reset_editor();
         }
@@ -456,6 +579,59 @@ mod tests {
         let preferences = module.candidate().unwrap();
         assert_eq!(preferences.accent_color.unwrap().to_hex(), "#3366FF");
         assert_eq!(preferences.icon_theme, "Papirus");
+    }
+
+    #[test]
+    fn material_dropdown_rows_round_trip_every_material() {
+        for material in Material::ALL {
+            assert_eq!(material_at(material_index(material)), material);
+        }
+        assert_eq!(material_at(-1), Material::Opaque);
+        assert_eq!(material_at(99), Material::Opaque);
+    }
+
+    #[test]
+    fn a_ceiling_is_explained_and_an_unlimited_preference_is_not() {
+        let i18n = Localizer::default();
+        let limited = ResolvedMaterial {
+            preferred: Material::Frosted,
+            effective: Material::Translucent,
+            limited_by: Some(MaterialCeilingReason::LowBattery),
+        };
+        let note = drawn_as_note(Some(limited), Material::Frosted, &i18n).expect("a note");
+        assert!(
+            note.contains("Translucent") && note.contains("battery is low"),
+            "{note}"
+        );
+        let chosen = ResolvedMaterial {
+            preferred: Material::Frosted,
+            effective: Material::Frosted,
+            limited_by: None,
+        };
+        assert_eq!(drawn_as_note(Some(chosen), Material::Frosted, &i18n), None);
+        assert_eq!(drawn_as_note(None, Material::Frosted, &i18n), None);
+        assert_eq!(
+            drawn_as_note(Some(limited), Material::Opaque, &i18n),
+            None,
+            "a resolution of another preference is not shown against this one"
+        );
+    }
+
+    #[test]
+    fn the_on_battery_limit_reaches_the_transaction() {
+        let mut module = AppearanceModule::new();
+        module.draft.material_power.on_battery = Material::Translucent;
+        assert_eq!(
+            module.candidate().unwrap().material_power.on_battery,
+            Material::Translucent
+        );
+    }
+
+    #[test]
+    fn a_material_choice_reaches_the_transaction() {
+        let mut module = AppearanceModule::new();
+        module.draft.material = Material::Frosted;
+        assert_eq!(module.candidate().unwrap().material, Material::Frosted);
     }
 
     #[test]

@@ -1,9 +1,74 @@
-//! Pure optics-ui option factories for tessera surface materials.
+//! Pure optics-ui option factories for tessera surface bodies. The material a
+//! body is drawn in is resolved into [`Design`] before these run (ADR-0252).
+//!
+//! The one stateful piece is the backdrop-body ledger (ADR-0253): while a
+//! material that samples the backdrop is in effect, every body placed through
+//! [`place_floating`] inside [`record_backdrop_bodies`] is reported, so the
+//! compositor knows where to draw the blurred capture beneath chrome without
+//! each component declaring its geometry a second time.
+
+use std::cell::RefCell;
 
 use optics_ui::{Align, Band, Color, LayoutOpts, PlaceMode, PlaceOpts, Rect};
 
 use crate::Design;
 use crate::tokens::SurfaceRole;
+
+/// One chrome body a backdrop-sampling material must fill (ADR-0253).
+///
+/// Logical output pixels, the space chrome is laid out in. `opacity` is the
+/// body's own fade, so the frost beneath it fades with it instead of
+/// outliving it as a blurred ghost.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BackdropBody {
+    pub bounds: Rect,
+    pub radius: f32,
+    pub opacity: f32,
+}
+
+thread_local! {
+    /// `Some` only inside [`record_backdrop_bodies`]; a body placed outside a
+    /// recording (a test, the settings app) is drawn and simply not reported.
+    static BACKDROP_BODIES: RefCell<Option<Vec<BackdropBody>>> = const { RefCell::new(None) };
+}
+
+/// Run `build` and return the backdrop bodies it placed, in paint order.
+///
+/// Recordings do not nest: an inner call reports its own bodies and the outer
+/// one resumes with what it had. The ledger is restored even if `build`
+/// panics, so a failed frame cannot leak bodies into the next one.
+pub fn record_backdrop_bodies<R>(build: impl FnOnce() -> R) -> (R, Vec<BackdropBody>) {
+    struct Restore(Option<Vec<BackdropBody>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let outer = self.0.take();
+            BACKDROP_BODIES.with(|ledger| *ledger.borrow_mut() = outer);
+        }
+    }
+    let outer = BACKDROP_BODIES.with(|ledger| ledger.borrow_mut().replace(Vec::new()));
+    let restore = Restore(outer);
+    let result = build();
+    let bodies = BACKDROP_BODIES
+        .with(|ledger| ledger.borrow_mut().take())
+        .unwrap_or_default();
+    drop(restore);
+    (result, bodies)
+}
+
+fn report_backdrop_body(design: &Design, bounds: Rect, radius: f32, opacity: f32) {
+    if !design.material.samples_backdrop() || opacity <= 0.0 || bounds.w <= 0.0 || bounds.h <= 0.0 {
+        return;
+    }
+    BACKDROP_BODIES.with(|ledger| {
+        if let Some(bodies) = ledger.borrow_mut().as_mut() {
+            bodies.push(BackdropBody {
+                bounds,
+                radius,
+                opacity: opacity.min(1.0),
+            });
+        }
+    });
+}
 
 /// Base layout for absolutely-placed tessera surfaces.
 ///
@@ -177,6 +242,10 @@ pub fn elevation_halo_for_body(
 /// derive stable child ids from it, which keeps optics-ui's damage and hit-testing
 /// identity stable across frames.
 ///
+/// Under a backdrop-sampling material the body is also reported to the
+/// active [`record_backdrop_bodies`] ledger, which is how the compositor
+/// learns where its frost goes.
+///
 /// The halo takes the **body's** corner radius, not the role's styled one: a
 /// body that morphs (the dock capsule) or overrides its corners still has to
 /// cast its own silhouette, and a halo rounded differently from the body it
@@ -202,6 +271,27 @@ pub fn place_floating(
             |_| {},
         );
     }
+    report_backdrop_body(design, bounds, body.radius, opacity);
+    frame.place(id, &chrome_place(bounds, body), place);
+}
+
+/// Place a chrome body that casts no elevation halo: a menu, a tray popover,
+/// the screenshot loupe.
+///
+/// Like [`place_floating`], it reports the body to an active
+/// [`record_backdrop_bodies`] ledger, so the body is drawn in the shell's
+/// material, glass included. Placing a body with a bare `frame.place` gives it
+/// the material's tint without the frost beneath it.
+pub fn place_body(
+    frame: &mut optics_ui::Frame,
+    id: &str,
+    design: &Design,
+    bounds: Rect,
+    opacity: f32,
+    body: LayoutOpts,
+    place: impl FnOnce(&mut optics_ui::Frame),
+) {
+    report_backdrop_body(design, bounds, body.radius, opacity);
     frame.place(id, &chrome_place(bounds, body), place);
 }
 
@@ -336,11 +426,84 @@ mod tests {
         let material = panel(&dark);
         let style = dark.surfaces.for_role(SurfaceRole::FloatingPanel);
         assert_eq!(material.bg, style.body);
-        assert_eq!(material.bg.components().3, 242, "the body is opaque");
+        assert_eq!(
+            material.bg.components().3,
+            255,
+            "the opaque material is opaque"
+        );
         assert_eq!(material.border, style.border);
         assert_eq!(material.border_width, dark.strokes.hairline);
         assert_eq!(material.radius, 18.0);
         assert_eq!(material.cross, Align::Center);
+    }
+
+    fn body_at(x: f32) -> Rect {
+        Rect {
+            x,
+            y: 10.0,
+            w: 120.0,
+            h: 48.0,
+        }
+    }
+
+    #[test]
+    fn only_a_backdrop_sampling_material_reports_its_bodies() {
+        for material in tessera_desktop::settings::Material::ALL {
+            let design = Design::dark().with_material(material);
+            let ((), bodies) = record_backdrop_bodies(|| {
+                report_backdrop_body(&design, body_at(0.0), 18.0, 1.0);
+            });
+            assert_eq!(
+                bodies.len(),
+                usize::from(material.samples_backdrop()),
+                "{material:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_recording_reports_visible_bodies_in_paint_order_and_nothing_after() {
+        let design = Design::dark().with_material(tessera_desktop::settings::Material::Frosted);
+        let ((), bodies) = record_backdrop_bodies(|| {
+            report_backdrop_body(&design, body_at(0.0), 18.0, 1.0);
+            report_backdrop_body(&design, body_at(200.0), 12.0, 0.0);
+            report_backdrop_body(&design, body_at(400.0), 12.0, 1.5);
+        });
+        assert_eq!(
+            bodies,
+            vec![
+                BackdropBody {
+                    bounds: body_at(0.0),
+                    radius: 18.0,
+                    opacity: 1.0
+                },
+                BackdropBody {
+                    bounds: body_at(400.0),
+                    radius: 12.0,
+                    opacity: 1.0
+                },
+            ],
+            "a faded-out body casts no frost, and opacity is clamped"
+        );
+        // Outside a recording a body is drawn and not reported anywhere.
+        report_backdrop_body(&design, body_at(0.0), 18.0, 1.0);
+        let ((), after) = record_backdrop_bodies(|| ());
+        assert!(after.is_empty(), "no body leaks into the next frame");
+    }
+
+    #[test]
+    fn a_nested_recording_does_not_steal_the_outer_bodies() {
+        let design = Design::dark().with_material(tessera_desktop::settings::Material::LiquidGlass);
+        let (inner, outer) = record_backdrop_bodies(|| {
+            report_backdrop_body(&design, body_at(0.0), 18.0, 1.0);
+            let ((), inner) = record_backdrop_bodies(|| {
+                report_backdrop_body(&design, body_at(200.0), 18.0, 1.0);
+            });
+            report_backdrop_body(&design, body_at(400.0), 18.0, 1.0);
+            inner
+        });
+        assert_eq!(inner.len(), 1);
+        assert_eq!(outer.len(), 2);
     }
 
     #[test]

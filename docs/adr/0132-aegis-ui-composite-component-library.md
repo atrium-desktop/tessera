@@ -11,6 +11,7 @@ superseded_by: null
 - Status: Accepted
 - Date: 2026-08-19
 - Extends: [ADR-0021](0021-chrome-component-trait.md), [ADR-0046](0046-design-system-crate.md), [ADR-0080](0080-hud-status-chips-and-sao-command-panel.md), [ADR-0088](0088-agent-capability-borrowing-and-runtime-grants.md), [ADR-0114](0114-panel-hosted-settings-and-hud-command-panel.md)
+- Note (2026-11-25): the *command panel* this record names is the **Control Center**; the surface was renamed, and [ADR-0239](0239-the-control-center-is-a-right-anchored-sheet.md) removed its last `command_panel` aliases and fixes its current shape. The decision applies to it unchanged.
 
 ## Context
 

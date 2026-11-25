@@ -34,6 +34,8 @@ pub enum PopupSide {
     /// Above the owner (the bottom-anchored default).
     #[default]
     Above,
+    /// Below the owner (an owner anchored to the top edge).
+    Below,
     /// Right of the owner (an owner on the left edge).
     Right,
     /// Left of the owner (an owner on the right edge).
@@ -51,6 +53,26 @@ pub fn place_popup_side(
 ) -> Rect {
     if side == PopupSide::Above {
         return place_popup(owner, size, display);
+    }
+    if side == PopupSide::Below {
+        let w = size.0.min((display.0 - POPUP_MARGIN * 2.0).max(1.0));
+        let h = size.1.min((display.1 - POPUP_MARGIN * 2.0).max(1.0));
+        let max_x = (display.0 - w - POPUP_MARGIN).max(POPUP_MARGIN);
+        let owner_centre = owner.x + owner.w * 0.5;
+        let x = (owner_centre - w * 0.5).clamp(POPUP_MARGIN, max_x);
+        let below = owner.y + owner.h + POPUP_GAP;
+        let above = owner.y - POPUP_GAP - h;
+        let y = if below + h <= display.1 - POPUP_MARGIN {
+            below
+        } else if above >= POPUP_MARGIN {
+            above
+        } else {
+            below.clamp(
+                POPUP_MARGIN,
+                (display.1 - h - POPUP_MARGIN).max(POPUP_MARGIN),
+            )
+        };
+        return Rect { x, y, w, h };
     }
     let w = size.0.min((display.0 - POPUP_MARGIN * 2.0).max(1.0));
     let h = size.1.min((display.1 - POPUP_MARGIN * 2.0).max(1.0));

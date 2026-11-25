@@ -12,6 +12,7 @@ superseded_by: null
 - Date: 2026-09-17
 - Scope: Application discovery, icon-theme lookup, process execution, and intent search
 - Amends: [ADR-0158](0158-clean-break-workspace-boundaries.md), [ADR-0159](0159-package-boundaries-follow-capabilities.md)
+- Amended by: [ADR-0164](0164-universal-domain-pruning-and-primitives-canonization.md) — *Universal Domain Pruning and Primitives Canonization*
 
 ## Context
 

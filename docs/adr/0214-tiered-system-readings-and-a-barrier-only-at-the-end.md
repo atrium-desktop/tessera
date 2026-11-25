@@ -15,6 +15,8 @@ negative_knowledge: true
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0080](0080-hud-status-chips-and-sao-command-panel.md), [ADR-0083](0083-frameless-transient-toasts-and-hud-consolidation.md) (battery reporting leaves the modal band)
 - Related: [ADR-0213](0213-flat-chrome-and-removal-of-the-status-hud.md) (the status HUD whose readings this replaces)
+- Note (2026-11-25): the *command panel* this record names is the **Control Center**; the surface was renamed, and [ADR-0239](0239-the-control-center-is-a-right-anchored-sheet.md) removed its last `command_panel` aliases and fixes its current shape. The decision applies to it unchanged.
+- Amended by: [ADR-0218](0218-dock-reading-column-is-a-six-unit-bento-and-status-lives-on-the-dock.md) — a level reading gains a persistent surface, so the OSD is no longer the only place a charge is visible
 
 ---
 

@@ -15,7 +15,14 @@ negative_knowledge: true
 - Deciders: Tessera Maintainers
 - Supersedes: the analytic-glass material model established by [ADR-0094](0094-liquid-glass-lens-model-and-full-resolution-capture.md), [ADR-0105](0105-single-body-liquid-glass-interaction-focus.md), [ADR-0120](0120-glass-material-roles-and-region-level-backdrop-adaptation.md), and the explicit offscreen composition DAG of [ADR-0143](0143-explicit-offscreen-composition-dag.md) as it applies to chrome materials
 - Amends: [ADR-0021](0021-chrome-component-trait.md) (the `Chrome` contract loses its material declarations), [ADR-0080](0080-hud-status-chips-and-sao-command-panel.md), [ADR-0081](0081-hud-and-command-panel-naming.md), [ADR-0083](0083-frameless-transient-toasts-and-hud-consolidation.md) (the display-only status HUD and its `[hud]` table are removed)
+- Amends: [ADR-0198](0198-collapsed-dock-capsule-hugs-its-edge-behind-an-independent-reveal-corridor.md) (the collapsed capsule no longer tucks to its edge: the dock holds one edge offset in both states)
 - Related: [ADR-0212](0212-zen-vram-minimalism-scratch-consolidation-and-tight-effect-budgets.md) (the VRAM work that measured the cost)
+- Note (2026-11-25): the *command panel* this record names is the **Control Center**; the surface was renamed, and [ADR-0239](0239-the-control-center-is-a-right-anchored-sheet.md) removed its last `command_panel` aliases and fixes its current shape. The decision applies to it unchanged.
+- Amended by: [ADR-0218](0218-dock-reading-column-is-a-six-unit-bento-and-status-lives-on-the-dock.md) — the dock's Bento cell vocabulary grows from one kind to two
+- Amended by: [ADR-0226](0226-single-pass-chrome-composition-preview-layering-and-modal-dock-inhibition.md) — *Single-Pass Chrome Composition, Live-Preview Thumbnail Layering, and Modal Dock Inhibition*
+- Amended by: [ADR-0251](0251-the-dock-sits-a-sliver-off-its-edge.md) — *The Dock Sits a Sliver off Its Edge*
+- Amended by: [ADR-0252](0252-chrome-materials-are-one-swappable-shell-wide-choice.md) — chrome bodies take a user-chosen material (opaque by default); the alpha ≥ 236 invariant becomes "Opaque is 255", and a backdrop capture may return only while the effective material samples it
+- Amended by: [ADR-0255](0255-pure-dock-and-transient-glance-hud.md) — workspace position moves from the Dock's leading Bento cell to the transient Glance HUD and Overview rail.
 
 ---
 

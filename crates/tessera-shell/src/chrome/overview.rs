@@ -141,6 +141,9 @@ impl Overview {
 }
 
 impl Chrome for Overview {
+    fn hot_zone_capability(&self) -> Option<tessera_desktop::hot_zone::HotZoneCapability> {
+        Some(tessera_desktop::hot_zone::HotZoneTarget::Overview.capability())
+    }
     fn render(
         &mut self,
         frame: &mut Frame,

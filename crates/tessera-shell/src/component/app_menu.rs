@@ -254,10 +254,11 @@ impl AppMenu {
                 .title
                 .as_deref()
                 .unwrap_or_else(|| i18n.text(Message::UntitledWindow));
+            let pin_badge = if window.always_on_top { " ▲" } else { "" };
             let label = if window.read_only {
                 format!("{state} {title} · {}", i18n.text(Message::ReadOnlyMirror))
             } else {
-                format!("{state} {title}")
+                format!("{state} {title}{pin_badge}")
             };
             window_rows.push(Row {
                 label,
@@ -302,22 +303,14 @@ impl AppMenu {
         }
 
         let mut lifecycle_rows = Vec::new();
-        if self.maximize_controls {
-            let maximize_target = live
-                .iter()
-                .copied()
-                .find(|window| {
-                    window.state.activated
-                        && !window.read_only
-                        && !window.minimized
-                        && !window.state.fullscreen
-                })
-                .or_else(|| {
-                    live.iter().rev().copied().find(|window| {
-                        !window.read_only && !window.minimized && !window.state.fullscreen
-                    })
-                });
-            if let Some(window) = maximize_target {
+        // Single-window lifecycle actions (Maximize/Restore, Always on Top)
+        // are only unambiguous when the menu targets a single window
+        // ([INV-DOCK-PREVIEW-02], ADR-0256). For multi-instance apps, per-window
+        // actions live directly on each Live Preview card (Pin/Close buttons
+        // and right-clicking an individual preview card).
+        if self.maximize_controls && live.len() == 1 {
+            let window = live[0];
+            if !window.read_only && !window.minimized && !window.state.fullscreen {
                 lifecycle_rows.push(Row {
                     label: if window.state.maximized {
                         i18n.text(Message::RestoreWindow).to_string()
@@ -372,9 +365,13 @@ impl AppMenu {
         let design = self.design;
         let menu_theme = themes::menu(original_theme, &design);
         frame.set_theme(menu_theme);
-        frame.place(
+        materials::place_body(
+            frame,
             self.layer_id,
-            &materials::chrome_place(bounds, materials::popover(&design)),
+            &design,
+            bounds,
+            1.0,
+            materials::popover(&design),
             |frame| {
                 frame.column_ex(
                     &LayoutOpts {
@@ -517,10 +514,14 @@ mod tests {
         let design = Design::dark();
         let body = design.surfaces.for_role(tessera_design::SurfaceRole::Menu);
         // A menu floats over arbitrary application content and carries text,
-        // so its body is near-opaque, keeps the popover radius, and is bounded
+        // so its body is the most solid one, keeps the popover radius, and is bounded
         // by a hairline rather than by an optical rim.
         assert_eq!(body.radius, design.radii.popover);
-        assert_eq!(body.body.components().3, 248, "menus are near-opaque");
+        assert_eq!(
+            body.body.components().3,
+            255,
+            "menus are opaque in the default material"
+        );
         assert_eq!(body.border, design.colors.popover_border);
         assert!(body.border_width > 0.0);
         // The light appearance swaps the body tone and keeps every metric.

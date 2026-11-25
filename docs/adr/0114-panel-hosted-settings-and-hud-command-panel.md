@@ -10,6 +10,11 @@ superseded_by: ADR-0238
 
 - Status: Superseded by [ADR-0238](0238-settings-is-a-standalone-application-behind-its-own-scope.md)
 - Date: 2026-08-07
+- Extended by: [ADR-0132](0132-aegis-ui-composite-component-library.md) — *aegis-ui Composite Component Library and Chrome Scaffolding*
+- Amended by: [ADR-0162](0162-wireless-network-subsystem-and-iwd-bridge.md) — *Wireless Network Subsystem Abstraction and iwd Bridge*
+- Extended by: [ADR-0168](0168-standardized-keyboard-backlight-subsystem.md) — *Standardized Keyboard Backlight Subsystem and Hardware-Agnostic Controls*
+- Amended by: [ADR-0169](0169-control-center-bento-grid-and-mpris-absorption.md) — *Control Center 2D Bento Grid and MPRIS Media Player Absorption*
+- Amended by: [ADR-0175](0175-bluetooth-peripheral-subsystem-and-bluez-bridge.md) — *Bluetooth Peripheral Subsystem, BlueZ Bridge, and HUD/Control-Center Parity*
 
 ## Context
 

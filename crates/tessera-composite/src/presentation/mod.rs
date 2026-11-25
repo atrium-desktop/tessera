@@ -20,8 +20,9 @@ pub use overlay::{
     intersects_any, overlay_transition_damage, plan_overlay,
 };
 pub use scanout::{
-    PrimaryPlanePlan, PrimaryPlaneState, ScanoutRejectReason, ScanoutRejection, ScanoutSceneFacts,
-    ScanoutTelemetry, evaluate_scene, evaluate_surface, overlay_plan_permitted, plan_scanout,
+    PrimaryPlanePlan, PrimaryPlaneState, SCANOUT_SUSTAINED_BLOCK_WARNING, ScanoutLogEvent,
+    ScanoutRejectReason, ScanoutRejection, ScanoutSceneFacts, ScanoutTelemetry, ScanoutTotals,
+    evaluate_scene, evaluate_surface, overlay_plan_permitted, plan_scanout,
 };
 pub use scheduler::{
     ActivationChange, PresentationAvailability, PresentationOutcome, PresentationScheduler,

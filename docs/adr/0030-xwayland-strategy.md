@@ -1,14 +1,14 @@
 ---
 id: ADR-0030
 title: "XWayland strategy"
-status: accepted
+status: rejected
 date: 2026-06-23
 superseded_by: null
 ---
 
 # ADR-0030: XWayland strategy
 
-- Status: Accepted
+- Status: Rejected — XWayland is descoped ([roadmap M8](../explanation/roadmap.md#m8-xwayland-and-application-coverage)); no X11 integration was built.
 - Date: 2026-06-23
 
 ## Context

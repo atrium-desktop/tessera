@@ -9,9 +9,9 @@ mod cli;
 mod error;
 
 pub use cli::{
-    AuditCmd, Cli, Command, ConfigCmd, DisplayCmd, InteractionDomainCmd, JournalCmd,
-    NotificationCmd, OnOff, ParseError, ParseErrorKind, PermissionsCmd, Region, RoleArg, Shell,
-    SystemCmd, TopologyArg, VirtualDisplayCmd, WindowCmd, WorkspaceCmd, WorkspaceTarget,
+    Cli, Command, ConfigCmd, DisplayCmd, InteractionDomainCmd, JournalCmd, NotificationCmd, OnOff,
+    ParseError, ParseErrorKind, PermissionsCmd, Region, RoleArg, Shell, SystemCmd, TopologyArg,
+    VirtualDisplayCmd, WindowCmd, WorkspaceCmd, WorkspaceTarget,
 };
 pub use error::CliError;
 
@@ -142,7 +142,6 @@ fn dispatch_command(socket: &Path, cli: Cli) -> Result<String, CliError> {
         Cmd::Config { command } => {
             dispatch_config(command.unwrap_or(ConfigCmd::Validate { path: None }), json)
         }
-        Cmd::Audit { command } => dispatch_audit(command.unwrap_or(AuditCmd::Status), json),
         Cmd::System { command } => {
             dispatch_system(socket, command.unwrap_or(SystemCmd::Status), json)
         }
@@ -154,7 +153,7 @@ fn dispatch_command(socket: &Path, cli: Cli) -> Result<String, CliError> {
             Ok(receipt("toggled overview", json))
         }
         Cmd::Events => {
-            run_stream(socket, false, json)?;
+            run_stream(socket, None, json)?;
             Ok(String::new())
         }
         Cmd::Completions { shell } => {
@@ -263,170 +262,6 @@ fn config_error(error: tessera_config::LoadError) -> CliError {
                 .join("; ")
         )),
         other => CliError::Fs(other.to_string()),
-    }
-}
-
-/// Resolve the durable audit store path from the environment.
-fn audit_stream_path() -> Result<PathBuf, CliError> {
-    let state_home = std::env::var_os("XDG_STATE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")))
-        .ok_or_else(|| {
-            CliError::Fs("$XDG_STATE_HOME and HOME are unset; cannot locate the audit store".into())
-        })?;
-    Ok(state_home.join("tessera/audit/events-v2.jsonl"))
-}
-
-fn audit_error(error: tessera_audit::AuditError) -> CliError {
-    CliError::Fs(error.to_string())
-}
-
-fn audit_error_json(error: serde_json::Error) -> tessera_audit::AuditError {
-    tessera_audit::AuditError::Decode(error)
-}
-
-fn open_audit_store_at(
-    path: &Path,
-) -> Result<tessera_audit::AuditLog<tessera_audit::journal::Entry>, CliError> {
-    if !path.exists() {
-        return Err(CliError::Fs(format!(
-            "audit store does not exist: {}",
-            path.display()
-        )));
-    }
-    tessera_audit::AuditLog::open_persistent_with_options(
-        tessera_audit::DEFAULT_CAPACITY,
-        path,
-        tessera_audit::AuditStoreOptions::default(),
-    )
-    .map_err(audit_error)
-}
-
-fn dispatch_audit(command: AuditCmd, json: bool) -> Result<String, CliError> {
-    let path = audit_stream_path()?;
-    dispatch_audit_at(&path, command, json)
-}
-
-fn dispatch_audit_at(path: &Path, command: AuditCmd, json: bool) -> Result<String, CliError> {
-    let open = || open_audit_store_at(path);
-    match command {
-        AuditCmd::Status => {
-            let store = open()?;
-            let status = store
-                .audit_status()
-                .ok_or_else(|| CliError::Fs("audit store is not persistent".into()))?;
-            if json {
-                Ok(serde_json::json!({
-                    "path": path,
-                    "next_sequence": status.next_sequence,
-                    "tail_hash": status.tail_hash,
-                    "sealed_segments": status.sealed_segments,
-                    "pruned_segments": status.pruned_segments,
-                    "sealed_original_bytes": status.sealed_original_bytes,
-                    "sealed_compressed_bytes": status.sealed_compressed_bytes,
-                    "active_bytes": status.active_bytes,
-                    "total_bytes": status.total_bytes,
-                    "last_export_destination": status.last_export_destination,
-                })
-                .to_string())
-            } else {
-                let mut lines = vec![format!("audit store: {}", path.display())];
-                lines.push(format!("  next sequence: {}", status.next_sequence));
-                lines.push(format!("  tail hash: {}", &status.tail_hash[..16]));
-                lines.push(format!(
-                    "  sealed segments: {} ({:.1} MiB original, {:.1} MiB compressed)",
-                    status.sealed_segments,
-                    status.sealed_original_bytes as f64 / (1024.0 * 1024.0),
-                    status.sealed_compressed_bytes as f64 / (1024.0 * 1024.0),
-                ));
-                lines.push(format!(
-                    "  active stream: {:.1} MiB",
-                    status.active_bytes as f64 / (1024.0 * 1024.0)
-                ));
-                lines.push(format!(
-                    "  total on disk: {:.1} MiB",
-                    status.total_bytes as f64 / (1024.0 * 1024.0)
-                ));
-                if status.pruned_segments > 0 {
-                    lines.push(format!(
-                        "  pruned segments on record: {}",
-                        status.pruned_segments
-                    ));
-                }
-                if let Some(destination) = status.last_export_destination {
-                    lines.push(format!("  last export: {destination}"));
-                }
-                Ok(lines.join("\n"))
-            }
-        }
-        AuditCmd::Verify { full } => {
-            let store = open()?;
-            if full {
-                // Full verification decompresses every sealed segment and
-                // replays the complete chain, including the active stream.
-                let records: Vec<_> = store.sealed_segments().to_vec();
-                let segments_dir = path.with_file_name("segments");
-                let mut verified = 0usize;
-                for record in &records {
-                    let mut reader =
-                        tessera_audit::segments::SealedSegmentReader::open(record, &segments_dir)
-                            .map_err(audit_error)?;
-                    reader
-                        .for_each_line(|line| {
-                            // Structural JSONL check; the chain walk is the
-                            // manifest MAC plus this decompression pass.
-                            let _envelope: serde_json::Value =
-                                serde_json::from_slice(&line[..line.len() - 1])
-                                    .map_err(audit_error_json)?;
-                            Ok(())
-                        })
-                        .map_err(audit_error)?;
-                    verified += 1;
-                }
-                let active = store.verify_sealed_segments().map_err(audit_error)?;
-                let _ = active;
-                Ok(receipt(
-                    format!(
-                        "verified {verified} sealed segment(s) by full decompression and chain walk"
-                    ),
-                    json,
-                ))
-            } else {
-                let verified = store.verify_sealed_segments().map_err(audit_error)?;
-                Ok(receipt(
-                    format!("verified {verified} sealed segment(s) against the manifest"),
-                    json,
-                ))
-            }
-        }
-        AuditCmd::Export { destination } => {
-            let mut store = open()?;
-            let count = store
-                .mark_segments_exported(&destination)
-                .map_err(audit_error)?;
-            Ok(receipt(
-                format!("recorded export of {count} sealed segment(s) to {destination}"),
-                json,
-            ))
-        }
-        AuditCmd::Prune { keep, force } => {
-            if keep == 0 {
-                return Err(CliError::Usage(ParseError::new(
-                    ParseErrorKind::InvalidValue,
-                    "keep must be at least 1; use 0 retention in config to disable pruning",
-                )));
-            }
-            let mut store = open()?;
-            let removed = store.prune_segments(keep, !force).map_err(audit_error)?;
-            Ok(receipt(
-                format!(
-                    "pruned {} sealed segment(s), keeping {}",
-                    removed.len(),
-                    keep
-                ),
-                json,
-            ))
-        }
     }
 }
 
@@ -827,14 +662,21 @@ fn dispatch_journal(
     command: Option<JournalCmd>,
     json: bool,
 ) -> Result<String, CliError> {
-    match command.unwrap_or(JournalCmd::List { since: None }) {
-        JournalCmd::List { since } => {
+    match command.unwrap_or(JournalCmd::List {
+        since: None,
+        topics: Vec::new(),
+    }) {
+        JournalCmd::List { since, topics } => {
             let mut client = Client::connect_with(socket, query_caps()).map_err(connect_err)?;
-            let snapshot = client.journal(since.unwrap_or(0)).map_err(io_err)?;
+            let filter = (!topics.is_empty()).then_some(topics);
+            let snapshot = client
+                .journal_filtered(since.unwrap_or(0), filter)
+                .map_err(io_err)?;
             Ok(render(&snapshot, json, format_journal))
         }
-        JournalCmd::Follow => {
-            run_stream(socket, true, json)?;
+        JournalCmd::Follow { topics } => {
+            let filter = (!topics.is_empty()).then_some(topics);
+            run_stream(socket, Some(filter), json)?;
             Ok(String::new())
         }
     }
@@ -1248,16 +1090,20 @@ fn dispatch_interaction_domain(
 /// Subscribe to the event stream and print each event as a line until the
 /// connection closes. Returns the error that ended the stream.
 pub fn run_subscribe(socket: &Path) -> Result<(), CliError> {
-    run_stream(socket, false, false)
+    run_stream(socket, None, false)
 }
 
-/// Subscribe to the detailed mutation journal and print entries until the
-/// connection closes.
+/// Subscribe to the detailed observability event bus and print entries until
+/// the connection closes.
 pub fn run_subscribe_journal(socket: &Path) -> Result<(), CliError> {
-    run_stream(socket, true, false)
+    run_stream(socket, Some(None), false)
 }
 
-fn run_stream(socket: &Path, journal: bool, json: bool) -> Result<(), CliError> {
+fn run_stream(
+    socket: &Path,
+    journal: Option<Option<Vec<tessera_protocol::EventTopic>>>,
+    json: bool,
+) -> Result<(), CliError> {
     let caps = ConnectionCapabilities {
         query: true,
         control: false,
@@ -1266,9 +1112,9 @@ fn run_stream(socket: &Path, journal: bool, json: bool) -> Result<(), CliError> 
         interaction_domain: false,
     };
     let mut client = Client::connect_with(socket, caps).map_err(connect_err)?;
-    if journal {
+    if let Some(topics) = journal {
         client
-            .subscribe_journal()
+            .subscribe_journal_topics(topics)
             .map_err(|e| CliError::Io(format!("subscribe journal: {e}")))?;
     } else {
         client
@@ -1773,6 +1619,15 @@ fn format_mutation(mutation: &tessera_protocol::JournalMutation) -> String {
             };
             format!("agent {principal}: {action}")
         }
+        tessera_protocol::JournalMutation::External {
+            source,
+            kind,
+            detail,
+            ..
+        } => match detail {
+            Some(detail) => format!("{source} {kind} {detail}"),
+            None => format!("{source} {kind}"),
+        },
         other => format!("{other:?}"),
     }
 }
@@ -1839,7 +1694,6 @@ pub fn requires_session(cli: &Cli) -> bool {
                 | Command::Query { .. }
                 | Command::Completions { .. }
                 | Command::Config { .. }
-                | Command::Audit { .. }
         )
     )
 }
@@ -1849,9 +1703,14 @@ pub fn execute(cli: Cli) -> Result<String, CliError> {
     let socket = if requires_session(&cli) {
         match cli.socket.clone() {
             Some(path) => path,
-            None => tessera_env::runtime_dir()
-                .map(|dir| tessera_ipc::socket_paths::default_socket_path(&dir))
-                .map_err(|error| CliError::Connect(error.to_string()))?,
+            None => match tessera_env::ipc_socket_override()
+                .map_err(|error| CliError::Connect(error.to_string()))?
+            {
+                Some(path) => path,
+                None => tessera_env::runtime_dir()
+                    .map(|dir| tessera_ipc::socket_paths::default_socket_path(&dir))
+                    .map_err(|error| CliError::Connect(error.to_string()))?,
+            },
         }
     } else {
         PathBuf::new()
@@ -1943,72 +1802,5 @@ mod tests {
         );
         assert!(dir.is_dir());
         std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn audit_cli_status_verify_export_and_prune_round_trip() {
-        // Build a small real store with tiny segments via the security layer,
-        // then drive the CLI dispatch over it. The dispatch functions resolve
-        // the store through XDG_STATE_HOME, so scope that variable per test.
-        let dir = tempfile::tempdir().unwrap();
-        let state_home = dir.path().join("state");
-        std::fs::create_dir_all(state_home.join("tessera/audit")).unwrap();
-        let stream = state_home.join("tessera/audit/events-v2.jsonl");
-        let options = tessera_audit::AuditStoreOptions {
-            min_free_bytes: 0,
-            checkpoint_interval_events: u64::MAX,
-            checkpoint_interval_bytes: u64::MAX,
-            segment_max_bytes: 1,
-            retain_segments: 0,
-            ..tessera_audit::AuditStoreOptions::default()
-        };
-        {
-            let mut log = tessera_audit::AuditLog::<tessera_audit::journal::Entry>::open_persistent_with_options(8, &stream, options).unwrap();
-            for sequence in 1..=12u64 {
-                log.try_append(
-                    sequence,
-                    tessera_protocol::Origin::Internal,
-                    tessera_protocol::JournalMutation::ScopeClaim {
-                        scope: format!("scope-{sequence}"),
-                    },
-                    tessera_protocol::Effect::Applied,
-                )
-                .unwrap();
-            }
-        }
-        // The dispatch functions resolve the store via XDG_STATE_HOME; the
-        // test drives the path-scoped variant directly.
-        let dispatch = |command| dispatch_audit_at(&stream, command, false);
-        let status = dispatch(AuditCmd::Status).unwrap();
-        assert!(status.contains("sealed segments: "), "{status}");
-        assert!(status.contains("next sequence"), "{status}");
-
-        let json = dispatch_audit_at(&stream, AuditCmd::Status, true).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert!(parsed["sealed_segments"].as_u64().unwrap() >= 1);
-
-        let verify = dispatch(AuditCmd::Verify { full: false }).unwrap();
-        assert!(verify.contains("verified"), "{verify}");
-        let full = dispatch(AuditCmd::Verify { full: true }).unwrap();
-        assert!(full.contains("full decompression"), "{full}");
-
-        // Prune refuses without an export acknowledgement.
-        assert!(
-            dispatch(AuditCmd::Prune {
-                keep: 1,
-                force: false
-            })
-            .is_err()
-        );
-        dispatch(AuditCmd::Export {
-            destination: "/tmp/audit-archive".into(),
-        })
-        .unwrap();
-        let pruned = dispatch(AuditCmd::Prune {
-            keep: 1,
-            force: false,
-        })
-        .unwrap();
-        assert!(pruned.contains("pruned"), "{pruned}");
     }
 }

@@ -12,6 +12,13 @@ superseded_by: null
 - Date: 2026-09-17
 - Scope: Workspace ownership, application composition, IPC, and dependency enforcement
 - Amends: [ADR-0158](0158-clean-break-workspace-boundaries.md)
+- Amended by: [ADR-0160](0160-consolidate-application-subsystem.md) — *Consolidate application subsystem into tessera-apps*
+- Amended by: [ADR-0161](0161-rename-backend-to-platform.md) — *Rename tessera-backend to tessera-platform*
+- Amended by: [ADR-0164](0164-universal-domain-pruning-and-primitives-canonization.md) — *Universal Domain Pruning and Primitives Canonization*
+- Amended by: [ADR-0173](0173-rename-render-to-composite.md) — *Rename tessera-render to tessera-composite*
+- Amended by: [ADR-0174](0174-universal-model-motion-view-chrome-architecture.md) — *Universal Model-Motion-View Architecture and Full Transit Adoption Across Shell Chrome*
+- Amended by: [ADR-0206](0206-pure-compositor-dependency-hygiene-and-build-parallelism.md) — *Pure Compositor Dependency Hygiene and Build Pipeline Parallelization*
+- Amended by: [ADR-0209](0209-in-tree-dependency-replacement-and-minimalism.md) — *In-Tree Dependency Replacement and Minimalist Systems Architecture*
 
 ## Context
 

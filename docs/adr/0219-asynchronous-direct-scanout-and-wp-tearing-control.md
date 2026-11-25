@@ -15,6 +15,7 @@ negative_knowledge: true
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0077](0077-presentation-domain-redraw-state-machine.md) (presentation domain redraw lifecycle), [ADR-0182](0182-fullscreen-frame-pacing-and-direct-scanout-fidelity.md) (fullscreen frame pacing and direct-scanout fidelity)
 - Implements: `wp_tearing_control_v1` (Wayland Staging Protocol)
+- Amended by: [ADR-0258](0258-client-cursor-hardware-plane-offload-and-per-output-overlay-parity.md) — eligible client cursor surfaces offload onto the KMS hardware cursor plane so fullscreen clients with custom cursors keep asynchronous direct scanout.
 
 ---
 

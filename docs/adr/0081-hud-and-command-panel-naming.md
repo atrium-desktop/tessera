@@ -1,15 +1,16 @@
 ---
 id: ADR-0081
 title: "HUD and command panel naming"
-status: accepted
+status: deprecated
 date: 2026-07-30
 superseded_by: null
 ---
 
 # ADR-0081: HUD and command panel naming
 
-- Status: Accepted
+- Status: Deprecated — the names this record fixed no longer exist: the status HUD was removed by [ADR-0213](0213-flat-chrome-and-removal-of-the-status-hud.md), the command panel is the Control Center ([ADR-0239](0239-the-control-center-is-a-right-anchored-sheet.md)), and the `aegis-sao-panel`, `aegis-command-panel`, and `aegis-statusbar` packages are gone. Decision 3 was already superseded by [ADR-0144](0144-product-semantic-design-vocabulary.md).
 - Date: 2026-07-30
+- Superseded in part by: [ADR-0144](0144-product-semantic-design-vocabulary.md) — Decision 3 (the retained `Sao` design-token names)
 
 ## Context
 

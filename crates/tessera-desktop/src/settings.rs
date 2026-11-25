@@ -49,6 +49,207 @@ pub enum Contrast {
     High,
 }
 
+/// The material every chrome surface is drawn in (ADR-0252).
+///
+/// One material applies to the whole shell at once — the dock, the Control
+/// Center, notifications, alerts and menus never mix materials, because a
+/// desktop whose surfaces disagree about what they are made of reads as
+/// broken rather than layered.
+///
+/// Variants are declared cheapest first and the derived ordering is the cost
+/// ordering: a [`MaterialCeiling`] caps a preference by taking the minimum.
+/// Every variant down the ordering must therefore be strictly cheaper to draw
+/// and no harder to read than the one above it.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Material {
+    /// A fully opaque neutral body. One rounded-rect fill; nothing beneath
+    /// the surface is read or blended.
+    #[default]
+    Opaque,
+    /// A uniformly translucent body: one alpha-blended fill, which the
+    /// fixed-function blend stage does for free. Content beneath shows
+    /// through unblurred.
+    Translucent,
+    /// A blurred and tinted capture of the content beneath the surface.
+    Frosted,
+    /// A refracting lens body over a full-resolution capture.
+    LiquidGlass,
+}
+
+impl Material {
+    /// Every material, cheapest first.
+    pub const ALL: [Material; 4] = [
+        Material::Opaque,
+        Material::Translucent,
+        Material::Frosted,
+        Material::LiquidGlass,
+    ];
+
+    /// Whether drawing this material requires the compositor to capture and
+    /// filter the scene beneath the surface. The materials below this line
+    /// are painted values; the ones above it cost a backdrop pass.
+    #[must_use]
+    pub fn samples_backdrop(self) -> bool {
+        matches!(self, Material::Frosted | Material::LiquidGlass)
+    }
+
+    /// The configuration spelling, as written under `[appearance]`.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Material::Opaque => "opaque",
+            Material::Translucent => "translucent",
+            Material::Frosted => "frosted",
+            Material::LiquidGlass => "liquid-glass",
+        }
+    }
+}
+
+/// Why a [`MaterialCeiling`] applies. Carried so the effective material can
+/// be explained (in the log and in Settings) instead of silently differing
+/// from what the user chose.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaterialCeilingReason {
+    /// The renderer cannot draw anything above this material.
+    Renderer,
+    /// High contrast is on: a surface must not let content show through it.
+    HighContrast,
+    /// Running on battery ([`MaterialPowerPolicy::on_battery`]).
+    OnBattery,
+    /// The battery is at or below [`MaterialPowerPolicy::low_battery_percent`]
+    /// and not charging.
+    LowBattery,
+    /// The platform power profile asks for low power.
+    PowerSaver,
+}
+
+/// The automatic power rules of the material policy (ADR-0252 power ceilings).
+///
+/// Each field is a ceiling: the most expensive material drawn while that state
+/// holds. They can only lower the user's preference, never raise it, so a
+/// rule set to `liquid-glass` (the most expensive material) is simply "no
+/// limit".
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MaterialPowerPolicy {
+    /// While on battery. Default: no limit.
+    pub on_battery: Material,
+    /// While the battery is at or below `low_battery_percent` and not
+    /// charging. Default: translucent, so a draining laptop stops paying for
+    /// a backdrop capture.
+    pub low_battery: Material,
+    /// The low-battery line, 1..=99. Default 20, the first default
+    /// `[battery] warn_at` threshold.
+    pub low_battery_percent: u8,
+    /// While the platform power profile is power-saver. Default: translucent.
+    pub power_saver: Material,
+}
+
+impl Default for MaterialPowerPolicy {
+    fn default() -> Self {
+        Self {
+            on_battery: Material::LiquidGlass,
+            low_battery: Material::Translucent,
+            low_battery_percent: 20,
+            power_saver: Material::Translucent,
+        }
+    }
+}
+
+impl MaterialPowerPolicy {
+    /// The ceilings this policy puts in force for `power` and `battery`.
+    #[must_use]
+    pub fn ceilings(
+        &self,
+        power: crate::system::PowerState,
+        battery: Option<crate::system::BatteryStatus>,
+    ) -> Vec<MaterialCeiling> {
+        let mut ceilings = Vec::new();
+        if power.on_battery {
+            ceilings.push(MaterialCeiling {
+                max: self.on_battery,
+                reason: MaterialCeilingReason::OnBattery,
+            });
+        }
+        if let Some(battery) = battery
+            && !battery.charging
+            && power.on_battery
+            && battery.percent <= self.low_battery_percent
+        {
+            ceilings.push(MaterialCeiling {
+                max: self.low_battery,
+                reason: MaterialCeilingReason::LowBattery,
+            });
+        }
+        if power.power_saver {
+            ceilings.push(MaterialCeiling {
+                max: self.power_saver,
+                reason: MaterialCeilingReason::PowerSaver,
+            });
+        }
+        ceilings
+    }
+
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if !(1..=99).contains(&self.low_battery_percent) {
+            return Err("material low-battery percentage is outside 1..=99");
+        }
+        Ok(())
+    }
+}
+
+/// An upper bound on the material the shell may draw right now.
+///
+/// The switching policy is "the user's preference, capped by every ceiling
+/// in force": [`resolve_material`]. Manual choice is the preference; every
+/// automatic rule — the renderer's capability, accessibility, and later the
+/// power source or a low-battery state — is expressed as a ceiling, so an
+/// automatic rule can only ever make the desktop cheaper and plainer than the
+/// user asked for, never more expensive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MaterialCeiling {
+    pub max: Material,
+    pub reason: MaterialCeilingReason,
+}
+
+/// The outcome of [`resolve_material`]: what will be drawn and, when that
+/// differs from the preference, which ceiling decided it.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResolvedMaterial {
+    pub preferred: Material,
+    pub effective: Material,
+    /// The ceiling that lowered the preference, `None` when the preference
+    /// is drawn as chosen. When several ceilings bind, the lowest one is
+    /// reported, since it is the one that decided the outcome.
+    pub limited_by: Option<MaterialCeilingReason>,
+}
+
+/// Resolve a material preference against the ceilings currently in force.
+#[must_use]
+pub fn resolve_material(
+    preferred: Material,
+    ceilings: impl IntoIterator<Item = MaterialCeiling>,
+) -> ResolvedMaterial {
+    let mut resolved = ResolvedMaterial {
+        preferred,
+        effective: preferred,
+        limited_by: None,
+    };
+    for ceiling in ceilings {
+        if ceiling.max < resolved.effective {
+            resolved.effective = ceiling.max;
+            resolved.limited_by = Some(ceiling.reason);
+        }
+    }
+    resolved
+}
+
 /// An sRGB accent color stored without an alpha channel.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +301,13 @@ pub struct DesktopPreferences {
     pub color_scheme: ColorScheme,
     pub accent_color: Option<AccentColor>,
     pub contrast: Contrast,
+    /// The chrome material the user prefers. What is drawn is this value
+    /// after [`resolve_material`]; see [`Material`].
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub material: Material,
+    /// The automatic power ceilings on `material` (ADR-0252 power ceilings).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub material_power: MaterialPowerPolicy,
     pub reduced_motion: bool,
     pub font_name: String,
     pub monospace_font_name: String,
@@ -117,6 +325,8 @@ impl Default for DesktopPreferences {
             color_scheme: ColorScheme::System,
             accent_color: None,
             contrast: Contrast::Normal,
+            material: Material::Opaque,
+            material_power: MaterialPowerPolicy::default(),
             reduced_motion: false,
             font_name: "Sans 10".into(),
             monospace_font_name: "Monospace 10".into(),
@@ -137,6 +347,7 @@ impl DesktopPreferences {
         if !(8..=128).contains(&self.cursor_size) {
             return Err("cursor size is outside 8..=128");
         }
+        self.material_power.validate()?;
         for value in [
             &self.font_name,
             &self.monospace_font_name,
@@ -382,6 +593,11 @@ pub struct SettingsSnapshot {
     pub idle: IdleSettings,
     pub dock: DockSettings,
     pub wallpaper: WallpaperSettings,
+    /// What the shell draws right now: `preferences.material` after every
+    /// ceiling in force, and the one that decided it (ADR-0252). Live state,
+    /// not a setting: it moves with the power source without a revision.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub material: Option<ResolvedMaterial>,
 }
 
 /// One typed persistent-settings transaction.
@@ -485,6 +701,132 @@ pub struct SettingsReceipt {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn materials_are_ordered_cheapest_first() {
+        // Ceilings cap a preference by taking the minimum, so the declaration
+        // order is load-bearing: it is the cost order.
+        let mut sorted = Material::ALL;
+        sorted.sort();
+        assert_eq!(sorted, Material::ALL);
+        assert!(Material::Opaque < Material::Translucent);
+        assert!(Material::Translucent < Material::Frosted);
+        assert!(Material::Frosted < Material::LiquidGlass);
+        assert_eq!(Material::default(), Material::Opaque);
+    }
+
+    #[test]
+    fn only_the_glass_materials_sample_the_backdrop() {
+        assert!(!Material::Opaque.samples_backdrop());
+        assert!(!Material::Translucent.samples_backdrop());
+        assert!(Material::Frosted.samples_backdrop());
+        assert!(Material::LiquidGlass.samples_backdrop());
+    }
+
+    #[test]
+    fn an_unconstrained_preference_is_drawn_as_chosen() {
+        for material in Material::ALL {
+            let resolved = resolve_material(material, []);
+            assert_eq!(resolved.effective, material);
+            assert_eq!(resolved.limited_by, None);
+        }
+    }
+
+    #[test]
+    fn a_ceiling_only_ever_lowers_the_preference() {
+        let renderer = MaterialCeiling {
+            max: Material::Translucent,
+            reason: MaterialCeilingReason::Renderer,
+        };
+        let lowered = resolve_material(Material::LiquidGlass, [renderer]);
+        assert_eq!(lowered.preferred, Material::LiquidGlass);
+        assert_eq!(lowered.effective, Material::Translucent);
+        assert_eq!(lowered.limited_by, Some(MaterialCeilingReason::Renderer));
+
+        // A ceiling above the preference never raises it.
+        let unchanged = resolve_material(Material::Opaque, [renderer]);
+        assert_eq!(unchanged.effective, Material::Opaque);
+        assert_eq!(unchanged.limited_by, None);
+    }
+
+    #[test]
+    fn power_rules_cap_by_power_source_charge_and_profile() {
+        use crate::system::{BatteryStatus, PowerState};
+        let policy = MaterialPowerPolicy::default();
+        let mains = PowerState::default();
+        let battery = PowerState {
+            on_battery: true,
+            power_saver: false,
+        };
+        let at = |percent, charging| Some(BatteryStatus { percent, charging });
+        let effective =
+            |power, level| resolve_material(Material::LiquidGlass, policy.ceilings(power, level));
+
+        // Mains, or a battery above the low line: glass as chosen.
+        assert_eq!(
+            effective(mains, at(10, false)).effective,
+            Material::LiquidGlass
+        );
+        assert_eq!(
+            effective(battery, at(80, false)).effective,
+            Material::LiquidGlass
+        );
+        // Draining at or below the line: translucent, and the reason says so.
+        let low = effective(battery, at(20, false));
+        assert_eq!(low.effective, Material::Translucent);
+        assert_eq!(low.limited_by, Some(MaterialCeilingReason::LowBattery));
+        // Power saver caps on any source.
+        let saver = effective(
+            PowerState {
+                on_battery: false,
+                power_saver: true,
+            },
+            None,
+        );
+        assert_eq!(saver.limited_by, Some(MaterialCeilingReason::PowerSaver));
+
+        // A stricter on-battery rule binds as soon as the plug comes out.
+        let strict = MaterialPowerPolicy {
+            on_battery: Material::Opaque,
+            ..policy
+        };
+        let resolved = resolve_material(Material::Frosted, strict.ceilings(battery, at(90, false)));
+        assert_eq!(resolved.effective, Material::Opaque);
+        assert_eq!(resolved.limited_by, Some(MaterialCeilingReason::OnBattery));
+        // A ceiling never raises a cheaper preference.
+        let cheap = resolve_material(Material::Opaque, policy.ceilings(battery, at(5, false)));
+        assert_eq!(cheap.effective, Material::Opaque);
+        assert_eq!(cheap.limited_by, None);
+        // The low line is validated.
+        assert!(
+            MaterialPowerPolicy {
+                low_battery_percent: 0,
+                ..policy
+            }
+            .validate()
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn the_lowest_binding_ceiling_is_the_one_reported() {
+        let renderer = MaterialCeiling {
+            max: Material::Translucent,
+            reason: MaterialCeilingReason::Renderer,
+        };
+        let contrast = MaterialCeiling {
+            max: Material::Opaque,
+            reason: MaterialCeilingReason::HighContrast,
+        };
+        for order in [[renderer, contrast], [contrast, renderer]] {
+            let resolved = resolve_material(Material::Frosted, order);
+            assert_eq!(resolved.effective, Material::Opaque);
+            assert_eq!(
+                resolved.limited_by,
+                Some(MaterialCeilingReason::HighContrast)
+            );
+        }
+    }
 
     #[test]
     fn action_validation_rejects_unbounded_values() {

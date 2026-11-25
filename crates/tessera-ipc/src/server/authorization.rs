@@ -289,6 +289,7 @@ pub(super) fn journal_entry_permitted(
                 .as_ref()
                 .is_some_and(|principal| principal.as_ref() == subject)
         }),
+        JournalMutation::External { .. } => true,
     }
 }
 

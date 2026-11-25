@@ -1,16 +1,16 @@
 ---
 id: ADR-0202
 title: "Single-pass full-output backdrop capture and glass interior compute elision"
-status: accepted
+status: superseded
 date: 2026-11-02
 scope: core/rendering, material/glass
-superseded_by: null
+superseded_by: ADR-0213
 negative_knowledge: true
 ---
 
 # 0202. Single-pass full-output backdrop capture and glass interior compute elision
 
-- Status: Accepted
+- Status: Superseded by [ADR-0213](0213-flat-chrome-and-removal-of-the-status-hud.md) — flat chrome removed full-output backdrop capture and the glass interior pass.
 - Date: 2026-11-02
 - Deciders: ming
 - Consulted: optics maintainers (opts lineage ADR-0063)

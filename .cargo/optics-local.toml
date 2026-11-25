@@ -11,6 +11,8 @@
 [patch."https://github.com/ming2k/optics"]
 optics-gfx = { path = "../optics/crates/optics-gfx" }
 optics-gfx-sys = { path = "../optics/crates/optics-gfx-sys" }
+optics-material = { path = "../optics/crates/optics-material" }
+optics-material-sys = { path = "../optics/crates/optics-material-sys" }
 optics-scene = { path = "../optics/crates/optics-scene" }
 optics-scene-sys = { path = "../optics/crates/optics-scene-sys" }
 optics-ui = { path = "../optics/crates/optics-ui" }

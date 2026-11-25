@@ -16,6 +16,7 @@ negative_knowledge: true
 - Amends: [ADR-0051](0051-portal-backend-dbus-bridge.md), [ADR-0070](0070-svg-cursors-with-bundled-bibata-fallback.md), [ADR-0122](0122-original-mit-cursor-theme-replaces-bibata.md)
 - Related: [ADR-0206](0206-pure-compositor-dependency-hygiene-and-build-parallelism.md)
 - Amended by: [ADR-0242](0242-networkmanager-owns-station-networking-behind-a-neutral-service.md) — the network half is implemented: NetworkManager and iwd live in `tessera-networkd`, and the compositor has no network D-Bus edge. Bluetooth remains tracked separately.
+- Amended by: [ADR-0222](0222-one-in-process-svg-compiler-for-every-vector-asset.md) — its pre-baked-cursor half
 
 ---
 

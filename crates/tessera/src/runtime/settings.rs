@@ -175,6 +175,7 @@ pub(super) fn publish_settings_parts(
                 source: config.wallpaper.source.clone(),
             })
             .unwrap_or_default(),
+        material: shell.material_resolution(),
     };
     live.set_settings(snapshot.clone());
     shell.set_settings(snapshot.clone());

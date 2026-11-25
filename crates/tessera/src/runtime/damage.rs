@@ -106,16 +106,16 @@ impl CompositorRuntime<'_> {
     /// are exactly the surfaces whose damage baseline the frame consumes, so
     /// they — and only they — may be marked presented after a successful
     /// submission (`[INV-ARCH-70]`).
-    fn client_damage(&mut self) -> (ClientDamage, Vec<usize>) {
+    fn client_damage(&mut self, include_client_cursor: bool) -> (ClientDamage, Vec<usize>) {
         let server = &self.server;
         // Share one visibility/occlusion snapshot across the SHM and dma-buf
         // client lists (see `Server::desktop_frame_sets`): the damage pass
         // previously recomputed the O(windows × surfaces) occlusion walk once
         // per list, and the render/scanout paths repeat the same work again.
         let client_sets = server.desktop_frame_sets();
-        let overlay = server.overlay_frames();
+        let overlay = server.overlay_frames_with_cursor(include_client_cursor);
         let lock = server.lock_frames();
-        let overlay_dmabuf = server.overlay_dmabuf_frames();
+        let overlay_dmabuf = server.overlay_dmabuf_frames_with_cursor(include_client_cursor);
         let lock_dmabuf = server.lock_dmabuf_frames();
         let mut sampled = Vec::with_capacity(
             client_sets.shm.len() + overlay.len() + lock.len() + client_sets.dmabuf.len(),
@@ -143,6 +143,7 @@ impl CompositorRuntime<'_> {
     pub(super) fn assess_frame_damage(
         &mut self,
         assessment: DamageAssessment,
+        include_client_cursor_overlay: bool,
     ) -> AssessedFrameDamage {
         let DamageAssessment {
             had_input,
@@ -480,7 +481,7 @@ impl CompositorRuntime<'_> {
 
         // Always collect client damage so surface baseline generations advance
         // in lockstep with client commits across all frames.
-        let (client, sampled_surface_ids) = self.client_damage();
+        let (client, sampled_surface_ids) = self.client_damage(include_client_cursor_overlay);
         let output = if output_full {
             FrameDamage::Full
         } else {

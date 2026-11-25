@@ -39,6 +39,60 @@ pub const FORMAT_ENV: &str = "TESSERA_LOG_FORMAT";
 /// Environment variable disabling ANSI color, matching the `NO_COLOR`
 /// convention honored by `env_logger` and most CLI tooling.
 pub const NO_COLOR_ENV: &str = "NO_COLOR";
+/// Environment variable overriding the session IPC socket path (ADR-0257).
+/// Must be an absolute path when set; empty or relative values fail closed.
+pub const IPC_SOCKET_ENV: &str = "TESSERA_IPC_SOCKET";
+
+/// Errors from explicit IPC socket override resolution (`TESSERA_IPC_SOCKET`).
+#[derive(Debug, PartialEq, Eq)]
+pub enum IpcSocketError {
+    /// `$TESSERA_IPC_SOCKET` is set to an empty string.
+    Empty,
+    /// `$TESSERA_IPC_SOCKET` is set to a relative path.
+    Relative(String),
+}
+
+impl std::fmt::Display for IpcSocketError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Empty => f.write_str("$TESSERA_IPC_SOCKET must not be empty"),
+            Self::Relative(path) => {
+                write!(
+                    f,
+                    "$TESSERA_IPC_SOCKET must be an absolute path, got {path:?}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for IpcSocketError {}
+
+/// Resolve an explicit `$TESSERA_IPC_SOCKET` override, if set (ADR-0257).
+///
+/// Returns `Ok(None)` when the variable is unset so callers fall back to
+/// `$XDG_RUNTIME_DIR/tessera.sock`. Empty or relative values fail closed
+/// (`[INV-SETTINGS-05]`).
+pub fn ipc_socket_override() -> Result<Option<PathBuf>, IpcSocketError> {
+    env::var_os(IPC_SOCKET_ENV)
+        .map(|raw| parse_ipc_socket(&raw))
+        .transpose()
+}
+
+/// Validate one `$TESSERA_IPC_SOCKET` value (`[INV-SETTINGS-05]`).
+///
+/// The single rule every reader applies, including clients that resolve their
+/// environment through a lookup function rather than the process environment.
+pub fn parse_ipc_socket(raw: &std::ffi::OsStr) -> Result<PathBuf, IpcSocketError> {
+    if raw.is_empty() {
+        return Err(IpcSocketError::Empty);
+    }
+    let path = PathBuf::from(raw);
+    if !path.is_absolute() {
+        return Err(IpcSocketError::Relative(raw.to_string_lossy().into_owned()));
+    }
+    Ok(path)
+}
 
 /// Errors from runtime-environment resolution.
 #[derive(Debug)]
@@ -368,6 +422,43 @@ mod tests {
         // SAFETY: test-only, single-threaded within this binary.
         unsafe { env::set_var("XDG_RUNTIME_DIR", "/run/user/1000") };
         assert_eq!(runtime_dir().unwrap(), PathBuf::from("/run/user/1000"));
+    }
+
+    #[test]
+    fn ipc_socket_override_validates_absolute_paths() {
+        struct Restore(Option<std::ffi::OsString>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                // SAFETY: test-only, single-threaded within this binary.
+                match self.0.take() {
+                    Some(value) => unsafe { env::set_var(IPC_SOCKET_ENV, value) },
+                    None => unsafe { env::remove_var(IPC_SOCKET_ENV) },
+                }
+            }
+        }
+        let _restore = Restore(env::var_os(IPC_SOCKET_ENV));
+
+        // SAFETY: test-only, single-threaded within this binary.
+        unsafe { env::remove_var(IPC_SOCKET_ENV) };
+        assert_eq!(ipc_socket_override(), Ok(None));
+
+        // SAFETY: test-only, single-threaded within this binary.
+        unsafe { env::set_var(IPC_SOCKET_ENV, "") };
+        assert_eq!(ipc_socket_override(), Err(IpcSocketError::Empty));
+
+        // SAFETY: test-only, single-threaded within this binary.
+        unsafe { env::set_var(IPC_SOCKET_ENV, "relative/tessera.sock") };
+        assert_eq!(
+            ipc_socket_override(),
+            Err(IpcSocketError::Relative("relative/tessera.sock".into()))
+        );
+
+        // SAFETY: test-only, single-threaded within this binary.
+        unsafe { env::set_var(IPC_SOCKET_ENV, "/tmp/tessera-dev/tessera.sock") };
+        assert_eq!(
+            ipc_socket_override(),
+            Ok(Some(PathBuf::from("/tmp/tessera-dev/tessera.sock")))
+        );
     }
 
     #[test]

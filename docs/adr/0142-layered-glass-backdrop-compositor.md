@@ -8,9 +8,11 @@ superseded_by: ADR-0143
 
 # ADR-0142: Layered glass — the backdrop compositor owns the frost→glass nesting
 
-- Status: Superseded by ADR-0143
+- Status: Superseded by [ADR-0143](0143-explicit-offscreen-composition-dag.md)
 - Date: 2026-08-25
 - Scope: `crates/aegis/src/runtime/{rendering,presentation}.rs`; adds an Optics-side material (`prism` backdrop layer, Optics ADR-0079); amends [ADR-0094](0094-liquid-glass-lens-model-and-full-resolution-capture.md)
+- Amended by: [ADR-0179](0179-zero-redundancy-presentation-pipeline-substepped-motion-and-render-target-bucketing.md) — *Zero-Redundancy Presentation Pipeline, Sub-stepped Motion Dynamics, and Attachment Bucketing for 120Hz Animation Continuity*
+- Amended by: [ADR-0180](0180-single-pass-chrome-fades-backdrop-allocation-decoupling-and-dock-prepass-coherence.md) — *Single-Pass Chrome Fades, High-Water Backdrop Allocation Decoupling, and Dock Pre-Pass Coherence*
 
 ## Context
 

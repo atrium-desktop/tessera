@@ -1,106 +1,31 @@
-[Testing Index](index.md) > [Manual Testing Playbook](manual-testing.md) > Surface Testing
+[Verification Index](index.md) > [Manual Verification Playbook](manual-verification.md) > Surface Verification
 
 ---
 
-# Surface Testing
+# Surface Verification
 
-How the interactive shell surfaces are tested: the test model, the
-code-organization rules every layer follows, and the commands for each
-surface — the Control Center (compositor chrome, ADR-0080) and the lock screen
-(the `tessera-lock` production surface). A result from one layer does not stand
-in for a result from another.
+How to verify the interactive shell surfaces on each ladder layer: the Control
+Center (compositor chrome, ADR-0080), Settings (`tessera-settings`), and the
+lock screen (the `tessera-lock` production surface). A result from one layer
+never stands in for a result from another.
 
-## Test Model
+## Scope
 
-| Layer | Environment | Covers | Does not cover |
-|-------|-------------|--------|----------------|
-| Unit and logic | In-crate tests, no GPU or live sources | Layout bounds, reduced-motion snapping, backdrop-effect constraints, formatting helpers, persona resolution | Rendering, live sources, interaction |
-| Preview | Development-only harness binary, ordinary Wayland window | Full rendering and interaction of one surface, isolated from the session | Session integration, exclusive input, PAM, physical outputs |
-| Nested integration | Production binaries inside a nested Tessera compositor | Real chrome and lock surfaces, input routing, protocols, fail-closed behavior | Physical output power, VT ownership, suspend |
-| Physical | Packaged direct DRM/KMS session | Installed PAM policy, every physical output, capture refusal, display-off, suspend and resume | Safe unattended iteration |
+Ladder layers 2–4 for the interactive shell surfaces. Start with the cheapest
+layer that can fail for the change and finish on a physical session only when
+the change crosses a hardware or authentication boundary. The ladder, the
+presentation-toggle and inspection-harness rules, and the shared nested
+isolation block are defined in
+[Verification Standards](../standards/verification.md); unit-test rules are in
+[Testing Standards](../standards/testing.md#4-writing-unit-tests).
 
-Start with the cheapest layer that can fail for the change: unit tests for
-logic, preview for rendering and interaction of one surface, nested
-integration for protocol, input, and multi-surface behavior. Finish on a
-physical session only when the change crosses a hardware or authentication
-boundary.
-
-## Code Conventions
-
-Every testing facility is arranged in code according to its layer. New test
-and debug facilities follow these rules.
-
-### Unit Layer: Pure Logic in Crate Tests
-
-Presentation logic is written as pure data transformations and tested in
-in-crate `#[cfg(test)]` modules with `cargo nextest run --locked -p <crate>
---lib`. Provide a constructor that removes external sources — for example
-`ControlCenter::without_sources()` — so tests need no GPU, bus, or tray. Unit
-tests never open windows or devices.
-
-### Presentation Toggles: Debug-Gated Environment Variables
-
-A production binary may expose debug-gated environment variables that change
-**presentation only** — which surface is open at startup, what demo content is
-seeded. `TESSERA_PREVIEW=control-center` is the example: it opens the
-Control Center at startup. Environment variables
-must never alter authentication, authorization, or capture behavior. See
-[Development Environment Variables](../environment-variables.md) for the complete
-reference.
-
-### Inspection Harnesses: Separate Development-Only Binaries
-
-When a surface needs parameterized inspection — held states, compositions,
-sizes — build it as a separate binary target in the package, gated by a
-non-default feature (`tessera-lock-preview`, `required-features =
-["dev-preview"]`). The production binary compiles no harness code and carries
-no `cfg` branches for it: both binaries are thin hosts over the shared
-library, which is what makes the preview render exactly what production
-renders.
-
-Security-sensitive surfaces take this rule absolutely. The lock screen is
-fail-closed: a preview mode inside the production locker — even debug-gated —
-would put a simulated-credential path into a security binary. Simulated
-authentication lives only in the harness binary.
-
-[Verify Production Exclusion](#verify-production-exclusion) enforces the
-boundary at packaging time with target-availability assertions.
-
-### One Command Style
-
-Every command runs through cargo:
-
-```bash
-cargo run --locked -p <package> [--bin <bin>] -- [ARGS]
-```
-
-Build once with `cargo build --locked` and use the `target/<profile>/<binary>`
-path only when a script needs a stable path across many invocations.
-
-### One Isolation Block
-
-Every nested start of `tessera` uses the same session-scoped isolation block:
-
-```bash
-mkdir -p /tmp/tessera-dev/tessera
-TESSERA_BACKEND=nested \
-XDG_DATA_HOME=/tmp/tessera-dev \
-XDG_DATA_DIRS=$HOME/.local/share:/usr/local/share:/usr/share \
-cargo run --locked -p tessera
-```
-
-The fresh data directory keeps the nested instance off the live session's
-exclusive audit journal and application caches. `mkdir -p` is idempotent; the
-recipes below repeat it so each block stands alone. Only one Tessera process can
-own `tessera.sock`: a nested instance started beside a live session logs an
-address-in-use warning and runs without IPC.
-
-## Test the Control Center
+## Verify the Control Center
 
 ### Unit Tests
 
-Control Center presentation logic follows the unit-layer rule: pure logic, no GPU or
-live sources. Run the suite:
+Control Center presentation logic follows the
+[unit-test rules](../standards/testing.md#4-writing-unit-tests): pure logic, no
+GPU or live sources. Run the suite:
 
 ```bash
 cargo check --locked -p tessera-shell
@@ -180,11 +105,81 @@ Capture queues asynchronous PNG encoding: treat the image as ready only after
 the destination exists and has a nonzero size. On HiDPI outputs the PNG
 dimensions are the physical-pixel equivalent of the logical region.
 
-## Test the Lock Screen
+## Verify Settings
 
-### Run the Development Preview
+Settings (`tessera-settings`, [ADR-0238](../../adr/0238-settings-is-a-standalone-application-behind-its-own-scope.md)) follows the same ladder and inspection-harness contract ([ADR-0257](../../adr/0257-explicit-ipc-socket-override-and-settings-preview-harness.md)).
 
-The lock preview follows the inspection-harness rule: a development-only
+### Unit and Wire-Level Mock Tests
+
+```bash
+cargo nextest run --locked -p tessera-settings --all-features
+cargo nextest run --locked -p tessera-tests desktop_settings
+```
+
+### Run the Settings Preview
+
+The Settings preview is a development-only binary gated by the non-default `dev-preview` feature. It runs an in-process wire-level `tessera_ipc::Server` so the production Settings window, two-connection `Link`, scope negotiation, revisioned transactions, and `SettingsChanged` broadcasts all run end to end without a compositor:
+
+```bash
+cargo run --locked -p tessera-settings \
+  --features dev-preview \
+  --bin tessera-settings-preview -- [OPTIONS] [PAGE]
+```
+
+The Preview creates an ordinary `xdg_toplevel` with app ID `dev.tessera.SettingsPreview` and never touches the production single-instance socket.
+
+Preview options:
+
+| Option | Values | Purpose |
+|--------|--------|---------|
+| `--preset` | `desktop`, `multi-display`, `laptop`, `minimal` | Selects a deterministic hardware/config snapshot (including multi-output, touchpad, and `OnBattery` material-ceiling states unavailable in nested mode). |
+| `--mode` | `live`, `read-only`, `reject-stale`, `reject-locked`, `disconnected` | Injects scope refusal, stale-revision conflict, lock-screen refusal, or transport disconnect. |
+| `--size` | `WIDTHxHEIGHT` | Fixed initial logical window size (e.g. `540x720` for compact `<640px` icon rail, `960x680` standard, `1440x900` wide). |
+| `--ready-fd` | Descriptor | Writes one byte after the first presented frame for log-free agent pixel capture. |
+| `--mock-server-only` | Flag (requires `--socket PATH`) | Runs only the wire-level mock IPC server so an unmodified production `tessera-settings --socket PATH` or `tessera --socket PATH` can be driven against it. |
+| `--socket` | Path | Explicit mock IPC socket path (defaults to an ephemeral temp directory). |
+
+### Capture Settings Preview Pixels for an Agent
+
+```bash
+windows=$(cargo run --locked -p tessera -- window -j)
+
+preview_id=$(printf '%s' "$windows" | jq -r \
+  'map(select(.app_id == "dev.tessera.SettingsPreview")) | last | .id')
+
+preview_region=$(printf '%s' "$windows" | jq -r \
+  'map(select(.app_id == "dev.tessera.SettingsPreview")) | last |
+    "\(.position.x),\(.position.y),\(.size.w),\(.size.h)"')
+
+cargo run --locked -p tessera -- window focus "$preview_id"
+cargo run --locked -p tessera -- display capture \
+  --region "$preview_region" \
+  /tmp/tessera-settings-preview.png
+```
+
+### Nested Integration: Live Compositor Feedback
+
+Start an isolated nested compositor (isolating `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, and `TESSERA_IPC_SOCKET`, and authorizing the workspace-built `tessera-settings` binary in the isolated config):
+
+```bash
+./scripts/run-nested-dev.sh
+```
+
+Then either run Settings **split-screen** on the host desktop targeting the nested compositor's IPC socket:
+
+```bash
+TESSERA_IPC_SOCKET=/tmp/tessera-dev/tessera.sock \
+  target/release-fast/tessera-settings appearance
+```
+
+or **inside** the nested compositor by adding `WAYLAND_DISPLAY=wayland-N` (logged by the nested compositor) to validate window decorations, clipboard, scale, and self-focus.
+
+## Verify the Lock Screen
+
+### Run the Lock Preview
+
+The lock preview follows the
+[inspection-harness rule](../standards/verification.md#4-writing-rules): a development-only
 binary target in the `tessera-lock` package, selected by the non-default
 `dev-preview` feature:
 
@@ -286,7 +281,7 @@ The capture readiness and HiDPI notes from the Control Center recipe apply uncha
 
 ### Nested Integration: the Production Lock
 
-Use Preview results only for presentation. Validate session-lock behavior with
+Use Preview results only for presentation. Verify session-lock behavior with
 the unmodified production target inside nested Tessera, using the shared
 isolation block:
 
@@ -322,9 +317,9 @@ retain its fail-closed frame. Follow
 [Nested Backend Development](../nested-backend.md) for socket discovery, process
 isolation, and nested-backend limits.
 
-## Test a Physical Session
+## Verify a Physical Session
 
-Perform physical testing only after preview and nested checks pass. Keep
+Run physical checks only after preview and nested checks pass. Keep
 another TTY available, and perform these checks in order:
 
 1. Lock and unlock from the active desktop.
@@ -336,9 +331,9 @@ another TTY available, and perform these checks in order:
 Validate the exact PAM service with `pamtester` first. For the Control Center,
 physical sessions validate the display and touchpad settings that nested mode
 can only observe. For the full hardware procedure, see
-[VT/DRM Manual Testing](vt-drm-testing.md).
+[VT/DRM Verification](vt-drm-verification.md).
 
-## Select Tests by Change
+## Select Checks by Change
 
 | Change | Required checks |
 |--------|-----------------|
@@ -369,6 +364,13 @@ cargo build --locked --release \
 
 test -x "$tessera_prod_target/release/tessera-lock"
 test ! -e "$tessera_prod_target/release/tessera-lock-preview"
+
+cargo build --locked --release \
+  --target-dir "$tessera_prod_target" \
+  -p tessera-settings --bin tessera-settings --no-default-features
+
+test -x "$tessera_prod_target/release/tessera-settings"
+test ! -e "$tessera_prod_target/release/tessera-settings-preview"
 ```
 
 Distribution builds must not enable `dev-preview`, and install manifests must

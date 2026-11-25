@@ -1,14 +1,14 @@
 ---
 id: ADR-0137
 title: "Audit segment manifest and explicit retention"
-status: accepted
+status: superseded
 date: 2026-08-22
-superseded_by: null
+superseded_by: ADR-0260
 ---
 
 # ADR-0137: Audit segment manifest and explicit retention
 
-- Status: Accepted
+- Status: Superseded by [ADR-0260](0260-unified-in-memory-observability-event-bus.md)
 - Date: 2026-08-22
 
 ## Context

@@ -1,14 +1,14 @@
 ---
 id: ADR-0105
 title: "Single-body Liquid Glass interaction focus"
-status: accepted
+status: superseded
 date: 2026-08-03
-superseded_by: null
+superseded_by: ADR-0213
 ---
 
 # ADR-0105: Single-body Liquid Glass interaction focus
 
-- Status: Accepted
+- Status: Superseded by [ADR-0213](0213-flat-chrome-and-removal-of-the-status-hud.md) — flat chrome removed the analytic-glass material model; the compositor draws no material.
 - Date: 2026-08-03
 
 ## Context

@@ -1,14 +1,14 @@
 ---
 id: ADR-0136
 title: "Authenticated bounded audit replay and storage guards"
-status: accepted
+status: superseded
 date: 2026-08-22
-superseded_by: null
+superseded_by: ADR-0260
 ---
 
 # ADR-0136: Authenticated bounded audit replay and storage guards
 
-- Status: Accepted
+- Status: Superseded by [ADR-0260](0260-unified-in-memory-observability-event-bus.md)
 - Date: 2026-08-22
 
 ## Context

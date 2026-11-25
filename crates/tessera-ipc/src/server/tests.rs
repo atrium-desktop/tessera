@@ -104,6 +104,7 @@ fn slow_event_and_journal_subscribers_are_evicted_without_blocking() {
             tx: event_tx,
             shutdown: None,
             filter: None,
+            topics: None,
         },
     );
     server.broadcast(Event::WorkspaceChanged);
@@ -126,13 +127,17 @@ fn slow_event_and_journal_subscribers_are_evicted_without_blocking() {
                 tx: journal_tx,
                 shutdown: None,
                 filter: None,
+                topics: None,
             },
         );
     server
         .journal_broadcaster
-        .broadcast(tessera_protocol::journal::JournalEntry {
+        .broadcast(Arc::new(tessera_protocol::journal::JournalEntry {
             seq: 1,
             ts_mono_ms: 1,
+            ts_wall_ms: 1_700_000_000_000,
+            topic: tessera_protocol::EventTopic::Authority,
+            correlation_id: None,
             origin: tessera_protocol::journal::Origin::Internal,
             mutation: tessera_protocol::journal::JournalMutation::CapabilityUse {
                 session: tessera_authority::authority::ActorSessionId(1),
@@ -141,7 +146,7 @@ fn slow_event_and_journal_subscribers_are_evicted_without_blocking() {
                 action: tessera_protocol::journal::CapabilityUseAction::Enable,
             },
             effect: tessera_protocol::journal::Effect::Applied,
-        });
+        }));
     assert!(
         server
             .journal_broadcaster
@@ -176,10 +181,86 @@ fn full_subscription_lane_shuts_down_its_connection() {
         tx,
         shutdown: Some(Arc::new(server)),
         filter: None,
+        topics: None,
     };
     assert!(!lane.try_send(Outbound::Event(Event::WorkspaceChanged)));
     let mut byte = [0u8; 1];
     assert_eq!(peer.read(&mut byte).unwrap(), 0);
+}
+
+#[test]
+fn journal_broadcaster_filters_by_topic_with_zero_copy_arc() {
+    let server = bare_server();
+    let (mcp_tx, mcp_rx) = mpsc::sync_channel(OUTBOUND_QUEUE_DEPTH);
+    let (all_tx, all_rx) = mpsc::sync_channel(OUTBOUND_QUEUE_DEPTH);
+    {
+        let mut subs = server.journal_broadcaster.subscribers.lock().unwrap();
+        subs.insert(
+            1,
+            SubscriptionLane {
+                tx: mcp_tx,
+                shutdown: None,
+                filter: None,
+                topics: Some(vec![tessera_protocol::EventTopic::Mcp]),
+            },
+        );
+        subs.insert(
+            2,
+            SubscriptionLane {
+                tx: all_tx,
+                shutdown: None,
+                filter: None,
+                topics: None,
+            },
+        );
+    }
+
+    let auth_entry = Arc::new(tessera_protocol::journal::JournalEntry {
+        seq: 1,
+        ts_mono_ms: 10,
+        ts_wall_ms: 1_700_000_000_010,
+        topic: tessera_protocol::EventTopic::Authority,
+        correlation_id: None,
+        origin: tessera_protocol::journal::Origin::Internal,
+        mutation: tessera_protocol::journal::JournalMutation::ScopeClaim {
+            scope: "test".into(),
+        },
+        effect: tessera_protocol::journal::Effect::Applied,
+    });
+    server
+        .journal_broadcaster
+        .broadcast(Arc::clone(&auth_entry));
+    assert!(
+        mcp_rx.try_recv().is_err(),
+        "mcp lane must ignore authority events"
+    );
+    match all_rx.try_recv().unwrap() {
+        Outbound::JournalEvent(received) => assert!(Arc::ptr_eq(&received, &auth_entry)),
+        other => panic!("expected JournalEvent, got {other:?}"),
+    }
+
+    let mcp_entry = Arc::new(tessera_protocol::journal::JournalEntry {
+        seq: 2,
+        ts_mono_ms: 20,
+        ts_wall_ms: 1_700_000_000_020,
+        topic: tessera_protocol::EventTopic::Mcp,
+        correlation_id: Some(77),
+        origin: tessera_protocol::journal::Origin::Ipc { conn_id: 9 },
+        mutation: tessera_protocol::journal::JournalMutation::External {
+            topic: tessera_protocol::EventTopic::Mcp,
+            source: "tessera-mcp".into(),
+            kind: "tool.invoked".into(),
+            detail: Some(serde_json::json!({"tool": "list_windows"})),
+        },
+        effect: tessera_protocol::journal::Effect::Applied,
+    });
+    server.journal_broadcaster.broadcast(Arc::clone(&mcp_entry));
+    for rx in [&mcp_rx, &all_rx] {
+        match rx.try_recv().unwrap() {
+            Outbound::JournalEvent(received) => assert!(Arc::ptr_eq(&received, &mcp_entry)),
+            other => panic!("expected JournalEvent, got {other:?}"),
+        }
+    }
 }
 
 #[test]

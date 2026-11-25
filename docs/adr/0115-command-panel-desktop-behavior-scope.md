@@ -10,6 +10,11 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-08-09
+- Note (2026-11-25): the *command panel* this record names is the **Control Center**; the surface was renamed, and [ADR-0239](0239-the-control-center-is-a-right-anchored-sheet.md) removed its last `command_panel` aliases and fixes its current shape. The decision applies to it unchanged.
+- Amended by: [ADR-0162](0162-wireless-network-subsystem-and-iwd-bridge.md) — *Wireless Network Subsystem Abstraction and iwd Bridge*
+- Amended by: [ADR-0175](0175-bluetooth-peripheral-subsystem-and-bluez-bridge.md) — *Bluetooth Peripheral Subsystem, BlueZ Bridge, and HUD/Control-Center Parity*
+- Amended by: [ADR-0238](0238-settings-is-a-standalone-application-behind-its-own-scope.md) — the   Control Center's scope no longer includes persistent settings
+- Amended by: [ADR-0239](0239-the-control-center-is-a-right-anchored-sheet.md) — *The Control Center is a right-anchored sheet, not a full-output canvas*
 
 ## Context
 

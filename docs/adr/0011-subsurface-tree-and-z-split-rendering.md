@@ -8,7 +8,7 @@ superseded_by: ADR-0061
 
 # ADR-0011: Subsurface tree model and z-split rendering
 
-- Status: Superseded by ADR-0061
+- Status: Superseded by [ADR-0061](0061-window-tree-atomic-client-surface-compositing.md)
 - Date: 2026-06-18
 
 ## Context

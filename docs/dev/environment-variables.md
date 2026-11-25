@@ -79,9 +79,10 @@ instance inside a live desktop session), these variables isolate volatile state:
 
 | Variable | Recommended Dev Value | Purpose |
 |----------|-----------------------|---------|
-| `XDG_DATA_HOME` | `/tmp/tessera-dev` | Relocates the audit journal (`events-v2.jsonl`) and principal store. Prevents `AuditError::Locked` caused by the host session holding exclusive `flock` on the production journal. |
+| `XDG_DATA_HOME` | `/tmp/tessera-dev` | Relocates the persistent principal and grant stores (`principals.json`, `grants.json`) so development runs do not mutate production agent credentials. |
 | `XDG_DATA_DIRS` | `$HOME/.local/share:...` | Preserves user asset discovery (`~/.local/share/tessera/avatars/avatar.vrm`, icons, and applications) when `XDG_DATA_HOME` is redirected. |
-| `XDG_CONFIG_HOME` | (Optional) Path to dev config | Isolates configuration changes from the host session's `config.toml`. |
+| `XDG_CONFIG_HOME` | `/tmp/tessera-dev/config` | Isolates configuration changes from the host session's `config.toml`. |
+| `TESSERA_IPC_SOCKET` | `/tmp/tessera-dev/tessera.sock` | Overrides the session IPC socket path for the compositor and first-party IPC clients (`tessera` CLI, `tessera-settings`, `tessera-idle`, `tessera-mcp`; [ADR-0257](../adr/0257-explicit-ipc-socket-override-and-settings-preview-harness.md)). Must be an absolute path; empty or relative values fail closed. Explicit `--socket` flags take precedence. Never alters scope allowlists or lock-screen refusal. |
 
 ---
 

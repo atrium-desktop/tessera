@@ -8,8 +8,9 @@ superseded_by: ADR-0122
 
 # ADR-0070: SVG cursors with a bundled Bibata fallback
 
-- Status: Superseded by ADR-0122
+- Status: Superseded by [ADR-0122](0122-original-mit-cursor-theme-replaces-bibata.md)
 - Date: 2026-07-29
+- Amended by: [ADR-0207](0207-compositor-dbus-isolation-and-prebaked-cursor-strategy.md) — *Compositor D-Bus Isolation and Pre-Baked Hardware Cursor Strategy*
 
 ## Context
 

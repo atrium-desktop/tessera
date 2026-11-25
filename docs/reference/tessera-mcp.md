@@ -68,7 +68,7 @@ toast or a queued response alone is not proof that an operation was applied.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TESSERA_MCP_SOCKET` | `$XDG_RUNTIME_DIR/tessera.sock` | Tessera IPC socket. |
+| `TESSERA_MCP_SOCKET` | `$TESSERA_IPC_SOCKET`, then `$XDG_RUNTIME_DIR/tessera.sock` | Tessera IPC socket. When unset, the session-wide `TESSERA_IPC_SOCKET` applies and must be an absolute path; see [Socket Path](ipc.md#socket-path). |
 | `TESSERA_MCP_LABEL` | the Interaction Domain label | Cosmetic display label presented at pairing; set it per agent product so principals stay distinguishable. 1–128 bytes. |
 | `TESSERA_MCP_INSTANCE_ID` | required | Stable connector-installation namespace for the credential, lock, and recovery state. `print-config` emits a random value; keep it stable and unique per MCP entry. 1–128 bytes. |
 | `TESSERA_MCP_INTERACTION_DOMAIN_LABEL` | `Tessera Agent` | Cosmetic label used for this bridge's Agent Interaction Domain; 1–128 bytes. Recovery also requires the authenticated subject binding. |

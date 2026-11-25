@@ -1,8 +1,8 @@
-[Testing Index](index.md) > [Manual Testing Playbook](manual-testing.md) > VT/DRM Manual Testing
+[Verification Index](index.md) > [Manual Verification Playbook](manual-verification.md) > VT/DRM Verification
 
 ---
 
-# VT/DRM Manual Testing
+# VT/DRM Verification
 
 Use this guide after a change works in the nested backend and you want to try
 the actual desktop experience on real display and input hardware.

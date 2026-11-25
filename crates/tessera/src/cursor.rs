@@ -471,6 +471,190 @@ impl CursorCache {
     }
 }
 
+/// Client-provided cursor surface (`wl_pointer.set_cursor`) prepared for
+/// direct upload onto the KMS hardware cursor plane.
+pub(crate) struct PreparedClientCursor<'a> {
+    pub id: usize,
+    pub generation: u64,
+    pub pixels: Cow<'a, [u8]>,
+    pub size: (u32, u32),
+    pub hotspot: (u32, u32),
+}
+
+/// Why a mapped SHM client cursor surface could not be offloaded onto the KMS
+/// hardware cursor plane and therefore fell back to composited overlay drawing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ClientCursorRejectReason {
+    NonNormalTransform,
+    ActiveViewport,
+    InvalidDimensions,
+    PixelBufferMismatch,
+    NonIntegerScale,
+    ExceedsPlaneExtent,
+    HotspotOutOfBounds,
+}
+
+impl std::fmt::Display for ClientCursorRejectReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NonNormalTransform => f.write_str("non-normal buffer transform"),
+            Self::ActiveViewport => f.write_str("active wp_viewport crop/scale"),
+            Self::InvalidDimensions => f.write_str("non-positive dimensions or scale"),
+            Self::PixelBufferMismatch => f.write_str("pixel buffer length mismatch"),
+            Self::NonIntegerScale => f.write_str("non-integer output/buffer scale ratio"),
+            Self::ExceedsPlaneExtent => f.write_str("exceeds KMS cursor plane extent"),
+            Self::HotspotOutOfBounds => f.write_str("hotspot outside physical sprite bounds"),
+        }
+    }
+}
+
+/// Fast zero-allocation eligibility check matching [`prepare_client_hardware_cursor`].
+pub(crate) fn can_offload_client_hardware_cursor(
+    surface: &tessera_wayland::ClientCursorSurface<'_>,
+    output_scale: f32,
+    max_extent: (u32, u32),
+) -> bool {
+    validate_client_hardware_cursor(surface, output_scale, max_extent).is_ok()
+}
+
+struct ValidatedClientCursor {
+    src_w: u32,
+    src_h: u32,
+    factor: u32,
+    dst_w: u32,
+    dst_h: u32,
+    hotspot: (u32, u32),
+}
+
+fn validate_client_hardware_cursor(
+    surface: &tessera_wayland::ClientCursorSurface<'_>,
+    output_scale: f32,
+    max_extent: (u32, u32),
+) -> Result<ValidatedClientCursor, ClientCursorRejectReason> {
+    if surface.transform != tessera_primitives::Transform::Normal {
+        return Err(ClientCursorRejectReason::NonNormalTransform);
+    }
+    if surface.viewport_src.is_some() || surface.viewport_dst.is_some() {
+        return Err(ClientCursorRejectReason::ActiveViewport);
+    }
+    if surface.width <= 0
+        || surface.height <= 0
+        || surface.buffer_scale <= 0
+        || !output_scale.is_finite()
+        || output_scale <= 0.0
+    {
+        return Err(ClientCursorRejectReason::InvalidDimensions);
+    }
+    let src_w = surface.width as u32;
+    let src_h = surface.height as u32;
+    let expected_len = src_w
+        .checked_mul(src_h)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .map(|bytes| bytes as usize)
+        .ok_or(ClientCursorRejectReason::InvalidDimensions)?;
+    if surface.pixels.len() != expected_len {
+        return Err(ClientCursorRejectReason::PixelBufferMismatch);
+    }
+    let ratio = output_scale / (surface.buffer_scale as f32);
+    let factor = ratio.round();
+    if factor < 1.0 || (ratio - factor).abs() > 0.001 {
+        return Err(ClientCursorRejectReason::NonIntegerScale);
+    }
+    let factor = factor as u32;
+    let (Some(dst_w), Some(dst_h)) = (src_w.checked_mul(factor), src_h.checked_mul(factor)) else {
+        return Err(ClientCursorRejectReason::ExceedsPlaneExtent);
+    };
+    if dst_w == 0 || dst_h == 0 || dst_w > max_extent.0 || dst_h > max_extent.1 {
+        return Err(ClientCursorRejectReason::ExceedsPlaneExtent);
+    }
+    let (Some(logical_hot_x), Some(logical_hot_y)) = (
+        surface.hotspot.x.checked_sub(surface.attach_offset.x),
+        surface.hotspot.y.checked_sub(surface.attach_offset.y),
+    ) else {
+        return Err(ClientCursorRejectReason::HotspotOutOfBounds);
+    };
+    let phys_hot_x = (logical_hot_x as f32 * output_scale).round() as i64;
+    let phys_hot_y = (logical_hot_y as f32 * output_scale).round() as i64;
+    if phys_hot_x < 0
+        || phys_hot_y < 0
+        || phys_hot_x >= i64::from(dst_w)
+        || phys_hot_y >= i64::from(dst_h)
+    {
+        return Err(ClientCursorRejectReason::HotspotOutOfBounds);
+    }
+    Ok(ValidatedClientCursor {
+        src_w,
+        src_h,
+        factor,
+        dst_w,
+        dst_h,
+        hotspot: (phys_hot_x as u32, phys_hot_y as u32),
+    })
+}
+
+/// Validate and prepare a client SHM cursor surface for KMS hardware cursor
+/// plane offload.
+///
+/// Returns `Err(reason)` when the surface cannot be represented losslessly on
+/// the hardware cursor plane. In those cases the caller falls back to
+/// compositing the cursor surface as an overlay without disabling the hardware
+/// cursor plane for theme cursors.
+pub(crate) fn prepare_client_hardware_cursor<'a>(
+    surface: &tessera_wayland::ClientCursorSurface<'a>,
+    output_scale: f32,
+    max_extent: (u32, u32),
+) -> Result<PreparedClientCursor<'a>, ClientCursorRejectReason> {
+    let ValidatedClientCursor {
+        src_w,
+        src_h,
+        factor,
+        dst_w,
+        dst_h,
+        hotspot,
+    } = validate_client_hardware_cursor(surface, output_scale, max_extent)?;
+
+    let pixels = if factor == 1 {
+        Cow::Borrowed(surface.pixels)
+    } else {
+        let dst_len = dst_w
+            .checked_mul(dst_h)
+            .and_then(|pixels| pixels.checked_mul(4))
+            .map(|bytes| bytes as usize)
+            .ok_or(ClientCursorRejectReason::ExceedsPlaneExtent)?;
+        let mut scaled = vec![0u8; dst_len];
+        let src_row_bytes = src_w as usize * 4;
+        let dst_row_bytes = dst_w as usize * 4;
+        let f = factor as usize;
+        for y in 0..src_h as usize {
+            let src_row = &surface.pixels[y * src_row_bytes..(y + 1) * src_row_bytes];
+            let first_dst_y = y * f;
+            let first_dst_row =
+                &mut scaled[first_dst_y * dst_row_bytes..(first_dst_y + 1) * dst_row_bytes];
+            for x in 0..src_w as usize {
+                let px = &src_row[x * 4..(x + 1) * 4];
+                for fx in 0..f {
+                    let dst_off = (x * f + fx) * 4;
+                    first_dst_row[dst_off..dst_off + 4].copy_from_slice(px);
+                }
+            }
+            for fy in 1..f {
+                let src_start = first_dst_y * dst_row_bytes;
+                let dst_start = (first_dst_y + fy) * dst_row_bytes;
+                scaled.copy_within(src_start..src_start + dst_row_bytes, dst_start);
+            }
+        }
+        Cow::Owned(scaled)
+    };
+
+    Ok(PreparedClientCursor {
+        id: surface.id,
+        generation: surface.generation,
+        pixels,
+        size: (dst_w, dst_h),
+        hotspot,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -734,5 +918,129 @@ mod tests {
         // Hotspot (64,28) in 256-space at 24px -> (6, 3).
         assert_eq!((raster.xhot, raster.yhot), (6, 3));
         std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    fn test_client_cursor(
+        width: i32,
+        height: i32,
+        pixels: &[u8],
+        hotspot: (i32, i32),
+        attach_offset: (i32, i32),
+        buffer_scale: i32,
+    ) -> tessera_wayland::ClientCursorSurface<'_> {
+        tessera_wayland::ClientCursorSurface {
+            id: 42,
+            generation: 7,
+            width,
+            height,
+            pixels,
+            hotspot: tessera_primitives::Point {
+                x: hotspot.0,
+                y: hotspot.1,
+            },
+            attach_offset: tessera_primitives::Point {
+                x: attach_offset.0,
+                y: attach_offset.1,
+            },
+            buffer_scale,
+            transform: tessera_primitives::Transform::Normal,
+            viewport_src: None,
+            viewport_dst: None,
+        }
+    }
+
+    #[test]
+    fn client_hardware_cursor_borrows_zero_copy_on_exact_scale_match() {
+        let pixels = vec![0xAA; 16 * 16 * 4];
+        let surface = test_client_cursor(16, 16, &pixels, (4, 5), (1, 2), 1);
+        assert!(can_offload_client_hardware_cursor(&surface, 1.0, (64, 64)));
+        let prepared =
+            prepare_client_hardware_cursor(&surface, 1.0, (64, 64)).expect("eligible 1:1 cursor");
+        assert!(matches!(prepared.pixels, Cow::Borrowed(_)));
+        assert_eq!(prepared.size, (16, 16));
+        assert_eq!(prepared.hotspot, (3, 3));
+        assert_eq!((prepared.id, prepared.generation), (42, 7));
+    }
+
+    #[test]
+    fn client_hardware_cursor_upscales_integer_hidpi_ratio() {
+        // 2x2 BGRA8 cursor at buffer_scale=1 on a 2x HiDPI output -> 4x4 physical.
+        let pixels = [
+            1, 2, 3, 255, 4, 5, 6, 255, // row 0
+            7, 8, 9, 255, 10, 11, 12, 255, // row 1
+        ];
+        let surface = test_client_cursor(2, 2, &pixels, (1, 1), (0, 0), 1);
+        assert!(can_offload_client_hardware_cursor(&surface, 2.0, (64, 64)));
+        let prepared = prepare_client_hardware_cursor(&surface, 2.0, (64, 64))
+            .expect("eligible 2x integer upscale");
+        assert!(matches!(prepared.pixels, Cow::Owned(_)));
+        assert_eq!(prepared.size, (4, 4));
+        assert_eq!(prepared.hotspot, (2, 2));
+        assert_eq!(prepared.pixels.len(), 4 * 4 * 4);
+        // Top-left 2x2 block repeats pixel (0,0) = [1, 2, 3, 255].
+        assert_eq!(&prepared.pixels[0..8], &[1, 2, 3, 255, 1, 2, 3, 255]);
+        assert_eq!(&prepared.pixels[16..24], &[1, 2, 3, 255, 1, 2, 3, 255]);
+        // Bottom-right pixel (3,3) repeats source pixel (1,1) = [10, 11, 12, 255].
+        assert_eq!(&prepared.pixels[60..64], &[10, 11, 12, 255]);
+    }
+
+    #[test]
+    fn client_hardware_cursor_rejects_ineligible_surfaces_cleanly() {
+        let pixels = vec![0xFF; 32 * 32 * 4];
+        // Oversized after 2x HiDPI scaling (64x64 exceeds 64x32 limit).
+        let surface = test_client_cursor(32, 32, &pixels, (0, 0), (0, 0), 1);
+        assert!(!can_offload_client_hardware_cursor(&surface, 2.0, (64, 32)));
+        assert_eq!(
+            prepare_client_hardware_cursor(&surface, 2.0, (64, 32)).err(),
+            Some(ClientCursorRejectReason::ExceedsPlaneExtent)
+        );
+
+        // Non-integer scale ratio (1.5x).
+        assert!(!can_offload_client_hardware_cursor(&surface, 1.5, (64, 64)));
+        assert_eq!(
+            prepare_client_hardware_cursor(&surface, 1.5, (64, 64)).err(),
+            Some(ClientCursorRejectReason::NonIntegerScale)
+        );
+
+        // Hotspot outside sprite (negative after attach_offset or >= size).
+        let bad_hot = test_client_cursor(32, 32, &pixels, (0, 0), (4, 0), 1);
+        assert!(!can_offload_client_hardware_cursor(&bad_hot, 1.0, (64, 64)));
+        assert_eq!(
+            prepare_client_hardware_cursor(&bad_hot, 1.0, (64, 64)).err(),
+            Some(ClientCursorRejectReason::HotspotOutOfBounds)
+        );
+
+        // Non-normal transform or active viewport.
+        let mut rotated = test_client_cursor(32, 32, &pixels, (0, 0), (0, 0), 1);
+        rotated.transform = tessera_primitives::Transform::Rotate90;
+        assert!(!can_offload_client_hardware_cursor(&rotated, 1.0, (64, 64)));
+        assert_eq!(
+            prepare_client_hardware_cursor(&rotated, 1.0, (64, 64)).err(),
+            Some(ClientCursorRejectReason::NonNormalTransform)
+        );
+
+        let mut viewported = test_client_cursor(32, 32, &pixels, (0, 0), (0, 0), 1);
+        viewported.viewport_dst = Some(tessera_primitives::Size { w: 16, h: 16 });
+        assert!(!can_offload_client_hardware_cursor(
+            &viewported,
+            1.0,
+            (64, 64)
+        ));
+        assert_eq!(
+            prepare_client_hardware_cursor(&viewported, 1.0, (64, 64)).err(),
+            Some(ClientCursorRejectReason::ActiveViewport)
+        );
+
+        // Invalid dimensions and pixel buffer length mismatch.
+        let zero_dim = test_client_cursor(0, 32, &pixels, (0, 0), (0, 0), 1);
+        assert_eq!(
+            prepare_client_hardware_cursor(&zero_dim, 1.0, (64, 64)).err(),
+            Some(ClientCursorRejectReason::InvalidDimensions)
+        );
+        let short_buf = test_client_cursor(32, 32, &pixels[..16], (0, 0), (0, 0), 1);
+        assert_eq!(
+            prepare_client_hardware_cursor(&short_buf, 1.0, (64, 64)).err(),
+            Some(ClientCursorRejectReason::PixelBufferMismatch)
+        );
     }
 }

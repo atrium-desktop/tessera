@@ -495,9 +495,13 @@ impl ScreenshotSelector {
         let design = &self.design;
         let mut material = materials::panel(design);
         material.radius = self.loupe_radius(rect);
-        frame.place(
+        materials::place_body(
+            frame,
             "tessera-picker-pixel-lens",
-            &materials::chrome_place(rect, material),
+            design,
+            rect,
+            1.0,
+            material,
             |_| {},
         );
         frame.place(

@@ -8,7 +8,7 @@ superseded_by: ADR-0041
 
 # ADR-0037: Scoped pixel capture over the IPC
 
-- Status: Superseded by ADR-0041
+- Status: Superseded by [ADR-0041](0041-sealed-file-descriptor-pixel-transport.md)
 - Date: 2026-07-17
 
 ## Context

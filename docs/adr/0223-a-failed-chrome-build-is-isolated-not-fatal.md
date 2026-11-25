@@ -19,6 +19,8 @@ negative_knowledge: true
 - Amends: [ADR-0203](0203-damage-is-a-placement-mapped-rectangle.md),
   [ADR-0210](0210-performance-core-affinity-allocation-zero-copy-strided-uploads-and-quiescent-lens-lifecycle.md)
 - Related: [ADR-0211](0211-regional-damage-is-consumed-as-a-list-and-chrome-footprints-are-measured.md)
+- Note (2026-11-25): the *command panel* this record names is the **Control Center**; the surface was renamed, and [ADR-0239](0239-the-control-center-is-a-right-anchored-sheet.md) removed its last `command_panel` aliases and fixes its current shape. The decision applies to it unchanged.
+- Amended by: [ADR-0225](0225-damage-and-wakeups-follow-the-real-presentation-surface.md) — *Damage and Wakeups Follow the Real Presentation Surface*
 
 ---
 

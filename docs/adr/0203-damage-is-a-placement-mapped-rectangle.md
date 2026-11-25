@@ -14,6 +14,15 @@ negative_knowledge: true
 - Date: 2026-11-02
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0015](0015-damage-tracking.md), [ADR-0020](0020-buffer-scale-applied-at-composite.md), [ADR-0077](0077-presentation-domain-redraw-state-machine.md), [ADR-0179](0179-zero-redundancy-presentation-pipeline-substepped-motion-and-render-target-bucketing.md)
+- Amended by: [ADR-0210](0210-performance-core-affinity-allocation-zero-copy-strided-uploads-and-quiescent-lens-lifecycle.md) — *Performance-Core Affinity Allocation, Zero-Copy Strided Uploads, and Quiescent Lens Lifecycle*
+- Amended by: [ADR-0211](0211-regional-damage-is-consumed-as-a-list-and-chrome-footprints-are-measured.md) — *Regional Damage Is Consumed as a List, and Chrome Footprints Are Measured, Not Guessed*
+- Amended by: [ADR-0223](0223-a-failed-chrome-build-is-isolated-not-fatal.md) — *A failed chrome build is isolated, not fatal — the last good scene stays and the retry is paced*
+- Amended by: [ADR-0224](0224-a-pass-scope-is-the-damage-set.md) — *A Canvas pass scope is the damage set, not its bounding box — and a fence's reference is not its scope*
+- Amended by: [ADR-0225](0225-damage-and-wakeups-follow-the-real-presentation-surface.md) — *Damage and Wakeups Follow the Real Presentation Surface*
+- Amended by: [ADR-0227](0227-a-timed-chrome-strip-owns-a-retirement-window.md) — *A Timed Chrome Strip Owns a Retirement Window*
+- Amended by: [ADR-0228](0228-a-commit-repairs-its-own-buffer-not-the-frame-s-damage-union.md) — *A Commit Repairs Its Own Buffer, Not the Frame's Damage Union*
+- Amended by: [ADR-0229](0229-the-compositor-supplies-current-damage-flux-owns-the-image-ledger.md) — *The compositor supplies current damage; Flux owns the per-image ledger*
+- Amended by: [ADR-0230](0230-damage-is-surface-local-and-viewport-is-a-buffer-transfer-inverse.md) — *Damage is surface-local; viewport is a buffer-transfer inverse*
 
 > **Amended by [ADR-0230](0230-damage-is-surface-local-and-viewport-is-a-buffer-transfer-inverse.md).**
 > This record's `source_origin` map assumed damage rectangles were expressed in

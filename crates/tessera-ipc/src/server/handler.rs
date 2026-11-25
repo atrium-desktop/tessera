@@ -27,8 +27,23 @@ pub trait Handler: Send + Sync {
     fn enumerate_outputs(&self) -> Vec<tessera_protocol::schema::OutputInfo> {
         tessera_protocol::schema::OutputInfo::project(&self.outputs())
     }
-    /// Snapshot of journal entries with `seq > since` (ADR-0033).
+    /// Snapshot of journal entries with `seq > since` (ADR-0033, ADR-0260).
     fn journal_since(&self, since: u64) -> tessera_protocol::journal::JournalSnapshot;
+    /// Publish an external semantic event onto the unified observability bus
+    /// (ADR-0260). Returns the assigned monotonic sequence number.
+    #[allow(clippy::too_many_arguments)]
+    fn publish_event(
+        &self,
+        _conn_id: u64,
+        _principal: Option<&str>,
+        _topic: tessera_protocol::EventTopic,
+        _source: String,
+        _kind: String,
+        _correlation_id: Option<u64>,
+        _detail: Option<serde_json::Value>,
+    ) -> Result<u64, String> {
+        Err("external event publishing is not supported by this server".into())
+    }
     /// Complete Interaction Domain authority snapshot.
     fn interaction_domains(
         &self,

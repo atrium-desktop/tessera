@@ -1,14 +1,14 @@
 ---
 id: ADR-0110
 title: "Shared model crate naming and placement"
-status: accepted
+status: superseded
 date: 2026-08-04
-superseded_by: null
+superseded_by: ADR-0158
 ---
 
 # ADR-0110: Shared model crate naming and placement
 
-- Status: Accepted
+- Status: Superseded by [ADR-0158](0158-clean-break-workspace-boundaries.md) — the shared model crate was dissolved into domain packages (`tessera-desktop`, `tessera-authority`, and others).
 - Date: 2026-08-04
 
 ## Context

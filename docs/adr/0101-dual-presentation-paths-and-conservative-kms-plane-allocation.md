@@ -13,6 +13,8 @@ superseded_by: null
 - Amended by: [ADR-0182](0182-fullscreen-frame-pacing-and-direct-scanout-fidelity.md) — direct-scanout eligibility recognises an identity `wp_viewport` and destination-space `opaque_region`, and client direct-scanout framebuffers are cached rather than re-imported per frame.
 - Amended by: [ADR-0234](0234-output-layers-are-plane-allocation-contracts-not-scene-layers.md) — output layers are named plane-allocation contracts; background, always-on-top, and chrome remain scene semantics, and overlay allocation is per-CRTC inventory only until a complete-set `TEST_ONLY` planner exists.
 - Amended by: [ADR-0235](0235-overlay-offload-is-a-topmost-opaque-single-surface-candidate.md) — the complete-set overlay proof now exists behind an explicit hardware-validation policy; [ADR-0237](0237-a-direct-scanned-primary-excludes-overlay-offload.md) — direct primary scanout and overlay are mutually exclusive.
+- Amended by: [ADR-0181](0181-canonical-chrome-prepass-seam-occlusion-elision-and-deferred-scanout-ownership.md) — *Canonical Chrome Pre-Pass Seam, Occlusion-Eliding Base Pass, and Deferred-Scanout Frame Ownership*
+- Amended by: [ADR-0185](0185-per-output-presentation-domains.md) — *Per-Output Presentation Domains*
 
 ## Context
 

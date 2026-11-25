@@ -520,7 +520,11 @@ mod tests {
         let body = design
             .surfaces
             .for_role(tessera_design::SurfaceRole::ProminentPanel);
-        assert_eq!(body.body.components().3, 242, "the panel body is opaque");
+        assert_eq!(
+            body.body.components().3,
+            255,
+            "the panel body is opaque in the default material"
+        );
         assert_eq!(body.radius, design.radii.panel_lg);
         // The veil dims the whole output so the panel is the only live surface.
         let veil = materials::modal_scrim(&design, 1.0);

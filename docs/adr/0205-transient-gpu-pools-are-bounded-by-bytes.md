@@ -15,6 +15,7 @@ negative_knowledge: true
 - Deciders: Tessera Maintainers
 - Amends: Optics ADR-0069 (effect transient pooling), [ADR-0179](0179-zero-redundancy-presentation-pipeline-substepped-motion-and-render-target-bucketing.md)
 - Related: [ADR-0202](0202-single-pass-full-output-backdrop-capture-and-glass-interior-compute-elision.md), [ADR-0203](0203-damage-is-a-placement-mapped-rectangle.md)
+- Amended by: [ADR-0212](0212-zen-vram-minimalism-scratch-consolidation-and-tight-effect-budgets.md) — *Zen VRAM Minimalism: Scratch Intermediate Consolidation, Eager Teardown, and Tight Transient Budgets*
 
 ---
 

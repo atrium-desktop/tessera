@@ -315,38 +315,48 @@ impl LiveState {
         })
     }
 
-    /// Durably append one positive authorization lifecycle event before the
-    /// request can report success. Append and broadcast stay under one lock
-    /// so concurrent producers cannot publish sequence numbers out of order.
+    /// Append one positive authorization lifecycle event onto the in-memory
+    /// observability bus before the request reports success. Append and
+    /// broadcast stay under one lock so concurrent producers cannot publish
+    /// sequence numbers out of order (ADR-0260).
     fn audit_event(
         &self,
         origin: tessera_protocol::Origin,
         mutation: tessera_protocol::JournalMutation,
     ) {
-        self.persist_and_broadcast(origin, mutation, tessera_protocol::Effect::Applied);
+        self.record_and_broadcast(origin, mutation, tessera_protocol::Effect::Applied);
     }
 
-    fn persist_and_broadcast(
+    fn record_and_broadcast(
         &self,
         origin: tessera_protocol::Origin,
         mutation: tessera_protocol::JournalMutation,
         effect: tessera_protocol::Effect,
     ) {
+        self.record_and_broadcast_correlated(origin, mutation, effect, None);
+    }
+
+    fn record_and_broadcast_correlated(
+        &self,
+        origin: tessera_protocol::Origin,
+        mutation: tessera_protocol::JournalMutation,
+        effect: tessera_protocol::Effect,
+        correlation_id: Option<u64>,
+    ) -> u64 {
         let effect = mutation.privacy_minimize_effect(effect);
         let mut journal = self.journal.lock().unwrap_or_else(|e| e.into_inner());
-        let entry = match journal.try_append(
+        let entry = journal.append_correlated(
             self.audit_start.elapsed().as_millis() as u64,
+            tessera_audit::now_wall_ms(),
+            correlation_id,
             origin,
             mutation,
             effect,
-        ) {
-            Ok(entry) => entry,
-            Err(error) => {
-                log::error!("durable audit append failed; fail-stopping compositor: {error}");
-                std::process::abort();
-            }
-        };
-        self.journal_broadcaster.broadcast(entry.into());
+        );
+        let seq = entry.seq;
+        self.journal_broadcaster
+            .broadcast(std::sync::Arc::new(entry.into()));
+        seq
     }
 
     fn auth_event(
@@ -547,6 +557,31 @@ impl tessera_ipc::Handler for LiveState {
             .into()
     }
 
+    fn publish_event(
+        &self,
+        conn_id: u64,
+        principal: Option<&str>,
+        topic: tessera_protocol::EventTopic,
+        source: String,
+        kind: String,
+        correlation_id: Option<u64>,
+        detail: Option<serde_json::Value>,
+    ) -> Result<u64, String> {
+        let origin = tessera_protocol::Origin::ipc(conn_id, principal);
+        let seq = self.record_and_broadcast_correlated(
+            origin,
+            tessera_protocol::JournalMutation::External {
+                topic,
+                source,
+                kind,
+                detail,
+            },
+            tessera_protocol::Effect::Applied,
+            correlation_id,
+        );
+        Ok(seq)
+    }
+
     fn interaction_domains(
         &self,
     ) -> tessera_authority::interaction_domain::InteractionDomainSnapshot {
@@ -589,7 +624,7 @@ impl tessera_ipc::Handler for LiveState {
         mutation: tessera_protocol::JournalMutation,
         reason: String,
     ) {
-        self.persist_and_broadcast(
+        self.record_and_broadcast(
             tessera_protocol::Origin::ipc(conn_id, subject),
             mutation,
             tessera_protocol::Effect::Refused { reason },
@@ -605,7 +640,7 @@ impl tessera_ipc::Handler for LiveState {
         action: tessera_protocol::CapabilityUseAction,
         effect: tessera_protocol::Effect,
     ) {
-        self.persist_and_broadcast(
+        self.record_and_broadcast(
             tessera_protocol::Origin::ipc(conn_id, subject),
             tessera_protocol::JournalMutation::CapabilityUse {
                 session,

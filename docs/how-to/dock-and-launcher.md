@@ -14,51 +14,37 @@ different icon restarts the delay, and leaving the Dock hides the name. The
 full-screen launcher keeps application names below their cells instead of
 using this hover label.
 
-## Access the Dock Around a Maximized Window
+## Reveal a Hidden Dock
 
-1. Move the pointer to the centered translucent capsule tucked against the
-   bottom edge.
-2. Dwell the pointer on the capsule for ~180 milliseconds until the Dock expands (brief transit sweeps across the capsule are filtered out to prevent accidental reveals while skimming bottom-edge content).
+When `[dock] autohide` is on, or a maximized window covers the Dock's edge,
+the Dock hides completely and leaves nothing on screen. Its edge Hot Zone
+brings it back:
+
+1. Move the pointer toward the middle of the Dock's screen edge. A thin tab
+   flush with the edge fades in as you approach.
+2. Rest the pointer against the edge for about 140 milliseconds. The Dock
+   slides in. A quick sweep along the edge does not reveal it.
 3. Move onto the Dock and use the required application tile.
-4. To dismiss, move the cursor away (collapses automatically after a brief delay), click anywhere outside the Dock, or press `Escape`.
+4. To dismiss, move the cursor away (the Dock hides after a brief delay),
+   click anywhere outside the Dock, or press `Escape`.
 
-A maximized window forces the Dock into this collapsed overlay mode regardless
-of the `[dock] autohide` setting. Moving to another part of the bottom edge
-does not reveal it. Moving the pointer back upward during reveal cancels the
-expansion immediately.
+A maximized window forces this hidden mode regardless of `[dock] autohide`.
+Moving the pointer back off the edge during the reveal cancels it. Only a
+narrow strip against the screen edge triggers, so a window's own buttons near
+that edge stay clickable.
 
-The capsule sits almost flush with the screen edge rather than floating at the
-expanded bar's height. The band that reacts to the pointer is deeper than the
-capsule itself and independent of how close to the edge the capsule sits, so
-the parked Dock is summoned by reaching the bottom band rather than by aiming
-at a thin stripe.
+A fullscreen window silences every Hot Zone, so the Dock cannot be summoned
+until fullscreen ends. Minimized windows do not affect either policy.
 
-A fullscreen window removes the Dock and capsule completely. Pointer hover
-has no effect until fullscreen ends. Minimized windows do not affect either
-policy.
+The edge, the approach distance, and the dwell are configurable. See
+[Hot Zones](../reference/config.md#hot-zones) in the Configuration Reference.
 
-## Read the Machine's State from the Dock
+## Check Status at a Glance
 
-The Dock's leading plate is the machine's own reading column (ADR-0218). It sits
-across the bar's thickness rather than along its length, so it never widens the
-Dock as radios come and go.
-
-1. Glance at the plate's rows, in fixed order: Wi-Fi, Bluetooth, battery.
-2. Read each row's mark and tone:
-   - **Wi-Fi** — the signal glyph when the radio is on (lit when associated, dim
-     when idle, scanning, or connecting); a struck-through glyph when the radio
-     is off.
-   - **Bluetooth** — the rune when the radio is on, with a small dot when at
-     least one peripheral is connected; struck through when off.
-   - **Battery** — a charge glyph beside a proportional gauge. A bolt replaces the
-     plain battery glyph while charging. The level is a proportion, not a number.
-3. Press any row to open the control center, which owns the toggles, the network
-   list, and the device list. Pressing a row never closes a panel that is already
-   open.
-
-A reading is drawn only for hardware the machine reports, so a desktop with no
-battery and no Bluetooth shows a shorter column — or none at all, leaving a pure
-and centered Dock. The plate costs one fixed span of length whatever it holds.
+The Dock holds only applications. To see the time, your workspace, and the
+machine's Wi-Fi, Bluetooth, battery, volume and Do Not Disturb state, raise the
+Glance HUD. See [How to Read Status and Use the Control
+Center](hud-and-control-center.md#glance-at-status).
 
 ## Open the Launcher
 
@@ -149,11 +135,16 @@ selection, empty the list and set `autopopulate = true`.
    `Not Always on Top` to release it.
 6. Select `Close Window` or `Close All Windows` to request a graceful close.
 
-The always-on-top row appears only in the Dock menu, next to
-Maximize/Restore, and targets the same window: the application's activated
-window, excluding read-only mirrors and minimized or fullscreen windows. An
-always-on-top window stays above normal windows but below compositor chrome
-such as the Dock, and the flag lasts until you clear it or the session ends.
+The Maximize/Restore and Always on Top rows appear only in the Dock menu, and
+only while the application has exactly one window that is not a read-only
+mirror, minimized, or fullscreen. With several windows, the menu cannot know
+which one you mean, so it offers only application-wide actions. Use the window
+controls on its live preview cards instead (see below). Windows kept on top
+show `▲` after their title in the menu's window list.
+
+An always-on-top window stays above normal windows but below compositor
+chrome such as the Dock. The flag lasts until you clear it or the session
+ends. Press `Super+Shift+T` to toggle it for the focused window.
 
 The menu is anchored to the owning application icon or cell rather than the
 pointer position. A Dock menu opens above its icon when space permits and
@@ -167,6 +158,20 @@ before the application-wide actions.
 Press `Escape` or click outside the menu to dismiss it. When the menu is open
 inside the launcher, the first `Escape` dismisses the menu and leaves the
 launcher open; press `Escape` again to close the launcher.
+
+## Control One Window from Its Live Preview
+
+Rest the pointer on a running application's Dock tile to open live previews
+of its windows. The previews stay open while you move from the tile toward
+them, even when the path crosses neighbouring tiles.
+
+1. Hover a preview card to show its window controls in the top-right corner.
+2. Select `▲` to keep that window on top, or select it again to release it.
+3. Select `×` to request a graceful close of that window.
+4. Right-click the card for a menu that acts on that window only.
+
+A window that is kept on top shows a lit `▲` badge on its card even when you
+are not hovering it, so you can tell several windows of one application apart.
 
 ## Manage a Borderless Application Window
 

@@ -1,32 +1,35 @@
-[Testing Index](index.md) > Manual Testing Playbook
+[Verification Index](index.md) > Manual Verification Playbook
 
 ---
 
-# Manual Testing Playbook
+# Manual Verification Playbook
 
-This playbook provides actionable, scenario-based manual testing recipes for
-Tessera. It is designed to be concise, task-focused, and copy-paste ready.
+Scenario-based recipes for running Tessera during development and checking a
+change by hand, ordered by the
+[verification ladder](../standards/verification.md#2-the-verification-ladder).
+Every block is copy-paste ready from the repository root.
 
-For the build, run, and automated verification workflow, see the
-[Build & Run Guide](../build-and-run.md#5-automated-verification--testing).
-For deep dive specifications, see
-[Surface Testing](surface-testing.md) and [VT/DRM Manual Testing](vt-drm-testing.md).
+For first-time build and startup, see the [Build & Run Guide](../build-and-run.md).
+For area-specific depth, see [Surface Verification](surface-verification.md)
+and [VT/DRM Verification](vt-drm-verification.md). Record results in the
+[Support Matrix](support-matrix.md).
 
 ---
 
 ## 1. Scenario Decision Matrix
 
-Select the narrowest testing scenario that covers your change:
+Select the cheapest scenario that can fail for your change:
 
 | Verification Target | Recommended Scenario | External Dependencies | Execution Overhead |
 | :--- | :--- | :--- | :--- |
 | **Logic, protocol codecs, schemas, config, IPC, audit** | **[Scenario 0: Native-Free Logic](#2-scenario-0-native-free-rapid-logic-verification-zero-c-dependencies)** | None (Pure Rust toolchain only) | Sub-second |
 | **Lock screen UI, avatar, credential interaction** | **[Scenario 1A: Lock Screen Preview](#1a-lock-screen-preview)** | Wayland host only (Zero compositor required) | Instant window |
 | **3D Persona avatar rendering & framing** | **[Scenario 1B: Avatar Preview](#1b-3d-persona--vrm-avatar-preview)** | GPU (Headless snapshot dump) | Instant dump |
-| **Compositor runtime, window management, chrome, layout** | **[Scenario 2: Nested Compositor](#4-scenario-2-testing-inside-an-existing-desktop-nested-mode)** | Full host Wayland desktop + Optics C libraries | Single isolated client window |
-| **Inner Wayland client protocols, dmabuf, xdg-shell** | **[Scenario 3: Inner Client Injection](#5-scenario-3-inner-client-injection--protocol-testing)** | Running nested instance | Client process |
-| **Physical KMS scanout, VT switching, multi-GPU** | **[Scenario 4: Direct VT/DRM](#6-scenario-4-direct-vtdrm-hardware-testing)** | Physical Linux TTY + rootless seat | Bare-metal session switch |
-| **Full workspace unit & doc suite** | **[Scenario 5: Full Workspace Sanity](#7-scenario-5-full-workspace-unit-sanity)** | Full native stack + Optics | ~10-20 seconds |
+| **Settings UI, presets, compact rail, fault states** | **[Scenario 1D: Settings Preview](#1d-settings-preview-wire-level-mock-ipc)** | Wayland host only (Zero compositor required) | Instant window |
+| **Compositor runtime, window management, chrome, layout** | **[Scenario 2: Nested Compositor](#4-scenario-2-nested-compositor-inside-an-existing-desktop)** | Full host Wayland desktop + Optics C libraries | Single isolated client window |
+| **Inner Wayland client protocols, dmabuf, xdg-shell** | **[Scenario 3: Inner Client Injection](#5-scenario-3-inner-client-injection--protocol-checks)** | Running nested instance | Client process |
+| **Physical KMS scanout, VT switching, multi-GPU** | **[Scenario 4: Direct VT/DRM](#6-scenario-4-direct-vtdrm-hardware-session)** | Physical Linux TTY + rootless seat | Bare-metal session switch |
+| **Full workspace unit & doc suite** | **[Scenario 5: Full Workspace Test Suite](#7-scenario-5-full-workspace-test-suite)** | Full native stack + Optics | ~10-20 seconds |
 
 ---
 
@@ -77,7 +80,7 @@ cargo run --locked -p tessera-lock \
 - Press `Escape` to close the preview window.
 - `Backspace` and `Ctrl+U` test production credential buffer edits.
 - Pass `--background <path>` to test independent wallpaper rendering.
-- For deep harness conventions, see [Surface Testing](surface-testing.md).
+- For deep harness conventions, see [Surface Verification](surface-verification.md).
 
 ### 1B. 3D Persona & VRM Avatar Preview
 
@@ -106,13 +109,29 @@ cargo run --locked -p tessera -- display capture \
   /tmp/tessera-lock-preview.png
 ```
 
+### 1D. Settings Preview (Wire-Level Mock IPC)
+
+Inspect Settings pages, responsive `<640px` rail layout, multi-display/touchpad controls, and rejection banners without starting a compositor ([ADR-0257](../../adr/0257-explicit-ipc-socket-override-and-settings-preview-harness.md)):
+
+```bash
+cargo run --locked -p tessera-settings \
+  --features dev-preview \
+  --bin tessera-settings-preview -- --preset multi-display display
+```
+
+- Presets: `--preset desktop|multi-display|laptop|minimal`
+- Fault/authority modes: `--mode live|read-only|reject-stale|reject-locked|disconnected`
+- Fixed sizes: `--size 540x720` (compact icon rail), `--size 960x680` (standard), `--size 1440x900` (wide)
+- Run `--mock-server-only --socket /tmp/mock-settings.sock` to test an unmodified production `tessera-settings --socket /tmp/mock-settings.sock` or `tessera --socket /tmp/mock-settings.sock`.
+- For full harness options and agent capture recipes, see [Surface Verification](surface-verification.md#verify-settings).
+
 ---
 
-## 4. Scenario 2: Testing Inside an Existing Desktop (Nested Mode)
+## 4. Scenario 2: Nested Compositor Inside an Existing Desktop
 
 ### Purpose
 
-Run and test the production Tessera compositor as a regular client window inside
+Run the production Tessera compositor as a regular client window inside
 an existing graphical Wayland session (GNOME, Sway, Hyprland, or a host Tessera
 desktop).
 
@@ -140,9 +159,8 @@ cargo run --locked -p tessera
 
 - `TESSERA_BACKEND=nested`: Forces nested presentation mode inside the existing
   display server.
-- `XDG_DATA_HOME=/tmp/tessera-dev`: **Crucial isolation**. Prevents
-  `AuditError::Locked` caused by an active host session holding an exclusive
-  `flock` on `events-v2.jsonl`.
+- `XDG_DATA_HOME=/tmp/tessera-dev`: Isolates agent principal/grant stores from
+  the host session.
 - `TESSERA_PREVIEW=control-center`: Opens the Control Center at startup,
   bypassing the host compositor's interception of the global `Super+S`
   shortcut. Post sample notifications with `tessera notification send`.
@@ -159,12 +177,12 @@ For complete nested backend details, see
 
 ---
 
-## 5. Scenario 3: Inner Client Injection & Protocol Testing
+## 5. Scenario 3: Inner Client Injection & Protocol Checks
 
 ### Purpose
 
-Test application launch, buffer negotiation, and window state inside the nested
-compositor.
+Check application launch, buffer negotiation, and window state inside the
+nested compositor.
 
 ### Execution
 
@@ -188,7 +206,7 @@ flatpak run --env=WAYLAND_DISPLAY=wayland-1 <app_id>
 
 ---
 
-## 6. Scenario 4: Direct VT/DRM Hardware Testing
+## 6. Scenario 4: Direct VT/DRM Hardware Session
 
 ### Purpose
 
@@ -208,16 +226,16 @@ VT switching on physical GPU hardware.
    *(For multi-GPU systems, specify `TESSERA_DRM_DEVICE=/dev/dri/card1`)*.
 
 For extensive hardware verification steps (mixed-refresh rates, atomic planes),
-see the detailed guide: [VT/DRM Manual Testing](vt-drm-testing.md). For the
+see the detailed guide: [VT/DRM Verification](vt-drm-verification.md). For the
 gated overlay candidate, complete-set `TEST_ONLY`, and deactivation matrix, see
 [How to Validate KMS Overlay Offload](../../how-to/kms-overlay-validation.md).
 
 ---
 
-## 7. Scenario 5: Full Workspace Unit Sanity
+## 7. Scenario 5: Full Workspace Test Suite
 
-Before opening a pull request or pushing changes, verify all logic and
-integration/e2e tests across the full repository:
+Before opening a pull request, run the automated suites across the workspace.
+Runner and layout rules are in [Testing Standards](../standards/testing.md):
 
 ```bash
 # Full parallel unit, integration, and e2e tests
@@ -229,9 +247,10 @@ cargo nextest run --locked -p tessera-shell --lib
 
 ---
 
-## 8. 30-Second Manual Smoke Checklist
+## 8. 30-Second Smoke Checklist
 
-Confirm these key points before opening a pull request:
+Run [Scenario 2](#4-scenario-2-nested-compositor-inside-an-existing-desktop)
+and confirm each point before opening a pull request:
 
 - [ ] **Startup**: Compositor window appears without panics or swapchain errors.
 - [ ] **Chrome**: Background wallpaper and Dock render cleanly at scale.
@@ -242,3 +261,6 @@ Confirm these key points before opening a pull request:
       output resolution seamlessly.
 - [ ] **Teardown**: Pressing `Ctrl+C` terminates cleanly without hanging threads
       or orphaned sockets.
+
+When a run changes what is known about an area, update its row in the
+[Support Matrix](support-matrix.md) in the same change.

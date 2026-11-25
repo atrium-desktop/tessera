@@ -16,20 +16,11 @@ impl Chrome for Dock {
         let cursor = input.as_raw().cursor;
         let down = input.as_raw().mouse_down.first().copied().unwrap_or(false);
         self.last_display = Some((disp.x, disp.y));
-        // Idempotent with the pre-pass: whichever runs first resolves the pager,
-        // and the other observes the same snapshot.
-        self.observe_workspaces(_workspaces);
 
         // A fullscreen client owns the whole output edge: no animation,
-        // handle, hover target, popup, or residual tooltip may surface above
-        // it. Maximized windows force the Dock into its collapsed capsule;
-        // other non-fullscreen windows use the geometric intersection policy.
+        // hover target, popup, or residual tooltip may surface above it.
         if self.fullscreen_locked() {
             self.dismiss_transient_ui();
-            // A fullscreen client covers every pixel the Dock could have
-            // vacated, so there is nothing to retire; clearing the budget is
-            // also what keeps `damage_pending` from holding the frame clock
-            // alive while the Dock is not painting at all.
             self.menu_retire_frames = 0;
             self.menu_damage_rect = None;
             self.motion.reveal = SpringState::new(0.0);
@@ -39,9 +30,6 @@ impl Chrome for Dock {
             return;
         }
 
-        // The optimistic half of a reorder commit: apply the dragged order
-        // locally so the strip never waits on the catalog round-trip. The
-        // reconciling catalog push clears the flag in `update_app_catalog`.
         self.apply_pending_order();
 
         let dock_obscured = self.obscured_by_windows(windows, (disp.x, disp.y));
@@ -52,6 +40,15 @@ impl Chrome for Dock {
             self.step_autohide_motion(dt, (cursor.x, cursor.y), (disp.x, disp.y), drag_active);
         }
         self.autohide_stepped_in_prepass = false;
+
+        // When autohidden and completely slid out (reveal <= 0.001), the Dock
+        // draws zero pixels; its bound Hot Zone handles summoning (ADR-0254).
+        if self.effective_autohide() && self.autohide_reveal() <= 0.001 {
+            self.dismiss_transient_ui();
+            self.motion.anim_active = self.anim_active;
+            self.prev_down = down;
+            return;
+        }
 
         let menu_was_open = self.app_menu.is_open();
 
@@ -82,7 +79,7 @@ impl Chrome for Dock {
         // All tile layout runs along this axis and maps to x/y at the end.
         let axis_disp = if vertical { disp.y } else { disp.x };
         let cursor_axis = if vertical { cursor.y } else { cursor.x };
-        let rest_bounds = self.live_rest_bounds(n, pinned_count, (disp.x, disp.y));
+        let rest_bounds = Self::rest_bounds(n, pinned_count, position, (disp.x, disp.y));
 
         // Drop eased sizes for tiles no longer present so the map does not
         // grow unbounded across long sessions.
@@ -125,7 +122,7 @@ impl Chrome for Dock {
             rest_bounds.w
         };
         let current_panel = if effective_autohide {
-            Self::collapsed_panel_rect(position, (disp.x, disp.y), rest_len, self.autohide_reveal())
+            Self::revealed_panel_rect(position, (disp.x, disp.y), rest_len, self.autohide_reveal())
         } else {
             rest_bounds
         };
@@ -152,9 +149,9 @@ impl Chrome for Dock {
             && cursor.y >= rest_bounds.y
             && cursor.x < rest_bounds.x + rest_bounds.w
             && cursor.y < rest_bounds.y + rest_bounds.h;
-        // The resting rectangle must stay inert while collapsed. It is
-        // enabled for magnification only after the capsule has begun revealing
-        // the Dock. An active drag freezes the wave: the drop preview and the
+        // The resting rectangle must stay inert while hidden. It is
+        // enabled for magnification only after the Dock has begun revealing
+        // (ADR-0254). An active drag freezes the wave: the drop preview and the
         // magnification spring would fight over the same slots.
         let in_band = !self.launcher_active
             && !self.collapse_pending
@@ -204,9 +201,6 @@ impl Chrome for Dock {
         let content_progress = geometry.content_progress;
         let panel_rect = geometry.panel_rect;
         let icon_baseline = geometry.icon_baseline;
-        // Resolved before `geometry` is partially moved below.
-        let reading_rect = self.bento_rect(&geometry, vertical);
-        let leading_cells = self.leading_cell_rects(&geometry, vertical);
         let mut icon_rects: Vec<Rect> = geometry.icon_rects;
 
         // During a reorder drag the dragged tile leaves its slot and floats
@@ -225,49 +219,22 @@ impl Chrome for Dock {
         // Re-anchor every frame so it follows the tile's live spring geometry.
         out.scene_changed |= self.reanchor_app_menu(&tiles, &icon_rects);
 
-        // The bar and collapsed indicator are the same placed surface, and
-        // both are analytic glass bodies: as it drains, the bar morphs into
-        // the stadium handle while keeping the loupe, tint and its drop shadow.
-        // Edge definition comes from the glass rim, not a painted border.
-        let panel_thick = if vertical { panel_rect.w } else { panel_rect.h };
-        let dwell_progress = (self.autohide_dwell / AUTOHIDE_DWELL_THRESHOLD).clamp(0.0, 1.0);
-        let dock_material =
-            collapsing_dock_material(&self.design, surface_progress, panel_thick, dwell_progress);
-        // A placed surface with an empty body collapses to ~0 (the rect is
-        // only an anchor, not a size); a fixed-size child forces it to the
-        // bar size.
+        let dock_material = materials::panel(&self.design);
+        f.set_opacity(surface_progress);
         materials::place_floating(
             f,
             "tessera-dock",
             SurfaceRole::Dock,
             &self.design,
             panel_rect,
-            1.0,
+            surface_progress,
             dock_material,
             |f| {
                 f.column_ex(&sized(panel_rect.w, panel_rect.h), |_| {});
             },
         );
+        f.set_opacity(1.0);
 
-        if let Some(rect) = reading_rect {
-            crate::components::dock::bento::render_workspace_rail(
-                f,
-                &self.design,
-                "tessera-dock-workspace-rail",
-                rect,
-                self.workspace_tick_count,
-                self.workspace_current,
-                self.hovered_workspace_tick,
-                content_progress,
-                vertical,
-            );
-        }
-
-        // Hit-test only content that still exists in the morphing surface.
-        // The resting bounds remain the outer ownership limit, while the
-        // current panel and transformed icon geometry prevent the collapsed
-        // handle (or an icon's former position) from impersonating a tile.
-        // An active drag owns the pointer: no hover, click, or menu target.
         let previous_hit = self
             .hovered_tile
             .as_ref()
@@ -286,43 +253,7 @@ impl Chrome for Dock {
             )
         };
 
-        let prev_ws_tick = self.hovered_workspace_tick;
-        let prev_reading_row = self.hovered_reading_row;
-        self.hovered_workspace_tick = None;
-        self.hovered_reading_row = None;
-        if !drag_active && !self.launcher_active {
-            for (cell, rect) in &leading_cells {
-                match cell {
-                    StripCell::Readings(column) => {
-                        if self.hovered_reading_row.is_none() {
-                            self.hovered_reading_row =
-                                column.row_at(*rect, (cursor.x, cursor.y), vertical);
-                        }
-                    }
-                    StripCell::WorkspacePager(_) => {
-                        if self.hovered_workspace_tick.is_none() {
-                            self.hovered_workspace_tick =
-                                crate::components::dock::bento::hit_test_workspace_rail(
-                                    *rect,
-                                    (cursor.x, cursor.y),
-                                    self.workspace_tick_count,
-                                    self.workspace_current,
-                                    vertical,
-                                );
-                        }
-                    }
-                }
-            }
-        }
-        if self.hovered_workspace_tick != prev_ws_tick
-            || self.hovered_reading_row != prev_reading_row
-        {
-            self.anim_active = true;
-            out.scene_changed = true;
-        }
-
-        // Draw each tile's icon, then its running dot. Once content has
-        // reached the sink, no tile placements remain behind the stadium.
+        // Draw each tile's icon, then its running dot.
         self.render_strip_content(
             f,
             &tiles,
@@ -362,40 +293,9 @@ impl Chrome for Dock {
             content_progress,
             menu_was_open,
             position,
+            i18n,
             out,
         );
-
-        // Wheel scroll over workspace rail cycles workspaces smoothly.
-        let raw = input.as_raw();
-        let scroll_delta = if raw.scroll_y.abs() > 0.001 {
-            -raw.scroll_y
-        } else if raw.scroll_x.abs() > 0.001 {
-            raw.scroll_x
-        } else if raw.scroll_pixels_y.abs() > 1.0 {
-            -raw.scroll_pixels_y.signum()
-        } else if raw.scroll_pixels_x.abs() > 1.0 {
-            raw.scroll_pixels_x.signum()
-        } else {
-            0.0
-        };
-
-        if self.hovered_workspace_tick.is_some()
-            && scroll_delta.abs() > 0.5
-            && !self.workspace_ids.is_empty()
-        {
-            let n = self.workspace_ids.len();
-            let new_idx = if scroll_delta > 0.0 {
-                (self.workspace_current + 1).min(n - 1)
-            } else {
-                self.workspace_current.saturating_sub(1)
-            };
-            if new_idx != self.workspace_current && new_idx < self.workspace_ids.len() {
-                out.switch_workspace = Some(self.workspace_ids[new_idx]);
-                self.workspace_current = new_idx;
-                self.dock_interacted = true;
-                out.scene_changed = true;
-            }
-        }
 
         self.update_hover_surfaces(
             f,
@@ -406,6 +306,7 @@ impl Chrome for Dock {
             (cursor.x, cursor.y),
             (disp.x, disp.y),
             position,
+            dt,
         );
 
         self.app_menu.set_design(self.design);
@@ -477,6 +378,12 @@ impl Chrome for Dock {
         }
         let extent = (DOCK_PANEL_HEIGHT + DOCK_EDGE_MARGIN) as i32;
         match self.position {
+            DockPosition::Top => Reserved {
+                top: extent,
+                bottom: 0,
+                left: 0,
+                right: 0,
+            },
             DockPosition::Bottom => Reserved {
                 top: 0,
                 bottom: extent,
@@ -498,19 +405,29 @@ impl Chrome for Dock {
         }
     }
 
-    fn prepare_frame(&mut self, input: &Input, windows: &[Window], workspaces: &WorkspaceSnapshot) {
+    fn hot_zone_capability(&self) -> Option<tessera_desktop::hot_zone::HotZoneCapability> {
+        Some(tessera_desktop::hot_zone::HotZoneTarget::Dock.capability())
+    }
+
+    fn dock_expanded(&self) -> bool {
+        !self.fullscreen_locked() && (!self.effective_autohide() || self.autohide_reveal() > 0.05)
+    }
+
+    fn command(&mut self, command: &crate::component::ChromeCommand<'_>, _out: &mut ChromeEvents) {
+        if let crate::component::ChromeCommand::SummonDock(slot) = command {
+            self.summon(slot.as_dock_position());
+        }
+    }
+
+    fn prepare_frame(
+        &mut self,
+        input: &Input,
+        windows: &[Window],
+        _workspaces: &WorkspaceSnapshot,
+    ) {
         if self.fullscreen_locked() {
             return;
         }
-        // The pager's width is part of the bar length, and the pre-pass
-        // publishes frame-T geometry the hit-test reads. Observing the snapshot
-        // only in `render` would let the pre-pass and the paint measure two
-        // different bars on any frame where the workspace count changed.
-        self.observe_workspaces(workspaces);
-        // Apply the optimistic reorder here too: the pre-pass builds the tile
-        // strip and the hover hit-test from `self.apps`, so a pending order that
-        // only `render` applied would make the pre-pass publish frame-T geometry
-        // for the *previous* ordering on the frame after a drag commit.
         self.apply_pending_order();
         let raw = input.as_raw();
         let display = (raw.display_size.x, raw.display_size.y);
@@ -551,7 +468,7 @@ impl Chrome for Dock {
             return false;
         }
         let effective_autohide = self.effective_autohide();
-        let idle_timeout = if self.dock_interacted {
+        let idle_timeout = if self.dock_interacted || self.live_preview.is_some() {
             self.autohide_timeout
         } else {
             AUTOHIDE_QUICK_DISMISS_TIMEOUT
@@ -562,24 +479,16 @@ impl Chrome for Dock {
         } else {
             1.0
         };
-        let dwell_active =
-            self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold;
         let idle_counting = effective_autohide
             && !locked
             && self.autohide_reveal() > 0.001
             && self.autohide_idle > 0.0
             && self.autohide_idle < idle_timeout;
         let drag_active = self.press.as_ref().is_some_and(|p| p.dragging);
-        // `settled_drain_frames` and `hover_drain_frames` are *damage* bookkeeping
-        // (repaint the swapchain ring slots once more so every in-flight image
-        // shows the settled chrome), not animations in flight. Folding them
-        // into the frame-production predicate closes a feedback loop: a drain
-        // count requests a frame, the frame re-primes the drain, and a fully
-        // static dock is repainted at the output refresh rate forever. They
-        // remain in the damage footprint; they must not drive the clock.
         self.anim_active
             || idle_counting
-            || self.motion.anim_pending(target, dwell_active, drag_active)
+            || self.preview_exit_grace > 0.0
+            || self.motion.anim_pending(target, drag_active)
     }
 
     fn damage_pending(&self) -> bool {
@@ -734,6 +643,11 @@ impl Chrome for Dock {
                 }
             };
             let band = match self.position {
+                DockPosition::Top => {
+                    let y0 = rect.y.floor().max(0.0);
+                    let y1 = (rect.y + rect.h + reach).ceil().min(display.1);
+                    tessera_primitives::Rect::new(0, y0 as i32, display.0 as i32, (y1 - y0) as i32)
+                }
                 DockPosition::Bottom => {
                     let y1 = (rect.y + rect.h).ceil().min(display.1);
                     let y0 = (rect.y - reach).floor().max(0.0);
@@ -765,7 +679,18 @@ impl Chrome for Dock {
     }
 
     fn requires_composition(&self) -> bool {
-        !self.fullscreen_locked()
+        if self.fullscreen_locked() {
+            return false;
+        }
+        if self.effective_autohide()
+            && self.autohide_reveal() <= 0.001
+            && self.motion.settled_drain_frames == 0
+            && self.menu_retire_frames == 0
+            && self.hover_drain_frames == 0
+        {
+            return false;
+        }
+        true
     }
 
     fn update(&mut self, update: ChromeUpdate<'_>) {
@@ -780,7 +705,6 @@ impl Chrome for Dock {
                 self.app_menu.update(update);
             }
             ChromeUpdate::AppCatalog(catalog) => self.update_app_catalog(catalog),
-            ChromeUpdate::SystemStatus(status) => self.system_status = status.clone(),
             ChromeUpdate::LauncherActive(active) => {
                 if active && !self.launcher_active {
                     self.dismiss_transient_ui();
@@ -803,9 +727,6 @@ impl Chrome for Dock {
         if self.fullscreen_locked() || self.launcher_active {
             return false;
         }
-        // A held drag gesture owns the pointer across the whole output: a
-        // reorder drag previews across the strip and an edge drag travels to
-        // another screen edge.
         if self.press.as_ref().is_some_and(|press| press.dragging) {
             return true;
         }
@@ -818,7 +739,7 @@ impl Chrome for Dock {
         let rest = self.pointer_bounds(display);
         let effective_autohide = self.effective_autohide();
         if effective_autohide && self.autohide_reveal() <= 0.001 {
-            return Self::collapsed_indicator_contains(self.position, (x, y), display);
+            return false;
         }
         let rest_len = if self.position.is_vertical() {
             rest.h
@@ -826,7 +747,7 @@ impl Chrome for Dock {
             rest.w
         };
         let current_panel = if effective_autohide {
-            Self::collapsed_panel_rect(self.position, display, rest_len, self.autohide_reveal())
+            Self::revealed_panel_rect(self.position, display, rest_len, self.autohide_reveal())
         } else {
             rest
         };
@@ -901,57 +822,38 @@ impl Dock {
         } else {
             0.0
         };
-        let bento = self.strip_cells();
-        let bar_len = crate::components::dock::bento::strip_length(
-            eased.iter().copied(),
-            &bento,
-            DOCK_TILE_GAP,
-            DOCK_PAD,
-        );
-        let _ = n;
+        let extra = if section_gap > 0.0 {
+            (section_gap - DOCK_TILE_GAP).max(0.0)
+        } else {
+            0.0
+        };
+        let bar_len =
+            DockState::strip_length(eased.iter().copied(), DOCK_TILE_GAP, DOCK_PAD) + extra;
         let bar_axis_origin = (axis_disp - bar_len) * 0.5;
-        let reading_len = DockState::reading_extent(&bento);
-        let centres = strip_centres(
-            eased,
-            order,
-            bar_axis_origin + reading_len,
-            section_slot,
-            section_gap,
-        );
+        let centres = strip_centres(eased, order, bar_axis_origin, section_slot, section_gap);
         let surface_progress = if effective_autohide {
-            Self::collapse_surface_progress(self.autohide_reveal())
+            Self::smoothstep(self.autohide_reveal())
         } else {
             1.0
         };
-        let content_progress = if effective_autohide {
-            Self::collapse_content_progress(self.autohide_reveal())
-        } else {
-            1.0
-        };
+        let content_progress = surface_progress;
         let panel_rect = if effective_autohide {
-            Self::collapsed_panel_rect(position, display, bar_len, self.autohide_reveal())
+            Self::revealed_panel_rect(position, display, bar_len, self.autohide_reveal())
         } else {
             Self::panel_rect_for(position, bar_len, display)
         };
-        // Icons are anchored to the baseline strip on the panel's inner side
-        // and grow toward the screen centre; as content drains into the
-        // collapsed handle they converge on the same edge-centre sink as the
-        // panel and their size reaches zero before the stadium settles.
-        let icon_baseline = match position {
-            DockPosition::Bottom => {
-                panel_rect.y + panel_rect.h - DOCK_BASELINE_INSET * content_progress
-            }
-            DockPosition::Left => panel_rect.x + DOCK_BASELINE_INSET * content_progress,
-            DockPosition::Right => {
-                panel_rect.x + panel_rect.w - DOCK_BASELINE_INSET * content_progress
-            }
-        };
+        let icon_baseline = Self::icon_baseline_for(position, panel_rect, 1.0);
         let icon_rects: Vec<Rect> = (0..n)
             .map(|i| {
-                let s = (eased[i] * content_progress).max(0.0);
-                let centre_axis =
-                    axis_disp * 0.5 + (centres[i] - axis_disp * 0.5) * content_progress;
+                let s = eased[i].max(0.0);
+                let centre_axis = centres[i];
                 match position {
+                    DockPosition::Top => Rect {
+                        x: centre_axis - s * 0.5,
+                        y: icon_baseline,
+                        w: s,
+                        h: s,
+                    },
                     DockPosition::Bottom => Rect {
                         x: centre_axis - s * 0.5,
                         y: icon_baseline - s,
@@ -1014,13 +916,13 @@ impl Dock {
             );
             let n = tiles.len();
             let pinned_count = tiles.iter().filter(|t| t.pinned).count();
-            let rest_bounds = self.live_rest_bounds(n, pinned_count, display);
+            let rest_bounds = Self::rest_bounds(n, pinned_count, position, display);
             let owner_centre = self
                 .tooltip_tile
                 .as_ref()
                 .or(self.hovered_tile.as_ref())
                 .and_then(|key| tiles.iter().position(|t| &t.key == key))
-                .map(|owner_idx| self.live_rest_centre(owner_idx, n, pinned_count, axis_disp));
+                .map(|owner_idx| Self::rest_centre_estimate(owner_idx, n, pinned_count, axis_disp));
             let keys = if self.sizes.is_empty() {
                 Vec::new()
             } else {
@@ -1034,43 +936,14 @@ impl Dock {
             rest_bounds.w
         };
         let current_panel = if effective_autohide {
-            Self::collapsed_panel_rect(position, display, rest_len, self.autohide_reveal())
+            Self::revealed_panel_rect(position, display, rest_len, self.autohide_reveal())
         } else {
             rest_bounds
         };
         let over_hover_surface = self.hover_surface_contains(cursor.0, cursor.1);
+        let aiming_at_preview = self.pointer_aiming_at_preview(cursor);
 
-        if !Self::collapsed_indicator_contains(position, cursor, display) {
-            self.hidden_trigger_armed = true;
-            self.autohide_dwell = 0.0;
-        }
-
-        let capsule_entry = if self.collapse_pending
-            || self.dismiss_latched
-            || !effective_autohide
-            || self.autohide_reveal() >= 0.2
-        {
-            if self.autohide_reveal() >= 0.2 {
-                self.autohide_dwell = 0.0;
-            }
-            false
-        } else {
-            let confirmed = Self::step_hidden_reveal(
-                position,
-                &mut self.hidden_trigger_armed,
-                &mut self.autohide_dwell,
-                self.autohide_dwell_threshold,
-                cursor,
-                display,
-                dt,
-            );
-            if self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold {
-                self.anim_active = true;
-            }
-            confirmed
-        };
-
-        let idle_timeout = if self.dock_interacted {
+        let idle_timeout = if self.dock_interacted || self.live_preview.is_some() {
             self.autohide_timeout
         } else {
             AUTOHIDE_QUICK_DISMISS_TIMEOUT
@@ -1087,7 +960,6 @@ impl Dock {
             && (Self::pointer_keeps_revealed(
                 effective_autohide,
                 self.autohide_reveal(),
-                capsule_entry,
                 cursor,
                 current_panel,
                 rest_bounds,
@@ -1096,17 +968,20 @@ impl Dock {
             ) || (expanding
                 && Self::expanded_trigger_contains(position, cursor, rest_bounds, display)));
 
+        // ADR-0256: Never misclassify pointer movement toward an active Live
+        // Preview (or inside the preview Safe Corridor) as retreating from Dock.
         let retreating = effective_autohide
+            && !over_hover_surface
+            && !aiming_at_preview
+            && self.live_preview.is_none()
             && self.autohide_reveal() > 0.001
             && self.autohide_reveal() < 0.999
             && detect_cursor_retreat(position, cursor, self.last_cursor, rest_bounds);
         self.last_cursor = Some(cursor);
 
-        let keeps_revealed = (over_dock_trigger || over_hover_surface) && !retreating;
+        let keeps_revealed =
+            (over_dock_trigger || over_hover_surface || aiming_at_preview) && !retreating;
         let menu_open = self.app_menu.is_open();
-        // One resolved veto, consumed here and by `anim_pending`: a gesture the
-        // user started outranks the idle timer, so a scrub, a drag, or an open
-        // menu cannot be collapsed out from under the pointer.
         let locked = self.interaction_locked();
 
         if effective_autohide {
@@ -1145,9 +1020,7 @@ impl Dock {
         if is_settled && target_reveal == 0.0 {
             self.dock_interacted = false;
             self.collapse_pending = false;
-            if !Self::collapsed_indicator_contains(position, cursor, display) {
-                self.dismiss_latched = false;
-            }
+            self.dismiss_latched = false;
         }
         self.was_autohide_animating = !is_settled;
 
@@ -1187,7 +1060,7 @@ impl Dock {
                 let target = Self::magnification_target(
                     in_band,
                     magnify_axis,
-                    self.live_rest_centre(i, n, pinned_count, axis_disp),
+                    Self::rest_centre_estimate(i, n, pinned_count, axis_disp),
                 );
                 // A key absent from the spring table only happens when the tile
                 // set changed since the table was primed. Seed it with the same
@@ -1252,13 +1125,8 @@ impl Dock {
             }
         }
 
-        let dwell_active =
-            self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold;
-        self.anim_active = !is_settled
-            || unsettled
-            || dwell_active
-            || drag_active
-            || self.hover_surface_animating();
+        self.anim_active =
+            !is_settled || unsettled || drag_active || self.hover_surface_animating();
         self.motion.anim_active = self.anim_active;
     }
 
@@ -1307,6 +1175,7 @@ impl Dock {
     /// size reaches zero before the stadium settles.
     fn icon_baseline_for(position: DockPosition, panel_rect: Rect, content_progress: f32) -> f32 {
         match position {
+            DockPosition::Top => panel_rect.y + DOCK_BASELINE_INSET * content_progress,
             DockPosition::Bottom => {
                 panel_rect.y + panel_rect.h - DOCK_BASELINE_INSET * content_progress
             }
@@ -1317,188 +1186,15 @@ impl Dock {
         }
     }
 
-    /// The leading cells' rects, in strip order, on the bar's own baseline.
-    ///
-    /// Each cell occupies the span the strip geometry reserved for it, so the
-    /// paint and the layout cannot disagree about where the leading section ends
-    /// and the first icon begins. The reading column and the pager have the same
-    /// outer shape — one span of length, a resting tile of thickness — and differ
-    /// only in what they draw inside, which is why one resolver serves both.
-    pub(super) fn leading_cell_rects(
-        &self,
-        geometry: &StripGeometry,
-        vertical: bool,
-    ) -> Vec<(StripCell, Rect)> {
-        let cells = self.strip_cells();
-        if cells.is_empty() || geometry.content_progress <= 0.001 {
-            return Vec::new();
-        }
-        let start = if vertical {
-            geometry.panel_rect.y + DOCK_PAD
-        } else {
-            geometry.panel_rect.x + DOCK_PAD
-        };
-        place_leading_cells(
-            cells,
-            self.position,
-            geometry.icon_baseline,
-            DOCK_TILE,
-            start,
-            geometry.content_progress,
-        )
-    }
-
-    /// The leading cells' rects at rest, for callers and tests that need to know
-    /// where a cell is without running a frame.
-    ///
-    /// The geometry comes from the same placement rule the frame uses, so a test
-    /// asserting a reading's position cannot pass on arithmetic the paint does
-    /// not perform.
-    #[must_use]
-    pub fn rest_leading_cells(&self, display: (f32, f32)) -> Vec<(StripCell, Rect)> {
-        let panel = self.visual_panel_bounds(display);
-        let vertical = self.position.is_vertical();
-        let baseline = Self::icon_baseline_for(self.position, panel, 1.0);
-        let start = if vertical {
-            panel.y + DOCK_PAD
-        } else {
-            panel.x + DOCK_PAD
-        };
-        place_leading_cells(
-            self.strip_cells(),
-            self.position,
-            baseline,
-            DOCK_TILE,
-            start,
-            1.0,
-        )
-    }
-
-    /// The Bento reading section's rect: one box spanning every leading cell.
-    ///
-    /// Kept for callers that need the section as a single object (the damage
-    /// envelope); the paint places each cell separately through
-    /// [`Dock::leading_cell_rects`], because a row hit test inside the reading
-    /// column needs the cell's own rect, not the union.
-    pub(super) fn bento_rect(&self, geometry: &StripGeometry, vertical: bool) -> Option<Rect> {
-        let cells = self.strip_cells();
-        if cells.is_empty() || geometry.content_progress <= 0.001 {
-            return None;
-        }
-        let total: f32 = cells.iter().map(|cell| cell.rest_width()).sum::<f32>();
-        if total <= 0.0 {
-            return None;
-        }
-        // The reading row is as tall as a resting tile but sits on the same
-        // baseline, so the pager reads level with the icons rather than floating.
-        let thickness = DOCK_TILE * geometry.content_progress;
-        let pad = DOCK_PAD;
-        let start = if vertical {
-            geometry.panel_rect.y + pad
-        } else {
-            geometry.panel_rect.x + pad
-        };
-        Some(match self.position {
-            DockPosition::Left => Rect {
-                x: geometry.icon_baseline,
-                y: start,
-                w: thickness,
-                h: total,
-            },
-            DockPosition::Right => Rect {
-                x: geometry.icon_baseline - thickness,
-                y: start,
-                w: thickness,
-                h: total,
-            },
-            DockPosition::Bottom => Rect {
-                x: start,
-                y: geometry.icon_baseline - thickness,
-                w: total,
-                h: thickness,
-            },
-        })
-    }
-
-    /// The Dock's animated body rect, resolved once per frame for both the
-    /// damage envelope and the paint.
-    ///
-    /// Autohide morphs the whole panel between the expanded bar and the
-    /// collapsed capsule; this is the single source of that geometry, so the
-    /// painted body and the damage strip can never disagree.
     #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn body_rect(&self, display: (f32, f32)) -> Option<Rect> {
         if self.fullscreen_locked() {
             return None;
         }
-        let expanded = self.visual_panel_bounds(display);
-        let expanded_len = if self.position.is_vertical() {
-            expanded.h
-        } else {
-            expanded.w
-        };
-        Some(if self.effective_autohide() {
-            Self::collapsed_panel_rect(self.position, display, expanded_len, self.autohide_reveal())
-        } else {
-            expanded
-        })
-    }
-
-    /// The Dock body's painted surface at its current reveal.
-    ///
-    /// This is the whole material: fill, hairline, corner radius, and the
-    /// shadow that separates the bar from the desktop. It morphs with the
-    /// capsule — the collapsed state is a small pill rather than a flat
-    /// hairline, because a resting edge control has to read as a control.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(super) fn body_material(&self, display: (f32, f32)) -> Option<(Rect, LayoutOpts)> {
-        let bounds = self.body_rect(display)?;
-        let surface_progress = if self.effective_autohide() {
-            Self::collapse_surface_progress(self.autohide_reveal())
-        } else {
-            1.0
-        };
-        let thick = if self.position.is_vertical() {
-            bounds.w
-        } else {
-            bounds.h
-        };
-        Some((
-            bounds,
-            collapsing_dock_material(&self.design, surface_progress, thick, self.autohide_dwell),
-        ))
-    }
-
-    /// The hover surface (name bubble or live preview panel) as painted
-    /// material, at its current fade.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(super) fn hover_body_material(&self) -> Option<(Rect, LayoutOpts)> {
-        let bounds = self.hover_surface_bounds?;
-        if self.tooltip_alpha() <= 0.01 || bounds.w <= 0.0 || bounds.h <= 0.0 {
+        if self.effective_autohide() && self.autohide_reveal() <= 0.001 {
             return None;
         }
-        let design = self.design;
-        let is_preview = self.live_preview.is_some();
-        let style = design.surfaces.for_role(if is_preview {
-            SurfaceRole::FloatingPanel
-        } else {
-            SurfaceRole::Tooltip
-        });
-        Some((
-            bounds,
-            LayoutOpts {
-                bg: style.body,
-                border: style.border,
-                border_width: style.border_width,
-                radius: if is_preview {
-                    style.radius
-                } else {
-                    TOOLTIP_HEIGHT * 0.5
-                },
-                pad: 0.0,
-                ..surface_layout()
-            },
-        ))
+        Some(self.visual_panel_bounds(display))
     }
 }
 
@@ -1552,70 +1248,10 @@ pub(super) fn strip_centres(
 }
 
 /// Snap a hairline's logical center to the device pixel grid and give it
-/// exactly one device pixel of width. At scale ≥ 2 a fractional 1-logical-px
-/// line at low alpha rasterises to nothing; snapping keeps the section
-/// divider crisp at any scale. At scale 1 this is the same 1 logical px line
-/// at (within half a device pixel of) the same center.
+/// exactly one device pixel of width.
 pub(super) fn snapped_hairline(center: f32, scale: f32) -> (f32, f32) {
     let scale = scale.max(1.0);
     ((center * scale).round() / scale, 1.0 / scale)
-}
-
-/// Nearest-tile hit test along the strip axis (`vertical` picks y for a
-/// side dock, x for a bottom dock). Gated by the resting bounds, the live
-/// panel, and the content drain, so collapsed geometry owns no tiles.
-/// Lay the leading cells out along the strip, one span each.
-///
-/// Pure and shared by the paint, the row hit test, and the resting-geometry
-/// helper, so those three cannot compute different positions for the same cell.
-pub(super) fn place_leading_cells(
-    cells: Vec<StripCell>,
-    position: DockPosition,
-    icon_baseline: f32,
-    tile_thickness: f32,
-    axis_start: f32,
-    content_progress: f32,
-) -> Vec<(StripCell, Rect)> {
-    let thickness = tile_thickness * content_progress;
-    if thickness <= 0.0 {
-        return Vec::new();
-    }
-    let mut cursor = axis_start;
-    let mut rects = Vec::with_capacity(cells.len());
-    let mut placed = false;
-    for cell in cells {
-        let span = cell.rest_width() * content_progress;
-        if span <= 0.0 {
-            continue;
-        }
-        if placed {
-            cursor += DOCK_TILE_GAP * content_progress;
-        }
-        let rect = match position {
-            DockPosition::Left => Rect {
-                x: icon_baseline,
-                y: cursor,
-                w: thickness,
-                h: span,
-            },
-            DockPosition::Right => Rect {
-                x: icon_baseline - thickness,
-                y: cursor,
-                w: thickness,
-                h: span,
-            },
-            DockPosition::Bottom => Rect {
-                x: cursor,
-                y: icon_baseline - thickness,
-                w: span,
-                h: thickness,
-            },
-        };
-        cursor += span;
-        placed = true;
-        rects.push((cell, rect));
-    }
-    rects
 }
 
 /// Which tile the pointer is over, with hysteresis so a resting pointer has a
@@ -1652,10 +1288,7 @@ pub(super) fn hit_test_tiles(
             && cursor.0 < rect.x + rect.w
             && cursor.1 < rect.y + rect.h
     };
-    if content_progress <= AUTOHIDE_CONTENT_INTERACTION_MIN
-        || !contains(rest_bounds)
-        || !contains(panel_rect)
-    {
+    if content_progress <= 0.01 || !contains(rest_bounds) || !contains(panel_rect) {
         return None;
     }
 
@@ -1749,71 +1382,6 @@ fn sized_fill(w: f32, h: f32, bg: Color, radius: f32) -> LayoutOpts {
     }
 }
 
-fn mix_channel(collapsed: u8, expanded: u8, progress: f32) -> u8 {
-    let progress = progress.clamp(0.0, 1.0);
-    (f32::from(collapsed) + (f32::from(expanded) - f32::from(collapsed)) * progress)
-        .round()
-        .clamp(0.0, 255.0) as u8
-}
-
-fn collapsing_radius(design: &Design, surface_progress: f32, height: f32) -> f32 {
-    let surface_progress = surface_progress.clamp(0.0, 1.0);
-    let radius = AUTOHIDE_HANDLE_HEIGHT * 0.5
-        + (design.radii.panel_lg - AUTOHIDE_HANDLE_HEIGHT * 0.5) * surface_progress;
-    radius.min((height * 0.5).max(0.0)).max(0.0)
-}
-
-/// Straight (unpremultiplied) channels of a palette colour.
-///
-/// Palette values are stored premultiplied, but an interpolation between two of
-/// them has to run on straight channels and repremultiply once: mixing
-/// premultiplied bytes and feeding them back through [`Color::rgba`]
-/// premultiplies twice and lands the body darker than either endpoint.
-fn straight(color: Color) -> (u8, u8, u8, u8) {
-    let (r, g, b, a) = color.components();
-    if a == 0 || a == 255 {
-        return (r, g, b, a);
-    }
-    // The quotient is provably <= 255 because `c` is a premultiplied channel
-    // (`c <= a`), so the narrowing cannot truncate.
-    let un = |c: u8| ((u32::from(c) * 255 + u32::from(a) / 2) / u32::from(a)).min(255) as u8;
-    (un(r), un(g), un(b), a)
-}
-
-/// How far the resting capsule's body lifts while the pointer dwells on it.
-///
-/// The dwell is a micro-interaction acknowledgement, not a second state: it
-/// brightens the same fill slightly and resets with the pointer. It is
-/// deliberately a tone lift rather than an alpha lift — the capsule is already
-/// opaque, so pushing alpha would change nothing visible.
-const DOCK_DWELL_GLOW: f32 = 30.0;
-
-fn collapsing_dock_material(
-    design: &Design,
-    surface_progress: f32,
-    height: f32,
-    dwell_progress: f32,
-) -> LayoutOpts {
-    let mut material = materials::panel(design);
-    // The painted body interpolates between the two palette endpoints as the
-    // surface morphs between the collapsed capsule and the expanded bar.
-    let collapsed = straight(design.dock.bar_surface_collapsed);
-    let expanded = straight(design.dock.bar_surface_expanded);
-    let glow = if surface_progress <= 0.001 {
-        (DOCK_DWELL_GLOW * dwell_progress.clamp(0.0, 1.0)).round() as u8
-    } else {
-        0
-    };
-    material.bg = Color::rgba(
-        mix_channel(collapsed.0, expanded.0, surface_progress).saturating_add(glow),
-        mix_channel(collapsed.1, expanded.1, surface_progress).saturating_add(glow),
-        mix_channel(collapsed.2, expanded.2, surface_progress).saturating_add(glow),
-        mix_channel(collapsed.3, expanded.3, surface_progress),
-    );
-    material.radius = collapsing_radius(design, surface_progress, height);
-    material
-}
-
 /// A centred grid row/column with the given gap, for the Launchpad glyph.
 fn grid(gap: f32) -> LayoutOpts {
     LayoutOpts {
@@ -1858,6 +1426,18 @@ pub(super) fn tooltip_rect(
             let x = (owner.x + owner.w * 0.5 - width * 0.5)
                 .clamp(8.0, (display.0 - width - 8.0).max(8.0));
             let y = (owner.y - TOOLTIP_GAP - TOOLTIP_HEIGHT).max(8.0);
+            Rect {
+                x,
+                y,
+                w: width,
+                h: TOOLTIP_HEIGHT,
+            }
+        }
+        PopupSide::Below => {
+            let x = (owner.x + owner.w * 0.5 - width * 0.5)
+                .clamp(8.0, (display.0 - width - 8.0).max(8.0));
+            let y =
+                (owner.y + owner.h + TOOLTIP_GAP).min((display.1 - TOOLTIP_HEIGHT - 8.0).max(8.0));
             Rect {
                 x,
                 y,
@@ -1943,7 +1523,7 @@ pub(super) fn live_preview_layout(
     // owner; for a side dock the panel sits beside the owner, so the roles
     // swap to the room toward the far edge and the full output height.
     let horizontal_room = match position {
-        DockPosition::Bottom => display.0 - PREVIEW_SCREEN_MARGIN * 2.0,
+        DockPosition::Top | DockPosition::Bottom => display.0 - PREVIEW_SCREEN_MARGIN * 2.0,
         DockPosition::Left => {
             display.0 - (owner.x + owner.w) - PREVIEW_PANEL_GAP - PREVIEW_SCREEN_MARGIN * 2.0
         }
@@ -1961,6 +1541,9 @@ pub(super) fn live_preview_layout(
         - PREVIEW_CARD_GAP * columns.saturating_sub(1) as f32)
         / columns as f32;
     let vertical_room = match position {
+        DockPosition::Top => {
+            display.1 - (owner.y + owner.h) - PREVIEW_PANEL_GAP - PREVIEW_SCREEN_MARGIN
+        }
         DockPosition::Bottom => owner.y - PREVIEW_PANEL_GAP - PREVIEW_SCREEN_MARGIN,
         DockPosition::Left | DockPosition::Right => display.1 - PREVIEW_SCREEN_MARGIN * 2.0,
     };
@@ -1983,15 +1566,18 @@ pub(super) fn live_preview_layout(
         + PREVIEW_CARD_GAP * rows.saturating_sub(1) as f32
         + PREVIEW_PANEL_PAD * 2.0;
     let panel_x = match position {
-        DockPosition::Bottom => (owner.x + owner.w * 0.5 - panel_w * 0.5).clamp(
-            PREVIEW_SCREEN_MARGIN,
-            (display.0 - panel_w - PREVIEW_SCREEN_MARGIN).max(PREVIEW_SCREEN_MARGIN),
-        ),
+        DockPosition::Top | DockPosition::Bottom => (owner.x + owner.w * 0.5 - panel_w * 0.5)
+            .clamp(
+                PREVIEW_SCREEN_MARGIN,
+                (display.0 - panel_w - PREVIEW_SCREEN_MARGIN).max(PREVIEW_SCREEN_MARGIN),
+            ),
         DockPosition::Left => (owner.x + owner.w + PREVIEW_PANEL_GAP)
             .min((display.0 - panel_w - PREVIEW_SCREEN_MARGIN).max(PREVIEW_SCREEN_MARGIN)),
         DockPosition::Right => (owner.x - PREVIEW_PANEL_GAP - panel_w).max(PREVIEW_SCREEN_MARGIN),
     };
     let panel_y = match position {
+        DockPosition::Top => (owner.y + owner.h + PREVIEW_PANEL_GAP)
+            .min((display.1 - panel_h - PREVIEW_SCREEN_MARGIN).max(PREVIEW_SCREEN_MARGIN)),
         DockPosition::Bottom => (owner.y - PREVIEW_PANEL_GAP - panel_h).max(PREVIEW_SCREEN_MARGIN),
         DockPosition::Left | DockPosition::Right => (owner.y + owner.h * 0.5 - panel_h * 0.5)
             .clamp(
@@ -2147,9 +1733,121 @@ fn render_live_preview_chrome(
                 );
             },
         );
+
+        // ADR-0256: Window-level Pin (Always on Top) & Close controls on each
+        // Live Preview card. A pinned window always displays its accented Pin
+        // badge; unpinned Pin and Close buttons appear when the card is hovered.
+        if !window.read_only && (is_hovered || window.always_on_top) {
+            let pin_rect = preview_card_pin_rect(outer);
+            let pin_bg = if window.always_on_top {
+                design.colors.application_accent
+            } else {
+                design.surfaces.for_role(SurfaceRole::Chip).body
+            };
+            frame.place(
+                &format!("tessera-dock-live-preview-pin-{index}"),
+                &chrome_place(
+                    pin_rect,
+                    LayoutOpts {
+                        bg: pin_bg,
+                        radius: pin_rect.h * 0.5,
+                        pad: 0.0,
+                        cross: Align::Center,
+                        ..surface_layout()
+                    },
+                ),
+                |frame| {
+                    frame.row_ex(
+                        &LayoutOpts {
+                            width: pin_rect.w,
+                            height: pin_rect.h,
+                            pad: 0.0,
+                            cross: Align::Center,
+                            ..Default::default()
+                        },
+                        |frame| frame.label_compact_sized("▲", design.typography.caption),
+                    );
+                },
+            );
+        }
+        if !window.read_only && is_hovered {
+            let close_rect = preview_card_close_rect(outer);
+            frame.place(
+                &format!("tessera-dock-live-preview-close-{index}"),
+                &chrome_place(
+                    close_rect,
+                    LayoutOpts {
+                        bg: design.surfaces.for_role(SurfaceRole::Chip).body,
+                        radius: close_rect.h * 0.5,
+                        pad: 0.0,
+                        cross: Align::Center,
+                        ..surface_layout()
+                    },
+                ),
+                |frame| {
+                    frame.row_ex(
+                        &LayoutOpts {
+                            width: close_rect.w,
+                            height: close_rect.h,
+                            pad: 0.0,
+                            cross: Align::Center,
+                            ..Default::default()
+                        },
+                        |frame| frame.label_compact_sized("×", design.typography.caption),
+                    );
+                },
+            );
+        }
     }
     frame.set_theme(original);
     frame.set_opacity(1.0);
+}
+
+const PREVIEW_ACTION_BTN: f32 = 22.0;
+const PREVIEW_ACTION_INSET: f32 = 6.0;
+const PREVIEW_ACTION_GAP: f32 = 4.0;
+
+pub(super) fn preview_card_close_rect(card_outer: Rect) -> Rect {
+    Rect {
+        x: card_outer.x + card_outer.w - PREVIEW_ACTION_INSET - PREVIEW_ACTION_BTN,
+        y: card_outer.y + PREVIEW_ACTION_INSET,
+        w: PREVIEW_ACTION_BTN,
+        h: PREVIEW_ACTION_BTN,
+    }
+}
+
+pub(super) fn preview_card_pin_rect(card_outer: Rect) -> Rect {
+    let close = preview_card_close_rect(card_outer);
+    Rect {
+        x: close.x - PREVIEW_ACTION_GAP - PREVIEW_ACTION_BTN,
+        y: close.y,
+        w: PREVIEW_ACTION_BTN,
+        h: PREVIEW_ACTION_BTN,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PreviewCardAction {
+    ToggleAlwaysOnTop(tessera_desktop::window::WindowId),
+    Close(tessera_desktop::window::WindowId),
+}
+
+pub(super) fn preview_card_action_hit(
+    presentation: &LivePreviewPresentation,
+    x: f32,
+    y: f32,
+) -> Option<PreviewCardAction> {
+    let contains = |r: Rect| x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+    for card in &presentation.cards {
+        let outer = to_ui_rect(card.geometry.outer);
+        if contains(preview_card_close_rect(outer)) {
+            return Some(PreviewCardAction::Close(card.window));
+        }
+        if contains(preview_card_pin_rect(outer)) {
+            return Some(PreviewCardAction::ToggleAlwaysOnTop(card.window));
+        }
+    }
+    None
 }
 
 pub(super) fn live_preview_hit(
@@ -2260,7 +1958,6 @@ impl Dock {
         self.hovered_preview = None;
         self.dismiss_latched = true;
         self.autohide_idle = self.autohide_timeout;
-        self.autohide_dwell = 0.0;
         self.anim_active = true;
         self.motion.anim_active = true;
         had_menu
@@ -2310,10 +2007,6 @@ impl Dock {
                         PressTarget::OtherTile(key) => tiles.iter().any(|tile| {
                             &tile.key == key && !tile.pinned && tile.pin_entry.is_some()
                         }),
-                        PressTarget::WorkspaceTick(_) => false,
-                        // A reading is a shortcut, not a control: it never
-                        // becomes a drag, so the press cannot reorder anything.
-                        PressTarget::ReadingRow(_) => false,
                     };
                 }
                 if press.dragging {
@@ -2341,7 +2034,7 @@ impl Dock {
                                         let pinned_centres: Vec<f32> = (1..pinned_count)
                                             .filter(|slot| *slot != strip)
                                             .map(|slot| {
-                                                self.live_rest_centre(
+                                                Self::rest_centre_estimate(
                                                     slot,
                                                     n,
                                                     pinned_count,
@@ -2367,14 +2060,11 @@ impl Dock {
                                 Self::edge_drag_target((cursor.x, cursor.y), (disp.x, disp.y))
                                 && target != self.position
                             {
-                                // Inline `set_position`: the strip borrow
-                                // rules out `&mut self` calls here.
                                 self.position = target;
                                 self.app_menu.set_side(Self::popup_side_for(target));
                                 self.anim_active = true;
                             }
                         }
-                        PressTarget::WorkspaceTick(_) => {}
                         PressTarget::OtherTile(key) => {
                             let strip = tiles.iter().position(|tile| &tile.key == key);
                             match strip {
@@ -2391,11 +2081,9 @@ impl Dock {
                                     press.section = section;
                                     drag_section = Some(section);
                                     if section == DropSection::Pinned {
-                                        // The insertion slot over every
-                                        // pinned-app rest centre.
                                         let pinned_centres: Vec<f32> = (1..pinned_count)
                                             .map(|slot| {
-                                                self.live_rest_centre(
+                                                Self::rest_centre_estimate(
                                                     slot,
                                                     n,
                                                     pinned_count,
@@ -2414,9 +2102,6 @@ impl Dock {
                                 _ => keep_press = false,
                             }
                         }
-                        // A reading never drags; the press stays a pending click
-                        // so its release can open the owning surface.
-                        PressTarget::ReadingRow(_) => {}
                     }
                 }
             }
@@ -2500,7 +2185,6 @@ impl Dock {
                                 self.pending_order = Some(ids);
                             }
                         }
-                        PressTarget::WorkspaceTick(_) | PressTarget::ReadingRow(_) => {}
                     }
                 }
             } else if keep_press {
@@ -2549,7 +2233,7 @@ impl Dock {
                 .as_ref()
                 .or(self.hovered_tile.as_ref())
                 .and_then(|key| tiles.iter().position(|t| &t.key == key))
-                .map(|owner_idx| self.live_rest_centre(owner_idx, n, pinned_count, axis_disp))
+                .map(|owner_idx| Self::rest_centre_estimate(owner_idx, n, pinned_count, axis_disp))
         } else {
             None
         };
@@ -2567,7 +2251,7 @@ impl Dock {
             let target = Self::magnification_target(
                 in_band,
                 magnify_axis,
-                self.live_rest_centre(i, n, pinned_count, axis_disp),
+                Self::rest_centre_estimate(i, n, pinned_count, axis_disp),
             );
             let mut newly_inserted = false;
             // Look up before inserting so an existing tile does not pay a
@@ -2612,16 +2296,11 @@ impl Dock {
             self.was_magnific_animating = unsettled;
         }
         // An active drag keeps frames ticking: the preview follows the cursor
-        // even when every spring has rested. Continuous dwell accumulation and
-        // hover tooltip / live-preview dwell & fade also tick frames so `render`
-        // never clobbers the pre-pass animation state before `update_animation_state`.
-        let dwell_active =
-            self.autohide_dwell > 0.0 && self.autohide_dwell < self.autohide_dwell_threshold;
-        self.anim_active = unsettled
-            || autohide_moving
-            || drag_active
-            || dwell_active
-            || self.hover_surface_animating();
+        // even when every spring has rested. The hover tooltip / live-preview
+        // dwell and fade also tick frames so `render` never clobbers the
+        // pre-pass animation state before `update_animation_state`.
+        self.anim_active =
+            unsettled || autohide_moving || drag_active || self.hover_surface_animating();
         self.motion.anim_active = self.anim_active;
 
         // The drop-preview permutation: during a tile drag the dragged tile
@@ -2649,13 +2328,13 @@ impl Dock {
         order: &[usize],
         section_slot: usize,
         live_section_gap: f32,
-        axis_disp: f32,
+        _axis_disp: f32,
         eased: &[f32],
         centres: &[f32],
     ) {
         let centre = |i: usize| centres[i];
         let dock_colors = self.design.dock;
-        if content_progress > AUTOHIDE_CONTENT_INTERACTION_MIN {
+        if content_progress > 0.01 {
             // The drained content fades through the optics-ui opacity switch;
             // restored after the section divider below.
             f.set_opacity(content_progress);
@@ -2681,7 +2360,7 @@ impl Dock {
                     let gap = s * 0.1;
                     let d = (s - 2.0 * (s * 0.2) - 2.0 * gap) / 3.0;
                     // The grid is a subdivided tile: each cell is `d` logical
-                    // pixels. While the Dock drains into its collapsed capsule
+                    // pixels. While the Dock slides out of view its scale
                     // `s` approaches zero and `d` becomes a sub-pixel sliver.
                     // Snapping such a cell to the device grid can move its
                     // leading edge past its trailing edge, which gfx rejects
@@ -2739,6 +2418,12 @@ impl Dock {
                     let strip_span =
                         (DOCK_BASELINE_INSET.max(DOCK_DOT) * content_progress).max(0.0);
                     let dot_rect = match position {
+                        DockPosition::Top => Rect {
+                            x: cx - dot_long * 0.5,
+                            y: icon_baseline - strip_span + (strip_span - dot_thick) * 0.5,
+                            w: dot_long,
+                            h: dot_thick,
+                        },
                         DockPosition::Bottom => Rect {
                             x: cx - dot_long * 0.5,
                             y: icon_baseline + (strip_span - dot_thick) * 0.5,
@@ -2746,13 +2431,13 @@ impl Dock {
                             h: dot_thick,
                         },
                         DockPosition::Left => Rect {
-                            x: icon_baseline + (strip_span - dot_thick) * 0.5,
+                            x: icon_baseline - strip_span + (strip_span - dot_thick) * 0.5,
                             y: cy - dot_long * 0.5,
                             w: dot_thick,
                             h: dot_long,
                         },
                         DockPosition::Right => Rect {
-                            x: icon_baseline - strip_span + (strip_span - dot_thick) * 0.5,
+                            x: icon_baseline + (strip_span - dot_thick) * 0.5,
                             y: cy - dot_long * 0.5,
                             w: dot_thick,
                             h: dot_long,
@@ -2779,22 +2464,15 @@ impl Dock {
         // divider lies across the strip: a horizontal hairline. The boundary
         // follows the live preview order, so the divider itself takes part in
         // the reflow when a drag crosses it.
-        if live_section_gap > 0.0 && content_progress > AUTOHIDE_CONTENT_INTERACTION_MIN {
-            // Sit at the midpoint of the edge-to-edge gap rather than the
-            // centre-to-centre midpoint: a boundary tile magnifying toward
-            // the divider pushes it aside instead of swallowing it, so the
-            // clearance stays one ordinary tile gap on both sides through
-            // the wave.
+        if live_section_gap > 0.0 && content_progress > 0.01 {
             let before = order[section_slot - 1];
             let after = order[section_slot];
             let divider_axis =
                 (centre(before) + eased[before] * 0.5 + centre(after) - eased[after] * 0.5) * 0.5;
-            let divider_axis =
-                axis_disp * 0.5 + (divider_axis - axis_disp * 0.5) * content_progress;
             let (divider_center, divider_thick) = snapped_hairline(divider_axis, self.scale);
-            let divider_len = (DOCK_TILE * 0.55 * content_progress).max(0.0);
+            let divider_len = (DOCK_TILE * 0.55).max(0.0);
             let divider_rect = match position {
-                DockPosition::Bottom => Rect {
+                DockPosition::Top | DockPosition::Bottom => Rect {
                     x: divider_center - divider_thick * 0.5,
                     y: panel_rect.y + (panel_rect.h - divider_len) * 0.5,
                     w: divider_thick,
@@ -2850,6 +2528,7 @@ impl Dock {
         content_progress: f32,
         menu_was_open: bool,
         position: DockPosition,
+        i18n: &Localizer,
         out: &mut ChromeEvents,
     ) {
         let cursor = Point2D {
@@ -2868,46 +2547,75 @@ impl Dock {
                 .is_some_and(|window| !window.read_only)
         });
         self.anim_active |= self.hovered_preview != previous_hovered_preview;
+        let preview_action_hit = self
+            .live_preview
+            .as_ref()
+            .and_then(|presentation| preview_card_action_hit(presentation, cursor.x, cursor.y));
         let clicked_preview = pressed_edge && !menu_was_open && self.hovered_preview.is_some();
         if clicked_preview {
-            out.clicked = self.hovered_preview;
-            self.hovered_tile = None;
-            self.hover_elapsed = 0.0;
-            self.tooltip_tile = None;
-            self.reset_tooltip_fade();
-            if let Some(bounds) = self.hover_surface_bounds.take() {
-                Self::record_hover_surface_damage(
-                    &mut self.hover_damage_rect,
-                    &mut self.hover_drain_frames,
-                    bounds,
-                );
+            self.dock_interacted = true;
+            if let Some(action) = preview_action_hit {
+                match action {
+                    PreviewCardAction::ToggleAlwaysOnTop(id) => {
+                        if let Some(window) = self.all_windows.iter().find(|w| w.id == id)
+                            && !window.read_only
+                        {
+                            out.window_actions.push(
+                                crate::component::WindowAction::SetAlwaysOnTop(
+                                    id,
+                                    !window.always_on_top,
+                                ),
+                            );
+                            out.scene_changed = true;
+                        }
+                    }
+                    PreviewCardAction::Close(id) => {
+                        out.window_actions
+                            .push(crate::component::WindowAction::Close(id));
+                        out.scene_changed = true;
+                    }
+                }
+            } else {
+                out.clicked = self.hovered_preview;
+                self.hovered_tile = None;
+                self.hover_elapsed = 0.0;
+                self.tooltip_tile = None;
+                self.reset_tooltip_fade();
+                self.dismiss_hover_surface();
             }
-            self.live_preview = None;
-            self.hover_owner_bounds = None;
-            self.hovered_preview = None;
+        }
+
+        // ADR-0256: Right-clicking an individual Live Preview card opens a
+        // window-scoped context menu bound unambiguously to that WindowId.
+        let right_clicked_preview = right_pressed
+            && self.press.is_none()
+            && self.hovered_preview.is_some()
+            && self.live_preview.is_some();
+        if right_clicked_preview
+            && let Some(win_id) = self.hovered_preview
+            && let Some(card) = self
+                .live_preview
+                .as_ref()
+                .and_then(|p| p.cards.iter().find(|c| c.window == win_id))
+        {
+            let card_rect = to_ui_rect(card.geometry.outer);
+            let label = self
+                .all_windows
+                .iter()
+                .find(|w| w.id == win_id)
+                .and_then(|w| w.title.clone().or_else(|| w.app_id.clone()))
+                .unwrap_or_else(|| i18n.text(Message::UntitledWindow).to_string());
+            self.dock_interacted = true;
+            self.app_menu.open(label, None, [win_id], card_rect, None);
+            self.menu_tile = None;
+            out.scene_changed = true;
         }
 
         // Arm the press lifecycle: a pinned-app tile press may become a
         // reorder drag; a press on empty panel space may become an edge
         // drag. Anything else stays a pending click.
         if pressed_edge && !menu_was_open && !clicked_preview && self.press.is_none() {
-            if let Some(row) = self.hovered_reading_row {
-                // A reading is a shortcut, not a control. The press is released
-                // immediately as "open the surface that owns the reading": it
-                // must not toggle, and it must not drag.
-                out.open_control_center = true;
-                let _ = row;
-                self.dock_interacted = true;
-            } else if let Some(ws_idx) = self.hovered_workspace_tick {
-                self.press = Some(PressState {
-                    origin: (cursor.x, cursor.y),
-                    target: PressTarget::WorkspaceTick(ws_idx),
-                    dragging: false,
-                    section: DropSection::Pinned,
-                    insert: None,
-                    start_position: position,
-                });
-            } else if let Some(i) = hit {
+            if let Some(i) = hit {
                 let tile = &tiles[i];
                 let target = if tile.pinned && tile.app.is_some() {
                     PressTarget::PinnedTile(tile.key.clone())
@@ -2928,7 +2636,7 @@ impl Dock {
                     start_position: position,
                 });
             } else if over_rest_bounds
-                && content_progress > AUTOHIDE_CONTENT_INTERACTION_MIN
+                && content_progress > 0.01
                 && cursor.x >= panel_rect.x
                 && cursor.y >= panel_rect.y
                 && cursor.x < panel_rect.x + panel_rect.w
@@ -2946,44 +2654,31 @@ impl Dock {
         }
 
         // A click fires on the release edge, and only when the press began
-        // on the same tile and never became a drag. A release after a drag,
-        // or off the pressed tile, activates nothing.
-        if released_edge && !suppress_release_click && !menu_was_open {
-            if let Some(PressTarget::WorkspaceTick(orig_idx)) = released_target {
-                if self.hovered_workspace_tick == Some(orig_idx) {
-                    self.dock_interacted = true;
-                    if let Some(&target_id) = self.workspace_ids.get(orig_idx) {
-                        out.switch_workspace = Some(target_id);
-                        self.workspace_current = orig_idx;
-                        out.scene_changed = true;
-                    }
-                }
-            } else if let (Some(target), Some(i)) = (released_target, hit) {
-                let pressed_this_tile = match &target {
-                    PressTarget::PinnedTile(key) | PressTarget::OtherTile(key) => {
-                        key == &tiles[i].key
-                    }
-                    PressTarget::Panel
-                    | PressTarget::WorkspaceTick(_)
-                    | PressTarget::ReadingRow(_) => false,
-                };
-                if pressed_this_tile {
-                    self.dock_interacted = true;
-                    let t = &tiles[i];
-                    if t.launchpad {
-                        out.toggle_pivot = true;
-                    } else if let Some(id) = t.focus {
-                        out.clicked = Some(id);
-                    } else if let Some(ai) = t.spawn {
-                        out.activate_entry(self.apps[ai].entry.clone());
-                    }
+        // on the same tile and never became a drag.
+        if released_edge
+            && !suppress_release_click
+            && !menu_was_open
+            && let (Some(target), Some(i)) = (released_target, hit)
+        {
+            let pressed_this_tile = match &target {
+                PressTarget::PinnedTile(key) | PressTarget::OtherTile(key) => key == &tiles[i].key,
+                PressTarget::Panel => false,
+            };
+            if pressed_this_tile {
+                self.dock_interacted = true;
+                let t = &tiles[i];
+                if t.launchpad {
+                    out.toggle_pivot = true;
+                } else if let Some(id) = t.focus {
+                    out.clicked = Some(id);
+                } else if let Some(ai) = t.spawn {
+                    out.activate_entry(self.apps[ai].entry.clone());
                 }
             }
         }
 
-        // A held left press (pending click or drag) suppresses the menu for
-        // its tile; the dragged tile in particular must not pop one up.
         if right_pressed
+            && !right_clicked_preview
             && self.press.is_none()
             && let Some(i) = hit
         {
@@ -3029,6 +2724,7 @@ impl Dock {
         cursor: (f32, f32),
         disp: (f32, f32),
         position: DockPosition,
+        dt: f32,
     ) {
         let cursor = Point2D {
             x: cursor.0,
@@ -3038,53 +2734,49 @@ impl Dock {
             x: disp.0,
             y: disp.1,
         };
-        // `hovered_tile` and `hover_elapsed` are owned by `prepare_frame`, which
-        // resolves the hit test against the geometry this frame paints and
-        // advances the dwell on the schedule the frame clock reads (ADR-0171
-        // Rule 1). This function paints the consequence: when the pre-pass says
-        // the hover moved, the bubble and the preview belonging to the old tile
-        // are released here.
-        //
-        // Writing `hovered_tile` here as well was the defect. `render` runs one
-        // phase after the dwell advanced, so the two resolutions disagreed for a
-        // frame at a time, each disagreement restarted the 0.3 s dwell, and a
-        // resting pointer needed over a second to raise a bubble that is due at
-        // 0.3 s.
-        // `render` is the writer: it is the pass that knows where the tiles were
-        // painted this frame. The dwell and the fade are advanced in
-        // `prepare_frame`, where the clock reads them (ADR-0217).
-        //
-        // The fallback to the popover's owner is the **bridge**: once a tile has
-        // raised a popover, the pointer has to be able to travel from the tile
-        // into the popover without the hover being lost on the way, or the
-        // popover (a live preview especially) is unreachable. `hover_surface_
-        // contains` reports the popover and the air gap above the bar, and while
-        // the pointer is in that region the owner stays the hover.
-        //
-        // This fallback is not what made the hover oscillate: that was the
-        // `hit_test_tiles` tie between two equally-magnified neighbours, which
-        // `HIT_HYSTERESIS_PX` settles. Keeping the fallback and adding the
-        // hysteresis are independent, and both are required.
-        let hovered_tile = hit.map(|i| tiles[i].key.clone()).or_else(|| {
-            over_hover_surface
-                .then(|| self.tooltip_tile.clone())
-                .flatten()
-        });
+        // ADR-0256: While a Live Preview is open and the pointer is inside its
+        // Safe Corridor or aiming toward it (Safe Triangle), freeze `hovered_tile`
+        // so diagonal transit across adjacent tiles never swaps or destroys it.
+        let aiming_at_preview = self.pointer_aiming_at_preview((cursor.x, cursor.y));
+        let hold_preview_owner = self.live_preview.is_some()
+            && self.tooltip_tile.is_some()
+            && (over_hover_surface || aiming_at_preview);
+
+        let raw_hovered_tile = if hold_preview_owner {
+            self.preview_exit_grace = 0.0;
+            self.tooltip_tile.clone()
+        } else {
+            hit.map(|i| tiles[i].key.clone()).or_else(|| {
+                over_hover_surface
+                    .then(|| self.tooltip_tile.clone())
+                    .flatten()
+            })
+        };
+
+        // Brief exit grace window when pointer briefly skims outside an active
+        // Live Preview (not onto another tile): keeps the preview steady.
+        let hovered_tile = if raw_hovered_tile.is_none()
+            && self.live_preview.is_some()
+            && self.tooltip_tile.is_some()
+        {
+            self.preview_exit_grace += dt;
+            if self.preview_exit_grace < PREVIEW_EXIT_GRACE_SECS {
+                self.tooltip_tile.clone()
+            } else {
+                self.preview_exit_grace = 0.0;
+                None
+            }
+        } else {
+            self.preview_exit_grace = 0.0;
+            raw_hovered_tile
+        };
+
         if self.hovered_tile != hovered_tile {
             self.hovered_tile = hovered_tile;
             self.hover_elapsed = 0.0;
             self.tooltip_tile = None;
             self.reset_tooltip_fade();
-            if let Some(bounds) = self.hover_surface_bounds.take() {
-                Self::record_hover_surface_damage(
-                    &mut self.hover_damage_rect,
-                    &mut self.hover_drain_frames,
-                    bounds,
-                );
-            }
-            self.live_preview = None;
-            self.hover_owner_bounds = None;
-            self.hovered_preview = None;
+            self.dismiss_hover_surface();
         }
 
         if self.app_menu.is_open() {

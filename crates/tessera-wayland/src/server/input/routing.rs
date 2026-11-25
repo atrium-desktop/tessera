@@ -534,17 +534,18 @@ impl Server {
         })
     }
 
-    /// Resolve who presents the outputs for this frame (ADR-0183).
+    /// Resolve who presents the outputs for this frame (ADR-0183, ADR-0259).
     ///
-    /// A visible, non-minimized toplevel owns the presentation when its
-    /// committed surface covers an output and is opaque, or when it declared
-    /// `xdg_toplevel.set_fullscreen`. Chrome space policy
-    /// ([`SpaceUse`](tessera_desktop::window::SpaceUse)), wallpaper suspension,
-    /// and direct-scanout eligibility all consume this one verdict; none of
-    /// them re-derive it.
+    /// `live_surfaces()` is ordered bottom-to-top (Z-order). A visible,
+    /// non-minimized toplevel owns fullscreen presentation only when it sits
+    /// at the top of the stacking order with no non-fullscreen window raised
+    /// above it. Chrome space policy
+    /// ([`SpaceUse`](tessera_desktop::window::SpaceUse)), Hot Zones, Dock,
+    /// Control Center, and wallpaper suspension all consume this one verdict;
+    /// none of them re-derive it.
     ///
-    /// Cheaper than [`Self::render_windows`]: no `Window` clones, one walk over
-    /// live surfaces that short-circuits on the first owner.
+    /// Cheaper than [`Self::render_windows`]: no `Window` clones, single pass
+    /// over live surfaces in Z-order.
     pub fn space_use(&self) -> tessera_desktop::window::SpaceUse {
         let visible = self.visible();
         // The presented output geometry — the same rect the occlusion walk,
@@ -907,6 +908,13 @@ impl Server {
     pub fn toplevel_fullscreen(&self, surface_id: tessera_desktop::window::WindowId) -> bool {
         let rec = self.find_surface_by_window_id(surface_id);
         !rec.is_null() && unsafe { (*rec).window.state.fullscreen }
+    }
+
+    /// Whether a live toplevel currently holds the session-scoped always-on-top
+    /// flag (ADR-0084, ADR-0256).
+    pub fn toplevel_always_on_top(&self, surface_id: tessera_desktop::window::WindowId) -> bool {
+        let rec = self.find_surface_by_window_id(surface_id);
+        !rec.is_null() && unsafe { (*rec).window.always_on_top }
     }
 
     /// Set or clear compositor-managed fullscreen. This is the compositor's

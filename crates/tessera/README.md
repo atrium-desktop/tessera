@@ -80,7 +80,7 @@ cargo run --locked -p tessera
 The repository [Quick Start](../../README.md#quick-start) contains the full
 dependency build sequence. Contributors editing both repositories should
 follow
-[Cross-Repository Development](../../docs/dev/cross-repository-development.md).
+[Local Optics Development](../../docs/dev/optics-local-development.md).
 
 ## Related Documentation
 

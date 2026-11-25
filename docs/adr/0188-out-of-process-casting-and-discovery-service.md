@@ -14,6 +14,8 @@ negative_knowledge: true
 - Date: 2026-10-26
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0001](0001-scope-and-responsibility-boundary.md), [ADR-0128](0128-peer-identity-bound-built-in-scopes-and-capture-indicator.md), [ADR-0186](0186-session-scoped-virtual-extend-outputs-and-offscreen-output-streaming.md)
+- Amended by: [ADR-0191](0191-casting-p2p-belongs-to-the-system-wifi-authority.md) — *Casting P2P Belongs to the System Wi-Fi Authority; the Caster Is a Portal Client*
+- Amended by: [ADR-0192](0192-first-party-miracast-caster.md) — *A First-Party Miracast Caster as an Out-of-Process Crate*
 
 ---
 

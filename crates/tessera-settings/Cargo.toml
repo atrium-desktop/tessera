@@ -9,9 +9,18 @@ license.workspace = true
 rust-version.workspace = true
 build = "build.rs"
 
+[features]
+default = []
+dev-preview = []
+
 [[bin]]
 name = "tessera-settings"
 path = "src/main.rs"
+
+[[bin]]
+name = "tessera-settings-preview"
+path = "src/preview_main.rs"
+required-features = ["dev-preview"]
 
 [dependencies]
 ash.workspace = true

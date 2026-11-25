@@ -89,9 +89,16 @@ impl BridgeConfig {
         // The socket name comes from the IPC contract; the runtime dir
         // is validated absolute by `validate` (ADR-0147 Decision 3).
         let runtime_dir = PathBuf::from(required_os(&mut get, "XDG_RUNTIME_DIR")?);
-        let socket_path = get("TESSERA_MCP_SOCKET")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| tessera_ipc::socket_paths::default_socket_path(&runtime_dir));
+        // Precedence (ADR-0257): the bridge's own variable, then the
+        // session-wide override under its fail-closed rule, then the default.
+        let socket_path = match get("TESSERA_MCP_SOCKET") {
+            Some(path) => PathBuf::from(path),
+            None => match get(tessera_env::IPC_SOCKET_ENV) {
+                Some(raw) => tessera_env::parse_ipc_socket(&raw)
+                    .map_err(|error| invalid(tessera_env::IPC_SOCKET_ENV, error.to_string()))?,
+                None => tessera_ipc::socket_paths::default_socket_path(&runtime_dir),
+            },
+        };
         let interaction_domain_label =
             optional_string(&mut get, "TESSERA_MCP_INTERACTION_DOMAIN_LABEL")?
                 .unwrap_or_else(|| DEFAULT_INTERACTION_DOMAIN_LABEL.to_string());
@@ -320,6 +327,49 @@ mod tests {
             PathBuf::from("/run/user/1000/tessera.sock")
         );
         assert!(!config.revoke_on_exit);
+    }
+
+    #[test]
+    fn session_socket_override_applies_below_the_bridge_variable() {
+        let config = load(&[
+            ("XDG_RUNTIME_DIR", "/run/user/1000"),
+            ("TESSERA_MCP_INSTANCE_ID", "test"),
+            ("TESSERA_IPC_SOCKET", "/tmp/tessera-dev/tessera.sock"),
+        ])
+        .expect("config");
+        assert_eq!(
+            config.socket_path,
+            PathBuf::from("/tmp/tessera-dev/tessera.sock")
+        );
+
+        let config = load(&[
+            ("XDG_RUNTIME_DIR", "/run/user/1000"),
+            ("TESSERA_MCP_INSTANCE_ID", "test"),
+            ("TESSERA_MCP_SOCKET", "/run/user/1000/other.sock"),
+            ("TESSERA_IPC_SOCKET", "/tmp/tessera-dev/tessera.sock"),
+        ])
+        .expect("config");
+        assert_eq!(
+            config.socket_path,
+            PathBuf::from("/run/user/1000/other.sock")
+        );
+    }
+
+    #[test]
+    fn session_socket_override_fails_closed_and_names_its_own_variable() {
+        // [INV-SETTINGS-05]: an empty or relative TESSERA_IPC_SOCKET is refused,
+        // and the error names the variable the user actually set.
+        for value in ["", "tessera.sock"] {
+            let error = load(&[
+                ("XDG_RUNTIME_DIR", "/run/user/1000"),
+                ("TESSERA_MCP_INSTANCE_ID", "test"),
+                ("TESSERA_IPC_SOCKET", value),
+            ])
+            .expect_err("invalid override must be refused");
+            let message = error.to_string();
+            assert!(message.contains("TESSERA_IPC_SOCKET"), "{message}");
+            assert!(!message.contains("TESSERA_MCP_SOCKET"), "{message}");
+        }
     }
 
     #[test]

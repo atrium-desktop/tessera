@@ -653,15 +653,55 @@ impl Client {
         }
     }
 
-    /// Fetch mutation-journal entries whose sequence is greater than `since`.
+    /// Fetch observability-bus entries whose sequence is greater than `since`.
     pub fn journal(&mut self, since: u64) -> io::Result<JournalSnapshot> {
-        write_msg(&mut self.stream, &Request::GetJournal { since })?;
+        self.journal_filtered(since, None)
+    }
+
+    /// Fetch observability-bus entries whose sequence is greater than `since`,
+    /// optionally restricted to `topics` on the server (ADR-0260).
+    pub fn journal_filtered(
+        &mut self,
+        since: u64,
+        topics: Option<Vec<tessera_protocol::EventTopic>>,
+    ) -> io::Result<JournalSnapshot> {
+        write_msg(&mut self.stream, &Request::GetJournal { since, topics })?;
         match read_msg::<_, Response>(&mut self.stream)? {
             Response::Journal { snapshot } => Ok(snapshot),
             Response::Error { message } => Err(io::Error::other(message)),
             other => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("expected Journal, got {other:?}"),
+            )),
+        }
+    }
+
+    /// Publish an external semantic event onto the unified observability bus
+    /// (ADR-0260). Returns the assigned monotonic sequence number.
+    pub fn publish_event(
+        &mut self,
+        topic: tessera_protocol::EventTopic,
+        source: impl Into<String>,
+        kind: impl Into<String>,
+        correlation_id: Option<u64>,
+        detail: Option<serde_json::Value>,
+    ) -> io::Result<u64> {
+        write_msg(
+            &mut self.stream,
+            &Request::PublishEvent {
+                topic,
+                source: source.into(),
+                kind: kind.into(),
+                correlation_id,
+                detail,
+            },
+        )?;
+        match read_msg::<_, Response>(&mut self.stream)? {
+            Response::EventPublished { seq } => Ok(seq),
+            Response::Error { message } => Err(io::Error::other(message)),
+            other => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("expected EventPublished, got {other:?}"),
             )),
         }
     }
@@ -1444,9 +1484,18 @@ impl Client {
         }
     }
 
-    /// Opt into the detailed mutation-journal stream on this connection.
+    /// Opt into the detailed observability-bus stream on this connection.
     pub fn subscribe_journal(&mut self) -> io::Result<()> {
-        write_msg(&mut self.stream, &Request::SubscribeJournal)?;
+        self.subscribe_journal_topics(None)
+    }
+
+    /// Opt into the observability-bus stream filtered to `topics` (ADR-0260).
+    /// Calling again on an already-subscribed connection updates its topic filter.
+    pub fn subscribe_journal_topics(
+        &mut self,
+        topics: Option<Vec<tessera_protocol::EventTopic>>,
+    ) -> io::Result<()> {
+        write_msg(&mut self.stream, &Request::SubscribeJournal { topics })?;
         match read_msg::<_, Response>(&mut self.stream)? {
             Response::Subscribed => Ok(()),
             Response::Error { message } => Err(io::Error::other(message)),

@@ -15,6 +15,12 @@ negative_knowledge: true
 - Deciders: Tessera Maintainers & Core Architects
 - Amends: [ADR-0021](0021-chrome-component-trait.md), [ADR-0029](0029-animation-and-effect-policy.md), [ADR-0077](0077-presentation-domain-redraw-state-machine.md), [ADR-0146](0146-dock-intent-dwell-and-anti-trapping-interaction.md), [ADR-0169](0169-control-center-bento-grid-and-mpris-absorption.md)
 - Amended by: [ADR-0181](0181-canonical-chrome-prepass-seam-occlusion-elision-and-deferred-scanout-ownership.md) — the pre-pass this record names `prepare_backdrop` is canonically `Chrome::prepare_frame`; the alias was removed after it silently disabled the pre-pass for every component that kept the old name ([INV-ARCH-64]). `[INV-ARCH-02]`'s settle-integrity requirement is unchanged.
+- Amended by: [ADR-0176](0176-control-center-painted-canvas-beyond-backdrop-cover.md) — *Control Center Painted Canvas, Bounded Reveal, and Retired Backdrop Cover*
+- Amended by: [ADR-0177](0177-dock-transit-spring-unification-and-anti-oscillation-latch.md) — *Dock Transit Spring Unification, Anti-Oscillation Dismiss Latching, and Non-Preemptible Swapchain Drain*
+- Amended by: [ADR-0178](0178-optics-transit-smoothstep-unification-and-chrome-prepass-lifecycle.md) — *Optics Transit Smoothstep Unification, Chrome Prepass Lifecycle Decoupling, and Responsive Reveal Spring Tuning*
+- Amended by: [ADR-0179](0179-zero-redundancy-presentation-pipeline-substepped-motion-and-render-target-bucketing.md) — *Zero-Redundancy Presentation Pipeline, Sub-stepped Motion Dynamics, and Attachment Bucketing for 120Hz Animation Continuity*
+- Amended by: [ADR-0180](0180-single-pass-chrome-fades-backdrop-allocation-decoupling-and-dock-prepass-coherence.md) — *Single-Pass Chrome Fades, High-Water Backdrop Allocation Decoupling, and Dock Pre-Pass Coherence*
+- Amended by: [ADR-0217](0217-idle-chrome-does-not-keep-the-frame-clock-and-hover-damage-is-bounded-by-the-component-that-owns-it.md) — the dock's frame clock
 
 ---
 

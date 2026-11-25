@@ -15,6 +15,7 @@ negative_knowledge: true
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0021](0021-chrome-component-trait.md) (the `Chrome` contract gains a hover-damage query), [ADR-0171](0171-chrome-animation-pre-pass-synchronization-and-surface-placement-invariants.md) (the dock's frame clock), [ADR-0211](0211-regional-damage-is-consumed-as-a-list-and-chrome-footprints-are-measured.md) (chrome footprints are measured, not guessed — this extends the rule to the pointer)
 - Related: [ADR-0213](0213-flat-chrome-and-removal-of-the-status-hud.md) (flat chrome: a painted fill must cost its area), [ADR-0203](0203-damage-is-a-placement-mapped-rectangle.md) (damage is a rectangle)
+- Note (2026-11-25): the *command panel* this record names is the **Control Center**; the surface was renamed, and [ADR-0239](0239-the-control-center-is-a-right-anchored-sheet.md) removed its last `command_panel` aliases and fixes its current shape. The decision applies to it unchanged.
 
 ---
 

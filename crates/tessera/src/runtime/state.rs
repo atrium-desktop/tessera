@@ -60,6 +60,13 @@ pub(super) struct DamageTracking {
     pub(super) last_session_locked: bool,
     /// (shape, hidden) as of the last presented frame.
     pub(super) last_presented_cursor: Option<(u32, bool)>,
+    /// `(surface_id, generation)` of the client cursor surface committed to
+    /// the KMS hardware cursor plane at the last successful present, or `None`
+    /// when a theme cursor or no hardware cursor was committed.
+    pub(super) last_presented_client_cursor: Option<(usize, u64)>,
+    /// Last logged client-cursor hardware-offload rejection `(surface_id, generation, reason)`
+    /// so diagnostics report every distinct fallback once without per-frame log spam.
+    pub(super) last_client_cursor_reject: Option<(usize, u64, cursor::ClientCursorRejectReason)>,
     pub(super) last_presented_cursor_position: Option<(i32, i32)>,
     /// Sprite identity committed to the hardware cursor plane at the last
     /// successful present: (hotspot, sprite size). The presentation path
@@ -87,6 +94,19 @@ pub(super) struct DamageTracking {
     /// Previously active window ID; focus change dirties the active border
     /// and shadow of the transitioning windows.
     pub(super) last_focused_window: Option<tessera_desktop::window::WindowId>,
+}
+
+impl DamageTracking {
+    /// Clear all cached hardware/software cursor baselines so the next frame
+    /// unconditionally reprograms the KMS cursor plane or repaints the cursor.
+    pub(super) fn reset_cursor_baseline(&mut self) {
+        self.last_presented_cursor = None;
+        self.last_presented_client_cursor = None;
+        self.last_client_cursor_reject = None;
+        self.last_presented_cursor_position = None;
+        self.last_presented_cursor_hotspot = None;
+        self.last_presented_cursor_pixels = None;
+    }
 }
 
 /// A compositor-owned presentation target for one physical output.
@@ -164,6 +184,12 @@ pub(super) struct CompositorRuntime<'engine> {
     /// shadow filter and per-slot mask targets; renders at the frame's pass
     /// boundary, composites inside the output pass.
     pub(super) window_shadows: WindowShadowRenderer,
+    /// The frosted / liquid-glass backdrop beneath chrome (ADR-0253). Holds
+    /// no filter or target while the effective material is painted.
+    pub(super) backdrop: super::backdrop::ChromeBackdrop,
+    /// The same, for the screenshot freeze's capture frame: separate images
+    /// and filter slots from the live one, so neither gains a second writer.
+    pub(super) freeze_backdrop: super::backdrop::ChromeBackdrop,
     /// The frozen trigger-frame snapshot the screenshot selector samples.
     pub(super) screenshot_freeze: ScreenshotFreeze,
     pub(super) pending_capture: Option<PendingCapture>,
@@ -250,6 +276,7 @@ pub(super) struct CompositorRuntime<'engine> {
     /// activation, buffer-only updates, replacement, and deactivation.
     pub(super) overlay_state: tessera_composite::presentation::OverlayState,
     pub(super) keyboard_capture: tessera_primitives::input::KeyboardCaptureState,
+    pub(super) double_super: tessera_desktop::keybind::DoubleSuperDetector,
     pub(super) keymap: tessera_desktop::keybind::Keymap,
     pub(super) system_status: tessera_shell::component::SystemStatus,
     pub(super) network: crate::network::NetworkHandle,

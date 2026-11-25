@@ -8,7 +8,7 @@ superseded_by: ADR-0063
 
 # ADR-0017: Server-side decorations via flux-ui overlays
 
-- Status: Superseded by ADR-0063
+- Status: Superseded by [ADR-0063](0063-compositor-owned-borderless-decoration-policy.md)
 - Date: 2026-06-18
 
 ## Context

@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-08-03
+- Amended by: [ADR-0165](0165-purify-compositor-boundary-and-decouple-application-accessibility.md) — *Purify Compositor Boundary and Decouple Application Accessibility*
 
 ## Context
 

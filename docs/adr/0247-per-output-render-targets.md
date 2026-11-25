@@ -13,6 +13,10 @@ negative_knowledge: true
 - Status: Accepted
 - Date: 2026-11-18
 - Amends: [ADR-0185](0185-per-output-presentation-domains.md)
+- Amended by: [ADR-0248](0248-capture-composition-is-separate-from-presentation.md) — *Capture Composition Is Separate from Per-Output Presentation*
+- Amended by: [ADR-0249](0249-presentation-groups-and-per-output-pacing.md) — *Presentation Groups Synchronize Shared Content Without Reintroducing a Union Swapchain*
+- Amended by: [ADR-0250](0250-fence-accurate-client-buffer-release-and-cached-mirror-composition.md) — *Fence-Accurate Client Buffer Release and Cached Partial-Damage Mirror Composition*
+- Amended by: [ADR-0258](0258-client-cursor-hardware-plane-offload-and-per-output-overlay-parity.md) — per-output DRM rendering draws non-offloaded client cursor overlays and offloads eligible client cursors onto the KMS hardware cursor plane.
 
 ## Context
 

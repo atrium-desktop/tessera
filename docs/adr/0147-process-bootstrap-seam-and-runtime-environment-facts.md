@@ -10,6 +10,8 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-08-30
+- Extended by: [ADR-0257](0257-explicit-ipc-socket-override-and-settings-preview-harness.md)
+  (explicit `TESSERA_IPC_SOCKET` override resolution)
 
 ## Context
 

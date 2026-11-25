@@ -9,7 +9,7 @@ const DISPLAY: (f32, f32) = (1920.0, 1080.0);
 fn bottom_dock_reserved() -> Reserved {
     Reserved {
         top: 0,
-        bottom: 86,
+        bottom: 78,
         left: 0,
         right: 0,
     }
@@ -1479,4 +1479,46 @@ fn mpris_mock_handle_state_and_commands() {
     std::thread::sleep(std::time::Duration::from_millis(50));
     let snap = handle.snapshot();
     assert_eq!(snap.title, "Sunlight");
+}
+
+/// The Control Center is chrome like the Dock: its cards change with the
+/// material and, under glass, report themselves for the frost beneath them
+/// (ADR-0252, ADR-0253).
+#[test]
+fn the_sheet_is_drawn_in_the_shell_material() {
+    use tessera_desktop::settings::{ColorScheme, Material};
+    let (windows, workspaces) = no_windows();
+    let i18n = Localizer::default();
+    let input = Input::new(DISPLAY, 0.016);
+    for material in Material::ALL {
+        let mut panel = ControlCenter::presented_for_test();
+        let design = tessera_design::Design::for_appearance(ColorScheme::Dark, material);
+        <ControlCenter as Chrome>::update(&mut panel, ChromeUpdate::Appearance(&design));
+        assert_eq!(
+            panel.panel_colors().surface.components().3,
+            design.colors.panel_surface.components().3,
+            "{material:?}: the cards take the panel's material alpha"
+        );
+        let mut ui = optics_ui::Ui::headless().unwrap();
+        let ((), bodies) = tessera_design::materials::record_backdrop_bodies(|| {
+            render_headless(
+                &mut ui,
+                &mut panel,
+                &input,
+                &windows,
+                &workspaces,
+                &i18n,
+                &mut ChromeEvents::default(),
+            );
+        });
+        if material.samples_backdrop() {
+            assert!(
+                bodies.len() >= 2,
+                "{material:?}: both cards report a body, got {}",
+                bodies.len()
+            );
+        } else {
+            assert!(bodies.is_empty(), "{material:?} takes no capture");
+        }
+    }
 }

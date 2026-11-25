@@ -8,7 +8,7 @@ superseded_by: ADR-0060
 
 # ADR-0058: Independent Quick Settings and AI Workspaces applications
 
-- Status: Superseded by ADR-0060
+- Status: Superseded by [ADR-0060](0060-statusbar-system-controls-and-live-system-ipc.md)
 - Date: 2026-07-26
 
 ## Context

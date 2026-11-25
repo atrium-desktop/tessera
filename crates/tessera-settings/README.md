@@ -68,6 +68,24 @@ invocation raises the running one. A build the compositor refuses opens
 | `Ctrl+V` | Paste text from the Wayland clipboard |
 | `Ctrl+W`, `Ctrl+Q` | Close the window |
 
+## Development & Testing
+
+Follow the four-layer workflow ([ADR-0257](../../docs/adr/0257-explicit-ipc-socket-override-and-settings-preview-harness.md)):
+
+```bash
+# Layer 1: unit & wire-level mock tests (no display server)
+cargo nextest run --locked -p tessera-settings --all-features
+
+# Layer 2: standalone preview window with wire-level mock IPC (no compositor)
+cargo run --locked -p tessera-settings \
+  --features dev-preview \
+  --bin tessera-settings-preview -- --preset multi-display display
+
+# Layer 3: split-screen or in-nested end-to-end against ./scripts/run-nested-dev.sh
+TESSERA_IPC_SOCKET=/tmp/tessera-dev/tessera.sock \
+  target/release-fast/tessera-settings
+```
+
 ## Related Documentation
 
 - [Settings Reference](../../docs/reference/settings.md)

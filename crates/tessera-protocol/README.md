@@ -17,7 +17,7 @@ audit entry data transfer objects (DTOs) for Tessera IPC.
 
 `tessera-protocol` is strictly a pure data exchange schema:
 - No socket listening, connecting, framing, or descriptor passing (those belong in `tessera-ipc`).
-- No durable cryptographic signing, HMAC hashing, or append-only segment storage (those belong in `tessera-audit`).
+- No in-memory event ring buffer storage or sequence retention (those belong in `tessera-audit`).
 - No window management execution or state storage (those belong in `tessera-desktop` and `tessera`).
 - No GPU or display rendering types.
 

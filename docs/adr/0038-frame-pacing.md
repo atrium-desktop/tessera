@@ -1,14 +1,14 @@
 ---
 id: ADR-0038
 title: "Frame pacing — event-driven loop with presentation throttling"
-status: accepted
+status: superseded
 date: 2026-07-18
-superseded_by: null
+superseded_by: ADR-0077
 ---
 
 # ADR-0038: Frame pacing — event-driven loop with presentation throttling
 
-- Status: Accepted
+- Status: Superseded by [ADR-0077](0077-presentation-domain-redraw-state-machine.md)
 - Date: 2026-07-18
 
 ## Context

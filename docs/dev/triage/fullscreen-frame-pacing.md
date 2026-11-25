@@ -315,6 +315,6 @@ markers.
 A physical DRM/KMS session is required to confirm any of the above; a nested run
 cannot exercise direct scanout, page flips, or plane allocation. Follow
 [How to Run tessera on Bare Metal](../../how-to/bare-metal-drm.md) and
-[VT and DRM Testing](../testing/vt-drm-testing.md), and confirm the plan transitions
+[VT/DRM Verification](../verification/vt-drm-verification.md), and confirm the plan transitions
 through the [Rendering Reference](../../reference/rendering.md#diagnostic-messages)
 diagnostic messages.

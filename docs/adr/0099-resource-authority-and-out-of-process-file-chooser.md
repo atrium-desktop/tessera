@@ -1,14 +1,14 @@
 ---
 id: ADR-0099
 title: "Resource authority and out-of-process FileChooser"
-status: accepted
+status: deprecated
 date: 2026-08-02
 superseded_by: null
 ---
 
 # ADR-0099: Resource authority and out-of-process FileChooser
 
-- Status: Accepted
+- Status: Deprecated — superseded by out-of-tree decisions, not by a record in this registry: resource authority and FileChooser belong to the portal repository ([portal ADR-0004](https://github.com/atrium-desktop/xdg-desktop-portal-atrium/blob/main/docs/adr/0004-portal-ownership-and-runtime-ipc-boundary.md), [portal ADR-0021](https://github.com/atrium-desktop/xdg-desktop-portal-atrium/blob/main/docs/adr/0021-headless-portal-and-optics-retirement.md), [portal ADR-0027](https://github.com/atrium-desktop/xdg-desktop-portal-atrium/blob/main/docs/adr/0027-arca-chooser-contract-crate.md)).
 - Date: 2026-08-02
 - Supersedes: [ADR-0086](0086-full-stack-portal-via-user-consent-pick-chains.md), [ADR-0095](0095-independent-portal-repository-and-component-workspace.md)
 

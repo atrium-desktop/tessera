@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-06-04
+- Amended by: [ADR-0188](0188-out-of-process-casting-and-discovery-service.md) — *Out-of-Process Casting and Discovery Service, and the Control-Center Cast Surface*
 
 ## Context
 

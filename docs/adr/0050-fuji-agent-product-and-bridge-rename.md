@@ -1,14 +1,14 @@
 ---
 id: ADR-0050
 title: "fuji agent product and the aegis-fuji bridge rename (amends ADR-0047)"
-status: accepted
+status: superseded
 date: 2026-07-23
-superseded_by: null
+superseded_by: ADR-0087
 ---
 
 # ADR-0050: fuji agent product and the aegis-fuji bridge rename (amends ADR-0047)
 
-- Status: Accepted
+- Status: Superseded by [ADR-0087](0087-aegis-mcp-standalone-platform-bridge-crate.md) — the `aegis-fuji` bridge became the standalone MCP bridge crate (now `tessera-mcp`); the fuji agent product was removed by ADR-0113.
 - Date: 2026-07-23
 
 ## Context

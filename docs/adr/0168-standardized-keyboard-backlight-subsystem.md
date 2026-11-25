@@ -15,6 +15,8 @@ negative_knowledge: true
 - Amended: 2026-09-28 — §3 replaced the continuous fader with a tiered segmented control; see "Amendments" below.
 - Deciders: Tessera Maintainers & Core Architects
 - Extends: [ADR-0114](0114-panel-hosted-settings-and-hud-command-panel.md), [ADR-0167](0167-wireless-known-networks-and-credential-lifecycle.md)
+- Note (2026-11-25): the *command panel* this record names is the **Control Center**; the surface was renamed, and [ADR-0239](0239-the-control-center-is-a-right-anchored-sheet.md) removed its last `command_panel` aliases and fixes its current shape. The decision applies to it unchanged.
+- Extended by: [ADR-0215](0215-audio-output-selection-is-live-service-state.md) — the host-probe + typed-action shape this reuses
 
 ---
 

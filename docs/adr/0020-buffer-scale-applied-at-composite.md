@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-06-18
+- Amended by: [ADR-0203](0203-damage-is-a-placement-mapped-rectangle.md) — *Damage is a placement-mapped rectangle, never a full-repaint verdict*
 
 ## Context
 

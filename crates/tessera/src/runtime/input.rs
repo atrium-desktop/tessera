@@ -367,6 +367,7 @@ impl CompositorRuntime<'_> {
                                 ts,
                                 tessera_protocol::Origin::Gesture,
                             );
+                            self.shell.show_glance_hud();
                         }
                     }
                     GestureAction::WindowCycle => {
@@ -531,6 +532,7 @@ impl CompositorRuntime<'_> {
                     ts,
                     origin,
                 );
+                self.shell.show_glance_hud();
             }
             Action::WorkspacePrev => {
                 let cmd = tessera_protocol::Command::SwitchWorkspace {
@@ -546,13 +548,9 @@ impl CompositorRuntime<'_> {
                     ts,
                     origin,
                 );
+                self.shell.show_glance_hud();
             }
             Action::ToggleFullscreen => {
-                // The compositor-side counterpart of the client's
-                // `xdg_toplevel.set_fullscreen`: flip the focused window's
-                // fullscreen bit through the same journaled command path IPC
-                // clients use, so windowed-only apps (games) reach the
-                // chrome-free, output-covering state.
                 if let Some(id) = self.server.focused_toplevel_id() {
                     let cmd = tessera_protocol::Command::SetFullscreen {
                         id,
@@ -569,6 +567,28 @@ impl CompositorRuntime<'_> {
                         origin,
                     );
                 }
+            }
+            Action::ToggleAlwaysOnTop => {
+                if let Some(id) = self.server.focused_toplevel_id() {
+                    let cmd = tessera_protocol::Command::SetAlwaysOnTop {
+                        id,
+                        on_top: !self.server.toplevel_always_on_top(id),
+                    };
+                    apply_command_and_journal(
+                        self.server,
+                        &self.notif_queue,
+                        &mut self.quit_requested,
+                        cmd,
+                        &self.ipc,
+                        &self.journal,
+                        ts,
+                        origin,
+                    );
+                }
+            }
+            Action::ShowGlanceHud => {
+                self.shell.show_glance_hud();
+                let _ = self.status_refresh_tx.send(());
             }
             Action::Lock => self.idle_process.lock_now(),
             Action::Quit => {
@@ -830,6 +850,11 @@ impl CompositorRuntime<'_> {
                         self.input_acc.cursor = (x, y);
                     }
                     PointerButton { button, state } => {
+                        if state.is_pressed() {
+                            // Cancel any in-progress bare Super tap so Super+drag /
+                            // Super+click never triggers Glance HUD ([INV-GLANCE-03]).
+                            self.double_super.on_other_input();
+                        }
                         // Map Linux BTN_* codes (0x110=left, 0x111=right,
                         // 0x112=middle) to optics-ui's MouseButton. Other buttons
                         // are dropped; the chrome only consumes these three.
@@ -862,6 +887,34 @@ impl CompositorRuntime<'_> {
                         // split this batch into separate delivery paths.
                         let prepared = self.server.prepare_keyboard_event(code, state);
                         prepared_key_events[event_index] = prepared;
+                        // Bare Double-Super detection for the transient Glance
+                        // HUD ([INV-GLANCE-03], ADR-0255): any non-Super key
+                        // cancels a pending bare tap so Super chords never
+                        // trigger the HUD.
+                        if session_locked {
+                            self.double_super.reset();
+                        } else if let Some(kc) = prepared.and_then(|p| p.key_char()) {
+                            let is_super_key = matches!(kc.keysym, 0xffeb | 0xffec);
+                            if is_super_key {
+                                if state.is_pressed() {
+                                    let other_mods =
+                                        kc.mods.has(tessera_primitives::input::Mods::CTRL)
+                                            || kc.mods.has(tessera_primitives::input::Mods::ALT)
+                                            || kc.mods.has(tessera_primitives::input::Mods::SHIFT);
+                                    self.double_super.on_super_press(other_mods);
+                                } else {
+                                    let now_ms = self.start.elapsed().as_millis() as u64;
+                                    if self.double_super.on_super_release(now_ms) {
+                                        self.shell.show_glance_hud();
+                                        let _ = self.status_refresh_tx.send(());
+                                    }
+                                }
+                            } else if state.is_pressed() {
+                                self.double_super.on_other_input();
+                            }
+                        } else if state.is_pressed() {
+                            self.double_super.on_other_input();
+                        }
                         // The modal escape hatch outranks chrome/client
                         // ownership: the chord is consumed by the compositor
                         // on both edges and never forwarded, so a stuck modal
@@ -1364,10 +1417,7 @@ impl CompositorRuntime<'_> {
                 // baked into the primary framebuffer (and the hardware cursor
                 // plane is reprogrammed on the very next frame).
                 self.damage.force_full_redraw = true;
-                self.damage.last_presented_cursor = None;
-                self.damage.last_presented_cursor_position = None;
-                self.damage.last_presented_cursor_hotspot = None;
-                self.damage.last_presented_cursor_pixels = None;
+                self.damage.reset_cursor_baseline();
             }
             self.host.set_buffer_scale();
             self.server.set_outputs(next_outputs);
@@ -1428,20 +1478,45 @@ impl CompositorRuntime<'_> {
         // The physical KMS cursor sprite has no CRTC over a virtual extend
         // output, so it must be hidden while the pointer is there; the virtual
         // stream's embedded cursor takes over (ADR-0186, `[INV-ARCH-76]`).
-        let cursor_hidden = current_cursor.hidden
-            || self
-                .server
-                .point_over_virtual_output(self.input_acc.cursor.0, self.input_acc.cursor.1);
+        let pointer_over_virtual = self
+            .server
+            .point_over_virtual_output(self.input_acc.cursor.0, self.input_acc.cursor.1);
+        let cursor_hidden = current_cursor.hidden || pointer_over_virtual;
         let cursor_shape = current_cursor.shape;
+        let client_cursor_hw_offload = current_cursor.client_surface
+            && !pointer_over_virtual
+            && !session_locked
+            && !self.streams.any_output_live()
+            && self.pending_capture.is_none()
+            && self.pending_interaction_domain_capture.is_none()
+            && !self.screenshot_freeze.armed
+            && !self
+                .server
+                .output_infos()
+                .iter()
+                .any(|output| output.role.is_mirror())
+            && self.host.hardware_cursor_extent().is_some_and(|extent| {
+                let scale = self
+                    .server
+                    .output_infos()
+                    .first()
+                    .map(|o| o.geometry.scale.as_f32())
+                    .filter(|s| *s > 0.0)
+                    .unwrap_or_else(|| self.host.scale());
+                self.server.client_cursor_surface().is_some_and(|surface| {
+                    cursor::can_offload_client_hardware_cursor(&surface, scale, extent)
+                })
+            });
         // When the cursor is not painted into our primary framebuffer (either
-        // because KMS owns a hardware cursor plane or because the outer Wayland
+        // because KMS owns a hardware cursor plane — for theme cursors or
+        // offloaded client cursor surfaces — or because the outer Wayland
         // compositor draws the cursor on `Host::Nested`), plain pointer motion
         // over client content or wallpaper changes no compositor pixels. On DRM
         // let presentation issue a cursor-only atomic commit when the visible
         // sprite moved instead of turning every mouse report into a full
         // Vulkan frame. Chrome hover (entering, moving within, or leaving a
-        // chrome region), drags, client cursor surfaces, locks, and every
-        // non-motion input remain active input signals.
+        // chrome region), drags, non-offloaded client cursor surfaces, locks,
+        // and every non-motion input remain active input signals.
         let cursor_motion_plain = had_input
             && !non_cursor_input
             && pointer_motion_only
@@ -1449,7 +1524,7 @@ impl CompositorRuntime<'_> {
             && !session_locked
             && self.server.interactive().is_none()
             && !self.server.drag_active()
-            && !self.server.client_cursor_surface_active()
+            && (!self.server.client_cursor_surface_active() || client_cursor_hw_offload)
             && !self
                 .wallpaper
                 .as_ref()
@@ -1469,7 +1544,7 @@ impl CompositorRuntime<'_> {
         }
         let cursor_fast_path = self.host.supports_hardware_cursor()
             && cursor_plane_only
-            && !cursor_hidden
+            && (!cursor_hidden || client_cursor_hw_offload)
             && pointer_before != self.input_acc.cursor;
         if cursor_hidden != self.last_cursor_hidden
             || (!cursor_hidden && cursor_shape != self.last_cursor_shape)

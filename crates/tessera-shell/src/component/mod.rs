@@ -503,14 +503,6 @@ pub struct ChromeEvents {
     /// Lock now row). Drained by the main loop into the same lock path as the
     /// Super+L binding.
     pub lock: bool,
-    /// A dock reading row asked to open the control center (ADR-0218).
-    ///
-    /// Deliberately **open-only**, unlike [`ChromeCommand::ToggleControlCenter`]:
-    /// a reading is a shortcut into the surface that owns the reading, and a
-    /// press that closed the panel the user is already looking at would be a
-    /// toggle wearing a shortcut's clothes. The main loop answers it through
-    /// [`crate::Shell::open_control_center`].
-    pub open_control_center: bool,
     /// Window id a component asked to focus/activate.
     pub clicked: Option<tessera_desktop::window::WindowId>,
     /// Ordered window actions emitted by popup menus. A queue allows an
@@ -616,6 +608,12 @@ pub struct ChromeEvents {
     /// Ordered Interaction Domain lifecycle and authority mutations requested by trusted
     /// shell surfaces.
     pub interaction_domain_intents: Vec<InteractionDomainIntent>,
+    /// Hot Zone trigger activation emitted by the unified eight-zone Hot Zone
+    /// chrome when the user activates a bound edge or corner (ADR-0254).
+    pub hot_zone_summon: Option<(
+        tessera_desktop::hot_zone::HotZoneSlot,
+        tessera_desktop::hot_zone::HotZoneTarget,
+    )>,
 }
 
 impl ChromeEvents {
@@ -659,6 +657,11 @@ pub enum ChromeCommand<'a> {
     /// rather than stacking: two volume readings in a row are one reading, not
     /// two panels.
     ShowOsd(&'a OsdParams),
+    /// Raise the read-only transient Glance HUD (clock, workspace, ambient
+    /// status) for its display window (ADR-0255).
+    ShowGlanceHud,
+    /// Summon the Dock on the given edge slot via its Hot Zone (ADR-0254).
+    SummonDock(tessera_desktop::hot_zone::HotZoneSlot),
     /// Force every active high-priority modal overlay to its safe-negative
     /// exit (the compositor panic chord, `Ctrl+Alt+Escape`). Consent prompts
     /// answer denied/cancelled through their normal [`ChromeEvents`] answer
@@ -699,7 +702,7 @@ pub enum ChromeUpdate<'a> {
     /// The shell-wide design snapshot for the resolved desktop color scheme.
     /// Components that paint from design tokens retain a copy instead of
     /// constructing one inline; seeded by [`crate::Shell::add`] and broadcast by
-    /// [`crate::Shell::set_color_scheme`].
+    /// [`crate::Shell::set_appearance`].
     Appearance(&'a tessera_design::Design),
     /// The persistent-settings snapshot, seeded by [`crate::Shell::add`] and
     /// broadcast by [`crate::Shell::set_settings`]. Only chrome hosting settings UI
@@ -713,6 +716,12 @@ pub enum ChromeUpdate<'a> {
     /// decorations that would float inside its field (the HUD chips) hide
     /// for its duration, while the dock below its work area stays.
     LauncherActive(bool),
+    /// Resolved eight-zone Hot Zone policy pushed on startup and live config
+    /// reload (ADR-0254).
+    HotZones(&'a tessera_desktop::hot_zone::HotZonePolicy),
+    /// Whether the Dock is currently pinned/visible on its edge (so its bound
+    /// edge Hot Zone stands down while the Dock is already permanently shown).
+    DockExpanded(bool),
 }
 
 /// Canonical panel component trait alias (ADR-0155).
@@ -950,6 +959,19 @@ pub trait Chrome {
         false
     }
 
+    /// Declarative Hot Zone mounting capability advertised by this component
+    /// (ADR-0254). Components that cannot be mounted onto a screen edge or
+    /// corner return `None`.
+    fn hot_zone_capability(&self) -> Option<tessera_desktop::hot_zone::HotZoneCapability> {
+        None
+    }
+
+    /// Whether the Dock is currently visible/expanded on its edge so its bound
+    /// Hot Zone should stand down.
+    fn dock_expanded(&self) -> bool {
+        false
+    }
+
     /// Whether the low-battery alert is currently open. Default `false`; the
     /// battery-alert component overrides this.
     fn battery_alert_active(&self) -> bool {
@@ -1063,10 +1085,24 @@ pub trait Chrome {
     }
 
     /// Whether this component would draw visible pixels in the next frame.
-    /// The default is conservative: third-party chrome blocks direct scanout
-    /// until it explicitly proves that its inactive state is visually empty.
-    fn requires_composition(&self) -> bool {
-        true
+    ///
+    /// Direct scanout is possible only while every participating component
+    /// answers `false`, so this is a per-frame veto over the zero-GPU
+    /// fullscreen path.
+    ///
+    /// There is deliberately no default. A conservative `true` default once
+    /// let a component that never overrode it (Pivot) veto direct scanout for
+    /// every frame of every session while closed, and nothing failed or
+    /// logged above `info`. Each implementor must state when its pixels are
+    /// visible, typically `active || retire_frames > 0`. Cover the idle answer
+    /// in `tests::idle_default_chrome_never_blocks_direct_scanout`.
+    fn requires_composition(&self) -> bool;
+
+    /// Stable diagnostic name used when this component blocks direct scanout
+    /// (`direct scanout blocked: visible-shell-pixels (Pivot)`). The default
+    /// is the implementing type's own name, so components need not override it.
+    fn chrome_name(&self) -> &'static str {
+        short_type_name(std::any::type_name::<Self>())
     }
 
     /// The exact time until this component next needs a frame *without*
@@ -1128,6 +1164,22 @@ pub trait Chrome {
 pub struct CompositionRequirements {
     /// At least one eligible chrome component would draw visible pixels.
     pub visible_pixels: bool,
+    /// The first participating component, in registration order, that set
+    /// `visible_pixels`. Carried into the scanout rejection so the log names
+    /// the culprit instead of the bare `visible-shell-pixels` category.
+    pub blocker: Option<&'static str>,
+    /// How many participating components set `visible_pixels`.
+    pub blocker_count: usize,
+}
+
+/// The last path segment of a `type_name`, keeping generic arguments intact
+/// (`tessera_shell::components::pivot::Pivot` → `Pivot`).
+pub(crate) fn short_type_name(full: &'static str) -> &'static str {
+    let base = full.split('<').next().unwrap_or(full);
+    match base.rfind("::") {
+        Some(index) => &full[index + 2..],
+        None => full,
+    }
 }
 
 #[cfg(test)]

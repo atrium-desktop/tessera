@@ -819,9 +819,13 @@ struct Options {
 impl Options {
     fn parse(args: impl Iterator<Item = OsString>) -> Result<Self, Box<dyn std::error::Error>> {
         let runtime = tessera_env::runtime_dir()?;
+        let default_ipc_socket = match tessera_env::ipc_socket_override()? {
+            Some(path) => path,
+            None => tessera_ipc::socket_paths::default_socket_path(&runtime),
+        };
         let mut options = Self {
             policy: IdlePolicy::default(),
-            ipc_socket: tessera_ipc::socket_paths::default_socket_path(&runtime),
+            ipc_socket: default_ipc_socket,
             control_socket: tessera_ipc::socket_paths::idle_control_socket_path(&runtime),
             lock_now: false,
             logind: true,

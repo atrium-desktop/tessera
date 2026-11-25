@@ -8,7 +8,7 @@ superseded_by: ADR-0071
 
 # ADR-0067: Remote Optics dependencies with local development overrides
 
-- Status: Superseded by ADR-0071
+- Status: Superseded by [ADR-0071](0071-worktree-isolated-cross-repository-development.md)
 - Date: 2026-07-28
 
 ## Context

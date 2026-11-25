@@ -625,6 +625,8 @@ impl CompositorRuntime<'_> {
                 // raised at dispatch would announce a move that may never have
                 // happened (ADR-0215).
                 let moved_to = audio_output_default_change(&self.system_status, &detected);
+                let power_moved = self.system_status.power != detected.power
+                    || self.system_status.battery != detected.battery;
                 self.system_status = detected;
                 publish_system_status_parts(
                     &self.system_status,
@@ -633,6 +635,18 @@ impl CompositorRuntime<'_> {
                     &self.ipc,
                 );
                 self.damage.chrome_dirty = true;
+                // The material's power rules (ADR-0252): a plug, a drain past
+                // the low line or a profile change can move what is drawn.
+                // Settings shows the outcome, so a change republishes it; the
+                // revision stays, since no setting changed.
+                if power_moved
+                    && apply_appearance(
+                        &mut self.shell,
+                        &effective_desktop_preferences(self.config.as_ref()),
+                    )
+                {
+                    self.publish_settings();
+                }
                 if let Some(description) = moved_to {
                     self.shell.show_osd(tessera_shell::component::OsdParams {
                         kind: tessera_shell::component::OsdKind::Output,

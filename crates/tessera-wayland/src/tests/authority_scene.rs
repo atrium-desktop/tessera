@@ -846,3 +846,132 @@ fn client_surface_order_keeps_each_window_tree_occluded_as_a_unit() {
         "subsurfaces attached to xdg-popups must be included in the scene"
     );
 }
+
+#[test]
+fn raising_a_non_fullscreen_window_above_fullscreen_unlocks_space_use() {
+    use tessera_desktop::window::SpaceUse;
+
+    let mut state = State::new(std::ptr::null_mut());
+    let fs_id = tessera_desktop::window::WindowId(30);
+    let float_id = tessera_desktop::window::WindowId(31);
+    let max_id = tessera_desktop::window::WindowId(32);
+    let client = state.authority.register_client(None);
+    state
+        .authority
+        .create_interaction_group(client, &[fs_id, float_id, max_id], HUMAN_INTERACTION_DOMAIN)
+        .unwrap();
+    let workspace = state
+        .workspaces
+        .current_workspace(state.output)
+        .expect("bootstrap workspace");
+    for id in [fs_id, float_id, max_id] {
+        state.workspaces.place_toplevel(workspace, id);
+    }
+
+    let mut fs = Box::new(SurfaceRec::new(0x400usize as *mut ffi::wl_resource));
+    fs.mapped = true;
+    fs.xdg_toplevel = fs.resource;
+    fs.window.id = fs_id;
+    fs.window.state.fullscreen = true;
+
+    let mut floating = Box::new(SurfaceRec::new(0x410usize as *mut ffi::wl_resource));
+    floating.mapped = true;
+    floating.xdg_toplevel = floating.resource;
+    floating.window.id = float_id;
+
+    let mut maximized = Box::new(SurfaceRec::new(0x420usize as *mut ffi::wl_resource));
+    maximized.mapped = true;
+    maximized.xdg_toplevel = maximized.resource;
+    maximized.window.id = max_id;
+    maximized.window.state.maximized = true;
+
+    // Initial Z-order: maximized, floating, fullscreen (topmost).
+    state.surfaces = vec![maximized.as_mut(), floating.as_mut(), fs.as_mut()];
+    for (index, surface) in state.surfaces.iter().copied().enumerate() {
+        unsafe { (*surface).index = index };
+    }
+    let mut server = std::mem::ManuallyDrop::new(Server {
+        state: Box::new(state),
+        socket: String::new(),
+        runtime_dir: None,
+        interaction_domain_portals: Vec::new(),
+        epoch: std::time::Instant::now(),
+    });
+
+    assert_eq!(server.space_use(), SpaceUse::Fullscreen);
+
+    // Switching to the floating window stacks it above fullscreen without hiding
+    // fullscreen, and immediately releases Fullscreen space ownership.
+    server.raise_toplevel(floating.resource);
+    assert_eq!(server.space_use(), SpaceUse::Available);
+
+    // Switching to the maximized window stacks it above fullscreen -> Maximized.
+    server.raise_toplevel(maximized.resource);
+    assert_eq!(server.space_use(), SpaceUse::Maximized);
+
+    // Returning focus to the fullscreen window restores Fullscreen ownership.
+    server.raise_toplevel(fs.resource);
+    assert_eq!(server.space_use(), SpaceUse::Fullscreen);
+
+    // An always-on-top window stays above a raised fullscreen window and
+    // unlocks SpaceUse until always-on-top is cleared and fullscreen is raised.
+    server.set_toplevel_always_on_top(float_id, true);
+    assert_eq!(server.space_use(), SpaceUse::Available);
+    server.raise_toplevel(fs.resource);
+    assert_eq!(
+        server.space_use(),
+        SpaceUse::Available,
+        "always-on-top window remains stacked above fullscreen"
+    );
+    server.set_toplevel_always_on_top(float_id, false);
+    server.raise_toplevel(fs.resource);
+    assert_eq!(server.space_use(), SpaceUse::Fullscreen);
+}
+
+#[test]
+fn client_cursor_surface_snapshot_tracks_mapped_shm_cursor_only() {
+    let state = State::new(std::ptr::null_mut());
+    let server = std::mem::ManuallyDrop::new(Server {
+        state: Box::new(state),
+        socket: String::new(),
+        runtime_dir: None,
+        interaction_domain_portals: Vec::new(),
+        epoch: std::time::Instant::now(),
+    });
+    assert!(
+        server.client_cursor_surface().is_none(),
+        "no cursor surface assigned -> None"
+    );
+
+    let mut rec = SurfaceRec::new(0x500usize as *mut ffi::wl_resource);
+    rec.cursor_role = true;
+    rec.width = 16;
+    rec.height = 16;
+    rec.buffer_scale = 2;
+    rec.generation = 9;
+    rec.attach_offset = tessera_primitives::Point { x: 1, y: 2 };
+    let hotspot = tessera_primitives::Point { x: 5, y: 6 };
+
+    // Unmapped -> None.
+    assert!(crate::server::client_cursor_surface_from_rec(&rec, hotspot).is_none());
+
+    // Mapped with empty pixels -> None.
+    rec.mapped = true;
+    assert!(crate::server::client_cursor_surface_from_rec(&rec, hotspot).is_none());
+
+    // Mapped SHM with pixels -> Some with exact metadata.
+    rec.pixels = vec![0xFF; 16 * 16 * 4];
+    let snap = crate::server::client_cursor_surface_from_rec(&rec, hotspot)
+        .expect("mapped SHM cursor surface produces snapshot");
+    assert_eq!(snap.id, 0x500);
+    assert_eq!(snap.generation, 9);
+    assert_eq!((snap.width, snap.height), (16, 16));
+    assert_eq!(snap.buffer_scale, 2);
+    assert_eq!(snap.hotspot, hotspot);
+    assert_eq!(snap.attach_offset, tessera_primitives::Point { x: 1, y: 2 });
+    assert_eq!(snap.pixels.len(), 16 * 16 * 4);
+
+    // Mapped dma-buf cursor -> None (cannot offload SHM pixels directly).
+    rec.content_is_dmabuf = true;
+    assert!(crate::server::client_cursor_surface_from_rec(&rec, hotspot).is_none());
+}

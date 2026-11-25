@@ -8,7 +8,7 @@ superseded_by: ADR-0056
 
 # ADR-0049: Standalone modular Control Center with revisioned settings IPC
 
-- Status: Superseded by ADR-0056
+- Status: Superseded by [ADR-0056](0056-system-settings-identity-and-boundary.md)
 - Date: 2026-07-22
 
 ## Context

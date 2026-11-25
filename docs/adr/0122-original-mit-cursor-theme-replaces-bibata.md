@@ -10,6 +10,8 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-08-15
+- Amended by: [ADR-0207](0207-compositor-dbus-isolation-and-prebaked-cursor-strategy.md) — *Compositor D-Bus Isolation and Pre-Baked Hardware Cursor Strategy*
+- Amended by: [ADR-0222](0222-one-in-process-svg-compiler-for-every-vector-asset.md) — the art contract is unchanged; only the rasterizer is
 
 ## Context
 

@@ -78,12 +78,14 @@ pub struct WindowState {
 #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum SpaceUse {
-    /// No visible, non-minimized window consumes an output edge.
+    /// No visible, non-minimized window consumes an output edge, or a normal
+    /// floating/tiled window is stacked above a buried fullscreen window.
     #[default]
     Available,
-    /// At least one visible, non-minimized window is maximized.
+    /// At least one visible, non-minimized window above any buried fullscreen
+    /// window is maximized (and no fullscreen window sits on top).
     Maximized,
-    /// At least one visible, non-minimized window owns the complete output.
+    /// The topmost visible, non-minimized window owns the complete output.
     Fullscreen,
 }
 
@@ -115,32 +117,44 @@ impl SpaceOccupant {
             covers_output,
         }
     }
+
+    /// Whether this occupant claims exclusive fullscreen ownership of the
+    /// output when it sits at the top of the stacking order.
+    #[inline]
+    #[must_use]
+    pub fn claims_fullscreen(self) -> bool {
+        self.fullscreen || (self.covers_output && self.self_placed && !self.maximized)
+    }
 }
 
 impl SpaceUse {
-    /// Resolve output space use from the visible windows' occupancy facts.
+    /// Resolve output space use from visible windows ordered **bottom-to-top**
+    /// (Z-order, matching compositor paint order).
     ///
-    /// A window owns the output when it declared fullscreen, or when it placed
-    /// *its own* geometry to cover an output and is opaque. The declaration is
-    /// kept because a client that asked for fullscreen owns the presentation
-    /// during the configure round-trip, before its buffer reaches the final
-    /// extent.
+    /// A window claims exclusive fullscreen ownership when it declared
+    /// fullscreen, or when it placed *its own* geometry to cover an output and
+    /// is opaque (ADR-0183). However, fullscreen immersion is a **topmost
+    /// ownership** state (ADR-0259): if the user raises a non-fullscreen window
+    /// above a fullscreen window, the fullscreen window remains stacked
+    /// underneath without being hidden, while `SpaceUse` drops out of
+    /// `Fullscreen` so chrome, Hot Zones, Dock, and Control Center immediately
+    /// become reachable again. Returning the fullscreen window to the top
+    /// restores `SpaceUse::Fullscreen`.
     ///
     /// Geometric ownership is restricted to self-placed windows on purpose: a
     /// maximized or tiled window covers the output because the *compositor*
     /// sized it that way (the work area expands to the full output whenever the
-    /// Dock is auto-hidden), and chrome policy deliberately keeps the HUD for
-    /// those. Only a window that chose to fill the output has taken the output.
+    /// Dock is auto-hidden), and chrome policy deliberately keeps chrome
+    /// reachable for those.
     pub fn resolve(occupants: impl IntoIterator<Item = SpaceOccupant>) -> SpaceUse {
         let mut use_state = SpaceUse::Available;
         for occupant in occupants.into_iter().filter(|occupant| !occupant.minimized) {
-            if occupant.fullscreen
-                || (occupant.covers_output && occupant.self_placed && !occupant.maximized)
-            {
-                return SpaceUse::Fullscreen;
-            }
-            if occupant.maximized {
+            if occupant.claims_fullscreen() {
+                use_state = SpaceUse::Fullscreen;
+            } else if occupant.maximized {
                 use_state = SpaceUse::Maximized;
+            } else if use_state == SpaceUse::Fullscreen {
+                use_state = SpaceUse::Available;
             }
         }
         use_state
@@ -601,17 +615,80 @@ mod tests {
     }
 
     #[test]
-    fn fullscreen_space_use_has_precedence_over_maximized() {
+    fn fullscreen_space_use_requires_topmost_ownership_in_z_order() {
         let mut maximized = Window::new(WindowId(1));
         maximized.state.maximized = true;
         let mut fullscreen = Window::new(WindowId(2));
         fullscreen.state.fullscreen = true;
+        let floating = Window::new(WindowId(3));
+
+        // Fullscreen raised above maximized -> Fullscreen.
         assert_eq!(
             SpaceUse::resolve([
                 SpaceOccupant::new(&maximized, false),
                 SpaceOccupant::new(&fullscreen, false),
             ]),
             SpaceUse::Fullscreen
+        );
+
+        // Floating window raised above fullscreen -> Available (unlocks chrome & hot zones).
+        assert_eq!(
+            SpaceUse::resolve([
+                SpaceOccupant::new(&fullscreen, false),
+                SpaceOccupant::new(&floating, false),
+            ]),
+            SpaceUse::Available
+        );
+
+        // Maximized window raised above fullscreen -> Maximized.
+        assert_eq!(
+            SpaceUse::resolve([
+                SpaceOccupant::new(&fullscreen, false),
+                SpaceOccupant::new(&maximized, false),
+            ]),
+            SpaceUse::Maximized
+        );
+
+        // Maximized buried under fullscreen with a floating window on top -> Available.
+        assert_eq!(
+            SpaceUse::resolve([
+                SpaceOccupant::new(&maximized, false),
+                SpaceOccupant::new(&fullscreen, false),
+                SpaceOccupant::new(&floating, false),
+            ]),
+            SpaceUse::Available
+        );
+
+        // Maximized AND floating both above fullscreen -> Maximized.
+        assert_eq!(
+            SpaceUse::resolve([
+                SpaceOccupant::new(&fullscreen, false),
+                SpaceOccupant::new(&maximized, false),
+                SpaceOccupant::new(&floating, false),
+            ]),
+            SpaceUse::Maximized
+        );
+
+        // Minimized floating window above fullscreen is ignored -> Fullscreen.
+        let mut minimized_floating = Window::new(WindowId(4));
+        minimized_floating.minimized = true;
+        assert_eq!(
+            SpaceUse::resolve([
+                SpaceOccupant::new(&fullscreen, false),
+                SpaceOccupant::new(&minimized_floating, false),
+            ]),
+            SpaceUse::Fullscreen
+        );
+
+        // Borderless self-placed covering window also yields when a floating
+        // window is raised above it.
+        let borderless = Window::new(WindowId(5));
+        assert_eq!(
+            SpaceUse::resolve([
+                SpaceOccupant::new(&borderless, true),
+                SpaceOccupant::new(&floating, false),
+            ]),
+            SpaceUse::Available
         );
     }
 

@@ -20,7 +20,8 @@ pub mod clock;
 
 pub use chrome::{
     AgentFeedback, AppPicker, BatteryAlert, CapabilityPrompt, ConfirmPrompt, ControlledWindowGuard,
-    Overview, ScreenshotSelector, SecretPrompt, SystemOsd, Toast, WindowSwitcher,
+    GlanceHud, HotZones, Overview, ScreenshotSelector, SecretPrompt, SystemOsd, Toast,
+    WindowSwitcher,
 };
 
 pub mod accessibility;
@@ -184,6 +185,14 @@ pub struct Shell {
     /// and — together with the retry backoff below — stops the failure from
     /// becoming a per-frame rebuild loop.
     last_good_scene: Option<optics_ui::Snapshot>,
+    /// The backdrop-sampling bodies of the scene in `last_good_scene`, in
+    /// logical output pixels and paint order (ADR-0253). Replaced only by a
+    /// successful build, so it always describes the scene `submit` draws.
+    backdrop_bodies: Vec<tessera_design::materials::BackdropBody>,
+    /// How the runtime resolved the material preference last (ADR-0252):
+    /// carried for Settings, never consulted to draw. `None` until the
+    /// runtime applies an appearance.
+    material_resolution: Option<tessera_desktop::settings::ResolvedMaterial>,
     /// Backoff gate for rebuilding after a failed build.
     ///
     /// Without it, `pending_scene == None` makes `needs_build` permanently
@@ -210,6 +219,8 @@ pub struct Shell {
     /// Whether any component, layout, or model state changed requiring
     /// a new UI scene build (ADR-0210, INV-ARCH-103).
     dirty: bool,
+    /// Resolved eight-zone Hot Zone policy pushed on startup and config reload (ADR-0254).
+    hot_zones: tessera_desktop::hot_zone::HotZonePolicy,
     /// Last sampled input cursor coordinates to detect pointer motion.
     last_input_cursor: (f32, f32),
 }
@@ -275,10 +286,13 @@ impl Shell {
                 screenshot_freeze: false,
                 pending_scene: None,
                 last_good_scene: None,
+                backdrop_bodies: Vec::new(),
+                material_resolution: None,
                 build_retry_at: None,
                 caret: CaretBlink::default(),
                 caret_tick_at: None,
                 dirty: true,
+                hot_zones: tessera_desktop::hot_zone::HotZonePolicy::default(),
                 last_input_cursor: (-1.0, -1.0),
             })
         }
@@ -310,10 +324,13 @@ impl Shell {
             screenshot_freeze: false,
             pending_scene: None,
             last_good_scene: None,
+            backdrop_bodies: Vec::new(),
+            material_resolution: None,
             build_retry_at: None,
             caret: CaretBlink::default(),
             caret_tick_at: None,
             dirty: true,
+            hot_zones: tessera_desktop::hot_zone::HotZonePolicy::default(),
             last_input_cursor: (-1.0, -1.0),
         })
     }
@@ -370,6 +387,7 @@ impl Shell {
         component.update(ChromeUpdate::Windows(&self.windows));
         component.update(ChromeUpdate::AllWindows(&self.all_windows));
         component.update(ChromeUpdate::SpaceUse(self.space_use));
+        component.update(ChromeUpdate::HotZones(&self.hot_zones));
         if let Some(settings) = &self.settings {
             component.update(ChromeUpdate::Settings(settings));
         }
@@ -445,13 +463,44 @@ impl Shell {
         }
     }
 
-    /// Set the shell-wide desktop color scheme (`[appearance] color_scheme`).
-    /// `System` resolves to the dark fallback inside
-    /// [`tessera_design::Design::for_scheme`]; every component receives the
-    /// resulting design snapshot through [`ChromeUpdate::Appearance`] when it
-    /// actually changes.
-    pub fn set_color_scheme(&mut self, scheme: tessera_desktop::settings::ColorScheme) {
-        let design = tessera_design::Design::for_scheme(scheme);
+    /// Set the shell-wide appearance: the desktop color scheme
+    /// (`[appearance] color_scheme`) and the chrome material every surface is
+    /// drawn in (ADR-0252).
+    ///
+    /// `material` is the *effective* material, already capped by
+    /// [`tessera_desktop::settings::resolve_material`] — the shell draws what
+    /// it is told and holds no policy about it. `System` resolves to the dark
+    /// fallback inside [`tessera_design::Design::for_scheme`]. Every component
+    /// receives the resulting design snapshot through
+    /// [`ChromeUpdate::Appearance`] when it actually changes, which is how the
+    /// dock, the Control Center, notifications and alerts switch material in
+    /// the same frame.
+    /// Record how the material preference resolved, for Settings to show.
+    /// Drawing follows [`Shell::set_appearance`] alone.
+    pub fn set_material_resolution(
+        &mut self,
+        resolution: tessera_desktop::settings::ResolvedMaterial,
+    ) {
+        self.material_resolution = Some(resolution);
+    }
+
+    /// The last recorded material resolution, see
+    /// [`Shell::set_material_resolution`].
+    pub fn material_resolution(&self) -> Option<tessera_desktop::settings::ResolvedMaterial> {
+        self.material_resolution
+    }
+
+    /// The live system status chrome renders from.
+    pub fn system_status(&self) -> &SystemStatus {
+        &self.system_status
+    }
+
+    pub fn set_appearance(
+        &mut self,
+        scheme: tessera_desktop::settings::ColorScheme,
+        material: tessera_desktop::settings::Material,
+    ) {
+        let design = tessera_design::Design::for_appearance(scheme, material);
         if self.design != design {
             self.design = design;
             self.dirty = true;
@@ -471,6 +520,19 @@ impl Shell {
     /// The design snapshot components currently paint from.
     pub fn design(&self) -> &tessera_design::Design {
         &self.design
+    }
+
+    /// Where the compositor must draw the backdrop material beneath chrome:
+    /// every floating body of the scene `submit` draws, in logical output
+    /// pixels and paint order (ADR-0253). Empty unless the effective material
+    /// samples the backdrop, so an opaque or translucent shell never asks for
+    /// a capture.
+    pub fn backdrop_bodies(&self) -> &[tessera_design::materials::BackdropBody] {
+        if self.design.material.samples_backdrop() {
+            &self.backdrop_bodies
+        } else {
+            &[]
+        }
     }
 
     /// Select chrome translations from a POSIX locale or BCP-47 language tag.
@@ -503,11 +565,6 @@ impl Shell {
     /// Lock now row). The main loop feeds it to `IdleProcess::lock_now`.
     pub fn take_lock(&mut self) -> bool {
         std::mem::take(&mut self.events.lock)
-    }
-
-    /// Drain a dock reading row's request to open the control center (ADR-0218).
-    pub fn take_open_control_center(&mut self) -> bool {
-        std::mem::take(&mut self.events.open_control_center)
     }
 
     /// Replace the host's snapshot of live toplevels. Called once per frame
@@ -750,14 +807,45 @@ impl Shell {
             .fold(0.0_f32, f32::max)
     }
 
+    /// Drain a Hot Zone summon emitted this frame (ADR-0254).
+    pub fn take_hot_zone_summon(
+        &mut self,
+    ) -> Option<(
+        tessera_desktop::hot_zone::HotZoneSlot,
+        tessera_desktop::hot_zone::HotZoneTarget,
+    )> {
+        self.events.hot_zone_summon.take()
+    }
+
+    /// Push a replacement Hot Zone policy to every registered component.
+    pub fn set_hot_zones(&mut self, policy: tessera_desktop::hot_zone::HotZonePolicy) {
+        self.hot_zones = policy;
+        let update = ChromeUpdate::HotZones(&self.hot_zones);
+        for component in &mut self.components {
+            component.update(update);
+        }
+        self.dirty = true;
+    }
+
+    /// Raise the read-only transient Glance HUD (ADR-0255).
+    pub fn show_glance_hud(&mut self) {
+        self.broadcast_command(ChromeCommand::ShowGlanceHud);
+        self.dirty = true;
+    }
+
+    /// Summon the Dock on the given edge slot via its Hot Zone (ADR-0254).
+    pub fn summon_dock(&mut self, slot: tessera_desktop::hot_zone::HotZoneSlot) {
+        self.broadcast_command(ChromeCommand::SummonDock(slot));
+        self.dirty = true;
+    }
+
     /// Open the control center on the component that owns it, if it is not
-    /// already open (ADR-0218).
+    /// already open.
     ///
-    /// The dock's reading column answers a press with this rather than with
-    /// [`Shell::toggle_control_center`]: a reading is a shortcut into the surface
-    /// that owns the reading, so pressing one while the panel is already open
-    /// must not close it. Nothing is broadcast when the panel is already open, so
-    /// the press is a no-op rather than a toggle.
+    /// A Control Center Hot Zone (ADR-0254) answers with this rather than with
+    /// [`Shell::toggle_control_center`]: re-triggering the zone while the panel
+    /// is already open must not close it. Nothing is broadcast when the panel is
+    /// already open, so the activation is a no-op rather than a toggle.
     pub fn open_control_center(&mut self) {
         if self.control_center_active() {
             return;
@@ -1262,8 +1350,13 @@ impl Shell {
                     || component.control_center_active()
                     || component.overview_active()
             });
+        let dock_expanded = self
+            .components
+            .iter()
+            .any(|component| component.dock_expanded());
         for component in &mut self.components {
             component.update(ChromeUpdate::LauncherActive(immersive_active));
+            component.update(ChromeUpdate::DockExpanded(dock_expanded));
         }
         let freeze = self.screenshot_freeze;
         let events = &mut self.events;
@@ -1660,10 +1753,27 @@ impl Shell {
                 exclusive_presentation_active,
             )
         }) {
-            let visible = component.requires_composition();
-            requirements.visible_pixels |= visible;
+            if component.requires_composition() {
+                requirements.visible_pixels = true;
+                requirements.blocker.get_or_insert(component.chrome_name());
+                requirements.blocker_count += 1;
+            }
         }
         requirements
+    }
+
+    /// Transient (non-persistent-decoration) components that claim visible
+    /// pixels. In the idle state, before any user interaction, this must be
+    /// empty: a non-empty answer means some component would veto direct
+    /// scanout for the whole session. The runtime checks it once after
+    /// registering chrome, and the regression tests pin it.
+    pub fn idle_composition_violations(&self) -> Vec<&'static str> {
+        self.components
+            .iter()
+            .filter(|component| !component.persistent_decoration())
+            .filter(|component| component.requires_composition())
+            .map(|component| component.chrome_name())
+            .collect()
     }
 
     /// The nearest compositor-owned wakeup that is *not* an animation: a timed
@@ -1732,8 +1842,13 @@ impl Shell {
                     || component.control_center_active()
                     || component.overview_active()
             });
+        let dock_expanded = self
+            .components
+            .iter()
+            .any(|component| component.dock_expanded());
         for component in &mut self.components {
             component.update(ChromeUpdate::LauncherActive(immersive_active));
+            component.update(ChromeUpdate::DockExpanded(dock_expanded));
         }
         let freeze = self.screenshot_freeze;
         for component in &mut self.components {
@@ -2047,24 +2162,30 @@ impl Shell {
                         || component.control_center_active()
                         || component.overview_active()
                 });
+            let dock_expanded = components.iter().any(|component| component.dock_expanded());
             for component in components.iter_mut() {
                 component.update(ChromeUpdate::ModalReserved(modal_reserved));
                 component.update(ChromeUpdate::LauncherActive(immersive_active));
+                component.update(ChromeUpdate::DockExpanded(dock_expanded));
             }
-            self.ui.frame(input, |f| {
-                for component in components.iter_mut() {
-                    if participates_in_shell_pass(
-                        component.as_ref(),
-                        freeze,
-                        modal_active,
-                        window_switcher_active,
-                        exclusive_presentation_active,
-                    ) {
-                        component.render(f, input, windows, workspaces, i18n, events);
+            let ui = &mut self.ui;
+            let ((), backdrop_bodies) = tessera_design::materials::record_backdrop_bodies(|| {
+                ui.frame(input, |f| {
+                    for component in components.iter_mut() {
+                        if participates_in_shell_pass(
+                            component.as_ref(),
+                            freeze,
+                            modal_active,
+                            window_switcher_active,
+                            exclusive_presentation_active,
+                        ) {
+                            component.render(f, input, windows, workspaces, i18n, events);
+                        }
                     }
-                }
+                });
             });
             let snapshot = self.ui.snapshot().map_err(ShellError::Render)?;
+            self.backdrop_bodies = backdrop_bodies;
             // Retain the scene that is about to be presented so a later failed
             // build can fall back to it (ADR-0223). `Snapshot` is refcounted,
             // so this is a retain, not a copy of the display list.

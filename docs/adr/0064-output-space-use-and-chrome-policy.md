@@ -11,6 +11,7 @@ superseded_by: null
 - Status: Accepted
 - Date: 2026-07-28
 - Amended by: [ADR-0183](0183-geometric-output-ownership.md) — `SpaceUse` is resolved from physical output ownership (opaque coverage) rather than from the `xdg_toplevel.set_fullscreen` bit, and chrome consumes the resolved verdict instead of deriving it.
+- Amended by: [ADR-0259](0259-topmost-fullscreen-output-ownership-and-stacking-aware-space-use.md) — `SpaceUse::Fullscreen` requires topmost Z-order ownership; raising a non-fullscreen window above a fullscreen window restores chrome reachability.
 
 ## Context
 

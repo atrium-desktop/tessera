@@ -722,6 +722,10 @@ impl CompositorRuntime<'_> {
         sampled_surface_ids: &[usize],
         cursor_shape: u32,
         cursor_hidden: bool,
+        client_cursor_on_hw_plane: bool,
+        client_cursor_key: Option<(usize, u64)>,
+        last_committed_hotspot: (u32, u32),
+        last_committed_sprite_size: (u32, u32),
         mirror_cursor_dirty: bool,
         window_switcher: Option<&tessera_shell::component::WindowSwitcherPresentation>,
         live_previews: &[tessera_shell::component::LivePreviewPresentation],
@@ -759,6 +763,7 @@ impl CompositorRuntime<'_> {
             || self.server.workspace_slide_pending();
         let special_full = drew_preview_sources || model_active;
         let shell_composes = self.shell.requires_composition();
+        let backdrop_material = self.shell.design().material;
         let software_cursor = self.host.uses_software_cursor();
         let explicit_sync = self.host.explicit_sync();
         let cursor = self.input_acc.cursor;
@@ -793,7 +798,22 @@ impl CompositorRuntime<'_> {
                     if special_full {
                         Some(FrameDamage::Full)
                     } else {
-                        self.target_damage(output, target, damage)
+                        let damage = self.target_damage(output, target, damage)?;
+                        // Chrome is composited on the primary only; its
+                        // frosted / glass bodies repaint when anything they
+                        // sample changed (ADR-0253).
+                        if primary.as_deref() == Some(output.connector.as_str())
+                            && let Some(plan) = backdrop::plan(
+                                backdrop_material,
+                                self.shell.backdrop_bodies(),
+                                output.geometry.scale.as_f32().max(0.01),
+                                target.mode,
+                            )
+                        {
+                            Some(plan.widen(damage))
+                        } else {
+                            Some(damage)
+                        }
                     }
                 },
                 |connector| {
@@ -937,6 +957,73 @@ impl CompositorRuntime<'_> {
                         },
                     );
                     let is_primary = primary.as_deref() == Some(connector.as_str());
+                    // The backdrop beneath frosted / glass chrome (ADR-0253),
+                    // captured and filtered at this pass boundary.
+                    let backdrop_plan = if is_primary && shell_composes && chrome_in_damage_scope {
+                        backdrop::plan(backdrop_material, self.shell.backdrop_bodies(), scale, mode)
+                            .and_then(|plan| plan.restrict_to(&canvas_damage))
+                    } else {
+                        None
+                    };
+                    let namespace = target_namespace(connector);
+                    let backdrop_slab = match backdrop_plan.as_ref() {
+                        Some(plan) => {
+                            let captured = match self.backdrop.capture_target(
+                                self.device,
+                                namespace,
+                                frame.index() as usize,
+                                plan,
+                            ) {
+                                Some(capture) => backdrop::capture_desktop(
+                                    &mut group_targets.canvases[idx],
+                                    self.device,
+                                    &mut frame,
+                                    capture,
+                                    &mut self.wallpaper,
+                                    plan,
+                                    logical_size,
+                                    self.clear,
+                                    !wallpaper_occluded,
+                                    |canvas| {
+                                        canvas.save();
+                                        canvas.translate(-(origin.x as f32), -(origin.y as f32));
+                                        let drawn = draw_direct_desktop_scene(
+                                            canvas,
+                                            self.device,
+                                            self.renderer,
+                                            self.server,
+                                            RenderGeometry {
+                                                logical_size,
+                                                scale,
+                                            },
+                                            overview_active,
+                                            overview_progress,
+                                            window_switcher,
+                                            color_scheme,
+                                            soft_shadow_layer.as_ref(),
+                                            shadow_style,
+                                            None,
+                                        );
+                                        canvas.restore();
+                                        drawn
+                                    },
+                                ),
+                                None => Err(optics_gfx::Error(
+                                    optics_gfx::sys::optics_gfx_result::OPTICS_GFX_ERROR_OUT_OF_MEMORY,
+                                )),
+                            };
+                            match captured {
+                                Ok(()) => {
+                                    self.backdrop.compose(self.device, &frame, namespace, plan)
+                                }
+                                Err(error) => {
+                                    self.backdrop.capture_failed(error);
+                                    None
+                                }
+                            }
+                        }
+                        None => None,
+                    };
                     let submitted = (|| -> Result<optics_gfx::SubmittedFrame<'_>, String> {
                         let session = super::presentation::begin_desktop_output(
                             &mut group_targets.canvases[idx],
@@ -972,6 +1059,9 @@ impl CompositorRuntime<'_> {
                         )
                         .map_err(|error| error.to_string())?;
                         session.restore();
+                        if let Some(slab) = backdrop_slab.as_ref() {
+                            slab.draw(&session);
+                        }
                         if is_primary && shell_composes && chrome_in_damage_scope {
                             let _uploads = self.device.uploads_begin();
                             if let Err(error) =
@@ -1011,7 +1101,7 @@ impl CompositorRuntime<'_> {
                             self.renderer,
                             self.server,
                             scale,
-                            false,
+                            !client_cursor_on_hw_plane,
                             None,
                         );
                         if software_cursor && !cursor_hidden {
@@ -1451,10 +1541,7 @@ impl CompositorRuntime<'_> {
         self.output_targets = targets;
 
         if cursor_fallback {
-            self.damage.last_presented_cursor = None;
-            self.damage.last_presented_cursor_position = None;
-            self.damage.last_presented_cursor_hotspot = None;
-            self.damage.last_presented_cursor_pixels = None;
+            self.damage.reset_cursor_baseline();
             self.damage.force_full_redraw = true;
             self.invalidate_all_surface_damage();
             return Ok(PresentationOutcome::Retry {
@@ -1549,6 +1636,7 @@ impl CompositorRuntime<'_> {
         }
         self.damage.last_present_minute = Some(wall_clock_minute());
         self.damage.last_presented_cursor = Some((cursor_shape, cursor_hidden));
+        self.damage.last_presented_client_cursor = client_cursor_key;
         let primary_scale = outputs
             .iter()
             .find(|output| output.kind.is_physical() && !output.role.is_mirror())
@@ -1557,18 +1645,27 @@ impl CompositorRuntime<'_> {
             (self.input_acc.cursor.0 * primary_scale).round() as i32,
             (self.input_acc.cursor.1 * primary_scale).round() as i32,
         ));
-        self.damage.last_presented_cursor_hotspot = (!cursor_hidden).then_some(last_hotspot(
-            &mut self.cursor_cache,
-            self.device,
-            cursor_shape,
-            primary_scale,
-        ));
-        self.damage.last_presented_cursor_pixels = (!cursor_hidden).then_some(last_sprite(
-            &mut self.cursor_cache,
-            self.device,
-            cursor_shape,
-            primary_scale,
-        ));
+        let hw_cursor_visible = !cursor_hidden || client_cursor_on_hw_plane;
+        self.damage.last_presented_cursor_hotspot = if client_cursor_on_hw_plane {
+            Some(last_committed_hotspot)
+        } else {
+            hw_cursor_visible.then_some(last_hotspot(
+                &mut self.cursor_cache,
+                self.device,
+                cursor_shape,
+                primary_scale,
+            ))
+        };
+        self.damage.last_presented_cursor_pixels = if client_cursor_on_hw_plane {
+            Some(last_committed_sprite_size)
+        } else {
+            hw_cursor_visible.then_some(last_sprite(
+                &mut self.cursor_cache,
+                self.device,
+                cursor_shape,
+                primary_scale,
+            ))
+        };
         self.damage.force_full_redraw = false;
         self.renderer.gc(self.server.live_surface_ids());
         self.frame_count += 1;

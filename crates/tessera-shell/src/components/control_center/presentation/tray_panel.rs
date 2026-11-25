@@ -429,9 +429,13 @@ impl ControlCenter {
         let header_visible = self.menu_path.len() > 1;
         let mut action: Option<MenuRowAction> = None;
         f.set_theme(menu_theme);
-        f.place(
+        materials::place_body(
+            f,
             "tessera-hud-sni-menu",
-            &chrome_place(popover_bounds, materials::canvas_panel(&hud)),
+            &self.design,
+            popover_bounds,
+            1.0,
+            materials::canvas_panel(&hud),
             |f| {
                 f.column_ex(
                     &LayoutOpts {

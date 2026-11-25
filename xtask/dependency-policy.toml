@@ -2,7 +2,7 @@
 # Review changes here alongside the owning package manifest.
 
 [tessera]
-normal = ["optics-gfx", "optics-gfx-sys", "optics-ui", "optics-ui-sys", "libc", "log", "optics-svg-sys", "serde", "serde_json", "sha2", "tessera-assets", "tessera-audit", "tessera-authority", "tessera-cast", "tessera-control", "tessera-composite", "tessera-config", "tessera-dbus", "tessera-design", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-launch-services", "tessera-network", "tessera-platform", "tessera-primitives", "tessera-protocol", "tessera-shell", "tessera-wallpaper", "tessera-wayland", "optics-scene-sys", "zeroize"]
+normal = ["optics-gfx", "optics-gfx-sys", "optics-material", "optics-material-sys", "optics-ui", "optics-ui-sys", "libc", "log", "optics-svg-sys", "serde", "serde_json", "sha2", "tessera-assets", "tessera-audit", "tessera-authority", "tessera-cast", "tessera-control", "tessera-composite", "tessera-config", "tessera-dbus", "tessera-design", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-launch-services", "tessera-network", "tessera-platform", "tessera-primitives", "tessera-protocol", "tessera-shell", "tessera-wallpaper", "tessera-wayland", "optics-scene-sys", "zeroize"]
 build = []
 dev = ["flate2", "tessera-image", "tempfile", "tessera-desktop", "tessera-ipc", "tessera-protocol", "tessera-shell"]
 
@@ -17,9 +17,9 @@ build = []
 dev = ["tempfile"]
 
 [tessera-audit]
-normal = ["flate2", "hmac", "libc", "serde", "serde_json", "sha2", "tessera-protocol", "zeroize"]
+normal = ["serde", "tessera-protocol"]
 build = []
-dev = ["tempfile"]
+dev = []
 
 [tessera-authority]
 normal = ["serde", "serde_json", "tessera-desktop", "tessera-primitives", "zeroize"]
@@ -50,7 +50,7 @@ build = []
 dev = []
 
 [tessera-control]
-normal = ["serde", "serde_json", "tessera-audit", "tessera-authority", "tessera-config", "tessera-desktop", "tessera-env", "tessera-i18n", "tessera-ipc", "tessera-launch-services", "tessera-primitives", "tessera-protocol", "zeroize"]
+normal = ["serde", "serde_json", "tessera-authority", "tessera-config", "tessera-desktop", "tessera-env", "tessera-i18n", "tessera-ipc", "tessera-launch-services", "tessera-primitives", "tessera-protocol", "zeroize"]
 build = []
 dev = ["tempfile"]
 

@@ -1,5 +1,46 @@
 use crate::*;
 
+/// Project a `SurfaceRec` + seat hotspot into a `ClientCursorSurface` snapshot
+/// when the surface holds a mapped, non-empty SHM buffer.
+pub(crate) fn client_cursor_surface_from_rec<'a>(
+    surface: &'a SurfaceRec,
+    hotspot: tessera_primitives::Point,
+) -> Option<ClientCursorSurface<'a>> {
+    if !surface.mapped || surface.content_is_dmabuf || surface.pixels.is_empty() {
+        return None;
+    }
+    Some(ClientCursorSurface {
+        id: surface.resource as usize,
+        generation: surface.generation,
+        width: surface.width,
+        height: surface.height,
+        pixels: &surface.pixels,
+        hotspot,
+        attach_offset: surface.attach_offset,
+        buffer_scale: surface.buffer_scale,
+        transform: surface.buffer_transform,
+        viewport_src: surface.viewport_src,
+        viewport_dst: surface.viewport_dst,
+    })
+}
+
+/// Snapshot of the active human-seat client cursor surface (`wl_pointer.set_cursor`)
+/// when backed by a mapped, non-empty SHM buffer.
+#[derive(Clone, Copy)]
+pub struct ClientCursorSurface<'a> {
+    pub id: usize,
+    pub generation: u64,
+    pub width: i32,
+    pub height: i32,
+    pub pixels: &'a [u8],
+    pub hotspot: tessera_primitives::Point,
+    pub attach_offset: tessera_primitives::Point,
+    pub buffer_scale: i32,
+    pub transform: tessera_primitives::Transform,
+    pub viewport_src: Option<tessera_primitives::Rect>,
+    pub viewport_dst: Option<tessera_primitives::Size>,
+}
+
 /// What a frame actually put on the display, for presentation bookkeeping.
 ///
 /// `wp_presentation_feedback.presented` and `[INV-ARCH-84]` require that a
@@ -1500,6 +1541,24 @@ impl Server {
             }
         }
         frames
+    }
+
+    /// Active human-seat client cursor surface (`wl_pointer.set_cursor`) when
+    /// backed by a mapped, non-empty SHM buffer.
+    ///
+    /// Used by the compositor runtime to offload eligible client cursors onto
+    /// the KMS hardware cursor plane so fullscreen clients with custom cursors
+    /// keep direct scanout and cursor-only fast-path updates.
+    pub fn client_cursor_surface(&self) -> Option<ClientCursorSurface<'_>> {
+        let resource = self.state.cursor_surface;
+        if resource.is_null() {
+            return None;
+        }
+        let rec = unsafe { ffi::wl_resource_get_user_data(resource) as *mut SurfaceRec };
+        if rec.is_null() {
+            return None;
+        }
+        client_cursor_surface_from_rec(unsafe { &*rec }, self.state.cursor_hotspot)
     }
 
     /// Input-popup, drag-icon, and cursor role surfaces, composited above all

@@ -12,6 +12,12 @@ superseded_by: null
 - Date: 2026-09-17
 - Scope: workspace package architecture
 - Deciders: Tessera maintainers
+- Amended by: [ADR-0159](0159-package-boundaries-follow-capabilities.md) — *Package boundaries follow capabilities*
+- Amended by: [ADR-0160](0160-consolidate-application-subsystem.md) — *Consolidate application subsystem into tessera-apps*
+- Amended by: [ADR-0161](0161-rename-backend-to-platform.md) — *Rename tessera-backend to tessera-platform*
+- Amended by: [ADR-0164](0164-universal-domain-pruning-and-primitives-canonization.md) — *Universal Domain Pruning and Primitives Canonization*
+- Amended by: [ADR-0170](0170-canonical-shell-preview-routing-and-workspace-debug-asset-topology.md) — *Canonical Shell Preview Routing and Workspace Debug Asset Topology*
+- Amended by: [ADR-0173](0173-rename-render-to-composite.md) — *Rename tessera-render to tessera-composite*
 
 ## Context
 

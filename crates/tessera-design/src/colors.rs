@@ -25,10 +25,13 @@ pub struct ProductColors {
     pub menu_border: Color,
     pub menu_surface_hover: Color,
     pub menu_surface_active: Color,
+    /// Body of text-bearing transient surfaces (menus, tooltips). Every
+    /// chrome body is declared here fully opaque; the active material
+    /// ([`crate::Design::with_material`]) sets its alpha.
     pub popover_surface: Color,
     pub popover_border: Color,
-    /// Opaque body of a floating chrome panel (dialogs, the switcher, the
-    /// pivot, live previews). Flat fill: no blur, no capture, no refraction.
+    /// Body of a floating chrome panel (dialogs, the switcher, the pivot,
+    /// live previews, the Control Center, notifications).
     pub panel_surface: Color,
     /// Hairline boundary of a floating chrome panel.
     pub panel_border: Color,
@@ -77,9 +80,9 @@ impl ProductColors {
             menu_border: Color::rgba(255, 255, 255, 36),
             menu_surface_hover: Color::rgba(255, 255, 255, 22),
             menu_surface_active: Color::rgba(255, 255, 255, 36),
-            popover_surface: Color::rgba(26, 30, 42, 248),
+            popover_surface: Color::rgba(44, 44, 46, 255),
             popover_border: Color::rgba(255, 255, 255, 42),
-            panel_surface: Color::rgba(20, 23, 32, 242),
+            panel_surface: Color::rgba(28, 28, 30, 255),
             panel_border: Color::rgba(255, 255, 255, 34),
             application_surface: Color::rgba(25, 28, 40, 255),
             application_text: Color::rgba(244, 246, 252, 255),
@@ -113,9 +116,9 @@ impl ProductColors {
             menu_border: Color::rgba(28, 32, 44, 36),
             menu_surface_hover: Color::rgba(28, 32, 44, 12),
             menu_surface_active: Color::rgba(28, 32, 44, 22),
-            popover_surface: Color::rgba(250, 251, 253, 250),
+            popover_surface: Color::rgba(255, 255, 255, 255),
             popover_border: Color::rgba(28, 32, 44, 30),
-            panel_surface: Color::rgba(249, 250, 253, 243),
+            panel_surface: Color::rgba(246, 246, 248, 255),
             panel_border: Color::rgba(28, 32, 44, 30),
             application_surface: Color::rgba(243, 245, 249, 255),
             application_text: Color::rgba(29, 33, 44, 255),
@@ -360,8 +363,8 @@ fn dark_dock_colors() -> DockColors {
         running_dot_active: Color::rgba(236, 238, 245, 255),
         running_dot_inactive: Color::rgba(200, 204, 220, 170),
         section_divider: Color::rgba(255, 255, 255, 80),
-        bar_surface_expanded: Color::rgba(24, 27, 37, 244),
-        bar_surface_collapsed: Color::rgba(38, 43, 58, 238),
+        bar_surface_expanded: Color::rgba(30, 30, 32, 255),
+        bar_surface_collapsed: Color::rgba(58, 58, 60, 255),
     }
 }
 
@@ -373,8 +376,8 @@ fn light_dock_colors() -> DockColors {
         running_dot_active: Color::rgba(24, 28, 42, 235),
         running_dot_inactive: Color::rgba(110, 118, 140, 160),
         section_divider: Color::rgba(0, 0, 0, 48),
-        bar_surface_expanded: Color::rgba(247, 248, 252, 244),
-        bar_surface_collapsed: Color::rgba(232, 235, 243, 240),
+        bar_surface_expanded: Color::rgba(246, 246, 248, 255),
+        bar_surface_collapsed: Color::rgba(229, 229, 234, 255),
     }
 }
 

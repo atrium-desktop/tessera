@@ -10,6 +10,17 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-06-18
+- Extended by: [ADR-0132](0132-aegis-ui-composite-component-library.md) — *aegis-ui Composite Component Library and Chrome Scaffolding*
+- Amended by: [ADR-0171](0171-chrome-animation-pre-pass-synchronization-and-surface-placement-invariants.md) — *Chrome Animation Pre-Pass Synchronization and Surface Placement Invariants*
+- Amended by: [ADR-0174](0174-universal-model-motion-view-chrome-architecture.md) — *Universal Model-Motion-View Architecture and Full Transit Adoption Across Shell Chrome*
+- Amended by: [ADR-0176](0176-control-center-painted-canvas-beyond-backdrop-cover.md) — *Control Center Painted Canvas, Bounded Reveal, and Retired Backdrop Cover*
+- Amended by: [ADR-0177](0177-dock-transit-spring-unification-and-anti-oscillation-latch.md) — *Dock Transit Spring Unification, Anti-Oscillation Dismiss Latching, and Non-Preemptible Swapchain Drain*
+- Amended by: [ADR-0178](0178-optics-transit-smoothstep-unification-and-chrome-prepass-lifecycle.md) — *Optics Transit Smoothstep Unification, Chrome Prepass Lifecycle Decoupling, and Responsive Reveal Spring Tuning*
+- Amended by: [ADR-0180](0180-single-pass-chrome-fades-backdrop-allocation-decoupling-and-dock-prepass-coherence.md) — *Single-Pass Chrome Fades, High-Water Backdrop Allocation Decoupling, and Dock Pre-Pass Coherence*
+- Amended by: [ADR-0181](0181-canonical-chrome-prepass-seam-occlusion-elision-and-deferred-scanout-ownership.md) — *Canonical Chrome Pre-Pass Seam, Occlusion-Eliding Base Pass, and Deferred-Scanout Frame Ownership*
+- Amended by: [ADR-0213](0213-flat-chrome-and-removal-of-the-status-hud.md) — the `Chrome` contract loses its material declarations
+- Amended by: [ADR-0217](0217-idle-chrome-does-not-keep-the-frame-clock-and-hover-damage-is-bounded-by-the-component-that-owns-it.md) — the `Chrome` contract gains a hover-damage query
+- Amended by: [ADR-0226](0226-single-pass-chrome-composition-preview-layering-and-modal-dock-inhibition.md) — *Single-Pass Chrome Composition, Live-Preview Thumbnail Layering, and Modal Dock Inhibition*
 
 ## Context
 

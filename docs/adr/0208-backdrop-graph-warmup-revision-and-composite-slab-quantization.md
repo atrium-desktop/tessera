@@ -1,20 +1,21 @@
 ---
 id: ADR-0208
 title: "Backdrop graph pipeline warmup, content revision caching, and composite slab quantization"
-status: accepted
+status: superseded
 date: 2026-11-03
-superseded_by: null
+superseded_by: ADR-0213
 scope: [tessera, rendering, architecture]
 negative_knowledge: true
 ---
 
 # ADR-0208: Backdrop graph pipeline warmup, content revision caching, and composite slab quantization
 
-- Status: Accepted
+- Status: Superseded by [ADR-0213](0213-flat-chrome-and-removal-of-the-status-hud.md) — flat chrome removed the backdrop graph this record warms up and quantizes.
 - Date: 2026-11-03
 - Scope: `crates/tessera/src/runtime/rendering.rs`, `crates/tessera/src/runtime/rendering/tests.rs`.
 - Implementation: Landed. Closes the first-frame cold-start JIT compilation hitch and eliminates full-screen over-allocation in `BackdropLayerCapture::composite`. Connects Tessera's damage tracker to Prism's caller-declared content revision cache (`[INV-COMP-04]`, ADR-0137) via `BackdropLayerApplyOpts` (Optics ADR-0142), prewarms material compute pipelines at device/operator creation (Optics ADR-0141), and migrates `BackdropLayerCapture::composite` to footprint-quantized 128-px ladder slabs.
 - Depends on: Optics ADR-0141, Optics ADR-0142, Optics ADR-0137, Optics ADR-0139, Optics ADR-0140, Tessera ADR-0179, Tessera ADR-0180.
+- Amended by: [ADR-0212](0212-zen-vram-minimalism-scratch-consolidation-and-tight-effect-budgets.md) — *Zen VRAM Minimalism: Scratch Intermediate Consolidation, Eager Teardown, and Tight Transient Budgets*
 
 ---
 

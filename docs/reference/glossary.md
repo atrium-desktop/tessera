@@ -21,7 +21,7 @@ Canonical terms for Tessera authority, automation, and Agent integration.
 | Observation | Actor-scoped window state or separately authorized pixels. It grants no action authority. | An action or framebuffer-global visibility. |
 | Action intent | Target window, bounded physical actions, and a single-use observation precondition submitted for optimistic validation. | A coordinate click sent directly to a global input device. |
 | Action receipt | Authoritative evidence that the compositor main loop revalidated and committed the complete action batch. | A queued acknowledgement. |
-| Audit event | Privacy-minimized, principal-attributed decision stored in the bounded projection and hash-chained durable log. | Raw input content, Agent memory, or a restorable snapshot of external clients. |
+| Audit event | Privacy-minimized, principal-attributed decision stored in the bounded in-memory observability event bus. | Raw input content, Agent memory, or a restorable snapshot of external clients. |
 | Primitive family | One of four canonical classes of the broker's client-facing protocol — Observe, Transact, Inject, Subscribe — that new client capabilities extend. | A single request type or a raw verb exposed to model clients. |
 
 See [Architecture](../explanation/architecture.md#actor-boundary) and

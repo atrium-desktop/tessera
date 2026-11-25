@@ -43,7 +43,7 @@ uploaded into every output target and presented through the target's own KMS
 slot; it is not scanned as a union swapchain. Overview, window switcher, live
 previews, soft shadows, 3D wallpaper, and workspace slides render per output.
 The union path is also the fallback when a target cannot be built. Every composite image carries a lease
-([Optics ADR-0168](https://github.com/ming2k/optics/blob/v0.0.86/docs/adr/0168-exported-dmabuf-image-leases.md): exported dma-buf image leases);
+([Optics ADR-0168](https://github.com/ming2k/optics/blob/v0.0.87/docs/adr/0168-exported-dmabuf-image-leases.md): exported dma-buf image leases);
 gfx refuses to reuse a ring slot while a target still samples or scans it.
 Outputs that must share a scene generation form a presentation group (mirrors,
 touching same-refresh outputs, and outputs touched by one spanning window).
@@ -148,9 +148,32 @@ Direct-scanout rejection telemetry uses the following stable labels.
 | `plane-unsupported` | The primary-plane format or modifier intersection rejects the buffer |
 | `kms-rejected` | KMS rejected an otherwise plausible direct atomic commit |
 
-Plausible full-output candidates are reported at info level. Ordinary desktop
-states with no candidate are reported at debug level. Reports are rate-limited
-and include recent rejection counts.
+A `visible-shell-pixels` rejection also names the first chrome component that
+claims visible pixels, for example `visible-shell-pixels (Pivot)`.
+
+Telemetry is driven by state changes, so a steady game or video writes nothing:
+
+| Level | When | Example |
+|-------|------|---------|
+| `info` | A plausible full-output candidate becomes blocked, or its blocker changes | `direct scanout blocked: visible-shell-pixels (Pivot)` |
+| `info` | The candidate acquires the primary plane | `direct scanout active for 0x34325258 (mod 0x0); composite bypassed` |
+| `warn` | One blocker holds a plausible candidate for 30 s (once per episode) | `direct scanout blocked for over 30s by visible-shell-pixels (Pivot) …` |
+| `warn` | At startup, a transient chrome component already claims visible pixels | `chrome claims visible pixels while idle and will block direct scanout: Pivot` |
+| `debug` | Every 5 s: current block, recent rejection counts, and session totals | `scanout summary: current block: none; …; totals: direct=… blocked-candidate=… desktop=…` |
+
+Ordinary desktop states with no candidate never log above debug. To watch the
+decision live, run `journalctl --user -f -g 'direct scanout'`.
+To measure it, run `scripts/measure-scanout.sh` from a terminal inside the
+session. It plays a windowed and then a fullscreen test pattern, samples the
+compositor's Render-engine load, and reports the scanout decisions logged
+during the run.
+
+Every `Chrome` component must implement `requires_composition` explicitly;
+the trait has no default. The `tessera-shell` tests
+`idle_default_chrome_never_blocks_direct_scanout` and
+`fullscreen_client_leaves_no_shell_composition_requirement` register the
+runtime's chrome set and assert that it stands down. Add a new component to
+that fixture when you register it in the runtime.
 
 ## Client Buffer Release
 
@@ -294,8 +317,10 @@ fullscreen configure round trip merely to display compositor chrome.
 | `plane allocation` | Reports assigned primary and cursor planes, per-CRTC overlay candidates, and the current overlay policy |
 | `direct scanout active` | A client framebuffer successfully acquired the primary plane |
 | `compositor reclaimed the primary plane` | A compositor framebuffer successfully replaced a direct client framebuffer |
-| `direct scanout blocked` | A plausible full-output candidate failed an eligibility condition |
-| `direct scanout unavailable` | The ordinary scene did not contain a plausible direct candidate |
+| `direct scanout blocked` | A plausible full-output candidate failed an eligibility condition. Logged once per change, with the blocking chrome component named for `visible-shell-pixels` |
+| `direct scanout blocked for over 30s` | One blocker held a plausible candidate for 30 s. If nothing visible explains it, that component is not standing down |
+| `chrome claims visible pixels while idle` | Startup self-check: the named transient chrome would block direct scanout before any interaction |
+| `scanout summary` | Debug-level periodic summary: the current block, recent rejection counts, and direct / blocked-candidate / desktop frame totals |
 | `direct scanout failed; compositing instead` | A non-policy backend error rejected the direct attempt and composition was selected |
 | `cursor-plane ... rejected` | KMS rejected the cursor portion of the request; the next frame uses a software cursor |
 

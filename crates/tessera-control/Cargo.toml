@@ -19,7 +19,6 @@ tessera-i18n = { workspace = true }
 tessera-desktop.workspace = true
 tessera-primitives.workspace = true
 tessera-protocol.workspace = true
-tessera-audit.workspace = true
 tessera-config = { workspace = true }
 tessera-authority = { workspace = true }
 serde = { workspace = true }

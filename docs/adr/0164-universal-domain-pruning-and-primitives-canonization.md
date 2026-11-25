@@ -14,6 +14,8 @@ negative_knowledge: true
 - Date: 2026-09-19
 - Deciders: Tessera Maintainers & Core Architects
 - Amends: [ADR-0158](0158-clean-break-workspace-boundaries.md), [ADR-0159](0159-package-boundaries-follow-capabilities.md), [ADR-0160](0160-consolidate-application-subsystem.md)
+- Amended by: [ADR-0165](0165-purify-compositor-boundary-and-decouple-application-accessibility.md) — *Purify Compositor Boundary and Decouple Application Accessibility*
+- Amended by: [ADR-0232](0232-damage-diagnostics-link-tracing-never-a-subscriber.md) — *Damage diagnostics link tracing, never a subscriber*
 
 ---
 

@@ -35,6 +35,77 @@ pub(super) fn parse_color_scheme(value: &str) -> Option<ColorScheme> {
     }
 }
 
+/// The most expensive material this compositor's renderer can draw (ADR-0252).
+///
+/// Every material is drawable: the backdrop capture beneath chrome
+/// (ADR-0253) draws frosted and liquid glass. A renderer that cannot take the
+/// capture at run time (an allocation or dispatch failure) is not a ceiling
+/// here — the runtime demotes the shell to the translucent material on the
+/// frame it fails, see `CompositorRuntime::enforce_backdrop_capability`.
+pub(super) const RENDERER_MATERIAL_CEILING: tessera_desktop::settings::Material =
+    tessera_desktop::settings::Material::LiquidGlass;
+
+/// The ceilings in force for `preferences` on a machine in `status`
+/// (ADR-0252). Every automatic material rule is a ceiling: the renderer's
+/// capability, high contrast, which must never let content show through a
+/// surface, and the power rules of `[appearance.material_power]`. They can
+/// only make the desktop cheaper, never dearer.
+pub(super) fn material_ceilings(
+    preferences: &tessera_desktop::settings::DesktopPreferences,
+    status: &tessera_desktop::system::SystemStatus,
+) -> Vec<tessera_desktop::settings::MaterialCeiling> {
+    use tessera_desktop::settings::{Contrast, Material, MaterialCeiling, MaterialCeilingReason};
+    let mut ceilings = vec![MaterialCeiling {
+        max: RENDERER_MATERIAL_CEILING,
+        reason: MaterialCeilingReason::Renderer,
+    }];
+    if preferences.contrast == Contrast::High || preferences.accessibility.visual.high_contrast {
+        ceilings.push(MaterialCeiling {
+            max: Material::Opaque,
+            reason: MaterialCeilingReason::HighContrast,
+        });
+    }
+    ceilings.extend(
+        preferences
+            .material_power
+            .ceilings(status.power, status.battery),
+    );
+    ceilings
+}
+
+/// Push the effective appearance — scheme and resolved material — to the
+/// shell. The one place a material preference becomes what is drawn.
+///
+/// The power rules read the shell's latest system status, so every caller
+/// (startup, configuration reloads, power changes) resolves against the same
+/// facts. Returns whether the resolution changed, so a caller can republish
+/// the settings snapshot that carries it.
+pub(super) fn apply_appearance(
+    shell: &mut tessera_shell::Shell,
+    preferences: &tessera_desktop::settings::DesktopPreferences,
+) -> bool {
+    let resolved = tessera_desktop::settings::resolve_material(
+        preferences.material,
+        material_ceilings(preferences, shell.system_status()),
+    );
+    let changed = shell.material_resolution() != Some(resolved);
+    if changed && let Some(reason) = resolved.limited_by {
+        log::info!(
+            "appearance: material {} drawn as {} ({reason:?} ceiling)",
+            resolved.preferred.as_str(),
+            resolved.effective.as_str(),
+        );
+    } else if changed && shell.material_resolution().is_some() {
+        log::info!(
+            "appearance: material {} drawn as chosen",
+            resolved.effective.as_str()
+        );
+    }
+    shell.set_material_resolution(resolved);
+    shell.set_appearance(preferences.color_scheme, resolved.effective);
+    changed
+}
+
 fn nonempty_env(name: &str) -> Option<String> {
     std::env::var(name)
         .ok()
@@ -408,6 +479,19 @@ pub(super) fn load_config(path: Option<&std::path::Path>) -> Option<tessera_conf
 
 /// Re-load `path` and, on success, swap in the new config and rebuild the
 /// keymap and gesture map. On failure, keep the previous config and maps.
+/// Log each deprecated key `config` still sets, naming its replacement.
+///
+/// Deprecated keys keep parsing so existing files load; a warning at startup
+/// and on every reload is the only place the user learns the key is inert.
+pub(super) fn warn_deprecated_keys(config: &tessera_config::Config) {
+    if config.dock.autohide_dwell.is_some() {
+        log::warn!(
+            "config: [dock] autohide_dwell is deprecated and ignored (ADR-0254); \
+             set [hot_zones] hover_dwell_ms (milliseconds) instead"
+        );
+    }
+}
+
 pub(super) fn reload_config(
     path: &std::path::Path,
     config: &mut Option<tessera_config::Config>,
@@ -433,23 +517,26 @@ pub(super) fn reload_config(
             server.set_minimize_animation(c.dock.minimize_animation);
             shell.set_reduced_motion(preferences.reduced_motion);
             server.set_reduced_motion(preferences.reduced_motion);
-            shell.set_color_scheme(preferences.color_scheme);
+            apply_appearance(shell, &preferences);
             server.set_decoration_policy(c.ui.window_decorations);
             server.set_output_policies(c.output_policies());
             server.set_display_topology(c.display_topology());
             server.set_keyboard_repeat(c.input.keyboard);
             server.set_keyboard_accessibility(c.accessibility.keyboard);
+            shell.set_hot_zones(c.hot_zones.resolve(c.dock.position));
+            warn_deprecated_keys(c);
         } else {
             server.set_remember_window_positions(true);
             server.set_minimize_animation(tessera_desktop::dock::MinimizeAnimationStyle::default());
             shell.set_reduced_motion(preferences.reduced_motion);
             server.set_reduced_motion(preferences.reduced_motion);
-            shell.set_color_scheme(preferences.color_scheme);
+            apply_appearance(shell, &preferences);
             server.set_decoration_policy(tessera_desktop::window::DecorationPolicy::default());
             server.set_output_policies(std::collections::HashMap::new());
             server.set_display_topology(tessera_desktop::output::DisplayTopology::default());
             server.set_keyboard_repeat(tessera_primitives::input::KeyboardConfig::default());
             server.set_keyboard_accessibility(preferences.accessibility.keyboard);
+            shell.set_hot_zones(tessera_desktop::hot_zone::HotZonePolicy::default());
         }
         cursor_cache.set_preferences(preferences.cursor_theme, preferences.cursor_size);
     };

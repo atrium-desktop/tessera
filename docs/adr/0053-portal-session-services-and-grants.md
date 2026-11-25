@@ -8,7 +8,7 @@ superseded_by: ADR-0075
 
 # ADR-0053: Portal backend ABI ownership and scoped session services
 
-- Status: Superseded by ADR-0075
+- Status: Superseded by [ADR-0075](0075-independent-portal-package-and-backend-contract.md)
 - Date: 2026-07-29
 
 ## Context

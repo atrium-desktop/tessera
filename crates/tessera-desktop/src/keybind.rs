@@ -45,6 +45,11 @@ pub enum Action {
     /// native fullscreen request produces (one `XDG_TOPLEVEL_STATE_FULLSCREEN`
     /// configure, saved floating rect restored on exit).
     ToggleFullscreen,
+    /// Toggle session-scoped Always-on-Top on the currently focused toplevel
+    /// (ADR-0084, ADR-0256).
+    ToggleAlwaysOnTop,
+    /// Raise the transient read-only Glance HUD (ADR-0255).
+    ShowGlanceHud,
     /// Open the interactive screenshot region selector.
     Screenshot,
     /// Secure the current session with the trusted lock client.
@@ -67,6 +72,7 @@ impl Action {
             self,
             Action::TogglePivot
                 | Action::ToggleControlCenter
+                | Action::ShowGlanceHud
                 | Action::Screenshot
                 | Action::Lock
                 | Action::Quit
@@ -106,6 +112,11 @@ impl Keymap {
                 kb(Mods::SUPER, 0xff53, Action::WorkspaceNext), /* Right */
                 kb(Mods::SUPER, 0xff51, Action::WorkspacePrev), /* Left */
                 kb(Mods::SUPER, 0xffc8, Action::ToggleFullscreen), /* F11 */
+                kb(
+                    Mods::SUPER | Mods::SHIFT,
+                    b't' as u32,
+                    Action::ToggleAlwaysOnTop,
+                ),
                 kb(Mods::SUPER, b'l' as u32, Action::Lock),
                 kb(Mods::NONE, XKB_KEY_Print, Action::Screenshot), /* Print Screen */
                 kb(Mods::SUPER | Mods::CTRL, b'q' as u32, Action::Quit),
@@ -198,6 +209,10 @@ pub fn action_from_name(s: &str) -> Option<Action> {
         "workspace_next" | "next_workspace" | "ws_next" => Action::WorkspaceNext,
         "workspace_prev" | "prev_workspace" | "ws_prev" => Action::WorkspacePrev,
         "fullscreen" | "toggle_fullscreen" | "togglefullscreen" => Action::ToggleFullscreen,
+        "always_on_top" | "alwaysontop" | "toggle_always_on_top" | "pin_window" => {
+            Action::ToggleAlwaysOnTop
+        }
+        "glance_hud" | "glance" | "hud" | "show_glance_hud" => Action::ShowGlanceHud,
         "screenshot" | "snapshot" | "prtsc" => Action::Screenshot,
         "lock" | "lockscreen" | "lock_screen" => Action::Lock,
         "quit" | "exit" => Action::Quit,
@@ -247,6 +262,73 @@ pub fn keysym_from_name(s: &str) -> Option<u32> {
         "f12" => 0xffc9,
         _ => return None,
     })
+}
+
+/// Maximum interval (milliseconds) between two bare `Super` taps to trigger
+/// the transient Glance HUD (`[INV-GLANCE-03]`, ADR-0255).
+pub const DOUBLE_SUPER_WINDOW_MS: u64 = 300;
+
+/// Pure state machine recognizing two consecutive bare `Super` press/release
+/// pairs within [`DOUBLE_SUPER_WINDOW_MS`] with no intervening chord key or
+/// pointer button (`[INV-GLANCE-03]`).
+#[derive(Debug, Default, Clone)]
+pub struct DoubleSuperDetector {
+    super_down: bool,
+    chord_dirtied: bool,
+    last_bare_release_ms: Option<u64>,
+}
+
+impl DoubleSuperDetector {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            super_down: false,
+            chord_dirtied: false,
+            last_bare_release_ms: None,
+        }
+    }
+
+    /// Record a bare `Super` modifier key press.
+    pub fn on_super_press(&mut self, other_mods_held: bool) {
+        self.super_down = true;
+        self.chord_dirtied = other_mods_held;
+    }
+
+    /// Record any non-Super key press or pointer button event, cancelling any
+    /// in-progress bare tap so `Super+<key>` / `Super+drag` never triggers.
+    pub fn on_other_input(&mut self) {
+        if self.super_down {
+            self.chord_dirtied = true;
+        }
+        self.last_bare_release_ms = None;
+    }
+
+    /// Record a `Super` key release at monotonic timestamp `now_ms`. Returns
+    /// `true` when this completes a clean double-tap within the window.
+    pub fn on_super_release(&mut self, now_ms: u64) -> bool {
+        let was_clean = self.super_down && !self.chord_dirtied;
+        self.super_down = false;
+        self.chord_dirtied = false;
+        if !was_clean {
+            self.last_bare_release_ms = None;
+            return false;
+        }
+        if let Some(prev_ms) = self.last_bare_release_ms
+            && now_ms.saturating_sub(prev_ms) <= DOUBLE_SUPER_WINDOW_MS
+        {
+            self.last_bare_release_ms = None;
+            return true;
+        }
+        self.last_bare_release_ms = Some(now_ms);
+        false
+    }
+
+    /// Reset all pending tap state (e.g., on session lock or focus loss).
+    pub fn reset(&mut self) {
+        self.super_down = false;
+        self.chord_dirtied = false;
+        self.last_bare_release_ms = None;
+    }
 }
 
 #[cfg(test)]
@@ -456,5 +538,32 @@ mod tests {
         assert_eq!(mod_from_name("mod1"), Some(Mods::ALT));
         assert_eq!(mod_from_name("shift"), Some(Mods::SHIFT));
         assert_eq!(mod_from_name("caps"), None);
+    }
+
+    #[test]
+    fn double_super_fires_only_on_two_clean_bare_taps_within_window() {
+        let mut d = DoubleSuperDetector::new();
+        // First bare tap
+        d.on_super_press(false);
+        assert!(!d.on_super_release(100));
+        // Second bare tap within 300ms window -> fires
+        d.on_super_press(false);
+        assert!(d.on_super_release(280));
+        // Third tap does not re-fire immediately
+        d.on_super_press(false);
+        assert!(!d.on_super_release(320));
+        // Intervening key cancels pending sequence
+        d.on_other_input();
+        d.on_super_press(false);
+        assert!(!d.on_super_release(400));
+        // Chord (Super + key) never counts as a bare tap
+        d.on_super_press(false);
+        d.on_other_input();
+        assert!(!d.on_super_release(500));
+        // Outside window (> 300ms) does not fire
+        d.on_super_press(false);
+        assert!(!d.on_super_release(1000));
+        d.on_super_press(false);
+        assert!(!d.on_super_release(1400));
     }
 }

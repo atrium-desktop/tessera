@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-06-23
+- Amended by: [ADR-0260](0260-unified-in-memory-observability-event-bus.md) — *Unified In-Memory Observability Event Bus and Removal of Durable Local Audit Chain*
 
 ## Context
 

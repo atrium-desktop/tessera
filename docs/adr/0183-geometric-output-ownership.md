@@ -14,6 +14,7 @@ negative_knowledge: true
 - Date: 2026-10-20
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0064](0064-output-space-use-and-chrome-policy.md), [ADR-0134](0134-compositor-driven-fullscreen-for-any-toplevel.md), [ADR-0182](0182-fullscreen-frame-pacing-and-direct-scanout-fidelity.md)
+- Amended by: [ADR-0259](0259-topmost-fullscreen-output-ownership-and-stacking-aware-space-use.md) — geometric and declared fullscreen ownership is stacking-aware and holds only while the fullscreen window is topmost.
 
 ---
 
@@ -239,7 +240,7 @@ only removes the chrome that used to veto it.
   case stands chrome down while `Maximized` does not, and
   `releasing_output_ownership_restores_a_dock_that_was_obscured_before_it`
   pins the Dock's release path.
-- Hardware: per [VT and DRM Testing](../dev/testing/vt-drm-testing.md), a full-output
+- Hardware: per [VT/DRM Verification](../dev/verification/vt-drm-verification.md), a full-output
   GLFW client (a game resized to the monitor, no `set_fullscreen`) must log
   `direct scanout active` and show the wallpaper/shadow/blur elided while it
   keeps running, and releasing it must restore the HUD and Dock on the same

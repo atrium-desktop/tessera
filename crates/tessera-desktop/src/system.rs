@@ -251,6 +251,20 @@ pub struct BatteryStatus {
     pub charging: bool,
 }
 
+/// Where the machine draws power from, as the chrome material policy reads it
+/// (ADR-0252 power ceilings). The battery level itself is [`SystemStatus::battery`].
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PowerState {
+    /// A battery is present and no mains or USB power supply is online. A
+    /// machine with no battery, or whose supplies cannot be read, is on mains.
+    pub on_battery: bool,
+    /// The platform power profile asks for low power (power-profiles-daemon's
+    /// "power-saver", reported by the firmware as `low-power`).
+    pub power_saver: bool,
+}
+
 /// Per-threshold "already warned" latches for the low-battery alert.
 ///
 /// The compositor runtime feeds every applied battery sample through
@@ -479,6 +493,9 @@ pub struct SystemStatus {
     #[cfg_attr(feature = "serde", serde(default))]
     pub wifi_ssid: Option<String>,
     pub battery: Option<BatteryStatus>,
+    /// Power source and profile, sampled with the battery (ADR-0252 power ceilings).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub power: PowerState,
     /// `None` means the Wi-Fi radio service is unavailable.
     pub wifi_enabled: Option<bool>,
     /// Fine-grained wireless link state (ADR-0162).

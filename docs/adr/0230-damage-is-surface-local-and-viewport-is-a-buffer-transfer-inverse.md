@@ -20,6 +20,8 @@ negative_knowledge: true
   [ADR-0228](0228-a-commit-repairs-its-own-buffer-not-the-frame-s-damage-union.md),
   [ADR-0229](0229-the-compositor-supplies-current-damage-flux-owns-the-image-ledger.md)
 - Depends on: Optics ADR-0155 (frame damage is a native epoch ledger)
+- Amended by: [ADR-0231](0231-surface-damage-carries-an-explicit-full-verdict.md) — *Surface damage carries an explicit full verdict*
+- Amended by: [ADR-0232](0232-damage-diagnostics-link-tracing-never-a-subscriber.md) — *Damage diagnostics link tracing, never a subscriber*
 
 ---
 

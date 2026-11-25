@@ -1,9 +1,11 @@
-# Cross-Repository Development Workflow
+# Local Optics Development
 
-This guide defines the dual-worktree workflow for developing Tessera alongside
-**Optics**. The primary worktree (`main`) stays canonical and statically linked
-for production and CI, while a linked worktree (`dev`) patches the sibling
-Optics checkout and links shared libraries for fast iteration.
+This guide defines how to develop and integrate Tessera against a local sibling
+**Optics** checkout. To keep canonical builds isolated from local overrides,
+the workflow uses a linked Git worktree: the primary worktree (`main`) stays
+canonical and statically linked for production and CI, while the linked
+worktree (`dev`) patches the sibling Optics checkout and links shared libraries
+for fast iteration.
 
 ## Architecture and Invariants
 

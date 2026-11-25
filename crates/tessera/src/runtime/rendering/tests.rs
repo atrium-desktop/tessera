@@ -467,3 +467,57 @@ fn window_shadows_are_materialized_before_they_are_composited() {
         "the composited shadow must darken the white backdrop"
     );
 }
+
+/// Two windows whose shadows are rebuilt in the same frame share one scratch
+/// mask: the second mask pass overwrites an image the first shadow already
+/// read. That write-after-read is ordered, and the frame must keep recording.
+/// Before Optics ordered it, the second mask pass was rejected and that
+/// window lost its shadow for a frame (a focus change rebuilds two at once).
+#[test]
+fn two_shadows_rebuilt_in_one_frame_both_reach_the_output() {
+    use tessera_desktop::window::{Window, WindowShadowStyle};
+
+    let Ok(device) = optics_gfx::Device::new(true, &[], &[], 0) else {
+        return;
+    };
+    let surface = optics_gfx::Surface::offscreen(&device, 320, 240).unwrap();
+    let mut canvas = optics_gfx::Canvas::new(&surface).unwrap();
+    let mut renderer = WindowShadowRenderer::new(&device).unwrap();
+    let windows: Vec<Window> = (1..=2)
+        .map(|id| {
+            let mut window = Window::new(tessera_desktop::window::WindowId(id));
+            window.size = tessera_primitives::Size { w: 80, h: 60 };
+            window.position = tessera_primitives::Point {
+                x: 20 + 140 * (id as i32 - 1),
+                y: 40,
+            };
+            window
+        })
+        .collect();
+
+    let mut frame = surface.begin_frame().unwrap();
+    let shadows = renderer.prepare(
+        &device,
+        &mut canvas,
+        &mut frame,
+        &windows,
+        1.0,
+        WindowShadowStyle::Soft,
+        0,
+    );
+    assert_eq!(shadows.len(), 2, "both windows cast a shadow this frame");
+    let session = canvas.begin_session(
+        &mut frame,
+        optics_gfx::CanvasPassOptions {
+            clear: Some(optics_gfx::rgba(255, 255, 255, 255)),
+            ..Default::default()
+        },
+    );
+    assert!(
+        session.is_ok(),
+        "the output pass still opens: {:?}",
+        optics_gfx::ErrorInfo::last()
+    );
+    session.unwrap().end().unwrap();
+    frame.submit().unwrap().present().unwrap();
+}

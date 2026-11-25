@@ -249,12 +249,22 @@ impl Default for Pivot {
 }
 
 impl Chrome for Pivot {
+    fn hot_zone_capability(&self) -> Option<tessera_desktop::hot_zone::HotZoneCapability> {
+        Some(tessera_desktop::hot_zone::HotZoneTarget::Pivot.capability())
+    }
     fn anim_pending(&self) -> bool {
         self.motion.anim_active
     }
 
     fn damage_pending(&self) -> bool {
         self.retire_frames > 0
+    }
+
+    /// Pivot paints only while open, while its close animation is still
+    /// visible, or while the vacated band retires. It uses the same thresholds
+    /// as [`Self::damage_regions`], so a closed Pivot never vetoes direct scanout.
+    fn requires_composition(&self) -> bool {
+        self.state.is_open() || self.motion.visibility > 0.001 || self.retire_frames > 0
     }
 
     /// The panel plus its painted halo is the only surface the reveal can
@@ -649,6 +659,40 @@ mod tests {
             Some(Vec::new()),
             "a quiescent closed launcher owns no pixels"
         );
+    }
+
+    /// Regression: Pivot once inherited a `true` `requires_composition`, so a
+    /// closed launcher vetoed direct scanout for the whole session and every
+    /// fullscreen game or video was composited.
+    #[test]
+    fn closed_pivot_does_not_block_direct_scanout() {
+        let mut pivot = Pivot::new();
+        assert!(
+            !pivot.requires_composition(),
+            "a never-opened Pivot is invisible"
+        );
+
+        let input = frame_input(1.0 / 60.0);
+        pivot.state.open();
+        pivot.prepare_frame_state(&input);
+        assert!(
+            pivot.requires_composition(),
+            "an open Pivot draws its panel"
+        );
+
+        pivot.close();
+        let mut frames = 0;
+        while pivot.requires_composition() {
+            pivot.prepare_frame_state(&input);
+            frames += 1;
+            assert!(frames < 600, "the close path must release composition");
+        }
+        assert!(!pivot.is_active());
+        assert_eq!(
+            pivot.retire_frames, 0,
+            "the vacated band was repaired first"
+        );
+        assert_eq!(pivot.damage_regions(&[], (1280.0, 800.0)), Some(Vec::new()));
     }
 
     #[test]

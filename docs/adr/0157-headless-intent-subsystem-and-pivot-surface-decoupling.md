@@ -1,17 +1,19 @@
 ---
 id: ADR-0157
 title: "Headless intent subsystem and Pivot surface decoupling"
-status: draft
+status: accepted
 date: 2026-09-15
 superseded_by: null
 ---
 
 # ADR-0157: Headless intent subsystem and Pivot surface decoupling
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-15
 - Scope: `crates/chrome/tessera-pivot`, `crates/services/tessera-intent`, `crates/shell/tessera-pivot`, `docs/explanation/architecture.md`;
   amends and refines [ADR-0151](0151-pivot-unified-intent-and-action-surface.md)
+- Amended by: [ADR-0164](0164-universal-domain-pruning-and-primitives-canonization.md) — the headless `IntentEngine` lives in `tessera-launch-services` (`search` module), not in a separate `tessera-intent` crate.
+- Amended by: [ADR-0174](0174-universal-model-motion-view-chrome-architecture.md) — *Universal Model-Motion-View Architecture and Full Transit Adoption Across Shell Chrome*
 
 ## Context
 

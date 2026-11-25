@@ -1,14 +1,14 @@
 ---
 id: ADR-0089
 title: "aegis-agent Crate, CLI, and Fuji Identity Preservation (amends ADR-0050 & ADR-0066)"
-status: accepted
+status: superseded
 date: 2026-08-01
-superseded_by: null
+superseded_by: ADR-0113
 ---
 
 # ADR-0089: aegis-agent Crate, CLI, and Fuji Identity Preservation (amends ADR-0050 & ADR-0066)
 
-- Status: Accepted
+- Status: Superseded by [ADR-0113](0113-platform-ai-backend-and-agent-product-removal.md) — the `aegis-agent` crate and CLI were removed; Tessera ships no agent product.
 - Date: 2026-08-01
 
 ## Context

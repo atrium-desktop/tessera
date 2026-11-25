@@ -15,6 +15,10 @@ negative_knowledge: true
 - Deciders: Tessera Maintainers & Core Architects
 - Consulted: Optics Graphics & Motion Subsystem Team
 - Informed: Compositor Runtime & Accessibility Working Group
+- Amended by: [ADR-0174](0174-universal-model-motion-view-chrome-architecture.md) — *Universal Model-Motion-View Architecture and Full Transit Adoption Across Shell Chrome*
+- Amended by: [ADR-0176](0176-control-center-painted-canvas-beyond-backdrop-cover.md) — *Control Center Painted Canvas, Bounded Reveal, and Retired Backdrop Cover*
+- Amended by: [ADR-0177](0177-dock-transit-spring-unification-and-anti-oscillation-latch.md) — *Dock Transit Spring Unification, Anti-Oscillation Dismiss Latching, and Non-Preemptible Swapchain Drain*
+- Amended by: [ADR-0178](0178-optics-transit-smoothstep-unification-and-chrome-prepass-lifecycle.md) — *Optics Transit Smoothstep Unification, Chrome Prepass Lifecycle Decoupling, and Responsive Reveal Spring Tuning*
 
 ---
 

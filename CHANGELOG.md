@@ -14,6 +14,180 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Added
+
+- **Unified in-memory observability event bus (ADR-0260).** IPC protocol v35
+  extends `JournalEntry` with `topic` (`EventTopic`), `ts_wall_ms`, and
+  `correlation_id`, adds optional `topics` filtering to `GetJournal` and
+  `SubscribeJournal` (with zero-copy `Arc<JournalEntry>` fan-out), and adds
+  `PublishEvent` so authorized components such as `tessera-mcp` can publish
+  semantic observability events onto the shared bus.
+- **Swappable chrome materials.** `[appearance] material` (and Settings →
+  Appearance → Material) chooses what every chrome surface is made of:
+  `opaque` (default), `translucent`, `frosted` or `liquid-glass`. The Dock,
+  Control Center, notifications, battery alert, OSD, prompts and menus switch
+  together. The choice is a preference capped by ceilings: high contrast
+  always draws `opaque`, and the power rules below lower it further
+  (ADR-0252). `DesktopPreferences` gains a `material` field over IPC.
+- **Frosted and liquid-glass chrome.** While either is in effect, the
+  compositor captures the desktop beneath each chrome body, blurs it and runs
+  Optics' frosted or liquid-glass filter under the body's tint. The capture
+  covers only the bodies and their blur reach, and nothing is allocated under
+  `opaque` or `translucent`. A capture failure falls back to `translucent`
+  for the session (ADR-0253). Tessera now links `optics-material`. The
+  Control Center's cards, app menus, the tray popover and the screenshot
+  loupe now follow the material too; the Control Center had stayed opaque
+  under every material.
+- **Power-aware materials.** `[appearance.material_power]` caps the material
+  on battery (default: no limit; also Settings → Appearance → On battery), at
+  low battery (default `translucent` at or below 20%) and in power-saver mode
+  (default `translucent`). The material follows the power source as it
+  changes, and Settings → Appearance says when a rule is lowering it.
+  `SystemStatus` gains `power`, `SettingsSnapshot` gains `material`, and
+  `DesktopPreferences` gains `material_power` over IPC.
+- **Hot Zones.** The four screen edges and four corners can each summon one
+  chrome surface: the Dock, the Glance HUD, Overview, the Control Center or
+  Pivot (ADR-0254). Approaching a bound zone fades in a thin affordance flush
+  with the edge, and only a narrow strip against the edge triggers, so window
+  buttons near an edge stay clickable. Zones are silent under a fullscreen
+  window and cost nothing while idle. Defaults follow `[dock] position`: the
+  Dock on its edge, the Glance HUD on the top edge, Overview on the top-left
+  corner and the Control Center on the right edge. Configure them with the
+  new `[hot_zones]` table (`proximity_px`, `hover_dwell_ms`,
+  `[[hot_zones.binding]]`). Invalid bindings are rejected at load.
+- **Glance HUD.** A read-only pill near the top centre shows the time, the
+  workspace position and the machine's Wi-Fi, Bluetooth, battery, volume and
+  Do Not Disturb state for about two seconds (ADR-0255). Double-tap `Super`,
+  switch workspaces, or use its Hot Zone to raise it. It never takes input.
+  It is localized, so the readout follows the session language.
+- **Per-window controls on Dock live previews.** Hovering a preview card
+  shows `▲` (keep on top) and `×` (close) for that exact window, a window
+  kept on top shows a persistent `▲` badge, and right-clicking a card opens
+  a menu scoped to that window (ADR-0256). Moving from a tile to its previews
+  no longer collapses them when the path skims neighbouring tiles.
+- **`Super+Shift+T` toggles always-on-top** for the focused window. The new
+  `always_on_top` key binding action can be rebound with `[[keybind]]`.
+- **The Dock can sit on the top edge.** `[dock] position` accepts `"top"`.
+- **`TESSERA_IPC_SOCKET` selects the session IPC socket** (ADR-0257). The
+  compositor, `tessera-idle`, the `tessera` CLI, `tessera-settings` and
+  `tessera-mcp` resolve the socket as an explicit flag, then
+  `TESSERA_IPC_SOCKET`, then `$XDG_RUNTIME_DIR/tessera.sock`. The value must
+  be absolute: the compositor refuses to start on an empty or relative value,
+  and clients refuse to connect. It changes only the endpoint, never scope or
+  lock-screen checks. A nested session can now run inside a host Tessera
+  session without the two contending for one socket.
+- **`tessera-settings-preview` contributor harness.** Behind the non-default
+  `dev-preview` feature, it runs the production Settings window against an
+  in-process wire-level mock IPC server with deterministic hardware presets
+  and fault modes (ADR-0257). It is never built for, or installed by,
+  distribution packaging.
+
+### Changed
+
+- **Fullscreen output ownership is stacking-aware (ADR-0259).** Raising a
+  non-fullscreen window above a fullscreen window on the same workspace now
+  drops `SpaceUse` out of `Fullscreen` while keeping the fullscreen window
+  stacked underneath, so the Dock, Hot Zones, and Control Center stay
+  reachable for pointer workflows. Returning the fullscreen window to the top
+  restores `SpaceUse::Fullscreen`.
+- **Direct-scanout diagnostics name the blocker and log state changes.** A
+  `visible-shell-pixels` rejection names the chrome component behind it
+  (`direct scanout blocked: visible-shell-pixels (Pivot)`). The info line is
+  written once per change instead of every 5 s while a fullscreen client is
+  blocked. A blocker that holds a fullscreen client for 30 s gets one warning,
+  and startup warns when idle chrome would block direct scanout. Rejection
+  counts and direct/composited frame totals moved to a debug-level summary.
+- **The Dock holds only applications.** The bento reading column (Wi-Fi,
+  Bluetooth and battery rows) and the workspace pager are removed from the
+  Dock. Its strip is the Applications tile, pinned tiles and running tiles
+  (ADR-0255, superseding ADR-0218). Machine state and workspace position now
+  live in the Glance HUD.
+- **An autohidden Dock leaves nothing on screen.** The collapsed capsule and
+  its reveal corridor are gone. A hidden Dock is summoned by its edge Hot
+  Zone and slides in along any edge (ADR-0254, superseding ADR-0198). The
+  Dock's resting gap to its edge is 4 px instead of 12 px (ADR-0251), so a
+  pinned (non-autohide) Dock reserves 8 px less work area.
+- **Multi-window application menus stop guessing.** With more than one
+  window, the Dock's application menu omits Maximize/Restore and Always on
+  Top, which used to act on an arbitrary window. Those actions are on each
+  live preview card instead (ADR-0256). The menu's window list marks windows
+  kept on top with `▲`.
+- **Chrome bodies are a neutral dark gray, fully opaque.** The default
+  `opaque` material replaces the 236–250-alpha navy bodies with Apple-style
+  neutral grays at alpha 255 (dark panels `#1C1C1E`, menus `#2C2C2E`).
+- **Notification toasts have a body.** Toasts are now floating chips in the
+  shell's material instead of bare text over the desktop. They remain
+  display-only and three-second transient (amends ADR-0083).
+- **Adopt Optics v0.0.87.** Every Optics pin moves from `v0.0.86` to
+  `v0.0.87`, which orders deferred effects against multi-pass Canvas writes.
+  This fixes a window shadow that disappeared for a frame when two shadows
+  were rebuilt at once, such as on a focus change. The release also makes
+  optics-scene's system image codecs opt-in (`tessera-avatar` supplies its
+  own decoder) and fixes a UI store hang on shrink. Tessera now also links
+  `optics-material`.
+- **`scripts/run-nested-dev.sh` isolates config and IPC.** It now also
+  isolates `XDG_CONFIG_HOME` (default `/tmp/tessera-dev/config`) and
+  `TESSERA_IPC_SOCKET` (default `/tmp/tessera-dev/tessera.sock`), so a nested
+  run never touches `~/.config/tessera/config.toml` or a host session's
+  socket. It also seeds `[ipc.scope_executables]` so the workspace-built
+  Settings opens writable under every profile.
+- **Contributor testing docs became verification docs.** `docs/dev/testing/`
+  is now `docs/dev/verification/`, because its pages are procedures a person
+  runs against a live system, not automated tests. Pages are renamed by class:
+  `manual-verification.md` (playbook), `surface-verification.md` and
+  `vt-drm-verification.md` (procedures), `multi-output-acceptance.md` and
+  `network-hardware-acceptance.md` (release gates). A new
+  `support-matrix.md` records what is verified, where, and when. Two new
+  standards split the rules: `docs/dev/standards/testing.md` (runner, layout,
+  unit and `live_*` tests, automation boundary) and
+  `docs/dev/standards/verification.md` (the verification ladder, document
+  structure, writing rules, and status vocabulary).
+
+### Deprecated
+
+- **`[dock] autohide_dwell` is ignored.** The reveal dwell now belongs to the
+  Dock's Hot Zone: set `[hot_zones] hover_dwell_ms` (milliseconds) instead.
+  Existing files keep loading, and the compositor logs a deprecation warning
+  at startup and on reload while the key is set.
+
+### Removed
+
+- **Local durable hash-chained audit store and offline `tessera audit` CLI
+  (ADR-0260).** Removed on-disk JSONL hash-chain persistence, HMAC-SHA-256
+  checkpoints, 64 MiB gzipped segment sealing, exclusive file locking,
+  fail-stop (`abort()`) storage guards, the `tessera audit status|verify|export|prune`
+  subcommands, and the disk-quota keys under `[audit]` (`max_total_bytes`,
+  `min_free_bytes`, `segment_bytes`, `retain_segments`). `[audit]` now
+  configures only `capacity` (default `4096`, range `64`–`65536`) for the
+  in-memory FIFO ring buffer.
+
+### Fixed
+
+- **Client custom cursors render on DRM and keep direct scanout (ADR-0258).**
+  Eligible `wl_pointer.set_cursor` SHM surfaces are now offloaded onto the KMS
+  hardware cursor plane so fullscreen games and apps with custom cursors keep
+  direct scanout, asynchronous tearing flips, and cursor-only motion updates.
+  Ineligible client cursors now render through the per-output DRM overlay pass
+  instead of disappearing.
+- **Fullscreen games and video bypass the compositor again.** Pivot never
+  declared when it draws, so it inherited an always-visible default and
+  vetoed direct scanout in every session, even while closed. Every fullscreen
+  frame was composited at full output resolution: about 25–40% Render-engine
+  load on an Arrow Lake-P iGPU, where direct scanout costs none. A closed
+  Pivot now stands down.
+  `Chrome::requires_composition` no longer has a default, so every component
+  must state when it draws. Regression tests assert that the runtime's idle
+  chrome set never blocks direct scanout.
+- **Root test suites find workspace binaries under a custom
+  `CARGO_TARGET_DIR`.** `tessera-test-support` joined binary names to the
+  target root instead of its profile directory, so every end-to-end suite
+  that spawns `tessera` failed when `CARGO_TARGET_DIR` was set. The profile
+  directory is now derived from the test executable's own path, which also
+  covers `--profile` and `--target`.
+- **The keyboard shortcut reference matches the shipped bindings.** It no
+  longer lists an unbound `Super+A` launcher shortcut, and it names Pivot
+  rather than its predecessor Prism for `Super+Space`.
+
 ## [0.0.102] - 2026-11-24
 
 ### Changed

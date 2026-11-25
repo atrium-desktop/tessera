@@ -155,6 +155,9 @@ struct SubscriptionLane {
     tx: SyncSender<Outbound>,
     shutdown: Option<Arc<UnixStream>>,
     filter: Option<LiveScopeBinding>,
+    /// Optional topic allowlist for journal subscriptions (ADR-0260).
+    /// `None` delivers every topic permitted by `filter`.
+    topics: Option<Vec<tessera_protocol::EventTopic>>,
 }
 
 impl SubscriptionLane {
@@ -233,6 +236,10 @@ type SubId = u64;
 enum Outbound {
     Response(Response),
     Event(Event),
+    /// Zero-copy fan-out for unified observability bus entries (ADR-0260):
+    /// the broadcaster clones only the `Arc`, and each connection's writer
+    /// thread serializes directly from the shared reference.
+    JournalEvent(Arc<JournalEntry>),
     /// A `StreamOutputStarted` reply for a zero-copy dmabuf stream
     /// (protocol 25): the JSON response first, then the slot table's
     /// descriptors, one `0xfd`-marked `SCM_RIGHTS` message per slot in slot
@@ -281,9 +288,9 @@ pub struct JournalBroadcaster {
 }
 
 impl JournalBroadcaster {
-    /// Push one already-durable entry to every journal subscriber whose lane
-    /// filter permits it.
-    pub fn broadcast(&self, entry: JournalEntry) {
+    /// Zero-copy fan-out of one observability bus entry to every journal
+    /// subscriber whose topic filter and live scope permit it (ADR-0260).
+    pub fn broadcast(&self, entry: Arc<JournalEntry>) {
         let filter = self
             .filter
             .lock()
@@ -293,14 +300,17 @@ impl JournalBroadcaster {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .retain(|_, sender| {
+                if let Some(topics) = &sender.topics
+                    && !topics.contains(&entry.topic)
+                {
+                    return true;
+                }
                 if let (Some(filter), Some(binding)) = (&filter, &sender.filter)
                     && !filter(&entry, binding)
                 {
                     return true;
                 }
-                sender.try_send(Outbound::Event(Event::Journal {
-                    entry: entry.clone(),
-                }))
+                sender.try_send(Outbound::JournalEvent(Arc::clone(&entry)))
             });
     }
 }
@@ -507,7 +517,7 @@ impl Server {
     /// Push a journal entry to every journal-subscribed connection
     /// (ADR-0033). Separate from [`broadcast`](Self::broadcast) so coarse
     /// subscribers are not flooded with per-command entries.
-    pub fn broadcast_journal(&self, entry: JournalEntry) {
+    pub fn broadcast_journal(&self, entry: Arc<JournalEntry>) {
         self.journal_broadcaster.broadcast(entry);
     }
 

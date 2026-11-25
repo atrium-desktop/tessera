@@ -8,7 +8,7 @@ superseded_by: ADR-0057
 
 # ADR-0056: System Settings identity and Control Center boundary
 
-- Status: Superseded by ADR-0057
+- Status: Superseded by [ADR-0057](0057-system-settings-canonical-namespace.md)
 - Date: 2026-07-26
 
 ## Context

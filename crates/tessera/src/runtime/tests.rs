@@ -247,6 +247,81 @@ fn desktop_preference_overrides_are_not_copied_into_persistence() {
 }
 
 #[test]
+fn every_material_is_drawn_as_chosen_unless_high_contrast_caps_it() {
+    use tessera_desktop::settings::{
+        Contrast, DesktopPreferences, Material, MaterialCeilingReason, resolve_material,
+    };
+    let mains = tessera_desktop::system::SystemStatus::default();
+    for material in Material::ALL {
+        let preferences = DesktopPreferences {
+            material,
+            ..DesktopPreferences::default()
+        };
+        let resolved = resolve_material(material, material_ceilings(&preferences, &mains));
+        assert_eq!(
+            resolved.effective, material,
+            "the renderer draws {material:?}"
+        );
+        assert_eq!(resolved.limited_by, None);
+
+        let high_contrast = DesktopPreferences {
+            contrast: Contrast::High,
+            ..preferences
+        };
+        let resolved = resolve_material(material, material_ceilings(&high_contrast, &mains));
+        assert_eq!(resolved.effective, Material::Opaque);
+        if material != Material::Opaque {
+            assert_eq!(
+                resolved.limited_by,
+                Some(MaterialCeilingReason::HighContrast)
+            );
+        }
+    }
+}
+
+#[test]
+fn a_draining_battery_caps_glass_through_the_runtime_ceilings() {
+    use tessera_desktop::settings::{
+        DesktopPreferences, Material, MaterialCeilingReason, resolve_material,
+    };
+    use tessera_desktop::system::{BatteryStatus, PowerState, SystemStatus};
+    let preferences = DesktopPreferences {
+        material: Material::Frosted,
+        ..DesktopPreferences::default()
+    };
+    let draining = SystemStatus {
+        battery: Some(BatteryStatus {
+            percent: 12,
+            charging: false,
+        }),
+        power: PowerState {
+            on_battery: true,
+            power_saver: false,
+        },
+        ..SystemStatus::default()
+    };
+    let resolved = resolve_material(
+        Material::Frosted,
+        material_ceilings(&preferences, &draining),
+    );
+    assert_eq!(resolved.effective, Material::Translucent);
+    assert_eq!(resolved.limited_by, Some(MaterialCeilingReason::LowBattery));
+    let plugged_in = SystemStatus {
+        power: PowerState::default(),
+        ..draining
+    };
+    let resolved = resolve_material(
+        Material::Frosted,
+        material_ceilings(&preferences, &plugged_in),
+    );
+    assert_eq!(
+        resolved.effective,
+        Material::Frosted,
+        "plugging in restores glass"
+    );
+}
+
+#[test]
 fn color_scheme_override_parsing_and_aliases() {
     use super::config::parse_color_scheme;
     use tessera_desktop::settings::ColorScheme;

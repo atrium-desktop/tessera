@@ -10,6 +10,7 @@ superseded_by: null
 
 - Status: Accepted
 - Date: 2026-08-03
+- Amended by: [ADR-0165](0165-purify-compositor-boundary-and-decouple-application-accessibility.md) — *Purify Compositor Boundary and Decouple Application Accessibility*, [ADR-0260](0260-unified-in-memory-observability-event-bus.md) — *Unified In-Memory Observability Event Bus and Removal of Durable Local Audit Chain*
 
 ## Context
 

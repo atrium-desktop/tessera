@@ -16,6 +16,8 @@ negative_knowledge: true
 - Amends: [ADR-0021](0021-chrome-component-trait.md), [ADR-0029](0029-animation-and-effect-policy.md), [ADR-0142](0142-layered-glass-backdrop-compositor.md), [ADR-0146](0146-dock-intent-dwell-and-anti-trapping-interaction.md), [ADR-0163](0163-decoupled-backdrop-blur-cache-and-continuous-fade.md), [ADR-0171](0171-chrome-animation-pre-pass-synchronization-and-surface-placement-invariants.md), [ADR-0177](0177-dock-transit-spring-unification-and-anti-oscillation-latch.md), [ADR-0178](0178-optics-transit-smoothstep-unification-and-chrome-prepass-lifecycle.md), [ADR-0179](0179-zero-redundancy-presentation-pipeline-substepped-motion-and-render-target-bucketing.md)
 - Extends: Optics [ADR-0109](https://github.com/ming2k/optics/blob/main/docs/adr/0109-premultiplied-command-opacity-scissor-bounded-layers-and-glyph-run-batching.md)
 - Amended by: [ADR-0181](0181-canonical-chrome-prepass-seam-occlusion-elision-and-deferred-scanout-ownership.md) — the pre-pass method named `prepare_backdrop` in the Decision below is `prepare_frame` (the alias was removed); `[INV-ARCH-61]`–`[INV-ARCH-63]` remain in force.
+- Amended by: [ADR-0213](0213-flat-chrome-and-removal-of-the-status-hud.md) — Decisions 1 and 2 (backdrop graph allocation and HUD liquid-glass capture bounds) are void; Decision 3 (dock pre-pass coherence) still holds.
+- Amended by: [ADR-0234](0234-output-layers-are-plane-allocation-contracts-not-scene-layers.md) — *Output Layers Are Plane-Allocation Contracts, Not Scene Layers*
 
 ---
 

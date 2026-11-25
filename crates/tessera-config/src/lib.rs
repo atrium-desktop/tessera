@@ -29,6 +29,7 @@ pub use tessera_desktop::settings::ColorScheme;
 pub use tessera_desktop::settings::Contrast;
 pub use tessera_desktop::settings::DesktopPreferences;
 pub use tessera_desktop::settings::IdleSettings;
+pub use tessera_desktop::settings::{Material, MaterialPowerPolicy};
 pub use tessera_primitives::accessibility::{
     AccessibilityConfig, AccessibleAction, AccessibleNode, AccessibleRole, AccessibleState,
     DaltonismMode, KeyboardAccessibilityConfig, ScreenReaderConfig, SemanticTreeUpdate,
@@ -90,6 +91,11 @@ pub struct Config {
     /// are pinned to the dock and which screen edge it anchors to.
     #[serde(default)]
     pub dock: DockConfig,
+
+    /// Eight-zone Hot Zone trigger configuration (ADR-0254), written as a
+    /// `[hot_zones]` table.
+    #[serde(default)]
+    pub hot_zones: HotZonesConfig,
 
     /// Desktop-wide UI and window-presentation policy, written as a `[ui]`
     /// table.
@@ -572,6 +578,18 @@ pub struct AppearanceConfig {
     /// Normal or high visual contrast.
     #[serde(default)]
     pub contrast: Contrast,
+    /// The material chrome surfaces are drawn in: `opaque` (the default),
+    /// `translucent`, `frosted` or `liquid-glass` (ADR-0252). This is a
+    /// preference; the compositor may draw a cheaper material when the
+    /// renderer or an accessibility setting caps it.
+    #[serde(default)]
+    pub material: Material,
+    /// `[appearance.material_power]`: the automatic power ceilings on
+    /// `material`: `on_battery`, `low_battery` (below
+    /// `low_battery_percent`) and `power_saver`, each the most expensive
+    /// material drawn in that state.
+    #[serde(default)]
+    pub material_power: MaterialPowerPolicy,
     /// GTK/Pango-style proportional interface font description.
     #[serde(default)]
     pub font_name: Option<String>,
@@ -679,54 +697,24 @@ impl Default for AgentConfig {
 }
 
 /// The `[audit]` section: hard storage and checkpoint bounds for the durable
-/// security decision stream. Reaching a bound refuses the next durable event;
-/// history is never silently deleted or overwritten.
+/// The `[audit]` section (ADR-0260): bounded capacity for the in-memory
+/// observability event bus ring buffer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuditConfig {
-    /// Maximum active audit stream length in MiB.
-    #[serde(default = "default_audit_max_store_mib")]
-    pub max_store_mib: u64,
-    /// Filesystem space in MiB reserved from audit growth.
-    #[serde(default = "default_audit_min_free_mib")]
-    pub min_free_mib: u64,
-    /// Maximum uncheckpointed byte tail in MiB.
-    #[serde(default = "default_audit_checkpoint_interval_mib")]
-    pub checkpoint_interval_mib: u64,
-    /// Active-stream size in MiB that triggers sealing into a compressed
-    /// immutable segment (ADR-0137).
-    #[serde(default = "default_audit_segment_max_mib")]
-    pub segment_max_mib: u64,
-    /// Sealed segments kept on disk; `0` keeps everything. Pruning also
-    /// requires an export acknowledgement recorded in the manifest.
-    #[serde(default)]
-    pub retain_segments: usize,
+    /// Maximum number of events retained in the in-memory FIFO ring buffer.
+    #[serde(default = "default_audit_capacity")]
+    pub capacity: usize,
 }
 
-fn default_audit_max_store_mib() -> u64 {
-    2_048
-}
-
-fn default_audit_min_free_mib() -> u64 {
-    512
-}
-
-fn default_audit_checkpoint_interval_mib() -> u64 {
-    8
-}
-
-fn default_audit_segment_max_mib() -> u64 {
-    64
+fn default_audit_capacity() -> usize {
+    4_096
 }
 
 impl Default for AuditConfig {
     fn default() -> Self {
         Self {
-            max_store_mib: default_audit_max_store_mib(),
-            min_free_mib: default_audit_min_free_mib(),
-            checkpoint_interval_mib: default_audit_checkpoint_interval_mib(),
-            segment_max_mib: default_audit_segment_max_mib(),
-            retain_segments: 0,
+            capacity: default_audit_capacity(),
         }
     }
 }
@@ -907,7 +895,7 @@ impl Default for ScreenshotConfig {
 /// apps that have usable icons. Once the user pins or unpins an app from the
 /// dock's context menu, `autopopulate` is written as `false` so the persisted
 /// list is the sole source of truth. `position` selects the screen edge the
-/// dock anchors to (left, bottom, or right); it defaults to `bottom`.
+/// dock anchors to (top, bottom, left, or right); it defaults to `bottom`.
 /// `minimize_animation` selects the effect played when a window minimizes
 /// into its dock tile (`genie`, `scale`, or `suck`); it defaults to `genie`.
 #[derive(Debug, Clone, PartialEq, serde::Deserialize)]
@@ -921,8 +909,12 @@ pub struct DockConfig {
     pub autohide: bool,
     #[serde(default = "default_dock_autohide_timeout")]
     pub autohide_timeout: f32,
-    #[serde(default = "default_dock_autohide_dwell")]
-    pub autohide_dwell: f32,
+    /// Deprecated and ignored since ADR-0254: the Dock's reveal dwell is now
+    /// `[hot_zones] hover_dwell_ms`. Still accepted so existing files keep
+    /// loading; `Some` means the key is present, and the compositor logs a
+    /// deprecation warning naming its replacement.
+    #[serde(default)]
+    pub autohide_dwell: Option<f32>,
     #[serde(default)]
     pub position: tessera_desktop::dock::DockPosition,
     #[serde(default)]
@@ -936,7 +928,7 @@ impl Default for DockConfig {
             autopopulate: false,
             autohide: false,
             autohide_timeout: default_dock_autohide_timeout(),
-            autohide_dwell: default_dock_autohide_dwell(),
+            autohide_dwell: None,
             position: tessera_desktop::dock::DockPosition::default(),
             minimize_animation: tessera_desktop::dock::MinimizeAnimationStyle::default(),
         }
@@ -947,8 +939,140 @@ fn default_dock_autohide_timeout() -> f32 {
     0.50
 }
 
-fn default_dock_autohide_dwell() -> f32 {
-    0.18
+/// One user-configured Hot Zone binding entry under `[[hot_zones.binding]]` (ADR-0254).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HotZoneBindingConfig {
+    pub slot: tessera_desktop::hot_zone::HotZoneSlot,
+    pub target: tessera_desktop::hot_zone::HotZoneTarget,
+    /// Optional trigger mode override; defaults to the target component's
+    /// declared `default_trigger`.
+    #[serde(default)]
+    pub trigger: Option<tessera_desktop::hot_zone::HotZoneTrigger>,
+}
+
+/// The `[hot_zones]` section: eight-zone screen perimeter triggers (ADR-0254).
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HotZonesConfig {
+    /// Pointer proximity radius (logical pixels) within which bound Hot Zones
+    /// reveal their bezel-flush affordance.
+    #[serde(default = "default_hot_zone_proximity_px")]
+    pub proximity_px: f32,
+    /// Continuous dwell duration (ms) for `Hover`-triggered slots.
+    #[serde(default = "default_hot_zone_hover_dwell_ms")]
+    pub hover_dwell_ms: u32,
+    /// Explicit slot-to-component bindings (`[[hot_zones.binding]]`). When
+    /// `None`, the compositor uses the default four-surface mapping seeded
+    /// with `[dock] position`.
+    #[serde(default, rename = "binding")]
+    pub bindings: Option<Vec<HotZoneBindingConfig>>,
+}
+
+impl Default for HotZonesConfig {
+    fn default() -> Self {
+        Self {
+            proximity_px: default_hot_zone_proximity_px(),
+            hover_dwell_ms: default_hot_zone_hover_dwell_ms(),
+            bindings: None,
+        }
+    }
+}
+
+fn default_hot_zone_proximity_px() -> f32 {
+    tessera_desktop::hot_zone::DEFAULT_HOT_ZONE_PROXIMITY_PX
+}
+
+fn default_hot_zone_hover_dwell_ms() -> u32 {
+    tessera_desktop::hot_zone::DEFAULT_HOT_ZONE_HOVER_DWELL_MS
+}
+
+impl HotZonesConfig {
+    /// Resolve into a validated runtime [`tessera_desktop::hot_zone::HotZonePolicy`].
+    #[must_use]
+    pub fn resolve(
+        &self,
+        dock_position: tessera_desktop::dock::DockPosition,
+    ) -> tessera_desktop::hot_zone::HotZonePolicy {
+        let mut policy = match &self.bindings {
+            Some(entries) => tessera_desktop::hot_zone::HotZonePolicy {
+                proximity_px: self.proximity_px,
+                hover_dwell_ms: self.hover_dwell_ms,
+                bindings: entries
+                    .iter()
+                    .map(|entry| tessera_desktop::hot_zone::HotZoneBinding {
+                        slot: entry.slot,
+                        target: entry.target,
+                        trigger: entry
+                            .trigger
+                            .unwrap_or_else(|| entry.target.capability().default_trigger),
+                    })
+                    .collect(),
+            },
+            None => {
+                let mut defaults =
+                    tessera_desktop::hot_zone::HotZonePolicy::with_dock_position(dock_position);
+                defaults.proximity_px = self.proximity_px;
+                defaults.hover_dwell_ms = self.hover_dwell_ms;
+                defaults
+            }
+        };
+        policy.proximity_px = policy.proximity_px.clamp(
+            tessera_desktop::hot_zone::MIN_HOT_ZONE_PROXIMITY_PX,
+            tessera_desktop::hot_zone::MAX_HOT_ZONE_PROXIMITY_PX,
+        );
+        policy
+    }
+
+    fn validate(&self, dock_position: tessera_desktop::dock::DockPosition) -> Vec<Diagnostic> {
+        let mut diagnostics = Vec::new();
+        if !self.proximity_px.is_finite()
+            || !(tessera_desktop::hot_zone::MIN_HOT_ZONE_PROXIMITY_PX
+                ..=tessera_desktop::hot_zone::MAX_HOT_ZONE_PROXIMITY_PX)
+                .contains(&self.proximity_px)
+        {
+            diagnostics.push(Diagnostic::new(
+                Some("hot_zones.proximity_px".into()),
+                "must be between 12.0 and 240.0",
+            ));
+        }
+        if !(20..=2000).contains(&self.hover_dwell_ms) {
+            diagnostics.push(Diagnostic::new(
+                Some("hot_zones.hover_dwell_ms".into()),
+                "must be between 20 and 2000",
+            ));
+        }
+        if let Err(err) = self.resolve(dock_position).validate() {
+            match err {
+                tessera_desktop::hot_zone::HotZoneValidationError::DuplicateSlot { slot } => {
+                    diagnostics.push(Diagnostic::new(
+                        Some("hot_zones.binding".into()),
+                        format!("duplicate hot-zone slot '{}'", slot.name()),
+                    ));
+                }
+                tessera_desktop::hot_zone::HotZoneValidationError::UnsupportedSlot {
+                    target,
+                    slot,
+                } => {
+                    diagnostics.push(Diagnostic::new(
+                        Some("hot_zones.binding".into()),
+                        format!(
+                            "component '{}' cannot be mounted on hot-zone slot '{}'",
+                            target.name(),
+                            slot.name()
+                        ),
+                    ));
+                }
+                tessera_desktop::hot_zone::HotZoneValidationError::DuplicateDockBinding => {
+                    diagnostics.push(Diagnostic::new(
+                        Some("hot_zones.binding".into()),
+                        "only one hot-zone slot may bind the dock",
+                    ));
+                }
+            }
+        }
+        diagnostics
+    }
 }
 
 /// The `[ui]` section: desktop-wide UI and window-presentation policy
@@ -1394,38 +1518,11 @@ impl Config {
         validate_night_light(&cfg.night_light, &mut diagnostics);
         validate_scheduling(&cfg.compositor, &mut diagnostics);
         diagnostics.extend(cfg.cast.validate());
-        if !(64..=1_048_576).contains(&cfg.audit.max_store_mib) {
+        diagnostics.extend(cfg.hot_zones.validate(cfg.dock.position));
+        if !(64..=65_536).contains(&cfg.audit.capacity) {
             diagnostics.push(Diagnostic::new(
-                Some("audit.max_store_mib".into()),
-                "must be between 64 and 1048576",
-            ));
-        }
-        if !(64..=1_048_576).contains(&cfg.audit.min_free_mib) {
-            diagnostics.push(Diagnostic::new(
-                Some("audit.min_free_mib".into()),
-                "must be between 64 and 1048576",
-            ));
-        }
-        if !(1..=256).contains(&cfg.audit.checkpoint_interval_mib)
-            || cfg.audit.checkpoint_interval_mib > cfg.audit.max_store_mib
-        {
-            diagnostics.push(Diagnostic::new(
-                Some("audit.checkpoint_interval_mib".into()),
-                "must be between 1 and 256 and no greater than max_store_mib",
-            ));
-        }
-        if !(1..=256).contains(&cfg.audit.segment_max_mib)
-            || cfg.audit.segment_max_mib > cfg.audit.max_store_mib
-        {
-            diagnostics.push(Diagnostic::new(
-                Some("audit.segment_max_mib".into()),
-                "must be between 1 and 256 and no greater than max_store_mib",
-            ));
-        }
-        if cfg.audit.retain_segments > 100_000 {
-            diagnostics.push(Diagnostic::new(
-                Some("audit.retain_segments".into()),
-                "must not exceed 100000",
+                Some("audit.capacity".into()),
+                "must be between 64 and 65536",
             ));
         }
         for (index, output) in cfg.outputs.iter().enumerate() {
@@ -1575,6 +1672,12 @@ impl Config {
         if let Err(message) = cfg.battery.validate() {
             diagnostics.push(Diagnostic::new(Some("battery".into()), message));
         }
+        if let Err(message) = cfg.appearance.material_power.validate() {
+            diagnostics.push(Diagnostic::new(
+                Some("appearance.material_power.low_battery_percent".into()),
+                message,
+            ));
+        }
         if !cfg.input.touchpad.pointer_speed.is_finite()
             || !(-1.0..=1.0).contains(&cfg.input.touchpad.pointer_speed)
         {
@@ -1697,6 +1800,8 @@ impl Config {
                 .as_deref()
                 .and_then(|value| AccentColor::parse_hex(value).ok()),
             contrast: self.appearance.contrast,
+            material: self.appearance.material,
+            material_power: self.appearance.material_power,
             reduced_motion: self.ui.reduced_motion,
             font_name: self
                 .appearance
@@ -2308,6 +2413,21 @@ fn apply_desktop_preferences(document: &mut DocumentMut, preferences: &DesktopPr
         Contrast::Normal => "normal",
         Contrast::High => "high",
     });
+    appearance["material"] = toml_edit::value(preferences.material.as_str());
+    let power = preferences.material_power;
+    if power == MaterialPowerPolicy::default() {
+        // The defaults are implicit: an untouched policy leaves no table.
+        if let Some(table) = appearance.as_table_mut() {
+            table.remove("material_power");
+        }
+    } else {
+        let mut table = toml_edit::Table::new();
+        table["on_battery"] = toml_edit::value(power.on_battery.as_str());
+        table["low_battery"] = toml_edit::value(power.low_battery.as_str());
+        table["low_battery_percent"] = toml_edit::value(i64::from(power.low_battery_percent));
+        table["power_saver"] = toml_edit::value(power.power_saver.as_str());
+        appearance["material_power"] = toml_edit::Item::Table(table);
+    }
     appearance["font_name"] = toml_edit::value(preferences.font_name.as_str());
     appearance["monospace_font_name"] = toml_edit::value(preferences.monospace_font_name.as_str());
     appearance["text_scale"] = toml_edit::value(preferences.text_scale);

@@ -15,6 +15,8 @@ negative_knowledge: true
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0124](0124-window-open-close-fade-transitions.md) (the close ghost's fade curve and its terminal frame), [ADR-0029](0029-animation-and-effect-policy.md) (one effect may now carry two clocks)
 - Related: [ADR-0203](0203-damage-is-a-placement-mapped-rectangle.md) (damage is a rectangle), [ADR-0211](0211-regional-damage-is-consumed-as-a-list-and-chrome-footprints-are-measured.md) (transition damage is reported, not guessed)
+- Amended by: [ADR-0226](0226-single-pass-chrome-composition-preview-layering-and-modal-dock-inhibition.md) — *Single-Pass Chrome Composition, Live-Preview Thumbnail Layering, and Modal Dock Inhibition*
+- Amended by: [ADR-0227](0227-a-timed-chrome-strip-owns-a-retirement-window.md) — *A Timed Chrome Strip Owns a Retirement Window*
 
 ---
 

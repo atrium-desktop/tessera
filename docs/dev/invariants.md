@@ -79,4 +79,4 @@ design token, or an implementation note.
 4. **Verification Sweep**:
    - Invariants whose enforcement mechanism is a test use the `test_inv_*`
      naming convention so the suite can be audited as a set. See the test layer
-     model in [Surface Testing](testing/surface-testing.md).
+     model in [Surface Verification](verification/surface-verification.md).

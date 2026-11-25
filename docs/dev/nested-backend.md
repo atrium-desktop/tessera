@@ -158,7 +158,7 @@ the Intel, AMD, or NVIDIA GPU rather than `llvmpipe`. A hardware renderer here
 isolates protocol negotiation and gfx import from direct-display concerns.
 Run the same check on the DRM backend before drawing conclusions about KMS
 page flips or direct scanout; see
-[VT/DRM Manual Testing](testing/vt-drm-testing.md#verify-client-gpu-acceleration).
+[VT/DRM Verification](verification/vt-drm-verification.md#verify-client-gpu-acceleration).
 
 ## Iterate on Changes
 
@@ -275,7 +275,7 @@ checks before completing work that crosses a backend boundary.
 | Software cursor on direct display | Not covered | Required |
 | Interaction Domain cgroup delegation | Direct run is insufficient | Packaged systemd service required |
 
-Use [VT/DRM Manual Testing](testing/vt-drm-testing.md) when a change is ready to try on
+Use [VT/DRM Verification](verification/vt-drm-verification.md) when a change is ready to try on
 real display and input hardware, especially after changes to DRM/KMS,
 libinput, libseat, VT switching, or device hotplug.
 
@@ -310,19 +310,3 @@ a libinput device. Validate those controls under DRM/KMS.
 A direct `cargo run` process does not own the delegated cgroup hierarchy that
 Interaction Domain application sandboxes require. Use the packaged systemd service for
 Interaction Domain launch tests, as described in the [development setup](setup.md).
-
-### Audit Store Is Locked by Another Live Instance
-
-If the error `audit store is locked by another live instance: .../events-v2.jsonl`
-appears, an active Tessera host session is already running and owns an exclusive
-`flock` on the production audit log.
-
-Isolate the nested instance by setting `XDG_DATA_HOME=/tmp/tessera-dev` while
-retaining `XDG_DATA_DIRS=$HOME/.local/share:...` for asset discovery:
-
-```bash
-mkdir -p /tmp/tessera-dev/tessera
-XDG_DATA_HOME=/tmp/tessera-dev \
-XDG_DATA_DIRS=$HOME/.local/share:/usr/local/share:/usr/share \
-cargo run --locked -p tessera
-```

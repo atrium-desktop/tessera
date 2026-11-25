@@ -16,6 +16,10 @@ negative_knowledge: true
 - Amends: [ADR-0077](0077-presentation-domain-redraw-state-machine.md), [ADR-0101](0101-dual-presentation-paths-and-conservative-kms-plane-allocation.md), [ADR-0130](0130-stream-paced-presentation-and-scanout-exclusion.md), [ADR-0134](0134-compositor-driven-fullscreen-for-any-toplevel.md), [ADR-0179](0179-zero-redundancy-presentation-pipeline-substepped-motion-and-render-target-bucketing.md), [ADR-0181](0181-canonical-chrome-prepass-seam-occlusion-elision-and-deferred-scanout-ownership.md)
 - Amended by: [ADR-0183](0183-geometric-output-ownership.md) — the chrome stand-down and wallpaper pause are keyed on resolved physical ownership, not the fullscreen state bit; [ADR-0184](0184-integral-automatic-output-scale.md) — the automatic scale no longer produces buffers that miss the mode extent.
 - Extends: Optics [ADR-0110](https://github.com/ming2k/optics/blob/main/docs/adr/0110-frame-slot-abandonment-without-ring-advance.md)
+- Amended by: [ADR-0185](0185-per-output-presentation-domains.md) — *Per-Output Presentation Domains*
+- Amended by: [ADR-0219](0219-asynchronous-direct-scanout-and-wp-tearing-control.md) — fullscreen frame pacing and direct-scanout fidelity
+- Amended by: [ADR-0250](0250-fence-accurate-client-buffer-release-and-cached-mirror-composition.md) — *Fence-Accurate Client Buffer Release and Cached Partial-Damage Mirror Composition*
+- Amended by: [ADR-0258](0258-client-cursor-hardware-plane-offload-and-per-output-overlay-parity.md) — eligible client cursor surfaces offload onto the KMS hardware cursor plane instead of disqualifying direct scanout.
 
 ---
 
@@ -301,7 +305,7 @@ signature check ahead of it.
   surface already holds exactly that in `SurfaceRec.pixels`).
 - **Why deferred, not rejected**: It is a genuine follow-up but crosses the
   hardware boundary — per-CRTC placement, plane format/size capability, and
-  hotspot semantics must be verified against real KMS per `docs/dev/testing/vt-drm-testing.md`,
+  hotspot semantics must be verified against real KMS per `docs/dev/verification/vt-drm-verification.md`,
   which this change cannot do. The dominant starvation/fidelity defects are
   fixed without it, and a client that *hides* the cursor (GLFW
   `GLFW_CURSOR_DISABLED` sends a null surface) never trips `ClientOverlay` at
@@ -324,7 +328,7 @@ signature check ahead of it.
 
 - Client `wl_pointer.set_cursor` surface offload to the KMS cursor plane
   (Rejected Alternative 9), with real-hardware verification per
-  `docs/dev/testing/vt-drm-testing.md`.
+  `docs/dev/verification/vt-drm-verification.md`.
 - Cursor-only commit completion tracking (Rejected Alternative 10) if profiling
   shows the paced `EBUSY` retry dominating under a high-report-rate pointer.
 

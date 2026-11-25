@@ -26,12 +26,12 @@ The safest first run is a nested session inside an existing Wayland desktop.
 Tessera requires Rust 1.89 or later and the native build dependencies listed in
 the [Getting Started tutorial](docs/tutorials/01-getting-started.md).
 
-Install the Optics `v0.0.86` native libraries from a distribution package or
+Install the Optics `v0.0.87` native libraries from a distribution package or
 build the matching source release. Building Optics needs a C23 compiler,
 Meson, and `slangc` (Slang 2026.17+; recent Vulkan SDKs bundle it):
 
 ```bash
-git clone --branch "v0.0.86" --depth 1 \
+git clone --branch "v0.0.87" --depth 1 \
   https://github.com/ming2k/optics.git ../optics
 meson setup ../optics/build ../optics \
   -Dtests=false -Dbuildtype=debugoptimized

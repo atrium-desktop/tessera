@@ -598,7 +598,7 @@ pub(super) fn drive_read_loop<H: Handler>(
                     },
                 }
             }
-            Request::GetJournal { since } => {
+            Request::GetJournal { since, topics } => {
                 let scope = effective_scope(
                     handler,
                     scope_name.as_deref(),
@@ -613,13 +613,17 @@ pub(super) fn drive_read_loop<H: Handler>(
                         )
                     })
                 {
-                    Response::Journal {
-                        snapshot: filter_journal(
-                            handler.journal_since(since),
-                            scope.as_ref().expect("scope checked"),
-                            principal.as_deref(),
-                        ),
+                    let mut snapshot = filter_journal(
+                        handler.journal_since(since),
+                        scope.as_ref().expect("scope checked"),
+                        principal.as_deref(),
+                    );
+                    if let Some(topics) = topics {
+                        snapshot
+                            .entries
+                            .retain(|entry| topics.contains(&entry.topic));
                     }
+                    Response::Journal { snapshot }
                 } else {
                     Response::Error {
                         message: "GetJournal requires the query capability".into(),
@@ -1253,19 +1257,40 @@ pub(super) fn drive_read_loop<H: Handler>(
                             // live scope may observe; anonymous lanes keep
                             // their handshake-time ceiling (ADR-0125).
                             filter: principal.is_some().then(|| live_scope.clone()),
+                            topics: None,
                         },
                     );
                     sub_id = Some(id);
                 }
                 Response::Subscribed
             }
-            Request::SubscribeJournal => {
-                if journal_sub_id.is_none() {
-                    let id = next_sub.fetch_add(1, Ordering::Relaxed);
-                    journal_subs
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .insert(
+            Request::SubscribeJournal { topics } => {
+                let scope = effective_scope(
+                    handler,
+                    scope_name.as_deref(),
+                    &granted_scope,
+                    principal.as_deref(),
+                );
+                if !(granted.query
+                    && scope.as_ref().is_some_and(|scope| {
+                        scope.permits_actor_observation(
+                            principal.is_some(),
+                            ActorCapability::ObserveJournal,
+                        )
+                    }))
+                {
+                    Response::Error {
+                        message: "SubscribeJournal requires the query capability".into(),
+                    }
+                } else {
+                    let mut map = journal_subs.lock().unwrap_or_else(|e| e.into_inner());
+                    if let Some(id) = journal_sub_id {
+                        if let Some(lane) = map.get_mut(&id) {
+                            lane.topics = topics;
+                        }
+                    } else {
+                        let id = next_sub.fetch_add(1, Ordering::Relaxed);
+                        map.insert(
                             id,
                             SubscriptionLane {
                                 tx: tx.clone(),
@@ -1273,11 +1298,71 @@ pub(super) fn drive_read_loop<H: Handler>(
                                 // Journal entries pass through the same subject
                                 // and scope filter as `GetJournal` (ADR-0125).
                                 filter: principal.is_some().then(|| live_scope.clone()),
+                                topics,
                             },
                         );
-                    journal_sub_id = Some(id);
+                        journal_sub_id = Some(id);
+                    }
+                    Response::Subscribed
                 }
-                Response::Subscribed
+            }
+            Request::PublishEvent {
+                topic,
+                source,
+                kind,
+                correlation_id,
+                detail,
+            } => {
+                const MAX_EVENT_DETAIL_BYTES: usize = 16 * 1024;
+                let scope = effective_scope(
+                    handler,
+                    scope_name.as_deref(),
+                    &granted_scope,
+                    principal.as_deref(),
+                );
+                let detail_too_large = detail.as_ref().is_some_and(|value| {
+                    serde_json::to_vec(value)
+                        .map(|bytes| bytes.len() > MAX_EVENT_DETAIL_BYTES)
+                        .unwrap_or(true)
+                });
+                if !granted.control {
+                    Response::Error {
+                        message: "PublishEvent requires the control capability".into(),
+                    }
+                } else if !lease_alive {
+                    Response::Error {
+                        message: "privileged capability lease expired".into(),
+                    }
+                } else if scope.is_none() {
+                    Response::Error {
+                        message: "PublishEvent refused: connection scope is no longer valid".into(),
+                    }
+                } else if !bounded_identifier_text(&source, 128)
+                    || !bounded_identifier_text(&kind, 128)
+                {
+                    Response::Error {
+                        message: "PublishEvent source and kind must be non-empty identifiers (<= 128 bytes)".into(),
+                    }
+                } else if detail_too_large {
+                    Response::Error {
+                        message: format!(
+                            "PublishEvent detail exceeds {MAX_EVENT_DETAIL_BYTES} bytes"
+                        ),
+                    }
+                } else {
+                    match handler.publish_event(
+                        conn_id,
+                        principal.as_deref(),
+                        topic,
+                        source,
+                        kind,
+                        correlation_id,
+                        detail,
+                    ) {
+                        Ok(seq) => Response::EventPublished { seq },
+                        Err(message) => Response::Error { message },
+                    }
+                }
             }
             Request::RenewLease { ttl_ms } => {
                 if !(MIN_LEASE_MS..=MAX_LEASE_MS).contains(&ttl_ms) {

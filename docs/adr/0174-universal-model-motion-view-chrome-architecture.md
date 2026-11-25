@@ -17,6 +17,7 @@ negative_knowledge: true
 - Consulted: Optics Graphics Team & Accessibility Working Group
 - Informed: Compositor Runtime & AI Agent Platform Team
 - Amends: [ADR-0021](0021-chrome-component-trait.md), [ADR-0139](0139-animation-effect-placement.md), [ADR-0151](0151-pivot-unified-intent-and-action-surface.md), [ADR-0157](0157-headless-intent-subsystem-and-pivot-surface-decoupling.md), [ADR-0159](0159-package-boundaries-follow-capabilities.md), [ADR-0172](0172-adopt-optics-transit-motion-vocabulary.md)
+- Amended by: [ADR-0177](0177-dock-transit-spring-unification-and-anti-oscillation-latch.md) — *Dock Transit Spring Unification, Anti-Oscillation Dismiss Latching, and Non-Preemptible Swapchain Drain*
 
 ---
 

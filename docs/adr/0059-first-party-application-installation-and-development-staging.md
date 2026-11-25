@@ -8,7 +8,7 @@ superseded_by: ADR-0069
 
 # ADR-0059: First-party application installation and development staging
 
-- Status: Superseded by ADR-0069
+- Status: Superseded by [ADR-0069](0069-documentation-owned-installation-and-throwaway-development-staging.md)
 - Date: 2026-07-26
 
 ## Context

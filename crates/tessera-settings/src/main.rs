@@ -14,7 +14,7 @@ Pages: display, input, power, appearance, dock, accessibility, users,
        window-rules
 
 Options:
-  --socket PATH   Compositor IPC socket (default: $XDG_RUNTIME_DIR/tessera.sock)
+  --socket PATH   Compositor IPC socket (default: $TESSERA_IPC_SOCKET or $XDG_RUNTIME_DIR/tessera.sock)
   -h, --help      Show this help
   -V, --version   Show the version";
 
@@ -75,9 +75,13 @@ fn main() {
 
 fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let runtime_dir = tessera_env::runtime_dir()?;
-    let socket = args
-        .socket
-        .unwrap_or_else(|| tessera_ipc::socket_paths::default_socket_path(&runtime_dir));
+    let socket = match args.socket {
+        Some(path) => path,
+        None => match tessera_env::ipc_socket_override()? {
+            Some(path) => path,
+            None => tessera_ipc::socket_paths::default_socket_path(&runtime_dir),
+        },
+    };
     // Single-instance hand-off is a convenience: if the socket cannot be
     // claimed, the window still opens, it just cannot receive deep links.
     let instance = match app::instance::claim(
@@ -95,6 +99,9 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         socket,
         target: args.target,
         instance,
+        app_id: tessera_settings::APP_ID.to_owned(),
+        initial_size: None,
+        ready_fd: None,
     })
 }
 

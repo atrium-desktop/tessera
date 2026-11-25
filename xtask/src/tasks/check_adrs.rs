@@ -17,6 +17,13 @@
 //!    resolves to a file, and rows ascend monotonically by number.
 //! 5. **Lineage links** — every `NNNN-slug.md` link in the corpus resolves to an
 //!    existing record, so `Amends:`/`superseded_by` references cannot rot.
+//! 6. **Status agreement** — the record carries exactly one body `- Status:`
+//!    line, and it and the index status cell both open with the capitalized
+//!    form of the frontmatter status; a superseded record names its successor
+//!    in both, and only a superseded record may carry `superseded_by`.
+//! 7. **Reciprocal lineage** — every `Amends:`/`Extends:`/`Supersedes:` header
+//!    link is answered by an `Amended by`/`Extended by`/`Superseded …` header
+//!    line in the target that links back (standards §3).
 
 use crate::error::{Context, Result, bail};
 use crate::workspace;
@@ -26,6 +33,82 @@ use std::path::Path;
 
 const STATUSES: &[&str] = &["draft", "accepted", "superseded", "rejected", "deprecated"];
 
+/// The capitalized word a body `- Status:` line and an index cell open with.
+fn status_word(status: &str) -> Option<&'static str> {
+    Some(match status {
+        "draft" => "Draft",
+        "accepted" => "Accepted",
+        "superseded" => "Superseded",
+        "rejected" => "Rejected",
+        "deprecated" => "Deprecated",
+        _ => return None,
+    })
+}
+
+/// The leading run of ASCII letters: `"Superseded by [..]"` -> `"Superseded"`.
+fn leading_word(text: &str) -> &str {
+    let end = text
+        .find(|c: char| !c.is_ascii_alphabetic())
+        .unwrap_or(text.len());
+    &text[..end]
+}
+
+/// The record header: everything before the first `## ` section.
+fn header(source: &str) -> &str {
+    let end = source
+        .match_indices("\n## ")
+        .next()
+        .map_or(source.len(), |(at, _)| at);
+    &source[..end]
+}
+
+/// Header bullets with their two-space continuation lines folded in.
+fn bullets(header: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut open = false;
+    for line in header.lines() {
+        if line.starts_with("- ") {
+            out.push(line.to_owned());
+            open = true;
+        } else if open && line.starts_with("  ") {
+            let last = out.last_mut().expect("open bullet");
+            last.push(' ');
+            last.push_str(line.trim_start());
+        } else {
+            open = false;
+        }
+    }
+    out
+}
+
+/// `NNNN` numbers of every `](NNNN-slug.md)` link in `text`.
+fn linked_numbers(text: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(open) = rest.find("](") {
+        rest = &rest[open + 2..];
+        let target = rest.split(')').next().unwrap_or_default();
+        if target.contains("://") {
+            continue;
+        }
+        if let Some(base) = target.rsplit('/').next()
+            && let Some(number) = parse_number(base)
+        {
+            out.push(number);
+        }
+    }
+    out
+}
+
+/// Whether `bullet` is a back-link naming record `number`.
+fn is_back_link(bullet: &str, number: &str) -> bool {
+    let lower = bullet.to_ascii_lowercase();
+    ["amended", "extended", "superseded"]
+        .iter()
+        .any(|verb| lower.contains(verb))
+        && (linked_numbers(bullet).contains(&number) || bullet.contains(&format!("ADR-{number}")))
+}
+
 struct Record {
     file: String,
     number: String,
@@ -34,6 +117,7 @@ struct Record {
     status: Option<String>,
     date: Option<String>,
     superseded_by: Option<String>,
+    source: String,
 }
 
 /// Split `---\nkey: value\n---` frontmatter into its raw key/value lines.
@@ -92,6 +176,7 @@ fn load_records(dir: &Path) -> Result<Vec<Record>> {
             status: field(&fm, "status"),
             date: field(&fm, "date"),
             superseded_by: field(&fm, "superseded_by"),
+            source,
         });
     }
     Ok(records)
@@ -145,7 +230,46 @@ pub fn run() -> Result<()> {
                 "{}: status superseded requires `superseded_by`",
                 record.file
             )),
+            Some(status) if status != "superseded" && record.superseded_by.is_some() => {
+                violations.push(format!(
+                    "{}: `superseded_by` is set but status is `{status}`",
+                    record.file
+                ));
+            }
             _ => {}
+        }
+        if let Some(word) = record.status.as_deref().and_then(status_word) {
+            let lines: Vec<String> = bullets(header(&record.source))
+                .into_iter()
+                .filter(|b| b.starts_with("- Status:"))
+                .collect();
+            match lines.as_slice() {
+                [line] => {
+                    let body = line["- Status:".len()..].trim_start();
+                    if leading_word(body) != word {
+                        violations.push(format!(
+                            "{}: body status `{}` does not match frontmatter `{}` (expected `{word}`)",
+                            record.file,
+                            leading_word(body),
+                            record.status.as_deref().unwrap_or_default()
+                        ));
+                    }
+                    if let Some(target) = &record.superseded_by
+                        && !line.contains(&format!("]({}-", target.trim_start_matches("ADR-")))
+                    {
+                        violations.push(format!(
+                            "{}: body status line does not link its successor {target}",
+                            record.file
+                        ));
+                    }
+                }
+                [] => violations.push(format!("{}: missing body `- Status:` line", record.file)),
+                _ => violations.push(format!(
+                    "{}: {} body `- Status:` lines; exactly one is allowed",
+                    record.file,
+                    lines.len()
+                )),
+            }
         }
     }
 
@@ -165,6 +289,7 @@ pub fn run() -> Result<()> {
     // Index integrity.
     let index = fs::read_to_string(dir.join("index.md")).context("read index.md")?;
     let mut indexed_files: BTreeSet<&str> = BTreeSet::new();
+    let mut index_status: BTreeMap<&str, &str> = BTreeMap::new();
     let mut previous: Option<u32> = None;
     for (row, line) in index.lines().enumerate() {
         let Some(rest) = line.strip_prefix("| [") else {
@@ -178,6 +303,9 @@ pub fn run() -> Result<()> {
         }
         let target = tail.split(')').next().unwrap_or_default();
         let row_line = row + 1;
+        if let Some((_, cell)) = line.trim_end().trim_end_matches('|').rsplit_once(" | ") {
+            index_status.insert(target, cell.trim());
+        }
         if !dir.join(target).exists() {
             violations.push(format!("index.md:{row_line}: `{target}` does not exist"));
         }
@@ -200,6 +328,61 @@ pub fn run() -> Result<()> {
     for record in &records {
         if !indexed_files.contains(record.file.as_str()) {
             violations.push(format!("{}: not registered in index.md", record.file));
+        }
+        let (Some(cell), Some(word)) = (
+            index_status.get(record.file.as_str()),
+            record.status.as_deref().and_then(status_word),
+        ) else {
+            continue;
+        };
+        if leading_word(cell) != word {
+            violations.push(format!(
+                "index.md: {} status `{cell}` does not open with `{word}`",
+                record.file
+            ));
+        }
+        if let Some(target) = &record.superseded_by {
+            let number = target.trim_start_matches("ADR-");
+            if !cell.starts_with(&format!("Superseded by [{number}]({number}-")) {
+                violations.push(format!(
+                    "index.md: {} status cell does not link its successor {target}",
+                    record.file
+                ));
+            }
+        }
+    }
+
+    // Reciprocal lineage: every Amends/Extends/Supersedes header link is
+    // answered by a back-link in the target's header.
+    let headers: BTreeMap<&str, Vec<String>> = records
+        .iter()
+        .map(|r| (r.number.as_str(), bullets(header(&r.source))))
+        .collect();
+    for record in &records {
+        for bullet in &headers[record.number.as_str()] {
+            if !["- Amends:", "- Extends:", "- Supersedes:"]
+                .iter()
+                .any(|p| bullet.starts_with(p))
+            {
+                continue;
+            }
+            for target in linked_numbers(bullet) {
+                if target == record.number {
+                    continue;
+                }
+                let Some(target_bullets) = headers.get(target) else {
+                    continue; // unresolved links are reported below
+                };
+                if !target_bullets
+                    .iter()
+                    .any(|b| is_back_link(b, &record.number))
+                {
+                    violations.push(format!(
+                        "{}: lineage link to ADR-{target} has no back-link in that record's header",
+                        record.file
+                    ));
+                }
+            }
         }
     }
 
@@ -225,7 +408,7 @@ pub fn run() -> Result<()> {
     }
 
     println!(
-        "ADR registry: OK ({} records, index in sync, ids and lineage resolve)",
+        "ADR registry: OK ({} records, statuses agree, index in sync, ids and reciprocal lineage resolve)",
         records.len()
     );
     Ok(())
@@ -272,6 +455,47 @@ mod tests {
         let links = adr_links("see [ADR-0006](0006-ffi.md) and [x](y.md)");
         assert!(links.contains("0006-ffi.md"));
         assert_eq!(links.len(), 1);
+    }
+
+    #[test]
+    fn status_words_cover_exactly_the_lifecycle() {
+        for status in STATUSES {
+            assert!(status_word(status).is_some(), "{status}");
+        }
+        assert_eq!(status_word("proposed"), None);
+        assert_eq!(status_word("adopted"), None);
+        assert_eq!(
+            leading_word("Superseded by [ADR-0001](0001-x.md)"),
+            "Superseded"
+        );
+        assert_eq!(leading_word("Deprecated — gone"), "Deprecated");
+    }
+
+    #[test]
+    fn header_bullets_fold_continuations_and_stop_at_sections() {
+        let source = "# T\n\n- Status: Accepted\n- Amends: [ADR-0002](0002-a.md) (the\n  rest)\n\n## Context\n- Amends: [x](0003-b.md)\n";
+        let found = bullets(header(source));
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[1], "- Amends: [ADR-0002](0002-a.md) (the rest)");
+        assert_eq!(linked_numbers(&found[1]), vec!["0002"]);
+    }
+
+    #[test]
+    fn back_links_need_a_verb_and_the_source_number() {
+        assert!(is_back_link(
+            "- Amended by: [ADR-0213](0213-x.md) — y",
+            "0213"
+        ));
+        assert!(is_back_link(
+            "- Superseded in part by: [ADR-0144](0144-x.md)",
+            "0144"
+        ));
+        assert!(is_back_link(
+            "- Status: Accepted (amended by [ADR-0172](0172-x.md))",
+            "0172"
+        ));
+        assert!(!is_back_link("- Amends: [ADR-0213](0213-x.md)", "0213"));
+        assert!(!is_back_link("- Amended by: [ADR-0214](0214-x.md)", "0213"));
     }
 
     #[test]

@@ -13,6 +13,7 @@ negative_knowledge: true
 - Status: Accepted
 - Date: 2026-11-18
 - Amends: [ADR-0185](0185-per-output-presentation-domains.md), [ADR-0243](0243-output-roles-and-mirroring.md)
+- Amended by: [ADR-0250](0250-fence-accurate-client-buffer-release-and-cached-mirror-composition.md) — *Fence-Accurate Client Buffer Release and Cached Partial-Damage Mirror Composition*
 
 ## Context
 

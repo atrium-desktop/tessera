@@ -14,6 +14,9 @@ negative_knowledge: true
 - Date: 2026-11-03
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0077](0077-presentation-domain-redraw-state-machine.md), [ADR-0196](0196-compositor-side-presentation-time-feedback.md), [ADR-0203](0203-damage-is-a-placement-mapped-rectangle.md), [ADR-0204](0204-frame-scheduling-reserves-a-runqueue-the-desktop-does-not-use.md)
+- Amended by: [ADR-0211](0211-regional-damage-is-consumed-as-a-list-and-chrome-footprints-are-measured.md) — *Regional Damage Is Consumed as a List, and Chrome Footprints Are Measured, Not Guessed*
+- Amended by: [ADR-0223](0223-a-failed-chrome-build-is-isolated-not-fatal.md) — *A failed chrome build is isolated, not fatal — the last good scene stays and the retry is paced*
+- Amended by: [ADR-0228](0228-a-commit-repairs-its-own-buffer-not-the-frame-s-damage-union.md) — *A Commit Repairs Its Own Buffer, Not the Frame's Damage Union*
 
 ---
 

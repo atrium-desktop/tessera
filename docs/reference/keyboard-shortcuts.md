@@ -8,8 +8,8 @@ application does not also receive the shortcut.
 
 | Shortcut | Effect |
 |----------|--------|
-| `Super+A` | Open or close the full application launcher |
-| `Super+Space` | Open or close Prism application search |
+| `Super+Space` | Open or close Pivot, the application search and system intent surface |
+| `Super`, `Super` (double tap) | Show the Glance HUD: time, workspace position, and system readings. Two bare taps within 300 ms; any other key or pointer button in between cancels it |
 | `Super+O` | Open or close the window and workspace overview (`Escape` also closes it) |
 | `Super+S` | Open or close the Control Center (quick controls, detail pages, tray, notifications) |
 | `Super+Q` | Close the focused toplevel |
@@ -18,6 +18,7 @@ application does not also receive the shortcut.
 | `Super+Right` | Switch to the next workspace |
 | `Super+Left` | Switch to the previous workspace |
 | `Super+F11` | Toggle the focused toplevel between fullscreen and its prior state |
+| `Super+Shift+T` | Keep the focused toplevel above ordinary windows, or release it |
 | `Super+L` | Lock the session |
 | `Print` | Open the interactive screenshot region selector |
 | `Super+Ctrl+Q` | Gracefully quit the current Tessera instance |
@@ -38,7 +39,7 @@ edges, so it stays reachable even when a modal dialog owns the keyboard and
 a stuck dialog cannot hold the session hostage. Like the VT-switch chords it
 is compositor-owned and not a configurable `[[keybind]]` entry.
 
-The launcher, Prism, and control-center toggles, `Super+L`, `Print`, and the
+The Pivot and Control Center toggles, `Super+L`, `Print`, and the
 quit shortcuts remain available while trusted Tessera chrome owns the keyboard.
 No global shortcut runs while the session is locked or while the focused client
 has active keyboard-shortcut inhibition. A locked session owns the keyboard
@@ -97,6 +98,22 @@ the [Configuration Reference](config.md#touchpad-gestures).
 | `Super` + right-drag | Resize the targeted floating window from the nearest edge or corner |
 
 These pointer shortcuts are not configurable `[[keybind]]` entries.
+
+## Screen Edges and Corners
+
+Hot Zones summon chrome surfaces from the screen perimeter. With the Dock at
+the bottom, the defaults are:
+
+| Zone | Trigger | Effect |
+|------|---------|--------|
+| Bottom edge | Rest the pointer | Reveal a hidden Dock |
+| Top edge | Rest the pointer | Show the Glance HUD |
+| Top-left corner | Click | Open or close the overview |
+| Right edge | Click | Open the Control Center |
+
+The defaults follow `[dock] position`, and every zone is silent while a
+fullscreen window owns the output. Rebind or remove zones with
+[`[hot_zones]`](config.md#hot-zones).
 
 ## Configuration
 
