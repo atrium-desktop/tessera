@@ -133,23 +133,35 @@ fn run_client(
             child = None;
             next_spawn = Instant::now() + RESTART_BACKOFF;
         }
-        if child.is_none() && Instant::now() >= next_spawn {
-            child = spawn_daemon(&socket, &options);
-            if child.is_none() {
-                next_spawn = Instant::now() + RESTART_BACKOFF;
-            }
-        }
 
-        let Ok(stream) = UnixStream::connect(&socket) else {
-            {
-                let mut status = snapshot.lock().unwrap_or_else(|e| e.into_inner());
-                status.service = CastServiceState::Unavailable;
-                status.discovery = CastDiscovery::Idle;
-                status.sessions.clear();
-                status.last_error = Some("the cast service is not reachable".to_owned());
+        // Connect before spawning: if another VT's compositor for the same
+        // user already owns a live `tessera-castd`, reuse it instead of
+        // spawning a redundant daemon that fails on AddrInUse.
+        let stream = match UnixStream::connect(&socket) {
+            Ok(stream) => stream,
+            Err(_) => {
+                if child.is_none() && Instant::now() >= next_spawn {
+                    child = spawn_daemon(&socket, &options);
+                    if child.is_none() {
+                        next_spawn = Instant::now() + RESTART_BACKOFF;
+                    }
+                }
+                match UnixStream::connect(&socket) {
+                    Ok(stream) => stream,
+                    Err(_) => {
+                        {
+                            let mut status = snapshot.lock().unwrap_or_else(|e| e.into_inner());
+                            status.service = CastServiceState::Unavailable;
+                            status.discovery = CastDiscovery::Idle;
+                            status.sessions.clear();
+                            status.last_error =
+                                Some("the cast service is not reachable".to_owned());
+                        }
+                        std::thread::sleep(RECONNECT_DELAY);
+                        continue;
+                    }
+                }
             }
-            std::thread::sleep(RECONNECT_DELAY);
-            continue;
         };
 
         let Ok(mut writer) = stream.try_clone() else {

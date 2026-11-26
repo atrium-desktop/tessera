@@ -74,13 +74,14 @@ to prevent audit store lock contention with the host compositor.
 
 ### How the C libraries are selected
 
-The Rust bindings (`optics-gfx`, `optics-ui`, `optics-motion`, `optics-svg`, ...) are ordinary crates
+The Rust bindings (`optics-gfx`, `optics-ui`, `optics-motion`, `optics-material`, ...) are ordinary crates
 compiled into the compositor binary. The installer builds Optics with
 `-Ddefault_library=static` and sets `OPTICS_STATIC=1`, so released Tessera
 executables embed the archives (`liboptics_gfx.a`, `liboptics_ui.a`, `liboptics_scene.a`,
 `liboptics_svg.a`, `liboptics_text.a`) directly, while OS
 dependencies (`libvulkan`, `freetype`, `harfbuzz`, `fontconfig`, `fribidi`,
-etc.) remain dynamically linked. A development build follows the link mode the
+`libpng16`, `libturbojpeg`, `libwebp`, `librsvg-2`, `cairo`, etc.) remain
+dynamically linked. A development build follows the link mode the
 bindings select: archives on the pinned static-only tree, and the shared
 objects from newer Optics sources.
 

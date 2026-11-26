@@ -7,10 +7,10 @@
 //!
 //! Both halves of a cursor theme are read:
 //!
-//! - `cursors/<name>.svg` is compiled by the `optics-svg` compiler
-//!   into premultiplied pixels at exactly the size the output needs. There is no
-//!   pre-baked bitmap, no subprocess, and no runtime SVG library beyond that one
-//!   device-less compiler.
+//! - `cursors/<name>.svg` is rasterized in process through `tessera-assets`
+//!   (backed by `librsvg-2.0` + `cairo`, ADR-0261) into premultiplied pixels at
+//!   exactly the size the output needs, with no pre-baked bitmap and no
+//!   subprocess.
 //! - `cursors/<name>.png` is still honoured as an *override*: a theme that ships
 //!   pre-rendered sprites gets its own art, unchanged. This keeps conventional
 //!   themes working without making bitmaps the contract.

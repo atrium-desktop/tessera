@@ -73,6 +73,11 @@ fn main() {
     }
 }
 
+fn instance_socket_path(ipc_socket: &std::path::Path, runtime_dir: &std::path::Path) -> PathBuf {
+    let instance_dir = ipc_socket.parent().unwrap_or(runtime_dir);
+    app::instance::socket_path(instance_dir)
+}
+
 fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let runtime_dir = tessera_env::runtime_dir()?;
     let socket = match args.socket {
@@ -84,8 +89,11 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     };
     // Single-instance hand-off is a convenience: if the socket cannot be
     // claimed, the window still opens, it just cannot receive deep links.
+    // Anchor the lock beside the target compositor IPC socket so isolated
+    // sessions (e.g. another VT or nested dev) each keep their own Settings
+    // window instead of forwarding into another compositor's instance.
     let instance = match app::instance::claim(
-        &app::instance::socket_path(&runtime_dir),
+        &instance_socket_path(&socket, &runtime_dir),
         args.target.as_deref(),
     ) {
         Ok(app::instance::Claim::Forwarded) => return Ok(()),
@@ -132,5 +140,21 @@ mod tests {
         assert!(parse(&["display", "power"]).is_err());
         assert!(parse(&["--frobnicate"]).is_err());
         assert!(parse(&["--socket"]).is_err());
+    }
+
+    #[test]
+    fn instance_socket_is_anchored_beside_target_ipc_socket() {
+        let runtime = std::path::Path::new("/run/user/1000");
+        assert_eq!(
+            instance_socket_path(std::path::Path::new("/run/user/1000/tessera.sock"), runtime),
+            PathBuf::from("/run/user/1000/tessera-settings.sock")
+        );
+        assert_eq!(
+            instance_socket_path(
+                std::path::Path::new("/run/user/1000/tessera-dev-tty3/tessera.sock"),
+                runtime
+            ),
+            PathBuf::from("/run/user/1000/tessera-dev-tty3/tessera-settings.sock")
+        );
     }
 }

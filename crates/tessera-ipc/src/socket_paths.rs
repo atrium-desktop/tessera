@@ -37,6 +37,18 @@ pub fn idle_control_socket_path(runtime_dir: &Path) -> PathBuf {
     runtime_dir.join("tessera-idle.sock")
 }
 
+/// Path of the idle sidecar's control socket paired with `ipc_socket`.
+///
+/// When `ipc_socket` lives in `runtime_dir` (the default), this returns
+/// `$XDG_RUNTIME_DIR/tessera-idle.sock`. When an isolated session overrides
+/// `TESSERA_IPC_SOCKET`, the control socket sits beside it so concurrent
+/// compositor instances on different VTs do not collide or signal each other's
+/// idle daemon.
+#[must_use]
+pub fn idle_control_socket_for_ipc(ipc_socket: &Path, runtime_dir: &Path) -> PathBuf {
+    idle_control_socket_path(ipc_socket.parent().unwrap_or(runtime_dir))
+}
+
 /// Base directory of the portal-adapter socket tree under `runtime_dir`.
 #[must_use]
 pub fn portals_base_path(runtime_dir: &Path) -> PathBuf {
@@ -165,6 +177,17 @@ mod tests {
         assert_eq!(
             idle_control_socket_path(dir),
             PathBuf::from("/run/user/1000/tessera-idle.sock")
+        );
+        assert_eq!(
+            idle_control_socket_for_ipc(&default_socket_path(dir), dir),
+            PathBuf::from("/run/user/1000/tessera-idle.sock")
+        );
+        assert_eq!(
+            idle_control_socket_for_ipc(
+                Path::new("/run/user/1000/tessera-dev-tty3/tessera.sock"),
+                dir
+            ),
+            PathBuf::from("/run/user/1000/tessera-dev-tty3/tessera-idle.sock")
         );
         assert_eq!(
             portals_base_path(dir),

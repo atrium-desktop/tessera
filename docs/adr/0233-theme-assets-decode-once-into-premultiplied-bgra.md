@@ -16,6 +16,10 @@ negative_knowledge: true
 - Amends: [ADR-0222](0222-one-in-process-svg-compiler-for-every-vector-asset.md)
   (its "the two decoders share the one mechanism" claim is now an actual
   dependency boundary, not two copies of the same function)
+- Amended by: [ADR-0261](0261-in-process-librsvg-for-theme-vector-assets.md) —
+  `tessera-assets` drops its `optics-svg` edge and backs `VectorDocument` with
+  in-process system `librsvg-2.0` + `cairo`, and `decode_bytes` preserves
+  aspect ratio when fitting non-square rasters
 
 ---
 

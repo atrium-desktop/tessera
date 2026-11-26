@@ -19,7 +19,10 @@ negative_knowledge: true
 - Related: Optics ADR-0150 (`docs/adr/0150-svg-vector-document-compiler.md` in that repository)
 - Amended by: [ADR-0233](0233-theme-assets-decode-once-into-premultiplied-bgra.md)
   — the two icon decoders are now one crate, and the raster layout is
-  premultiplied BGRA8 at the boundary
+  premultiplied BGRA8 at the boundary;
+  [ADR-0261](0261-in-process-librsvg-for-theme-vector-assets.md) — theme and
+  application SVGs now rasterize in process through system `librsvg-2.0` and
+  `cairo` inside `tessera-assets` rather than `optics-svg`
 
 ---
 

@@ -819,17 +819,25 @@ struct Options {
 impl Options {
     fn parse(args: impl Iterator<Item = OsString>) -> Result<Self, Box<dyn std::error::Error>> {
         let runtime = tessera_env::runtime_dir()?;
-        let default_ipc_socket = match tessera_env::ipc_socket_override()? {
-            Some(path) => path,
-            None => tessera_ipc::socket_paths::default_socket_path(&runtime),
-        };
+        let ipc_override = tessera_env::ipc_socket_override()?;
+        Self::parse_with(args, &runtime, ipc_override)
+    }
+
+    fn parse_with(
+        args: impl Iterator<Item = OsString>,
+        runtime: &Path,
+        ipc_override: Option<PathBuf>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let default_ipc_socket =
+            ipc_override.unwrap_or_else(|| tessera_ipc::socket_paths::default_socket_path(runtime));
         let mut options = Self {
             policy: IdlePolicy::default(),
             ipc_socket: default_ipc_socket,
-            control_socket: tessera_ipc::socket_paths::idle_control_socket_path(&runtime),
+            control_socket: PathBuf::new(),
             lock_now: false,
             logind: true,
         };
+        let mut control_socket_explicit = false;
         let mut args = args.map(|arg| arg.to_string_lossy().into_owned());
         while let Some(argument) = args.next() {
             match argument.as_str() {
@@ -841,6 +849,7 @@ impl Options {
                 "--control-socket" => {
                     options.control_socket =
                         PathBuf::from(args.next().ok_or("--control-socket needs a path")?);
+                    control_socket_explicit = true;
                 }
                 "--dim-after" => {
                     options.policy.dim_after =
@@ -889,6 +898,12 @@ impl Options {
                 }
                 _ => return Err(format!("unknown argument: {argument}").into()),
             }
+        }
+        if !control_socket_explicit {
+            options.control_socket = tessera_ipc::socket_paths::idle_control_socket_for_ipc(
+                &options.ipc_socket,
+                runtime,
+            );
         }
         Ok(options)
     }
@@ -1140,5 +1155,68 @@ mod tests {
         let mut ready = Some(read);
         assert!(!consume_lock_ready(&mut ready).unwrap());
         assert!(ready.is_none());
+    }
+
+    #[test]
+    fn control_socket_follows_ipc_override_and_explicit_socket_flag() {
+        let runtime = Path::new("/run/user/1000");
+
+        let default = Options::parse_with(std::iter::empty(), runtime, None).unwrap();
+        assert_eq!(
+            default.ipc_socket,
+            PathBuf::from("/run/user/1000/tessera.sock")
+        );
+        assert_eq!(
+            default.control_socket,
+            PathBuf::from("/run/user/1000/tessera-idle.sock")
+        );
+
+        let env_isolated = Options::parse_with(
+            std::iter::empty(),
+            runtime,
+            Some(PathBuf::from(
+                "/run/user/1000/tessera-dev-tty3/tessera.sock",
+            )),
+        )
+        .unwrap();
+        assert_eq!(
+            env_isolated.control_socket,
+            PathBuf::from("/run/user/1000/tessera-dev-tty3/tessera-idle.sock")
+        );
+
+        let flag_isolated = Options::parse_with(
+            ["--socket", "/tmp/vt4/tessera.sock"]
+                .into_iter()
+                .map(OsString::from),
+            runtime,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            flag_isolated.ipc_socket,
+            PathBuf::from("/tmp/vt4/tessera.sock")
+        );
+        assert_eq!(
+            flag_isolated.control_socket,
+            PathBuf::from("/tmp/vt4/tessera-idle.sock")
+        );
+
+        let explicit_control = Options::parse_with(
+            [
+                "--socket",
+                "/tmp/vt4/tessera.sock",
+                "--control-socket",
+                "/tmp/custom/idle.sock",
+            ]
+            .into_iter()
+            .map(OsString::from),
+            runtime,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            explicit_control.control_socket,
+            PathBuf::from("/tmp/custom/idle.sock")
+        );
     }
 }

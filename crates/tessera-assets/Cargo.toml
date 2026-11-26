@@ -11,14 +11,9 @@ rust-version.workspace = true
 [dependencies]
 flate2.workspace = true
 tessera-image.workspace = true
-optics-svg.workspace = true
-# Direct dep so the test harness receives DEP_OPTICS_SVG_RPATHS from the `-sys`
-# crate's `links = "optics_svg"` metadata (the same relay `tessera-shell` uses).
-optics-svg-sys.workspace = true
 
-[package.metadata.cargo-machete]
-# Native rpath metadata for the test harness; not referenced from source.
-ignored = ["optics-svg-sys"]
+[build-dependencies]
+pkg-config.workspace = true
 
 [lints]
 workspace = true

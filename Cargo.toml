@@ -64,11 +64,10 @@ optics-material-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.87
 # (Optics ADR-0158), so there is no optics-motion-sys FFI crate and no native
 # library to discover or rpath.
 optics-motion = { git = "https://github.com/ming2k/optics", tag = "v0.0.87" }
-# optics-svg (vector-document compiler; ADR-0220, Optics ADR-0170) is the single
-# SVG implementation in the stack: cursors, application icons and tray icons all
-# compile through it instead of shelling out to rsvg-convert or shipping
-# pre-baked bitmaps.
-optics-svg = { git = "https://github.com/ming2k/optics", tag = "v0.0.87", features = ["static"] }
+# optics-svg-sys (Optics ADR-0170) propagates link and rpath metadata for the
+# native `liboptics_svg` library linked internally by `optics-ui` for built-in
+# widget glyphs. Theme and application SVG assets decode through system
+# `librsvg-2.0` + `cairo` inside `tessera-assets` (ADR-0261).
 optics-svg-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.87", features = ["static"] }
 
 # Observability: crates emit through the `log` facade; each binary installs a

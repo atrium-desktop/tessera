@@ -635,16 +635,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "optics-svg"
-version = "0.0.87"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
-dependencies = [
- "optics-build",
- "optics-gfx",
- "optics-svg-sys",
-]
-
-[[package]]
 name = "optics-svg-sys"
 version = "0.0.87"
 source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
@@ -1017,8 +1007,7 @@ name = "tessera-assets"
 version = "0.0.103"
 dependencies = [
  "flate2",
- "optics-svg",
- "optics-svg-sys",
+ "pkg-config",
  "tessera-image",
 ]
 
@@ -1175,6 +1164,9 @@ dependencies = [
 [[package]]
 name = "tessera-image"
 version = "0.0.103"
+dependencies = [
+ "pkg-config",
+]
 
 [[package]]
 name = "tessera-ipc"

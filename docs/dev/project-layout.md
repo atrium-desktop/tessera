@@ -77,9 +77,9 @@ abstractions live in `tessera-ipc`. Durable event storage lives in
 
 Application discovery, icon lookup, process launching, and intent search live
 in `tessera-launch-services` (ADR-0164). Theme asset bytes and pixels — SVG/SVGZ
-sources, icon rasters, symbolic recolouring — live in `tessera-assets`, the only
-package with an `optics-svg` normal edge (ADR-0233). GPU capture encoding is
-integrated into `tessera-composite`.
+sources via in-process `librsvg-2.0` + `cairo`, icon rasters, symbolic
+recolouring — live in `tessera-assets` (ADR-0233, ADR-0261). GPU capture
+encoding is integrated into `tessera-composite`.
 
 Create a new package only for an independent public API, process, feature or
 platform boundary, resource owner, or compile-time dependency restriction. A

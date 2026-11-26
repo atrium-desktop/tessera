@@ -12,7 +12,8 @@ Install:
 - Rust 1.89 or later;
 - Meson, Ninja, `pkg-config`, a C23 compiler, libclang, and `slangc` (Slang
   2026.17+; recent Vulkan SDKs bundle it);
-- Vulkan, Wayland, xkbcommon, libinput, and libseat development files; and
+- Vulkan, Wayland, xkbcommon, libinput, libseat, `libpng16`, `libturbojpeg`,
+  `libwebp`, `librsvg-2.0` (>= 2.48), and `cairo` development files; and
 - the Optics `v0.0.86` native libraries.
 
 The independently sourced

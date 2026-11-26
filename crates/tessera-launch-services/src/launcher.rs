@@ -950,6 +950,14 @@ fn terminal_emulator_with_env(opts: &LaunchOpts, env_terminal: Option<&str>) -> 
 /// along: without it D-Bus clients (portals, `flatpak-spawn --watch-bus`)
 /// fall back to a disabled bus and fail to launch.
 fn inherit_display_env(cmd: &mut Command, wayland_display: Option<&str>) {
+    inherit_display_env_with(cmd, wayland_display, |var| std::env::var(var).ok());
+}
+
+fn inherit_display_env_with(
+    cmd: &mut Command,
+    wayland_display: Option<&str>,
+    lookup: impl Fn(&str) -> Option<String>,
+) {
     cmd.env_clear();
     for var in [
         "XDG_RUNTIME_DIR",
@@ -957,6 +965,7 @@ fn inherit_display_env(cmd: &mut Command, wayland_display: Option<&str>) {
         "XDG_CURRENT_DESKTOP",
         "XDG_DATA_DIRS",
         "DBUS_SESSION_BUS_ADDRESS",
+        "TESSERA_IPC_SOCKET",
         "DISPLAY",
         "HOME",
         "PATH",
@@ -965,13 +974,13 @@ fn inherit_display_env(cmd: &mut Command, wayland_display: Option<&str>) {
         "LC_MESSAGES",
         "TERM",
     ] {
-        if let Ok(val) = std::env::var(var) {
+        if let Some(val) = lookup(var) {
             cmd.env(var, val);
         }
     }
     if let Some(display) = wayland_display {
         cmd.env("WAYLAND_DISPLAY", display);
-    } else if let Ok(display) = std::env::var("WAYLAND_DISPLAY") {
+    } else if let Some(display) = lookup("WAYLAND_DISPLAY") {
         cmd.env("WAYLAND_DISPLAY", display);
     }
 }

@@ -43,9 +43,10 @@ files rather than copying files from an Optics build tree. (On Arch this is the 
 [Arch Linux](#arch-linux).)
 
 The remaining Tessera build dependencies include a C toolchain, `pkg-config`,
-Wayland and its protocols, Vulkan, xkbcommon, libinput, libseat, and libclang
-for binding generation. The core runtime uses Linux PAM, logind, and
-`brightnessctl` for authentication, sleep coordination, and backlight
+Wayland and its protocols, Vulkan, xkbcommon, libinput, libseat, `libpng16`,
+`libturbojpeg`, `libwebp` (`libwebpdemux`), `librsvg-2.0` (>= 2.48), `cairo`,
+and libclang for binding generation. The core runtime uses Linux PAM, logind,
+and `brightnessctl` for authentication, sleep coordination, and backlight
 dimming.
 
 The compatible
@@ -370,6 +371,7 @@ package() {
   # Project code and the embedded Tessera cursor art are all MIT.
   license=(MIT)
   depends=(optics vulkan-icd-loader wayland libxkbcommon libinput seatd
+           libpng libjpeg-turbo libwebp librsvg cairo
            systemd-libs dbus pam brightnessctl)
   optdepends=(
     "xdg-desktop-portal-atrium=$_portalver: screenshots and screen sharing through xdg-desktop-portal"

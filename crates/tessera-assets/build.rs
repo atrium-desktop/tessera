@@ -1,35 +1,17 @@
-//! Propagate the Optics native-library paths to this crate's test harness.
-//!
-//! `tessera-assets` depends on the safe `optics-svg` binding and relays the
-//! rpaths published by the underlying `-sys` crates. The `_RS` variants are
-//! included so the relay keeps working if the safe bindings republish the
-//! list through their own `links` metadata.
+//! Discover system `librsvg-2.0` + `cairo` and generate embedded cursor tables.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 fn main() {
-    let mut rpath_dirs = Vec::new();
-    for var in [
-        "DEP_OPTICS_SVG_RPATHS",
-        "DEP_OPTICS_GFX_RPATHS",
-        "DEP_OPTICS_SVG_RS_RPATHS",
-        "DEP_OPTICS_GFX_RS_RPATHS",
-    ] {
-        if let Ok(rpaths) = std::env::var(var) {
-            for dir in rpaths.split(';').filter(|path| !path.is_empty()) {
-                if !rpath_dirs.iter().any(|existing| existing == dir) {
-                    rpath_dirs.push(dir.to_owned());
-                }
-            }
-        }
-    }
-    if !rpath_dirs.is_empty() {
-        println!("cargo:rustc-link-arg=-Wl,--disable-new-dtags");
-        for dir in &rpath_dirs {
-            println!("cargo:rustc-link-arg=-Wl,-rpath,{dir}");
-        }
-    }
+    println!("cargo:rerun-if-env-changed=PKG_CONFIG_PATH");
+    pkg_config::Config::new()
+        .atleast_version("2.48")
+        .probe("librsvg-2.0")
+        .expect("librsvg-2.0 >= 2.48 development files are required to build tessera-assets");
+    pkg_config::Config::new()
+        .probe("cairo")
+        .expect("cairo development files are required to build tessera-assets");
 
     generate_embedded_cursors();
 }

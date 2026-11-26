@@ -163,10 +163,6 @@ Telemetry is driven by state changes, so a steady game or video writes nothing:
 
 Ordinary desktop states with no candidate never log above debug. To watch the
 decision live, run `journalctl --user -f -g 'direct scanout'`.
-To measure it, run `scripts/measure-scanout.sh` from a terminal inside the
-session. It plays a windowed and then a fullscreen test pattern, samples the
-compositor's Render-engine load, and reports the scanout decisions logged
-during the run.
 
 Every `Chrome` component must implement `requires_composition` explicitly;
 the trait has no default. The `tessera-shell` tests

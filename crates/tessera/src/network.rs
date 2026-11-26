@@ -144,12 +144,6 @@ fn run_client(
             child = None;
             next_spawn = Instant::now() + RESTART_BACKOFF;
         }
-        if child.is_none() && Instant::now() >= next_spawn {
-            child = spawn_daemon(&socket, &options);
-            if child.is_none() {
-                next_spawn = Instant::now() + RESTART_BACKOFF;
-            }
-        }
 
         // Never send a Wi-Fi passphrase to a socket in a directory another
         // user can write. The daemon refuses such a directory too, but a
@@ -164,11 +158,28 @@ fn run_client(
             continue;
         }
 
-        let Ok(stream) = UnixStream::connect(&socket) else {
-            discard_commands(&commands);
-            set_unavailable(&snapshot, "the network service is not reachable");
-            std::thread::sleep(RECONNECT_DELAY);
-            continue;
+        // Connect before spawning: if another VT's compositor for the same
+        // user already owns a live `tessera-networkd`, reuse it instead of
+        // spawning a redundant daemon that fails on AddrInUse.
+        let stream = match UnixStream::connect(&socket) {
+            Ok(stream) => stream,
+            Err(_) => {
+                if child.is_none() && Instant::now() >= next_spawn {
+                    child = spawn_daemon(&socket, &options);
+                    if child.is_none() {
+                        next_spawn = Instant::now() + RESTART_BACKOFF;
+                    }
+                }
+                match UnixStream::connect(&socket) {
+                    Ok(stream) => stream,
+                    Err(_) => {
+                        discard_commands(&commands);
+                        set_unavailable(&snapshot, "the network service is not reachable");
+                        std::thread::sleep(RECONNECT_DELAY);
+                        continue;
+                    }
+                }
+            }
         };
 
         let Ok(mut writer) = stream.try_clone() else {

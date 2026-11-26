@@ -7,8 +7,8 @@ build = []
 dev = ["flate2", "tessera-image", "tempfile", "tessera-desktop", "tessera-ipc", "tessera-protocol", "tessera-shell"]
 
 [tessera-assets]
-normal = ["flate2", "tessera-image", "optics-svg", "optics-svg-sys"]
-build = []
+normal = ["flate2", "tessera-image"]
+build = ["pkg-config"]
 dev = []
 
 [tessera-launch-services]
@@ -178,6 +178,6 @@ build = []
 dev = ["tempfile"]
 
 [tessera-image]
-build = []
+build = ["pkg-config"]
 dev = []
 normal = []

@@ -137,6 +137,7 @@ fn session_bus_and_desktop_vars_are_forwarded() {
         "XDG_RUNTIME_DIR",
         "XDG_CURRENT_DESKTOP",
         "DBUS_SESSION_BUS_ADDRESS",
+        "TESSERA_IPC_SOCKET",
     ] {
         if let Ok(value) = std::env::var(var) {
             assert_eq!(
@@ -146,6 +147,37 @@ fn session_bus_and_desktop_vars_are_forwarded() {
             );
         }
     }
+}
+
+#[test]
+fn inherit_display_env_forwards_explicit_ipc_socket_override() {
+    let mut cmd = Command::new("/bin/true");
+    inherit_display_env_with(&mut cmd, Some("wayland-3"), |var| match var {
+        "XDG_RUNTIME_DIR" => Some("/run/user/1000".into()),
+        "TESSERA_IPC_SOCKET" => Some("/run/user/1000/tessera-dev-tty3/tessera.sock".into()),
+        "UNRELATED_SECRET" => Some("must-not-leak".into()),
+        _ => None,
+    });
+    let forwarded: std::collections::HashMap<String, Option<String>> = cmd
+        .get_envs()
+        .map(|(key, value)| {
+            (
+                key.to_string_lossy().into_owned(),
+                value.map(|v| v.to_string_lossy().into_owned()),
+            )
+        })
+        .collect();
+    assert_eq!(
+        forwarded.get("WAYLAND_DISPLAY").and_then(|v| v.as_deref()),
+        Some("wayland-3")
+    );
+    assert_eq!(
+        forwarded
+            .get("TESSERA_IPC_SOCKET")
+            .and_then(|v| v.as_deref()),
+        Some("/run/user/1000/tessera-dev-tty3/tessera.sock")
+    );
+    assert!(!forwarded.contains_key("UNRELATED_SECRET"));
 }
 
 #[test]

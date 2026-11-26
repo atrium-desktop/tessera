@@ -14,6 +14,39 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Added
+
+- **In-process `librsvg-2.0` + `cairo` SVG decoding for theme and application
+  assets (ADR-0261).** `tessera-assets` now rasterizes application icons, tray
+  icons, HUD symbols, and XDG SVG/SVGZ cursor themes in process through system
+  `librsvg-2.0` (>= 2.48) and `cairo`, supporting `<style>` CSS stylesheets,
+  `<use>`, `<clipPath>`, `<mask>`, `<filter>`, gradients, `rgba()`, and `<text>`
+  with zero-conversion premultiplied BGRA8 output on little-endian Linux and
+  memory-only loading with no base URI (`[INV-ASSET-10]`).
+- **Concurrent multi-VT session isolation.** Paired idle control sockets
+  (`tessera-idle.sock`) now follow `TESSERA_IPC_SOCKET`'s parent directory, and
+  `tessera`, `tessera-idle`, `tessera-settings`, `tessera-launch-services`, and
+  the `scripts/run-drm-dev.sh` / `scripts/run-nested-dev.sh` launchers isolate
+  per-session sockets and environments so concurrent VT sessions do not contend.
+
+### Changed
+
+- **Aspect-preserving raster icons and contain-aligned cursor hotspots.**
+  `tessera-assets::decode_bytes` now contain-fits non-square raster icons into a
+  transparent square instead of stretching them, and `VectorDocument::hotspot` /
+  `normalized_hotspot` align with uniform `CONTAIN` fitting and non-zero
+  `viewBox` origins.
+- **`tessera-assets` and `tessera-image` discover system codec libraries via
+  `pkg-config`.** `tessera-assets` drops its `optics-svg` dependency edge
+  (keeping `optics-svg-sys` only where `optics-ui` links built-in glyphs), and
+  `tessera-image` probes `libpng16`, `libturbojpeg`, `libwebp`, and
+  `libwebpdemux` via `pkg-config`.
+
+### Removed
+
+- **Obsolete `scripts/measure-scanout.sh`** and its reference from
+  `docs/reference/rendering.md`.
+
 ## [0.0.103] - 2026-11-26
 
 ### Added

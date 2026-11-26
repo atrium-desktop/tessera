@@ -18,7 +18,6 @@ optics-scene-sys = { path = "../optics/crates/optics-scene-sys" }
 optics-ui = { path = "../optics/crates/optics-ui" }
 optics-ui-sys = { path = "../optics/crates/optics-ui-sys" }
 optics-motion = { path = "../optics/crates/optics-motion" }
-optics-svg = { path = "../optics/crates/optics-svg" }
 optics-svg-sys = { path = "../optics/crates/optics-svg-sys" }
 
 # Override the workspace's default `static` Optics feature during local

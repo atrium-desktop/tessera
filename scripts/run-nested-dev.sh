@@ -175,19 +175,32 @@ if [ ! -x "$compositor_bin" ]; then
     die "missing executable $compositor_bin; run './scripts/run-nested-dev.sh --profile $profile --build-only' first"
 fi
 
+case "$ipc_socket" in
+    /*) ;;
+    *) die "TESSERA_DEV_IPC_SOCKET must be an absolute path (got '$ipc_socket')" ;;
+esac
+
 mkdir -p "$config_home/tessera" "$data_home/tessera" "$state_home/tessera" "$(dirname -- "$ipc_socket")"
 
-# Authorize the workspace-built tessera-settings binary inside the isolated dev
-# config so Settings is immediately writable under any profile (including
-# release-fast where debug_assertions is disabled) without touching the host
-# user's ~/.config/tessera/config.toml (ADR-0257).
+# Authorize workspace-built tessera-settings binaries across standard dev
+# profiles inside the isolated config so Settings stays writable even if you
+# switch --profile, without touching ~/.config/tessera/config.toml (ADR-0257).
 dev_config="$config_home/tessera/config.toml"
 if [ ! -f "$dev_config" ]; then
+    extra_settings=""
+    case "$profile_dir" in
+        release-fast|debug|release) ;;
+        *) extra_settings=", \"$settings_bin\"" ;;
+    esac
     cat >"$dev_config" <<EOF
 schema_version = 2
 
 [ipc.scope_executables]
-tessera-settings = ["$settings_bin"]
+tessera-settings = [
+    "$target_dir/release-fast/tessera-settings",
+    "$target_dir/debug/tessera-settings",
+    "$target_dir/release/tessera-settings"$extra_settings
+]
 EOF
 fi
 
@@ -204,6 +217,7 @@ elif [ -z "$TESSERA_PREVIEW" ]; then
     unset TESSERA_PREVIEW
 fi
 
+export PATH="$target_dir/$profile_dir:$PATH"
 export TESSERA_BACKEND=nested
 export TESSERA_IPC_SOCKET="$ipc_socket"
 export XDG_CONFIG_HOME="$config_home"

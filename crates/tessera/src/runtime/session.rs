@@ -690,10 +690,23 @@ fn send_control(message: &[u8]) -> bool {
         .is_ok()
 }
 
+fn control_socket_path_for(
+    ipc_override: Option<&std::path::Path>,
+    runtime_dir: Option<&std::path::Path>,
+) -> Option<std::path::PathBuf> {
+    if let Some(ipc_socket) = ipc_override {
+        return ipc_socket
+            .parent()
+            .map(tessera_ipc::socket_paths::idle_control_socket_path)
+            .or_else(|| runtime_dir.map(tessera_ipc::socket_paths::idle_control_socket_path));
+    }
+    runtime_dir.map(tessera_ipc::socket_paths::idle_control_socket_path)
+}
+
 fn control_socket_path() -> Option<std::path::PathBuf> {
-    std::env::var_os("XDG_RUNTIME_DIR")
-        .map(std::path::PathBuf::from)
-        .map(|directory| directory.join("tessera-idle.sock"))
+    let runtime_dir = std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from);
+    let ipc_override = tessera_env::ipc_socket_override().ok().flatten();
+    control_socket_path_for(ipc_override.as_deref(), runtime_dir.as_deref())
 }
 
 pub(crate) fn trusted_sibling_program(name: &str) -> std::io::Result<std::ffi::OsString> {
@@ -822,5 +835,26 @@ mod tests {
             Some("unix:path=/run/user/1000/bus"),
             None,
         ));
+    }
+
+    #[test]
+    fn idle_control_socket_follows_ipc_override_when_present() {
+        let runtime = std::path::Path::new("/run/user/1000");
+        assert_eq!(
+            control_socket_path_for(None, Some(runtime)),
+            Some(std::path::PathBuf::from("/run/user/1000/tessera-idle.sock"))
+        );
+        assert_eq!(
+            control_socket_path_for(
+                Some(std::path::Path::new(
+                    "/run/user/1000/tessera-dev-tty3/tessera.sock"
+                )),
+                Some(runtime),
+            ),
+            Some(std::path::PathBuf::from(
+                "/run/user/1000/tessera-dev-tty3/tessera-idle.sock"
+            ))
+        );
+        assert_eq!(control_socket_path_for(None, None), None);
     }
 }

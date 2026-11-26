@@ -36,6 +36,15 @@ fi
 [ -x /usr/bin/pkg-config ] || die "/usr/bin/pkg-config not found"
 command -v cargo >/dev/null 2>&1 || die "cargo not found in PATH"
 
+if ! /usr/bin/pkg-config --atleast-version=2.48 librsvg-2.0 2>/dev/null; then
+    die "missing system pkg-config module: librsvg-2.0 >= 2.48"
+fi
+for mod in cairo libpng16 libturbojpeg libwebp libwebpdemux; do
+    if ! /usr/bin/pkg-config --exists "$mod" 2>/dev/null; then
+        die "missing system pkg-config module: $mod"
+    fi
+done
+
 repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 bin_dir="$repo_root/target/release"
 

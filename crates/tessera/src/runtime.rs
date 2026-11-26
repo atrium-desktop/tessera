@@ -303,9 +303,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     );
     // Decode each app entry's icon into a gfx texture once, keyed by every
     // app_id the entry might run as (StartupWMClass, desktop-id stem, icon name)
-    // so the dock can look a running toplevel up by its `app_id`. SVG icons are
-    // compiled in process by the `optics-svg` compiler. The cache owns the GPU
-    // textures and must outlive the shell, so it is declared before it.
+    // so the dock can look a running toplevel up by its `app_id`. Both raster
+    // and SVG icons decode in process through `tessera-assets`. The cache owns
+    // the GPU textures and must outlive the shell, so it is declared before it.
     let decoded_icons = decode_icons(&launcher_apps, &icon_theme, icon_scale);
     let icon_cache = build_icon_cache(device, &decoded_icons);
     let icon_snapshot = snapshot_icons(&launcher_apps);
