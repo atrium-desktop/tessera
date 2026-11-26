@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.104] - 2026-11-26
+
 ### Added
 
 - **In-process `librsvg-2.0` + `cairo` SVG decoding for theme and application
