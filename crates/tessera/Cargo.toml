@@ -57,7 +57,7 @@ tessera-network = { workspace = true }
 # One theme-asset decoder for application icons, HUD symbols and cursors.
 tessera-assets = { workspace = true }
 optics-gfx = { workspace = true }
-optics-material = { workspace = true }
+tessera-material = { workspace = true }
 optics-ui = { workspace = true }
 libc = { workspace = true }
 sha2.workspace = true
@@ -71,13 +71,7 @@ tessera-dbus = { workspace = true, optional = true }
 # DEP_OPTICS_UI_RPATHS (published via the -sys crates' `links` metadata) and can
 # re-emit the rpaths — `rustc-link-arg` does not propagate across crates.
 optics-gfx-sys = { workspace = true }
-optics-material-sys = { workspace = true }
-optics-scene-sys = { workspace = true }
 optics-ui-sys = { workspace = true }
-optics-svg-sys = { workspace = true }
-
-[package.metadata.cargo-machete]
-ignored = ["optics-material-sys", "optics-scene-sys", "optics-svg-sys"]
 
 [dev-dependencies]
 # `.svgz` fixtures are gzip streams; the tests build them in process.

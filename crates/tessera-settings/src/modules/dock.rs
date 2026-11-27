@@ -1,5 +1,6 @@
 use optics_ui::Frame;
 use tessera_design::Design;
+use tessera_design::icons::Glyph;
 use tessera_desktop::dock::MinimizeAnimationStyle;
 use tessera_desktop::settings::DockSettings;
 use tessera_desktop::settings::SettingsAction;
@@ -40,7 +41,7 @@ impl SettingsModule for DockModule {
         ModuleMetadata {
             id: DOCK_MODULE_ID,
             title: Message::Dock,
-            icon: optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_LAYOUT,
+            icon: Glyph::Layout.id(),
             category: ModuleCategory::Personalization,
             keywords: &["dock", "minimize", "animation", "genie", "scale", "suck"],
             apply_policy: ApplyPolicy::Instant,

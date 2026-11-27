@@ -1,5 +1,6 @@
 use optics_ui::{Align, Frame, LayoutOpts, TextBuf};
 use tessera_design::Design;
+use tessera_design::icons::Glyph;
 use tessera_desktop::settings::AccentColor;
 use tessera_desktop::settings::ColorScheme;
 use tessera_desktop::settings::Contrast;
@@ -169,7 +170,7 @@ impl SettingsModule for AppearanceModule {
         ModuleMetadata {
             id: APPEARANCE_MODULE_ID,
             title: Message::Appearance,
-            icon: optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_IMAGE,
+            icon: Glyph::Image.id(),
             category: ModuleCategory::Personalization,
             keywords: &[
                 "theme",

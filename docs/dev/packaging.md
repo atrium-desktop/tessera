@@ -10,8 +10,7 @@ Tessera has two separate Optics dependency surfaces:
 
 - `Cargo.lock` pins the Rust bindings to the Optics tag reported by
   `cargo run -p xtask -- optics --tag-only`.
-- The native `optics-gfx`, `optics-scene`, `optics-ui`, `optics-svg`, and
-  `optics-text` libraries are discovered through `pkg-config`. By default the
+- The native `optics-gfx`, `optics-ui`, and `optics-text` libraries are discovered through `pkg-config`. By default the
   workspace enables the `static` Cargo feature so release binaries embed
   `liboptics_*.a` and carry no runtime dependency on pre-1.0 Optics SONAMEs
   (Optics' default `default_library=both` install ships both `.a` and `.so`).
@@ -30,11 +29,11 @@ A package build must not depend on an `../optics` checkout or enable
 verify the native development files before building Tessera:
 
 ```bash
-pkg-config --modversion optics-gfx optics-scene optics-ui optics-svg optics-text
+pkg-config --modversion optics-gfx optics-ui optics-text
 ```
 
-Each command must report exactly the pinned release (`0.0.87` for this tree; the
-tag is `v0.0.87`). Pre-1.0 the `-sys` crates
+Each command must report exactly the pinned release (`0.0.88` for this tree; the
+tag is `v0.0.88`). Pre-1.0 the `-sys` crates
 probe `pkg-config` with an exact version, and the SONAME carries the full
 version, so a mismatched native release fails at build or load time rather than
 reading a different descriptor layout. Distribution package names vary, so
@@ -263,7 +262,7 @@ Test the completed packages in a clean environment rather than running out of
 
 ```bash
 systemd-analyze --user verify tessera.service tessera-shutdown.target
-pkg-config --modversion optics-gfx optics-scene optics-ui optics-svg optics-text
+pkg-config --modversion optics-gfx optics-ui optics-text
 test -x /usr/bin/tessera-idle
 test -x /usr/bin/tessera-lock
 test -x /usr/bin/tessera-settings
@@ -300,11 +299,11 @@ Package Optics first, then package the explicitly compatible Tessera and Tessera
 Portal tags independently.
 
 Replace `<TESSERA_VERSION>` and `<PORTAL_VERSION>` below with the release
-versions being packaged. The Optics pin is fixed by this tree: `v0.0.87`.
+versions being packaged. The Optics pin is fixed by this tree: `v0.0.88`.
 
 | Package | Provides | Built by |
 |---------|----------|----------|
-| `optics` | `liboptics_gfx.so`, `liboptics_scene.so`, `liboptics_ui.so`, `liboptics_svg.so`, `liboptics_text.so`, headers, `optics-gfx.pc` … `optics-text.pc` | Meson/Ninja from the `ming2k/optics` `v0.0.87` tag |
+| `optics` | `liboptics_gfx.so`, `liboptics_ui.so`, `liboptics_text.so`, headers, `optics-gfx.pc` … `optics-text.pc` | Meson/Ninja from the `ming2k/optics` `v0.0.88` tag |
 | `tessera` | Compositor, CLI and agent integration binaries, systemd user unit, and cursor license disclosure | Cargo from the `atrium-desktop/tessera` `v<TESSERA_VERSION>` tag |
 | `xdg-desktop-portal-atrium` | Private portal backend plus its D-Bus activation, `.portal`, backend-selection files, and PAM helper | Cargo from the `atrium-desktop/xdg-desktop-portal-atrium` `v<PORTAL_VERSION>` tag |
 
@@ -316,9 +315,9 @@ Each repository's CI validates its own dependency surface; the
 ```bash
 # Maintainer: <you>
 pkgname=optics
-pkgver='0.0.87'
+pkgver='0.0.88'
 pkgrel=1
-pkgdesc='Vulkan-first rendering stack: optics-gfx, optics-scene, optics-ui, optics-svg, optics-text'
+pkgdesc='Vulkan-first rendering stack: optics-gfx, optics-ui, optics-text'
 arch=(x86_64)
 url='https://github.com/ming2k/optics'
 license=(MIT)
@@ -341,7 +340,7 @@ package() {
 ```
 
 `meson install` lays the libraries, headers, and `.pc` files under `/usr`, so
-`pkg-config --modversion optics-gfx optics-scene optics-ui optics-svg optics-text` resolves after the
+`pkg-config --modversion optics-gfx optics-ui optics-text` resolves after the
 package is installed.
 
 #### `tessera` PKGBUILD
@@ -362,7 +361,7 @@ sha256sums=('SKIP')   # replace with the real release-tarball checksum
 build() {
   cd "$pkgbase-$pkgver"
   # Hard contract from the dependency section: Optics native libs must be present.
-  pkg-config --modversion optics-gfx optics-scene optics-ui optics-svg optics-text
+  pkg-config --modversion optics-gfx optics-ui optics-text
   cargo build --locked --release --workspace
 }
 

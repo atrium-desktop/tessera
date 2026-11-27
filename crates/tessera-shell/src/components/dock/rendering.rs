@@ -1,5 +1,6 @@
 pub(crate) use super::motion::detect_cursor_retreat;
 use super::*;
+use tessera_design::icons::Glyph;
 
 impl Chrome for Dock {
     fn render(
@@ -2397,7 +2398,7 @@ impl Dock {
                             Some(ptr) => unsafe {
                                 f.image(ptr as *mut optics_ui::sys::optics_gfx_image, s, s)
                             },
-                            None => f.icon(Icon::FileText, s * 0.6),
+                            None => f.icon_raw(Glyph::FileText.id(), s * 0.6),
                         }
                     });
                 }

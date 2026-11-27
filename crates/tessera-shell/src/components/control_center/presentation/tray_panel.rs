@@ -12,6 +12,7 @@
 //! paints and dispatches.
 
 use super::*;
+use tessera_design::icons::Glyph;
 
 /// A pressable's drawn box when optics-ui resolved it, else the pure layout's
 /// declared slot.
@@ -198,7 +199,9 @@ impl ControlCenter {
                                                     Some(icon) => unsafe {
                                                         f.image(icon, TRAY_ICON, TRAY_ICON)
                                                     },
-                                                    None => f.icon(Icon::FileText, TRAY_ICON),
+                                                    None => {
+                                                        f.icon_raw(Glyph::FileText.id(), TRAY_ICON)
+                                                    }
                                                 },
                                             });
                                         },

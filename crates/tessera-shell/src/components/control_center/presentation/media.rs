@@ -1,6 +1,7 @@
 //! The bento media card (MPRIS now-playing).
 
 use super::*;
+use tessera_design::icons::Glyph;
 
 impl ControlCenter {
     /// Integrated MPRIS now-playing card inside the Quick Controls Bento Grid (ADR-0169).
@@ -64,11 +65,11 @@ impl ControlCenter {
                         ..Default::default()
                     },
                     |f| {
-                        f.icon(
+                        f.icon_raw(
                             if snapshot.playing {
-                                Icon::Pause
+                                Glyph::Pause.id()
                             } else {
-                                Icon::Play
+                                Glyph::Play.id()
                             },
                             18.0,
                         );
@@ -123,7 +124,9 @@ impl ControlCenter {
                                 bg: Color::TRANSPARENT,
                                 ..Default::default()
                             },
-                            |f, _| f.centered(36.0, 36.0, |f| f.icon(Icon::SkipBack, 17.0)),
+                            |f, _| {
+                                f.centered(36.0, 36.0, |f| f.icon_raw(Glyph::SkipBack.id(), 17.0))
+                            },
                         );
                         if previous.clicked && snapshot.can_previous {
                             command = Some(MediaCommand::Previous);
@@ -146,11 +149,11 @@ impl ControlCenter {
                             },
                             |f, _| {
                                 f.centered(40.0, 36.0, |f| {
-                                    f.icon(
+                                    f.icon_raw(
                                         if snapshot.playing {
-                                            Icon::Pause
+                                            Glyph::Pause.id()
                                         } else {
-                                            Icon::Play
+                                            Glyph::Play.id()
                                         },
                                         18.0,
                                     )
@@ -176,7 +179,11 @@ impl ControlCenter {
                                 bg: Color::TRANSPARENT,
                                 ..Default::default()
                             },
-                            |f, _| f.centered(36.0, 36.0, |f| f.icon(Icon::SkipForward, 17.0)),
+                            |f, _| {
+                                f.centered(36.0, 36.0, |f| {
+                                    f.icon_raw(Glyph::SkipForward.id(), 17.0)
+                                })
+                            },
                         );
                         if next.clicked && snapshot.can_next {
                             command = Some(MediaCommand::Next);

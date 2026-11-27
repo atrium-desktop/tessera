@@ -1,8 +1,26 @@
 #!/bin/sh
 set -eu
 
+# Read-only pre-commit guardrail for the dual-worktree Optics workflow.
+#
+# - Never rewrites the Git index.
+# - Always refuses a staged `.cargo/config.toml` (machine-local, gitignored).
+# - In local Optics patch mode (`.cargo/config.toml` carries the Optics
+#   `[patch]` table), refuses staged `Cargo.lock` edits and release-shaped
+#   version bumps so locally patched lockfile entries never enter Git history.
+# - In canonical mode (no Optics `[patch]`), validates `Cargo.lock` with
+#   `cargo metadata --locked` whenever a manifest or lockfile is staged.
+
 config_path=".cargo/config.toml"
 patch_header='[patch."https://github.com/ming2k/optics"]'
+changed=$(git diff --cached --name-only --diff-filter=ACMR)
+
+if printf '%s\n' "$changed" | grep -q '^\.cargo/config\.toml$'; then
+    printf '%s\n' \
+        "Refusing to commit .cargo/config.toml." \
+        "It is a machine-local Optics override; keep it untracked." >&2
+    exit 1
+fi
 
 if [ -f "$config_path" ] && grep -Fqx "$patch_header" "$config_path"; then
     if git diff --cached -U0 -- Cargo.toml | grep -Eq '^\+version = "'; then
@@ -15,33 +33,19 @@ if [ -f "$config_path" ] && grep -Fqx "$patch_header" "$config_path"; then
         exit 1
     fi
 
-    excluded=
-
-    if ! git diff --cached --quiet -- Cargo.lock; then
-        git restore --staged -- Cargo.lock
-        excluded="Cargo.lock"
-    fi
-
-    if ! git diff --cached --quiet -- "$config_path"; then
-        git restore --staged -- "$config_path"
-        if [ -n "$excluded" ]; then
-            excluded="$excluded and $config_path"
-        else
-            excluded="$config_path"
-        fi
-    fi
-
-    if [ -n "$excluded" ]; then
+    if printf '%s\n' "$changed" | grep -q '^Cargo\.lock$'; then
         printf '%s\n' \
-            "Local Optics mode: excluded $excluded from this commit." \
-            "Disable $config_path before committing the canonical lockfile."
+            "Local Optics mode: refusing to commit a locally patched Cargo.lock." \
+            "Unstage it with: git restore --staged -- Cargo.lock" \
+            "Regenerate and commit the canonical Cargo.lock in the primary" \
+            "main worktree (../tessera/) when promoting or changing dependencies." >&2
+        exit 1
     fi
 
     exit 0
 fi
 
-if git diff --cached --name-only --diff-filter=ACMR \
-    | grep -Eq '(^|/)Cargo\.toml$'; then
+if printf '%s\n' "$changed" | grep -Eq '(^|/)(Cargo\.toml|Cargo\.lock)$'; then
     printf '%s\n' "Canonical Optics mode: validating Cargo.lock."
     cargo metadata --locked --format-version 1 >/dev/null
 fi

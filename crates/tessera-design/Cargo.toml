@@ -16,6 +16,9 @@ optics-ui = { workspace = true }
 # resolve the selected optics-ui/gfx native libraries through build.rs.
 optics-ui-sys = { workspace = true }
 
+[dev-dependencies]
+optics-gfx = { workspace = true }
+
 [package.metadata.cargo-machete]
 ignored = ["optics-ui-sys"]
 

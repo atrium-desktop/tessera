@@ -62,8 +62,9 @@ projects/
    git config core.hooksPath .githooks
    ```
    [.cargo/optics-local.toml](../../.cargo/optics-local.toml) redirects every
-   `ming2k/optics` crate to `../optics/crates/*` and sets `[env] OPTICS_DYNAMIC = "1"`,
-   overriding the workspace `static` feature so local builds discover
+   `ming2k/optics` crate to `../optics/crates/*` and sets `[env] OPTICS_SOURCE_DIR`,
+   `OPTICS_BUILD_DIR`, and `OPTICS_DYNAMIC = "1"`, overriding the workspace
+   `static` feature so local builds discover
    `../optics/build/meson-uninstalled/*.pc` and inject `-Wl,-rpath`.
 3. **Build Optics and resolve the local graph**:
    ```bash
@@ -85,6 +86,10 @@ meson compile -C ../optics/build
 cargo check -p tessera
 cargo nextest run -p tessera
 
+# After `../optics` bumps its workspace version ahead of `Cargo.toml`:
+cargo update -p optics-build -p optics-gfx -p optics-gfx-sys -p optics-ui \
+  -p optics-ui-sys -p optics-motion
+
 # Verify the production static closure inside dev on demand:
 OPTICS_DYNAMIC=0 cargo build -p tessera
 ```
@@ -92,10 +97,11 @@ OPTICS_DYNAMIC=0 cargo build -p tessera
 Do not run concurrent Meson/Ninja builds against `../optics/build` from
 multiple terminals.
 
-Commit on `dev` normally (`git add . && git commit ...`). Never bypass the
-hook with `--no-verify` — [.githooks/pre-commit](../../.githooks/pre-commit)
-automatically unstages the path-patched `Cargo.lock` and `.cargo/config.toml`
-so local overrides never pollute commits, rebases, or squash merges.
+Leave the locally patched `Cargo.lock` unstaged when committing on `dev`. Never
+bypass the hook with `--no-verify` — [.githooks/pre-commit](../../.githooks/pre-commit)
+is strictly read-only and refuses commits that stage `Cargo.lock` or
+`.cargo/config.toml` so local overrides never pollute commits, rebases, or
+squash merges.
 
 ## Feature-Level Atomic Promotion to `main`
 
@@ -183,14 +189,15 @@ Then resynchronize `tessera-dev` with `git reset --hard main && cargo check -p t
 
 ## Git Hook Guard and Maintenance
 
-[.githooks/pre-commit](../../.githooks/pre-commit) switches behavior based on
-whether `.cargo/config.toml` contains `[patch."https://github.com/ming2k/optics"]`:
+[.githooks/pre-commit](../../.githooks/pre-commit) is strictly read-only — it
+never mutates the Git index — and switches behavior based on whether
+`.cargo/config.toml` contains `[patch."https://github.com/ming2k/optics"]`:
 
-- **Local Optics mode (`tessera-dev/`)**: unstages `Cargo.lock` and
-  `.cargo/config.toml` automatically, and rejects release-shaped version bumps
-  in `Cargo.toml`.
+- **Always**: refuses a staged `.cargo/config.toml`.
+- **Local Optics mode (`tessera-dev/`)**: refuses staged `Cargo.lock` changes
+  and release-shaped version bumps in `Cargo.toml`.
 - **Canonical mode (`tessera/`)**: validates `cargo metadata --locked` whenever
-  `Cargo.toml` is staged.
+  `Cargo.toml` or `Cargo.lock` is staged.
 
 ### Rebasing Unpromoted `dev` Work When `main` Advances
 

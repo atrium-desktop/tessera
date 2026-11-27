@@ -39,7 +39,7 @@ Select the cheapest scenario that can fail for your change:
 
 Validate core business logic, protocol serializations, audit chains, and config
 parsing without installing or building the native C23/Meson Optics stack (`optics-gfx`,
-`optics-scene`, `optics-ui`, `optics-svg`, `optics-text`).
+`optics-ui`, `optics-text`).
 
 ### Execution Command
 

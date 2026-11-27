@@ -19,6 +19,7 @@ negative_knowledge: true
   invariants), [ADR-0233](0233-theme-assets-decode-once-into-premultiplied-bgra.md)
   (`tessera-assets` drops its `optics-svg` dependency edge and owns the
   in-process `librsvg` + `cairo` boundary, plus aspect-preserving raster fitting)
+- Amended by: [ADR-0262](0262-tessera-owns-backdrop-materials-scene-runtime-and-chrome-glyphs.md) — Decision 5 is void: optics-ui no longer links `liboptics_svg`; chrome glyphs are `tessera-design::icons`.
 
 ---
 

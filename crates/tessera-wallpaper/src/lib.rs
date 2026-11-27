@@ -31,7 +31,7 @@ pub enum Error {
     UnsupportedFormat(PathBuf, Option<String>),
     FfmpegSpawn(std::io::Error),
     FfmpegEmpty(PathBuf),
-    Gltf(PathBuf, optics_scene::Error),
+    Gltf(PathBuf, tessera_scene::Error),
     GltfBounds(PathBuf),
     Gfx(optics_gfx::Error),
     Parallax(String),

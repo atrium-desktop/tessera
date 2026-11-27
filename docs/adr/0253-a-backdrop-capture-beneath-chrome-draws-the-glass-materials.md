@@ -15,6 +15,7 @@ negative_knowledge: true
 - Deciders: Tessera Maintainers
 - Amends: [ADR-0252](0252-chrome-materials-are-one-swappable-shell-wide-choice.md) (`RENDERER_MATERIAL_CEILING` rises to `LiquidGlass`; a sampled material keeps its own body tint instead of being painted as translucent)
 - Amends: [ADR-0226](0226-single-pass-chrome-composition-preview-layering-and-modal-dock-inhibition.md) (while a glass material is in effect, the frame takes offscreen capture passes before the single output pass; the output pass itself stays single)
+- Amended by: [ADR-0262](0262-tessera-owns-backdrop-materials-scene-runtime-and-chrome-glyphs.md) — the filters come from `tessera-material` since Optics v0.0.88 retired `optics-material`; the pipeline is unchanged.
 
 ---
 

@@ -11,14 +11,13 @@ rust-version.workspace = true
 [dependencies]
 optics-gfx = { workspace = true }
 optics-gfx-sys = { workspace = true }
-optics-scene = { workspace = true }
-optics-scene-sys = { workspace = true }
+tessera-scene = { workspace = true }
 optics-motion = { workspace = true }
 tessera-image = { workspace = true }
 log.workspace = true
 
 [package.metadata.cargo-machete]
-ignored = ["optics-scene-sys", "optics-gfx-sys"]
+ignored = ["optics-gfx-sys"]
 
 [lints]
 workspace = true

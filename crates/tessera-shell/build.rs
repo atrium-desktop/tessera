@@ -30,12 +30,7 @@ fn main() {
     }
 
     let mut rpath_dirs = Vec::new();
-    for var in [
-        "DEP_OPTICS_UI_RPATHS",
-        "DEP_OPTICS_SVG_RPATHS",
-        "DEP_OPTICS_GFX_RPATHS",
-        "DEP_OPTICS_SCENE_RPATHS",
-    ] {
+    for var in ["DEP_OPTICS_UI_RPATHS", "DEP_OPTICS_GFX_RPATHS"] {
         if let Ok(rpaths) = std::env::var(var) {
             for dir in rpaths.split(';').filter(|path| !path.is_empty()) {
                 if !rpath_dirs.iter().any(|existing| existing == dir) {

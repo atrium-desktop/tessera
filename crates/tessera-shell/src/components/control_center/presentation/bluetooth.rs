@@ -1,6 +1,7 @@
 //! Bluetooth detail page: adapter state, paired devices, and pairing controls.
 
 use super::*;
+use tessera_design::icons::Glyph;
 
 impl ControlCenter {
     /// Expanded Bluetooth detail view (ADR-0175): the paired/known peripherals
@@ -90,7 +91,7 @@ impl ControlCenter {
                                         f.flex(1.0);
                                         f.spacer(0.0);
                                         f.icon_raw(
-                                            optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_REFRESH_CW,
+                                            Glyph::RefreshCw.id(),
                                             16.0,
                                         );
                                         f.flex(1.0);
@@ -222,7 +223,7 @@ impl ControlCenter {
                                                         }),
                                                     );
                                                     f.icon_raw(
-                                                        optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_BLUETOOTH,
+                                                        Glyph::Bluetooth.id(),
                                                         18.0,
                                                     );
                                                     f.set_theme(themes::hud(&hud).with_fg(hud.text));

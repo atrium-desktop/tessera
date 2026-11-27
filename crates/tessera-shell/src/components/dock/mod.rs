@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::hash::Hasher;
 
-pub(crate) use optics_ui::{Align, Color, Frame, Icon, Input, LayoutOpts, Rect};
+pub(crate) use optics_ui::{Align, Color, Frame, Input, LayoutOpts, Rect};
 pub(crate) use tessera_design::materials::{chrome_place, surface_layout};
 pub(crate) use tessera_design::{Design, SurfaceRole, materials};
 

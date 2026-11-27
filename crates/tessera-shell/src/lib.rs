@@ -261,8 +261,13 @@ impl Shell {
     /// to optics-ui's distinct-but-ABI-identical `optics_gfx_device`.
     pub unsafe fn new(device: *mut c_void) -> Result<Shell, ShellError> {
         unsafe {
-            let ui = Ui::with_device(device as *mut optics_ui::sys::optics_gfx_device)
+            let mut ui = Ui::with_device(device as *mut optics_ui::sys::optics_gfx_device)
                 .map_err(ShellError::Create)?;
+            // Chrome glyphs are host-registered per context since Optics
+            // v0.0.88; a failure leaves those icons blank, never wrong.
+            if let Err(error) = tessera_design::icons::install(&mut ui) {
+                log::error!("shell: chrome glyphs unavailable: {error}");
+            }
             Ok(Shell {
                 ui,
                 windows: Vec::new(),

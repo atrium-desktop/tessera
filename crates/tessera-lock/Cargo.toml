@@ -31,7 +31,6 @@ ash.workspace = true
 tessera-env.workspace = true
 optics-gfx.workspace = true
 optics-gfx-sys.workspace = true
-optics-scene-sys.workspace = true
 optics-ui.workspace = true
 optics-ui-sys.workspace = true
 libc.workspace = true
@@ -47,7 +46,7 @@ zeroize.workspace = true
 pkg-config.workspace = true
 
 [package.metadata.cargo-machete]
-ignored = ["optics-gfx-sys", "optics-scene-sys", "optics-ui-sys", "pkg-config"]
+ignored = ["optics-gfx-sys", "optics-ui-sys", "pkg-config"]
 
 [lints]
 workspace = true

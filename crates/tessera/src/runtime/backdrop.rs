@@ -95,7 +95,7 @@ pub(super) fn plan(
     let (sigma_logical, lens_reach) = match material {
         Material::LiquidGlass => (
             GLASS_SIGMA,
-            optics_material::LiquidGlassParams::default().refraction,
+            tessera_material::LiquidGlassParams::default().refraction,
         ),
         _ => (FROST_SIGMA, 0.0),
     };
@@ -254,13 +254,13 @@ impl BackdropPlan {
         )
     }
 
-    fn frosted_groups(&self) -> Vec<optics_material::FrostedGroup> {
+    fn frosted_groups(&self) -> Vec<tessera_material::FrostedGroup> {
         self.bodies
             .iter()
             .map(|body| {
                 let (x, y) = self.local(body);
-                optics_material::FrostedGroup {
-                    shape: optics_material::FrostedShape {
+                tessera_material::FrostedGroup {
+                    shape: tessera_material::FrostedShape {
                         x,
                         y,
                         width: body.w,
@@ -282,13 +282,13 @@ impl BackdropPlan {
             .collect()
     }
 
-    fn glass_groups(&self) -> Vec<optics_material::LiquidGlassGroup> {
+    fn glass_groups(&self) -> Vec<tessera_material::LiquidGlassGroup> {
         self.bodies
             .iter()
             .map(|body| {
                 let (x, y) = self.local(body);
-                optics_material::LiquidGlassGroup {
-                    primary: optics_material::LiquidGlassShape {
+                tessera_material::LiquidGlassGroup {
+                    primary: tessera_material::LiquidGlassShape {
                         x,
                         y,
                         width: body.w,
@@ -314,10 +314,10 @@ impl BackdropPlan {
             .collect()
     }
 
-    fn glass_params(&self) -> optics_material::LiquidGlassParams {
-        let base = optics_material::LiquidGlassParams::default();
+    fn glass_params(&self) -> tessera_material::LiquidGlassParams {
+        let base = tessera_material::LiquidGlassParams::default();
         // The defaults are tuned in logical pixels; the capture is physical.
-        optics_material::LiquidGlassParams {
+        tessera_material::LiquidGlassParams {
             refraction: base.refraction * self.scale,
             edge_width: base.edge_width * self.scale,
             size_reference: base.size_reference * self.scale,
@@ -331,8 +331,8 @@ impl BackdropPlan {
 /// The material's optics for one frame, ready to draw under chrome. Borrows
 /// the filter whose frame slot holds it.
 pub(super) enum BackdropSlab<'filter> {
-    Frosted(optics_material::FrostedImage<'filter>, (f32, f32)),
-    Glass(optics_material::LiquidGlassImage<'filter>, (f32, f32)),
+    Frosted(tessera_material::FrostedImage<'filter>, (f32, f32)),
+    Glass(tessera_material::LiquidGlassImage<'filter>, (f32, f32)),
 }
 
 impl BackdropSlab<'_> {
@@ -359,8 +359,8 @@ impl BackdropSlab<'_> {
 #[derive(Default)]
 pub(super) struct ChromeBackdrop {
     blur: Option<optics_gfx::BlurFilter>,
-    frosted: Option<optics_material::FrostedFilter>,
-    glass: Option<optics_material::LiquidGlassFilter>,
+    frosted: Option<tessera_material::FrostedFilter>,
+    glass: Option<tessera_material::LiquidGlassFilter>,
     /// Capture targets keyed by `(output namespace, frame slot)`: a capture
     /// is written and sampled within one frame, and another slot's frame may
     /// still be reading its own.
@@ -466,7 +466,7 @@ impl ChromeBackdrop {
         }
         match plan.material {
             Material::Frosted if self.frosted.is_none() => {
-                match optics_material::FrostedFilter::new(device) {
+                match tessera_material::FrostedFilter::new(device) {
                     Ok(filter) => self.frosted = Some(filter),
                     Err(error) => {
                         self.fail("creating the frosted filter", error);
@@ -475,7 +475,7 @@ impl ChromeBackdrop {
                 }
             }
             Material::LiquidGlass if self.glass.is_none() => {
-                match optics_material::LiquidGlassFilter::new(device) {
+                match tessera_material::LiquidGlassFilter::new(device) {
                     Ok(filter) => self.glass = Some(filter),
                     Err(error) => {
                         self.fail("creating the liquid-glass filter", error);
@@ -534,8 +534,8 @@ type DispatchError = (&'static str, optics_gfx::Error);
 #[allow(clippy::too_many_arguments)]
 fn dispatch<'filter>(
     blur: &mut optics_gfx::BlurFilter,
-    frosted: Option<&'filter mut optics_material::FrostedFilter>,
-    glass: Option<&'filter mut optics_material::LiquidGlassFilter>,
+    frosted: Option<&'filter mut tessera_material::FrostedFilter>,
+    glass: Option<&'filter mut tessera_material::LiquidGlassFilter>,
     frame: &optics_gfx::Frame<'_>,
     capture: &optics_gfx::Image,
     plan: &BackdropPlan,
@@ -553,10 +553,10 @@ fn dispatch<'filter>(
         .map_err(|error| ("blurring the capture", error))?;
     match plan.material {
         Material::Frosted => {
-            let params = optics_material::FrostedParams {
+            let params = tessera_material::FrostedParams {
                 saturation: 1.35,
                 tint_strength: 0.0,
-                ..optics_material::FrostedParams::default()
+                ..tessera_material::FrostedParams::default()
             };
             frosted
                 .ok_or_else(|| missing("the frosted filter"))?

@@ -443,6 +443,10 @@ impl LockRenderSurface {
         let mut ui = unsafe {
             Ui::with_device(device.as_raw().cast::<optics_ui::sys::optics_gfx_device>())
         }?;
+        // Glyphs are host-registered per context since Optics v0.0.88.
+        if let Err(error) = tessera_design::icons::install(&mut ui) {
+            log::error!("lock: glyphs unavailable: {error}");
+        }
         ui.set_scale(scale);
         ui.set_theme(themes::application(design));
         Ok(Self {

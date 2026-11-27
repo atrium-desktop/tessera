@@ -10,11 +10,11 @@ what is already verified in the [Support Matrix](verification/support-matrix.md)
 
 ## 1. Prerequisites & Toolchain Setup
 
-Tessera requires Rust 1.89+ and the native Optics graphics stack (`optics-gfx`, `optics-scene`, `optics-ui`, `optics-svg`, `optics-text`):
+Tessera requires Rust 1.89+ and the native Optics graphics stack (`optics-gfx`, `optics-ui`, `optics-text`):
 
 ```bash
 rustc --version                  # rustc >= 1.89
-pkg-config --modversion optics-gfx optics-scene optics-ui optics-svg optics-text
+pkg-config --modversion optics-gfx optics-ui optics-text
 ```
 
 When maintaining Tessera and Optics together in this `tessera-dev` worktree, ensure

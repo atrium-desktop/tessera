@@ -38,7 +38,6 @@ tessera-i18n.workspace = true
 tessera-ipc.workspace = true
 tessera-primitives.workspace = true
 tessera-protocol.workspace = true
-optics-scene-sys.workspace = true
 wayland-client.workspace = true
 wayland-protocols.workspace = true
 
@@ -46,7 +45,7 @@ wayland-protocols.workspace = true
 pkg-config.workspace = true
 
 [package.metadata.cargo-machete]
-ignored = ["optics-gfx-sys", "optics-scene-sys", "optics-ui-sys", "pkg-config"]
+ignored = ["optics-gfx-sys", "optics-ui-sys", "pkg-config"]
 
 [lints]
 workspace = true

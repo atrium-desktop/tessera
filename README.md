@@ -26,19 +26,19 @@ The safest first run is a nested session inside an existing Wayland desktop.
 Tessera requires Rust 1.89 or later and the native build dependencies listed in
 the [Getting Started tutorial](docs/tutorials/01-getting-started.md).
 
-Install the Optics `v0.0.87` native libraries from a distribution package or
+Install the Optics `v0.0.88` native libraries from a distribution package or
 build the matching source release. Building Optics needs a C23 compiler,
 Meson, and `slangc` (Slang 2026.17+; recent Vulkan SDKs bundle it):
 
 ```bash
-git clone --branch "v0.0.87" --depth 1 \
+git clone --branch "v0.0.88" --depth 1 \
   https://github.com/ming2k/optics.git ../optics
 meson setup ../optics/build ../optics \
   -Dtests=false -Dbuildtype=debugoptimized
 meson compile -C ../optics/build
 sudo meson install -C ../optics/build
 sudo ldconfig
-pkg-config --modversion optics-gfx optics-scene optics-ui optics-svg optics-text
+pkg-config --modversion optics-gfx optics-ui optics-text
 ```
 
 From the Tessera repository root, start the compositor. Use the
@@ -74,11 +74,11 @@ to prevent audit store lock contention with the host compositor.
 
 ### How the C libraries are selected
 
-The Rust bindings (`optics-gfx`, `optics-ui`, `optics-motion`, `optics-material`, ...) are ordinary crates
+The Rust bindings (`optics-gfx`, `optics-ui`, `optics-motion`, ...) are ordinary crates
 compiled into the compositor binary. The installer builds Optics with
 `-Ddefault_library=static` and sets `OPTICS_STATIC=1`, so released Tessera
-executables embed the archives (`liboptics_gfx.a`, `liboptics_ui.a`, `liboptics_scene.a`,
-`liboptics_svg.a`, `liboptics_text.a`) directly, while OS
+executables embed the archives (`liboptics_gfx.a`, `liboptics_ui.a`,
+`liboptics_text.a`) directly, while OS
 dependencies (`libvulkan`, `freetype`, `harfbuzz`, `fontconfig`, `fribidi`,
 `libpng16`, `libturbojpeg`, `libwebp`, `librsvg-2`, `cairo`, etc.) remain
 dynamically linked. A development build follows the link mode the

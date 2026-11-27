@@ -3,6 +3,7 @@
 //! the power button discloses.
 
 use super::*;
+use tessera_design::icons::Glyph;
 
 /// One icon-only header action.
 #[derive(Clone, Copy)]
@@ -79,7 +80,7 @@ impl ControlCenter {
             (
                 HeaderAction::Settings,
                 Tip::Settings,
-                optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_SETTINGS,
+                Glyph::Settings.id(),
                 i18n.text(Message::Settings),
             ),
             (
@@ -87,13 +88,13 @@ impl ControlCenter {
                 Tip::Lock,
                 // A padlock, not a shield: this locks the session; it does not
                 // vouch for security posture (ADR-0080).
-                optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_LOCK,
+                Glyph::Lock.id(),
                 i18n.text(Message::LockNow),
             ),
             (
                 HeaderAction::Power,
                 Tip::Power,
-                optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_POWER,
+                Glyph::Power.id(),
                 i18n.text(Message::PowerAndSession),
             ),
         ];
@@ -236,17 +237,17 @@ impl ControlCenter {
         let actions = [
             (
                 SystemAction::Suspend,
-                optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_MOON,
+                Glyph::Moon.id(),
                 i18n.text(Message::Suspend),
             ),
             (
                 SystemAction::Reboot,
-                optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_ROTATE_CW,
+                Glyph::RotateCw.id(),
                 i18n.text(Message::Restart),
             ),
             (
                 SystemAction::PowerOff,
-                optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_POWER,
+                Glyph::Power.id(),
                 i18n.text(Message::PowerOff),
             ),
         ];

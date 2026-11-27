@@ -7,7 +7,7 @@ How to build and run tessera for development.
 | Requirement | Notes |
 |-------------|-------|
 | Rust toolchain | `rustc` and `cargo`, edition 2024 (1.89+) |
-| Optics `v0.0.87` | Use a sibling checkout for cross-repository development or installed native libraries for the canonical build |
+| Optics `v0.0.88` | Use a sibling checkout for cross-repository development or installed native libraries for the canonical build |
 | meson and a C23 compiler | To build the optics libraries |
 | Slang compiler | `slangc` 2026.17+ (CI pins 2026.21; recent Vulkan SDKs bundle it) compiles Optics shaders |
 | Vulkan 1.3 runtime and loader | gfx is Vulkan-first |
@@ -23,7 +23,7 @@ everything below this table follows from it.
 
 | You are… | Workflow | Why |
 |----------|----------|-----|
-| **Contributing to Tessera only** | [Canonical workflow](#canonical-workflow-contributor) | You never touch Optics, so the locked `v0.0.87` bindings and the system-installed native libraries are all you need. No sibling checkout, no Cargo patch. |
+| **Contributing to Tessera only** | [Canonical workflow](#canonical-workflow-contributor) | You never touch Optics, so the locked `v0.0.88` bindings and the system-installed native libraries are all you need. No sibling checkout, no Cargo patch. |
 | **Maintaining Tessera and Optics together** | [Local workflow](#local-workflow-dual-maintainer) | You isolate the live sibling Optics patch, lockfile, and target directory in a linked Tessera worktree. |
 
 ### How the two roles differ
@@ -34,7 +34,7 @@ checkout without one forcing its setup on the other:
 
 | Concern | Canonical workflow | Local workflow |
 |---------|--------------------|----------------|
-| Rust bindings | Locked Optics `v0.0.87` Git source (`features = ["static"]`) | `[patch]` entries for `../optics/crates` |
+| Rust bindings | Locked Optics `v0.0.88` Git source (`features = ["static"]`) | `[patch]` entries for `../optics/crates` |
 | Native linkage | Static `liboptics_*.a` archives by default (override with `OPTICS_DYNAMIC=1`) | Shared `liboptics_*.so` from `../optics/build` via `[env] OPTICS_DYNAMIC = "1"` + `-rpath` |
 | `.cargo/config.toml` | Absent | A copy of `.cargo/optics-local.toml` |
 | `Cargo.lock` | Canonical and committed | Worktree-local and excluded from commits |
@@ -61,15 +61,15 @@ git config core.hooksPath .githooks
 ```
 
 Run these commands only in the linked worktree. They install the local
-`[patch]` configuration and enable the repository commit hook. The hook
-preserves ordinary `git add .` usage by automatically removing the local
-`Cargo.lock` and `.cargo/config.toml` from the staged set. Keep the worktree
-on its long-lived local `dev` branch and fast-forward `main` to completed
-`dev` commits.
+`[patch]` and `[env]` configuration and enable the repository commit hook.
+The hook is strictly read-only: keep the locally patched `Cargo.lock` unstaged
+when committing on `dev`, and the hook refuses any commit that stages
+`Cargo.lock` or `.cargo/config.toml`. Keep the worktree on its long-lived
+local `dev` branch and promote completed work via squash merges on `main`.
 
 The Rust bindings build against the unified optics Meson build tree, so build
-`liboptics_gfx`, `liboptics_scene`, `liboptics_ui`, `liboptics_window`, and
-`liboptics_svg` first:
+`liboptics_gfx`, `liboptics_text`, `liboptics_ui`, and `liboptics_window`
+first:
 
 ```bash
 meson compile -C ../optics/build
@@ -88,10 +88,8 @@ tree can be switched in place with `meson configure ../optics/build
 
 The `-sys` build scripts locate the tree through
 `meson-uninstalled/optics-gfx-uninstalled.pc`,
-`meson-uninstalled/optics-scene-uninstalled.pc`,
-`meson-uninstalled/optics-ui-uninstalled.pc`,
-`meson-uninstalled/optics-text-uninstalled.pc`, and
-`meson-uninstalled/optics-svg-uninstalled.pc`.
+`meson-uninstalled/optics-ui-uninstalled.pc`, and
+`meson-uninstalled/optics-text-uninstalled.pc`.
 
 Resolve the patched graph once without `--locked`, then use locked commands
 until an Optics manifest changes:
@@ -111,7 +109,7 @@ for daily commits, rebases, release promotion, and merging `dev` into
 ### Canonical workflow (contributor)
 
 For everyone contributing to Tessera only. You do **not** need a sibling
-`optics` checkout. Build the matching Optics `v0.0.87` once so its native
+`optics` checkout. Build the matching Optics `v0.0.88` once so its native
 libraries, headers, and `.pc` files land in the system paths, then drive Tessera
 with ordinary `cargo` commands against the locked bindings.
 
@@ -124,13 +122,13 @@ meson setup ../optics/build-release ../optics \
 meson compile -C ../optics/build-release
 sudo meson install -C ../optics/build-release
 sudo ldconfig
-pkg-config --modversion optics-gfx optics-scene optics-ui optics-svg optics-text   # sanity check
+pkg-config --modversion optics-gfx optics-ui optics-text   # sanity check
 ```
 
-> If your distribution already ships an Optics `v0.0.87` package, install that
+> If your distribution already ships an Optics `v0.0.88` package, install that
 > instead and skip the manual build. What matters is that the five
-> `pkg-config --modversion` checks above each report exactly `0.0.87` (for
-> `v0.0.87`):
+> `pkg-config --modversion` checks above each report exactly `0.0.88` (for
+> `v0.0.88`):
 > pre-1.0 the bindings and the full-version SONAME reject any other release.
 
 **Daily development** needs no further Optics work — just Cargo:
@@ -281,10 +279,10 @@ delegation).
 | `cannot connect to host Wayland display` | `$WAYLAND_DISPLAY` is unset or points at no compositor |
 | `$XDG_RUNTIME_DIR is unset` | Log in through PAM/logind; do not create a shared runtime directory under `/tmp` |
 | DRM runner rejects root | Log in as the normal seat user; do not bypass logind or seatd with `sudo` |
-| Missing an `optics-gfx`, `optics-scene`, `optics-ui`, `optics-svg`, or `optics-text` pkg-config file | In the local workflow, build the sibling tree; in the canonical workflow, install the matching Optics release |
+| Missing an `optics-gfx`, `optics-ui`, or `optics-text` pkg-config file | In the local workflow, build the sibling tree; in the canonical workflow, install the matching Optics release |
 | Building Optics fails because `slangc` is not found | Install Slang 2026.17+ (a recent Vulkan SDK bundles it) and put `slangc` on `PATH`; the shader stack no longer uses `glslangValidator` |
 | `vkCreateSwapchainKHR: function pointer was NULL` | `VK_KHR_swapchain` not enabled; the backend requests it, so check the gfx device extensions |
-| `error while loading shared libraries: liboptics_gfx*.so` / `liboptics_scene*.so` / `liboptics_ui*.so` / `liboptics_svg*.so` / `liboptics_text*.so` | In the local workflow, rebuild after moving the Meson tree; in the canonical workflow, refresh the loader cache or configure the installed prefix |
+| `error while loading shared libraries: liboptics_gfx*.so` / `liboptics_ui*.so` / `liboptics_text*.so` | In the local workflow, rebuild after moving the Meson tree; in the canonical workflow, refresh the loader cache or configure the installed prefix |
 | `Interaction Domain cgroup isolation is unavailable` | Run Tessera in the packaged systemd user service; a shared terminal scope cannot satisfy controller delegation |
 
 ## See Also

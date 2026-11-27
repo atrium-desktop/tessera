@@ -129,6 +129,10 @@ impl Graphics {
         }
         let owned_ui = OwnedUi(raw);
         let mut ui = unsafe { Ui::borrow_raw(raw) };
+        // Glyphs are host-registered per context since Optics v0.0.88.
+        if let Err(error) = tessera_design::icons::install(&mut ui) {
+            log::error!("settings: glyphs unavailable: {error}");
+        }
         ui.set_scale(scale);
         Ok(RenderSurface {
             surface,

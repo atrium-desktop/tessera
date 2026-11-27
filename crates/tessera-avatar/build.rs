@@ -1,18 +1,13 @@
 //! Propagate the Optics native-library paths to this crate's test harness.
 //!
-//! The avatar runtime links gfx unconditionally and optics-scene behind the
-//! `persona` feature; relay the rpaths published by the safe binding crates
-//! (and by the `-sys` crates when the feature is on) so test binaries load the
-//! same native libraries the build linked.
+//! The avatar runtime links gfx; relay the rpaths published by the binding
+//! crates so test binaries load the same native libraries the build linked.
+//! The scene runtime behind the `persona` feature (`tessera-scene`) is
+//! compiled in statically and publishes none.
 
 fn main() {
     let mut rpath_dirs = Vec::new();
-    for var in [
-        "DEP_OPTICS_GFX_RS_RPATHS",
-        "DEP_OPTICS_GFX_RPATHS",
-        "DEP_OPTICS_SCENE_RS_RPATHS",
-        "DEP_OPTICS_SCENE_RPATHS",
-    ] {
+    for var in ["DEP_OPTICS_GFX_RS_RPATHS", "DEP_OPTICS_GFX_RPATHS"] {
         if let Ok(rpaths) = std::env::var(var) {
             for dir in rpaths.split(';').filter(|path| !path.is_empty()) {
                 if !rpath_dirs.iter().any(|existing| existing == dir) {

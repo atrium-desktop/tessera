@@ -1,0 +1,28 @@
+[package]
+name = "tessera-scene"
+description = "glTF 2.0 / VRM scene runtime and depth-tested mesh renderer on the Optics gfx public RHI"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+publish = false
+license.workspace = true
+rust-version.workspace = true
+build = "build.rs"
+links = "tessera_scene"
+
+[dependencies]
+optics-gfx = { workspace = true }
+optics-gfx-sys = { workspace = true }
+
+[build-dependencies]
+optics-build = { workspace = true }
+cc.workspace = true
+pkg-config.workspace = true
+
+[features]
+# Mirror the Optics link-mode feature: the vendored C runtime links gfx the
+# same way the rest of the workspace does.
+static = ["optics-gfx/static", "optics-gfx-sys/static"]
+
+[lints]
+workspace = true

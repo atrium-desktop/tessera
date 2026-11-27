@@ -25,6 +25,7 @@
 //! never infers it from its own bookkeeping.
 
 use super::*;
+use tessera_design::icons::Glyph;
 use tessera_desktop::system::{AudioInputKind, AudioOutputKind};
 
 impl ControlCenter {
@@ -270,7 +271,7 @@ fn render_capture_banner(
             ..Default::default()
         },
         |f| {
-            f.icon_raw(optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_MIC, 16.0);
+            f.icon_raw(Glyph::Mic.id(), 16.0);
             display_label(f, i18n.text(Message::MicrophoneInUse), type_scale.footnote);
         },
     );
@@ -353,10 +354,7 @@ fn render_output_rows(
                             // The marker is the server's statement, not a
                             // cached click.
                             f.set_theme(themes::hud(hud).with_fg(hud.accent));
-                            f.icon_raw(
-                                optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_CHECK,
-                                16.0,
-                            );
+                            f.icon_raw(Glyph::Check.id(), 16.0);
                         }
                     },
                 );
@@ -420,10 +418,7 @@ fn render_input_rows(
                         f.spacer(0.0);
                         if is_default {
                             f.set_theme(themes::hud(hud).with_fg(hud.accent));
-                            f.icon_raw(
-                                optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_CHECK,
-                                16.0,
-                            );
+                            f.icon_raw(Glyph::Check.id(), 16.0);
                         }
                     },
                 );
@@ -468,13 +463,12 @@ fn render_empty_note(
 /// already decided in `tessera-desktop`, and an unrecognized one still gets a
 /// speaker rather than no icon at all.
 fn audio_output_icon(kind: AudioOutputKind) -> optics_ui::sys::optics_ui_icon_id {
-    use optics_ui::sys::optics_ui_icon_id;
     match kind {
-        AudioOutputKind::Bluetooth => optics_ui_icon_id::OPTICS_UI_ICON_BLUETOOTH,
-        AudioOutputKind::Wired => optics_ui_icon_id::OPTICS_UI_ICON_HEADPHONES,
-        AudioOutputKind::Hdmi => optics_ui_icon_id::OPTICS_UI_ICON_MONITOR,
+        AudioOutputKind::Bluetooth => Glyph::Bluetooth.id(),
+        AudioOutputKind::Wired => Glyph::Headphones.id(),
+        AudioOutputKind::Hdmi => Glyph::Monitor.id(),
         AudioOutputKind::Usb | AudioOutputKind::Speaker | AudioOutputKind::Other => {
-            optics_ui_icon_id::OPTICS_UI_ICON_SPEAKER
+            Glyph::Speaker.id()
         }
     }
 }
@@ -483,12 +477,9 @@ fn audio_output_icon(kind: AudioOutputKind) -> optics_ui::sys::optics_ui_icon_id
 /// [`audio_output_icon`]: the transport is already decided, and an
 /// unrecognized one still reads as a microphone.
 fn audio_input_icon(kind: AudioInputKind) -> optics_ui::sys::optics_ui_icon_id {
-    use optics_ui::sys::optics_ui_icon_id;
     match kind {
-        AudioInputKind::Bluetooth => optics_ui_icon_id::OPTICS_UI_ICON_BLUETOOTH,
-        AudioInputKind::Headset => optics_ui_icon_id::OPTICS_UI_ICON_HEADPHONES,
-        AudioInputKind::BuiltIn | AudioInputKind::Usb | AudioInputKind::Other => {
-            optics_ui_icon_id::OPTICS_UI_ICON_MIC
-        }
+        AudioInputKind::Bluetooth => Glyph::Bluetooth.id(),
+        AudioInputKind::Headset => Glyph::Headphones.id(),
+        AudioInputKind::BuiltIn | AudioInputKind::Usb | AudioInputKind::Other => Glyph::Mic.id(),
     }
 }

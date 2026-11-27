@@ -4,10 +4,8 @@ use std::f32::consts::{PI, TAU};
 use std::path::Path;
 use std::time::Instant;
 
-use optics_gfx::{
-    Camera, Material, MaterialDesc, MaterialKind, SceneColorLoad, SceneLight, Target,
-};
-use optics_scene::{Bounds, Scene};
+use optics_gfx::{ColorLoad, Target};
+use tessera_scene::{Bounds, Camera, Material, MaterialDesc, MaterialKind, Scene, SceneLight};
 
 use crate::Error;
 
@@ -151,9 +149,9 @@ impl ModelLayer {
         };
 
         let pass = if let Some(target) = color_target {
-            frame.begin_image_scene_pass(target, depth, SceneColorLoad::Load)?
+            frame.begin_image_render_pass(target, depth, ColorLoad::Load)?
         } else {
-            frame.begin_scene_pass(depth, SceneColorLoad::Load)?
+            frame.begin_render_pass(depth, ColorLoad::Load)?
         };
         self.scene
             .draw(&pass, &camera, &self.material, Some(&light));

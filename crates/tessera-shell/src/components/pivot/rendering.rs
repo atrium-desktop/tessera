@@ -3,6 +3,7 @@
 //! Stateless UI projection using optics-ui Frame, typography tokens, and painted fills.
 
 use std::ffi::c_void;
+use tessera_design::icons::Glyph;
 
 use optics_ui::{Align, Color, Frame, Icon, LayoutOpts, Rect};
 use tessera_design::materials::{chrome_place, surface_layout};
@@ -94,13 +95,12 @@ pub fn panel_rect(
 /// [`Icon`] enum binds only a subset of the built-in table; `Shield` (security
 /// posture) and `X` (dismiss) misrepresent "lock session" and "power off".
 pub fn cmd_to_icon(cmd: SystemCmd) -> ItemIcon {
-    use optics_ui::sys::optics_ui_icon_id;
     match cmd {
-        SystemCmd::Lock => ItemIcon::Raw(optics_ui_icon_id::OPTICS_UI_ICON_LOCK),
-        SystemCmd::Screenshot => ItemIcon::Raw(optics_ui_icon_id::OPTICS_UI_ICON_CROP),
-        SystemCmd::Suspend => ItemIcon::Raw(optics_ui_icon_id::OPTICS_UI_ICON_MOON),
-        SystemCmd::Restart => ItemIcon::Raw(optics_ui_icon_id::OPTICS_UI_ICON_REFRESH_CW),
-        SystemCmd::PowerOff => ItemIcon::Raw(optics_ui_icon_id::OPTICS_UI_ICON_POWER),
+        SystemCmd::Lock => ItemIcon::Raw(Glyph::Lock.id()),
+        SystemCmd::Screenshot => ItemIcon::Raw(Glyph::Crop.id()),
+        SystemCmd::Suspend => ItemIcon::Raw(Glyph::Moon.id()),
+        SystemCmd::Restart => ItemIcon::Raw(Glyph::RefreshCw.id()),
+        SystemCmd::PowerOff => ItemIcon::Raw(Glyph::Power.id()),
     }
 }
 
@@ -240,7 +240,7 @@ pub fn render_pivot(
                     ..Default::default()
                 },
                 |frame| {
-                    frame.icon(Icon::Search, 22.0);
+                    frame.icon_raw(Glyph::Search.id(), 22.0);
                     if query_empty {
                         frame.label_compact_sized(&shown_placeholder, type_scale.title);
                     } else {
@@ -402,10 +402,10 @@ pub fn render_pivot(
                                         frame.icon_raw(*id, 22.0);
                                     }
                                     ItemIcon::Math => {
-                                        frame.icon(Icon::Sliders, 22.0);
+                                        frame.icon_raw(Glyph::Sliders.id(), 22.0);
                                     }
                                     ItemIcon::Agent => {
-                                        frame.icon(Icon::Zap, 22.0);
+                                        frame.icon_raw(Glyph::Zap.id(), 22.0);
                                     }
                                 }
                                 frame.column_ex(
@@ -569,7 +569,7 @@ pub fn render_icon(frame: &mut Frame, icon: Option<*mut c_void>, progress: f32) 
                 },
                 |frame| {
                     frame.centered(size, size, |frame| {
-                        frame.icon(Icon::FileText, 20.0);
+                        frame.icon_raw(Glyph::FileText.id(), 20.0);
                     });
                 },
             );

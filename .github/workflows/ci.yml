@@ -164,7 +164,7 @@ jobs:
           meson compile -C optics/build
           sudo meson install -C optics/build
           sudo ldconfig
-          pkg-config --modversion optics-gfx optics-scene optics-ui optics-svg optics-text
+          pkg-config --modversion optics-gfx optics-ui optics-text
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest

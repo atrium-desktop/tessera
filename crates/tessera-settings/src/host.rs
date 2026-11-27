@@ -7,8 +7,8 @@
 //! everything here is plain state, so it is exercised by unit tests without a
 //! compositor.
 
-use optics_ui::sys::optics_ui_icon_id;
 use optics_ui::{Align, Color, Frame, LayoutOpts, TextBuf};
+use tessera_design::icons::Glyph;
 use tessera_design::{ControlCenterColors, Design, themes};
 use tessera_desktop::settings::{SettingsAction, SettingsSnapshot};
 use tessera_i18n::{Localizer, Message};
@@ -423,7 +423,7 @@ impl SettingsHost {
                         |f| {
                             let original = f.theme();
                             f.set_theme(original.with_fg(palette.text_muted));
-                            f.icon_raw(optics_ui_icon_id::OPTICS_UI_ICON_INFO, 16.0);
+                            f.icon_raw(Glyph::Info.id(), 16.0);
                             f.label_sized(text, design.typography.footnote);
                             f.set_theme(original);
                         },
@@ -532,7 +532,7 @@ fn notice_banner(
             ..Default::default()
         },
         |f| {
-            f.icon_raw(optics_ui_icon_id::OPTICS_UI_ICON_ALERT_TRIANGLE, 18.0);
+            f.icon_raw(Glyph::AlertTriangle.id(), 18.0);
             f.column_ex(
                 &LayoutOpts {
                     flex: 1.0,
@@ -552,7 +552,7 @@ fn notice_banner(
                     );
                 },
             );
-            dismissed = f.icon_button_raw(optics_ui_icon_id::OPTICS_UI_ICON_X);
+            dismissed = f.icon_button_raw(Glyph::X.id());
         },
     );
     dismissed

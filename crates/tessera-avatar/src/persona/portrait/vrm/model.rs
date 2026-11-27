@@ -2,7 +2,7 @@
 //! portrait texture already circle-masked in its alpha channel.
 //!
 //! VRM 0.x and VRM 1.0 are both binary glTF containers, so the model loads
-//! through `optics_scene::Scene::from_glb_with_materials`, including its
+//! through `tessera_scene::Scene::from_glb_with_materials`, including its
 //! embedded base-colour textures and per-primitive alpha/culling state. VRMA
 //! motion-library clips are bound by humanoid bone identity, retargeted from
 //! their source T-pose, sampled on the CPU, and skinned on the GPU.
@@ -15,8 +15,8 @@
 
 use std::path::{Path, PathBuf};
 
-use optics_gfx::{Camera, Canvas, Format, Image, SceneColorLoad, SceneLight, Surface, Target};
-use optics_scene::{Bounds, MaterialTarget, Scene};
+use optics_gfx::{Canvas, ColorLoad, Format, Image, Surface, Target};
+use tessera_scene::{Bounds, Camera, MaterialTarget, Scene, SceneLight};
 
 #[cfg(debug_assertions)]
 use super::super::mask::circle_mask_premultiplied;
@@ -128,11 +128,11 @@ pub enum AnimationSupport {
 pub enum VrmError {
     Camera(CameraError),
     Io(PathBuf, std::io::Error),
-    Gltf(PathBuf, optics_scene::LoadError),
+    Gltf(PathBuf, tessera_scene::LoadError),
     /// The model has no measurable bounding box, so a framing camera cannot
     /// be computed. Usually an empty or corrupt glTF.
     NoBounds(PathBuf),
-    Animation(PathBuf, optics_scene::Error),
+    Animation(PathBuf, tessera_scene::Error),
     MotionDirectory(PathBuf),
     MotionFile(PathBuf),
     MotionName(PathBuf),
@@ -230,7 +230,7 @@ impl Model {
             },
             |_mime, encoded| {
                 let img = tessera_image::decode_memory(encoded).map_err(|e| e.to_string())?;
-                Ok(optics_scene::DecodedImage {
+                Ok(tessera_scene::DecodedImage {
                     width: img.width(),
                     height: img.height(),
                     rgba: img.into_raw(),
@@ -348,7 +348,7 @@ impl Model {
             .begin_frame()
             .map_err(|error| VrmError::Render(self.source_path.clone(), error))?;
         let pass = frame
-            .begin_image_scene_pass(&self.rendered, &self.depth, SceneColorLoad::Clear([0.0; 4]))
+            .begin_image_render_pass(&self.rendered, &self.depth, ColorLoad::Clear([0.0; 4]))
             .map_err(|error| VrmError::Render(self.source_path.clone(), error))?;
         let head_offset = self
             .rest_head

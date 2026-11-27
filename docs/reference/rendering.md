@@ -43,7 +43,7 @@ uploaded into every output target and presented through the target's own KMS
 slot; it is not scanned as a union swapchain. Overview, window switcher, live
 previews, soft shadows, 3D wallpaper, and workspace slides render per output.
 The union path is also the fallback when a target cannot be built. Every composite image carries a lease
-([Optics ADR-0168](https://github.com/ming2k/optics/blob/v0.0.87/docs/adr/0168-exported-dmabuf-image-leases.md): exported dma-buf image leases);
+([Optics ADR-0168](https://github.com/ming2k/optics/blob/v0.0.88/docs/adr/0168-exported-dmabuf-image-leases.md): exported dma-buf image leases);
 gfx refuses to reuse a ring slot while a target still samples or scans it.
 Outputs that must share a scene generation form a presentation group (mirrors,
 touching same-refresh outputs, and outputs touched by one spanning window).

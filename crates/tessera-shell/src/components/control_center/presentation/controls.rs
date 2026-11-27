@@ -2,6 +2,7 @@
 //! the tray row — or, below the header, one detail page.
 
 use super::*;
+use tessera_design::icons::Glyph;
 
 impl ControlCenter {
     pub(crate) fn render_controls_card(
@@ -197,7 +198,7 @@ impl ControlCenter {
                     "control-center-wifi",
                     i18n.text(Message::Wifi),
                     &wifi_sub,
-                    optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_WIFI,
+                    Glyph::Wifi.id(),
                     wifi_on,
                     (half, TILE_H),
                     hud,
@@ -217,7 +218,7 @@ impl ControlCenter {
                     "control-center-bluetooth",
                     i18n.text(Message::Bluetooth),
                     &bt_sub,
-                    optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_BLUETOOTH,
+                    Glyph::Bluetooth.id(),
                     bt_on,
                     (half, TILE_H),
                     hud,
@@ -239,7 +240,7 @@ impl ControlCenter {
                     "control-center-cast",
                     i18n.text(Message::Cast),
                     &cast_sub,
-                    optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_CAST,
+                    Glyph::Cast.id(),
                     cast_on,
                     (half, TILE_H),
                     hud,
@@ -256,9 +257,9 @@ impl ControlCenter {
                     i18n.text(Message::DoNotDisturb),
                     None,
                     if dnd_on {
-                        optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_BELL_OFF
+                        Glyph::BellOff.id()
                     } else {
-                        optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_BELL
+                        Glyph::Bell.id()
                     },
                     dnd_on,
                     (quarter, TILE_H),
@@ -280,9 +281,9 @@ impl ControlCenter {
                     i18n.text(Message::DarkMode),
                     None,
                     if dark_on {
-                        optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_MOON
+                        Glyph::Moon.id()
                     } else {
-                        optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_SUN
+                        Glyph::Sun.id()
                     },
                     dark_on,
                     (quarter, TILE_H),
@@ -382,7 +383,7 @@ impl ControlCenter {
                         f,
                         "control-center-brightness",
                         i18n.text(Message::Brightness),
-                        optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_SUN,
+                        Glyph::Sun.id(),
                         false,
                         status.brightness,
                         (1, 100),
@@ -476,8 +477,7 @@ impl ControlCenter {
                             f,
                             "control-center-kbd-backlight",
                             i18n.text(Message::Keyboard),
-                            kbd_backlight_icon()
-                                .unwrap_or(optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_KEY),
+                            kbd_backlight_icon().unwrap_or(Glyph::Key.id()),
                             false,
                             Some(level),
                             (0, 100),

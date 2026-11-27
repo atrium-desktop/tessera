@@ -1,4 +1,5 @@
 use super::*;
+use tessera_design::icons::Glyph;
 
 /// A deferred row click captured during the menu frame's column closure.
 pub(super) enum MenuRowAction {
@@ -16,11 +17,11 @@ pub(super) use crate::widgets::tiered::{Tier, TieredIndicator, TieredOutcome, ti
 
 pub(super) fn volume_icon_raw(status: &SystemStatus) -> optics_ui::sys::optics_ui_icon_id {
     if status.muted || status.volume.unwrap_or(0) == 0 {
-        optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_VOLUME_X
+        Glyph::VolumeX.id()
     } else if status.volume.unwrap_or(0) < 55 {
-        optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_VOLUME_1
+        Glyph::Volume1.id()
     } else {
-        optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_VOLUME_2
+        Glyph::Volume2.id()
     }
 }
 
@@ -31,9 +32,9 @@ pub(super) fn volume_icon_raw(status: &SystemStatus) -> optics_ui::sys::optics_u
 /// graduated glyph would imply one.
 pub(super) fn microphone_icon_raw(status: &SystemStatus) -> optics_ui::sys::optics_ui_icon_id {
     if status.microphone_muted || status.microphone_volume == Some(0) {
-        optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_MIC_OFF
+        Glyph::MicOff.id()
     } else {
-        optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_MIC
+        Glyph::Mic.id()
     }
 }
 
@@ -498,8 +499,7 @@ pub(super) fn render_kbd_backlight_tiers(
                     // The keyboard-backlight glyph (keyboard outline with three
                     // illumination rays); falls back to the built-in key icon if
                     // runtime SVG registration is unavailable.
-                    let icon = kbd_backlight_icon()
-                        .unwrap_or(optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_KEY);
+                    let icon = kbd_backlight_icon().unwrap_or(Glyph::Key.id());
                     f.icon_raw(icon, 18.0);
                     display_label(f, label, type_scale.body);
                     f.flex(1.0);

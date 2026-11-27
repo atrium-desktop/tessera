@@ -112,7 +112,7 @@ if [ -n "$optics_src" ]; then
                 -p tessera-cast
     )
 else
-    for mod in optics-gfx optics-scene optics-ui optics-svg optics-text; do
+    for mod in optics-gfx optics-ui optics-text; do
         if ! /usr/bin/pkg-config --exists "$mod" 2>/dev/null; then
             die "missing system Optics pkg-config module: $mod (install matching static Optics or place checkout at ../optics)"
         fi

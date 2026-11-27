@@ -32,7 +32,7 @@ meson setup ../optics/build ../optics \
 meson compile -C ../optics/build
 sudo meson install -C ../optics/build
 sudo ldconfig
-pkg-config --modversion optics-gfx optics-scene optics-ui optics-svg optics-text
+pkg-config --modversion optics-gfx optics-ui optics-text
 ```
 
 Every version printed by that command must be exactly `0.0.86` (the tag is

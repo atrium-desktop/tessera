@@ -6,23 +6,23 @@
 #   git config core.hooksPath .githooks
 #
 # The generated .cargo/config.toml is ignored by Git. Cargo resolves a local
-# lockfile in that worktree; the repository hook keeps the local lockfile out
-# of commits. Remove the generated file before promoting an Optics release.
+# lockfile in that worktree; the read-only repository hook refuses staged local
+# lockfiles so they never enter Git history. Remove the generated file before
+# promoting an Optics release.
 [patch."https://github.com/ming2k/optics"]
+optics-build = { path = "../optics/crates/optics-build" }
 optics-gfx = { path = "../optics/crates/optics-gfx" }
 optics-gfx-sys = { path = "../optics/crates/optics-gfx-sys" }
-optics-material = { path = "../optics/crates/optics-material" }
-optics-material-sys = { path = "../optics/crates/optics-material-sys" }
-optics-scene = { path = "../optics/crates/optics-scene" }
-optics-scene-sys = { path = "../optics/crates/optics-scene-sys" }
 optics-ui = { path = "../optics/crates/optics-ui" }
 optics-ui-sys = { path = "../optics/crates/optics-ui-sys" }
 optics-motion = { path = "../optics/crates/optics-motion" }
-optics-svg-sys = { path = "../optics/crates/optics-svg-sys" }
 
-# Override the workspace's default `static` Optics feature during local
+# Point the `-sys` build scripts explicitly at the sibling Optics checkout and
+# override the workspace's default `static` Optics feature during local
 # iteration so C and shader changes in `../optics/build` take effect via rpath
 # without relinking Rust. Pass `OPTICS_DYNAMIC=0` in the shell to verify the
 # production static link on demand.
 [env]
+OPTICS_SOURCE_DIR = { value = "../optics", relative = true }
+OPTICS_BUILD_DIR = { value = "../optics/build", relative = true }
 OPTICS_DYNAMIC = "1"

@@ -45,30 +45,31 @@ tessera-audit = { path = "crates/tessera-audit" }
 # ../optics/crates/* and sets `OPTICS_DYNAMIC=1` for fast shared-library
 # iteration; downstream packagers that prefer shared system libraries can set
 # `OPTICS_DYNAMIC=1` in the build environment.
-optics-gfx = { git = "https://github.com/ming2k/optics", tag = "v0.0.87", features = ["static"] }
-optics-gfx-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.87", features = ["static"] }
-optics-scene = { git = "https://github.com/ming2k/optics", tag = "v0.0.87", features = ["static"] }
-optics-scene-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.87", features = ["static"] }
+optics-gfx = { git = "https://github.com/ming2k/optics", tag = "v0.0.88", features = ["static"] }
+optics-gfx-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.88", features = ["static"] }
 # optics-ui (immediate-mode UI engine) is the Chrome layer above the graphics
 # canvas: layout, widget store, damage tracking, and the accessibility tree.
-optics-ui = { git = "https://github.com/ming2k/optics", tag = "v0.0.87", features = ["static"] }
-optics-ui-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.87", features = ["static"] }
-# optics-material (backdrop materials on the gfx effect runtime) draws the
-# frosted and liquid-glass chrome materials (ADR-0253). Only the compositor
-# links it, and its filters exist only while such a material is in effect.
-optics-material = { git = "https://github.com/ming2k/optics", tag = "v0.0.87", features = ["static"] }
-optics-material-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.87", features = ["static"] }
+# Since Optics v0.0.88 (Optics ADR-0174) it carries no icon pack: Tessera
+# registers its own vector glyphs per UI context (`tessera-design::icons`).
+optics-ui = { git = "https://github.com/ming2k/optics", tag = "v0.0.88", features = ["static"] }
+optics-ui-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.88", features = ["static"] }
 # optics-motion (motion vocabulary; ADR-0172, Optics ADR-0170) provides analytic
 # springs and easing; v0.0.53 adds the explicit `reduced_motion` flag to every
 # advance entry point. Header-only on the C side and pure Safe Rust here
 # (Optics ADR-0158), so there is no optics-motion-sys FFI crate and no native
 # library to discover or rpath.
-optics-motion = { git = "https://github.com/ming2k/optics", tag = "v0.0.87" }
-# optics-svg-sys (Optics ADR-0170) propagates link and rpath metadata for the
-# native `liboptics_svg` library linked internally by `optics-ui` for built-in
-# widget glyphs. Theme and application SVG assets decode through system
-# `librsvg-2.0` + `cairo` inside `tessera-assets` (ADR-0261).
-optics-svg-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.87", features = ["static"] }
+optics-motion = { git = "https://github.com/ming2k/optics", tag = "v0.0.88" }
+# optics-build is the shared Optics build-script plumbing (uninstalled-tree
+# discovery, pkg-config probing, link mode, bindgen defaults). Tessera's own
+# native crates (`tessera-material`, `tessera-scene`) use it to find the gfx
+# headers they compile against, exactly as Optics' -sys crates do.
+optics-build = { git = "https://github.com/ming2k/optics", tag = "v0.0.88" }
+# Tessera-owned native graphics built on the Optics gfx public RHI (ADR-0262).
+# Optics v0.0.88 retired its material, scene and SVG libraries (Optics
+# ADR-0174); the frosted/liquid-glass backdrop materials and the glTF/VRM
+# scene runtime moved here.
+tessera-material = { path = "crates/tessera-material", features = ["static"] }
+tessera-scene = { path = "crates/tessera-scene", features = ["static"] }
 
 # Observability: crates emit through the `log` facade; each binary installs a
 # `tracing`-based subscriber through the shared `tessera-env` crate, which

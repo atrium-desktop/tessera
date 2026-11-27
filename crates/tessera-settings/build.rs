@@ -5,10 +5,8 @@ fn main() {
     for var in [
         "DEP_OPTICS_UI_LINK_PATHS",
         "DEP_OPTICS_GFX_LINK_PATHS",
-        "DEP_OPTICS_SCENE_LINK_PATHS",
         "DEP_OPTICS_UI_RPATHS",
         "DEP_OPTICS_GFX_RPATHS",
-        "DEP_OPTICS_SCENE_RPATHS",
     ] {
         if let Ok(paths) = std::env::var(var) {
             for dir in paths.split(';').filter(|path| !path.is_empty()) {
@@ -32,11 +30,7 @@ fn main() {
         .expect("tessera-settings requires wayland-client");
 
     let mut local_rpaths = Vec::new();
-    for var in [
-        "DEP_OPTICS_UI_RPATHS",
-        "DEP_OPTICS_GFX_RPATHS",
-        "DEP_OPTICS_SCENE_RPATHS",
-    ] {
+    for var in ["DEP_OPTICS_UI_RPATHS", "DEP_OPTICS_GFX_RPATHS"] {
         if let Ok(rpaths) = std::env::var(var) {
             for dir in rpaths.split(';').filter(|path| !path.is_empty()) {
                 if !local_rpaths.iter().any(|existing| existing == dir) {

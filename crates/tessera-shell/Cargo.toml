@@ -33,7 +33,6 @@ required-features = ["persona"]
 tessera-launch-services = { workspace = true, optional = true }
 tessera-assets = { workspace = true, optional = true }
 tessera-dbus = { workspace = true, optional = true }
-optics-scene-sys.workspace = true
 tessera-authority.workspace = true
 tessera-desktop.workspace = true
 tessera-primitives.workspace = true
@@ -44,9 +43,6 @@ optics-gfx = { workspace = true }
 optics-gfx-sys = { workspace = true }
 optics-ui = { workspace = true }
 optics-ui-sys = { workspace = true }
-# Direct dep so this crate's build script receives DEP_OPTICS_SVG_RPATHS for the
-# test harness; the decoder itself lives in `tessera-assets` (ADR-0233).
-optics-svg-sys = { workspace = true }
 optics-motion = { workspace = true }
 log.workspace = true
 # statvfs for the resource probe's root-filesystem usage sample.
@@ -59,7 +55,7 @@ zeroize = { workspace = true }
 flate2 = { workspace = true }
 
 [package.metadata.cargo-machete]
-ignored = ["optics-gfx-sys", "optics-ui-sys", "optics-svg-sys", "optics-scene-sys"]
+ignored = ["optics-gfx-sys", "optics-ui-sys"]
 
 [lints]
 workspace = true

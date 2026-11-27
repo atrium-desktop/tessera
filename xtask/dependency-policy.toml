@@ -2,7 +2,7 @@
 # Review changes here alongside the owning package manifest.
 
 [tessera]
-normal = ["optics-gfx", "optics-gfx-sys", "optics-material", "optics-material-sys", "optics-ui", "optics-ui-sys", "libc", "log", "optics-svg-sys", "serde", "serde_json", "sha2", "tessera-assets", "tessera-audit", "tessera-authority", "tessera-cast", "tessera-control", "tessera-composite", "tessera-config", "tessera-dbus", "tessera-design", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-launch-services", "tessera-network", "tessera-platform", "tessera-primitives", "tessera-protocol", "tessera-shell", "tessera-wallpaper", "tessera-wayland", "optics-scene-sys", "zeroize"]
+normal = ["optics-gfx", "optics-gfx-sys", "tessera-material", "optics-ui", "optics-ui-sys", "libc", "log", "serde", "serde_json", "sha2", "tessera-assets", "tessera-audit", "tessera-authority", "tessera-cast", "tessera-control", "tessera-composite", "tessera-config", "tessera-dbus", "tessera-design", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-launch-services", "tessera-network", "tessera-platform", "tessera-primitives", "tessera-protocol", "tessera-shell", "tessera-wallpaper", "tessera-wayland", "zeroize"]
 build = []
 dev = ["flate2", "tessera-image", "tempfile", "tessera-desktop", "tessera-ipc", "tessera-protocol", "tessera-shell"]
 
@@ -27,7 +27,7 @@ build = []
 dev = []
 
 [tessera-avatar]
-normal = ["optics-gfx", "optics-gfx-sys", "tessera-image", "libc", "log", "tessera-launch-services", "optics-scene", "optics-scene-sys"]
+normal = ["optics-gfx", "optics-gfx-sys", "tessera-image", "libc", "log", "tessera-launch-services", "tessera-scene"]
 build = []
 dev = ["tempfile"]
 
@@ -62,7 +62,7 @@ dev = ["tempfile"]
 [tessera-design]
 normal = ["optics-ui", "optics-ui-sys", "tessera-desktop"]
 build = []
-dev = []
+dev = ["optics-gfx"]
 
 [tessera-desktop]
 normal = ["serde", "tessera-primitives"]
@@ -104,7 +104,7 @@ build = []
 dev = ["tempfile"]
 
 [tessera-lock]
-normal = ["ash", "optics-gfx", "optics-gfx-sys", "optics-ui", "optics-ui-sys", "libc", "log", "tessera-avatar", "tessera-config", "tessera-design", "tessera-env", "tessera-wallpaper", "tessera-wl-client", "optics-scene-sys", "wayland-client", "wayland-protocols", "zeroize"]
+normal = ["ash", "optics-gfx", "optics-gfx-sys", "optics-ui", "optics-ui-sys", "libc", "log", "tessera-avatar", "tessera-config", "tessera-design", "tessera-env", "tessera-wallpaper", "tessera-wl-client", "wayland-client", "wayland-protocols", "zeroize"]
 build = ["pkg-config"]
 dev = []
 
@@ -131,17 +131,17 @@ build = []
 dev = ["proptest"]
 
 [tessera-settings]
-normal = ["ash", "optics-gfx", "optics-gfx-sys", "optics-ui", "optics-ui-sys", "libc", "log", "tessera-design", "tessera-desktop", "tessera-env", "tessera-i18n", "tessera-ipc", "tessera-primitives", "tessera-protocol", "tessera-wl-client", "optics-scene-sys", "wayland-client", "wayland-protocols"]
+normal = ["ash", "optics-gfx", "optics-gfx-sys", "optics-ui", "optics-ui-sys", "libc", "log", "tessera-design", "tessera-desktop", "tessera-env", "tessera-i18n", "tessera-ipc", "tessera-primitives", "tessera-protocol", "tessera-wl-client", "wayland-client", "wayland-protocols"]
 build = ["pkg-config"]
 dev = []
 
 [tessera-shell]
-normal = ["optics-gfx", "optics-gfx-sys", "optics-ui", "optics-ui-sys", "libc", "log", "optics-svg-sys", "tessera-assets", "tessera-authority", "tessera-avatar", "tessera-dbus", "tessera-design", "tessera-desktop", "tessera-i18n", "tessera-launch-services", "tessera-primitives", "optics-motion", "optics-scene-sys", "zeroize"]
+normal = ["optics-gfx", "optics-gfx-sys", "optics-ui", "optics-ui-sys", "libc", "log", "tessera-assets", "tessera-authority", "tessera-avatar", "tessera-dbus", "tessera-design", "tessera-desktop", "tessera-i18n", "tessera-launch-services", "tessera-primitives", "optics-motion", "zeroize"]
 build = []
 dev = ["flate2"]
 
 [tessera-wallpaper]
-normal = ["optics-gfx", "optics-gfx-sys", "tessera-image", "log", "optics-motion", "optics-scene", "optics-scene-sys"]
+normal = ["optics-gfx", "optics-gfx-sys", "tessera-image", "log", "optics-motion", "tessera-scene"]
 build = []
 dev = ["tessera-composite"]
 
@@ -151,6 +151,17 @@ dev = ["tessera-composite"]
 normal = ["log", "serde", "serde_json", "tessera-authority", "tessera-desktop", "tessera-primitives", "tessera-wayland-protocols", "xkbcommon"]
 build = ["pkg-config"]
 dev = ["proptest", "tempfile", "tessera-test-support"]
+
+# Tessera-owned native graphics on the Optics gfx public RHI (ADR-0262).
+[tessera-material]
+normal = ["optics-gfx", "optics-gfx-sys"]
+build = ["cc", "optics-build", "pkg-config"]
+dev = []
+
+[tessera-scene]
+normal = ["optics-gfx", "optics-gfx-sys"]
+build = ["cc", "optics-build", "pkg-config"]
+dev = []
 
 [tessera-wayland-protocols]
 normal = []
@@ -168,7 +179,7 @@ dev = []
 # dependencies are optional and gated by the `native` feature so native-free CI
 # can compile the logical suites with --no-default-features.
 [tessera-tests]
-normal = ["libc", "serde_json", "tempfile", "tessera-audit", "tessera-authority", "tessera-cast", "tessera-control", "tessera-composite", "tessera-config", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-launch-services", "tessera-mcp", "tessera-primitives", "tessera-protocol", "tessera-shell", "tessera-test-support", "optics-gfx-sys", "optics-ui-sys", "optics-svg-sys", "optics-scene-sys", "tessera-dbus"]
+normal = ["libc", "serde_json", "tempfile", "tessera-audit", "tessera-authority", "tessera-cast", "tessera-control", "tessera-composite", "tessera-config", "tessera-desktop", "tessera-env", "tessera-ipc", "tessera-launch-services", "tessera-mcp", "tessera-primitives", "tessera-protocol", "tessera-shell", "tessera-test-support", "optics-gfx-sys", "optics-ui-sys", "tessera-dbus"]
 build = []
 dev = []
 

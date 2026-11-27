@@ -1,5 +1,6 @@
-use optics_ui::{Align, Frame, Icon, LayoutOpts};
+use optics_ui::{Align, Frame, LayoutOpts};
 use tessera_design::Design;
+use tessera_design::icons::Glyph;
 use tessera_desktop::settings::SettingsSnapshot;
 use tessera_i18n::{Localizer, Message};
 
@@ -46,7 +47,7 @@ impl SettingsModule for UnavailableModule {
                     ..Default::default()
                 },
                 |frame| {
-                    frame.icon(Icon::Shield, 22.0);
+                    frame.icon_raw(Glyph::Shield.id(), 22.0);
                     frame.heading(i18n.text(Message::SettingsBackendUnavailable), 3);
                 },
             );

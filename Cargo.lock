@@ -566,8 +566,8 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "optics-build"
-version = "0.0.87"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
+version = "0.0.88"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.88#7df4e27d658ecd6f856be593fd3e59ec43ed3cb2"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -575,8 +575,8 @@ dependencies = [
 
 [[package]]
 name = "optics-gfx"
-version = "0.0.87"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
+version = "0.0.88"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.88#7df4e27d658ecd6f856be593fd3e59ec43ed3cb2"
 dependencies = [
  "optics-build",
  "optics-gfx-sys",
@@ -584,69 +584,21 @@ dependencies = [
 
 [[package]]
 name = "optics-gfx-sys"
-version = "0.0.87"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
+version = "0.0.88"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.88#7df4e27d658ecd6f856be593fd3e59ec43ed3cb2"
 dependencies = [
  "optics-build",
-]
-
-[[package]]
-name = "optics-material"
-version = "0.0.87"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
-dependencies = [
- "optics-build",
- "optics-gfx",
- "optics-gfx-sys",
- "optics-material-sys",
-]
-
-[[package]]
-name = "optics-material-sys"
-version = "0.0.87"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
-dependencies = [
- "optics-build",
- "optics-gfx-sys",
 ]
 
 [[package]]
 name = "optics-motion"
-version = "0.0.87"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
-
-[[package]]
-name = "optics-scene"
-version = "0.0.87"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
-dependencies = [
- "optics-build",
- "optics-gfx",
- "optics-scene-sys",
-]
-
-[[package]]
-name = "optics-scene-sys"
-version = "0.0.87"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
-dependencies = [
- "optics-build",
- "optics-gfx-sys",
-]
-
-[[package]]
-name = "optics-svg-sys"
-version = "0.0.87"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
-dependencies = [
- "optics-build",
- "optics-gfx-sys",
-]
+version = "0.0.88"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.88#7df4e27d658ecd6f856be593fd3e59ec43ed3cb2"
 
 [[package]]
 name = "optics-ui"
-version = "0.0.87"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
+version = "0.0.88"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.88#7df4e27d658ecd6f856be593fd3e59ec43ed3cb2"
 dependencies = [
  "optics-build",
  "optics-gfx",
@@ -655,8 +607,8 @@ dependencies = [
 
 [[package]]
 name = "optics-ui-sys"
-version = "0.0.87"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.87#d7ff7b798781cb116f8aa9716ff08a65dd216eef"
+version = "0.0.88"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.88#7df4e27d658ecd6f856be593fd3e59ec43ed3cb2"
 dependencies = [
  "optics-build",
  "optics-gfx-sys",
@@ -968,10 +920,6 @@ dependencies = [
  "log",
  "optics-gfx",
  "optics-gfx-sys",
- "optics-material",
- "optics-material-sys",
- "optics-scene-sys",
- "optics-svg-sys",
  "optics-ui",
  "optics-ui-sys",
  "serde",
@@ -992,6 +940,7 @@ dependencies = [
  "tessera-image",
  "tessera-ipc",
  "tessera-launch-services",
+ "tessera-material",
  "tessera-network",
  "tessera-platform",
  "tessera-primitives",
@@ -1038,11 +987,10 @@ dependencies = [
  "log",
  "optics-gfx",
  "optics-gfx-sys",
- "optics-scene",
- "optics-scene-sys",
  "tempfile",
  "tessera-image",
  "tessera-launch-services",
+ "tessera-scene",
 ]
 
 [[package]]
@@ -1116,6 +1064,7 @@ dependencies = [
 name = "tessera-design"
 version = "0.0.104"
 dependencies = [
+ "optics-gfx",
  "optics-ui",
  "optics-ui-sys",
  "tessera-desktop",
@@ -1203,7 +1152,6 @@ dependencies = [
  "log",
  "optics-gfx",
  "optics-gfx-sys",
- "optics-scene-sys",
  "optics-ui",
  "optics-ui-sys",
  "pkg-config",
@@ -1216,6 +1164,17 @@ dependencies = [
  "wayland-client",
  "wayland-protocols",
  "zeroize",
+]
+
+[[package]]
+name = "tessera-material"
+version = "0.0.104"
+dependencies = [
+ "cc",
+ "optics-build",
+ "optics-gfx",
+ "optics-gfx-sys",
+ "pkg-config",
 ]
 
 [[package]]
@@ -1301,6 +1260,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tessera-scene"
+version = "0.0.104"
+dependencies = [
+ "cc",
+ "optics-build",
+ "optics-gfx",
+ "optics-gfx-sys",
+ "pkg-config",
+]
+
+[[package]]
 name = "tessera-settings"
 version = "0.0.104"
 dependencies = [
@@ -1309,7 +1279,6 @@ dependencies = [
  "log",
  "optics-gfx",
  "optics-gfx-sys",
- "optics-scene-sys",
  "optics-ui",
  "optics-ui-sys",
  "pkg-config",
@@ -1335,8 +1304,6 @@ dependencies = [
  "optics-gfx",
  "optics-gfx-sys",
  "optics-motion",
- "optics-scene-sys",
- "optics-svg-sys",
  "optics-ui",
  "optics-ui-sys",
  "tessera-assets",
@@ -1364,8 +1331,6 @@ version = "0.0.104"
 dependencies = [
  "libc",
  "optics-gfx-sys",
- "optics-scene-sys",
- "optics-svg-sys",
  "optics-ui-sys",
  "serde_json",
  "tempfile",
@@ -1395,10 +1360,9 @@ dependencies = [
  "optics-gfx",
  "optics-gfx-sys",
  "optics-motion",
- "optics-scene",
- "optics-scene-sys",
  "tessera-composite",
  "tessera-image",
+ "tessera-scene",
 ]
 
 [[package]]

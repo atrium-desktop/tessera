@@ -5,6 +5,7 @@
 //! is or is not castable. Chrome never infers a session from a `connected` flag.
 
 use super::*;
+use tessera_design::icons::Glyph;
 
 impl ControlCenter {
     /// Expanded Cast detail view.
@@ -101,7 +102,7 @@ impl ControlCenter {
                                         f.flex(1.0);
                                         f.spacer(0.0);
                                         f.icon_raw(
-                                            optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_REFRESH_CW,
+                                            Glyph::RefreshCw.id(),
                                             16.0,
                                         );
                                         f.flex(1.0);
@@ -227,7 +228,7 @@ impl ControlCenter {
                                                         themes::hud(&hud).with_fg(hud.accent),
                                                     );
                                                     f.icon_raw(
-                                                        optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_MONITOR,
+                                                        Glyph::Monitor.id(),
                                                         20.0,
                                                     );
                                                     f.set_theme(
@@ -344,7 +345,7 @@ impl ControlCenter {
                                             },
                                             |f| {
                                                 f.icon_raw(
-                                                    optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_REFRESH_CW,
+                                                    Glyph::RefreshCw.id(),
                                                     16.0,
                                                 );
                                                 f.set_theme(
@@ -372,7 +373,7 @@ impl ControlCenter {
                                             },
                                             |f| {
                                                 f.icon_raw(
-                                                    optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_MONITOR,
+                                                    Glyph::Monitor.id(),
                                                     24.0,
                                                 );
                                                 f.set_theme(themes::hud(&hud).with_fg(hud.text));
@@ -411,7 +412,7 @@ impl ControlCenter {
                                                         themes::hud(&hud).with_fg(hud.text),
                                                     );
                                                     f.icon_raw(
-                                                        optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_MONITOR,
+                                                        Glyph::Monitor.id(),
                                                         20.0,
                                                     );
                                                     f.column_ex(
@@ -525,7 +526,7 @@ impl ControlCenter {
                                         },
                                         |f| {
                                             f.icon_raw(
-                                                optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_MONITOR,
+                                                Glyph::Monitor.id(),
                                                 18.0,
                                             );
                                             f.column_ex(

@@ -1,5 +1,6 @@
 use optics_ui::{Align, Frame, LayoutOpts};
 use tessera_design::Design;
+use tessera_design::icons::Glyph;
 use tessera_desktop::settings::IdleSettings;
 use tessera_desktop::settings::SettingsAction;
 use tessera_desktop::settings::SettingsSnapshot;
@@ -151,7 +152,7 @@ impl SettingsModule for PowerModule {
         ModuleMetadata {
             id: POWER_MODULE_ID,
             title: Message::PowerManagement,
-            icon: optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_BATTERY_CHARGING,
+            icon: Glyph::BatteryCharging.id(),
             category: ModuleCategory::System,
             keywords: &[
                 "power", "idle", "lock", "screen", "display", "sleep", "suspend",

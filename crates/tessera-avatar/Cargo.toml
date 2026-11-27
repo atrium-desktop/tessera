@@ -16,8 +16,7 @@ libc = { workspace = true }
 # GPU texture upload path shared with the compositor.
 optics-gfx = { workspace = true }
 optics-gfx-sys = { workspace = true, optional = true }
-optics-scene = { workspace = true, optional = true }
-optics-scene-sys = { workspace = true, optional = true }
+tessera-scene = { workspace = true, optional = true }
 tessera-image = { workspace = true, optional = true }
 log.workspace = true
 
@@ -27,13 +26,12 @@ default = []
 # available without this feature.
 persona = [
     "dep:optics-gfx-sys",
-    "dep:optics-scene",
-    "dep:optics-scene-sys",
+    "dep:tessera-scene",
     "dep:tessera-image",
 ]
 
 [package.metadata.cargo-machete]
-ignored = ["optics-scene-sys", "optics-gfx-sys"]
+ignored = ["optics-gfx-sys"]
 
 [dev-dependencies]
 tempfile = { workspace = true }

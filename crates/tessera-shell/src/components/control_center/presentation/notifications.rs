@@ -1,6 +1,7 @@
 //! The notifications card: the wall clock over the notification list.
 
 use super::*;
+use tessera_design::icons::Glyph;
 
 /// Locale wall-clock strings: `("21:47", "Saturday, June 21")`.
 pub(crate) use crate::clock::clock_strings;
@@ -103,10 +104,7 @@ impl ControlCenter {
                                 |f| {
                                     f.flex(1.0);
                                     f.spacer(0.0);
-                                    f.icon_raw(
-                                        optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_BELL_OFF,
-                                        16.0,
-                                    );
+                                    f.icon_raw(Glyph::BellOff.id(), 16.0);
                                     display_label(
                                         f,
                                         i18n.text(Message::NoNotifications),
@@ -189,7 +187,7 @@ fn notification_card(
         },
         |f, _| {
             f.set_theme(muted);
-            f.icon_raw(optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_BELL, 16.0);
+            f.icon_raw(Glyph::Bell.id(), 16.0);
             f.column_ex(
                 &LayoutOpts {
                     flex: 1.0,

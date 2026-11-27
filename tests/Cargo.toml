@@ -21,8 +21,6 @@ native = [
     "dep:tessera-shell",
     "dep:optics-gfx-sys",
     "dep:optics-ui-sys",
-    "dep:optics-svg-sys",
-    "dep:optics-scene-sys",
     "dep:tessera-dbus",
     "dep:tessera-cast",
 ]
@@ -56,8 +54,6 @@ tessera-shell = { workspace = true, optional = true, default-features = false, f
 # local Optics rpaths that the test harnesses must re-emit (see `build.rs`).
 optics-gfx-sys = { workspace = true, optional = true }
 optics-ui-sys = { workspace = true, optional = true }
-optics-svg-sys = { workspace = true, optional = true }
-optics-scene-sys = { workspace = true, optional = true }
 tessera-dbus = { workspace = true, optional = true }
 
 [[test]]
@@ -71,13 +67,7 @@ path = "e2e/main.rs"
 [package.metadata.cargo-machete]
 # Native rpath metadata for the test harnesses, plus the shared test
 # infrastructure that only `tests/common/mod.rs` re-exports.
-ignored = [
-    "optics-gfx-sys",
-    "optics-ui-sys",
-    "optics-svg-sys",
-    "optics-scene-sys",
-    "tessera-test-support",
-]
+ignored = ["optics-gfx-sys", "optics-ui-sys", "tessera-test-support"]
 
 [lints]
 workspace = true

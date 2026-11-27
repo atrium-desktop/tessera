@@ -1,6 +1,6 @@
 //! The built-in module set, in stable sidebar order.
 
-use optics_ui::sys::optics_ui_icon_id;
+use tessera_design::icons::Glyph;
 use tessera_i18n::Message;
 
 use crate::module::{
@@ -24,7 +24,7 @@ pub fn builtin_modules() -> ModuleRegistry {
         ModuleMetadata {
             id: ModuleId::new("users"),
             title: Message::UserAccounts,
-            icon: optics_ui_icon_id::OPTICS_UI_ICON_USERS,
+            icon: Glyph::Users.id(),
             category: ModuleCategory::System,
             keywords: &["users", "accounts", "password", "avatar", "administrator"],
             apply_policy: ApplyPolicy::Explicit,
@@ -36,7 +36,7 @@ pub fn builtin_modules() -> ModuleRegistry {
         ModuleMetadata {
             id: ModuleId::new("window-rules"),
             title: Message::WindowRules,
-            icon: optics_ui_icon_id::OPTICS_UI_ICON_GRID,
+            icon: Glyph::Grid.id(),
             category: ModuleCategory::System,
             keywords: &["window", "rules", "application", "workspace", "floating"],
             apply_policy: ApplyPolicy::Explicit,
@@ -92,7 +92,7 @@ mod tests {
             ModuleMetadata {
                 id: ModuleId::new("display"),
                 title: Message::Display,
-                icon: optics_ui_icon_id::OPTICS_UI_ICON_MONITOR,
+                icon: Glyph::Monitor.id(),
                 category: ModuleCategory::Hardware,
                 keywords: &[],
                 apply_policy: ApplyPolicy::Explicit,

@@ -14,6 +14,33 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Changed
+
+- **Optics v0.0.88 (Optics ADR-0174) adopted; Tessera owns what Optics
+  retired (ADR-0262).** Optics no longer ships its material, scene or SVG
+  libraries or a bundled icon pack, so:
+  - the frosted and liquid-glass chrome filters live in the new
+    `tessera-material` crate;
+  - the glTF 2.0 / VRM scene runtime and depth-tested mesh renderer behind 3D
+    wallpapers and VRM portraits live in the new `tessera-scene` crate, rebuilt
+    on the Optics gfx public RHI (`optics_gfx_buffer`,
+    `optics_gfx_graphics_pipeline`) so released meshes and materials retire
+    safely past in-flight frames;
+  - chrome glyphs are `tessera_design::icons::Glyph`, registered on every
+    optics-ui context at creation.
+
+  Both crates compile their C statically and embed precompiled SPIR-V, so
+  building Tessera needs no shader compiler. After editing a `.slang` file,
+  run `scripts/compile-shaders.sh`; `--check` verifies the committed SPIR-V.
+
+### Removed
+
+- **Build prerequisites `optics-scene` and `optics-svg`.** Packagers need only
+  `optics-gfx`, `optics-ui` and `optics-text` from Optics v0.0.88.
+- **glTF tagged-colour (ICC/LUT) texture decoding and the analytic
+  vector-coverage scene material**, which depended on gfx internals. 8-bit
+  glTF textures are still decoded from sRGB into 16F targets.
+
 ## [0.0.104] - 2026-11-26
 
 ### Added

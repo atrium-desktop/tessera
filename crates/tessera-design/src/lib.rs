@@ -1,13 +1,14 @@
 //! Product-specific design policy for tessera chrome.
 //!
-//! This crate is deliberately data-only: it builds semantic optics-ui themes and
-//! material option values, but never receives a `Frame` or `Input`, retains UI
+//! This crate is deliberately data-only: it builds semantic optics-ui themes,
+//! material option values and the chrome glyph set ([`icons`]), but never receives a `Frame` or `Input`, retains UI
 //! state, or emits application intents. Generic UI behavior belongs in optics-ui;
 //! component behavior stays in the owning tessera chrome crate.
 
 #![forbid(unsafe_code)]
 
 pub mod colors;
+pub mod icons;
 pub mod materials;
 pub mod themes;
 pub mod tokens;
