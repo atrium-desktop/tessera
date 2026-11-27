@@ -14,6 +14,20 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.106] - 2026-11-27
+
+### Changed
+
+- **Optics v0.0.89 adopted.** Every `ming2k/optics` workspace dependency
+  (`optics-gfx`, `optics-gfx-sys`, `optics-ui`, `optics-ui-sys`,
+  `optics-motion`, `optics-build`) is re-pinned to the `v0.0.89` tag, which
+  provides the per-corner `optics_ui::CornerRadii` layout API used by the
+  in-bounds hot zones (ADR-0267). Release binaries still embed the Optics
+  archives statically.
+- **First-party crates carry the `tessera` namespace prefix (ADR-0263).**
+  `xtask package-conformity` now enforces the `tessera-<role>` package naming
+  and placement rule for every workspace package.
+
 ### Added
 
 - **Native `wp_linux_drm_syncobj_v1` explicit synchronization (ADR-0266).**

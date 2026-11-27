@@ -913,7 +913,7 @@ dependencies = [
 
 [[package]]
 name = "tessera"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "flate2",
  "libc",
@@ -953,7 +953,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-assets"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "flate2",
  "pkg-config",
@@ -962,7 +962,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-audit"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "serde",
  "tessera-protocol",
@@ -970,7 +970,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-authority"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "serde",
  "serde_json",
@@ -981,7 +981,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-avatar"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "libc",
  "log",
@@ -995,7 +995,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-cast"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "libc",
  "log",
@@ -1008,7 +1008,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-composite"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "libc",
  "log",
@@ -1022,7 +1022,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-config"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "libc",
  "serde",
@@ -1036,7 +1036,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-control"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "serde",
  "serde_json",
@@ -1055,14 +1055,14 @@ dependencies = [
 
 [[package]]
 name = "tessera-dbus"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "tessera-design"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "optics-gfx",
  "optics-ui",
@@ -1072,7 +1072,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-desktop"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "serde",
  "serde_json",
@@ -1081,7 +1081,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-env"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "libc",
  "log",
@@ -1089,7 +1089,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-i18n"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "serde",
  "toml",
@@ -1097,7 +1097,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-idle"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "libc",
  "log",
@@ -1112,14 +1112,14 @@ dependencies = [
 
 [[package]]
 name = "tessera-image"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "pkg-config",
 ]
 
 [[package]]
 name = "tessera-ipc"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "libc",
  "serde",
@@ -1134,7 +1134,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-launch-services"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "libc",
  "log",
@@ -1145,7 +1145,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-lock"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "ash",
  "libc",
@@ -1168,7 +1168,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-material"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "cc",
  "optics-build",
@@ -1179,7 +1179,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-mcp"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "serde",
  "serde_json",
@@ -1194,7 +1194,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-network"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "libc",
  "serde",
@@ -1206,7 +1206,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-network-system"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "libc",
  "log",
@@ -1220,7 +1220,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-platform"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "ash",
  "drm",
@@ -1239,7 +1239,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-primitives"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "proptest",
  "serde",
@@ -1247,7 +1247,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-protocol"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "proptest",
  "serde",
@@ -1261,7 +1261,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-scene"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "cc",
  "optics-build",
@@ -1272,7 +1272,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-settings"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "ash",
  "libc",
@@ -1296,7 +1296,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-shell"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "flate2",
  "libc",
@@ -1320,14 +1320,14 @@ dependencies = [
 
 [[package]]
 name = "tessera-test-support"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "tempfile",
 ]
 
 [[package]]
 name = "tessera-tests"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "libc",
  "optics-gfx-sys",
@@ -1354,7 +1354,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-wallpaper"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "log",
  "optics-gfx",
@@ -1367,7 +1367,7 @@ dependencies = [
 
 [[package]]
 name = "tessera-wayland"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "log",
  "pkg-config",
@@ -1385,14 +1385,14 @@ dependencies = [
 
 [[package]]
 name = "tessera-wayland-protocols"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "tessera-wl-client"
-version = "0.0.105"
+version = "0.0.106"
 dependencies = [
  "libc",
  "wayland-client",
