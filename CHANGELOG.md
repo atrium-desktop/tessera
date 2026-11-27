@@ -14,6 +14,8 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+## [0.0.105] - 2026-11-27
+
 ### Changed
 
 - **Optics v0.0.88 (Optics ADR-0174) adopted; Tessera owns what Optics
