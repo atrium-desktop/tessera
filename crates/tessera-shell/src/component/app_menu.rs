@@ -373,15 +373,16 @@ impl AppMenu {
             1.0,
             materials::popover(&design),
             |frame| {
-                frame.column_ex(
-                    &LayoutOpts {
+                frame
+                    .column()
+                    .with_opts(&LayoutOpts {
                         width: bounds.w,
                         height: bounds.h,
                         gap: 0.0,
                         pad: MENU_PAD,
                         ..Default::default()
-                    },
-                    |frame| {
+                    })
+                    .show(|frame| {
                         frame.size_next(bounds.w - MENU_PAD * 2.0, HEADER_HEIGHT);
                         frame.set_theme(themes::menu_heading(menu_theme, &design));
                         let heading = ellipsize(
@@ -390,7 +391,13 @@ impl AppMenu {
                             design.typography.label,
                             (bounds.w - MENU_PAD * 2.0).max(0.0),
                         );
-                        frame.label_compact_sized(&heading, design.typography.label);
+                        frame.label_with(
+                            &heading,
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
                         frame.set_theme(menu_theme);
                         let mut row_index = 0;
                         for (group_index, group) in groups.into_iter().enumerate() {
@@ -420,8 +427,7 @@ impl AppMenu {
                                 row_index += 1;
                             }
                         }
-                    },
-                );
+                    });
             },
         );
         frame.set_theme(original_theme);

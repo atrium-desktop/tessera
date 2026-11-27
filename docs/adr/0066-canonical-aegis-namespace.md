@@ -11,6 +11,7 @@ superseded_by: null
 - Status: Accepted
 - Date: 2026-07-28
 - Note (2026-11-25): the canonical product name is now **Tessera**. Read this record's table with the Tessera forms: product `Tessera`, binary and namespace `tessera`, environment prefix `TESSERA_`, configuration directory `$XDG_CONFIG_HOME/tessera`, runtime socket `$XDG_RUNTIME_DIR/tessera.sock`, and MCP tool prefix `mcp__tessera__*`. Realm rows apply to Interaction Domains ([ADR-0103](0103-actor-authority-and-interaction-domain-architecture.md)); the portal backend is the separate `xdg-desktop-portal-atrium` project, and the fuji skill was retired ([ADR-0113](0113-platform-ai-backend-and-agent-product-removal.md)). The no-compatibility-alias rule binds unchanged.
+- Extended by: [ADR-0263](0263-first-party-crates-carry-the-tessera-namespace-prefix.md) — Cargo package names and their directories carry the `tessera` namespace prefix.
 
 ## Context
 

@@ -231,7 +231,9 @@ impl Chrome for Dock {
             surface_progress,
             dock_material,
             |f| {
-                f.column_ex(&sized(panel_rect.w, panel_rect.h), |_| {});
+                f.column()
+                    .with_opts(&sized(panel_rect.w, panel_rect.h))
+                    .show(|_| {});
             },
         );
         f.set_opacity(1.0);
@@ -1378,7 +1380,7 @@ fn sized_fill(w: f32, h: f32, bg: Color, radius: f32) -> LayoutOpts {
         width: w,
         height: h,
         bg,
-        radius,
+        corner_radii: optics_ui::CornerRadii::uniform(radius),
         ..Default::default()
     }
 }
@@ -1399,7 +1401,7 @@ fn tile_opts() -> LayoutOpts {
         bg: Color::TRANSPARENT,
         border: Color::TRANSPARENT,
         border_width: 0.0,
-        radius: 0.0,
+        corner_radii: optics_ui::CornerRadii::uniform(0.0),
         pad: 0.0,
         cross: Align::Center,
         ..surface_layout()
@@ -1481,7 +1483,7 @@ fn render_tooltip(frame: &mut Frame, design: &Design, label: &str, rect: Rect, a
     // The bubble is one painted body: a rounded fill, a hairline, and the
     // elevation halo that lifts it off the desktop. The fade rides the optics-ui
     // opacity switch, so the halo drains with the body rather than popping.
-    material.radius = TOOLTIP_HEIGHT * 0.5;
+    material.corner_radii = optics_ui::CornerRadii::uniform(TOOLTIP_HEIGHT * 0.5);
     materials::place_floating(
         frame,
         "tessera-dock-app-name",
@@ -1491,14 +1493,22 @@ fn render_tooltip(frame: &mut Frame, design: &Design, label: &str, rect: Rect, a
         alpha,
         material,
         |frame| {
-            frame.row_ex(
-                &LayoutOpts {
+            frame
+                .row()
+                .with_opts(&LayoutOpts {
                     height: TOOLTIP_HEIGHT,
                     cross: Align::Center,
                     ..Default::default()
-                },
-                |frame| frame.label_compact_sized(&label, design.typography.label),
-            );
+                })
+                .show(|frame| {
+                    frame.label_with(
+                        &label,
+                        &optics_ui::LabelOpts {
+                            size: design.typography.label,
+                            ..Default::default()
+                        },
+                    )
+                });
         },
     );
     frame.set_theme(original);
@@ -1662,7 +1672,10 @@ fn render_live_preview_chrome(
         presentation.visibility,
         material,
         |frame| {
-            frame.column_ex(&sized(panel.w, panel.h), |_| {});
+            frame
+                .column()
+                .with_opts(&sized(panel.w, panel.h))
+                .show(|_| {});
         },
     );
 
@@ -1694,7 +1707,12 @@ fn render_live_preview_chrome(
                     card.corner_radius,
                 ),
             ),
-            |frame| frame.column_ex(&sized(outer.w, outer.h), |_| {}),
+            |frame| {
+                frame
+                    .column()
+                    .with_opts(&sized(outer.w, outer.h))
+                    .show(|_| {})
+            },
         );
 
         let label_rect = to_ui_rect(card.geometry.label);
@@ -1715,23 +1733,31 @@ fn render_live_preview_chrome(
                 label_rect,
                 LayoutOpts {
                     bg: Color::TRANSPARENT,
-                    radius: design.radii.control,
+                    corner_radii: optics_ui::CornerRadii::uniform(design.radii.control),
                     pad: 0.0,
                     cross: Align::Center,
                     ..surface_layout()
                 },
             ),
             |frame| {
-                frame.row_ex(
-                    &LayoutOpts {
+                frame
+                    .row()
+                    .with_opts(&LayoutOpts {
                         width: label_rect.w,
                         height: label_rect.h,
                         pad: 8.0,
                         cross: Align::Center,
                         ..Default::default()
-                    },
-                    |frame| frame.label_compact_sized(&label, design.typography.label),
-                );
+                    })
+                    .show(|frame| {
+                        frame.label_with(
+                            &label,
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        )
+                    });
             },
         );
 
@@ -1751,23 +1777,31 @@ fn render_live_preview_chrome(
                     pin_rect,
                     LayoutOpts {
                         bg: pin_bg,
-                        radius: pin_rect.h * 0.5,
+                        corner_radii: optics_ui::CornerRadii::uniform(pin_rect.h * 0.5),
                         pad: 0.0,
                         cross: Align::Center,
                         ..surface_layout()
                     },
                 ),
                 |frame| {
-                    frame.row_ex(
-                        &LayoutOpts {
+                    frame
+                        .row()
+                        .with_opts(&LayoutOpts {
                             width: pin_rect.w,
                             height: pin_rect.h,
                             pad: 0.0,
                             cross: Align::Center,
                             ..Default::default()
-                        },
-                        |frame| frame.label_compact_sized("▲", design.typography.caption),
-                    );
+                        })
+                        .show(|frame| {
+                            frame.label_with(
+                                "▲",
+                                &optics_ui::LabelOpts {
+                                    size: design.typography.caption,
+                                    ..Default::default()
+                                },
+                            )
+                        });
                 },
             );
         }
@@ -1779,23 +1813,31 @@ fn render_live_preview_chrome(
                     close_rect,
                     LayoutOpts {
                         bg: design.surfaces.for_role(SurfaceRole::Chip).body,
-                        radius: close_rect.h * 0.5,
+                        corner_radii: optics_ui::CornerRadii::uniform(close_rect.h * 0.5),
                         pad: 0.0,
                         cross: Align::Center,
                         ..surface_layout()
                     },
                 ),
                 |frame| {
-                    frame.row_ex(
-                        &LayoutOpts {
+                    frame
+                        .row()
+                        .with_opts(&LayoutOpts {
                             width: close_rect.w,
                             height: close_rect.h,
                             pad: 0.0,
                             cross: Align::Center,
                             ..Default::default()
-                        },
-                        |frame| frame.label_compact_sized("×", design.typography.caption),
-                    );
+                        })
+                        .show(|frame| {
+                            frame.label_with(
+                                "×",
+                                &optics_ui::LabelOpts {
+                                    size: design.typography.caption,
+                                    ..Default::default()
+                                },
+                            )
+                        });
                 },
             );
         }
@@ -2353,7 +2395,7 @@ impl Dock {
                         bg: dock_colors.launchpad_tile_bg,
                         border: dock_colors.launchpad_tile_border,
                         border_width: 1.0,
-                        radius: s * 0.22,
+                        corner_radii: optics_ui::CornerRadii::uniform(s * 0.22),
                         pad: s * 0.2,
                         cross: Align::Center,
                         ..surface_layout()
@@ -2371,19 +2413,18 @@ impl Dock {
                     let cells_visible = d * self.scale >= 1.0;
                     f.place(&icon_id, &chrome_place(rect, bg), |f| {
                         if cells_visible {
-                            f.column_ex(&grid(gap), |f| {
+                            f.column().with_opts(&grid(gap)).show(|f| {
                                 for _ in 0..3 {
-                                    f.row_ex(&grid(gap), |f| {
+                                    f.row().with_opts(&grid(gap)).show(|f| {
                                         for _ in 0..3 {
-                                            f.column_ex(
-                                                &sized_fill(
+                                            f.column()
+                                                .with_opts(&sized_fill(
                                                     d,
                                                     d,
                                                     dock_colors.launchpad_grid,
                                                     d * 0.3,
-                                                ),
-                                                |_| {},
-                                            );
+                                                ))
+                                                .show(|_| {});
                                         }
                                     });
                                 }
@@ -2398,7 +2439,7 @@ impl Dock {
                             Some(ptr) => unsafe {
                                 f.image(ptr as *mut optics_ui::sys::optics_gfx_image, s, s)
                             },
-                            None => f.icon_raw(Glyph::FileText.id(), s * 0.6),
+                            None => f.icon(Glyph::FileText.id(), s * 0.6),
                         }
                     });
                 }
@@ -2451,10 +2492,9 @@ impl Dock {
                     };
                     let dot_id = format!("tessera-dock-dot-{}", t.key);
                     f.place(&dot_id, &chrome_place(dot_rect, tile_opts()), |f| {
-                        f.column_ex(
-                            &sized_fill(dot_rect.w, dot_rect.h, color, dot_thick * 0.5),
-                            |_| {},
-                        );
+                        f.column()
+                            .with_opts(&sized_fill(dot_rect.w, dot_rect.h, color, dot_thick * 0.5))
+                            .show(|_| {});
                     });
                 }
             }
@@ -2490,8 +2530,8 @@ impl Dock {
                 "tessera-dock-section-divider",
                 &chrome_place(divider_rect, surface_layout()),
                 |f| {
-                    f.column_ex(
-                        &sized_fill(
+                    f.column()
+                        .with_opts(&sized_fill(
                             divider_rect.w,
                             divider_rect.h,
                             dock_colors.section_divider,
@@ -2499,9 +2539,8 @@ impl Dock {
                             // and any radius at or below 0.5 falls back to the
                             // same sharp rect path in optics-ui anyway.
                             0.0,
-                        ),
-                        |_| {},
-                    );
+                        ))
+                        .show(|_| {});
                 },
             );
         }

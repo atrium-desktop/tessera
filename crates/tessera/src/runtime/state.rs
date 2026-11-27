@@ -154,6 +154,127 @@ pub(super) struct PendingDisplayRevert {
     pub(super) deadline: std::time::Instant,
 }
 
+/// Per-output retained completion fences (ADR-0265).
+///
+/// Replaces the single global `last_composited_fence` so presenting or entering
+/// direct scanout on one output never clobbers another output's retained
+/// completion fence on multi-output systems with independent pacing (ADR-0249).
+#[derive(Debug, Default)]
+pub(super) struct RetainedOutputFences {
+    by_output: std::collections::BTreeMap<String, tessera_platform::sync::CompletionFence>,
+    unscoped: tessera_platform::sync::CompletionFence,
+}
+
+impl RetainedOutputFences {
+    pub(super) fn clear(&mut self) {
+        self.by_output.clear();
+        self.unscoped = tessera_platform::sync::CompletionFence::Signaled;
+    }
+
+    pub(super) fn record(
+        &mut self,
+        outputs: Option<&[&str]>,
+        fence: tessera_platform::sync::CompletionFence,
+    ) {
+        let fence = fence.prune_signaled();
+        match outputs {
+            None => {
+                self.by_output.clear();
+                self.unscoped = fence;
+            }
+            Some([]) => {}
+            Some([only]) => {
+                self.by_output.insert((*only).to_owned(), fence);
+            }
+            Some([first, rest @ ..]) => {
+                let mut cloned_rest = Vec::with_capacity(rest.len());
+                let mut clone_failed = false;
+                for &connector in rest {
+                    if let Some(copy) = fence.try_clone() {
+                        cloned_rest.push((connector, copy));
+                    } else {
+                        clone_failed = true;
+                        break;
+                    }
+                }
+                if clone_failed {
+                    // Preserve the fence unscoped rather than dropping it for
+                    // sibling outputs on EMFILE.
+                    let prev = std::mem::take(&mut self.unscoped);
+                    self.unscoped = tessera_platform::sync::merge_completions([prev, fence]);
+                } else {
+                    self.by_output.insert((*first).to_owned(), fence);
+                    for (connector, copy) in cloned_rest {
+                        self.by_output.insert(connector.to_owned(), copy);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Collect and merge the live retained fences covering `connectors` (and
+    /// `unscoped` when `has_unscoped` is set or a connector has no dedicated
+    /// per-output entry). Prunes signaled entries along the way.
+    pub(super) fn completion_for_idle(
+        &mut self,
+        has_unscoped: bool,
+        connectors: &[String],
+    ) -> tessera_platform::sync::CompletionFence {
+        let unscoped = std::mem::take(&mut self.unscoped).prune_signaled();
+        let mut need_unscoped = has_unscoped;
+        let mut collected = Vec::new();
+
+        for connector in connectors {
+            if let Some(entry) = self.by_output.remove(connector) {
+                let pruned = entry.prune_signaled();
+                if let Some(copy) = pruned.try_clone() {
+                    collected.push(copy);
+                    if !pruned.is_signaled() {
+                        self.by_output.insert(connector.clone(), pruned);
+                    }
+                } else {
+                    collected.push(pruned);
+                }
+            } else {
+                need_unscoped = true;
+            }
+        }
+
+        if has_unscoped {
+            let keys: Vec<String> = self.by_output.keys().cloned().collect();
+            for key in keys {
+                if connectors.contains(&key) {
+                    continue;
+                }
+                if let Some(entry) = self.by_output.remove(&key) {
+                    let pruned = entry.prune_signaled();
+                    if let Some(copy) = pruned.try_clone() {
+                        collected.push(copy);
+                        if !pruned.is_signaled() {
+                            self.by_output.insert(key, pruned);
+                        }
+                    } else {
+                        collected.push(pruned);
+                    }
+                }
+            }
+        }
+
+        if need_unscoped {
+            if let Some(copy) = unscoped.try_clone() {
+                collected.push(copy);
+                self.unscoped = unscoped;
+            } else {
+                collected.push(unscoped);
+            }
+        } else {
+            self.unscoped = unscoped;
+        }
+
+        tessera_platform::sync::merge_completions(collected)
+    }
+}
+
 /// Owns the mutable composition state used by the compositor event loop.
 ///
 /// Startup builds this value once, after which event-loop phases borrow only
@@ -237,12 +358,9 @@ pub(super) struct CompositorRuntime<'engine> {
     pub(super) wallpaper: Option<wallpaper::Wallpaper>,
     pub(super) clear: u32,
     pub(super) frame_count: u64,
-    /// Most recent GPU/KMS completion sync_file for a composited DRM frame.
-    /// Used when a client retires a DMA-BUF on a subsequent `NoDamage` frame
-    /// (e.g. offscreen or overwritten commit) so retired buffers release
-    /// immediately with an accurate fence instead of stalling (ADR-0250,
-    /// `[INV-ARCH-159]`).
-    pub(super) last_composited_fence: Option<std::os::fd::OwnedFd>,
+    /// Per-output retained GPU/KMS completion fences for `NoDamage` fast-exit
+    /// retired-buffer release (ADR-0250, ADR-0264, ADR-0265, `[INV-ARCH-159]`).
+    pub(super) retained_output_fences: RetainedOutputFences,
     /// Content owner of the primary plane after the last successful present.
     /// Failed submissions never advance this state.
     pub(super) primary_plane_state: PrimaryPlaneState,

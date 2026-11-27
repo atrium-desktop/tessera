@@ -262,18 +262,17 @@ impl SettingsHost {
         let compact = size.0 < COMPACT_BREAKPOINT;
         let sidebar_w = if compact { RAIL_W } else { SIDEBAR_W };
         f.set_theme(themes::application(&design));
-        f.row_ex(
-            &LayoutOpts {
+        f.row()
+            .with_opts(&LayoutOpts {
                 width: size.0.max(1.0),
                 height: size.1.max(1.0),
                 bg: design.colors.application_surface,
                 ..Default::default()
-            },
-            |f| {
+            })
+            .show(|f| {
                 self.render_sidebar(f, (sidebar_w, size.1), compact, &palette, i18n);
                 self.render_page(f, (size.0 - sidebar_w, size.1), &palette, i18n);
-            },
-        );
+            });
     }
 
     fn render_sidebar(
@@ -286,8 +285,8 @@ impl SettingsHost {
     ) {
         let design = self.design;
         let mut picked: Option<ModuleId> = None;
-        f.column_ex(
-            &LayoutOpts {
+        f.column()
+            .with_opts(&LayoutOpts {
                 width: size.0,
                 height: size.1.max(1.0),
                 pad: if compact { 8.0 } else { 12.0 },
@@ -295,14 +294,20 @@ impl SettingsHost {
                 bg: palette.surface_recessed,
                 cross: Align::Stretch,
                 ..Default::default()
-            },
-            |f| {
+            })
+            .show(|f| {
                 if !compact {
-                    let submitted = f.textfield_placeholder(
-                        SEARCH_FIELD_LABEL,
-                        &mut self.search,
-                        i18n.text(Message::SearchSettings),
-                    ) && f.response().submitted;
+                    let submitted = f
+                        .textedit(
+                            SEARCH_FIELD_LABEL,
+                            &mut self.search,
+                            &optics_ui::TextEditOpts {
+                                placeholder: Some(i18n.text(Message::SearchSettings)),
+                                ..Default::default()
+                            },
+                        )
+                        .changed
+                        && f.response().submitted;
                     if submitted {
                         self.activate_first_result(i18n);
                     }
@@ -330,18 +335,22 @@ impl SettingsHost {
                 self.focus_search = false;
                 let visible = self.visible_modules(i18n);
                 f.scroll("settings-sidebar-scroll", |f| {
-                    f.column_ex(
-                        &LayoutOpts {
+                    f.column()
+                        .with_opts(&LayoutOpts {
                             gap: 2.0,
                             cross: Align::Stretch,
                             ..Default::default()
-                        },
-                        |f| {
+                        })
+                        .show(|f| {
                             if visible.is_empty() {
-                                f.label_wrapped_sized(
+                                f.label_with(
                                     i18n.text(Message::NoMatchingSettings),
-                                    design.typography.footnote,
-                                    (size.0 - 24.0).max(1.0),
+                                    &optics_ui::LabelOpts {
+                                        size: design.typography.footnote,
+                                        wrap: true,
+                                        max_width: (size.0 - 24.0).max(1.0),
+                                        ..Default::default()
+                                    },
                                 );
                                 return;
                             }
@@ -358,9 +367,12 @@ impl SettingsHost {
                                     f.spacer(6.0);
                                     let original = f.theme();
                                     f.set_theme(original.with_fg(palette.text_muted));
-                                    f.label_sized(
+                                    f.label_with(
                                         i18n.text(category.title()),
-                                        design.typography.caption,
+                                        &optics_ui::LabelOpts {
+                                            size: design.typography.caption,
+                                            ..Default::default()
+                                        },
                                     );
                                     f.set_theme(original);
                                 }
@@ -378,11 +390,9 @@ impl SettingsHost {
                                     }
                                 }
                             }
-                        },
-                    );
+                        });
                 });
-            },
-        );
+            });
         if let Some(id) = picked {
             self.select(id);
         }
@@ -399,63 +409,69 @@ impl SettingsHost {
         let page_w = (size.0 - PAGE_PAD * 2.0).clamp(1.0, PAGE_MAX_W);
         let mut events = ModuleEvents::default();
         let mut dismiss_notice = false;
-        f.column_ex(
-            &LayoutOpts {
+        f.column()
+            .with_opts(&LayoutOpts {
                 width: size.0.max(1.0),
                 height: size.1.max(1.0),
                 pad: PAGE_PAD,
                 gap: 16.0,
                 cross: Align::Center,
                 ..Default::default()
-            },
-            |f| {
+            })
+            .show(|f| {
                 // Each page draws its own heading; the window adds only the
                 // link state, and only when it is not simply connected.
                 if let Some(text) = connection_text(&self.connection, i18n) {
-                    f.row_ex(
-                        &LayoutOpts {
+                    f.row()
+                        .with_opts(&LayoutOpts {
                             width: page_w,
                             height: 24.0,
                             gap: 8.0,
                             cross: Align::Center,
                             ..Default::default()
-                        },
-                        |f| {
+                        })
+                        .show(|f| {
                             let original = f.theme();
                             f.set_theme(original.with_fg(palette.text_muted));
-                            f.icon_raw(Glyph::Info.id(), 16.0);
-                            f.label_sized(text, design.typography.footnote);
+                            f.icon(Glyph::Info.id(), 16.0);
+                            f.label_with(
+                                text,
+                                &optics_ui::LabelOpts {
+                                    size: design.typography.footnote,
+                                    ..Default::default()
+                                },
+                            );
                             f.set_theme(original);
-                        },
-                    );
+                        });
                 }
                 if let Some(notice) = &self.notice {
                     dismiss_notice = notice_banner(f, notice, page_w, &design, i18n);
                 }
                 f.flex(1.0);
                 f.scroll("settings-page-scroll", |f| {
-                    f.column_ex(
-                        &LayoutOpts {
+                    f.column()
+                        .with_opts(&LayoutOpts {
                             width: page_w,
                             gap: 12.0,
                             cross: Align::Stretch,
                             ..Default::default()
-                        },
-                        |f| {
+                        })
+                        .show(|f| {
                             if self.snapshot.is_none() {
-                                f.label_sized(
+                                f.label_with(
                                     i18n.text(Message::ConnectingToDesktop),
-                                    design.typography.body,
+                                    &optics_ui::LabelOpts {
+                                        size: design.typography.body,
+                                        ..Default::default()
+                                    },
                                 );
                                 return;
                             }
                             self.modules
                                 .render(self.selected, f, i18n, &design, &mut events);
-                        },
-                    );
+                        });
                 });
-            },
-        );
+            });
         if dismiss_notice {
             self.notice = None;
         }
@@ -485,27 +501,32 @@ fn sidebar_row(
         (Color::TRANSPARENT, palette.text, palette.text_muted)
     };
     let original = f.theme();
-    let (response, _) = f.pressable_row(
-        &format!("settings-nav-{}", module.id.as_str()),
-        title,
-        &LayoutOpts {
+    let (response, _) = f
+        .row()
+        .with_opts(&LayoutOpts {
             height: SIDEBAR_ROW_H,
             pad: 10.0,
             gap: 10.0,
-            radius: design.radii.control,
+            corner_radii: optics_ui::CornerRadii::uniform(design.radii.control),
             cross: Align::Center,
             bg,
             ..Default::default()
-        },
-        |f, _| {
+        })
+        .id_label(&format!("settings-nav-{}", module.id.as_str()), title)
+        .show(|f| {
             f.set_theme(original.with_fg(icon_fg));
-            f.icon_raw(module.icon, 18.0);
+            f.icon(module.icon, 18.0);
             if !compact {
                 f.set_theme(original.with_fg(fg));
-                f.label_compact_sized(title, design.typography.body);
+                f.label_with(
+                    title,
+                    &optics_ui::LabelOpts {
+                        size: design.typography.body,
+                        ..Default::default()
+                    },
+                );
             }
-        },
-    );
+        });
     f.set_theme(original);
     response.clicked && !selected
 }
@@ -519,42 +540,47 @@ fn notice_banner(
     i18n: &Localizer,
 ) -> bool {
     let mut dismissed = false;
-    f.row_ex(
-        &LayoutOpts {
+    f.row()
+        .with_opts(&LayoutOpts {
             width,
             pad: 12.0,
             gap: 10.0,
             cross: Align::Center,
-            radius: design.radii.card,
+            corner_radii: optics_ui::CornerRadii::uniform(design.radii.card),
             bg: Color::rgba(255, 159, 10, 40),
             border: Color::rgba(255, 159, 10, 120),
             border_width: design.strokes.hairline,
             ..Default::default()
-        },
-        |f| {
-            f.icon_raw(Glyph::AlertTriangle.id(), 18.0);
-            f.column_ex(
-                &LayoutOpts {
+        })
+        .show(|f| {
+            f.icon(Glyph::AlertTriangle.id(), 18.0);
+            f.column()
+                .with_opts(&LayoutOpts {
                     flex: 1.0,
                     gap: 2.0,
                     ..Default::default()
-                },
-                |f| {
-                    f.label_compact_weighted(
+                })
+                .show(|f| {
+                    f.label_with(
                         i18n.text(Message::SettingsChangeRejected),
-                        design.typography.label,
-                        600.0,
+                        &optics_ui::LabelOpts {
+                            size: design.typography.label,
+                            weight: 600.0,
+                            ..Default::default()
+                        },
                     );
-                    f.label_wrapped_sized(
+                    f.label_with(
                         &notice.detail,
-                        design.typography.footnote,
-                        (width - 96.0).max(1.0),
+                        &optics_ui::LabelOpts {
+                            size: design.typography.footnote,
+                            wrap: true,
+                            max_width: (width - 96.0).max(1.0),
+                            ..Default::default()
+                        },
                     );
-                },
-            );
-            dismissed = f.icon_button_raw(Glyph::X.id());
-        },
-    );
+                });
+            dismissed = f.icon_button(Glyph::X.id(), false);
+        });
     dismissed
 }
 

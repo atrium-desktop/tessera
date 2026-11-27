@@ -29,7 +29,7 @@ impl CompositorRuntime<'_> {
                 // screenshot across a target-availability boundary.
                 self.refuse_suspended_frame();
                 self.primary_plane_state.invalidate();
-                self.last_composited_fence = None;
+                self.retained_output_fences.clear();
                 self.vblank_wait_groups.clear();
                 // The hardware cursor plane is blanked when outputs go away;
                 // drop the sprite baseline so the next commit reprograms it.
@@ -45,7 +45,7 @@ impl CompositorRuntime<'_> {
                 // must still invalidate that older input epoch.
                 self.refuse_suspended_frame();
                 self.primary_plane_state.invalidate();
-                self.last_composited_fence = None;
+                self.retained_output_fences.clear();
                 self.vblank_wait_groups.clear();
                 self.damage.reset_cursor_baseline();
                 self.invalidate_input_epoch();
@@ -58,7 +58,7 @@ impl CompositorRuntime<'_> {
                 // suspend, so its presentation-side sprite baseline is void
                 // and the first cursor commit must not be skipped.
                 self.damage.force_full_redraw = true;
-                self.last_composited_fence = None;
+                self.retained_output_fences.clear();
                 self.vblank_wait_groups.clear();
                 // The display content did not survive the VT round-trip. gfx
                 // must not let an image epoch claim otherwise.

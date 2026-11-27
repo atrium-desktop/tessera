@@ -404,7 +404,8 @@ fn draw_image_rect(
                     w: 0.0,
                     h: 0.0,
                 },
-                clip_radius: 0.0,
+                clip_radii: optics_gfx::CornerRadii::ZERO.to_raw(),
+                clip_curvature: 0.0,
             },
         },
     };

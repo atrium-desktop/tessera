@@ -30,18 +30,30 @@ pub(crate) fn section_heading_layout() -> LayoutOpts {
 /// page's shape does not depend on the hardware, and the value reads as
 /// unavailable instead of disappearing.
 pub(crate) fn unavailable_row(frame: &mut Frame, label: &str, i18n: &Localizer, design: &Design) {
-    frame.row_ex(
-        &LayoutOpts {
+    frame
+        .row()
+        .with_opts(&LayoutOpts {
             height: 26.0,
             gap: 8.0,
             cross: Align::Center,
             ..Default::default()
-        },
-        |frame| {
-            frame.label_sized(label, design.typography.label);
+        })
+        .show(|frame| {
+            frame.label_with(
+                label,
+                &optics_ui::LabelOpts {
+                    size: design.typography.label,
+                    ..Default::default()
+                },
+            );
             frame.flex(1.0);
             frame.spacer(0.0);
-            frame.label_sized(i18n.text(Message::Unavailable), design.typography.footnote);
-        },
-    );
+            frame.label_with(
+                i18n.text(Message::Unavailable),
+                &optics_ui::LabelOpts {
+                    size: design.typography.footnote,
+                    ..Default::default()
+                },
+            );
+        });
 }

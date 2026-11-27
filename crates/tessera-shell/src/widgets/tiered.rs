@@ -188,57 +188,54 @@ pub fn tiered_control(
     f.stack().width(size.0).height(size.1).show(|f| {
         // 1. Recessed well: the control's own track, one step below the card
         //    surface.
-        f.row_ex(
-            &LayoutOpts {
+        f.row()
+            .with_opts(&LayoutOpts {
                 width: size.0,
                 height: size.1,
-                radius: size.1 * 0.5,
+                corner_radii: optics_ui::CornerRadii::uniform(size.1 * 0.5),
                 bg: hud.surface_recessed,
                 border: hud.border,
                 border_width: 1.0,
                 ..Default::default()
-            },
-            |_| {},
-        );
+            })
+            .show(|_| {});
 
         // 2. Sliding highlight, pushed to its spring position by a leading
         //    spacer inside a full-width row.
-        f.row_ex(
-            &LayoutOpts {
+        f.row()
+            .with_opts(&LayoutOpts {
                 width: size.0,
                 height: size.1,
                 cross: Align::Center,
                 ..Default::default()
-            },
-            |f| {
+            })
+            .show(|f| {
                 f.spacer(INSET + spring_pos * seg_w);
-                f.row_ex(
-                    &LayoutOpts {
+                f.row()
+                    .with_opts(&LayoutOpts {
                         width: seg_w,
                         height: inner_h,
-                        radius: inner_h * 0.5,
+                        corner_radii: optics_ui::CornerRadii::uniform(inner_h * 0.5),
                         bg: hud.selection_surface,
                         border: hud.accent.with_alpha(80),
                         border_width: 1.0,
                         ..Default::default()
-                    },
-                    |_| {},
-                );
-            },
-        );
+                    })
+                    .show(|_| {});
+            });
 
         // 3. Hit areas, laid out across the inner width; they sit above the
         //    highlight in the stack so every segment stays reachable, including
         //    the one the highlight covers.
-        f.row_ex(
-            &LayoutOpts {
+        f.row()
+            .with_opts(&LayoutOpts {
                 width: size.0,
                 height: size.1,
                 pad: INSET,
                 cross: Align::Center,
                 ..Default::default()
-            },
-            |f| {
+            })
+            .show(|f| {
                 for (index, tier) in tiers.iter().enumerate() {
                     let is_active = index == active;
                     let fg = if !tier.enabled {
@@ -249,23 +246,29 @@ pub fn tiered_control(
                         hud.text_muted
                     };
                     f.set_theme(themes::hud(&hud).with_fg(fg));
-                    let (response, _) = f.pressable_row(
-                        &format!("{id}-seg-{index}"),
-                        &tier.label,
-                        &LayoutOpts {
+                    let (response, _) = f
+                        .row()
+                        .with_opts(&LayoutOpts {
                             width: seg_w,
                             height: inner_h,
                             cross: Align::Center,
-                            radius: inner_h * 0.5,
+                            corner_radii: optics_ui::CornerRadii::uniform(inner_h * 0.5),
                             bg: Color::TRANSPARENT,
                             ..Default::default()
-                        },
-                        |f, _| {
+                        })
+                        .id_label(&format!("{id}-seg-{index}"), &tier.label)
+                        .show(|f| {
                             f.centered(seg_w, inner_h, |f| {
-                                f.label_compact_weighted(&tier.label, label_size, DISPLAY_WEIGHT);
+                                f.label_with(
+                                    &tier.label,
+                                    &optics_ui::LabelOpts {
+                                        size: label_size,
+                                        weight: DISPLAY_WEIGHT,
+                                        ..Default::default()
+                                    },
+                                );
                             });
-                        },
-                    );
+                        });
                     // `pressed` is reported only by the segment that captured
                     // the press, and stays true for the whole hold — so any
                     // pressed segment means a drag is in flight.
@@ -279,8 +282,7 @@ pub fn tiered_control(
                         selected = Some(index);
                     }
                 }
-            },
-        );
+            });
     });
 
     outcome.clicked = selected;

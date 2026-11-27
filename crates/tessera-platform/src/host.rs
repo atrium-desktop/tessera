@@ -9,6 +9,7 @@ use std::time::Duration;
 use crate::Backend;
 use crate::drm::{DrmBackend, DrmError};
 use crate::nested::{DEVICE_EXTENSIONS, INSTANCE_EXTENSIONS, NestedError, NestedHost};
+use crate::sync::CompletionFence;
 use tessera_desktop::output::ModeSpec;
 use tessera_primitives::Size;
 use tessera_primitives::input::InputConfig;
@@ -365,7 +366,7 @@ impl Host {
         surface: &optics_gfx::Surface,
         frame: optics_gfx::SubmittedFrame<'_>,
         damage: Option<&[tessera_primitives::Rect]>,
-    ) -> Result<Option<OwnedFd>, HostError> {
+    ) -> Result<CompletionFence, HostError> {
         match self {
             Self::Nested(host) => {
                 // The outer compositor owns scanout and does its own damage
@@ -379,7 +380,7 @@ impl Host {
                     host.cancel_frame_callback();
                     return Err(error.into());
                 }
-                Ok(None)
+                Ok(CompletionFence::Signaled)
             }
             Self::Drm(host) => Ok(host.present(surface, frame, damage)?),
         }
@@ -395,7 +396,7 @@ impl Host {
         surface: &optics_gfx::Surface,
         frame: optics_gfx::SubmittedFrame<'_>,
         damage: Option<&[tessera_primitives::Rect]>,
-    ) -> Result<Option<OwnedFd>, HostError> {
+    ) -> Result<CompletionFence, HostError> {
         match self {
             Self::Nested(host) => {
                 let _ = damage;
@@ -404,7 +405,7 @@ impl Host {
                     host.cancel_frame_callback();
                     return Err(error.into());
                 }
-                Ok(None)
+                Ok(CompletionFence::Signaled)
             }
             Self::Drm(host) => Ok(host.compose_only(surface, frame)?),
         }
@@ -419,7 +420,7 @@ impl Host {
         frame: optics_gfx::SubmittedFrame<'_>,
         damage: Option<&[tessera_primitives::Rect]>,
         targets: &[&str],
-    ) -> Result<Option<OwnedFd>, HostError> {
+    ) -> Result<CompletionFence, HostError> {
         match self {
             Self::Nested(host) => {
                 let _ = targets;
@@ -428,7 +429,7 @@ impl Host {
                     host.cancel_frame_callback();
                     return Err(error.into());
                 }
-                Ok(None)
+                Ok(CompletionFence::Signaled)
             }
             Self::Drm(host) => Ok(host.present_to(surface, frame, damage, targets)?),
         }
@@ -443,7 +444,7 @@ impl Host {
         frame: optics_gfx::SubmittedFrame<'_>,
         damage: Option<&[tessera_primitives::Rect]>,
         overlay: OverlayLayer<'_>,
-    ) -> Result<Option<OwnedFd>, HostError> {
+    ) -> Result<CompletionFence, HostError> {
         match self {
             Self::Nested(_) => Err(HostError::Drm(DrmError::ScanoutUnsupported)),
             Self::Drm(host) => Ok(host.present_with_overlay(surface, frame, damage, overlay)?),
@@ -483,7 +484,7 @@ impl Host {
         &mut self,
         exported: optics_gfx::ExportedDmabuf,
         target: &str,
-    ) -> Result<Option<OwnedFd>, HostError> {
+    ) -> Result<CompletionFence, HostError> {
         match self {
             Self::Nested(_) => Err(HostError::Drm(DrmError::ScanoutUnsupported)),
             Self::Drm(host) => Ok(host.present_render_target(exported, target)?),
@@ -493,14 +494,38 @@ impl Host {
     /// Present a coherent group of mode-sized compositor targets in one
     /// atomic commit. All CRTCs in the group flip together; groups remain
     /// independent of one another. Returns KMS `OUT_FENCE_PTR` when reclaiming
-    /// a direct-scanned client plane (ADR-0250, `[INV-ARCH-159]`).
+    /// a direct-scanned client plane (ADR-0250, ADR-0264, `[INV-ARCH-159]`).
     pub fn present_render_targets(
         &mut self,
         targets: Vec<RenderTargetCommit>,
-    ) -> Result<Option<OwnedFd>, HostError> {
+    ) -> Result<CompletionFence, HostError> {
+        self.present_render_targets_with_overlay(targets, None)
+    }
+
+    /// Present a coherent group of mode-sized compositor targets in one
+    /// atomic commit, optionally programming a KMS overlay plane on one of the
+    /// committed outputs (ADR-0268).
+    pub fn present_render_targets_with_overlay(
+        &mut self,
+        targets: Vec<RenderTargetCommit>,
+        overlay: Option<OverlayLayer<'_>>,
+    ) -> Result<CompletionFence, HostError> {
         match self {
             Self::Nested(_) => Err(HostError::Drm(DrmError::ScanoutUnsupported)),
-            Self::Drm(host) => Ok(host.present_render_targets(targets)?),
+            Self::Drm(host) => Ok(host.present_render_targets_with_overlay(targets, overlay)?),
+        }
+    }
+
+    /// Steady-state zero-GPU overlay buffer swap (ADR-0268). Replaces only the
+    /// active KMS overlay plane's framebuffer without touching Primary or
+    /// acquiring a Vulkan frame.
+    pub fn present_overlay_only(
+        &mut self,
+        overlay: OverlayLayer<'_>,
+    ) -> Result<CompletionFence, HostError> {
+        match self {
+            Self::Nested(_) => Err(HostError::Drm(DrmError::ScanoutUnsupported)),
+            Self::Drm(host) => Ok(host.present_overlay_only(overlay)?),
         }
     }
 
@@ -523,7 +548,7 @@ impl Host {
         candidate: &tessera_primitives::SurfaceDmabuf,
         target: &str,
         damage: Option<&[tessera_primitives::Rect]>,
-    ) -> Result<Option<OwnedFd>, HostError> {
+    ) -> Result<CompletionFence, HostError> {
         match self {
             Self::Nested(_) => Err(HostError::Drm(DrmError::ScanoutUnsupported)),
             Self::Drm(host) => Ok(host.present_scanout(candidate, target, damage)?),

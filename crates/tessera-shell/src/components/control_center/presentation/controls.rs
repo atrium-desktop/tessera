@@ -16,7 +16,7 @@ impl ControlCenter {
         let hud = self.panel_colors();
         let design = self.design;
         let body = LayoutOpts {
-            radius: design.radii.panel_lg,
+            corner_radii: optics_ui::CornerRadii::uniform(design.radii.panel_lg),
             ..materials::canvas_panel(&hud)
         };
         materials::place_floating(
@@ -28,7 +28,7 @@ impl ControlCenter {
             1.0,
             body,
             |f| {
-                f.column_ex(&sized(rect.w, rect.h), |_| {});
+                f.column().with_opts(&sized(rect.w, rect.h)).show(|_| {});
             },
         );
 
@@ -112,32 +112,33 @@ impl ControlCenter {
             "control-center-main",
             &chrome_place(content, transparent()),
             |f| {
-                f.column_ex(&sized(content.w, content.h), |f| {
-                    f.flex(1.0);
-                    f.scroll("control-center-main-scroll", |f| {
-                        f.column_ex(
-                            &LayoutOpts {
-                                width: column_w,
-                                gap: layout::SECTION_GAP,
-                                cross: Align::Stretch,
-                                ..Default::default()
-                            },
-                            |f| {
-                                self.render_toggle_grid(f, column_w, i18n, out);
-                                self.render_faders(f, column_w, hud, type_scale, i18n, out);
-                                if self.media_visible() {
-                                    self.render_bento_media_card(
-                                        f,
-                                        (column_w, MEDIA_H),
-                                        hud,
-                                        type_scale,
-                                        i18n,
-                                    );
-                                }
-                            },
-                        );
+                f.column()
+                    .with_opts(&sized(content.w, content.h))
+                    .show(|f| {
+                        f.flex(1.0);
+                        f.scroll("control-center-main-scroll", |f| {
+                            f.column()
+                                .with_opts(&LayoutOpts {
+                                    width: column_w,
+                                    gap: layout::SECTION_GAP,
+                                    cross: Align::Stretch,
+                                    ..Default::default()
+                                })
+                                .show(|f| {
+                                    self.render_toggle_grid(f, column_w, i18n, out);
+                                    self.render_faders(f, column_w, hud, type_scale, i18n, out);
+                                    if self.media_visible() {
+                                        self.render_bento_media_card(
+                                            f,
+                                            (column_w, MEDIA_H),
+                                            hud,
+                                            type_scale,
+                                            i18n,
+                                        );
+                                    }
+                                });
+                        });
                     });
-                });
             },
         );
         f.place(
@@ -338,14 +339,14 @@ impl ControlCenter {
         let status = self.status.clone();
         let disclosure = Self::audio_output_disclosure_visible(&status);
         let mut open_sound = false;
-        f.column_ex(
-            &LayoutOpts {
+        f.column()
+            .with_opts(&LayoutOpts {
                 width,
                 gap: TILE_GAP,
                 cross: Align::Stretch,
                 ..Default::default()
-            },
-            |f| {
+            })
+            .show(|f| {
                 if status.volume.is_some() {
                     let sound = render_horizontal_fader(
                         f,
@@ -493,8 +494,7 @@ impl ControlCenter {
                         }
                     }
                 }
-            },
-        );
+            });
         if open_sound {
             self.show_page(Page::Sound, out);
         }

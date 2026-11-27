@@ -159,6 +159,18 @@ impl Server {
                     data,
                     extensions::explicit_sync_bind,
                 );
+                state.syncobj_device =
+                    extensions::SyncobjDevice::open_for_device(state.dmabuf_main_device);
+                if state.syncobj_device.is_some() {
+                    log::info!("wayland: wp_linux_drm_syncobj_v1 enabled (DRM timeline syncobj)");
+                    ffi::wl_global_create(
+                        display,
+                        &ffi::wp_linux_drm_syncobj_manager_v1_interface,
+                        1,
+                        data,
+                        extensions::drm_syncobj_manager_bind,
+                    );
+                }
             }
             ffi::wl_global_create(
                 display,

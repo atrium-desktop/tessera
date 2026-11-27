@@ -106,14 +106,20 @@ pub fn render_action_button(
             rect,
             LayoutOpts {
                 bg,
-                radius: design.radii.control,
+                corner_radii: optics_ui::CornerRadii::uniform(design.radii.control),
                 pad: 0.0,
                 ..materials::surface_layout()
             },
         ),
         |frame| {
             frame.centered(rect.w, rect.h, |frame| {
-                frame.label_compact_sized(label, design.typography.body);
+                frame.label_with(
+                    label,
+                    &optics_ui::LabelOpts {
+                        size: design.typography.body,
+                        ..Default::default()
+                    },
+                );
             });
         },
     );

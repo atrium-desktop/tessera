@@ -215,8 +215,14 @@ impl Chrome for SecretPrompt {
             "tessera-secret-prompt-title",
             &materials::chrome_place(layout.title, materials::transparent()),
             |frame| {
-                frame.row_ex(&stretch(layout.title), |frame| {
-                    frame.label_sized(&title, design.typography.headline);
+                frame.row().with_opts(&stretch(layout.title)).show(|frame| {
+                    frame.label_with(
+                        &title,
+                        &optics_ui::LabelOpts {
+                            size: design.typography.headline,
+                            ..Default::default()
+                        },
+                    );
                 });
             },
         );
@@ -232,8 +238,14 @@ impl Chrome for SecretPrompt {
                 "tessera-secret-prompt-reason",
                 &materials::chrome_place(reason_rect, materials::transparent()),
                 |frame| {
-                    frame.row_ex(&stretch(reason_rect), |frame| {
-                        frame.label_compact_sized(&reason, design.typography.label);
+                    frame.row().with_opts(&stretch(reason_rect)).show(|frame| {
+                        frame.label_with(
+                            &reason,
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
                     });
                 },
             );
@@ -252,24 +264,30 @@ impl Chrome for SecretPrompt {
                     bg: design.colors.card_surface,
                     border: design.colors.application_border,
                     border_width: design.strokes.hairline,
-                    radius: design.radii.control,
+                    corner_radii: optics_ui::CornerRadii::uniform(design.radii.control),
                     pad: 0.0,
                     ..materials::surface_layout()
                 },
             ),
             |frame| {
-                frame.row_ex(
-                    &LayoutOpts {
+                frame
+                    .row()
+                    .with_opts(&LayoutOpts {
                         width: layout.field.w,
                         height: layout.field.h,
                         cross: Align::Center,
                         ..Default::default()
-                    },
-                    |frame| {
+                    })
+                    .show(|frame| {
                         frame.spacer(12.0);
-                        frame.label_compact_sized(&masked, design.typography.body);
-                    },
-                );
+                        frame.label_with(
+                            &masked,
+                            &optics_ui::LabelOpts {
+                                size: design.typography.body,
+                                ..Default::default()
+                            },
+                        );
+                    });
             },
         );
         frame.place(
@@ -535,7 +553,7 @@ mod tests {
         assert_eq!(body.radius, design.radii.panel_lg);
         // The veil dims the whole output so the panel is the only live surface.
         let veil = materials::modal_scrim(&design, 1.0);
-        assert_eq!(veil.radius, 0.0);
+        assert_eq!(veil.corner_radii.tl, 0.0);
         assert!(veil.bg.components().3 > 0);
         let layout =
             PromptLayout::for_display(display, prompt.modal_reserved, prompt.reason.is_some());

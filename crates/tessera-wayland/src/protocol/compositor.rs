@@ -320,17 +320,28 @@ unsafe fn retire_surface_buffer(rec: *mut SurfaceRec) {
         let buffer = std::mem::replace(&mut (*rec).current_buffer, std::ptr::null_mut());
         let explicit_release =
             std::mem::replace(&mut (*rec).current_explicit_release, std::ptr::null_mut());
-        let presented = std::mem::replace(&mut (*rec).current_buffer_presented, false);
-        if buffer.is_null() && explicit_release.is_null() {
+        let mut syncobj_release = (*rec).current_syncobj_release.take();
+        let presented_outputs = std::mem::take(&mut (*rec).current_buffer_presented_outputs);
+        let presented_all = std::mem::replace(&mut (*rec).current_buffer_presented_all, false);
+        if buffer.is_null() && explicit_release.is_null() && syncobj_release.is_none() {
             return;
         }
+        let presented = presented_all || !presented_outputs.is_empty();
         match buffer_retirement(presented) {
             BufferRetirement::Defer => {
+                let pending_outputs = if presented_all {
+                    PendingReleaseOutputs::All
+                } else {
+                    PendingReleaseOutputs::Outputs(presented_outputs)
+                };
                 (*(*rec).state)
                     .retired_buffer_releases
                     .push(RetiredBufferRelease {
                         buffer,
                         explicit_release,
+                        syncobj_release,
+                        pending_outputs,
+                        collected_fences: Vec::new(),
                     });
             }
             BufferRetirement::ReleaseNow => {
@@ -347,6 +358,9 @@ unsafe fn retire_surface_buffer(rec: *mut SurfaceRec) {
                         ffi::ZWP_LINUX_BUFFER_RELEASE_V1_IMMEDIATE_RELEASE,
                     );
                     ffi::wl_resource_destroy(explicit_release);
+                }
+                if let Some(ref mut release) = syncobj_release {
+                    release.signal(None);
                 }
             }
         }
@@ -1176,6 +1190,9 @@ pub(crate) unsafe extern "C" fn surface_commit(
         if !extensions::explicit_sync_surface_committed(rec, buffer_set, buffer) {
             return;
         }
+        if !extensions::drm_syncobj_surface_committed(rec, buffer_set, buffer) {
+            return;
+        }
         if buffer_set
             && !buffer.is_null()
             && !(*rec).xdg_surface.is_null()
@@ -1689,6 +1706,7 @@ unsafe extern "C" fn surface_resource_destroy(resource: *mut ffi::wl_resource) {
         extensions::session_lock_surface_destroyed(rec);
         extensions::idle_inhibit_surface_destroyed(rec);
         extensions::explicit_sync_surface_destroyed(rec);
+        extensions::drm_syncobj_surface_destroyed(rec);
         extensions::input_popup_surface_destroyed(rec);
         extensions::xdg_foreign_surface_destroyed(rec, (*rec).state);
         // No frame can carry this surface any more; finish its outstanding
@@ -1700,6 +1718,7 @@ unsafe extern "C" fn surface_resource_destroy(resource: *mut ffi::wl_resource) {
             libc_close((*rec).committed_acquire_fence);
             (*rec).committed_acquire_fence = -1;
         }
+        (*rec).committed_syncobj_acquire = None;
         if !(*rec).committed_explicit_release.is_null() {
             let release =
                 std::mem::replace(&mut (*rec).committed_explicit_release, std::ptr::null_mut());
@@ -1708,6 +1727,9 @@ unsafe extern "C" fn surface_resource_destroy(resource: *mut ffi::wl_resource) {
                 ffi::ZWP_LINUX_BUFFER_RELEASE_V1_IMMEDIATE_RELEASE,
             );
             ffi::wl_resource_destroy(release);
+        }
+        if let Some(mut release) = (*rec).committed_syncobj_release.take() {
+            release.signal(None);
         }
         // Drop the toplevel from its workspace (ADR-0025). Idempotent: a no-op
         // for surfaces that never mapped or had no toplevel role. Run before the
@@ -2127,14 +2149,17 @@ unsafe fn apply_committed_buffer(
                     && let Some(owned) = (*db).duplicate()
                 {
                     retire_surface_buffer(rec);
-                    let mut owned = owned;
+                    let owned = owned;
                     if (*rec).committed_acquire_fence >= 0 {
-                        if owned.acquire_fence >= 0 {
-                            libc_close(owned.acquire_fence);
+                        let prev = owned
+                            .acquire_fence
+                            .replace(std::mem::replace(&mut (*rec).committed_acquire_fence, -1));
+                        if prev >= 0 {
+                            libc_close(prev);
                         }
-                        owned.acquire_fence =
-                            std::mem::replace(&mut (*rec).committed_acquire_fence, -1);
                     }
+                    *owned.pending_syncobj_acquire.borrow_mut() =
+                        (*rec).committed_syncobj_acquire.take();
                     (*rec).width = owned.width;
                     (*rec).height = owned.height;
                     (*rec).dmabuf = Some(owned);
@@ -2151,7 +2176,9 @@ unsafe fn apply_committed_buffer(
                         &mut (*rec).committed_explicit_release,
                         std::ptr::null_mut(),
                     );
-                    (*rec).current_buffer_presented = false;
+                    (*rec).current_syncobj_release = (*rec).committed_syncobj_release.take();
+                    (*rec).current_buffer_presented_outputs.clear();
+                    (*rec).current_buffer_presented_all = false;
                 }
                 (*rec).pending_buffer = std::ptr::null_mut();
             } else {

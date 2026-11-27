@@ -434,7 +434,8 @@ fn window_shadows_are_materialized_before_they_are_composited() {
                     w: 0.0,
                     h: 0.0,
                 },
-                clip_radius: 0.0,
+                clip_radii: optics_gfx::CornerRadii::ZERO.to_raw(),
+                clip_curvature: 0.0,
             },
         },
     };

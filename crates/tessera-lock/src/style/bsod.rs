@@ -90,7 +90,15 @@ impl StylePainter for BsodPainter {
                 },
                 aligned_layer(Align::Start),
             ),
-            |ui| ui.label_compact_sized(copy.face, layout.face_size),
+            |ui| {
+                ui.label_with(
+                    copy.face,
+                    &optics_ui::LabelOpts {
+                        size: layout.face_size,
+                        ..Default::default()
+                    },
+                )
+            },
         );
 
         // Headline lines rendered with natural, tight line-height.
@@ -108,7 +116,15 @@ impl StylePainter for BsodPainter {
                     },
                     aligned_layer(Align::Start),
                 ),
-                |ui| ui.label_compact_sized(line, layout.headline_size),
+                |ui| {
+                    ui.label_with(
+                        line,
+                        &optics_ui::LabelOpts {
+                            size: layout.headline_size,
+                            ..Default::default()
+                        },
+                    )
+                },
             );
         }
 
@@ -132,7 +148,13 @@ impl StylePainter for BsodPainter {
                 aligned_layer(Align::Start),
             ),
             |ui| {
-                ui.label_compact_sized(&counter_line(counter, frame.state), layout.counter_size);
+                ui.label_with(
+                    &counter_line(counter, frame.state),
+                    &optics_ui::LabelOpts {
+                        size: layout.counter_size,
+                        ..Default::default()
+                    },
+                );
             },
         );
 
@@ -158,7 +180,15 @@ impl StylePainter for BsodPainter {
                     },
                     aligned_layer(Align::Start),
                 ),
-                |ui| ui.label_compact_sized(line, layout.support_size),
+                |ui| {
+                    ui.label_with(
+                        line,
+                        &optics_ui::LabelOpts {
+                            size: layout.support_size,
+                            ..Default::default()
+                        },
+                    )
+                },
             );
         }
     }

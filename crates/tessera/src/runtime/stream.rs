@@ -31,7 +31,6 @@
 //! state), security gating against the capture worker, the IPC delivery
 //! lane, and the capture-worker fan-out.
 
-use std::os::fd::OwnedFd;
 use std::time::{Duration, Instant};
 
 use super::*;
@@ -592,16 +591,32 @@ impl CompositorRuntime<'_> {
     /// advanced while the tracking here did not, so continuing could
     /// overwrite a consumer-owned slot. Window streams render their own
     /// tree into their capture surface (ADR-0127) and are not driven here.
-    pub(super) fn blit_dmabuf_stream_frames(&mut self, acquire_fence: Option<&OwnedFd>) {
-        let Some(presented) = self.host.presented_dmabuf() else {
+    pub(super) fn blit_dmabuf_stream_frames(
+        &mut self,
+        fallback_fence: &tessera_platform::sync::CompletionFence,
+    ) {
+        let Some(presented_dmabuf) = self.host.presented_dmabuf() else {
             return;
         };
+        let acquire_fence = presented_dmabuf
+            .acquire_fence
+            .as_ref()
+            .or_else(|| fallback_fence.live_fd());
+        if acquire_fence.is_none()
+            && matches!(
+                fallback_fence,
+                tessera_platform::sync::CompletionFence::Unmerged(_)
+            )
+            && !fallback_fence.wait_all(Duration::from_secs(1))
+        {
+            self.device.wait_idle();
+        }
         let presented = PresentedFrameRef {
-            fd: &presented.fd,
-            width: presented.width,
-            height: presented.height,
-            stride: presented.stride,
-            modifier: presented.modifier,
+            fd: &presented_dmabuf.fd,
+            width: presented_dmabuf.width,
+            height: presented_dmabuf.height,
+            stride: presented_dmabuf.stride,
+            modifier: presented_dmabuf.modifier,
         };
         let now = Instant::now();
         let scale = output_render_scale(self.server, self.host);

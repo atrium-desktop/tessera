@@ -389,13 +389,16 @@ impl Model {
                 },
             )
             .map_err(|error| VrmError::Render(self.source_path.clone(), error))?;
-        session.draw_image_rrect(
+        // Circular (curvature 0.0) clip: the portrait atlas is a disc, not a
+        // squircle (Optics ADR-0175 unified image draws).
+        session.draw_image_with(
             &self.rendered,
-            0.0,
-            0.0,
-            ATLAS_SIZE as f32,
-            ATLAS_SIZE as f32,
-            ATLAS_SIZE as f32 * 0.5,
+            (0.0, 0.0, ATLAS_SIZE as f32, ATLAS_SIZE as f32),
+            &optics_gfx::ImageDrawOpts {
+                radii: optics_gfx::CornerRadii::uniform(ATLAS_SIZE as f32 * 0.5),
+                curvature: 0.0,
+                ..Default::default()
+            },
         );
         session
             .end()

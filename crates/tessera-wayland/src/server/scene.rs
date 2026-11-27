@@ -615,7 +615,7 @@ impl Server {
                     modifier: db.modifier,
                     offset: db.offset,
                     stride: db.stride,
-                    acquire_fence: db.acquire_fence,
+                    acquire_fence: db.resolved_acquire_fence(),
                     geometry: tessera_primitives::SurfaceGeometry {
                         position: origin,
                         transform: s.buffer_transform,
@@ -1109,7 +1109,7 @@ impl Server {
                     modifier: dmabuf.modifier,
                     offset: dmabuf.offset,
                     stride: dmabuf.stride,
-                    acquire_fence: dmabuf.acquire_fence,
+                    acquire_fence: dmabuf.resolved_acquire_fence(),
                     geometry: tessera_primitives::SurfaceGeometry {
                         position: surface_draw_origin(surface),
                         transform: surface.buffer_transform,
@@ -1320,7 +1320,7 @@ impl Server {
                     modifier: dmabuf.modifier,
                     offset: dmabuf.offset,
                     stride: dmabuf.stride,
-                    acquire_fence: dmabuf.acquire_fence,
+                    acquire_fence: dmabuf.resolved_acquire_fence(),
                     geometry: self.interaction_domain_surface_geometry(
                         surface,
                         root,
@@ -1481,7 +1481,7 @@ impl Server {
                     modifier: buffer.modifier,
                     offset: buffer.offset,
                     stride: buffer.stride,
-                    acquire_fence: buffer.acquire_fence,
+                    acquire_fence: buffer.resolved_acquire_fence(),
                     geometry: tessera_primitives::SurfaceGeometry {
                         position: surface.position,
                         transform: surface.buffer_transform,
@@ -1526,7 +1526,7 @@ impl Server {
                         modifier: buffer.modifier,
                         offset: buffer.offset,
                         stride: buffer.stride,
-                        acquire_fence: buffer.acquire_fence,
+                        acquire_fence: buffer.resolved_acquire_fence(),
                         geometry: tessera_primitives::SurfaceGeometry {
                             position: surface.position,
                             transform: surface.buffer_transform,
@@ -1715,7 +1715,7 @@ impl Server {
                     modifier: buffer.modifier,
                     offset: buffer.offset,
                     stride: buffer.stride,
-                    acquire_fence: buffer.acquire_fence,
+                    acquire_fence: buffer.resolved_acquire_fence(),
                     geometry: tessera_primitives::SurfaceGeometry {
                         position,
                         transform: surface.buffer_transform,
@@ -2023,7 +2023,7 @@ impl Server {
                 modifier: dmabuf.modifier,
                 offset: dmabuf.offset,
                 stride: dmabuf.stride,
-                acquire_fence: dmabuf.acquire_fence,
+                acquire_fence: dmabuf.resolved_acquire_fence(),
                 geometry,
                 presentation_hint: surface.presentation_hint,
             });
@@ -2253,7 +2253,7 @@ impl Server {
                 modifier: db.modifier,
                 offset: db.offset,
                 stride: db.stride,
-                acquire_fence: db.acquire_fence,
+                acquire_fence: db.resolved_acquire_fence(),
                 geometry: tessera_primitives::SurfaceGeometry {
                     position: tessera_primitives::Point {
                         x: origin.x + delta.0,
@@ -2545,7 +2545,9 @@ impl Server {
 
     /// Acknowledge only surfaces sampled on the outputs that actually flipped.
     /// Untargeted outputs keep their committed damage for the frame that does
-    /// present them.
+    /// present them. Each acknowledged surface records the concrete output
+    /// connectors that sampled its current buffer so buffer retirement tracks
+    /// per-output completion accurately (ADR-0265).
     pub fn acknowledge_presented_surface_damage_on_outputs<'a>(
         &mut self,
         sampled: impl IntoIterator<Item = &'a usize>,
@@ -2553,10 +2555,15 @@ impl Server {
         outputs: Option<&[&str]>,
     ) {
         if drew_preview_sources {
-            self.acknowledge_all_presented_surfaces();
+            self.acknowledge_all_presented_surfaces(outputs);
             return;
         }
         let scoped = outputs.is_some();
+        let all_connectors: Vec<String> = if scoped {
+            Vec::new()
+        } else {
+            self.active_presentation_connectors()
+        };
         let mut marked_any = false;
         for id in sampled {
             let resource = *id as *mut ffi::wl_resource;
@@ -2572,27 +2579,73 @@ impl Server {
                 continue;
             }
             marked_any = true;
-            Self::acknowledge_surface_presented(rec);
+            if let Some(presented) = outputs {
+                if let Some(owner) = human_output_connector_for_window(&self.state, rec.window.id)
+                    && presented.contains(&owner)
+                {
+                    let owner = owner.to_owned();
+                    Self::acknowledge_surface_presented_on(rec, &[owner.as_str()]);
+                } else {
+                    Self::acknowledge_surface_presented_on(rec, presented);
+                }
+            } else {
+                let refs: Vec<&str> = all_connectors.iter().map(String::as_str).collect();
+                Self::acknowledge_surface_presented_on(rec, &refs);
+            }
         }
         if !marked_any && !scoped {
-            self.acknowledge_all_presented_surfaces();
+            self.acknowledge_all_presented_surfaces(None);
         }
     }
 
-    fn acknowledge_all_presented_surfaces(&mut self) {
+    fn active_presentation_connectors(&self) -> Vec<String> {
+        let primary: Vec<String> = self
+            .state
+            .output_infos
+            .iter()
+            .filter(|o| o.kind.is_physical() && !o.role.is_mirror())
+            .map(|o| o.connector.clone())
+            .collect();
+        if !primary.is_empty() {
+            return primary;
+        }
+        self.state
+            .output_infos
+            .iter()
+            .map(|o| o.connector.clone())
+            .collect()
+    }
+
+    fn acknowledge_all_presented_surfaces(&mut self, outputs: Option<&[&str]>) {
+        let connectors: Vec<String> = match outputs {
+            Some(list) if !list.is_empty() => list.iter().map(|s| (*s).to_owned()).collect(),
+            _ => self.active_presentation_connectors(),
+        };
+        let refs: Vec<&str> = connectors.iter().map(String::as_str).collect();
         for &p in &self.state.surfaces {
             if p.is_null() {
                 continue;
             }
-            Self::acknowledge_surface_presented(unsafe { &mut *p });
+            Self::acknowledge_surface_presented_on(unsafe { &mut *p }, &refs);
         }
     }
 
-    fn acknowledge_surface_presented(rec: &mut SurfaceRec) {
+    fn acknowledge_surface_presented_on(rec: &mut SurfaceRec, connectors: &[&str]) {
         rec.committed_damage.clear();
         rec.committed_damage_full = false;
-        if !rec.current_buffer.is_null() || !rec.current_explicit_release.is_null() {
-            rec.current_buffer_presented = true;
+        let has_latched_buffer = !rec.current_buffer.is_null()
+            || !rec.current_explicit_release.is_null()
+            || rec.current_syncobj_release.is_some();
+        if !has_latched_buffer {
+            return;
+        }
+        if connectors.is_empty() {
+            rec.current_buffer_presented_all = true;
+        } else {
+            for connector in connectors {
+                rec.current_buffer_presented_outputs
+                    .insert((*connector).to_owned());
+            }
         }
     }
 
@@ -2600,88 +2653,313 @@ impl Server {
         !self.state.retired_buffer_releases.is_empty()
     }
 
-    /// Release replaced dma-bufs after the renderer has submitted a frame
-    /// that no longer references them. `completion_fence` is a borrowed Linux
-    /// sync_file fd for that submission; `None` means completion was already
-    /// waited on or signaled.
-    ///
-    /// Explicit-sync clients receive `fenced_release` with a duplicate of
-    /// `completion_fence`; implicit-sync `wl_buffer` releases inject the read
-    /// fence into the dma-buf's `dma_resv` via `DMA_BUF_IOCTL_IMPORT_SYNC_FILE`
-    /// (Linux 6.0+, best-effort) before posting `wl_buffer.release`, so Mesa/GPU
-    /// writers wait for the compositor's Vulkan/KMS reads without stalling the
-    /// swapchain (ADR-0250, `[INV-ARCH-159]`).
-    pub fn release_retired_buffers(&mut self, completion_fence: Option<i32>) {
-        #[repr(C)]
-        struct DmaBufImportSyncFile {
-            flags: u32,
-            fd: i32,
-        }
-        const DMA_BUF_SYNC_READ: u32 = 1;
-        // _IOW('b', 3, struct dma_buf_import_sync_file) from <linux/dma-buf.h>.
-        const DMA_BUF_IOCTL_IMPORT_SYNC_FILE: c_ulong = 0x4008_6203;
-
-        let retired = std::mem::take(&mut self.state.retired_buffer_releases);
-        let mut retry = Vec::new();
-        for release in retired {
-            let explicit_fd = if release.explicit_release.is_null() {
-                None
-            } else if let Some(fence) = completion_fence {
-                let fd = unsafe { dup(fence) };
-                if fd < 0 {
-                    retry.push(release);
-                    continue;
-                }
-                Some(fd)
-            } else {
-                None
-            };
-            unsafe {
-                if !release.buffer.is_null() {
-                    if release.explicit_release.is_null()
-                        && let Some(fence) = completion_fence
-                        && fence >= 0
-                        && ffi::wl_resource_instance_of(
-                            release.buffer,
-                            &ffi::wl_buffer_interface,
-                            &WL_BUFFER_IMPL as *const _ as *const c_void,
-                        ) != 0
-                    {
-                        let db =
-                            ffi::wl_resource_get_user_data(release.buffer) as *const DmabufBuffer;
-                        if !db.is_null() && (*db).fd >= 0 {
-                            let import = DmaBufImportSyncFile {
-                                flags: DMA_BUF_SYNC_READ,
-                                fd: fence,
-                            };
-                            let _ = ioctl(
-                                (*db).fd,
-                                DMA_BUF_IOCTL_IMPORT_SYNC_FILE,
-                                &import as *const DmaBufImportSyncFile,
-                            );
+    /// Whether any retired client buffers are waiting on `outputs` (or any
+    /// output when `outputs` is `None`).
+    pub fn retired_buffers_pending_on_outputs(&self, outputs: Option<&[&str]>) -> bool {
+        match outputs {
+            None => !self.state.retired_buffer_releases.is_empty(),
+            Some(presented) => {
+                self.state.retired_buffer_releases.iter().any(|entry| {
+                    match &entry.pending_outputs {
+                        PendingReleaseOutputs::All => true,
+                        PendingReleaseOutputs::Outputs(set) => {
+                            presented.iter().any(|connector| set.contains(*connector))
                         }
                     }
-                    ffi::wl_resource_post_event(release.buffer, ffi::WL_BUFFER_RELEASE);
-                }
-                if !release.explicit_release.is_null() {
-                    if let Some(fd) = explicit_fd {
-                        ffi::wl_resource_post_event(
-                            release.explicit_release,
-                            ffi::ZWP_LINUX_BUFFER_RELEASE_V1_FENCED_RELEASE,
-                            fd,
-                        );
-                    } else {
-                        ffi::wl_resource_post_event(
-                            release.explicit_release,
-                            ffi::ZWP_LINUX_BUFFER_RELEASE_V1_IMMEDIATE_RELEASE,
-                        );
-                    }
-                    ffi::wl_resource_destroy(release.explicit_release);
+                })
+            }
+        }
+    }
+
+    /// Snapshot which outputs still have retired buffers waiting to be
+    /// released: `(has_unscoped, connectors)`.
+    pub fn retired_buffer_pending_outputs(&self) -> (bool, Vec<String>) {
+        let mut has_unscoped = false;
+        let mut connectors = std::collections::BTreeSet::new();
+        for entry in &self.state.retired_buffer_releases {
+            match &entry.pending_outputs {
+                PendingReleaseOutputs::All => has_unscoped = true,
+                PendingReleaseOutputs::Outputs(set) => {
+                    connectors.extend(set.iter().cloned());
                 }
             }
         }
-        self.state.retired_buffer_releases.extend(retry);
-        unsafe { ffi::wl_display_flush_clients(self.state.display) };
+        (has_unscoped, connectors.into_iter().collect())
+    }
+
+    /// Release all retired dma-bufs unconditionally (unscoped / whole-desktop
+    /// presentation boundary).
+    pub fn release_retired_buffers(&mut self, completion_fence: Option<i32>) {
+        self.release_retired_buffers_on_outputs(None, completion_fence);
+    }
+
+    /// Release replaced dma-bufs whose pending output set has been satisfied by
+    /// `outputs` (or all retired buffers when `outputs` is `None`).
+    ///
+    /// Multi-output independent pacing (ADR-0249, ADR-0265):
+    /// - Retired buffers belonging exclusively to other outputs stay untouched.
+    /// - Retired buffers spanning multiple outputs accumulate a duplicate of
+    ///   `completion_fence` for the output(s) that just completed and wait
+    ///   until every remaining output also presents before releasing with the
+    ///   merged fence.
+    ///
+    /// Explicit-sync (`zwp_linux_explicit_synchronization_v1` and
+    /// `wp_linux_drm_syncobj_v1`) clients receive fenced / timeline releases;
+    /// implicit-sync `wl_buffer` releases inject the read fence via
+    /// `DMA_BUF_IOCTL_IMPORT_SYNC_FILE` (falling back to a bounded wait on the
+    /// live fence if the ioctl fails so clients never overwrite live memory)
+    /// (ADR-0250, ADR-0264, ADR-0265, ADR-0266, `[INV-ARCH-159]`).
+    pub fn release_retired_buffers_on_outputs(
+        &mut self,
+        outputs: Option<&[&str]>,
+        completion_fence: Option<i32>,
+    ) {
+        let live_completion = completion_fence.filter(|&fd| fd >= 0 && !sync_file_is_signaled(fd));
+        let all_connectors = if outputs.is_some() {
+            self.active_presentation_connectors()
+        } else {
+            Vec::new()
+        };
+
+        let retired = std::mem::take(&mut self.state.retired_buffer_releases);
+        let mut remaining = Vec::new();
+        let mut flushed_any = false;
+
+        for mut entry in retired {
+            let release_now = match outputs {
+                None => true,
+                Some(presented) => match &mut entry.pending_outputs {
+                    PendingReleaseOutputs::All => {
+                        if all_connectors.is_empty()
+                            || all_connectors
+                                .iter()
+                                .all(|c| presented.contains(&c.as_str()))
+                        {
+                            true
+                        } else {
+                            // Convert unscoped entry to the remaining outputs
+                            // that have not yet flipped.
+                            let mut rest: std::collections::BTreeSet<String> = all_connectors
+                                .iter()
+                                .filter(|c| !presented.contains(&c.as_str()))
+                                .cloned()
+                                .collect();
+                            if rest.is_empty() {
+                                true
+                            } else {
+                                accumulate_fence_for_pending(&mut entry, live_completion);
+                                entry.pending_outputs =
+                                    PendingReleaseOutputs::Outputs(std::mem::take(&mut rest));
+                                false
+                            }
+                        }
+                    }
+                    PendingReleaseOutputs::Outputs(set) => {
+                        let mut matched = false;
+                        for &connector in presented {
+                            if set.remove(connector) {
+                                matched = true;
+                            }
+                        }
+                        if !matched {
+                            false
+                        } else if set.is_empty() {
+                            true
+                        } else {
+                            accumulate_fence_for_pending(&mut entry, live_completion);
+                            false
+                        }
+                    }
+                },
+            };
+
+            if !release_now {
+                remaining.push(entry);
+                continue;
+            }
+
+            flushed_any = true;
+            dispatch_retired_buffer_release(entry, live_completion);
+        }
+
+        self.state.retired_buffer_releases = remaining;
+        if flushed_any {
+            unsafe { ffi::wl_display_flush_clients(self.state.display) };
+        }
+    }
+}
+
+fn accumulate_fence_for_pending(entry: &mut RetiredBufferRelease, live_completion: Option<i32>) {
+    let Some(fd) = live_completion else {
+        return;
+    };
+    let duplicated = unsafe { dup(fd) };
+    if duplicated >= 0 {
+        entry.collected_fences.push(duplicated);
+    } else {
+        log::warn!(
+            "wayland: dup() failed while retaining cross-output completion fence; waiting synchronously: {}",
+            std::io::Error::last_os_error()
+        );
+        let _ = wait_sync_file_fd(fd, 1_000);
+    }
+}
+
+/// Merge an entry's accumulated per-output fences with the final commit fence
+/// and post the protocol release events / timeline signal.
+fn dispatch_retired_buffer_release(mut entry: RetiredBufferRelease, final_live_fence: Option<i32>) {
+    #[repr(C)]
+    struct DmaBufImportSyncFile {
+        flags: u32,
+        fd: i32,
+    }
+    const DMA_BUF_SYNC_READ: u32 = 1;
+    // _IOW('b', 3, struct dma_buf_import_sync_file) from <linux/dma-buf.h>.
+    const DMA_BUF_IOCTL_IMPORT_SYNC_FILE: c_ulong = 0x4008_6203;
+    const _: () = assert!(std::mem::size_of::<DmaBufImportSyncFile>() == 8);
+
+    // Combine previously accumulated fences (owned) with `final_live_fence`
+    // (borrowed). If merging fails while multiple fences remain live, wait on
+    // every live fence before releasing so clients never overwrite live memory.
+    let mut owned_live: Vec<i32> = entry
+        .collected_fences
+        .drain(..)
+        .filter(|&fd| {
+            if fd < 0 {
+                false
+            } else if sync_file_is_signaled(fd) {
+                unsafe { libc_close(fd) };
+                false
+            } else {
+                true
+            }
+        })
+        .collect();
+
+    let mut owned_merged: Option<i32> = None;
+    let effective_fence: Option<i32> = if owned_live.is_empty() {
+        final_live_fence
+    } else {
+        if let Some(final_fd) = final_live_fence {
+            let duplicated = unsafe { dup(final_fd) };
+            if duplicated >= 0 {
+                owned_live.push(duplicated);
+            } else {
+                log::warn!(
+                    "wayland: dup() failed merging final release fence; waiting synchronously: {}",
+                    std::io::Error::last_os_error()
+                );
+                let _ = wait_sync_file_fd(final_fd, 1_000);
+            }
+        }
+        let mut iter = owned_live.into_iter();
+        if let Some(mut acc) = iter.next() {
+            let mut merge_ok = true;
+            while let Some(next) = iter.next() {
+                if let Some(combined) = merge_two_sync_files(acc, next) {
+                    unsafe {
+                        libc_close(acc);
+                        libc_close(next);
+                    }
+                    acc = combined;
+                } else {
+                    // Fail safe: wait on and close every remaining live fence
+                    // rather than releasing early or leaking descriptors.
+                    let _ = wait_sync_file_fd(acc, 1_000);
+                    let _ = wait_sync_file_fd(next, 1_000);
+                    unsafe {
+                        libc_close(acc);
+                        libc_close(next);
+                    }
+                    for rem in iter {
+                        let _ = wait_sync_file_fd(rem, 1_000);
+                        unsafe { libc_close(rem) };
+                    }
+                    merge_ok = false;
+                    acc = -1;
+                    break;
+                }
+            }
+            if merge_ok && acc >= 0 {
+                owned_merged = Some(acc);
+                Some(acc)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+
+    let has_explicit = !entry.explicit_release.is_null() || entry.syncobj_release.is_some();
+
+    unsafe {
+        if !entry.buffer.is_null() {
+            if !has_explicit
+                && let Some(fence) = effective_fence
+                && fence >= 0
+                && ffi::wl_resource_instance_of(
+                    entry.buffer,
+                    &ffi::wl_buffer_interface,
+                    &WL_BUFFER_IMPL as *const _ as *const c_void,
+                ) != 0
+            {
+                let db = ffi::wl_resource_get_user_data(entry.buffer) as *const DmabufBuffer;
+                if !db.is_null() && (*db).fd >= 0 {
+                    let import = DmaBufImportSyncFile {
+                        flags: DMA_BUF_SYNC_READ,
+                        fd: fence,
+                    };
+                    if ioctl(
+                        (*db).fd,
+                        DMA_BUF_IOCTL_IMPORT_SYNC_FILE,
+                        &import as *const DmaBufImportSyncFile,
+                    ) != 0
+                    {
+                        log::warn!(
+                            "wayland: DMA_BUF_IOCTL_IMPORT_SYNC_FILE failed ({}); waiting on completion fence before wl_buffer.release",
+                            std::io::Error::last_os_error()
+                        );
+                        let _ = wait_sync_file_fd(fence, 1_000);
+                    }
+                }
+            }
+            ffi::wl_resource_post_event(entry.buffer, ffi::WL_BUFFER_RELEASE);
+        }
+        if !entry.explicit_release.is_null() {
+            if let Some(fence) = effective_fence {
+                let fd = dup(fence);
+                if fd >= 0 {
+                    ffi::wl_resource_post_event(
+                        entry.explicit_release,
+                        ffi::ZWP_LINUX_BUFFER_RELEASE_V1_FENCED_RELEASE,
+                        fd,
+                    );
+                } else {
+                    log::warn!(
+                        "wayland: dup() failed for explicit fenced_release; waiting synchronously: {}",
+                        std::io::Error::last_os_error()
+                    );
+                    let _ = wait_sync_file_fd(fence, 1_000);
+                    ffi::wl_resource_post_event(
+                        entry.explicit_release,
+                        ffi::ZWP_LINUX_BUFFER_RELEASE_V1_IMMEDIATE_RELEASE,
+                    );
+                }
+            } else {
+                ffi::wl_resource_post_event(
+                    entry.explicit_release,
+                    ffi::ZWP_LINUX_BUFFER_RELEASE_V1_IMMEDIATE_RELEASE,
+                );
+            }
+            ffi::wl_resource_destroy(entry.explicit_release);
+        }
+    }
+    if let Some(ref mut syncobj_release) = entry.syncobj_release {
+        syncobj_release.signal(effective_fence);
+    }
+    if let Some(fd) = owned_merged {
+        unsafe { libc_close(fd) };
     }
 }
 

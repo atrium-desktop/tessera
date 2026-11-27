@@ -192,17 +192,25 @@ impl SettingsModule for DisplayModule {
         out: &mut ModuleEvents,
     ) {
         frame.heading(i18n.text(Message::Display), 2);
-        frame.label_wrapped_sized(
+        frame.label_with(
             i18n.text(Message::DisplayDescription),
-            design.typography.label,
-            560.0,
+            &optics_ui::LabelOpts {
+                size: design.typography.label,
+                wrap: true,
+                max_width: 560.0,
+                ..Default::default()
+            },
         );
 
         if let Some(seconds) = self.status.pending_revert_seconds {
-            frame.label_wrapped_sized(
+            frame.label_with(
                 &format!("{} {seconds}s", i18n.text(Message::DisplayRevertPending)),
-                design.typography.footnote,
-                560.0,
+                &optics_ui::LabelOpts {
+                    size: design.typography.footnote,
+                    wrap: true,
+                    max_width: 560.0,
+                    ..Default::default()
+                },
             );
             frame.size_next(160.0, 30.0);
             if frame.button(i18n.text(Message::ConfirmDisplay)) {
@@ -215,7 +223,13 @@ impl SettingsModule for DisplayModule {
                 i18n.text(Message::ExtendDesktop),
                 i18n.text(Message::MirrorDisplay),
             ];
-            frame.label_sized(i18n.text(Message::DefaultTopology), design.typography.label);
+            frame.label_with(
+                i18n.text(Message::DefaultTopology),
+                &optics_ui::LabelOpts {
+                    size: design.typography.label,
+                    ..Default::default()
+                },
+            );
             let before = self.topology_index;
             frame.dropdown(
                 "##settings-display-topology",
@@ -230,326 +244,434 @@ impl SettingsModule for DisplayModule {
         }
 
         let outputs = self.status.outputs.clone();
-        frame.column_ex(&settings_card_layout(design), |frame| {
-            if outputs.is_empty() {
-                unavailable_row(frame, i18n.text(Message::NoDisplays), i18n, design);
-                return;
-            }
-            let output_labels = outputs
-                .iter()
-                .map(|output| {
-                    format!(
-                        "{} · {} × {}",
-                        output.connector, output.geometry.mode.width, output.geometry.mode.height
-                    )
-                })
-                .collect::<Vec<_>>();
-            let output_items = output_labels.iter().map(String::as_str).collect::<Vec<_>>();
-            let before_output = self.output_index;
-            frame.label_sized(i18n.text(Message::Displays), design.typography.label);
-            frame.dropdown(
-                "##settings-display-output",
-                &mut self.output_index,
-                &output_items,
-            );
-            self.output_index = self
-                .output_index
-                .clamp(0, outputs.len().saturating_sub(1) as i32);
-            if self.output_index != before_output
-                || self.editor_connector.as_deref()
-                    != Some(outputs[self.output_index as usize].connector.as_str())
-            {
-                let connector = outputs[self.output_index as usize].connector.clone();
-                self.sync_editor(Some(&connector));
-            }
-            let output = outputs[self.output_index as usize].clone();
-
-            if !self.status.configurable {
-                frame.label_wrapped_sized(
-                    i18n.text(Message::DisplayHostManaged),
-                    design.typography.footnote,
-                    560.0,
+        frame
+            .column()
+            .with_opts(&settings_card_layout(design))
+            .show(|frame| {
+                if outputs.is_empty() {
+                    unavailable_row(frame, i18n.text(Message::NoDisplays), i18n, design);
+                    return;
+                }
+                let output_labels = outputs
+                    .iter()
+                    .map(|output| {
+                        format!(
+                            "{} · {} × {}",
+                            output.connector,
+                            output.geometry.mode.width,
+                            output.geometry.mode.height
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let output_items = output_labels.iter().map(String::as_str).collect::<Vec<_>>();
+                let before_output = self.output_index;
+                frame.label_with(
+                    i18n.text(Message::Displays),
+                    &optics_ui::LabelOpts {
+                        size: design.typography.label,
+                        ..Default::default()
+                    },
                 );
-                display_summary(frame, &output, design);
-                return;
-            }
+                frame.dropdown(
+                    "##settings-display-output",
+                    &mut self.output_index,
+                    &output_items,
+                );
+                self.output_index = self
+                    .output_index
+                    .clamp(0, outputs.len().saturating_sub(1) as i32);
+                if self.output_index != before_output
+                    || self.editor_connector.as_deref()
+                        != Some(outputs[self.output_index as usize].connector.as_str())
+                {
+                    let connector = outputs[self.output_index as usize].connector.clone();
+                    self.sync_editor(Some(&connector));
+                }
+                let output = outputs[self.output_index as usize].clone();
 
-            let can_mirror = output.kind.is_physical();
-            if can_mirror {
-                let role_labels = [
-                    i18n.text(Message::Automatic),
-                    i18n.text(Message::ExtendDesktop),
-                    i18n.text(Message::MirrorDisplay),
-                ];
-                frame.label_sized(i18n.text(Message::OutputRole), design.typography.label);
-                if frame.dropdown("##settings-display-role", &mut self.role, &role_labels) {
+                if !self.status.configurable {
+                    frame.label_with(
+                        i18n.text(Message::DisplayHostManaged),
+                        &optics_ui::LabelOpts {
+                            size: design.typography.footnote,
+                            wrap: true,
+                            max_width: 560.0,
+                            ..Default::default()
+                        },
+                    );
+                    display_summary(frame, &output, design);
+                    return;
+                }
+
+                let can_mirror = output.kind.is_physical();
+                if can_mirror {
+                    let role_labels = [
+                        i18n.text(Message::Automatic),
+                        i18n.text(Message::ExtendDesktop),
+                        i18n.text(Message::MirrorDisplay),
+                    ];
+                    frame.label_with(
+                        i18n.text(Message::OutputRole),
+                        &optics_ui::LabelOpts {
+                            size: design.typography.label,
+                            ..Default::default()
+                        },
+                    );
+                    if frame.dropdown("##settings-display-role", &mut self.role, &role_labels) {
+                        self.dirty = true;
+                    }
+                } else {
+                    self.role = ROLE_AUTO;
+                }
+                let mirroring = can_mirror && self.role == ROLE_MIRROR;
+                let automatic = self.role == ROLE_AUTO;
+                let mut mirror_source: Option<String> = None;
+                if mirroring {
+                    let candidates = outputs
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, candidate)| {
+                            candidate.connector != output.connector
+                                && candidate.kind.is_physical()
+                                && !candidate.role.is_mirror()
+                        })
+                        .map(|(index, _)| index)
+                        .collect::<Vec<_>>();
+                    if candidates.is_empty() {
+                        frame.label_with(
+                            i18n.text(Message::NoMirrorSource),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.footnote,
+                                wrap: true,
+                                max_width: 560.0,
+                                ..Default::default()
+                            },
+                        );
+                    } else {
+                        let source_labels = candidates
+                            .iter()
+                            .map(|index| {
+                                let candidate = &outputs[*index];
+                                format!(
+                                    "{} · {} × {}",
+                                    candidate.connector,
+                                    candidate.geometry.mode.width,
+                                    candidate.geometry.mode.height
+                                )
+                            })
+                            .collect::<Vec<_>>();
+                        let source_items =
+                            source_labels.iter().map(String::as_str).collect::<Vec<_>>();
+                        self.mirror_source_index = self
+                            .mirror_source_index
+                            .clamp(0, candidates.len().saturating_sub(1) as i32);
+                        frame.label_with(
+                            i18n.text(Message::MirrorSource),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
+                        if frame.dropdown(
+                            "##settings-display-mirror-source",
+                            &mut self.mirror_source_index,
+                            &source_items,
+                        ) {
+                            self.dirty = true;
+                        }
+                        mirror_source = Some(
+                            outputs[candidates[self.mirror_source_index as usize]]
+                                .connector
+                                .clone(),
+                        );
+                        frame.label_with(
+                            i18n.text(Message::MirrorFollowsSource),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.footnote,
+                                wrap: true,
+                                max_width: 560.0,
+                                ..Default::default()
+                            },
+                        );
+                    }
+                }
+
+                if automatic {
+                    frame.label_with(
+                        i18n.text(Message::FollowsAutomaticTopology),
+                        &optics_ui::LabelOpts {
+                            size: design.typography.footnote,
+                            wrap: true,
+                            max_width: 560.0,
+                            ..Default::default()
+                        },
+                    );
+                    frame.label_with(
+                        &output.role.label(),
+                        &optics_ui::LabelOpts {
+                            size: design.typography.footnote,
+                            wrap: true,
+                            max_width: 560.0,
+                            ..Default::default()
+                        },
+                    );
+                }
+
+                let modes = if output.available_modes.is_empty() {
+                    vec![output.geometry.mode]
+                } else {
+                    output.available_modes.clone()
+                };
+                let mode_labels = modes.iter().map(format_output_mode).collect::<Vec<_>>();
+                let mode_items = mode_labels.iter().map(String::as_str).collect::<Vec<_>>();
+                self.mode_index = self
+                    .mode_index
+                    .clamp(0, modes.len().saturating_sub(1) as i32);
+                frame.label_with(
+                    i18n.text(Message::ResolutionAndRefresh),
+                    &optics_ui::LabelOpts {
+                        size: design.typography.label,
+                        ..Default::default()
+                    },
+                );
+                if frame.dropdown("##settings-display-mode", &mut self.mode_index, &mode_items) {
                     self.dirty = true;
                 }
-            } else {
-                self.role = ROLE_AUTO;
-            }
-            let mirroring = can_mirror && self.role == ROLE_MIRROR;
-            let automatic = self.role == ROLE_AUTO;
-            let mut mirror_source: Option<String> = None;
-            if mirroring {
-                let candidates = outputs
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, candidate)| {
-                        candidate.connector != output.connector
-                            && candidate.kind.is_physical()
-                            && !candidate.role.is_mirror()
-                    })
-                    .map(|(index, _)| index)
-                    .collect::<Vec<_>>();
-                if candidates.is_empty() {
-                    frame.label_wrapped_sized(
-                        i18n.text(Message::NoMirrorSource),
-                        design.typography.footnote,
-                        560.0,
+                let mut selected_mode: Option<OutputMode> = Some(modes[self.mode_index as usize]);
+                let mut selected_position: Option<Point> = None;
+                if !mirroring {
+                    frame
+                        .row()
+                        .with_opts(&section_heading_layout())
+                        .show(|frame| {
+                            frame.label_with(
+                                i18n.text(Message::Scale),
+                                &optics_ui::LabelOpts {
+                                    size: design.typography.label,
+                                    ..Default::default()
+                                },
+                            );
+                            frame.flex(1.0);
+                            frame.spacer(0.0);
+                            frame.label_with(
+                                &format!("{:.0}%", self.scale * 100.0),
+                                &optics_ui::LabelOpts {
+                                    size: design.typography.label,
+                                    ..Default::default()
+                                },
+                            );
+                        });
+                    if frame.slider("##settings-display-scale", &mut self.scale, 0.25, 4.0) {
+                        self.scale = (self.scale * 4.0).round() / 4.0;
+                        self.dirty = true;
+                    }
+
+                    if self.primary {
+                        frame.label_with(
+                            i18n.text(Message::PrimaryDisplay),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
+                    } else {
+                        frame.size_next(160.0, 30.0);
+                        if frame.button(i18n.text(Message::MakePrimary)) {
+                            self.primary = true;
+                            self.dirty = true;
+                        }
+                    }
+
+                    let arrangement_labels = [
+                        i18n.text(Message::RightOfPrimary),
+                        i18n.text(Message::LeftOfPrimary),
+                        i18n.text(Message::AbovePrimary),
+                        i18n.text(Message::BelowPrimary),
+                        i18n.text(Message::CustomPosition),
+                    ];
+                    frame.label_with(
+                        i18n.text(Message::Arrangement),
+                        &optics_ui::LabelOpts {
+                            size: design.typography.label,
+                            ..Default::default()
+                        },
                     );
-                } else {
-                    let source_labels = candidates
-                        .iter()
-                        .map(|index| {
-                            let candidate = &outputs[*index];
-                            format!(
-                                "{} · {} × {}",
-                                candidate.connector,
-                                candidate.geometry.mode.width,
-                                candidate.geometry.mode.height
-                            )
-                        })
-                        .collect::<Vec<_>>();
-                    let source_items = source_labels.iter().map(String::as_str).collect::<Vec<_>>();
-                    self.mirror_source_index = self
-                        .mirror_source_index
-                        .clamp(0, candidates.len().saturating_sub(1) as i32);
-                    frame.label_sized(i18n.text(Message::MirrorSource), design.typography.label);
-                    if frame.dropdown(
-                        "##settings-display-mirror-source",
-                        &mut self.mirror_source_index,
-                        &source_items,
+                    let current_primary = outputs
+                        .first()
+                        .is_some_and(|primary| primary.connector == output.connector);
+                    if current_primary {
+                        self.layout = LAYOUT_CUSTOM;
+                        frame.label_with(
+                            i18n.text(Message::CustomPosition),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.footnote,
+                                ..Default::default()
+                            },
+                        );
+                    } else if frame.dropdown(
+                        "##settings-display-arrangement",
+                        &mut self.layout,
+                        &arrangement_labels,
                     ) {
                         self.dirty = true;
                     }
-                    mirror_source = Some(
-                        outputs[candidates[self.mirror_source_index as usize]]
-                            .connector
-                            .clone(),
-                    );
-                    frame.label_wrapped_sized(
-                        i18n.text(Message::MirrorFollowsSource),
-                        design.typography.footnote,
-                        560.0,
-                    );
-                }
-            }
-
-            if automatic {
-                frame.label_wrapped_sized(
-                    i18n.text(Message::FollowsAutomaticTopology),
-                    design.typography.footnote,
-                    560.0,
-                );
-                frame.label_wrapped_sized(&output.role.label(), design.typography.footnote, 560.0);
-            }
-
-            let modes = if output.available_modes.is_empty() {
-                vec![output.geometry.mode]
-            } else {
-                output.available_modes.clone()
-            };
-            let mode_labels = modes.iter().map(format_output_mode).collect::<Vec<_>>();
-            let mode_items = mode_labels.iter().map(String::as_str).collect::<Vec<_>>();
-            self.mode_index = self
-                .mode_index
-                .clamp(0, modes.len().saturating_sub(1) as i32);
-            frame.label_sized(
-                i18n.text(Message::ResolutionAndRefresh),
-                design.typography.label,
-            );
-            if frame.dropdown("##settings-display-mode", &mut self.mode_index, &mode_items) {
-                self.dirty = true;
-            }
-            let mut selected_mode: Option<OutputMode> = Some(modes[self.mode_index as usize]);
-            let mut selected_position: Option<Point> = None;
-            if !mirroring {
-                frame.row_ex(&section_heading_layout(), |frame| {
-                    frame.label_sized(i18n.text(Message::Scale), design.typography.label);
-                    frame.flex(1.0);
-                    frame.spacer(0.0);
-                    frame.label_sized(
-                        &format!("{:.0}%", self.scale * 100.0),
-                        design.typography.label,
-                    );
-                });
-                if frame.slider("##settings-display-scale", &mut self.scale, 0.25, 4.0) {
-                    self.scale = (self.scale * 4.0).round() / 4.0;
-                    self.dirty = true;
-                }
-
-                if self.primary {
-                    frame.label_sized(i18n.text(Message::PrimaryDisplay), design.typography.label);
-                } else {
-                    frame.size_next(160.0, 30.0);
-                    if frame.button(i18n.text(Message::MakePrimary)) {
-                        self.primary = true;
-                        self.dirty = true;
+                    if self.layout == LAYOUT_CUSTOM {
+                        frame
+                            .row()
+                            .with_opts(&LayoutOpts {
+                                gap: 10.0,
+                                cross: Align::Center,
+                                ..Default::default()
+                            })
+                            .show(|frame| {
+                                frame.flex(1.0);
+                                frame
+                                    .column()
+                                    .with_opts(&LayoutOpts {
+                                        gap: 4.0,
+                                        cross: Align::Stretch,
+                                        ..Default::default()
+                                    })
+                                    .show(|frame| {
+                                        frame.label_with(
+                                            i18n.text(Message::HorizontalPosition),
+                                            &optics_ui::LabelOpts {
+                                                size: design.typography.footnote,
+                                                ..Default::default()
+                                            },
+                                        );
+                                        let resp_x = frame.textedit(
+                                            "##settings-display-position-x",
+                                            &mut self.x,
+                                            &optics_ui::TextEditOpts {
+                                                accept_tab: true,
+                                                select_all_on_focus: true,
+                                                ..Default::default()
+                                            },
+                                        );
+                                        if resp_x.changed || resp_x.submitted {
+                                            self.dirty = true;
+                                        }
+                                    });
+                                frame.flex(1.0);
+                                frame
+                                    .column()
+                                    .with_opts(&LayoutOpts {
+                                        gap: 4.0,
+                                        cross: Align::Stretch,
+                                        ..Default::default()
+                                    })
+                                    .show(|frame| {
+                                        frame.label_with(
+                                            i18n.text(Message::VerticalPosition),
+                                            &optics_ui::LabelOpts {
+                                                size: design.typography.footnote,
+                                                ..Default::default()
+                                            },
+                                        );
+                                        let resp_y = frame.textedit(
+                                            "##settings-display-position-y",
+                                            &mut self.y,
+                                            &optics_ui::TextEditOpts {
+                                                accept_tab: true,
+                                                select_all_on_focus: true,
+                                                ..Default::default()
+                                            },
+                                        );
+                                        if resp_y.changed || resp_y.submitted {
+                                            self.dirty = true;
+                                        }
+                                    });
+                            });
                     }
-                }
 
-                let arrangement_labels = [
-                    i18n.text(Message::RightOfPrimary),
-                    i18n.text(Message::LeftOfPrimary),
-                    i18n.text(Message::AbovePrimary),
-                    i18n.text(Message::BelowPrimary),
-                    i18n.text(Message::CustomPosition),
-                ];
-                frame.label_sized(i18n.text(Message::Arrangement), design.typography.label);
-                let current_primary = outputs
-                    .first()
-                    .is_some_and(|primary| primary.connector == output.connector);
-                if current_primary {
-                    self.layout = LAYOUT_CUSTOM;
-                    frame.label_sized(
-                        i18n.text(Message::CustomPosition),
-                        design.typography.footnote,
-                    );
-                } else if frame.dropdown(
-                    "##settings-display-arrangement",
-                    &mut self.layout,
-                    &arrangement_labels,
-                ) {
-                    self.dirty = true;
+                    let mode = modes[self.mode_index as usize];
+                    let position = self.position(&output, mode);
+                    if position.is_none() {
+                        frame.label_with(
+                            i18n.text(Message::InvalidPosition),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.footnote,
+                                wrap: true,
+                                max_width: 560.0,
+                                ..Default::default()
+                            },
+                        );
+                    }
+                    selected_mode = Some(mode);
+                    selected_position = position;
                 }
-                if self.layout == LAYOUT_CUSTOM {
-                    frame.row_ex(
-                        &LayoutOpts {
-                            gap: 10.0,
-                            cross: Align::Center,
+                if let Some(error) = self.status.error.as_deref() {
+                    frame.label_with(
+                        error,
+                        &optics_ui::LabelOpts {
+                            size: design.typography.footnote,
+                            wrap: true,
+                            max_width: 560.0,
                             ..Default::default()
                         },
-                        |frame| {
-                            frame.flex(1.0);
-                            frame.column_ex(
-                                &LayoutOpts {
-                                    gap: 4.0,
-                                    cross: Align::Stretch,
-                                    ..Default::default()
-                                },
-                                |frame| {
-                                    frame.label_sized(
-                                        i18n.text(Message::HorizontalPosition),
-                                        design.typography.footnote,
-                                    );
-                                    let resp_x = frame.textfield_ex(
-                                        "##settings-display-position-x",
-                                        &mut self.x,
-                                        true,
-                                    );
-                                    if resp_x.changed || resp_x.submitted {
-                                        self.dirty = true;
-                                    }
-                                },
-                            );
-                            frame.flex(1.0);
-                            frame.column_ex(
-                                &LayoutOpts {
-                                    gap: 4.0,
-                                    cross: Align::Stretch,
-                                    ..Default::default()
-                                },
-                                |frame| {
-                                    frame.label_sized(
-                                        i18n.text(Message::VerticalPosition),
-                                        design.typography.footnote,
-                                    );
-                                    let resp_y = frame.textfield_ex(
-                                        "##settings-display-position-y",
-                                        &mut self.y,
-                                        true,
-                                    );
-                                    if resp_y.changed || resp_y.submitted {
-                                        self.dirty = true;
-                                    }
-                                },
-                            );
-                        },
                     );
                 }
-
-                let mode = modes[self.mode_index as usize];
-                let position = self.position(&output, mode);
-                if position.is_none() {
-                    frame.label_wrapped_sized(
-                        i18n.text(Message::InvalidPosition),
-                        design.typography.footnote,
-                        560.0,
-                    );
-                }
-                selected_mode = Some(mode);
-                selected_position = position;
-            }
-            if let Some(error) = self.status.error.as_deref() {
-                frame.label_wrapped_sized(error, design.typography.footnote, 560.0);
-            }
-            frame.label_wrapped_sized(
-                i18n.text(Message::DisplayApplyHint),
-                design.typography.footnote,
-                560.0,
-            );
-            frame.row_ex(
-                &LayoutOpts {
-                    height: 32.0,
-                    gap: 8.0,
-                    cross: Align::Center,
-                    ..Default::default()
-                },
-                |frame| {
-                    frame.size_next(190.0, 30.0);
-                    let apply = frame.button(i18n.text(Message::ApplyDisplaySettings));
-                    if apply && self.dirty {
-                        let settings = if mirroring {
-                            mirror_source.clone().map(|source| DisplaySettings {
-                                connector: output.connector.clone(),
-                                role: Some(OutputRole::Mirror { source }),
-                                mode: selected_mode.map(mode_spec),
-                                scale: None,
-                                position: None,
-                                primary: false,
-                                tentative: true,
-                            })
-                        } else {
-                            selected_mode
-                                .zip(selected_position)
-                                .map(|(mode, position)| DisplaySettings {
+                frame.label_with(
+                    i18n.text(Message::DisplayApplyHint),
+                    &optics_ui::LabelOpts {
+                        size: design.typography.footnote,
+                        wrap: true,
+                        max_width: 560.0,
+                        ..Default::default()
+                    },
+                );
+                frame
+                    .row()
+                    .with_opts(&LayoutOpts {
+                        height: 32.0,
+                        gap: 8.0,
+                        cross: Align::Center,
+                        ..Default::default()
+                    })
+                    .show(|frame| {
+                        frame.size_next(190.0, 30.0);
+                        let apply = frame.button(i18n.text(Message::ApplyDisplaySettings));
+                        if apply && self.dirty {
+                            let settings = if mirroring {
+                                mirror_source.clone().map(|source| DisplaySettings {
                                     connector: output.connector.clone(),
-                                    role: if automatic {
-                                        None
-                                    } else {
-                                        Some(OutputRole::Extend)
-                                    },
-                                    mode: Some(mode_spec(mode)),
-                                    scale: Some(f64::from(self.scale.clamp(0.25, 4.0))),
-                                    position: Some(position),
-                                    primary: self.primary,
+                                    role: Some(OutputRole::Mirror { source }),
+                                    mode: selected_mode.map(mode_spec),
+                                    scale: None,
+                                    position: None,
+                                    primary: false,
                                     tentative: true,
                                 })
-                        };
-                        if let Some(settings) = settings {
-                            out.actions.push(SettingsAction::SetDisplay { settings });
-                            self.dirty = false;
+                            } else {
+                                selected_mode
+                                    .zip(selected_position)
+                                    .map(|(mode, position)| DisplaySettings {
+                                        connector: output.connector.clone(),
+                                        role: if automatic {
+                                            None
+                                        } else {
+                                            Some(OutputRole::Extend)
+                                        },
+                                        mode: Some(mode_spec(mode)),
+                                        scale: Some(f64::from(self.scale.clamp(0.25, 4.0))),
+                                        position: Some(position),
+                                        primary: self.primary,
+                                        tentative: true,
+                                    })
+                            };
+                            if let Some(settings) = settings {
+                                out.actions.push(SettingsAction::SetDisplay { settings });
+                                self.dirty = false;
+                            }
                         }
-                    }
-                    frame.size_next(92.0, 30.0);
-                    if frame.button(i18n.text(Message::ResetDisplaySettings)) {
-                        let connector = output.connector.clone();
-                        self.sync_editor(Some(&connector));
-                    }
-                },
-            );
-        });
+                        frame.size_next(92.0, 30.0);
+                        if frame.button(i18n.text(Message::ResetDisplaySettings)) {
+                            let connector = output.connector.clone();
+                            self.sync_editor(Some(&connector));
+                        }
+                    });
+            });
     }
 
     fn update_settings(&mut self, snapshot: &SettingsSnapshot) {
@@ -630,18 +752,24 @@ fn format_output_mode(mode: &OutputMode) -> String {
 }
 
 fn display_summary(frame: &mut Frame, output: &OutputInfo, design: &Design) {
-    frame.label_sized(
+    frame.label_with(
         &format_output_mode(&output.geometry.mode),
-        design.typography.label,
+        &optics_ui::LabelOpts {
+            size: design.typography.label,
+            ..Default::default()
+        },
     );
-    frame.label_sized(
+    frame.label_with(
         &format!(
             "{:.0}% · ({}, {})",
             output.geometry.scale.as_f32() * 100.0,
             output.geometry.logical_origin.x,
             output.geometry.logical_origin.y
         ),
-        design.typography.footnote,
+        &optics_ui::LabelOpts {
+            size: design.typography.footnote,
+            ..Default::default()
+        },
     );
 }
 

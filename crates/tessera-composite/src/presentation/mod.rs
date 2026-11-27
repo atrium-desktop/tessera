@@ -10,8 +10,8 @@ mod stream;
 
 pub use damage::{
     AssessedFrameDamage, ClientDamage, ClientDamageTracker, DamageAssessment, FrameDamage,
-    SurfaceDamageFrame, SurfacePlacement, frame_damage_scope, logical_rects_to_frame,
-    logical_to_physical, offscreen_damage_to_target, union_frame_damage,
+    SplitClientDamage, SurfaceDamageFrame, SurfacePlacement, frame_damage_scope,
+    logical_rects_to_frame, logical_to_physical, offscreen_damage_to_target, union_frame_damage,
 };
 pub use geometry::{clamp_logical_region, crop_rgba, logical_rect_to_physical};
 pub use overlay::{

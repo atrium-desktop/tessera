@@ -245,8 +245,14 @@ impl Chrome for ConfirmPrompt {
             "tessera-confirm-prompt-title",
             &materials::chrome_place(layout.title, materials::transparent()),
             |frame| {
-                frame.row_ex(&stretch(layout.title), |frame| {
-                    frame.label_compact_sized(&title, design.typography.headline);
+                frame.row().with_opts(&stretch(layout.title)).show(|frame| {
+                    frame.label_with(
+                        &title,
+                        &optics_ui::LabelOpts {
+                            size: design.typography.headline,
+                            ..Default::default()
+                        },
+                    );
                 });
             },
         );
@@ -269,9 +275,18 @@ impl Chrome for ConfirmPrompt {
                 &format!("tessera-confirm-prompt-body-{index}"),
                 &materials::chrome_place(line_rect, materials::transparent()),
                 |frame| {
-                    frame.row_ex(&stretch_top(line_rect), |frame| {
-                        frame.label_compact_sized(&line, design.typography.label);
-                    });
+                    frame
+                        .row()
+                        .with_opts(&stretch_top(line_rect))
+                        .show(|frame| {
+                            frame.label_with(
+                                &line,
+                                &optics_ui::LabelOpts {
+                                    size: design.typography.label,
+                                    ..Default::default()
+                                },
+                            );
+                        });
                 },
             );
         }
@@ -580,7 +595,7 @@ mod tests {
         assert_eq!(body.radius, design.radii.panel_lg);
         // The veil dims the whole output so the panel is the only live surface.
         let veil = materials::modal_scrim(&design, 1.0);
-        assert_eq!(veil.radius, 0.0);
+        assert_eq!(veil.corner_radii.tl, 0.0);
         assert!(veil.bg.components().3 > 0);
         let layout = chrome.layout(display);
         assert!(layout.panel.w > 0.0 && layout.panel.h > 0.0);

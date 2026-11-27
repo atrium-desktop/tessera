@@ -771,6 +771,10 @@ struct PlaneSlot {
     retiring: Option<PrimaryScanout>,
     /// Semantic source of `current`.
     source: Option<PrimaryPlaneSource>,
+    /// Primary-plane geometry (`UnionLayout` vs `ModeSizedTarget`) programmed
+    /// for `current`, so `probe_overlay` validates against the real active
+    /// primary framebuffer geometry on secondary extended outputs (ADR-0268).
+    geometry: device::PrimaryScanoutGeometry,
     /// A flip is committed and its page-flip event has not arrived.
     pending: bool,
     /// This CRTC/connector has completed its initial modeset since the last

@@ -566,8 +566,8 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "optics-build"
-version = "0.0.88"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.88#7df4e27d658ecd6f856be593fd3e59ec43ed3cb2"
+version = "0.0.89"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.89#4b496d0d42b1b503bee51124d13040ff920dcfc1"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -575,8 +575,8 @@ dependencies = [
 
 [[package]]
 name = "optics-gfx"
-version = "0.0.88"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.88#7df4e27d658ecd6f856be593fd3e59ec43ed3cb2"
+version = "0.0.89"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.89#4b496d0d42b1b503bee51124d13040ff920dcfc1"
 dependencies = [
  "optics-build",
  "optics-gfx-sys",
@@ -584,21 +584,21 @@ dependencies = [
 
 [[package]]
 name = "optics-gfx-sys"
-version = "0.0.88"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.88#7df4e27d658ecd6f856be593fd3e59ec43ed3cb2"
+version = "0.0.89"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.89#4b496d0d42b1b503bee51124d13040ff920dcfc1"
 dependencies = [
  "optics-build",
 ]
 
 [[package]]
 name = "optics-motion"
-version = "0.0.88"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.88#7df4e27d658ecd6f856be593fd3e59ec43ed3cb2"
+version = "0.0.89"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.89#4b496d0d42b1b503bee51124d13040ff920dcfc1"
 
 [[package]]
 name = "optics-ui"
-version = "0.0.88"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.88#7df4e27d658ecd6f856be593fd3e59ec43ed3cb2"
+version = "0.0.89"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.89#4b496d0d42b1b503bee51124d13040ff920dcfc1"
 dependencies = [
  "optics-build",
  "optics-gfx",
@@ -607,8 +607,8 @@ dependencies = [
 
 [[package]]
 name = "optics-ui-sys"
-version = "0.0.88"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.88#7df4e27d658ecd6f856be593fd3e59ec43ed3cb2"
+version = "0.0.89"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.89#4b496d0d42b1b503bee51124d13040ff920dcfc1"
 dependencies = [
  "optics-build",
  "optics-gfx-sys",

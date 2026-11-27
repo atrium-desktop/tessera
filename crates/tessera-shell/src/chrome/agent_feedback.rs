@@ -746,13 +746,19 @@ fn render_pointer_feedback(
                     .application_border
                     .with_alpha(scaled_alpha(alpha, 3, 4)),
                 border_width: 1.0,
-                radius: LABEL_HEIGHT * 0.5,
+                corner_radii: optics_ui::CornerRadii::uniform(LABEL_HEIGHT * 0.5),
                 ..surface_layout()
             },
         ),
         |f| {
             f.centered(label_rect.w, label_rect.h, |f| {
-                f.label_compact_sized(&label, design.typography.footnote)
+                f.label_with(
+                    &label,
+                    &optics_ui::LabelOpts {
+                        size: design.typography.footnote,
+                        ..Default::default()
+                    },
+                )
             });
         },
     );
@@ -822,13 +828,19 @@ fn render_keycast_hud(
                         .application_border
                         .with_alpha(scaled_alpha(key_alpha, 4, 5)),
                     border_width: 1.0,
-                    radius: 6.0,
+                    corner_radii: optics_ui::CornerRadii::uniform(6.0),
                     ..surface_layout()
                 },
             ),
             |f| {
                 f.centered(badge_rect.w, badge_rect.h, |f| {
-                    f.label_compact_sized(&key.label, design.typography.footnote)
+                    f.label_with(
+                        &key.label,
+                        &optics_ui::LabelOpts {
+                            size: design.typography.footnote,
+                            ..Default::default()
+                        },
+                    )
                 });
             },
         );
@@ -953,34 +965,38 @@ fn render_background_activity(
                     .with_alpha(scaled_alpha(alpha, 9, 10)),
                 border,
                 border_width: 1.0,
-                radius: BACKGROUND_HEIGHT * 0.5,
+                corner_radii: optics_ui::CornerRadii::uniform(BACKGROUND_HEIGHT * 0.5),
                 ..surface_layout()
             },
         ),
         |f| {
-            f.row_ex(
-                &LayoutOpts {
+            f.row()
+                .with_opts(&LayoutOpts {
                     width: rect.w,
                     height: rect.h,
                     gap: 8.0,
                     pad: 8.0,
                     cross: Align::Center,
                     ..Default::default()
-                },
-                |f| {
-                    f.column_ex(
-                        &LayoutOpts {
+                })
+                .show(|f| {
+                    f.column()
+                        .with_opts(&LayoutOpts {
                             width: 7.0,
                             height: 7.0,
                             bg: design.colors.menu_text_heading.with_alpha(alpha),
-                            radius: 3.5,
+                            corner_radii: optics_ui::CornerRadii::uniform(3.5),
+                            ..Default::default()
+                        })
+                        .show(|_| {});
+                    f.label_with(
+                        &label,
+                        &optics_ui::LabelOpts {
+                            size: design.typography.footnote,
                             ..Default::default()
                         },
-                        |_| {},
                     );
-                    f.label_compact_sized(&label, design.typography.footnote);
-                },
-            );
+                });
         },
     );
 }
@@ -1162,19 +1178,18 @@ fn render_shape(
                 bg: background,
                 border,
                 border_width,
-                radius,
+                corner_radii: optics_ui::CornerRadii::uniform(radius),
                 ..surface_layout()
             },
         ),
         |f| {
-            f.column_ex(
-                &LayoutOpts {
+            f.column()
+                .with_opts(&LayoutOpts {
                     width: rect.w,
                     height: rect.h,
                     ..Default::default()
-                },
-                |_| {},
-            );
+                })
+                .show(|_| {});
         },
     );
 }

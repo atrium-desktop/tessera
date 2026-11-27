@@ -24,7 +24,10 @@ guarantees.
 | **Lock poisoning** | Never | `unwrap_or_else(\|e\| e.into_inner())` | see rule 1 |
 
 A panic site is acceptable only if it is one of the middle two classes. Any
-other `unwrap`/`expect` is a latent defect and is what the ratchet counts.
+other `unwrap`/`expect` or runtime-checked `copy_from_slice` is a latent defect
+and is what the ratchet counts (ADR-0195, ADR-0264). For fixed-size kernel UAPI
+or protocol byte labels, encode the array at compile time (`const fn`) rather
+than slicing at runtime.
 
 ---
 

@@ -357,7 +357,7 @@ impl Chrome for Overview {
                             bg,
                             border,
                             border_width: if current { 2.0 } else { 1.0 },
-                            radius: radii.control,
+                            corner_radii: optics_ui::CornerRadii::uniform(radii.control),
                             ..surface_layout()
                         },
                     ),
@@ -374,7 +374,13 @@ impl Chrome for Overview {
                     &chrome_place(caption, surface_layout()),
                     move |frame| {
                         frame.centered(caption.w, caption.h, move |frame| {
-                            frame.label_compact_sized(&format!("{}", i + 1), typography.label);
+                            frame.label_with(
+                                &format!("{}", i + 1),
+                                &optics_ui::LabelOpts {
+                                    size: typography.label,
+                                    ..Default::default()
+                                },
+                            );
                         });
                     },
                 );
@@ -424,26 +430,38 @@ impl Chrome for Overview {
                                 colors.application_border.with_alpha(150)
                             },
                             border_width: if hovered { 2.0 } else { 1.0 },
-                            radius: radii.control,
+                            corner_radii: optics_ui::CornerRadii::uniform(radii.control),
                             ..surface_layout()
                         },
                     ),
                     move |frame| {
-                        frame.column_ex(
-                            &LayoutOpts {
+                        frame
+                            .column()
+                            .with_opts(&LayoutOpts {
                                 width: tile.size.w as f32,
                                 height: tile.size.h as f32,
                                 gap: 3.0,
                                 pad: 10.0,
                                 cross: Align::Start,
                                 ..Default::default()
-                            },
-                            move |frame| {
+                            })
+                            .show(move |frame| {
                                 frame.heading(&label, 3);
-                                frame.label_sized(status, typography.caption);
-                                frame.label_sized(hint, typography.caption);
-                            },
-                        );
+                                frame.label_with(
+                                    status,
+                                    &optics_ui::LabelOpts {
+                                        size: typography.caption,
+                                        ..Default::default()
+                                    },
+                                );
+                                frame.label_with(
+                                    hint,
+                                    &optics_ui::LabelOpts {
+                                        size: typography.caption,
+                                        ..Default::default()
+                                    },
+                                );
+                            });
                     },
                 );
             }
@@ -472,7 +490,7 @@ impl Chrome for Overview {
                     LayoutOpts {
                         border,
                         border_width: if hovered { 2.0 } else { 1.0 },
-                        radius: radii.menu_item,
+                        corner_radii: optics_ui::CornerRadii::uniform(radii.menu_item),
                         ..surface_layout()
                     },
                 ),
@@ -497,7 +515,13 @@ impl Chrome for Overview {
                     &chrome_place(label_rect, surface_layout()),
                     move |frame| {
                         frame.centered(label_rect.w, label_rect.h, move |frame| {
-                            frame.label_compact_sized(&label, typography.label);
+                            frame.label_with(
+                                &label,
+                                &optics_ui::LabelOpts {
+                                    size: typography.label,
+                                    ..Default::default()
+                                },
+                            );
                         });
                     },
                 );
@@ -519,15 +543,18 @@ impl Chrome for Overview {
                         bg: colors.application_accent.with_alpha(230),
                         border: colors.application_accent.with_alpha(255),
                         border_width: 1.0,
-                        radius: radii.control,
+                        corner_radii: optics_ui::CornerRadii::uniform(radii.control),
                         ..surface_layout()
                     },
                 ),
                 |frame| {
                     frame.centered(ghost.w, ghost.h, |frame| {
-                        frame.label_compact_sized(
+                        frame.label_with(
                             i18n.text(Message::MoveToInteractionDomain),
-                            typography.footnote,
+                            &optics_ui::LabelOpts {
+                                size: typography.footnote,
+                                ..Default::default()
+                            },
                         )
                     });
                 },

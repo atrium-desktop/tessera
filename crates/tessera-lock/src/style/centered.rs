@@ -62,13 +62,14 @@ impl StylePainter for CenteredPainter {
                 // analytic rounded-image clip keeps every source a perfect
                 // disc without a readback/re-upload on each animation frame.
                 if let Some(avatar) = frame.avatar {
-                    canvas.draw_image_rrect(
+                    canvas.draw_image_with(
                         avatar,
-                        avatar_x,
-                        avatar_y,
-                        avatar_size,
-                        avatar_size,
-                        avatar_size * 0.5,
+                        (avatar_x, avatar_y, avatar_size, avatar_size),
+                        &optics_gfx::ImageDrawOpts {
+                            radii: optics_gfx::CornerRadii::uniform(avatar_size * 0.5),
+                            curvature: 0.0,
+                            ..Default::default()
+                        },
                     );
                 }
             }
@@ -80,6 +81,7 @@ impl StylePainter for CenteredPainter {
                     avatar_size,
                     avatar_size,
                     avatar_size * 0.5,
+                    0.0,
                     optics_gfx::rgba(red, green, blue, (255.0 * progress) as u8),
                 );
             }
@@ -94,6 +96,7 @@ impl StylePainter for CenteredPainter {
             avatar_size,
             avatar_size,
             avatar_size * 0.5,
+            0.0,
             optics_gfx::rgba(
                 ring_red,
                 ring_green,
@@ -116,6 +119,7 @@ impl StylePainter for CenteredPainter {
             field_w,
             field_h,
             10.0 * frame.scale,
+            0.0,
             if frame.state.rejected() {
                 optics_gfx::rgba(38, 8, 14, (174.0 * progress) as u8)
             } else {
@@ -128,6 +132,7 @@ impl StylePainter for CenteredPainter {
             field_w,
             field_h,
             10.0 * frame.scale,
+            0.0,
             if frame.state.rejected() {
                 optics_gfx::rgba(error_red, error_green, error_blue, (238.0 * progress) as u8)
             } else if frame.state.validation_pending() {
@@ -164,7 +169,15 @@ impl StylePainter for CenteredPainter {
                 },
                 aligned_layer(alignment),
             ),
-            |ui| ui.label_compact_sized(clock, layout.clock_size),
+            |ui| {
+                ui.label_with(
+                    clock,
+                    &optics_ui::LabelOpts {
+                        size: layout.clock_size,
+                        ..Default::default()
+                    },
+                )
+            },
         );
         ui.set_theme(lock_theme(
             &self.visual.design,
@@ -183,7 +196,13 @@ impl StylePainter for CenteredPainter {
                 aligned_layer(alignment),
             ),
             |ui| {
-                ui.label_compact_sized(date, if layout.height < 650.0 { 15.0 } else { 18.0 });
+                ui.label_with(
+                    date,
+                    &optics_ui::LabelOpts {
+                        size: if layout.height < 650.0 { 15.0 } else { 18.0 },
+                        ..Default::default()
+                    },
+                );
             },
         );
     }
@@ -217,25 +236,27 @@ impl StylePainter for CenteredPainter {
                     centered_layer(),
                 ),
                 |ui| {
-                    ui.row_ex(
-                        &LayoutOpts {
+                    ui.row()
+                        .with_opts(&LayoutOpts {
                             width: layout.avatar_size,
                             height: layout.avatar_size,
                             pad: 0.0,
                             cross: Align::Center,
                             ..Default::default()
-                        },
-                        |ui| {
+                        })
+                        .show(|ui| {
                             ui.flex(1.0);
                             ui.spacer(0.0);
-                            ui.label_compact_sized(
+                            ui.label_with(
                                 &profile.initials,
-                                layout.avatar_size * avatar_style.initials_scale,
+                                &optics_ui::LabelOpts {
+                                    size: layout.avatar_size * avatar_style.initials_scale,
+                                    ..Default::default()
+                                },
                             );
                             ui.flex(1.0);
                             ui.spacer(0.0);
-                        },
-                    );
+                        });
                 },
             );
         }
@@ -257,7 +278,15 @@ impl StylePainter for CenteredPainter {
                 },
                 aligned_layer(Align::Center),
             ),
-            |ui| ui.label_compact_sized(&profile.display_name, 19.0),
+            |ui| {
+                ui.label_with(
+                    &profile.display_name,
+                    &optics_ui::LabelOpts {
+                        size: 19.0,
+                        ..Default::default()
+                    },
+                )
+            },
         );
 
         let field_y = layout.field_y + (1.0 - frame.progress) * 22.0;
@@ -304,18 +333,23 @@ impl StylePainter for CenteredPainter {
                 },
             ),
             |ui| {
-                ui.row_ex(
-                    &LayoutOpts {
+                ui.row()
+                    .with_opts(&LayoutOpts {
                         width: layout.field_width,
                         height: layout.field_height,
                         pad: 15.0,
                         cross: Align::Center,
                         ..Default::default()
-                    },
-                    |ui| {
-                        ui.label_compact_sized(&credential, 14.0);
-                    },
-                );
+                    })
+                    .show(|ui| {
+                        ui.label_with(
+                            &credential,
+                            &optics_ui::LabelOpts {
+                                size: 14.0,
+                                ..Default::default()
+                            },
+                        );
+                    });
             },
         );
 
@@ -346,7 +380,15 @@ impl StylePainter for CenteredPainter {
                     },
                     aligned_layer(Align::Center),
                 ),
-                |ui| ui.label_compact_sized(&message, 12.0),
+                |ui| {
+                    ui.label_with(
+                        &message,
+                        &optics_ui::LabelOpts {
+                            size: 12.0,
+                            ..Default::default()
+                        },
+                    )
+                },
             );
         }
     }

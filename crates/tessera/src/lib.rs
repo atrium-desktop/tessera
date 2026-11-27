@@ -1,5 +1,4 @@
 //! Desktop session composition and application use cases.
-use std::os::fd::AsRawFd;
 
 use tessera_platform::Backend;
 use tessera_platform::drm::DrmError;

@@ -37,7 +37,7 @@ user-visible.
 | :--- | :--- | :--- | :--- |
 | Format | `cargo fmt --all -- --check` | Rust formatting | Yes |
 | Spelling | `crate-ci/typos` | Typos across the tree, with `typos.toml` allowances | Yes |
-| Package conformity | `cargo run -p xtask -- package-conformity` | Workspace lint and dependency standards | Yes |
+| Package conformity | `cargo run -p xtask -- package-conformity` | Workspace lint and dependency standards; ADR-0263 package naming and placement | Yes |
 | Dependency boundaries | `cargo run -p xtask -- check-boundaries` | Capability edges from `dependency-policy.toml` | Yes |
 | Bootstrap admission | `cargo run -p xtask -- check-bootstrap-admission` | ADR-0147 process-entry-point rule | Yes |
 | Vtable admission | `cargo run -p xtask -- check-vtables` | ADR-0193 metadata-derived vtable sizing in `tessera-wayland` | Yes |

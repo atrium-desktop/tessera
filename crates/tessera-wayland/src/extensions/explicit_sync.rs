@@ -76,7 +76,7 @@ unsafe extern "C" fn explicit_sync_get_surface(
         if surface.is_null() {
             return;
         }
-        if !(*surface).explicit_sync.is_null() {
+        if !(*surface).explicit_sync.is_null() || !(*surface).drm_syncobj.is_null() {
             ffi::wl_resource_post_error(manager, 0, c"surface already has explicit sync".as_ptr());
             return;
         }

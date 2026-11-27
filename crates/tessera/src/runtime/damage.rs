@@ -8,7 +8,7 @@ use super::*;
 // spread across the server, shell, notifications, and wallpaper, and deciding
 // what the current frame's delta is.
 pub(super) use tessera_composite::presentation::{
-    AssessedFrameDamage, ClientDamage, ClientDamageTracker, DamageAssessment, FrameDamage,
+    AssessedFrameDamage, ClientDamageTracker, DamageAssessment, FrameDamage, SplitClientDamage,
     SurfaceDamageFrame, logical_rects_to_frame, union_frame_damage,
 };
 
@@ -106,7 +106,11 @@ impl CompositorRuntime<'_> {
     /// are exactly the surfaces whose damage baseline the frame consumes, so
     /// they — and only they — may be marked presented after a successful
     /// submission (`[INV-ARCH-70]`).
-    fn client_damage(&mut self, include_client_cursor: bool) -> (ClientDamage, Vec<usize>) {
+    fn client_damage(
+        &mut self,
+        include_client_cursor: bool,
+        overlay_surface_id: Option<usize>,
+    ) -> (SplitClientDamage, Vec<usize>) {
         let server = &self.server;
         // Share one visibility/occlusion snapshot across the SHM and dma-buf
         // client lists (see `Server::desktop_frame_sets`): the damage pass
@@ -120,7 +124,7 @@ impl CompositorRuntime<'_> {
         let mut sampled = Vec::with_capacity(
             client_sets.shm.len() + overlay.len() + lock.len() + client_sets.dmabuf.len(),
         );
-        let damage = self.damage.client_damage.assess(
+        let damage = self.damage.client_damage.assess_with_overlay_split(
             client_sets
                 .shm
                 .iter()
@@ -131,6 +135,7 @@ impl CompositorRuntime<'_> {
                 .chain(overlay_dmabuf.iter().map(as_damage_frame))
                 .chain(lock_dmabuf.iter().map(as_damage_frame))
                 .inspect(|frame| sampled.push(frame.id())),
+            overlay_surface_id,
         );
         (damage, sampled)
     }
@@ -481,9 +486,15 @@ impl CompositorRuntime<'_> {
 
         // Always collect client damage so surface baseline generations advance
         // in lockstep with client commits across all frames.
-        let (client, sampled_surface_ids) = self.client_damage(include_client_cursor_overlay);
-        let output = if output_full {
-            FrameDamage::Full
+        let active_overlay_surface = self
+            .overlay_state
+            .active()
+            .map(|overlay| overlay.surface_id);
+        let (client_split, sampled_surface_ids) =
+            self.client_damage(include_client_cursor_overlay, active_overlay_surface);
+        let overlay_buffer_changed = client_split.overlay_buffer_changed;
+        let (output, primary_output) = if output_full {
+            (FrameDamage::Full, FrameDamage::Full)
         } else {
             // Pointer-only input, localized chrome animations, and chrome dirty
             // footprints join the client damage as additional physical rectangles.
@@ -502,24 +513,33 @@ impl CompositorRuntime<'_> {
                 extra.extend(transition_rects);
             }
             extra.extend(chrome_extra_rects);
-            let base = client.into_frame_damage(scale, physical_size);
+            let total_base = client_split.total.into_frame_damage(scale, physical_size);
+            let primary_base = client_split
+                .primary_only
+                .into_frame_damage(scale, physical_size);
             if extra.is_empty() {
-                base
+                (total_base, primary_base)
             } else {
-                let extra = logical_rects_to_frame(extra, scale, physical_size);
-                match base {
+                let extra_frame = logical_rects_to_frame(extra, scale, physical_size);
+                let combine = |base: FrameDamage, extra: FrameDamage| match base {
                     FrameDamage::Full => FrameDamage::Full,
                     other => union_frame_damage(extra, other),
-                }
+                };
+                let total = combine(total_base, extra_frame.clone());
+                let primary = combine(primary_base, extra_frame);
+                (total, primary)
             }
         };
         // A frame that never reached gfx's submit point (acquire timeout,
         // surface loss before recording) has no epoch entry. Carry its damage
         // forward instead of collapsing to Full: the next successful submit is
         // the transaction that commits it.
-        let output = match self.damage.pending_damage.take() {
-            Some(pending) => union_frame_damage(pending, output),
-            None => output,
+        let (output, primary_output) = match self.damage.pending_damage.take() {
+            Some(pending) => (
+                union_frame_damage(pending.clone(), output),
+                union_frame_damage(pending, primary_output),
+            ),
+            None => (output, primary_output),
         };
         match &output {
             FrameDamage::Full => log::trace!("damage: output=Full"),
@@ -535,6 +555,8 @@ impl CompositorRuntime<'_> {
         }
         AssessedFrameDamage {
             output,
+            primary_output,
+            overlay_buffer_changed,
             sampled_surface_ids,
         }
     }

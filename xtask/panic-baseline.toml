@@ -3,22 +3,22 @@
 # Poisonable-lock panics are a hard zero and are not listed here.
 
 [counts]
-tessera = 30
-tessera-assets = 0
+tessera = 35
+tessera-assets = 1
 tessera-audit = 0
 tessera-authority = 11
 tessera-avatar = 2
 tessera-cast = 4
-tessera-composite = 12
+tessera-composite = 13
 tessera-config = 3
 tessera-control = 2
-tessera-dbus = 0
+tessera-dbus = 2
 tessera-design = 0
 tessera-desktop = 1
 tessera-env = 0
 tessera-i18n = 1
 tessera-idle = 2
-tessera-image = 0
+tessera-image = 4
 tessera-ipc = 15
 tessera-launch-services = 0
 tessera-lock = 4
@@ -33,6 +33,6 @@ tessera-scene = 0
 tessera-settings = 0
 tessera-shell = 1
 tessera-wallpaper = 1
-tessera-wayland = 27
+tessera-wayland = 28
 tessera-wayland-protocols = 0
 tessera-wl-client = 0

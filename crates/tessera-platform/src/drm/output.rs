@@ -481,6 +481,7 @@ impl DrmBackend {
                     current: None,
                     retiring: None,
                     source: None,
+                    geometry: device::PrimaryScanoutGeometry::UnionLayout,
                     pending: false,
                     modeset_done: false,
                 })
@@ -582,6 +583,7 @@ impl DrmBackend {
                 current: None,
                 retiring: None,
                 source: None,
+                geometry: device::PrimaryScanoutGeometry::UnionLayout,
                 pending: false,
                 modeset_done: false,
             })

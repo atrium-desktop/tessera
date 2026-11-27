@@ -12,7 +12,7 @@ negative_knowledge: true
 
 - Status: Accepted
 - Date: 2026-10-26
-- Amended by: [ADR-0240](0240-repository-automation-at-the-root-and-fixtures-with-their-consumer.md) — the baseline moved to `xtask/panic-baseline.toml`.
+- Amended by: [ADR-0240](0240-repository-automation-at-the-root-and-fixtures-with-their-consumer.md) — the baseline moved to `xtask/panic-baseline.toml`; [ADR-0264](0264-fail-safe-sync-fence-merging-and-subset-out-fences.md) — production `.copy_from_slice(` sites are included in the panic-site ratchet.
 - Deciders: Tessera Maintainers
 
 ---

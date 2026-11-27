@@ -87,23 +87,31 @@ impl SettingsModule for InputModule {
         let can_edit_mouse =
             |capability: bool| self.mouse.configurable && mouse_devices && capability;
 
-        frame.column_ex(
-            &LayoutOpts {
+        frame
+            .column()
+            .with_opts(&LayoutOpts {
                 gap: 5.0,
                 cross: Align::Stretch,
                 ..Default::default()
-            },
-            |frame| {
+            })
+            .show(|frame| {
                 frame.heading(i18n.text(Message::Input), 2);
-                frame.label_sized(
+                frame.label_with(
                     i18n.text(Message::InputDescription),
-                    design.typography.label,
+                    &optics_ui::LabelOpts {
+                        size: design.typography.label,
+                        ..Default::default()
+                    },
                 );
                 if !self.touchpad.configurable && !self.mouse.configurable {
-                    frame.label_wrapped_sized(
+                    frame.label_with(
                         i18n.text(Message::InputHostManaged),
-                        design.typography.footnote,
-                        560.0,
+                        &optics_ui::LabelOpts {
+                            size: design.typography.footnote,
+                            wrap: true,
+                            max_width: 560.0,
+                            ..Default::default()
+                        },
                     );
                 } else {
                     let mut devices: Vec<String> = Vec::new();
@@ -114,266 +122,349 @@ impl SettingsModule for InputModule {
                         devices.extend(self.mouse.device_names.iter().cloned());
                     }
                     if devices.is_empty() {
-                        frame.label_wrapped_sized(
+                        frame.label_with(
                             i18n.text(Message::NoTouchpadDetected),
-                            design.typography.footnote,
-                            560.0,
+                            &optics_ui::LabelOpts {
+                                size: design.typography.footnote,
+                                wrap: true,
+                                max_width: 560.0,
+                                ..Default::default()
+                            },
                         );
                     } else {
                         devices.sort();
                         devices.dedup();
-                        frame.label_sized(&devices.join(" · "), design.typography.footnote);
+                        frame.label_with(
+                            &devices.join(" · "),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.footnote,
+                                ..Default::default()
+                            },
+                        );
                     }
                 }
-            },
-        );
+            });
 
         // ---- Keyboard -------------------------------------------------
-        frame.column_ex(&settings_card_layout(design), |frame| {
-            frame.heading(i18n.text(Message::Keyboard), 3);
-            frame.label_wrapped_sized(
-                i18n.text(Message::KeyboardRepeatDescription),
-                design.typography.footnote,
-                560.0,
-            );
-            frame.separator();
-            frame.row_ex(&section_heading_layout(), |frame| {
-                frame.label_sized(i18n.text(Message::RepeatRate), design.typography.label);
-                frame.flex(1.0);
-                frame.spacer(0.0);
-                frame.label_sized(
-                    &format!(
-                        "{} / {}",
-                        keyboard_rate.round() as u32,
-                        i18n.text(Message::RepeatRateUnit)
-                    ),
-                    design.typography.footnote,
+        frame
+            .column()
+            .with_opts(&settings_card_layout(design))
+            .show(|frame| {
+                frame.heading(i18n.text(Message::Keyboard), 3);
+                frame.label_with(
+                    i18n.text(Message::KeyboardRepeatDescription),
+                    &optics_ui::LabelOpts {
+                        size: design.typography.footnote,
+                        wrap: true,
+                        max_width: 560.0,
+                        ..Default::default()
+                    },
                 );
-            });
-            changed |= frame.slider(
-                "##keyboard-repeat-rate",
-                &mut keyboard_rate,
-                0.0,
-                tessera_primitives::input::MAX_REPEAT_RATE as f32,
-            );
-            frame.row_ex(
-                &LayoutOpts {
-                    height: 18.0,
-                    cross: Align::Center,
-                    ..Default::default()
-                },
-                |frame| {
-                    frame.label_sized(
-                        i18n.text(Message::RepeatDisabled),
-                        design.typography.caption,
-                    );
-                    frame.flex(1.0);
-                    frame.spacer(0.0);
-                    frame.label_sized(i18n.text(Message::Fast), design.typography.caption);
-                },
-            );
+                frame.separator();
+                frame
+                    .row()
+                    .with_opts(&section_heading_layout())
+                    .show(|frame| {
+                        frame.label_with(
+                            i18n.text(Message::RepeatRate),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
+                        frame.flex(1.0);
+                        frame.spacer(0.0);
+                        frame.label_with(
+                            &format!(
+                                "{} / {}",
+                                keyboard_rate.round() as u32,
+                                i18n.text(Message::RepeatRateUnit)
+                            ),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.footnote,
+                                ..Default::default()
+                            },
+                        );
+                    });
+                changed |= frame.slider(
+                    "##keyboard-repeat-rate",
+                    &mut keyboard_rate,
+                    0.0,
+                    tessera_primitives::input::MAX_REPEAT_RATE as f32,
+                );
+                frame
+                    .row()
+                    .with_opts(&LayoutOpts {
+                        height: 18.0,
+                        cross: Align::Center,
+                        ..Default::default()
+                    })
+                    .show(|frame| {
+                        frame.label_with(
+                            i18n.text(Message::RepeatDisabled),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.caption,
+                                ..Default::default()
+                            },
+                        );
+                        frame.flex(1.0);
+                        frame.spacer(0.0);
+                        frame.label_with(
+                            i18n.text(Message::Fast),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.caption,
+                                ..Default::default()
+                            },
+                        );
+                    });
 
-            frame.row_ex(&section_heading_layout(), |frame| {
-                frame.label_sized(i18n.text(Message::RepeatDelay), design.typography.label);
-                frame.flex(1.0);
-                frame.spacer(0.0);
-                frame.label_sized(
-                    &format!(
-                        "{} {}",
-                        keyboard_delay.round() as u32,
-                        i18n.text(Message::Milliseconds)
-                    ),
-                    design.typography.footnote,
+                frame
+                    .row()
+                    .with_opts(&section_heading_layout())
+                    .show(|frame| {
+                        frame.label_with(
+                            i18n.text(Message::RepeatDelay),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
+                        frame.flex(1.0);
+                        frame.spacer(0.0);
+                        frame.label_with(
+                            &format!(
+                                "{} {}",
+                                keyboard_delay.round() as u32,
+                                i18n.text(Message::Milliseconds)
+                            ),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.footnote,
+                                ..Default::default()
+                            },
+                        );
+                    });
+                changed |= frame.slider(
+                    "##keyboard-repeat-delay",
+                    &mut keyboard_delay,
+                    50.0,
+                    tessera_primitives::input::MAX_REPEAT_DELAY_MS as f32,
                 );
+                frame
+                    .row()
+                    .with_opts(&LayoutOpts {
+                        height: 18.0,
+                        cross: Align::Center,
+                        ..Default::default()
+                    })
+                    .show(|frame| {
+                        frame.label_with(
+                            i18n.text(Message::Slow),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.caption,
+                                ..Default::default()
+                            },
+                        );
+                        frame.flex(1.0);
+                        frame.spacer(0.0);
+                        frame.label_with(
+                            i18n.text(Message::Fast),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.caption,
+                                ..Default::default()
+                            },
+                        );
+                    });
             });
-            changed |= frame.slider(
-                "##keyboard-repeat-delay",
-                &mut keyboard_delay,
-                50.0,
-                tessera_primitives::input::MAX_REPEAT_DELAY_MS as f32,
-            );
-            frame.row_ex(
-                &LayoutOpts {
-                    height: 18.0,
-                    cross: Align::Center,
-                    ..Default::default()
-                },
-                |frame| {
-                    frame.label_sized(i18n.text(Message::Slow), design.typography.caption);
-                    frame.flex(1.0);
-                    frame.spacer(0.0);
-                    frame.label_sized(i18n.text(Message::Fast), design.typography.caption);
-                },
-            );
-        });
 
         // ---- Mouse ----------------------------------------------------
-        frame.column_ex(&settings_card_layout(design), |frame| {
-            frame.heading(i18n.text(Message::Mouse), 3);
-            render_pointer_speed(
-                frame,
-                i18n,
-                design,
-                "mouse",
-                &mut mouse.pointer_speed,
-                can_edit_mouse(self.mouse.capabilities.pointer_speed),
-                &mut changed,
-            );
-            render_scroll_speed(
-                frame,
-                i18n,
-                design,
-                "mouse",
-                &mut mouse.scroll_speed,
-                // The scroll factor applies to wheel motion from any
-                // configurable pointer, independent of the other rows.
-                self.mouse.configurable && mouse_devices,
-                &mut changed,
-            );
-            frame.separator();
-            changed |= frame
-                .setting_switch(
-                    "mouse-natural-scroll",
-                    i18n.text(Message::NaturalScroll),
-                    i18n.text(Message::NaturalScrollDescription),
-                    &mut mouse.natural_scroll,
-                    !can_edit_mouse(self.mouse.capabilities.natural_scroll),
-                )
-                .changed;
-        });
+        frame
+            .column()
+            .with_opts(&settings_card_layout(design))
+            .show(|frame| {
+                frame.heading(i18n.text(Message::Mouse), 3);
+                render_pointer_speed(
+                    frame,
+                    i18n,
+                    design,
+                    "mouse",
+                    &mut mouse.pointer_speed,
+                    can_edit_mouse(self.mouse.capabilities.pointer_speed),
+                    &mut changed,
+                );
+                render_scroll_speed(
+                    frame,
+                    i18n,
+                    design,
+                    "mouse",
+                    &mut mouse.scroll_speed,
+                    // The scroll factor applies to wheel motion from any
+                    // configurable pointer, independent of the other rows.
+                    self.mouse.configurable && mouse_devices,
+                    &mut changed,
+                );
+                frame.separator();
+                changed |= frame
+                    .setting_switch(
+                        "mouse-natural-scroll",
+                        i18n.text(Message::NaturalScroll),
+                        i18n.text(Message::NaturalScrollDescription),
+                        &mut mouse.natural_scroll,
+                        !can_edit_mouse(self.mouse.capabilities.natural_scroll),
+                    )
+                    .changed;
+            });
 
         // ---- Touchpad -------------------------------------------------
-        frame.column_ex(&settings_card_layout(design), |frame| {
-            frame.heading(i18n.text(Message::Touchpad), 3);
-            changed |= frame
-                .setting_switch(
-                    "touchpad-tap-to-click",
-                    i18n.text(Message::TapToClick),
-                    i18n.text(Message::TapToClickDescription),
-                    &mut touchpad.tap_to_click,
-                    !can_edit_touchpad(self.touchpad.capabilities.tap_to_click),
-                )
-                .changed;
-            changed |= frame
-                .setting_switch(
-                    "touchpad-tap-and-drag",
-                    i18n.text(Message::TapAndDrag),
-                    i18n.text(Message::TapAndDragDescription),
-                    &mut touchpad.tap_and_drag,
-                    !touchpad.tap_to_click
-                        || !can_edit_touchpad(self.touchpad.capabilities.tap_and_drag),
-                )
-                .changed;
-            changed |= frame
-                .setting_switch(
-                    "touchpad-drag-lock",
-                    i18n.text(Message::DragLock),
-                    i18n.text(Message::DragLockDescription),
-                    &mut touchpad.drag_lock,
-                    !touchpad.tap_to_click
-                        || !touchpad.tap_and_drag
-                        || !can_edit_touchpad(self.touchpad.capabilities.drag_lock),
-                )
-                .changed;
-            changed |= frame
-                .setting_switch(
-                    "touchpad-disable-while-typing",
-                    i18n.text(Message::DisableWhileTyping),
-                    i18n.text(Message::DisableWhileTypingDescription),
-                    &mut touchpad.disable_while_typing,
-                    !can_edit_touchpad(self.touchpad.capabilities.disable_while_typing),
-                )
-                .changed;
+        frame
+            .column()
+            .with_opts(&settings_card_layout(design))
+            .show(|frame| {
+                frame.heading(i18n.text(Message::Touchpad), 3);
+                changed |= frame
+                    .setting_switch(
+                        "touchpad-tap-to-click",
+                        i18n.text(Message::TapToClick),
+                        i18n.text(Message::TapToClickDescription),
+                        &mut touchpad.tap_to_click,
+                        !can_edit_touchpad(self.touchpad.capabilities.tap_to_click),
+                    )
+                    .changed;
+                changed |= frame
+                    .setting_switch(
+                        "touchpad-tap-and-drag",
+                        i18n.text(Message::TapAndDrag),
+                        i18n.text(Message::TapAndDragDescription),
+                        &mut touchpad.tap_and_drag,
+                        !touchpad.tap_to_click
+                            || !can_edit_touchpad(self.touchpad.capabilities.tap_and_drag),
+                    )
+                    .changed;
+                changed |= frame
+                    .setting_switch(
+                        "touchpad-drag-lock",
+                        i18n.text(Message::DragLock),
+                        i18n.text(Message::DragLockDescription),
+                        &mut touchpad.drag_lock,
+                        !touchpad.tap_to_click
+                            || !touchpad.tap_and_drag
+                            || !can_edit_touchpad(self.touchpad.capabilities.drag_lock),
+                    )
+                    .changed;
+                changed |= frame
+                    .setting_switch(
+                        "touchpad-disable-while-typing",
+                        i18n.text(Message::DisableWhileTyping),
+                        i18n.text(Message::DisableWhileTypingDescription),
+                        &mut touchpad.disable_while_typing,
+                        !can_edit_touchpad(self.touchpad.capabilities.disable_while_typing),
+                    )
+                    .changed;
 
-            frame.separator();
-            render_pointer_speed(
-                frame,
-                i18n,
-                design,
-                "touchpad",
-                &mut touchpad.pointer_speed,
-                can_edit_touchpad(self.touchpad.capabilities.pointer_speed),
-                &mut changed,
-            );
+                frame.separator();
+                render_pointer_speed(
+                    frame,
+                    i18n,
+                    design,
+                    "touchpad",
+                    &mut touchpad.pointer_speed,
+                    can_edit_touchpad(self.touchpad.capabilities.pointer_speed),
+                    &mut changed,
+                );
 
-            frame.separator();
-            changed |= frame
-                .setting_switch(
-                    "touchpad-natural-scroll",
-                    i18n.text(Message::NaturalScroll),
-                    i18n.text(Message::NaturalScrollDescription),
-                    &mut touchpad.natural_scroll,
-                    !can_edit_touchpad(self.touchpad.capabilities.natural_scroll),
-                )
-                .changed;
-            render_scroll_speed(
-                frame,
-                i18n,
-                design,
-                "touchpad",
-                &mut touchpad.scroll_speed,
-                // The scroll factor applies to touchpad scroll sequences from
-                // any configurable device with a scroll method.
-                can_edit_touchpad(
-                    self.touchpad.capabilities.two_finger_scroll
-                        || self.touchpad.capabilities.edge_scroll,
-                ),
-                &mut changed,
-            );
+                frame.separator();
+                changed |= frame
+                    .setting_switch(
+                        "touchpad-natural-scroll",
+                        i18n.text(Message::NaturalScroll),
+                        i18n.text(Message::NaturalScrollDescription),
+                        &mut touchpad.natural_scroll,
+                        !can_edit_touchpad(self.touchpad.capabilities.natural_scroll),
+                    )
+                    .changed;
+                render_scroll_speed(
+                    frame,
+                    i18n,
+                    design,
+                    "touchpad",
+                    &mut touchpad.scroll_speed,
+                    // The scroll factor applies to touchpad scroll sequences from
+                    // any configurable device with a scroll method.
+                    can_edit_touchpad(
+                        self.touchpad.capabilities.two_finger_scroll
+                            || self.touchpad.capabilities.edge_scroll,
+                    ),
+                    &mut changed,
+                );
 
-            let can_two_finger = can_edit_touchpad(self.touchpad.capabilities.two_finger_scroll);
-            let can_edge = can_edit_touchpad(self.touchpad.capabilities.edge_scroll);
-            frame.row_ex(
-                &LayoutOpts {
-                    min_height: 34.0,
-                    gap: 12.0,
-                    cross: Align::Center,
-                    ..Default::default()
-                },
-                |frame| {
-                    frame.label_sized(i18n.text(Message::ScrollMethod), design.typography.label);
-                    frame.flex(1.0);
-                    frame.spacer(0.0);
-                    if can_two_finger && can_edge {
-                        frame.size_next(190.0, 30.0);
-                        let mut selected = match touchpad.scroll_method {
-                            TouchpadScrollMethod::TwoFinger => 0,
-                            TouchpadScrollMethod::Edge => 1,
-                        };
-                        if frame.dropdown(
-                            "##touchpad-scroll-method",
-                            &mut selected,
-                            &[
-                                i18n.text(Message::TwoFingerScroll),
-                                i18n.text(Message::EdgeScroll),
-                            ],
-                        ) {
-                            touchpad.scroll_method = if selected == 0 {
-                                TouchpadScrollMethod::TwoFinger
-                            } else {
-                                TouchpadScrollMethod::Edge
+                let can_two_finger =
+                    can_edit_touchpad(self.touchpad.capabilities.two_finger_scroll);
+                let can_edge = can_edit_touchpad(self.touchpad.capabilities.edge_scroll);
+                frame
+                    .row()
+                    .with_opts(&LayoutOpts {
+                        min_height: 34.0,
+                        gap: 12.0,
+                        cross: Align::Center,
+                        ..Default::default()
+                    })
+                    .show(|frame| {
+                        frame.label_with(
+                            i18n.text(Message::ScrollMethod),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
+                        frame.flex(1.0);
+                        frame.spacer(0.0);
+                        if can_two_finger && can_edge {
+                            frame.size_next(190.0, 30.0);
+                            let mut selected = match touchpad.scroll_method {
+                                TouchpadScrollMethod::TwoFinger => 0,
+                                TouchpadScrollMethod::Edge => 1,
                             };
-                            changed = true;
+                            if frame.dropdown(
+                                "##touchpad-scroll-method",
+                                &mut selected,
+                                &[
+                                    i18n.text(Message::TwoFingerScroll),
+                                    i18n.text(Message::EdgeScroll),
+                                ],
+                            ) {
+                                touchpad.scroll_method = if selected == 0 {
+                                    TouchpadScrollMethod::TwoFinger
+                                } else {
+                                    TouchpadScrollMethod::Edge
+                                };
+                                changed = true;
+                            }
+                        } else if can_two_finger {
+                            frame.label_with(
+                                i18n.text(Message::TwoFingerScroll),
+                                &optics_ui::LabelOpts {
+                                    size: design.typography.footnote,
+                                    ..Default::default()
+                                },
+                            );
+                        } else if can_edge {
+                            frame.label_with(
+                                i18n.text(Message::EdgeScroll),
+                                &optics_ui::LabelOpts {
+                                    size: design.typography.footnote,
+                                    ..Default::default()
+                                },
+                            );
+                        } else {
+                            frame.label_with(
+                                i18n.text(Message::Unavailable),
+                                &optics_ui::LabelOpts {
+                                    size: design.typography.footnote,
+                                    ..Default::default()
+                                },
+                            );
                         }
-                    } else if can_two_finger {
-                        frame.label_sized(
-                            i18n.text(Message::TwoFingerScroll),
-                            design.typography.footnote,
-                        );
-                    } else if can_edge {
-                        frame.label_sized(
-                            i18n.text(Message::EdgeScroll),
-                            design.typography.footnote,
-                        );
-                    } else {
-                        frame.label_sized(
-                            i18n.text(Message::Unavailable),
-                            design.typography.footnote,
-                        );
-                    }
-                },
-            );
-        });
+                    });
+            });
 
         if changed {
             touchpad.pointer_speed = touchpad.pointer_speed.clamp(-1.0, 1.0);
@@ -420,30 +511,54 @@ fn render_pointer_speed(
     editable: bool,
     changed: &mut bool,
 ) {
-    frame.row_ex(&section_heading_layout(), |frame| {
-        frame.label_sized(i18n.text(Message::PointerSpeed), design.typography.label);
-        frame.flex(1.0);
-        frame.spacer(0.0);
-        frame.label_sized(
-            &format!("{:+.0}%", *speed * 100.0),
-            design.typography.footnote,
-        );
-    });
+    frame
+        .row()
+        .with_opts(&section_heading_layout())
+        .show(|frame| {
+            frame.label_with(
+                i18n.text(Message::PointerSpeed),
+                &optics_ui::LabelOpts {
+                    size: design.typography.label,
+                    ..Default::default()
+                },
+            );
+            frame.flex(1.0);
+            frame.spacer(0.0);
+            frame.label_with(
+                &format!("{:+.0}%", *speed * 100.0),
+                &optics_ui::LabelOpts {
+                    size: design.typography.footnote,
+                    ..Default::default()
+                },
+            );
+        });
     if editable {
         *changed |= frame.slider(&format!("##{device}-pointer-speed"), speed, -1.0, 1.0);
-        frame.row_ex(
-            &LayoutOpts {
+        frame
+            .row()
+            .with_opts(&LayoutOpts {
                 height: 18.0,
                 cross: Align::Center,
                 ..Default::default()
-            },
-            |frame| {
-                frame.label_sized(i18n.text(Message::Slow), design.typography.caption);
+            })
+            .show(|frame| {
+                frame.label_with(
+                    i18n.text(Message::Slow),
+                    &optics_ui::LabelOpts {
+                        size: design.typography.caption,
+                        ..Default::default()
+                    },
+                );
                 frame.flex(1.0);
                 frame.spacer(0.0);
-                frame.label_sized(i18n.text(Message::Fast), design.typography.caption);
-            },
-        );
+                frame.label_with(
+                    i18n.text(Message::Fast),
+                    &optics_ui::LabelOpts {
+                        size: design.typography.caption,
+                        ..Default::default()
+                    },
+                );
+            });
     } else {
         unavailable_row(frame, i18n.text(Message::PointerSpeed), i18n, design);
     }
@@ -459,27 +574,54 @@ fn render_scroll_speed(
     editable: bool,
     changed: &mut bool,
 ) {
-    frame.row_ex(&section_heading_layout(), |frame| {
-        frame.label_sized(i18n.text(Message::ScrollSpeed), design.typography.label);
-        frame.flex(1.0);
-        frame.spacer(0.0);
-        frame.label_sized(&format!("×{:.1}", *speed), design.typography.footnote);
-    });
+    frame
+        .row()
+        .with_opts(&section_heading_layout())
+        .show(|frame| {
+            frame.label_with(
+                i18n.text(Message::ScrollSpeed),
+                &optics_ui::LabelOpts {
+                    size: design.typography.label,
+                    ..Default::default()
+                },
+            );
+            frame.flex(1.0);
+            frame.spacer(0.0);
+            frame.label_with(
+                &format!("×{:.1}", *speed),
+                &optics_ui::LabelOpts {
+                    size: design.typography.footnote,
+                    ..Default::default()
+                },
+            );
+        });
     if editable {
         *changed |= frame.slider(&format!("##{device}-scroll-speed"), speed, 0.1, 10.0);
-        frame.row_ex(
-            &LayoutOpts {
+        frame
+            .row()
+            .with_opts(&LayoutOpts {
                 height: 18.0,
                 cross: Align::Center,
                 ..Default::default()
-            },
-            |frame| {
-                frame.label_sized(i18n.text(Message::Slow), design.typography.caption);
+            })
+            .show(|frame| {
+                frame.label_with(
+                    i18n.text(Message::Slow),
+                    &optics_ui::LabelOpts {
+                        size: design.typography.caption,
+                        ..Default::default()
+                    },
+                );
                 frame.flex(1.0);
                 frame.spacer(0.0);
-                frame.label_sized(i18n.text(Message::Fast), design.typography.caption);
-            },
-        );
+                frame.label_with(
+                    i18n.text(Message::Fast),
+                    &optics_ui::LabelOpts {
+                        size: design.typography.caption,
+                        ..Default::default()
+                    },
+                );
+            });
     } else {
         unavailable_row(frame, i18n.text(Message::ScrollSpeed), i18n, design);
     }

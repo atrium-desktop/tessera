@@ -180,6 +180,14 @@ pub struct AssessedFrameDamage {
     /// to gfx's epoch ledger; it is not the repaint scope and not the KMS
     /// scanout hint (both are derived by the engine).
     pub output: FrameDamage,
+    /// The current frame's delta for the Primary plane alone, excluding
+    /// in-place buffer updates of an active KMS overlay surface (ADR-0268).
+    /// When this is `FrameDamage::None` and `overlay_buffer_changed` is `true`,
+    /// the compositor can take the zero-GPU overlay-only commit fast path.
+    pub primary_output: FrameDamage,
+    /// True when the currently active KMS overlay surface committed a new
+    /// buffer generation without moving or resizing (ADR-0268).
+    pub overlay_buffer_changed: bool,
     /// Resource ids of the client surfaces this assessment sampled. The
     /// presented frame consumes exactly these surfaces' damage baselines, so
     /// they — and only they — may be marked presented after a successful
@@ -187,6 +195,15 @@ pub struct AssessedFrameDamage {
     /// (hidden workspace, fully occluded, minimized) must keep its latched
     /// `wl_buffer` releasable immediately rather than deferring it to vblank.
     pub sampled_surface_ids: Vec<usize>,
+}
+
+/// Client-damage split separating an active offloaded overlay surface's
+/// in-place buffer commits from Primary-plane damage (ADR-0268).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SplitClientDamage {
+    pub total: ClientDamage,
+    pub primary_only: ClientDamage,
+    pub overlay_buffer_changed: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -717,7 +734,10 @@ fn accumulate_surface(
     old: &std::collections::HashMap<usize, SurfaceDamageBaseline>,
     new: &mut std::collections::HashMap<usize, SurfaceDamageBaseline>,
     sample: SurfaceDamageSample<'_>,
-    rects: &mut Vec<Rect>,
+    total_rects: &mut Vec<Rect>,
+    primary_rects: &mut Vec<Rect>,
+    overlay_surface_id: Option<usize>,
+    overlay_buffer_changed: &mut bool,
 ) {
     let SurfaceDamageSample {
         id,
@@ -735,8 +755,10 @@ fn accumulate_surface(
         },
     );
     let Some(previous) = previous else {
-        // A newly appeared surface: dirty its own visual bounds.
-        rects.push(placement.bounds());
+        // A newly appeared surface: dirty its own visual bounds on both planes.
+        let bounds = placement.bounds();
+        total_rects.push(bounds);
+        primary_rects.push(bounds);
         return;
     };
 
@@ -747,13 +769,24 @@ fn accumulate_surface(
         // `bounds()` includes the compositor-drawn shadow skirt. Using
         // `placement.rect()` for the new position left the leading edge of a
         // moving floating window's shadow outside the damage scope.
-        rects.push(previous.placement.bounds());
-        rects.push(placement.bounds());
+        let prev_bounds = previous.placement.bounds();
+        let next_bounds = placement.bounds();
+        total_rects.push(prev_bounds);
+        total_rects.push(next_bounds);
+        primary_rects.push(prev_bounds);
+        primary_rects.push(next_bounds);
         return;
     }
 
     if previous.generation != generation {
-        rects.extend(placement.place_damage(damage, damage_full));
+        let placed = placement.place_damage(damage, damage_full);
+        if overlay_surface_id == Some(id) {
+            *overlay_buffer_changed = true;
+            total_rects.extend(placed);
+        } else {
+            total_rects.extend(placed.iter().copied());
+            primary_rects.extend(placed);
+        }
     }
 }
 
@@ -764,7 +797,8 @@ fn accumulate_surface(
 ///
 /// The composition root feeds every presentation-visible surface frame per
 /// frame — SHM and dma-buf toplevels, overlays (including the client cursor
-/// surface), and lock surfaces — through [`Self::assess`].
+/// surface), and lock surfaces — through [`Self::assess`] or
+/// [`Self::assess_with_overlay_split`].
 #[derive(Default)]
 pub struct ClientDamageTracker {
     last: std::collections::HashMap<usize, SurfaceDamageBaseline>,
@@ -779,13 +813,29 @@ impl ClientDamageTracker {
         &mut self,
         frames: impl IntoIterator<Item = &'f dyn SurfaceDamageFrame>,
     ) -> ClientDamage {
+        self.assess_with_overlay_split(frames, None).total
+    }
+
+    /// Assess client damage while separating in-place buffer updates of an
+    /// active KMS overlay surface from Primary-plane damage (ADR-0268).
+    ///
+    /// Every surface's baseline advances in lockstep — including the overlay
+    /// surface — so falling back to composition never starts from a stale
+    /// generation.
+    pub fn assess_with_overlay_split<'f>(
+        &mut self,
+        frames: impl IntoIterator<Item = &'f dyn SurfaceDamageFrame>,
+        overlay_surface_id: Option<usize>,
+    ) -> SplitClientDamage {
         // Swap in place instead of allocating a fresh HashMap every frame.
         std::mem::swap(&mut self.last, &mut self.scratch);
         let old = &self.scratch;
         let new = &mut self.last;
         new.clear();
         new.reserve(old.len());
-        let mut rects: Vec<Rect> = Vec::new();
+        let mut total_rects: Vec<Rect> = Vec::new();
+        let mut primary_rects: Vec<Rect> = Vec::new();
+        let mut overlay_buffer_changed = false;
         let mut surfaces = 0u64;
 
         for frame in frames {
@@ -808,22 +858,37 @@ impl ClientDamageTracker {
                     sample.placement,
                 );
             }
-            accumulate_surface(old, new, sample, &mut rects);
+            accumulate_surface(
+                old,
+                new,
+                sample,
+                &mut total_rects,
+                &mut primary_rects,
+                overlay_surface_id,
+                &mut overlay_buffer_changed,
+            );
         }
         for (id, prev) in old {
             if !new.contains_key(id) {
-                rects.push(prev.placement.bounds());
+                let bounds = prev.placement.bounds();
+                total_rects.push(bounds);
+                primary_rects.push(bounds);
             }
         }
         self.scratch.clear();
 
-        let damage = if rects.is_empty() {
+        let total = if total_rects.is_empty() {
             ClientDamage::None
         } else {
-            ClientDamage::Area(rects)
+            ClientDamage::Area(total_rects)
+        };
+        let primary_only = if primary_rects.is_empty() {
+            ClientDamage::None
+        } else {
+            ClientDamage::Area(primary_rects)
         };
         if log::log_enabled!(target: "tessera.damage.assess", log::Level::Trace) {
-            let (rect_count, area) = match &damage {
+            let (rect_count, area) = match &total {
                 ClientDamage::None => (0usize, 0i64),
                 ClientDamage::Area(rects) => (
                     rects.len(),
@@ -835,13 +900,18 @@ impl ClientDamageTracker {
             };
             log::trace!(
                 target: "tessera.damage.assess",
-                "client damage assessment metric=damage.assess count=1 surfaces={} rects={} area={}",
+                "client damage assessment metric=damage.assess count=1 surfaces={} rects={} area={} overlay_changed={}",
                 surfaces,
                 rect_count,
                 area,
+                overlay_buffer_changed,
             );
         }
-        damage
+        SplitClientDamage {
+            total,
+            primary_only,
+            overlay_buffer_changed,
+        }
     }
 }
 

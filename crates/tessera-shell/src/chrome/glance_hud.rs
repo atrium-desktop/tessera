@@ -259,7 +259,7 @@ impl Chrome for GlanceHud {
         let design = self.design;
         frame.set_opacity(opacity);
         let mut body = materials::panel(&design);
-        body.radius = GLANCE_HEIGHT * 0.5;
+        body.corner_radii = optics_ui::CornerRadii::uniform(GLANCE_HEIGHT * 0.5);
         materials::place_floating(
             frame,
             "tessera-glance-hud",
@@ -271,18 +271,24 @@ impl Chrome for GlanceHud {
             |frame| {
                 let original = frame.theme();
                 frame.set_theme(original.with_fg(design.colors.menu_text));
-                frame.row_ex(
-                    &LayoutOpts {
+                frame
+                    .row()
+                    .with_opts(&LayoutOpts {
                         width: rect.w,
                         height: rect.h,
                         pad: GLANCE_PAD_X,
                         cross: Align::Center,
                         ..Default::default()
-                    },
-                    |frame| {
-                        frame.label_compact_sized(&full_line, design.typography.label);
-                    },
-                );
+                    })
+                    .show(|frame| {
+                        frame.label_with(
+                            &full_line,
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
+                    });
                 frame.set_theme(original);
             },
         );

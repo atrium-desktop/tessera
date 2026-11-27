@@ -38,25 +38,40 @@ impl SettingsModule for UnavailableModule {
         _out: &mut ModuleEvents,
     ) {
         frame.heading(i18n.text(self.metadata.title), 2);
-        frame.label_wrapped_sized(i18n.text(self.description), design.typography.label, 560.0);
-        frame.column_ex(&settings_card_layout(design), |frame| {
-            frame.row_ex(
-                &LayoutOpts {
-                    gap: 10.0,
-                    cross: Align::Center,
-                    ..Default::default()
-                },
-                |frame| {
-                    frame.icon_raw(Glyph::Shield.id(), 22.0);
-                    frame.heading(i18n.text(Message::SettingsBackendUnavailable), 3);
-                },
-            );
-            frame.label_wrapped_sized(
-                i18n.text(Message::SettingsBackendUnavailableDescription),
-                design.typography.footnote,
-                560.0,
-            );
-        });
+        frame.label_with(
+            i18n.text(self.description),
+            &optics_ui::LabelOpts {
+                size: design.typography.label,
+                wrap: true,
+                max_width: 560.0,
+                ..Default::default()
+            },
+        );
+        frame
+            .column()
+            .with_opts(&settings_card_layout(design))
+            .show(|frame| {
+                frame
+                    .row()
+                    .with_opts(&LayoutOpts {
+                        gap: 10.0,
+                        cross: Align::Center,
+                        ..Default::default()
+                    })
+                    .show(|frame| {
+                        frame.icon(Glyph::Shield.id(), 22.0);
+                        frame.heading(i18n.text(Message::SettingsBackendUnavailable), 3);
+                    });
+                frame.label_with(
+                    i18n.text(Message::SettingsBackendUnavailableDescription),
+                    &optics_ui::LabelOpts {
+                        size: design.typography.footnote,
+                        wrap: true,
+                        max_width: 560.0,
+                        ..Default::default()
+                    },
+                );
+            });
     }
 
     fn update_settings(&mut self, _snapshot: &SettingsSnapshot) {}

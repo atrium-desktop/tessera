@@ -54,23 +54,28 @@ impl ControlCenter {
                 transparent(),
             ),
             |f| {
-                f.column_ex(
-                    &LayoutOpts {
+                f.column()
+                    .with_opts(&LayoutOpts {
                         width: text_w,
                         height: rect.h,
                         gap: 2.0,
                         ..Default::default()
-                    },
-                    |f| {
+                    })
+                    .show(|f| {
                         f.flex(1.0);
                         f.spacer(0.0);
                         display_label(f, &name, type_scale.headline);
                         f.set_theme(muted);
-                        f.label_sized(&account, type_scale.footnote);
+                        f.label_with(
+                            &account,
+                            &optics_ui::LabelOpts {
+                                size: type_scale.footnote,
+                                ..Default::default()
+                            },
+                        );
                         f.flex(1.0);
                         f.spacer(0.0);
-                    },
-                );
+                    });
             },
         );
 
@@ -118,21 +123,20 @@ impl ControlCenter {
                 &format!("control-center-header-action-{index}"),
                 &chrome_place(button, transparent()),
                 |f| {
-                    let (response, _) = f.pressable_row(
-                        &format!("control-center-header-button-{index}"),
-                        label,
-                        &LayoutOpts {
+                    let (response, _) = f
+                        .row()
+                        .with_opts(&LayoutOpts {
                             width: button.w,
                             height: button.h,
-                            radius: button.h * 0.5,
+                            corner_radii: optics_ui::CornerRadii::uniform(button.h * 0.5),
                             bg,
                             cross: Align::Center,
                             ..Default::default()
-                        },
-                        |f, _| {
-                            f.centered(button.w, button.h, |f| f.icon_raw(icon, 18.0));
-                        },
-                    );
+                        })
+                        .id_label(&format!("control-center-header-button-{index}"), label)
+                        .show(|f| {
+                            f.centered(button.w, button.h, |f| f.icon(icon, 18.0));
+                        });
                     if response.clicked {
                         clicked = Some(action);
                     }
@@ -196,7 +200,7 @@ impl ControlCenter {
                     "control-center-avatar",
                     &chrome_place(rect, transparent()),
                     |f| {
-                        f.row_ex(&sized(inner, inner), |f| {
+                        f.row().with_opts(&sized(inner, inner)).show(|f| {
                             // SAFETY: the portrait owns the texture for the
                             // panel's lifetime and is replaced only between
                             // frames (`reload_avatar_if_ready`).
@@ -259,24 +263,23 @@ impl ControlCenter {
             "control-center-session-strip",
             &chrome_place(rect, transparent()),
             |f| {
-                f.row_ex(
-                    &LayoutOpts {
+                f.row()
+                    .with_opts(&LayoutOpts {
                         width: rect.w,
                         height: rect.h,
                         gap,
                         cross: Align::Center,
                         ..Default::default()
-                    },
-                    |f| {
+                    })
+                    .show(|f| {
                         for (index, (action, icon, label)) in actions.into_iter().enumerate() {
                             let destructive = matches!(action, SystemAction::PowerOff);
-                            let (response, _) = f.pressable_row(
-                                &format!("control-center-session-{index}"),
-                                label,
-                                &LayoutOpts {
+                            let (response, _) = f
+                                .row()
+                                .with_opts(&LayoutOpts {
                                     width: button_w,
                                     height: rect.h,
-                                    radius: 10.0,
+                                    corner_radii: optics_ui::CornerRadii::uniform(10.0),
                                     gap: 6.0,
                                     pad: 8.0,
                                     cross: Align::Center,
@@ -286,22 +289,21 @@ impl ControlCenter {
                                         hud.surface_recessed
                                     },
                                     ..Default::default()
-                                },
-                                |f, _| {
+                                })
+                                .id_label(&format!("control-center-session-{index}"), label)
+                                .show(|f| {
                                     f.flex(1.0);
                                     f.spacer(0.0);
-                                    f.icon_raw(icon, 16.0);
+                                    f.icon(icon, 16.0);
                                     display_label(f, label, type_scale.footnote);
                                     f.flex(1.0);
                                     f.spacer(0.0);
-                                },
-                            );
+                                });
                             if response.clicked {
                                 chosen = Some(action);
                             }
                         }
-                    },
-                );
+                    });
             },
         );
         f.set_theme(original);

@@ -60,40 +60,55 @@ impl SettingsModule for DockModule {
         let mut changed = false;
 
         frame.heading(i18n.text(Message::Dock), 2);
-        frame.label_sized(i18n.text(Message::DockDescription), design.typography.label);
+        frame.label_with(
+            i18n.text(Message::DockDescription),
+            &optics_ui::LabelOpts {
+                size: design.typography.label,
+                ..Default::default()
+            },
+        );
 
-        frame.column_ex(&settings_card_layout(design), |frame| {
-            frame.row_ex(&section_heading_layout(), |frame| {
-                frame.label_sized(
-                    i18n.text(Message::MinimizeAnimation),
-                    design.typography.label,
-                );
-                frame.flex(1.0);
-                frame.spacer(0.0);
-                let mut selected = match settings.minimize_animation {
-                    MinimizeAnimationStyle::Genie => 0,
-                    MinimizeAnimationStyle::Scale => 1,
-                    MinimizeAnimationStyle::Suck => 2,
-                };
-                frame.size_next(180.0, 30.0);
-                if frame.dropdown(
-                    "##settings-dock-minimize-animation",
-                    &mut selected,
-                    &[
-                        i18n.text(Message::MinimizeAnimationGenie),
-                        i18n.text(Message::MinimizeAnimationScale),
-                        i18n.text(Message::MinimizeAnimationSuck),
-                    ],
-                ) {
-                    settings.minimize_animation = match selected {
-                        1 => MinimizeAnimationStyle::Scale,
-                        2 => MinimizeAnimationStyle::Suck,
-                        _ => MinimizeAnimationStyle::Genie,
-                    };
-                    changed = true;
-                }
+        frame
+            .column()
+            .with_opts(&settings_card_layout(design))
+            .show(|frame| {
+                frame
+                    .row()
+                    .with_opts(&section_heading_layout())
+                    .show(|frame| {
+                        frame.label_with(
+                            i18n.text(Message::MinimizeAnimation),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
+                        frame.flex(1.0);
+                        frame.spacer(0.0);
+                        let mut selected = match settings.minimize_animation {
+                            MinimizeAnimationStyle::Genie => 0,
+                            MinimizeAnimationStyle::Scale => 1,
+                            MinimizeAnimationStyle::Suck => 2,
+                        };
+                        frame.size_next(180.0, 30.0);
+                        if frame.dropdown(
+                            "##settings-dock-minimize-animation",
+                            &mut selected,
+                            &[
+                                i18n.text(Message::MinimizeAnimationGenie),
+                                i18n.text(Message::MinimizeAnimationScale),
+                                i18n.text(Message::MinimizeAnimationSuck),
+                            ],
+                        ) {
+                            settings.minimize_animation = match selected {
+                                1 => MinimizeAnimationStyle::Scale,
+                                2 => MinimizeAnimationStyle::Suck,
+                                _ => MinimizeAnimationStyle::Genie,
+                            };
+                            changed = true;
+                        }
+                    });
             });
-        });
 
         if changed {
             self.settings = settings;

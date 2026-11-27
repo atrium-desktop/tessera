@@ -13,6 +13,7 @@ negative_knowledge: true
 - Status: Accepted
 - Date: 2026-11-20
 - Amends: [ADR-0182](0182-fullscreen-frame-pacing-and-direct-scanout-fidelity.md), [ADR-0246](0246-mirror-scaling-falls-back-to-a-compositor-target.md), [ADR-0247](0247-per-output-render-targets.md), [ADR-0249](0249-presentation-groups-and-per-output-pacing.md)
+- Amended by: [ADR-0264](0264-fail-safe-sync-fence-merging-and-subset-out-fences.md) — replaces `Option<OwnedFd>` with typed fail-safe `CompletionFence`, encodes `SYNC_IOC_MERGE` labels at compile time, and fixes subset `OUT_FENCE_PTR` accounting; [ADR-0265](0265-per-output-scoped-buffer-retirement-and-completion-fences.md) — per-output scoped buffer retirement and retained completion fences; [ADR-0266](0266-linux-drm-syncobj-v1-explicit-synchronization.md) — native `wp_linux_drm_syncobj_v1` timeline explicit synchronization.
 
 ## Context
 

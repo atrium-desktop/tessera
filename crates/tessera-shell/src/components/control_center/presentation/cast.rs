@@ -33,46 +33,34 @@ impl ControlCenter {
             "tessera-hud-cast-detail",
             &chrome_place(area, transparent()),
             |f| {
-                f.column_ex(
-                    &LayoutOpts {
+                f.column().with_opts(&LayoutOpts {
                         width: area.w,
                         height: area.h,
                         gap: 12.0,
                         cross: Align::Stretch,
                         ..Default::default()
-                    },
-                    |f| {
+                    }).show(|f| {
                         // Header row: [< Back] Title  [↻ Scan]
-                        f.row_ex(
-                            &LayoutOpts {
+                        f.row().with_opts(&LayoutOpts {
                                 width: area.w,
                                 height: 36.0,
                                 cross: Align::Center,
                                 gap: 8.0,
                                 ..Default::default()
-                            },
-                            |f| {
-                                let (back_resp, _) = f.pressable_row(
-                                    "tessera-cast-back-btn",
-                                    i18n.text(Message::Back),
-                                    &LayoutOpts {
+                            }).show(|f| {
+                                let (back_resp, _) = f.row().with_opts(&LayoutOpts {
                                         width: 80.0,
                                         height: 36.0,
-                                        radius: 10.0,
+                                        corner_radii: optics_ui::CornerRadii::uniform(10.0),
                                         pad: 6.0,
                                         gap: 4.0,
                                         bg: hud.surface_recessed,
                                         cross: Align::Center,
                                         ..Default::default()
-                                    },
-                                    |f, _| {
-                                        f.icon_raw(
-                                            optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_CHEVRON_LEFT,
-                                            16.0,
-                                        );
+                                    }).id_label("tessera-cast-back-btn", i18n.text(Message::Back)).show(|f| {
+                                        f.icon(optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_CHEVRON_LEFT, 16.0);
                                         display_label(f, i18n.text(Message::Back), type_scale.body);
-                                    },
-                                );
+                                    });
                                 if back_resp.clicked {
                                     self.show_page(Page::Main, out);
                                 }
@@ -83,13 +71,10 @@ impl ControlCenter {
                                 f.flex(1.0);
                                 f.spacer(0.0);
 
-                                let (refresh_resp, _) = f.pressable_row(
-                                    "tessera-cast-refresh-btn",
-                                    "Scan",
-                                    &LayoutOpts {
+                                let (refresh_resp, _) = f.row().with_opts(&LayoutOpts {
                                         width: 36.0,
                                         height: 36.0,
-                                        radius: 18.0,
+                                        corner_radii: optics_ui::CornerRadii::uniform(18.0),
                                         cross: Align::Center,
                                         bg: if is_scanning {
                                             hud.selection_surface
@@ -97,36 +82,28 @@ impl ControlCenter {
                                             hud.surface_recessed
                                         },
                                         ..Default::default()
-                                    },
-                                    |f, _| {
+                                    }).id_label("tessera-cast-refresh-btn", "Scan").show(|f| {
                                         f.flex(1.0);
                                         f.spacer(0.0);
-                                        f.icon_raw(
-                                            Glyph::RefreshCw.id(),
-                                            16.0,
-                                        );
+                                        f.icon(Glyph::RefreshCw.id(), 16.0);
                                         f.flex(1.0);
                                         f.spacer(0.0);
-                                    },
-                                );
+                                    });
                                 if refresh_resp.clicked {
                                     self.cast_scanning = true;
                                     out.system_actions.push(SystemAction::ScanCast);
                                 }
-                            },
-                        );
+                            });
 
                         let list_h = (area.h - 36.0 - 12.0).max(1.0);
                         f.scroll("tessera-cast-scroll", |f| {
-                            f.column_ex(
-                                &LayoutOpts {
+                            f.column().with_opts(&LayoutOpts {
                                     width: area.w,
                                     height: list_h,
                                     gap: 12.0,
                                     cross: Align::Stretch,
                                     ..Default::default()
-                                },
-                                |f| {
+                                }).show(|f| {
                                     // Section: service state
                                     display_label(f, "Cast Service", type_scale.headline);
                                     let (title, detail) = if service_available {
@@ -150,19 +127,17 @@ impl ControlCenter {
                                             "The out-of-process cast service is not running.",
                                         )
                                     };
-                                    f.column_ex(
-                                        &LayoutOpts {
+                                    f.column().with_opts(&LayoutOpts {
                                             width: area.w,
                                             pad: 12.0,
-                                            radius: 12.0,
+                                            corner_radii: optics_ui::CornerRadii::uniform(12.0),
                                             bg: hud.surface_recessed,
                                             border: hud.border,
                                             border_width: 1.0,
                                             cross: Align::Start,
                                             gap: 3.0,
                                             ..Default::default()
-                                        },
-                                        |f| {
+                                        }).show(|f| {
                                             f.set_theme(themes::hud(&hud).with_fg(hud.text));
                                             display_label(f, title, type_scale.body);
                                             f.set_theme(themes::hud(&hud).with_fg(hud.text_muted));
@@ -170,24 +145,21 @@ impl ControlCenter {
                                             if let Some(error) = &status.cast.last_error {
                                                 display_label(f, error, type_scale.footnote);
                                             }
-                                        },
-                                    );
+                                        });
 
                                     // Section: live sessions
                                     f.spacer(4.0);
                                     display_label(f, "Current Session", type_scale.headline);
                                     if status.cast.sessions.is_empty() {
-                                        f.column_ex(
-                                            &LayoutOpts {
+                                        f.column().with_opts(&LayoutOpts {
                                                 width: area.w,
                                                 pad: 12.0,
-                                                radius: 12.0,
+                                                corner_radii: optics_ui::CornerRadii::uniform(12.0),
                                                 bg: hud.surface_recessed,
                                                 cross: Align::Start,
                                                 gap: 3.0,
                                                 ..Default::default()
-                                            },
-                                            |f| {
+                                            }).show(|f| {
                                                 f.set_theme(themes::hud(&hud).with_fg(hud.text));
                                                 display_label(
                                                     f,
@@ -202,45 +174,35 @@ impl ControlCenter {
                                                     "Select a nearby display below to start one.",
                                                     type_scale.footnote,
                                                 );
-                                            },
-                                        );
+                                            });
                                     } else {
                                         for (index, session) in
                                             status.cast.sessions.iter().enumerate()
                                         {
-                                            let (row, _) = f.pressable_row(
-                                                &format!("tessera-cast-session-{index}"),
-                                                &session.sink_name,
-                                                &LayoutOpts {
+                                            let (row, _) = f.row().with_opts(&LayoutOpts {
                                                     width: area.w,
                                                     height: 56.0,
                                                     pad: 10.0,
-                                                    radius: 12.0,
+                                                    corner_radii: optics_ui::CornerRadii::uniform(12.0),
                                                     bg: hud.selection_surface,
                                                     border: hud.accent.with_alpha(80),
                                                     border_width: 1.0,
                                                     cross: Align::Center,
                                                     gap: 10.0,
                                                     ..Default::default()
-                                                },
-                                                |f, _| {
+                                                }).id_label(&format!("tessera-cast-session-{index}"), &session.sink_name).show(|f| {
                                                     f.set_theme(
                                                         themes::hud(&hud).with_fg(hud.accent),
                                                     );
-                                                    f.icon_raw(
-                                                        Glyph::Monitor.id(),
-                                                        20.0,
-                                                    );
+                                                    f.icon(Glyph::Monitor.id(), 20.0);
                                                     f.set_theme(
                                                         themes::hud(&hud).with_fg(hud.text),
                                                     );
-                                                    f.column_ex(
-                                                        &LayoutOpts {
+                                                    f.column().with_opts(&LayoutOpts {
                                                             cross: Align::Start,
                                                             gap: 1.0,
                                                             ..Default::default()
-                                                        },
-                                                        |f| {
+                                                        }).show(|f| {
                                                             display_label(
                                                                 f,
                                                                 &session.sink_name,
@@ -275,8 +237,7 @@ impl ControlCenter {
                                                                 &line,
                                                                 type_scale.footnote,
                                                             );
-                                                        },
-                                                    );
+                                                        });
 
                                                     f.flex(1.0);
                                                     f.spacer(0.0);
@@ -284,20 +245,16 @@ impl ControlCenter {
                                                     if session.state
                                                         != tessera_desktop::system::CastSessionState::Failed
                                                     {
-                                                        let (stop, _) = f.pressable_row(
-                                                            &format!(
-                                                                "tessera-cast-stop-{index}"
-                                                            ),
-                                                            "Stop",
-                                                            &LayoutOpts {
+                                                        let (stop, _) = f.row().with_opts(&LayoutOpts {
                                                                 width: 72.0,
                                                                 height: 28.0,
-                                                                radius: 8.0,
+                                                                corner_radii: optics_ui::CornerRadii::uniform(8.0),
                                                                 cross: Align::Center,
                                                                 bg: hud.surface,
                                                                 ..Default::default()
-                                                            },
-                                                            |f, _| {
+                                                            }).id_label(&format!(
+                                                                "tessera-cast-stop-{index}"
+                                                            ), "Stop").show(|f| {
                                                                 f.flex(1.0);
                                                                 f.spacer(0.0);
                                                                 f.set_theme(
@@ -311,8 +268,7 @@ impl ControlCenter {
                                                                 );
                                                                 f.flex(1.0);
                                                                 f.spacer(0.0);
-                                                            },
-                                                        );
+                                                            });
                                                         if stop.clicked {
                                                             out.system_actions.push(
                                                                 SystemAction::DisconnectCast {
@@ -321,8 +277,7 @@ impl ControlCenter {
                                                             );
                                                         }
                                                     }
-                                                },
-                                            );
+                                                });
                                             let _ = row;
                                         }
                                     }
@@ -332,22 +287,17 @@ impl ControlCenter {
                                     display_label(f, "Nearby Displays", type_scale.headline);
 
                                     if is_scanning {
-                                        f.row_ex(
-                                            &LayoutOpts {
+                                        f.row().with_opts(&LayoutOpts {
                                                 width: area.w,
                                                 height: 40.0,
                                                 pad: 8.0,
-                                                radius: 10.0,
+                                                corner_radii: optics_ui::CornerRadii::uniform(10.0),
                                                 bg: hud.surface_recessed,
                                                 cross: Align::Center,
                                                 gap: 8.0,
                                                 ..Default::default()
-                                            },
-                                            |f| {
-                                                f.icon_raw(
-                                                    Glyph::RefreshCw.id(),
-                                                    16.0,
-                                                );
+                                            }).show(|f| {
+                                                f.icon(Glyph::RefreshCw.id(), 16.0);
                                                 f.set_theme(
                                                     themes::hud(&hud).with_fg(hud.text_muted),
                                                 );
@@ -356,26 +306,20 @@ impl ControlCenter {
                                                     "Searching for nearby Wi-Fi Display (Miracast) sinks…",
                                                     type_scale.footnote,
                                                 );
-                                            },
-                                        );
+                                            });
                                     }
 
                                     if status.cast.sinks.is_empty() {
-                                        f.column_ex(
-                                            &LayoutOpts {
+                                        f.column().with_opts(&LayoutOpts {
                                                 width: area.w,
                                                 pad: 16.0,
-                                                radius: 12.0,
+                                                corner_radii: optics_ui::CornerRadii::uniform(12.0),
                                                 bg: hud.surface_recessed,
                                                 cross: Align::Center,
                                                 gap: 6.0,
                                                 ..Default::default()
-                                            },
-                                            |f| {
-                                                f.icon_raw(
-                                                    Glyph::Monitor.id(),
-                                                    24.0,
-                                                );
+                                            }).show(|f| {
+                                                f.icon(Glyph::Monitor.id(), 24.0);
                                                 f.set_theme(themes::hud(&hud).with_fg(hud.text));
                                                 display_label(
                                                     f,
@@ -390,38 +334,28 @@ impl ControlCenter {
                                                     "Ensure screen mirroring is enabled on your display, then click Scan.",
                                                     type_scale.footnote,
                                                 );
-                                            },
-                                        );
+                                            });
                                     } else {
                                         for (index, sink) in status.cast.sinks.iter().enumerate() {
-                                            let (row, _) = f.pressable_row(
-                                                &format!("tessera-cast-device-{index}"),
-                                                &sink.name,
-                                                &LayoutOpts {
+                                            let (row, _) = f.row().with_opts(&LayoutOpts {
                                                     width: area.w,
                                                     height: 56.0,
                                                     pad: 8.0,
-                                                    radius: 12.0,
+                                                    corner_radii: optics_ui::CornerRadii::uniform(12.0),
                                                     bg: hud.surface_recessed,
                                                     cross: Align::Center,
                                                     gap: 10.0,
                                                     ..Default::default()
-                                                },
-                                                |f, _| {
+                                                }).id_label(&format!("tessera-cast-device-{index}"), &sink.name).show(|f| {
                                                     f.set_theme(
                                                         themes::hud(&hud).with_fg(hud.text),
                                                     );
-                                                    f.icon_raw(
-                                                        Glyph::Monitor.id(),
-                                                        20.0,
-                                                    );
-                                                    f.column_ex(
-                                                        &LayoutOpts {
+                                                    f.icon(Glyph::Monitor.id(), 20.0);
+                                                    f.column().with_opts(&LayoutOpts {
                                                             cross: Align::Start,
                                                             gap: 1.0,
                                                             ..Default::default()
-                                                        },
-                                                        |f| {
+                                                        }).show(|f| {
                                                             display_label(
                                                                 f,
                                                                 &sink.name,
@@ -458,27 +392,22 @@ impl ControlCenter {
                                                                     type_scale.footnote,
                                                                 );
                                                             }
-                                                        },
-                                                    );
+                                                        });
 
                                                     f.flex(1.0);
                                                     f.spacer(0.0);
 
                                                     if sink.blocker.is_none() && service_available {
-                                                        let (connect, _) = f.pressable_row(
-                                                            &format!(
-                                                                "tessera-cast-connect-sink-{index}"
-                                                            ),
-                                                            "Connect",
-                                                            &LayoutOpts {
+                                                        let (connect, _) = f.row().with_opts(&LayoutOpts {
                                                                 width: 80.0,
                                                                 height: 28.0,
-                                                                radius: 8.0,
+                                                                corner_radii: optics_ui::CornerRadii::uniform(8.0),
                                                                 cross: Align::Center,
                                                                 bg: hud.accent,
                                                                 ..Default::default()
-                                                            },
-                                                            |f, _| {
+                                                            }).id_label(&format!(
+                                                                "tessera-cast-connect-sink-{index}"
+                                                            ), "Connect").show(|f| {
                                                                 f.flex(1.0);
                                                                 f.spacer(0.0);
                                                                 f.set_theme(
@@ -495,8 +424,7 @@ impl ControlCenter {
                                                                 );
                                                                 f.flex(1.0);
                                                                 f.spacer(0.0);
-                                                            },
-                                                        );
+                                                            });
                                                         if connect.clicked {
                                                             out.system_actions.push(
                                                                 SystemAction::ConnectCast {
@@ -505,37 +433,29 @@ impl ControlCenter {
                                                             );
                                                         }
                                                     }
-                                                },
-                                            );
+                                                });
                                             let _ = row;
                                         }
                                     }
 
                                     // Guidance
-                                    f.row_ex(
-                                        &LayoutOpts {
+                                    f.row().with_opts(&LayoutOpts {
                                             width: area.w,
                                             pad: 12.0,
-                                            radius: 12.0,
+                                            corner_radii: optics_ui::CornerRadii::uniform(12.0),
                                             bg: hud.surface_recessed,
                                             border: hud.border,
                                             border_width: 1.0,
                                             cross: Align::Start,
                                             gap: 10.0,
                                             ..Default::default()
-                                        },
-                                        |f| {
-                                            f.icon_raw(
-                                                Glyph::Monitor.id(),
-                                                18.0,
-                                            );
-                                            f.column_ex(
-                                                &LayoutOpts {
+                                        }).show(|f| {
+                                            f.icon(Glyph::Monitor.id(), 18.0);
+                                            f.column().with_opts(&LayoutOpts {
                                                     cross: Align::Start,
                                                     gap: 4.0,
                                                     ..Default::default()
-                                                },
-                                                |f| {
+                                                }).show(|f| {
                                                     f.set_theme(
                                                         themes::hud(&hud).with_fg(hud.text),
                                                     );
@@ -563,15 +483,11 @@ impl ControlCenter {
                                                         "3. If the service reports a firewall error, allow inbound tcp/7236 on the P2P interface.",
                                                         type_scale.footnote,
                                                     );
-                                                },
-                                            );
-                                        },
-                                    );
-                                },
-                            );
+                                                });
+                                        });
+                                });
                         });
-                    },
-                );
+                    });
             },
         );
         f.set_theme(original);

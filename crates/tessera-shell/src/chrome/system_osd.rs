@@ -165,7 +165,7 @@ impl Chrome for SystemOsd {
 
         frame.set_opacity(opacity);
         let mut body = materials::panel(&design);
-        body.radius = design.radii.card;
+        body.corner_radii = optics_ui::CornerRadii::uniform(design.radii.card);
         materials::place_floating(
             frame,
             "tessera-system-osd",
@@ -175,16 +175,16 @@ impl Chrome for SystemOsd {
             opacity,
             body,
             |frame| {
-                frame.column_ex(
-                    &LayoutOpts {
+                frame
+                    .column()
+                    .with_opts(&LayoutOpts {
                         width: rect.w,
                         height: rect.h,
                         gap: 6.0,
                         pad: OSD_PAD,
                         ..Default::default()
-                    },
-                    |_| {},
-                );
+                    })
+                    .show(|_| {});
             },
         );
 
@@ -202,16 +202,22 @@ impl Chrome for SystemOsd {
                 materials::transparent(),
             ),
             |frame| {
-                frame.row_ex(
-                    &LayoutOpts {
+                frame
+                    .row()
+                    .with_opts(&LayoutOpts {
                         cross: Align::Center,
                         ..Default::default()
-                    },
-                    |frame| {
+                    })
+                    .show(|frame| {
                         frame.set_theme(frame.theme().with_fg(design.colors.menu_text));
-                        frame.label_compact_sized(&title, design.typography.label);
-                    },
-                );
+                        frame.label_with(
+                            &title,
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
+                    });
             },
         );
 
@@ -229,16 +235,22 @@ impl Chrome for SystemOsd {
                     materials::transparent(),
                 ),
                 |frame| {
-                    frame.row_ex(
-                        &LayoutOpts {
+                    frame
+                        .row()
+                        .with_opts(&LayoutOpts {
                             cross: Align::Center,
                             ..Default::default()
-                        },
-                        |frame| {
+                        })
+                        .show(|frame| {
                             frame.set_theme(frame.theme().with_fg(design.colors.menu_text_heading));
-                            frame.label_compact_sized(&detail, design.typography.footnote);
-                        },
-                    );
+                            frame.label_with(
+                                &detail,
+                                &optics_ui::LabelOpts {
+                                    size: design.typography.footnote,
+                                    ..Default::default()
+                                },
+                            );
+                        });
                 },
             );
         }
@@ -261,7 +273,7 @@ impl Chrome for SystemOsd {
                     track,
                     LayoutOpts {
                         bg: design.colors.slider_track,
-                        radius: GAUGE_H * 0.5,
+                        corner_radii: optics_ui::CornerRadii::uniform(GAUGE_H * 0.5),
                         pad: 0.0,
                         ..materials::surface_layout()
                     },
@@ -278,7 +290,7 @@ impl Chrome for SystemOsd {
                         } else {
                             design.colors.slider_fill
                         },
-                        radius: GAUGE_H * 0.5,
+                        corner_radii: optics_ui::CornerRadii::uniform(GAUGE_H * 0.5),
                         pad: 0.0,
                         ..materials::surface_layout()
                     },

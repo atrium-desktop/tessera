@@ -68,7 +68,9 @@ pub use tessera_wayland_protocols::{
     zxdg_toplevel_decoration_v1_interface,
 };
 pub use tessera_wayland_protocols::{
-    zwp_linux_buffer_release_v1_interface, zwp_linux_explicit_synchronization_v1_interface,
+    wp_linux_drm_syncobj_manager_v1_interface, wp_linux_drm_syncobj_surface_v1_interface,
+    wp_linux_drm_syncobj_timeline_v1_interface, zwp_linux_buffer_release_v1_interface,
+    zwp_linux_explicit_synchronization_v1_interface,
     zwp_linux_surface_synchronization_v1_interface,
 };
 
@@ -1081,6 +1083,30 @@ pub struct zwp_linux_surface_synchronization_v1_interface_impl {
     pub get_release: unsafe extern "C" fn(*mut wl_client, *mut wl_resource, u32),
 }
 
+/// `wp_linux_drm_syncobj_manager_v1`: destroy, get_surface, import_timeline.
+#[repr(C)]
+pub struct wp_linux_drm_syncobj_manager_v1_interface_impl {
+    pub destroy: unsafe extern "C" fn(*mut wl_client, *mut wl_resource),
+    pub get_surface: unsafe extern "C" fn(*mut wl_client, *mut wl_resource, u32, *mut wl_resource),
+    pub import_timeline: unsafe extern "C" fn(*mut wl_client, *mut wl_resource, u32, c_int),
+}
+
+/// `wp_linux_drm_syncobj_timeline_v1`: destroy.
+#[repr(C)]
+pub struct wp_linux_drm_syncobj_timeline_v1_interface_impl {
+    pub destroy: unsafe extern "C" fn(*mut wl_client, *mut wl_resource),
+}
+
+/// `wp_linux_drm_syncobj_surface_v1`: destroy, set_acquire_point, set_release_point.
+#[repr(C)]
+pub struct wp_linux_drm_syncobj_surface_v1_interface_impl {
+    pub destroy: unsafe extern "C" fn(*mut wl_client, *mut wl_resource),
+    pub set_acquire_point:
+        unsafe extern "C" fn(*mut wl_client, *mut wl_resource, *mut wl_resource, u32, u32),
+    pub set_release_point:
+        unsafe extern "C" fn(*mut wl_client, *mut wl_resource, *mut wl_resource, u32, u32),
+}
+
 #[repr(C)]
 pub struct zwp_tablet_manager_v2_interface_impl {
     pub get_tablet_seat:
@@ -1490,6 +1516,9 @@ declare_vtables! {
     ext_session_lock_surface_v1_interface => ext_session_lock_surface_v1_interface_impl,
     zwp_linux_explicit_synchronization_v1_interface => zwp_linux_explicit_synchronization_v1_interface_impl,
     zwp_linux_surface_synchronization_v1_interface => zwp_linux_surface_synchronization_v1_interface_impl,
+    wp_linux_drm_syncobj_manager_v1_interface => wp_linux_drm_syncobj_manager_v1_interface_impl,
+    wp_linux_drm_syncobj_timeline_v1_interface => wp_linux_drm_syncobj_timeline_v1_interface_impl,
+    wp_linux_drm_syncobj_surface_v1_interface => wp_linux_drm_syncobj_surface_v1_interface_impl,
     zwp_tablet_manager_v2_interface => zwp_tablet_manager_v2_interface_impl,
     zwp_tablet_seat_v2_interface => zwp_tablet_seat_v2_interface_impl,
     zwp_tablet_v2_interface => zwp_tablet_v2_interface_impl,

@@ -559,6 +559,7 @@ fn per_crtc_modeset_tracks_each_slot_independently() {
             current: None,
             retiring: None,
             source: None,
+            geometry: device::PrimaryScanoutGeometry::UnionLayout,
             pending: false,
             modeset_done: false,
         },
@@ -567,6 +568,7 @@ fn per_crtc_modeset_tracks_each_slot_independently() {
             current: None,
             retiring: None,
             source: None,
+            geometry: device::PrimaryScanoutGeometry::UnionLayout,
             pending: false,
             modeset_done: false,
         },
@@ -944,4 +946,71 @@ fn mode_sized_target_geometry_stays_local_without_clobbering_output_origin() {
     );
     assert_eq!(union.src, (0, 0, 3072, 1920));
     assert_eq!(union.dst, (192, 0, 3456, 2160));
+}
+
+#[test]
+fn test_inv_arch_159_subset_commit_out_fences_match_target_count() {
+    // Single-target subset commit on a multi-output display set (e.g.
+    // direct scanout on 1 of 2 displays, or one presentation group leaving
+    // direct scanout) collects one out-fence per target CRTC, not per display.
+    assert!(device::out_fences_complete(true, 1, 1));
+    assert!(device::out_fences_complete(true, 2, 2));
+    assert!(!device::out_fences_complete(true, 1, 2));
+    assert!(!device::out_fences_complete(true, 0, 1));
+    assert!(!device::out_fences_complete(true, 0, 0));
+    assert!(!device::out_fences_complete(false, 1, 1));
+}
+
+#[test]
+fn overlay_commit_allows_subset_target_only_for_owned_output() {
+    // Composited subset commit on CRTC 0 with new overlay on CRTC 0.
+    assert!(device::overlay_commit_allowed(
+        PrimaryPlaneSource::Composited,
+        Some(0),
+        None,
+        &[0],
+    ));
+    // Updating existing overlay on CRTC 0 inside subset commit for CRTC 0.
+    assert!(device::overlay_commit_allowed(
+        PrimaryPlaneSource::Composited,
+        Some(0),
+        Some(0),
+        &[0],
+    ));
+    // Reject attaching an overlay on CRTC 0 while CRTC 1 still owns an overlay
+    // outside this subset commit.
+    assert!(!device::overlay_commit_allowed(
+        PrimaryPlaneSource::Composited,
+        Some(0),
+        Some(1),
+        &[0],
+    ));
+    // Moving an overlay from CRTC 1 to CRTC 0 is allowed when both CRTCs are in
+    // the same atomic commit so CRTC 1 disables cleanly.
+    assert!(device::overlay_commit_allowed(
+        PrimaryPlaneSource::Composited,
+        Some(0),
+        Some(1),
+        &[0, 1],
+    ));
+    // Reject overlay targeting an output not in `targets`, or on DirectClient.
+    assert!(!device::overlay_commit_allowed(
+        PrimaryPlaneSource::Composited,
+        Some(1),
+        None,
+        &[0],
+    ));
+    assert!(!device::overlay_commit_allowed(
+        PrimaryPlaneSource::DirectClient,
+        Some(0),
+        None,
+        &[0],
+    ));
+    // No new overlay is always allowed (clearing/preserving is scoped per CRTC).
+    assert!(device::overlay_commit_allowed(
+        PrimaryPlaneSource::Composited,
+        None,
+        Some(1),
+        &[0],
+    ));
 }

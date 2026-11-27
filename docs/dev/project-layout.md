@@ -1,7 +1,11 @@
 # Project Layout
 
-Tessera uses a flat Cargo workspace. Every package lives directly under
-`crates/` and its directory name matches its package name. Package names carry
+Tessera uses a flat Cargo workspace. Every package is named `tessera` or
+`tessera-<role>`, lives directly under `crates/`, and its directory name
+matches its package name; the root `tests/` (`tessera-tests`) and `xtask/`
+members are the only exceptions
+([ADR-0263](../adr/0263-first-party-crates-carry-the-tessera-namespace-prefix.md),
+enforced by `cargo run -p xtask -- package-conformity`). Package names carry
 the architectural role; directory nesting does not grant dependency rights.
 
 ## Source tree

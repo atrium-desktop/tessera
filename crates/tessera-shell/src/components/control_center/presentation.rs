@@ -186,7 +186,7 @@ impl ControlCenter {
             &chrome_place(
                 rect,
                 LayoutOpts {
-                    radius: 8.0,
+                    corner_radii: optics_ui::CornerRadii::uniform(8.0),
                     bg: hud.surface_recessed,
                     border: hud.border,
                     border_width: 1.0,

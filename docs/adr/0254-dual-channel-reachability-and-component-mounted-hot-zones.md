@@ -16,7 +16,7 @@ negative_knowledge: true
 - Supersedes: [ADR-0198](0198-collapsed-dock-capsule-hugs-its-edge-behind-an-independent-reveal-corridor.md) (the collapsed Dock capsule and its independent reveal corridor)
 - Amends: [ADR-0146](0146-dock-intent-dwell-and-anti-trapping-interaction.md) (Dock autohide reveal is now owned by the unified Hot Zone system rather than a Dock-specific collapsed capsule), [ADR-0251](0251-the-dock-sits-a-sliver-off-its-edge.md) (the collapsed stadium capsule is removed; expanded dock edge margin remains 4 px)
 - Related: [ADR-0213](0213-flat-chrome-and-removal-of-the-status-hud.md), [ADR-0239](0239-the-control-center-is-a-right-anchored-sheet.md), [ADR-0217](0217-idle-chrome-does-not-keep-the-frame-clock-and-hover-damage-is-bounded-by-the-component-that-owns-it.md)
-- Amended by: [ADR-0259](0259-topmost-fullscreen-output-ownership-and-stacking-aware-space-use.md) — Hot Zones remain silent only while a fullscreen window is topmost; raising a non-fullscreen window above it immediately restores Hot Zone reachability.
+- Amended by: [ADR-0259](0259-topmost-fullscreen-output-ownership-and-stacking-aware-space-use.md) — Hot Zones remain silent only while a fullscreen window is topmost; raising a non-fullscreen window above it immediately restores Hot Zone reachability. [ADR-0267](0267-in-bounds-bezel-flush-hot-zone-geometry-and-damage-parity.md) — Hot Zone affordances paint strictly in-bounds using Optics ADR-0175 per-corner analytic squircle SDF with bounded `pointer_damage_regions` and immediate suppression retirement.
 
 ---
 

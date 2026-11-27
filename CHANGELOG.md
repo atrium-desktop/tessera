@@ -14,6 +14,64 @@ project cuts a tagged release.
 
 ## [Unreleased]
 
+### Added
+
+- **Native `wp_linux_drm_syncobj_v1` explicit synchronization (ADR-0266).**
+  The Wayland server now compiles and advertises `wp_linux_drm_syncobj_manager_v1`
+  (version 1) whenever the matching DRM render node supports
+  `DRM_CAP_SYNCOBJ_TIMELINE`, enabling modern GPU clients (Chromium/Chrome,
+  Firefox, Mesa EGL/Vulkan WSI) to synchronize DMA-BUF acquire and release
+  points directly on DRM timelines.
+- **Per-output KMS overlay offload and zero-GPU overlay-only fast-path commits
+  (ADR-0268).** Removed the mutual exclusion between per-output render targets
+  and `TESSERA_OVERLAY_OFFLOAD=1`, split Primary vs. in-place overlay client
+  damage assessment, fixed `probe_overlay` primary geometry on secondary
+  mode-sized targets, and added `Host::present_overlay_only` so steady-state
+  windowed overlay buffer updates skip Vulkan rendering and Primary plane
+  commits entirely.
+
+### Fixed
+
+- **Direct-scanout exit panic in `sync_file` fence merging and related KMS
+  synchronization defects (ADR-0264).** Exiting direct scanout for a full-output
+  GPU client (such as Flatpak Chrome) on an explicit-sync DRM session panicked
+  in `tessera_platform::sync::merge_sync_fences` because the 11-byte
+  `b"tessera-kms"` label was copied into a 10-byte slice. The `SYNC_IOC_MERGE`
+  label is now encoded at compile time via `const fn` with an ABI size
+  assertion; `Option<OwnedFd>` is replaced by a typed fail-safe
+  `CompletionFence` (`Signaled | Live | Unmerged`) so merge failures never
+  release live client DMA-BUFs early; `commit_scanout` checks `OUT_FENCE_PTR`
+  completeness against `targets.len()` rather than total display count (and
+  eliminates its `.expect()` and `hdr_output_metadata_bytes` slice copies);
+  multi-target direct scanout merges all targets' fences; and
+  `xtask check-panics` now tracks production `.copy_from_slice(` calls.
+- **Per-output scoped buffer retirement and per-output retained completion
+  fences (ADR-0265).** Replaced the global retired-buffer release sweep and
+  global `last_composited_fence` with per-output consumer tracking and
+  `RetainedOutputFences`, so flipping or entering direct scanout on one output
+  never releases another output's live client buffers or clobbers its retained
+  fence. `DMA_BUF_IOCTL_IMPORT_SYNC_FILE` errors now log and wait on the live
+  fence before posting `wl_buffer.release`, and unmerged-fence timeouts
+  synchronize both the KMS backend (`wait_presented`) and Vulkan device.
+- **Half-clipped bezel hot zones and ghost pixels on live frames (ADR-0267).**
+  Hot-zone edge tabs and corner arcs were placed at negative or overflowing
+  coordinates and relied on viewport clipping. `optics-ui` clamps placements
+  into the viewport, so corners became full circles, edge tabs doubled to
+  14 px pills, and the under-reported damage scissor sliced them in half and
+  left ghost pixels across swapchain slots. Screenshots hid this because they
+  re-render with full damage. Hot zones now paint strictly in-bounds
+  bezel-flush geometry (`HotZones::bezel_flush_geometry`) using Optics
+  ADR-0175's per-corner analytic squircle SDF: square on the bezel-facing
+  vertices, rounded with continuous curvature on the desktop-facing ones.
+  Damage now matches paint exactly: per-slot dirty tracking covers every
+  visual state change, `Chrome::pointer_damage_regions` returns bounded slot
+  footprints instead of escalating pointer motion to `FrameDamage::Full`,
+  suppressed slots retire immediately instead of running empty decay frames,
+  and hover dwell advances in `prepare_frame()` so the accent no longer
+  flickers to neutral on the summon frame. `LayoutOpts` call sites across
+  `tessera-design`, `tessera-shell`, and `tessera-settings` migrate from
+  `radius` to `optics_ui::CornerRadii`.
+
 ## [0.0.105] - 2026-11-27
 
 ### Changed

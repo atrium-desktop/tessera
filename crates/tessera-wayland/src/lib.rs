@@ -185,7 +185,12 @@ struct DmabufBuffer {
     stride: u32,
     /// Set once the plane has been added (`add`), so `create` can validate.
     have_plane: bool,
-    acquire_fence: i32,
+    acquire_fence: std::cell::Cell<i32>,
+    /// Deferred `wp_linux_drm_syncobj_v1` acquire point when the client
+    /// committed before its GPU command materialized a fence (ADR-0266).
+    /// Materialized lazily at first sample time.
+    pending_syncobj_acquire:
+        std::cell::RefCell<Option<(std::rc::Rc<extensions::SyncobjTimeline>, u64)>>,
     resource: *mut ffi::wl_resource,
     state: *mut State,
 }
@@ -213,25 +218,46 @@ impl DmabufBuffer {
             offset: 0,
             stride: 0,
             have_plane: false,
-            acquire_fence: -1,
+            acquire_fence: std::cell::Cell::new(-1),
+            pending_syncobj_acquire: std::cell::RefCell::new(None),
             resource: std::ptr::null_mut(),
             state,
         }
     }
 
+    /// Return the materialized `sync_file` acquire fence fd, lazily exporting
+    /// any deferred `wp_linux_drm_syncobj_v1` acquire point on first sample.
+    fn resolved_acquire_fence(&self) -> i32 {
+        let current = self.acquire_fence.get();
+        if current >= 0 {
+            return current;
+        }
+        let deferred = self.pending_syncobj_acquire.borrow_mut().take();
+        if let Some((timeline, point)) = deferred
+            && let Some(sync_file) = timeline.export_point_sync_file(point)
+        {
+            let fd = std::os::fd::IntoRawFd::into_raw_fd(sync_file);
+            self.acquire_fence.set(fd);
+            return fd;
+        }
+        -1
+    }
+
     fn duplicate(&self) -> Option<DmabufBuffer> {
         let fd = unsafe { dup(self.fd) };
-        let acquire_fence = if self.acquire_fence >= 0 {
-            unsafe { dup(self.acquire_fence) }
+        let src_fence = self.acquire_fence.get();
+        let acquire_fence = if src_fence >= 0 {
+            unsafe { dup(src_fence) }
         } else {
             -1
         };
-        if fd < 0 || (self.acquire_fence >= 0 && acquire_fence < 0) {
+        if fd < 0 || (src_fence >= 0 && acquire_fence < 0) {
             if fd >= 0 {
                 unsafe { libc_close(fd) };
             }
             return None;
         }
+        let pending = self.pending_syncobj_acquire.borrow().clone();
         Some(DmabufBuffer {
             buffer_id: self.buffer_id,
             fd,
@@ -242,7 +268,8 @@ impl DmabufBuffer {
             offset: self.offset,
             stride: self.stride,
             have_plane: self.have_plane,
-            acquire_fence,
+            acquire_fence: std::cell::Cell::new(acquire_fence),
+            pending_syncobj_acquire: std::cell::RefCell::new(pending),
             resource: self.resource,
             state: self.state,
         })
@@ -254,15 +281,42 @@ impl Drop for DmabufBuffer {
         if self.fd >= 0 {
             unsafe { libc_close(self.fd) };
         }
-        if self.acquire_fence >= 0 {
-            unsafe { libc_close(self.acquire_fence) };
+        let fence = self.acquire_fence.get();
+        if fence >= 0 {
+            unsafe { libc_close(fence) };
         }
     }
+}
+
+/// Which outputs still hold a read or scanout reference to a retired client
+/// buffer (ADR-0265).
+pub(crate) enum PendingReleaseOutputs {
+    /// Presented across an unscoped/all-output pass when no output list was
+    /// available.
+    All,
+    /// Presented on a concrete non-empty set of output connectors.
+    Outputs(std::collections::BTreeSet<String>),
 }
 
 struct RetiredBufferRelease {
     buffer: *mut ffi::wl_resource,
     explicit_release: *mut ffi::wl_resource,
+    syncobj_release: Option<extensions::SyncobjRelease>,
+    pending_outputs: PendingReleaseOutputs,
+    /// Owned `sync_file` descriptors duplicated from outputs that already
+    /// finished presenting a cross-output buffer, merged when the final output
+    /// completes.
+    collected_fences: Vec<i32>,
+}
+
+impl Drop for RetiredBufferRelease {
+    fn drop(&mut self) {
+        for fd in self.collected_fences.drain(..) {
+            if fd >= 0 {
+                unsafe { libc_close(fd) };
+            }
+        }
+    }
 }
 
 /// Which protocol interface the selection's `source` resource belongs to.
@@ -407,18 +461,114 @@ struct RegionRec {
     rects: Vec<tessera_primitives::Rect>,
 }
 
-// Minimal close() without pulling the libc crate.
+#[repr(C)]
+struct PollFd {
+    fd: c_int,
+    events: i16,
+    revents: i16,
+}
+
+const POLLIN: i16 = 0x0001;
+const POLLNVAL: i16 = 0x0020;
+
+// Minimal close()/poll() without pulling the libc crate.
 unsafe extern "C" {
     fn close(fd: std::os::raw::c_int) -> std::os::raw::c_int;
     fn dup(fd: std::os::raw::c_int) -> std::os::raw::c_int;
     fn malloc(size: usize) -> *mut c_void;
     fn free(ptr: *mut c_void);
     fn ioctl(fd: c_int, request: c_ulong, ...) -> c_int;
+    fn poll(fds: *mut PollFd, nfds: c_ulong, timeout: c_int) -> c_int;
 }
 pub(crate) unsafe fn libc_close(fd: i32) {
     unsafe {
         close(fd);
     }
+}
+
+/// Non-blocking check whether a Linux `sync_file` has already signaled.
+pub(crate) fn sync_file_is_signaled(fd: i32) -> bool {
+    if fd < 0 {
+        return false;
+    }
+    let mut pfd = PollFd {
+        fd,
+        events: POLLIN,
+        revents: 0,
+    };
+    let rc = unsafe { poll(&mut pfd, 1, 0) };
+    rc > 0 && (pfd.revents & POLLIN) != 0
+}
+
+/// Block until `sync_file` `fd` signals or `timeout_ms` elapses, retrying on
+/// `EINTR`. Returns `true` when `POLLIN` was observed.
+pub(crate) fn wait_sync_file_fd(fd: i32, timeout_ms: i32) -> bool {
+    if fd < 0 {
+        return false;
+    }
+    let deadline_ns = monotonic_ns().saturating_add((timeout_ms.max(0) as u64) * 1_000_000);
+    loop {
+        let now_ns = monotonic_ns();
+        let remaining_ms = deadline_ns.saturating_sub(now_ns) / 1_000_000;
+        let mut pfd = PollFd {
+            fd,
+            events: POLLIN,
+            revents: 0,
+        };
+        let rc = unsafe { poll(&mut pfd, 1, remaining_ms.min(i32::MAX as u64) as c_int) };
+        if rc > 0 {
+            return (pfd.revents & POLLIN) != 0 && (pfd.revents & POLLNVAL) == 0;
+        }
+        if rc == 0 {
+            return false;
+        }
+        if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+            return false;
+        }
+    }
+}
+
+/// Merge two Linux `sync_file` descriptors into a fresh owned `sync_file` fd
+/// using a compile-time-verified NUL-terminated label (ADR-0264).
+pub(crate) fn merge_two_sync_files(fd1: i32, fd2: i32) -> Option<i32> {
+    #[repr(C)]
+    struct SyncMergeData {
+        name: [u8; 32],
+        fd2: i32,
+        fence: i32,
+        flags: u32,
+        pad: u32,
+    }
+    const SYNC_IOC_MERGE: c_ulong = 0xC030_3E03;
+    const _: () = assert!(std::mem::size_of::<SyncMergeData>() == 48);
+    const fn label() -> [u8; 32] {
+        let src = b"tessera-wl";
+        let mut out = [0u8; 32];
+        let mut i = 0;
+        while i < src.len() {
+            out[i] = src[i];
+            i += 1;
+        }
+        out
+    }
+    const MERGE_LABEL: [u8; 32] = label();
+
+    let mut data = SyncMergeData {
+        name: MERGE_LABEL,
+        fd2,
+        fence: -1,
+        flags: 0,
+        pad: 0,
+    };
+    let rc = unsafe { ioctl(fd1, SYNC_IOC_MERGE, &mut data as *mut SyncMergeData) };
+    if rc < 0 || data.fence < 0 {
+        log::warn!(
+            "wayland: SYNC_IOC_MERGE failed for cross-output buffer release: {}",
+            std::io::Error::last_os_error()
+        );
+        return None;
+    }
+    Some(data.fence)
 }
 
 /// `struct timespec` as `clock_gettime` writes it. `tv_sec`/`tv_nsec` are
@@ -519,14 +669,19 @@ pub struct SurfaceRec {
     dmabuf: Option<DmabufBuffer>,
     current_buffer: *mut ffi::wl_resource,
     current_explicit_release: *mut ffi::wl_resource,
-    /// True once `current_buffer` has been sampled by a presented frame (or
-    /// retained by a closing transition). An unpresented buffer superseded by
-    /// a newer commit in the same vblank interval is released immediately
-    /// (`[INV-ARCH-70]`), preventing mailbox swapchain starvation.
-    current_buffer_presented: bool,
+    current_syncobj_release: Option<extensions::SyncobjRelease>,
+    /// Output connectors that have sampled or scanned out `current_buffer` in
+    /// the current buffer lifetime (ADR-0265). An unpresented buffer (empty
+    /// set and `current_buffer_presented_all == false`) superseded in the same
+    /// vblank interval is released immediately (`[INV-ARCH-70]`).
+    current_buffer_presented_outputs: std::collections::BTreeSet<String>,
+    current_buffer_presented_all: bool,
     explicit_sync: *mut c_void,
+    drm_syncobj: *mut c_void,
     committed_acquire_fence: i32,
+    committed_syncobj_acquire: Option<(std::rc::Rc<extensions::SyncobjTimeline>, u64)>,
     committed_explicit_release: *mut ffi::wl_resource,
+    committed_syncobj_release: Option<extensions::SyncobjRelease>,
     pub(crate) frame_callbacks: Vec<*mut ffi::wl_resource>,
     pub(crate) pending_frame_callbacks: Vec<*mut ffi::wl_resource>,
     /// `wp_presentation_feedback` objects awaiting the frame that carries the
@@ -731,10 +886,15 @@ impl SurfaceRec {
             dmabuf: None,
             current_buffer: std::ptr::null_mut(),
             current_explicit_release: std::ptr::null_mut(),
-            current_buffer_presented: false,
+            current_syncobj_release: None,
+            current_buffer_presented_outputs: std::collections::BTreeSet::new(),
+            current_buffer_presented_all: false,
             explicit_sync: std::ptr::null_mut(),
+            drm_syncobj: std::ptr::null_mut(),
             committed_acquire_fence: -1,
+            committed_syncobj_acquire: None,
             committed_explicit_release: std::ptr::null_mut(),
+            committed_syncobj_release: None,
             frame_callbacks: Vec::new(),
             pending_frame_callbacks: Vec::new(),
             presentation_feedback: Vec::new(),
@@ -1661,6 +1821,9 @@ pub(crate) struct State {
     /// Physical tablet tools seen so far, with their announced info. A tool
     /// is announced to every seat the first time it enters proximity.
     pub(crate) known_tools: Vec<(u64, tessera_primitives::input::TabletToolInfo)>,
+    /// Open DRM render node backing `wp_linux_drm_syncobj_v1` (ADR-0266).
+    /// `None` when no render node supports `DRM_CAP_SYNCOBJ_TIMELINE`.
+    pub(crate) syncobj_device: Option<std::rc::Rc<extensions::SyncobjDevice>>,
     retired_buffer_releases: Vec<RetiredBufferRelease>,
     /// Bound `ext_foreign_toplevel_list_v1` resources. New toplevels, title
     /// changes, and removals are pushed to each.

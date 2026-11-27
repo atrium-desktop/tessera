@@ -435,8 +435,14 @@ impl Chrome for CapabilityPrompt {
             "tessera-capability-prompt-title",
             &materials::chrome_place(layout.title, materials::transparent()),
             |frame| {
-                frame.row_ex(&stretch(layout.title), |frame| {
-                    frame.label_compact_sized(&title, design.typography.headline);
+                frame.row().with_opts(&stretch(layout.title)).show(|frame| {
+                    frame.label_with(
+                        &title,
+                        &optics_ui::LabelOpts {
+                            size: design.typography.headline,
+                            ..Default::default()
+                        },
+                    );
                 });
             },
         );
@@ -456,15 +462,24 @@ impl Chrome for CapabilityPrompt {
                         bg: design.colors.application_surface_hover,
                         border: design.colors.application_border,
                         border_width: design.strokes.hairline,
-                        radius: design.radii.control,
+                        corner_radii: optics_ui::CornerRadii::uniform(design.radii.control),
                         pad: 0.0,
                         ..materials::surface_layout()
                     },
                 ),
                 |frame| {
-                    frame.row_ex(&stretch_pad(rect, 6.0), |frame| {
-                        frame.label_compact_sized(&warning, design.typography.label);
-                    });
+                    frame
+                        .row()
+                        .with_opts(&stretch_pad(rect, 6.0))
+                        .show(|frame| {
+                            frame.label_with(
+                                &warning,
+                                &optics_ui::LabelOpts {
+                                    size: design.typography.label,
+                                    ..Default::default()
+                                },
+                            );
+                        });
                 },
             );
         }
@@ -511,7 +526,7 @@ impl Chrome for CapabilityPrompt {
                     } else {
                         LayoutOpts {
                             bg: Color::TRANSPARENT,
-                            radius: design.radii.control,
+                            corner_radii: optics_ui::CornerRadii::uniform(design.radii.control),
                             pad: 0.0,
                             ..materials::surface_layout()
                         }
@@ -537,7 +552,13 @@ impl Chrome for CapabilityPrompt {
                     |frame| {
                         let rect = chevron_rect(rect);
                         frame.centered(rect.w, rect.h, |frame| {
-                            frame.label_compact_sized(chevron, design.typography.footnote);
+                            frame.label_with(
+                                chevron,
+                                &optics_ui::LabelOpts {
+                                    size: design.typography.footnote,
+                                    ..Default::default()
+                                },
+                            );
                         });
                     },
                 );
@@ -556,7 +577,7 @@ impl Chrome for CapabilityPrompt {
                         },
                         border: design.colors.application_border,
                         border_width: design.strokes.hairline,
-                        radius: design.radii.control,
+                        corner_radii: optics_ui::CornerRadii::uniform(design.radii.control),
                         pad: 0.0,
                         ..materials::surface_layout()
                     },
@@ -564,7 +585,13 @@ impl Chrome for CapabilityPrompt {
                 |frame| {
                     if let Some(glyph) = check {
                         frame.centered(check_rect.w, check_rect.h, |frame| {
-                            frame.label_compact_sized(glyph, design.typography.label);
+                            frame.label_with(
+                                glyph,
+                                &optics_ui::LabelOpts {
+                                    size: design.typography.label,
+                                    ..Default::default()
+                                },
+                            );
                         });
                     }
                 },
@@ -588,12 +615,27 @@ impl Chrome for CapabilityPrompt {
                 &format!("tessera-capability-prompt-label-{pos}"),
                 &materials::chrome_place(text, materials::transparent()),
                 |frame| {
-                    frame.row_ex(&stretch_gap(text, 6.0), |frame| {
-                        frame.label_compact_sized(&label, design.typography.body);
-                        if gated {
-                            frame.label_compact_sized(GATED_MARK, design.typography.footnote);
-                        }
-                    });
+                    frame
+                        .row()
+                        .with_opts(&stretch_gap(text, 6.0))
+                        .show(|frame| {
+                            frame.label_with(
+                                &label,
+                                &optics_ui::LabelOpts {
+                                    size: design.typography.body,
+                                    ..Default::default()
+                                },
+                            );
+                            if gated {
+                                frame.label_with(
+                                    GATED_MARK,
+                                    &optics_ui::LabelOpts {
+                                        size: design.typography.footnote,
+                                        ..Default::default()
+                                    },
+                                );
+                            }
+                        });
                 },
             );
         }
@@ -603,8 +645,14 @@ impl Chrome for CapabilityPrompt {
                 "tessera-capability-prompt-legend",
                 &materials::chrome_place(legend, materials::transparent()),
                 |frame| {
-                    frame.row_ex(&stretch(legend), |frame| {
-                        frame.label_compact_sized(GATED_LEGEND, design.typography.footnote);
+                    frame.row().with_opts(&stretch(legend)).show(|frame| {
+                        frame.label_with(
+                            GATED_LEGEND,
+                            &optics_ui::LabelOpts {
+                                size: design.typography.footnote,
+                                ..Default::default()
+                            },
+                        );
                     });
                 },
             );
@@ -1083,7 +1131,7 @@ mod tests {
         assert_eq!(body.radius, design.radii.panel_lg);
         // The veil dims the whole output so the panel is the only live surface.
         let veil = materials::modal_scrim(&design, 1.0);
-        assert_eq!(veil.radius, 0.0);
+        assert_eq!(veil.corner_radii.tl, 0.0);
         assert!(veil.bg.components().3 > 0);
         let layout = chrome.layout(display);
         assert!(layout.panel.w > 0.0 && layout.panel.h > 0.0);

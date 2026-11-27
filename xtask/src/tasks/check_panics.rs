@@ -9,9 +9,9 @@
 //!    worker's failure across the compositor. Recovery is
 //!    `unwrap_or_else(|e| e.into_inner())`. This rule is a hard zero.
 //! 2. **No new panic sites** — the remaining `unwrap`/`expect`/`panic!`/
-//!    `unreachable!`/`todo!`/`unimplemented!` sites are grandfathered in a
-//!    checked-in baseline. Counts may fall but never rise, so the debt is
-//!    visible and can only shrink.
+//!    `unreachable!`/`todo!`/`unimplemented!`/`copy_from_slice` sites are
+//!    grandfathered in a checked-in baseline. Counts may fall but never rise,
+//!    so the debt is visible and can only shrink (ADR-0195, ADR-0264).
 //!
 //! Test code is excluded with the repository's own convention: production code
 //! is everything *before* the first `#[cfg(test)]` item, and the `tests/`
@@ -111,7 +111,8 @@ fn poison_locks(tokens: &str) -> usize {
     )
 }
 
-/// Every panic-capable site, poison locks included.
+/// Every panic-capable site, poison locks and runtime-checked slice copies
+/// included (ADR-0195, ADR-0264).
 fn panic_sites(tokens: &str) -> usize {
     occurrences(
         tokens,
@@ -122,6 +123,7 @@ fn panic_sites(tokens: &str) -> usize {
             "unreachable!(",
             "todo!(",
             "unimplemented!(",
+            ".copy_from_slice(",
         ],
     )
 }
@@ -272,7 +274,7 @@ mod tests {
 
     #[test]
     fn counts_every_panic_form() {
-        let tokens = "x.unwrap(); y.expect(\"z\"); panic!(\"no\"); todo!(); unreachable!();";
-        assert_eq!(panic_sites(tokens), 5);
+        let tokens = "x.unwrap(); y.expect(\"z\"); panic!(\"no\"); todo!(); unreachable!(); buf.copy_from_slice(src);";
+        assert_eq!(panic_sites(tokens), 6);
     }
 }

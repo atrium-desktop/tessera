@@ -81,58 +81,57 @@ pub(super) fn render_compact_quick_toggle_tile(
     };
 
     f.set_theme(themes::hud(&hud).with_fg(text_fg));
-    let (response, _) = f.pressable_row(
-        id,
-        title,
-        &LayoutOpts {
+    let (response, _) = f
+        .row()
+        .with_opts(&LayoutOpts {
             width: size.0,
             height: size.1,
             pad: 8.0,
-            radius: 16.0,
+            corner_radii: optics_ui::CornerRadii::uniform(16.0),
             cross: Align::Center,
             gap: 8.0,
             bg,
             border,
             border_width,
             ..Default::default()
-        },
-        |f, _| {
+        })
+        .id_label(id, title)
+        .show(|f| {
             if icon_only {
                 f.flex(1.0);
                 f.spacer(0.0);
             }
-            f.column_ex(
-                &LayoutOpts {
+            f.column()
+                .with_opts(&LayoutOpts {
                     width: 32.0,
                     height: 32.0,
-                    radius: 16.0,
+                    corner_radii: optics_ui::CornerRadii::uniform(16.0),
                     bg: icon_bg,
                     cross: Align::Center,
                     ..Default::default()
-                },
-                |f| {
+                })
+                .show(|f| {
                     f.flex(1.0);
                     f.spacer(0.0);
                     f.set_theme(themes::hud(&hud).with_fg(icon_fg));
-                    f.icon_raw(icon, 16.0);
+                    f.icon(icon, 16.0);
                     f.flex(1.0);
                     f.spacer(0.0);
-                },
-            );
+                });
             if icon_only {
                 f.flex(1.0);
                 f.spacer(0.0);
                 return;
             }
-            f.column_ex(
-                &LayoutOpts {
+            f.column()
+                .with_opts(&LayoutOpts {
                     width: label_w,
                     height: 34.0,
                     gap: 1.0,
                     cross: Align::Start,
                     ..Default::default()
-                },
-                |f| {
+                })
+                .show(|f| {
                     f.flex(1.0);
                     f.spacer(0.0);
                     f.set_theme(themes::hud(&hud).with_fg(text_fg));
@@ -147,10 +146,8 @@ pub(super) fn render_compact_quick_toggle_tile(
                     }
                     f.flex(1.0);
                     f.spacer(0.0);
-                },
-            );
-        },
-    );
+                });
+        });
     f.set_theme(original);
     response
 }
@@ -193,53 +190,52 @@ pub(super) fn render_expandable_quick_toggle_tile(
     let chevron_id = format!("{id}-chevron");
     let mut chevron_clicked = false;
 
-    let (response, _) = f.pressable_row(
-        id,
-        title,
-        &LayoutOpts {
+    let (response, _) = f
+        .row()
+        .with_opts(&LayoutOpts {
             width: size.0,
             height: size.1,
             pad: 10.0,
-            radius: 16.0,
+            corner_radii: optics_ui::CornerRadii::uniform(16.0),
             cross: Align::Center,
             gap: 8.0,
             bg,
             border,
             border_width,
             ..Default::default()
-        },
-        |f, _| {
+        })
+        .id_label(id, title)
+        .show(|f| {
             // Icon
-            f.column_ex(
-                &LayoutOpts {
+            f.column()
+                .with_opts(&LayoutOpts {
                     width: 36.0,
                     height: 36.0,
-                    radius: 18.0,
+                    corner_radii: optics_ui::CornerRadii::uniform(18.0),
                     bg: icon_bg,
                     cross: Align::Center,
                     ..Default::default()
-                },
-                |f| {
+                })
+                .show(|f| {
                     f.flex(1.0);
                     f.spacer(0.0);
                     f.set_theme(themes::hud(&hud).with_fg(icon_fg));
-                    f.icon_raw(icon, 18.0);
+                    f.icon(icon, 18.0);
                     f.flex(1.0);
                     f.spacer(0.0);
-                },
-            );
+                });
 
             // Labels
             let label_w = (size.0 - 20.0 - 36.0 - 8.0 - 28.0 - 8.0).max(1.0);
-            f.column_ex(
-                &LayoutOpts {
+            f.column()
+                .with_opts(&LayoutOpts {
                     width: label_w,
                     height: 36.0,
                     gap: 1.0,
                     cross: Align::Start,
                     ..Default::default()
-                },
-                |f| {
+                })
+                .show(|f| {
                     f.flex(1.0);
                     f.spacer(0.0);
                     f.set_theme(themes::hud(&hud).with_fg(text_fg));
@@ -248,37 +244,34 @@ pub(super) fn render_expandable_quick_toggle_tile(
                     display_label(f, subtitle, type_scale.footnote);
                     f.flex(1.0);
                     f.spacer(0.0);
-                },
-            );
+                });
 
             // Chevron expand button
-            let (chev_resp, _) = f.pressable_row(
-                &chevron_id,
-                "Expand",
-                &LayoutOpts {
+            let (chev_resp, _) = f
+                .row()
+                .with_opts(&LayoutOpts {
                     width: 28.0,
                     height: 36.0,
-                    radius: 8.0,
+                    corner_radii: optics_ui::CornerRadii::uniform(8.0),
                     cross: Align::Center,
                     ..Default::default()
-                },
-                |f, _| {
+                })
+                .id_label(&chevron_id, "Expand")
+                .show(|f| {
                     f.flex(1.0);
                     f.spacer(0.0);
                     f.set_theme(themes::hud(&hud).with_fg(sub_fg));
-                    f.icon_raw(
+                    f.icon(
                         optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_CHEVRON_RIGHT,
                         16.0,
                     );
                     f.flex(1.0);
                     f.spacer(0.0);
-                },
-            );
+                });
             if chev_resp.clicked {
                 chevron_clicked = true;
             }
-        },
-    );
+        });
     f.set_theme(original);
 
     let toggle_clicked = response.clicked && !chevron_clicked;
@@ -334,8 +327,8 @@ pub(super) fn render_horizontal_fader(
     let mut icon_clicked = false;
     let mut expand_clicked = false;
 
-    f.column_ex(
-        &LayoutOpts {
+    f.column()
+        .with_opts(&LayoutOpts {
             width: size.0,
             height: size.1,
             // 8px between the title row and the trough. With the 10px pad the
@@ -344,44 +337,43 @@ pub(super) fn render_horizontal_fader(
             // old 6px gap left the trough crowding the card's bottom rim.
             gap: 8.0,
             pad: 10.0,
-            radius: 16.0,
+            corner_radii: optics_ui::CornerRadii::uniform(16.0),
             bg: hud.surface_recessed,
             border: hud.border,
             border_width: 1.0,
             cross: Align::Stretch,
             ..Default::default()
-        },
-        |f| {
-            f.row_ex(
-                &LayoutOpts {
+        })
+        .show(|f| {
+            f.row()
+                .with_opts(&LayoutOpts {
                     width: (size.0 - 20.0).max(1.0),
                     height: 24.0,
                     cross: Align::Center,
                     gap: 8.0,
                     ..Default::default()
-                },
-                |f| {
+                })
+                .show(|f| {
                     if icon_clickable {
-                        let (resp, _) = f.pressable_row(
-                            &format!("{id}-icon-btn"),
-                            label,
-                            &LayoutOpts {
+                        let (resp, _) = f
+                            .row()
+                            .with_opts(&LayoutOpts {
                                 width: 28.0,
                                 height: 24.0,
                                 cross: Align::Center,
-                                radius: 6.0,
+                                corner_radii: optics_ui::CornerRadii::uniform(6.0),
                                 bg: Color::TRANSPARENT,
                                 ..Default::default()
-                            },
-                            |f, _| {
-                                f.icon_raw(icon, 18.0);
-                            },
-                        );
+                            })
+                            .id_label(&format!("{id}-icon-btn"), label)
+                            .show(|f| {
+                                f.icon(icon, 18.0);
+                            });
                         if resp.clicked {
                             icon_clicked = true;
                         }
                     } else {
-                        f.icon_raw(icon, 18.0);
+                        f.icon(icon, 18.0);
                     }
                     display_label(f, label, type_scale.body);
                     f.flex(1.0);
@@ -397,37 +389,37 @@ pub(super) fn render_horizontal_fader(
                         // The disclosure is its own pressable region, so a
                         // click that opens the device list never also lands on
                         // the trough beneath it.
-                        let (resp, _) = f.pressable_row(
-                            &format!("{id}-expand-btn"),
-                            // Distinct from the fader's own name: an assistive
-                            // surface would otherwise read the card's label
-                            // twice ("Sound, Sound").
-                            disclosure,
-                            &LayoutOpts {
+                        let (resp, _) = f
+                            .row()
+                            .with_opts(&LayoutOpts {
                                 width: 28.0,
                                 height: 24.0,
                                 cross: Align::Center,
-                                radius: 6.0,
+                                corner_radii: optics_ui::CornerRadii::uniform(6.0),
                                 bg: Color::TRANSPARENT,
                                 ..Default::default()
-                            },
-                            |f, _| {
+                            })
+                            .id_label(
+                                &format!("{id}-expand-btn"), // Distinct from the fader's own name: an assistive
+                                // surface would otherwise read the card's label
+                                // twice ("Sound, Sound").
+                                disclosure,
+                            )
+                            .show(|f| {
                                 f.flex(1.0);
                                 f.spacer(0.0);
-                                f.icon_raw(
+                                f.icon(
                                     optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_CHEVRON_RIGHT,
                                     16.0,
                                 );
                                 f.flex(1.0);
                                 f.spacer(0.0);
-                            },
-                        );
+                            });
                         if resp.clicked {
                             expand_clicked = true;
                         }
                     }
-                },
-            );
+                });
 
             f.size_next((size.0 - 20.0).max(40.0), 20.0);
             changed = f.slider(
@@ -436,8 +428,7 @@ pub(super) fn render_horizontal_fader(
                 range.0 as f32,
                 range.1 as f32,
             );
-        },
-    );
+        });
     f.set_theme(original);
     FaderOutcome {
         level: (changed && enabled)
@@ -473,34 +464,34 @@ pub(super) fn render_kbd_backlight_tiers(
     f.set_theme(theme);
     let mut outcome = TieredOutcome::default();
 
-    f.column_ex(
-        &LayoutOpts {
+    f.column()
+        .with_opts(&LayoutOpts {
             width: size.0,
             height: size.1,
             gap: 8.0,
             pad,
-            radius: 16.0,
+            corner_radii: optics_ui::CornerRadii::uniform(16.0),
             bg: hud.surface_recessed,
             border: hud.border,
             border_width: 1.0,
             cross: Align::Stretch,
             ..Default::default()
-        },
-        |f| {
-            f.row_ex(
-                &LayoutOpts {
+        })
+        .show(|f| {
+            f.row()
+                .with_opts(&LayoutOpts {
                     width: inner_w,
                     height: 24.0,
                     cross: Align::Center,
                     gap: 8.0,
                     ..Default::default()
-                },
-                |f| {
+                })
+                .show(|f| {
                     // The keyboard-backlight glyph (keyboard outline with three
                     // illumination rays); falls back to the built-in key icon if
                     // runtime SVG registration is unavailable.
                     let icon = kbd_backlight_icon().unwrap_or(Glyph::Key.id());
-                    f.icon_raw(icon, 18.0);
+                    f.icon(icon, 18.0);
                     display_label(f, label, type_scale.body);
                     f.flex(1.0);
                     f.spacer(0.0);
@@ -512,8 +503,7 @@ pub(super) fn render_kbd_backlight_tiers(
                             .unwrap_or_else(|| "--".to_string()),
                         type_scale.footnote,
                     );
-                },
-            );
+                });
 
             outcome = tiered_control(
                 f,
@@ -525,8 +515,7 @@ pub(super) fn render_kbd_backlight_tiers(
                 type_scale.footnote,
                 (inner_w, 20.0),
             );
-        },
-    );
+        });
     f.set_theme(original);
     outcome
 }
@@ -588,7 +577,14 @@ pub(super) const DISPLAY_WEIGHT: f32 = 700.0;
 /// stay geometrically exact. This is the panel's standard label call —
 /// plain `label_compact_sized` inside the panel is a review flag.
 pub(super) fn display_label(f: &mut Frame, text: &str, size: f32) {
-    f.label_compact_weighted(text, size, DISPLAY_WEIGHT);
+    f.label_with(
+        text,
+        &optics_ui::LabelOpts {
+            size,
+            weight: DISPLAY_WEIGHT,
+            ..Default::default()
+        },
+    );
 }
 
 // ---- network surface charts ----------------------------------------------

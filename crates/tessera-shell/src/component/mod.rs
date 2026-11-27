@@ -1196,7 +1196,10 @@ mod tests {
         ] {
             let material = tessera_design::materials::modal_scrim(&design, 1.0);
             assert_eq!(material.bg, design.colors.modal_scrim);
-            assert_eq!(material.radius, 0.0, "a full-output veil has no corners");
+            assert_eq!(
+                material.corner_radii.tl, 0.0,
+                "a full-output veil has no corners"
+            );
             assert_eq!(material.border_width, 0.0);
             assert_eq!(material.pad, 0.0);
             let veil = material.bg.components().3;

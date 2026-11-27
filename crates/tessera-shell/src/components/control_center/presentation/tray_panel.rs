@@ -121,7 +121,7 @@ impl ControlCenter {
             &chrome_place(
                 surface,
                 LayoutOpts {
-                    radius: surface.h * 0.5,
+                    corner_radii: optics_ui::CornerRadii::uniform(surface.h * 0.5),
                     bg: hud.surface_recessed,
                     border: hud.border,
                     border_width: 1.0,
@@ -129,7 +129,7 @@ impl ControlCenter {
                 },
             ),
             |f| {
-                f.row_ex(&sized(surface.w, surface.h), |_| {});
+                f.row().with_opts(&sized(surface.w, surface.h)).show(|_| {});
             },
         );
 
@@ -137,16 +137,16 @@ impl ControlCenter {
             "tessera-hud-tray-shelf",
             &chrome_place(surface, transparent()),
             |f| {
-                f.row_ex(
-                    &LayoutOpts {
+                f.row()
+                    .with_opts(&LayoutOpts {
                         width: surface.w,
                         height: surface.h,
                         pad: TRAY_PAD,
                         gap: TRAY_GAP,
                         cross: Align::Center,
                         ..Default::default()
-                    },
-                    |f| {
+                    })
+                    .show(|f| {
                         // Walk the slots by index rather than over a `Vec`:
                         // this runs once per slot per frame, so a heap
                         // allocation here would be per-frame churn on the
@@ -177,20 +177,22 @@ impl ControlCenter {
                                     let title = cell.title.clone();
                                     let key = cell.key.clone();
                                     let has_menu = cell.has_menu;
-                                    let (response, _) = f.pressable_row(
-                                        &format!("tessera-hud-tray-item-{key}"),
-                                        &title,
-                                        &LayoutOpts {
+                                    let (response, _) = f
+                                        .row()
+                                        .with_opts(&LayoutOpts {
                                             width: cell_w,
                                             height: TRAY_CELL,
                                             cross: Align::Center,
-                                            radius: plate_radius,
+                                            corner_radii: optics_ui::CornerRadii::uniform(
+                                                plate_radius,
+                                            ),
                                             bg: plate_bg,
                                             border: plate_border,
                                             border_width: if is_open { 1.0 } else { 0.0 },
                                             ..Default::default()
-                                        },
-                                        |f, _| {
+                                        })
+                                        .id_label(&format!("tessera-hud-tray-item-{key}"), &title)
+                                        .show(|f| {
                                             f.centered(cell_w, TRAY_CELL, |f| match texture {
                                                 Some(texture) => unsafe {
                                                     f.image(texture, TRAY_ICON, TRAY_ICON)
@@ -199,13 +201,10 @@ impl ControlCenter {
                                                     Some(icon) => unsafe {
                                                         f.image(icon, TRAY_ICON, TRAY_ICON)
                                                     },
-                                                    None => {
-                                                        f.icon_raw(Glyph::FileText.id(), TRAY_ICON)
-                                                    }
+                                                    None => f.icon(Glyph::FileText.id(), TRAY_ICON),
                                                 },
                                             });
-                                        },
-                                    );
+                                        });
                                     // Trust the drawn box when optics-ui resolved
                                     // it; fall back to the pure layout's slot
                                     // on the first frame, so a menu opened by a
@@ -255,8 +254,7 @@ impl ControlCenter {
                                 }
                             }
                         }
-                    },
-                );
+                    });
             },
         );
 
@@ -351,36 +349,33 @@ impl ControlCenter {
         // click, so the disabled end is an inert box with the same geometry —
         // the lane keeps its length and the cell keeps its hit target.
         let clicked = if enabled {
-            f.pressable_row(
-                id,
-                label,
-                &LayoutOpts {
+            f.row()
+                .with_opts(&LayoutOpts {
                     width: cell_w,
                     height: TRAY_CELL,
                     cross: Align::Center,
-                    radius: cell_w * 0.32,
+                    corner_radii: optics_ui::CornerRadii::uniform(cell_w * 0.32),
                     bg: Color::TRANSPARENT,
                     ..Default::default()
-                },
-                |f, _| {
+                })
+                .id_label(id, label)
+                .show(|f| {
                     f.centered(cell_w, TRAY_CELL, |f| f.icon(icon, TRAY_ICON * 0.7));
-                },
-            )
-            .0
-            .clicked
+                })
+                .0
+                .clicked
         } else {
             f.push_id(id);
-            f.row_ex(
-                &LayoutOpts {
+            f.row()
+                .with_opts(&LayoutOpts {
                     width: cell_w,
                     height: TRAY_CELL,
                     cross: Align::Center,
                     ..Default::default()
-                },
-                |f| {
+                })
+                .show(|f| {
                     f.centered(cell_w, TRAY_CELL, |f| f.icon(icon, TRAY_ICON * 0.7));
-                },
-            );
+                });
             f.pop_id();
             // No pressable, so nothing to press: the disabled end is drawn and
             // then refuses the pointer entirely.
@@ -440,15 +435,15 @@ impl ControlCenter {
             1.0,
             materials::canvas_panel(&hud),
             |f| {
-                f.column_ex(
-                    &LayoutOpts {
+                f.column()
+                    .with_opts(&LayoutOpts {
                         width: popover_bounds.w,
                         height: popover_bounds.h,
                         gap: 0.0,
                         pad: MENU_PAD,
                         ..Default::default()
-                    },
-                    |f| {
+                    })
+                    .show(|f| {
                         let inner_w = popover_bounds.w - MENU_PAD * 2.0;
                         if header_visible {
                             f.size_next(inner_w, MENU_HEADER_HEIGHT);
@@ -492,8 +487,7 @@ impl ControlCenter {
                             }
                             f.pop_id();
                         }
-                    },
-                );
+                    });
             },
         );
         f.set_theme(original_theme);

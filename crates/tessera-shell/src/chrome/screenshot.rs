@@ -399,7 +399,7 @@ impl ScreenshotSelector {
         );
         let rect = status_rect(anchor, size, display);
         let mut material = materials::selection(design, selected);
-        material.radius = rect.h * 0.5;
+        material.corner_radii = optics_ui::CornerRadii::uniform(rect.h * 0.5);
 
         let original_theme = frame.theme();
         frame.set_theme(original_theme.with_fg(design.floating_foreground.primary));
@@ -407,24 +407,30 @@ impl ScreenshotSelector {
             // A row's cross axis is vertical. With an explicitly measured body
             // and equal padding on both sides, the compact glyph box is centred
             // on both axes instead of inheriting the regular label's theme pad.
-            frame.row_ex(
-                &LayoutOpts {
+            frame
+                .row()
+                .with_opts(&LayoutOpts {
                     width: rect.w,
                     height: rect.h,
                     pad: STATUS_PAD,
                     cross: Align::Center,
                     ..Default::default()
-                },
-                |frame| {
+                })
+                .show(|frame| {
                     frame.push_style(
                         Style::new()
                             .with_outline_color(design.floating_foreground.contour)
                             .with_outline_width(design.floating_foreground.text_contour_width),
                     );
-                    frame.label_compact_sized(&text, design.typography.label);
+                    frame.label_with(
+                        &text,
+                        &optics_ui::LabelOpts {
+                            size: design.typography.label,
+                            ..Default::default()
+                        },
+                    );
                     frame.pop_style();
-                },
-            );
+                });
         });
         frame.set_theme(original_theme);
     }
@@ -452,7 +458,7 @@ impl ScreenshotSelector {
             bg: Color::TRANSPARENT,
             border: design.colors.modal_scrim_text.with_alpha(230),
             border_width: SELECTION_BORDER_WIDTH,
-            radius: 0.0,
+            corner_radii: optics_ui::CornerRadii::uniform(0.0),
             ..materials::surface_layout()
         };
         frame.place(
@@ -494,7 +500,7 @@ impl ScreenshotSelector {
         };
         let design = &self.design;
         let mut material = materials::panel(design);
-        material.radius = self.loupe_radius(rect);
+        material.corner_radii = optics_ui::CornerRadii::uniform(self.loupe_radius(rect));
         materials::place_body(
             frame,
             "tessera-picker-pixel-lens",
@@ -515,7 +521,7 @@ impl ScreenshotSelector {
                 },
                 LayoutOpts {
                     bg: design.floating_foreground.primary,
-                    radius: 2.0,
+                    corner_radii: optics_ui::CornerRadii::uniform(2.0),
                     ..materials::surface_layout()
                 },
             ),
@@ -595,7 +601,7 @@ impl ScreenshotSelector {
             bg: Color::TRANSPARENT,
             border: self.design.colors.modal_scrim_text.with_alpha(230),
             border_width: SELECTION_BORDER_WIDTH,
-            radius: 0.0,
+            corner_radii: optics_ui::CornerRadii::uniform(0.0),
             ..materials::surface_layout()
         };
         frame.place(id, &materials::chrome_place(rect, highlight), |_| {});
@@ -722,16 +728,17 @@ fn render_rounded_scrim_corners(frame: &mut Frame, hole: UiRect, radius: f32, co
         "tessera-screenshot-scrim-rounded-corners",
         &materials::chrome_place(hole, layer),
         |frame| {
-            frame.column_ex(
-                &LayoutOpts {
+            frame
+                .column()
+                .with_opts(&LayoutOpts {
                     width: hole.w,
                     height: hole.h,
                     gap: 0.0,
                     pad: 0.0,
                     cross: Align::Stretch,
                     ..Default::default()
-                },
-                |frame| {
+                })
+                .show(|frame| {
                     for band in &bands {
                         render_scrim_corner_band(frame, hole.w, *band, color);
                     }
@@ -742,23 +749,23 @@ fn render_rounded_scrim_corners(frame: &mut Frame, hole: UiRect, radius: f32, co
                     for band in bands.iter().rev() {
                         render_scrim_corner_band(frame, hole.w, *band, color);
                     }
-                },
-            );
+                });
         },
     );
 }
 
 fn render_scrim_corner_band(frame: &mut Frame, width: f32, band: CornerBand, color: Color) {
-    frame.row_ex(
-        &LayoutOpts {
+    frame
+        .row()
+        .with_opts(&LayoutOpts {
             width,
             height: band.height,
             gap: 0.0,
             pad: 0.0,
             cross: Align::Stretch,
             ..Default::default()
-        },
-        |frame| {
+        })
+        .show(|frame| {
             let inset = band.inset.min(width * 0.5).max(0.0);
             if inset <= f32::EPSILON {
                 frame.spacer(width);
@@ -770,11 +777,10 @@ fn render_scrim_corner_band(frame: &mut Frame, width: f32, band: CornerBand, col
                 bg: color,
                 ..Default::default()
             };
-            frame.column_ex(&fill, |_| {});
+            frame.column().with_opts(&fill).show(|_| {});
             frame.spacer((width - inset * 2.0).max(0.0));
-            frame.column_ex(&fill, |_| {});
-        },
-    );
+            frame.column().with_opts(&fill).show(|_| {});
+        });
 }
 
 impl Chrome for ScreenshotSelector {

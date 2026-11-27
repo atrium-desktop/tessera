@@ -9,7 +9,7 @@
 
 use std::cell::RefCell;
 
-use optics_ui::{Align, Band, Color, LayoutOpts, PlaceMode, PlaceOpts, Rect};
+use optics_ui::{Align, Band, Color, CornerRadii, LayoutOpts, PlaceMode, PlaceOpts, Rect};
 
 use crate::Design;
 use crate::tokens::SurfaceRole;
@@ -109,7 +109,7 @@ pub fn popover(design: &Design) -> LayoutOpts {
         bg: design.colors.popover_surface,
         border: design.colors.popover_border,
         border_width: design.strokes.hairline,
-        radius: design.radii.popover,
+        corner_radii: CornerRadii::uniform(design.radii.popover),
         pad: 0.0,
         ..surface_layout()
     }
@@ -128,7 +128,7 @@ pub fn panel(design: &Design) -> LayoutOpts {
         bg: style.body,
         border: style.border,
         border_width: style.border_width,
-        radius: style.radius,
+        corner_radii: CornerRadii::uniform(style.radius),
         pad: 0.0,
         cross: Align::Center,
         ..surface_layout()
@@ -226,7 +226,7 @@ pub fn elevation_halo_for_body(
                 bg: design.colors.shadow_ink.with_alpha(alpha as u8),
                 border: Color::TRANSPARENT,
                 border_width: 0.0,
-                radius: body_radius + spread,
+                corner_radii: CornerRadii::uniform(body_radius + spread),
                 pad: 0.0,
                 ..surface_layout()
             };
@@ -260,10 +260,15 @@ pub fn place_floating(
     body: LayoutOpts,
     place: impl FnOnce(&mut optics_ui::Frame),
 ) {
-    for (index, (rect, material)) in
-        elevation_halo_for_body(design, role, bounds, body.radius, opacity)
-            .into_iter()
-            .enumerate()
+    for (index, (rect, material)) in elevation_halo_for_body(
+        design,
+        role,
+        bounds,
+        body.corner_radii.max_radius(),
+        opacity,
+    )
+    .into_iter()
+    .enumerate()
     {
         frame.place(
             &format!("{id}-elevation-{index}"),
@@ -271,7 +276,7 @@ pub fn place_floating(
             |_| {},
         );
     }
-    report_backdrop_body(design, bounds, body.radius, opacity);
+    report_backdrop_body(design, bounds, body.corner_radii.max_radius(), opacity);
     frame.place(id, &chrome_place(bounds, body), place);
 }
 
@@ -291,7 +296,7 @@ pub fn place_body(
     body: LayoutOpts,
     place: impl FnOnce(&mut optics_ui::Frame),
 ) {
-    report_backdrop_body(design, bounds, body.radius, opacity);
+    report_backdrop_body(design, bounds, body.corner_radii.max_radius(), opacity);
     frame.place(id, &chrome_place(bounds, body), place);
 }
 
@@ -310,7 +315,7 @@ pub fn selection(design: &Design, selected: bool) -> LayoutOpts {
         },
         border: Color::TRANSPARENT,
         border_width: 0.0,
-        radius: design.radii.control,
+        corner_radii: CornerRadii::uniform(design.radii.control),
         pad: 0.0,
         ..surface_layout()
     }
@@ -323,7 +328,7 @@ pub fn selection(design: &Design, selected: bool) -> LayoutOpts {
 pub fn card(design: &Design) -> LayoutOpts {
     LayoutOpts {
         bg: design.colors.card_surface,
-        radius: design.radii.card,
+        corner_radii: CornerRadii::uniform(design.radii.card),
         ..Default::default()
     }
 }
@@ -335,7 +340,7 @@ pub fn canvas_panel(colors: &crate::ControlCenterColors) -> LayoutOpts {
         bg: colors.surface,
         border: colors.border,
         border_width: 1.0,
-        radius: 16.0,
+        corner_radii: CornerRadii::uniform(16.0),
         pad: 0.0,
         ..surface_layout()
     }
@@ -357,7 +362,7 @@ pub fn modal_scrim(design: &Design, opacity: f32) -> LayoutOpts {
         ),
         border: Color::TRANSPARENT,
         border_width: 0.0,
-        radius: 0.0,
+        corner_radii: CornerRadii::ZERO,
         pad: 0.0,
         ..surface_layout()
     }
@@ -396,7 +401,7 @@ pub fn sized_fill(width: f32, height: f32, color: Color, radius: f32) -> LayoutO
         width,
         height,
         bg: color,
-        radius,
+        corner_radii: CornerRadii::uniform(radius),
         ..Default::default()
     }
 }
@@ -416,7 +421,7 @@ mod tests {
         assert_eq!(material.bg, colors.popover_surface);
         assert_eq!(material.border, colors.popover_border);
         assert_eq!(material.border_width, 1.0);
-        assert_eq!(material.radius, 12.0);
+        assert_eq!(material.corner_radii, CornerRadii::uniform(12.0));
         assert_eq!(material.pad, 0.0);
     }
 
@@ -433,7 +438,7 @@ mod tests {
         );
         assert_eq!(material.border, style.border);
         assert_eq!(material.border_width, dark.strokes.hairline);
-        assert_eq!(material.radius, 18.0);
+        assert_eq!(material.corner_radii, CornerRadii::uniform(18.0));
         assert_eq!(material.cross, Align::Center);
     }
 
@@ -581,9 +586,9 @@ mod tests {
             // not cast a 18 px-radius rounded rect behind itself.
             let body_radius = capsule.h * 0.5;
             assert!(
-                (material.radius - (body_radius + spread)).abs() < 0.001,
+                (material.corner_radii.tl - (body_radius + spread)).abs() < 0.001,
                 "the halo takes the body's corners: {}",
-                material.radius
+                material.corner_radii.tl
             );
         }
         // A body past the cap keeps the role's full reach.
@@ -606,7 +611,10 @@ mod tests {
         assert_eq!(selected.bg, design.selection.selected_tint);
         assert_eq!(hover.border, Color::TRANSPARENT);
         assert_eq!(hover.border_width, 0.0);
-        assert_eq!(hover.radius, design.radii.control);
+        assert_eq!(
+            hover.corner_radii,
+            CornerRadii::uniform(design.radii.control)
+        );
     }
 
     #[test]
@@ -614,7 +622,7 @@ mod tests {
         let design = Design::dark();
         let material = card(&design);
         assert_eq!(material.bg, design.colors.card_surface);
-        assert_eq!(material.radius, 16.0);
+        assert_eq!(material.corner_radii, CornerRadii::uniform(16.0));
         assert_eq!(material.width, 0.0);
         assert_eq!(material.min_height, 0.0);
     }
@@ -629,7 +637,7 @@ mod tests {
             assert_eq!(material.bg, colors.surface);
             assert_eq!(material.border, colors.border);
             assert_eq!(material.border_width, 1.0);
-            assert_eq!(material.radius, 16.0);
+            assert_eq!(material.corner_radii, CornerRadii::uniform(16.0));
             assert_eq!(material.pad, 0.0);
             assert_eq!(material.bg.components().3, 255);
         }
@@ -641,7 +649,7 @@ mod tests {
         assert_eq!(material.bg, Color::TRANSPARENT);
         assert_eq!(material.border, Color::TRANSPARENT);
         assert_eq!(material.border_width, 0.0);
-        assert_eq!(material.radius, 0.0);
+        assert_eq!(material.corner_radii, CornerRadii::ZERO);
         assert_eq!(material.pad, 0.0);
         assert_eq!(material.gap, surface_layout().gap);
     }
@@ -658,6 +666,6 @@ mod tests {
         assert_eq!(filled.width, 8.0);
         assert_eq!(filled.height, 8.0);
         assert_eq!(filled.bg, fill);
-        assert_eq!(filled.radius, 4.0);
+        assert_eq!(filled.corner_radii, CornerRadii::uniform(4.0));
     }
 }

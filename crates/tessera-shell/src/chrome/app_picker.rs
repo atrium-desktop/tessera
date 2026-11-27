@@ -334,8 +334,14 @@ impl Chrome for AppPicker {
             "tessera-app-picker-title",
             &materials::chrome_place(layout.title, materials::transparent()),
             |frame| {
-                frame.row_ex(&stretch(layout.title), |frame| {
-                    frame.label_sized("Choose Application", design.typography.headline);
+                frame.row().with_opts(&stretch(layout.title)).show(|frame| {
+                    frame.label_with(
+                        "Choose Application",
+                        &optics_ui::LabelOpts {
+                            size: design.typography.headline,
+                            ..Default::default()
+                        },
+                    );
                 });
             },
         );
@@ -351,8 +357,14 @@ impl Chrome for AppPicker {
                 "tessera-app-picker-subject",
                 &materials::chrome_place(subject_rect, materials::transparent()),
                 |frame| {
-                    frame.row_ex(&stretch(subject_rect), |frame| {
-                        frame.label_compact_sized(&subject, design.typography.label);
+                    frame.row().with_opts(&stretch(subject_rect)).show(|frame| {
+                        frame.label_with(
+                            &subject,
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
                     });
                 },
             );
@@ -399,11 +411,11 @@ impl Chrome for AppPicker {
                     ..materials::surface_layout()
                 }
             };
-            material.radius = design.radii.menu_item;
+            material.corner_radii = optics_ui::CornerRadii::uniform(design.radii.menu_item);
             material.pad = 0.0;
             let id = format!("tessera-app-picker-row-{pos}");
             frame.place(&id, &materials::chrome_place(rect, material), |frame| {
-                frame.row_ex(&stretch(rect), |frame| {
+                frame.row().with_opts(&stretch(rect)).show(|frame| {
                     frame.spacer(10.0);
                     frame.centered(ICON, ROW_H, |frame| match icon {
                         Some(pointer) => unsafe {
@@ -418,7 +430,13 @@ impl Chrome for AppPicker {
                         }
                     });
                     frame.spacer(8.0);
-                    frame.label_compact_sized(&row_name, design.typography.body);
+                    frame.label_with(
+                        &row_name,
+                        &optics_ui::LabelOpts {
+                            size: design.typography.body,
+                            ..Default::default()
+                        },
+                    );
                 });
             });
         }
@@ -429,7 +447,13 @@ impl Chrome for AppPicker {
                 &materials::chrome_place(layout.list, materials::transparent()),
                 |frame| {
                     frame.centered(layout.list.w, layout.list.h, |frame| {
-                        frame.label_compact_sized("No applications", design.typography.body);
+                        frame.label_with(
+                            "No applications",
+                            &optics_ui::LabelOpts {
+                                size: design.typography.body,
+                                ..Default::default()
+                            },
+                        );
                     });
                 },
             );
@@ -778,7 +802,7 @@ mod tests {
         assert!(layout.panel.w > 0.0 && layout.panel.h > 0.0);
         // The veil dims the whole output so the panel is the only live surface.
         let veil = materials::modal_scrim(&design, 1.0);
-        assert_eq!(veil.radius, 0.0);
+        assert_eq!(veil.corner_radii.tl, 0.0);
         assert!(veil.bg.components().3 > 0);
     }
 }

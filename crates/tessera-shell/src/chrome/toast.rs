@@ -203,7 +203,7 @@ impl Chrome for Toast {
             };
             slot += 1;
             let mut body = materials::panel(&design);
-            body.radius = design.radii.card;
+            body.corner_radii = optics_ui::CornerRadii::uniform(design.radii.card);
             let id: usize = n.id as usize;
             let overlay_id = format!("tessera-toast-{id}");
             materials::place_floating(f, &overlay_id, TOAST_ROLE, &design, rect, 1.0, body, |f| {
@@ -211,26 +211,37 @@ impl Chrome for Toast {
                     Some(app) => format!("{} · {app}", n.summary),
                     None => n.summary.clone(),
                 };
-                f.column_ex(
-                    &LayoutOpts {
+                f.column()
+                    .with_opts(&LayoutOpts {
                         width: rect.w,
                         height: rect.h,
                         gap: 3.0,
                         pad: 9.0,
                         cross: Align::Start,
                         ..Default::default()
-                    },
-                    |f| {
+                    })
+                    .show(|f| {
                         let text_width = (rect.w - 18.0).max(0.0);
                         let title = ellipsize(f, &title, design.typography.label, text_width);
-                        f.label_compact_sized(&title, design.typography.label);
+                        f.label_with(
+                            &title,
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
                         if !n.body.is_empty() {
                             let body =
                                 ellipsize(f, &n.body, design.typography.footnote, text_width);
-                            f.label_compact_sized(&body, design.typography.footnote);
+                            f.label_with(
+                                &body,
+                                &optics_ui::LabelOpts {
+                                    size: design.typography.footnote,
+                                    ..Default::default()
+                                },
+                            );
                         }
-                    },
-                );
+                    });
             });
         }
 

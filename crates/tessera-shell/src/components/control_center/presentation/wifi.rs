@@ -23,43 +23,34 @@ impl ControlCenter {
             "tessera-hud-wifi-detail",
             &chrome_place(area, transparent()),
             |f| {
-                f.column_ex(
-                    &LayoutOpts {
+                f.column().with_opts(&LayoutOpts {
                         width: area.w,
                         height: area.h,
                         gap: 12.0,
                         cross: Align::Stretch,
                         ..Default::default()
-                    },
-                    |f| {
+                    }).show(|f| {
                         // Header row: [< Back] Title  [↻ Scan] [On/Off]
-                        f.row_ex(
-                            &LayoutOpts {
+                        f.row().with_opts(&LayoutOpts {
                                 width: area.w,
                                 height: 36.0,
                                 cross: Align::Center,
                                 gap: 8.0,
                                 ..Default::default()
-                            },
-                            |f| {
-                                let (back_resp, _) = f.pressable_row(
-                                    "tessera-wifi-back-btn",
-                                    i18n.text(Message::Back),
-                                    &LayoutOpts {
+                            }).show(|f| {
+                                let (back_resp, _) = f.row().with_opts(&LayoutOpts {
                                         width: 80.0,
                                         height: 36.0,
-                                        radius: 10.0,
+                                        corner_radii: optics_ui::CornerRadii::uniform(10.0),
                                         pad: 6.0,
                                         gap: 4.0,
                                         bg: hud.surface_recessed,
                                         cross: Align::Center,
                                         ..Default::default()
-                                    },
-                                    |f, _| {
-                                        f.icon_raw(optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_CHEVRON_LEFT, 16.0);
+                                    }).id_label("tessera-wifi-back-btn", i18n.text(Message::Back)).show(|f| {
+                                        f.icon(optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_CHEVRON_LEFT, 16.0);
                                         display_label(f, i18n.text(Message::Back), type_scale.body);
-                                    },
-                                );
+                                    });
                                 if back_resp.clicked {
                                     self.show_page(Page::Main, out);
                                 }
@@ -71,42 +62,33 @@ impl ControlCenter {
                                 f.spacer(0.0);
 
                                 // Refresh / Scan button
-                                let (refresh_resp, _) = f.pressable_row(
-                                    "tessera-wifi-refresh-btn",
-                                    "Scan",
-                                    &LayoutOpts {
+                                let (refresh_resp, _) = f.row().with_opts(&LayoutOpts {
                                         width: 36.0,
                                         height: 36.0,
-                                        radius: 18.0,
+                                        corner_radii: optics_ui::CornerRadii::uniform(18.0),
                                         cross: Align::Center,
                                         bg: hud.surface_recessed,
                                         ..Default::default()
-                                    },
-                                    |f, _| {
+                                    }).id_label("tessera-wifi-refresh-btn", "Scan").show(|f| {
                                         f.flex(1.0);
                                         f.spacer(0.0);
-                                        f.icon_raw(Glyph::RefreshCw.id(), 16.0);
+                                        f.icon(Glyph::RefreshCw.id(), 16.0);
                                         f.flex(1.0);
                                         f.spacer(0.0);
-                                    },
-                                );
+                                    });
                                 if refresh_resp.clicked {
                                     out.system_actions.push(SystemAction::ScanWifi);
                                 }
 
                                 // Radio toggle
-                                let (toggle_resp, _) = f.pressable_row(
-                                    "tessera-wifi-power-btn",
-                                    "Power",
-                                    &LayoutOpts {
+                                let (toggle_resp, _) = f.row().with_opts(&LayoutOpts {
                                         width: 54.0,
                                         height: 32.0,
-                                        radius: 16.0,
+                                        corner_radii: optics_ui::CornerRadii::uniform(16.0),
                                         cross: Align::Center,
                                         bg: if wifi_active { hud.accent } else { hud.surface_recessed },
                                         ..Default::default()
-                                    },
-                                    |f, _| {
+                                    }).id_label("tessera-wifi-power-btn", "Power").show(|f| {
                                         f.flex(1.0);
                                         f.spacer(0.0);
                                         let text_color = if wifi_active {
@@ -118,43 +100,36 @@ impl ControlCenter {
                                         display_label(f, if wifi_active { "On" } else { "Off" }, type_scale.caption);
                                         f.flex(1.0);
                                         f.spacer(0.0);
-                                    },
-                                );
+                                    });
                                 if toggle_resp.clicked {
                                     out.system_actions.push(SystemAction::SetWifi {
                                         enabled: !wifi_active,
                                     });
                                 }
-                            },
-                        );
+                            });
 
                         // Body list
                         let list_h = (area.h - 48.0).max(1.0);
                         if !wifi_active {
-                            f.column_ex(
-                                &LayoutOpts {
+                            f.column().with_opts(&LayoutOpts {
                                     width: area.w,
                                     height: list_h,
                                     cross: Align::Center,
                                     ..Default::default()
-                                },
-                                |f| {
+                                }).show(|f| {
                                     f.flex(1.0);
                                     f.spacer(0.0);
                                     display_label(f, "Wi-Fi is turned off", type_scale.body);
                                     f.flex(1.0);
                                     f.spacer(0.0);
-                                },
-                            );
+                                });
                         } else if status.wifi_networks.is_empty() {
-                            f.column_ex(
-                                &LayoutOpts {
+                            f.column().with_opts(&LayoutOpts {
                                     width: area.w,
                                     height: list_h,
                                     cross: Align::Center,
                                     ..Default::default()
-                                },
-                                |f| {
+                                }).show(|f| {
                                     f.flex(1.0);
                                     f.spacer(0.0);
                                     if status.wifi_state == tessera_desktop::system::WifiLinkState::Scanning {
@@ -164,18 +139,15 @@ impl ControlCenter {
                                     }
                                     f.flex(1.0);
                                     f.spacer(0.0);
-                                },
-                            );
+                                });
                         } else {
                             f.scroll("tessera-wifi-networks-scroll", |f| {
-                                f.column_ex(
-                                    &LayoutOpts {
+                                f.column().with_opts(&LayoutOpts {
                                         width: area.w,
                                         gap: 8.0,
                                         cross: Align::Stretch,
                                         ..Default::default()
-                                    },
-                                    |f| {
+                                    }).show(|f| {
                                         for (idx, net) in status.wifi_networks.iter().enumerate() {
                                             let is_curr = net.is_connected
                                                 || status.wifi_ssid.as_deref() == Some(&net.ssid);
@@ -196,22 +168,18 @@ impl ControlCenter {
 
                                             let row_id = format!("tessera-wifi-net-{idx}");
                                             let mut row_action_consumed = false;
-                                            let (row_resp, _) = f.pressable_row(
-                                                &row_id,
-                                                &net.ssid,
-                                                &LayoutOpts {
+                                            let (row_resp, _) = f.row().with_opts(&LayoutOpts {
                                                     width: area.w,
                                                     height: 48.0,
                                                     pad: 8.0,
-                                                    radius: 12.0,
+                                                    corner_radii: optics_ui::CornerRadii::uniform(12.0),
                                                     bg: card_bg,
                                                     border: card_border,
                                                     border_width: 1.0,
                                                     cross: Align::Center,
                                                     gap: 10.0,
                                                     ..Default::default()
-                                                },
-                                                |f, _| {
+                                                }).id_label(&row_id, &net.ssid).show(|f| {
                                                     // Wifi icon
                                                     let icon_fg = if is_curr {
                                                         hud.accent
@@ -219,7 +187,7 @@ impl ControlCenter {
                                                         hud.text_muted
                                                     };
                                                     f.set_theme(themes::hud(&hud).with_fg(icon_fg));
-                                                    f.icon_raw(Glyph::Wifi.id(), 18.0);
+                                                    f.icon(Glyph::Wifi.id(), 18.0);
 
                                                     // SSID
                                                     f.set_theme(themes::hud(&hud).with_fg(hud.text));
@@ -229,7 +197,7 @@ impl ControlCenter {
                                                     if net.security != tessera_desktop::system::WifiSecurity::Open {
                                                         f.spacer(4.0);
                                                         f.set_theme(themes::hud(&hud).with_fg(hud.text_muted));
-                                                        f.icon_raw(Glyph::Lock.id(), 14.0);
+                                                        f.icon(Glyph::Lock.id(), 14.0);
                                                     }
 
                                                     // Frequency band badge if known
@@ -246,52 +214,42 @@ impl ControlCenter {
                                                     // Status indicator / action on right
                                                     if is_curr {
                                                         f.set_theme(themes::hud(&hud).with_fg(hud.accent));
-                                                        f.icon_raw(Glyph::Check.id(), 16.0);
+                                                        f.icon(Glyph::Check.id(), 16.0);
                                                         f.spacer(4.0);
-                                                        let (disconn_resp, _) = f.pressable_row(
-                                                            &format!("tessera-wifi-disconn-{idx}"),
-                                                            "Disconnect",
-                                                            &LayoutOpts {
+                                                        let (disconn_resp, _) = f.row().with_opts(&LayoutOpts {
                                                                 width: 76.0,
                                                                 height: 28.0,
-                                                                radius: 8.0,
+                                                                corner_radii: optics_ui::CornerRadii::uniform(8.0),
                                                                 cross: Align::Center,
                                                                 bg: hud.surface,
                                                                 ..Default::default()
-                                                            },
-                                                            |f, _| {
+                                                            }).id_label(&format!("tessera-wifi-disconn-{idx}"), "Disconnect").show(|f| {
                                                                 f.flex(1.0);
                                                                 f.spacer(0.0);
                                                                 display_label(f, "Disconnect", type_scale.footnote);
                                                                 f.flex(1.0);
                                                                 f.spacer(0.0);
-                                                            },
-                                                        );
+                                                            });
                                                         if disconn_resp.clicked {
                                                             row_action_consumed = true;
                                                             out.system_actions.push(SystemAction::DisconnectWifi);
                                                         }
                                                         if net.is_saved {
                                                             f.spacer(4.0);
-                                                            let (forget_resp, _) = f.pressable_row(
-                                                                &format!("tessera-wifi-forget-{idx}"),
-                                                                "Forget",
-                                                                &LayoutOpts {
+                                                            let (forget_resp, _) = f.row().with_opts(&LayoutOpts {
                                                                     width: 58.0,
                                                                     height: 28.0,
-                                                                    radius: 8.0,
+                                                                    corner_radii: optics_ui::CornerRadii::uniform(8.0),
                                                                     cross: Align::Center,
                                                                     bg: hud.surface,
                                                                     ..Default::default()
-                                                                },
-                                                                |f, _| {
+                                                                }).id_label(&format!("tessera-wifi-forget-{idx}"), "Forget").show(|f| {
                                                                     f.flex(1.0);
                                                                     f.spacer(0.0);
                                                                     display_label(f, "Forget", type_scale.footnote);
                                                                     f.flex(1.0);
                                                                     f.spacer(0.0);
-                                                                },
-                                                            );
+                                                                });
                                                             if forget_resp.clicked {
                                                                 row_action_consumed = true;
                                                                 out.system_actions.push(SystemAction::ForgetWifi {
@@ -304,13 +262,10 @@ impl ControlCenter {
                                                         display_label(f, "Connecting...", type_scale.footnote);
                                                     } else {
                                                         if net.is_saved {
-                                                            let (auto_resp, _) = f.pressable_row(
-                                                                &format!("tessera-wifi-autoconn-{idx}"),
-                                                                "Auto",
-                                                                &LayoutOpts {
+                                                            let (auto_resp, _) = f.row().with_opts(&LayoutOpts {
                                                                     width: 44.0,
                                                                     height: 28.0,
-                                                                    radius: 8.0,
+                                                                    corner_radii: optics_ui::CornerRadii::uniform(8.0),
                                                                     cross: Align::Center,
                                                                     bg: if net.auto_connect {
                                                                         hud.accent.with_alpha(50)
@@ -318,8 +273,7 @@ impl ControlCenter {
                                                                         hud.surface
                                                                     },
                                                                     ..Default::default()
-                                                                },
-                                                                |f, _| {
+                                                                }).id_label(&format!("tessera-wifi-autoconn-{idx}"), "Auto").show(|f| {
                                                                     f.flex(1.0);
                                                                     f.spacer(0.0);
                                                                     f.set_theme(themes::hud(&hud).with_fg(if net.auto_connect {
@@ -330,8 +284,7 @@ impl ControlCenter {
                                                                     display_label(f, "Auto", type_scale.caption);
                                                                     f.flex(1.0);
                                                                     f.spacer(0.0);
-                                                                },
-                                                            );
+                                                                });
                                                             if auto_resp.clicked {
                                                                 row_action_consumed = true;
                                                                 out.system_actions.push(SystemAction::SetWifiAutoConnect {
@@ -340,25 +293,20 @@ impl ControlCenter {
                                                                 });
                                                             }
                                                             f.spacer(4.0);
-                                                            let (forget_resp, _) = f.pressable_row(
-                                                                &format!("tessera-wifi-forget-{idx}"),
-                                                                "Forget",
-                                                                &LayoutOpts {
+                                                            let (forget_resp, _) = f.row().with_opts(&LayoutOpts {
                                                                     width: 58.0,
                                                                     height: 28.0,
-                                                                    radius: 8.0,
+                                                                    corner_radii: optics_ui::CornerRadii::uniform(8.0),
                                                                     cross: Align::Center,
                                                                     bg: hud.surface,
                                                                     ..Default::default()
-                                                                },
-                                                                |f, _| {
+                                                                }).id_label(&format!("tessera-wifi-forget-{idx}"), "Forget").show(|f| {
                                                                     f.flex(1.0);
                                                                     f.spacer(0.0);
                                                                     display_label(f, "Forget", type_scale.footnote);
                                                                     f.flex(1.0);
                                                                     f.spacer(0.0);
-                                                                },
-                                                            );
+                                                                });
                                                             if forget_resp.clicked {
                                                                 row_action_consumed = true;
                                                                 out.system_actions.push(SystemAction::ForgetWifi {
@@ -376,8 +324,7 @@ impl ControlCenter {
                                                         };
                                                         display_label(f, bars_text, type_scale.footnote);
                                                     }
-                                                },
-                                            );
+                                                });
 
                                             if row_resp.clicked && !row_action_consumed && !is_curr {
                                                 if net.security == tessera_desktop::system::WifiSecurity::Open
@@ -405,47 +352,40 @@ impl ControlCenter {
                                                 } else {
                                                     format!("{masked}|")
                                                 };
-                                                f.row_ex(
-                                                    &LayoutOpts {
+                                                f.row().with_opts(&LayoutOpts {
                                                         width: area.w,
                                                         height: 38.0,
                                                         pad: 6.0,
-                                                        radius: 10.0,
+                                                        corner_radii: optics_ui::CornerRadii::uniform(10.0),
                                                         bg: hud.surface,
                                                         cross: Align::Center,
                                                         gap: 8.0,
                                                         ..Default::default()
-                                                    },
-                                                    |f| {
+                                                    }).show(|f| {
                                                         f.spacer(4.0);
                                                         f.set_theme(themes::hud(&hud).with_fg(hud.accent));
-                                                        f.icon_raw(Glyph::Lock.id(), 14.0);
+                                                        f.icon(Glyph::Lock.id(), 14.0);
                                                         f.set_theme(themes::hud(&hud).with_fg(if self.wifi_input_passphrase.is_empty() { hud.text_muted } else { hud.text }));
                                                         display_label(f, &display_field, type_scale.caption);
 
                                                         f.flex(1.0);
                                                         f.spacer(0.0);
 
-                                                        let (conn_btn, _) = f.pressable_row(
-                                                            &format!("tessera-wifi-conn-btn-{idx}"),
-                                                            "Connect",
-                                                            &LayoutOpts {
+                                                        let (conn_btn, _) = f.row().with_opts(&LayoutOpts {
                                                                 width: 68.0,
                                                                 height: 26.0,
-                                                                radius: 6.0,
+                                                                corner_radii: optics_ui::CornerRadii::uniform(6.0),
                                                                 bg: hud.accent,
                                                                 cross: Align::Center,
                                                                 ..Default::default()
-                                                            },
-                                                            |f, _| {
+                                                            }).id_label(&format!("tessera-wifi-conn-btn-{idx}"), "Connect").show(|f| {
                                                                 f.flex(1.0);
                                                                 f.spacer(0.0);
                                                                 f.set_theme(themes::hud(&hud).with_fg(Color::rgba(255, 255, 255, 255)));
                                                                 display_label(f, "Connect", type_scale.caption);
                                                                 f.flex(1.0);
                                                                 f.spacer(0.0);
-                                                            },
-                                                        );
+                                                            });
                                                         if conn_btn.clicked {
                                                             let pass = if self.wifi_input_passphrase.is_empty() {
                                                                 None
@@ -460,40 +400,32 @@ impl ControlCenter {
                                                             self.wifi_input_passphrase.clear();
                                                         }
 
-                                                        let (cancel_btn, _) = f.pressable_row(
-                                                            &format!("tessera-wifi-cancel-btn-{idx}"),
-                                                            "Cancel",
-                                                            &LayoutOpts {
+                                                        let (cancel_btn, _) = f.row().with_opts(&LayoutOpts {
                                                                 width: 58.0,
                                                                 height: 26.0,
-                                                                radius: 6.0,
+                                                                corner_radii: optics_ui::CornerRadii::uniform(6.0),
                                                                 bg: hud.surface_recessed,
                                                                 cross: Align::Center,
                                                                 ..Default::default()
-                                                            },
-                                                            |f, _| {
+                                                            }).id_label(&format!("tessera-wifi-cancel-btn-{idx}"), "Cancel").show(|f| {
                                                                 f.flex(1.0);
                                                                 f.spacer(0.0);
                                                                 f.set_theme(themes::hud(&hud).with_fg(hud.text_muted));
                                                                 display_label(f, "Cancel", type_scale.caption);
                                                                 f.flex(1.0);
                                                                 f.spacer(0.0);
-                                                            },
-                                                        );
+                                                            });
                                                         if cancel_btn.clicked {
                                                             self.wifi_input_ssid = None;
                                                             self.wifi_input_passphrase.clear();
                                                         }
-                                                    },
-                                                );
+                                                    });
                                             }
                                         }
-                                    },
-                                );
+                                    });
                             });
                         }
-                    },
-                );
+                    });
             },
         );
         f.set_theme(original);

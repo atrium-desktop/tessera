@@ -43,29 +43,29 @@ impl ControlCenter {
         let artist_label = ellipsize(f, &snapshot.artist, type_scale.footnote, text_max_w);
 
         f.set_theme(base_theme);
-        f.column_ex(
-            &LayoutOpts {
+        f.column()
+            .with_opts(&LayoutOpts {
                 width: size.0,
                 height: size.1,
                 gap: 4.0,
                 pad: card_pad,
-                radius: 16.0,
+                corner_radii: optics_ui::CornerRadii::uniform(16.0),
                 bg: hud.surface_recessed,
                 border: hud.border,
                 border_width: 1.0,
                 cross: Align::Stretch,
                 ..Default::default()
-            },
-            |f| {
-                f.row_ex(
-                    &LayoutOpts {
+            })
+            .show(|f| {
+                f.row()
+                    .with_opts(&LayoutOpts {
                         height: 48.0,
                         gap: 10.0,
                         cross: Align::Center,
                         ..Default::default()
-                    },
-                    |f| {
-                        f.icon_raw(
+                    })
+                    .show(|f| {
+                        f.icon(
                             if snapshot.playing {
                                 Glyph::Pause.id()
                             } else {
@@ -73,14 +73,14 @@ impl ControlCenter {
                             },
                             18.0,
                         );
-                        f.column_ex(
-                            &LayoutOpts {
+                        f.column()
+                            .with_opts(&LayoutOpts {
                                 flex: 1.0,
                                 max_width: text_max_w,
                                 gap: 2.0,
                                 ..Default::default()
-                            },
-                            |f| {
+                            })
+                            .show(|f| {
                                 f.set_theme(muted_theme);
                                 display_label(f, &identity_label, type_scale.footnote);
                                 f.set_theme(base_theme);
@@ -90,22 +90,20 @@ impl ControlCenter {
                                     display_label(f, &artist_label, type_scale.footnote);
                                     f.set_theme(base_theme);
                                 }
-                            },
-                        );
-                    },
-                );
+                            });
+                    });
 
                 f.flex(1.0);
                 f.spacer(0.0);
 
-                f.row_ex(
-                    &LayoutOpts {
+                f.row()
+                    .with_opts(&LayoutOpts {
                         height: 36.0,
                         gap: 6.0,
                         cross: Align::Center,
                         ..Default::default()
-                    },
-                    |f| {
+                    })
+                    .show(|f| {
                         f.flex(1.0);
                         f.spacer(0.0);
                         f.set_theme(if snapshot.can_previous {
@@ -113,21 +111,20 @@ impl ControlCenter {
                         } else {
                             muted_theme
                         });
-                        let (previous, _) = f.pressable_row(
-                            "tessera-hud-media-previous",
-                            "Previous",
-                            &LayoutOpts {
+                        let (previous, _) = f
+                            .row()
+                            .with_opts(&LayoutOpts {
                                 width: 36.0,
                                 height: 36.0,
-                                radius: 12.0,
+                                corner_radii: optics_ui::CornerRadii::uniform(12.0),
                                 cross: Align::Center,
                                 bg: Color::TRANSPARENT,
                                 ..Default::default()
-                            },
-                            |f, _| {
-                                f.centered(36.0, 36.0, |f| f.icon_raw(Glyph::SkipBack.id(), 17.0))
-                            },
-                        );
+                            })
+                            .id_label("tessera-hud-media-previous", "Previous")
+                            .show(|f| {
+                                f.centered(36.0, 36.0, |f| f.icon(Glyph::SkipBack.id(), 17.0))
+                            });
                         if previous.clicked && snapshot.can_previous {
                             command = Some(MediaCommand::Previous);
                         }
@@ -136,20 +133,20 @@ impl ControlCenter {
                         } else {
                             muted_theme
                         });
-                        let (play_pause, _) = f.pressable_row(
-                            "tessera-hud-media-play-pause",
-                            "Play or pause",
-                            &LayoutOpts {
+                        let (play_pause, _) = f
+                            .row()
+                            .with_opts(&LayoutOpts {
                                 width: 40.0,
                                 height: 36.0,
-                                radius: 12.0,
+                                corner_radii: optics_ui::CornerRadii::uniform(12.0),
                                 cross: Align::Center,
                                 bg: hud.selection_surface,
                                 ..Default::default()
-                            },
-                            |f, _| {
+                            })
+                            .id_label("tessera-hud-media-play-pause", "Play or pause")
+                            .show(|f| {
                                 f.centered(40.0, 36.0, |f| {
-                                    f.icon_raw(
+                                    f.icon(
                                         if snapshot.playing {
                                             Glyph::Pause.id()
                                         } else {
@@ -158,8 +155,7 @@ impl ControlCenter {
                                         18.0,
                                     )
                                 })
-                            },
-                        );
+                            });
                         if play_pause.clicked && snapshot.available {
                             command = Some(MediaCommand::PlayPause);
                         }
@@ -168,32 +164,27 @@ impl ControlCenter {
                         } else {
                             muted_theme
                         });
-                        let (next, _) = f.pressable_row(
-                            "tessera-hud-media-next",
-                            "Next",
-                            &LayoutOpts {
+                        let (next, _) = f
+                            .row()
+                            .with_opts(&LayoutOpts {
                                 width: 36.0,
                                 height: 36.0,
-                                radius: 12.0,
+                                corner_radii: optics_ui::CornerRadii::uniform(12.0),
                                 cross: Align::Center,
                                 bg: Color::TRANSPARENT,
                                 ..Default::default()
-                            },
-                            |f, _| {
-                                f.centered(36.0, 36.0, |f| {
-                                    f.icon_raw(Glyph::SkipForward.id(), 17.0)
-                                })
-                            },
-                        );
+                            })
+                            .id_label("tessera-hud-media-next", "Next")
+                            .show(|f| {
+                                f.centered(36.0, 36.0, |f| f.icon(Glyph::SkipForward.id(), 17.0))
+                            });
                         if next.clicked && snapshot.can_next {
                             command = Some(MediaCommand::Next);
                         }
                         f.flex(1.0);
                         f.spacer(0.0);
-                    },
-                );
-            },
-        );
+                    });
+            });
         if let Some(command) = command
             && let Some(media) = &self.media
         {

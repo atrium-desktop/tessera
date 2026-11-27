@@ -7,6 +7,7 @@ use tessera_primitives::Point;
 use tessera_primitives::Size;
 
 use super::ring::{STREAM_SLOT_COUNT, SlotRing};
+use crate::image_draw::ImageDrawExt as _;
 
 /// DRM fourcc announced for dmabuf stream frames: the capture surfaces hold
 /// opaque BGRA8 pixels, which is XRGB8888 on the wire.

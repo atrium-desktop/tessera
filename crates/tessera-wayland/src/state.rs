@@ -94,7 +94,13 @@ impl State {
                 transition,
             };
             if frame.dmabuf.is_some() {
-                (*rec).current_buffer_presented = true;
+                if let Some(connector) = human_output_connector_for_window(self, (*rec).window.id) {
+                    (*rec)
+                        .current_buffer_presented_outputs
+                        .insert(connector.to_owned());
+                } else {
+                    (*rec).current_buffer_presented_all = true;
+                }
             }
             self.push_closing_frame(frame);
         }
@@ -279,6 +285,7 @@ impl State {
             idle_inhibitors: Vec::new(),
             ipc_idle_inhibit: false,
             known_tools: Vec::new(),
+            syncobj_device: None,
             retired_buffer_releases: Vec::new(),
             foreign_toplevel_lists: Vec::new(),
             foreign_handles: std::collections::HashMap::new(),

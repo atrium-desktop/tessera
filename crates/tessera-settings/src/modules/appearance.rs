@@ -200,306 +200,412 @@ impl SettingsModule for AppearanceModule {
         out: &mut ModuleEvents,
     ) {
         frame.heading(i18n.text(Message::Appearance), 2);
-        frame.label_wrapped_sized(
+        frame.label_with(
             i18n.text(Message::AppearanceDescription),
-            design.typography.label,
-            560.0,
+            &optics_ui::LabelOpts {
+                size: design.typography.label,
+                wrap: true,
+                max_width: 560.0,
+                ..Default::default()
+            },
         );
 
-        frame.column_ex(&settings_card_layout(design), |frame| {
-            frame.heading(i18n.text(Message::AppearanceColorScheme), 3);
-            frame.row_ex(&section_heading_layout(), |frame| {
-                frame.label_sized(
-                    i18n.text(Message::AppearanceColorScheme),
-                    design.typography.label,
+        frame
+            .column()
+            .with_opts(&settings_card_layout(design))
+            .show(|frame| {
+                frame.heading(i18n.text(Message::AppearanceColorScheme), 3);
+                frame
+                    .row()
+                    .with_opts(&section_heading_layout())
+                    .show(|frame| {
+                        frame.label_with(
+                            i18n.text(Message::AppearanceColorScheme),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
+                        frame.flex(1.0);
+                        frame.spacer(0.0);
+                        let mut selected = match self.draft.color_scheme {
+                            ColorScheme::System => 0,
+                            ColorScheme::Dark => 1,
+                            ColorScheme::Light => 2,
+                        };
+                        frame.size_next(180.0, 30.0);
+                        if frame.dropdown(
+                            "##settings-color-scheme",
+                            &mut selected,
+                            &[
+                                i18n.text(Message::SystemDefault),
+                                i18n.text(Message::PreferDark),
+                                i18n.text(Message::PreferLight),
+                            ],
+                        ) {
+                            self.draft.color_scheme = match selected {
+                                1 => ColorScheme::Dark,
+                                2 => ColorScheme::Light,
+                                _ => ColorScheme::System,
+                            };
+                            self.dirty = true;
+                        }
+                    });
+
+                if text_field(
+                    frame,
+                    i18n.text(Message::AccentColor),
+                    "##settings-accent-color",
+                    &mut self.accent_color,
+                    design,
+                ) {
+                    self.dirty = true;
+                    self.invalid = false;
+                }
+
+                frame
+                    .row()
+                    .with_opts(&section_heading_layout())
+                    .show(|frame| {
+                        frame.label_with(
+                            i18n.text(Message::Contrast),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
+                        frame.flex(1.0);
+                        frame.spacer(0.0);
+                        let mut selected = i32::from(self.draft.contrast == Contrast::High);
+                        frame.size_next(180.0, 30.0);
+                        if frame.dropdown(
+                            "##settings-contrast",
+                            &mut selected,
+                            &[
+                                i18n.text(Message::NormalContrast),
+                                i18n.text(Message::HighContrast),
+                            ],
+                        ) {
+                            self.draft.contrast = if selected == 1 {
+                                Contrast::High
+                            } else {
+                                Contrast::Normal
+                            };
+                            self.dirty = true;
+                        }
+                    });
+
+                frame
+                    .row()
+                    .with_opts(&section_heading_layout())
+                    .show(|frame| {
+                        frame.label_with(
+                            i18n.text(Message::Material),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
+                        frame.flex(1.0);
+                        frame.spacer(0.0);
+                        let mut selected = material_index(self.draft.material);
+                        frame.size_next(180.0, 30.0);
+                        if frame.dropdown(
+                            "##settings-material",
+                            &mut selected,
+                            &[
+                                i18n.text(Message::MaterialOpaque),
+                                i18n.text(Message::MaterialTranslucent),
+                                i18n.text(Message::MaterialFrosted),
+                                i18n.text(Message::MaterialLiquidGlass),
+                            ],
+                        ) {
+                            self.draft.material = material_at(selected);
+                            self.dirty = true;
+                        }
+                    });
+                frame.label_with(
+                    i18n.text(Message::MaterialDescription),
+                    &optics_ui::LabelOpts {
+                        size: design.typography.footnote,
+                        wrap: true,
+                        max_width: 560.0,
+                        ..Default::default()
+                    },
                 );
-                frame.flex(1.0);
-                frame.spacer(0.0);
-                let mut selected = match self.draft.color_scheme {
-                    ColorScheme::System => 0,
-                    ColorScheme::Dark => 1,
-                    ColorScheme::Light => 2,
-                };
-                frame.size_next(180.0, 30.0);
-                if frame.dropdown(
-                    "##settings-color-scheme",
-                    &mut selected,
-                    &[
-                        i18n.text(Message::SystemDefault),
-                        i18n.text(Message::PreferDark),
-                        i18n.text(Message::PreferLight),
-                    ],
-                ) {
-                    self.draft.color_scheme = match selected {
-                        1 => ColorScheme::Dark,
-                        2 => ColorScheme::Light,
-                        _ => ColorScheme::System,
-                    };
-                    self.dirty = true;
+                // The preference is what is edited; when a ceiling lowered it,
+                // say what is drawn and why instead of letting the two differ
+                // silently.
+                if let Some(note) =
+                    drawn_as_note(self.resolution, self.authoritative.material, i18n)
+                {
+                    frame.label_with(
+                        &note,
+                        &optics_ui::LabelOpts {
+                            size: design.typography.footnote,
+                            wrap: true,
+                            max_width: 560.0,
+                            ..Default::default()
+                        },
+                    );
                 }
-            });
 
-            if text_field(
-                frame,
-                i18n.text(Message::AccentColor),
-                "##settings-accent-color",
-                &mut self.accent_color,
-                design,
-            ) {
-                self.dirty = true;
-                self.invalid = false;
-            }
-
-            frame.row_ex(&section_heading_layout(), |frame| {
-                frame.label_sized(i18n.text(Message::Contrast), design.typography.label);
-                frame.flex(1.0);
-                frame.spacer(0.0);
-                let mut selected = i32::from(self.draft.contrast == Contrast::High);
-                frame.size_next(180.0, 30.0);
-                if frame.dropdown(
-                    "##settings-contrast",
-                    &mut selected,
-                    &[
-                        i18n.text(Message::NormalContrast),
-                        i18n.text(Message::HighContrast),
-                    ],
-                ) {
-                    self.draft.contrast = if selected == 1 {
-                        Contrast::High
-                    } else {
-                        Contrast::Normal
-                    };
-                    self.dirty = true;
-                }
-            });
-
-            frame.row_ex(&section_heading_layout(), |frame| {
-                frame.label_sized(i18n.text(Message::Material), design.typography.label);
-                frame.flex(1.0);
-                frame.spacer(0.0);
-                let mut selected = material_index(self.draft.material);
-                frame.size_next(180.0, 30.0);
-                if frame.dropdown(
-                    "##settings-material",
-                    &mut selected,
-                    &[
-                        i18n.text(Message::MaterialOpaque),
-                        i18n.text(Message::MaterialTranslucent),
-                        i18n.text(Message::MaterialFrosted),
-                        i18n.text(Message::MaterialLiquidGlass),
-                    ],
-                ) {
-                    self.draft.material = material_at(selected);
-                    self.dirty = true;
-                }
-            });
-            frame.label_wrapped_sized(
-                i18n.text(Message::MaterialDescription),
-                design.typography.footnote,
-                560.0,
-            );
-            // The preference is what is edited; when a ceiling lowered it,
-            // say what is drawn and why instead of letting the two differ
-            // silently.
-            if let Some(note) = drawn_as_note(self.resolution, self.authoritative.material, i18n) {
-                frame.label_wrapped_sized(&note, design.typography.footnote, 560.0);
-            }
-
-            frame.row_ex(&section_heading_layout(), |frame| {
-                frame.label_sized(
-                    i18n.text(Message::MaterialOnBattery),
-                    design.typography.label,
+                frame
+                    .row()
+                    .with_opts(&section_heading_layout())
+                    .show(|frame| {
+                        frame.label_with(
+                            i18n.text(Message::MaterialOnBattery),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
+                        frame.flex(1.0);
+                        frame.spacer(0.0);
+                        let mut selected = material_index(self.draft.material_power.on_battery);
+                        frame.size_next(180.0, 30.0);
+                        if frame.dropdown(
+                            "##settings-material-on-battery",
+                            &mut selected,
+                            &[
+                                i18n.text(Message::MaterialOpaque),
+                                i18n.text(Message::MaterialTranslucent),
+                                i18n.text(Message::MaterialFrosted),
+                                i18n.text(Message::MaterialNoLimit),
+                            ],
+                        ) {
+                            self.draft.material_power.on_battery = material_at(selected);
+                            self.dirty = true;
+                        }
+                    });
+                frame.label_with(
+                    i18n.text(Message::MaterialPowerDescription),
+                    &optics_ui::LabelOpts {
+                        size: design.typography.footnote,
+                        wrap: true,
+                        max_width: 560.0,
+                        ..Default::default()
+                    },
                 );
-                frame.flex(1.0);
-                frame.spacer(0.0);
-                let mut selected = material_index(self.draft.material_power.on_battery);
-                frame.size_next(180.0, 30.0);
-                if frame.dropdown(
-                    "##settings-material-on-battery",
-                    &mut selected,
-                    &[
-                        i18n.text(Message::MaterialOpaque),
-                        i18n.text(Message::MaterialTranslucent),
-                        i18n.text(Message::MaterialFrosted),
-                        i18n.text(Message::MaterialNoLimit),
-                    ],
-                ) {
-                    self.draft.material_power.on_battery = material_at(selected);
-                    self.dirty = true;
-                }
-            });
-            frame.label_wrapped_sized(
-                i18n.text(Message::MaterialPowerDescription),
-                design.typography.footnote,
-                560.0,
-            );
 
-            if frame
-                .setting_switch(
-                    "settings-reduced-motion",
-                    i18n.text(Message::ReducedMotion),
-                    i18n.text(Message::ReducedMotionDescription),
-                    &mut self.draft.reduced_motion,
-                    false,
-                )
-                .changed
-            {
-                self.dirty = true;
-            }
-        });
-
-        frame.column_ex(&settings_card_layout(design), |frame| {
-            frame.heading(i18n.text(Message::Wallpaper), 3);
-
-            frame.row_ex(&section_heading_layout(), |frame| {
-                frame.label_sized(i18n.text(Message::WallpaperMode), design.typography.label);
-                frame.flex(1.0);
-                frame.spacer(0.0);
-                frame.size_next(180.0, 30.0);
-                if frame.dropdown(
-                    "##settings-wallpaper-mode",
-                    &mut self.draft_wallpaper_mode,
-                    &[
-                        i18n.text(Message::WallpaperModeImage),
-                        i18n.text(Message::WallpaperMode3d),
-                        i18n.text(Message::WallpaperModeVideo),
-                        i18n.text(Message::WallpaperModeParallax),
-                    ],
-                ) {
+                if frame
+                    .setting_switch(
+                        "settings-reduced-motion",
+                        i18n.text(Message::ReducedMotion),
+                        i18n.text(Message::ReducedMotionDescription),
+                        &mut self.draft.reduced_motion,
+                        false,
+                    )
+                    .changed
+                {
                     self.dirty = true;
                 }
             });
 
-            if text_field(
-                frame,
-                i18n.text(Message::WallpaperSource),
-                "##settings-wallpaper-source",
-                &mut self.draft_wallpaper_source,
-                design,
-            ) {
-                self.dirty = true;
-                self.invalid = false;
-            }
+        frame
+            .column()
+            .with_opts(&settings_card_layout(design))
+            .show(|frame| {
+                frame.heading(i18n.text(Message::Wallpaper), 3);
 
-            frame.row_ex(
-                &LayoutOpts {
-                    height: 28.0,
-                    gap: 8.0,
-                    cross: Align::Center,
-                    ..Default::default()
-                },
-                |frame| {
-                    frame.size_next(90.0, 26.0);
-                    if frame.button(i18n.text(Message::WallpaperBuiltin)) {
-                        self.draft_wallpaper_source.set("builtin");
-                        self.dirty = true;
-                    }
-                    frame.size_next(90.0, 26.0);
-                    if frame.button("Default") {
-                        self.draft_wallpaper_source.set("");
-                        self.draft_wallpaper_mode = 0;
-                        self.dirty = true;
-                    }
-                },
-            );
-        });
+                frame
+                    .row()
+                    .with_opts(&section_heading_layout())
+                    .show(|frame| {
+                        frame.label_with(
+                            i18n.text(Message::WallpaperMode),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
+                        frame.flex(1.0);
+                        frame.spacer(0.0);
+                        frame.size_next(180.0, 30.0);
+                        if frame.dropdown(
+                            "##settings-wallpaper-mode",
+                            &mut self.draft_wallpaper_mode,
+                            &[
+                                i18n.text(Message::WallpaperModeImage),
+                                i18n.text(Message::WallpaperMode3d),
+                                i18n.text(Message::WallpaperModeVideo),
+                                i18n.text(Message::WallpaperModeParallax),
+                            ],
+                        ) {
+                            self.dirty = true;
+                        }
+                    });
 
-        frame.column_ex(&settings_card_layout(design), |frame| {
-            frame.heading(i18n.text(Message::InterfaceFont), 3);
-            if text_field(
-                frame,
-                i18n.text(Message::InterfaceFont),
-                "##settings-interface-font",
-                &mut self.font_name,
-                design,
-            ) {
-                self.dirty = true;
-                self.invalid = false;
-            }
-            if text_field(
-                frame,
-                i18n.text(Message::MonospaceFont),
-                "##settings-monospace-font",
-                &mut self.monospace_font_name,
-                design,
-            ) {
-                self.dirty = true;
-                self.invalid = false;
-            }
-            frame.row_ex(&section_heading_layout(), |frame| {
-                frame.label_sized(i18n.text(Message::TextScale), design.typography.label);
-                frame.flex(1.0);
-                frame.spacer(0.0);
-                frame.label_sized(
-                    &format!("{:.0}%", self.draft.text_scale * 100.0),
-                    design.typography.footnote,
-                );
+                if text_field(
+                    frame,
+                    i18n.text(Message::WallpaperSource),
+                    "##settings-wallpaper-source",
+                    &mut self.draft_wallpaper_source,
+                    design,
+                ) {
+                    self.dirty = true;
+                    self.invalid = false;
+                }
+
+                frame
+                    .row()
+                    .with_opts(&LayoutOpts {
+                        height: 28.0,
+                        gap: 8.0,
+                        cross: Align::Center,
+                        ..Default::default()
+                    })
+                    .show(|frame| {
+                        frame.size_next(90.0, 26.0);
+                        if frame.button(i18n.text(Message::WallpaperBuiltin)) {
+                            self.draft_wallpaper_source.set("builtin");
+                            self.dirty = true;
+                        }
+                        frame.size_next(90.0, 26.0);
+                        if frame.button("Default") {
+                            self.draft_wallpaper_source.set("");
+                            self.draft_wallpaper_mode = 0;
+                            self.dirty = true;
+                        }
+                    });
             });
-            let mut scale = self.draft.text_scale as f32;
-            if frame.slider("##settings-text-scale", &mut scale, 0.5, 3.0) {
-                self.draft.text_scale = f64::from((scale * 20.0).round() / 20.0);
-                self.dirty = true;
-            }
-        });
 
-        frame.column_ex(&settings_card_layout(design), |frame| {
-            frame.heading(i18n.text(Message::IconTheme), 3);
-            if text_field(
-                frame,
-                i18n.text(Message::IconTheme),
-                "##settings-icon-theme",
-                &mut self.icon_theme,
-                design,
-            ) {
-                self.dirty = true;
-                self.invalid = false;
-            }
-            if text_field(
-                frame,
-                i18n.text(Message::CursorTheme),
-                "##settings-cursor-theme",
-                &mut self.cursor_theme,
-                design,
-            ) {
-                self.dirty = true;
-                self.invalid = false;
-            }
-            frame.row_ex(&section_heading_layout(), |frame| {
-                frame.label_sized(i18n.text(Message::CursorSize), design.typography.label);
-                frame.flex(1.0);
-                frame.spacer(0.0);
-                frame.label_sized(
-                    &format!("{} px", self.draft.cursor_size),
-                    design.typography.footnote,
-                );
+        frame
+            .column()
+            .with_opts(&settings_card_layout(design))
+            .show(|frame| {
+                frame.heading(i18n.text(Message::InterfaceFont), 3);
+                if text_field(
+                    frame,
+                    i18n.text(Message::InterfaceFont),
+                    "##settings-interface-font",
+                    &mut self.font_name,
+                    design,
+                ) {
+                    self.dirty = true;
+                    self.invalid = false;
+                }
+                if text_field(
+                    frame,
+                    i18n.text(Message::MonospaceFont),
+                    "##settings-monospace-font",
+                    &mut self.monospace_font_name,
+                    design,
+                ) {
+                    self.dirty = true;
+                    self.invalid = false;
+                }
+                frame
+                    .row()
+                    .with_opts(&section_heading_layout())
+                    .show(|frame| {
+                        frame.label_with(
+                            i18n.text(Message::TextScale),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
+                        frame.flex(1.0);
+                        frame.spacer(0.0);
+                        frame.label_with(
+                            &format!("{:.0}%", self.draft.text_scale * 100.0),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.footnote,
+                                ..Default::default()
+                            },
+                        );
+                    });
+                let mut scale = self.draft.text_scale as f32;
+                if frame.slider("##settings-text-scale", &mut scale, 0.5, 3.0) {
+                    self.draft.text_scale = f64::from((scale * 20.0).round() / 20.0);
+                    self.dirty = true;
+                }
             });
-            let mut size = self.draft.cursor_size as f32;
-            if frame.slider("##settings-cursor-size", &mut size, 8.0, 128.0) {
-                self.draft.cursor_size = size.round() as u32;
-                self.dirty = true;
-            }
-        });
+
+        frame
+            .column()
+            .with_opts(&settings_card_layout(design))
+            .show(|frame| {
+                frame.heading(i18n.text(Message::IconTheme), 3);
+                if text_field(
+                    frame,
+                    i18n.text(Message::IconTheme),
+                    "##settings-icon-theme",
+                    &mut self.icon_theme,
+                    design,
+                ) {
+                    self.dirty = true;
+                    self.invalid = false;
+                }
+                if text_field(
+                    frame,
+                    i18n.text(Message::CursorTheme),
+                    "##settings-cursor-theme",
+                    &mut self.cursor_theme,
+                    design,
+                ) {
+                    self.dirty = true;
+                    self.invalid = false;
+                }
+                frame
+                    .row()
+                    .with_opts(&section_heading_layout())
+                    .show(|frame| {
+                        frame.label_with(
+                            i18n.text(Message::CursorSize),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
+                        frame.flex(1.0);
+                        frame.spacer(0.0);
+                        frame.label_with(
+                            &format!("{} px", self.draft.cursor_size),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.footnote,
+                                ..Default::default()
+                            },
+                        );
+                    });
+                let mut size = self.draft.cursor_size as f32;
+                if frame.slider("##settings-cursor-size", &mut size, 8.0, 128.0) {
+                    self.draft.cursor_size = size.round() as u32;
+                    self.dirty = true;
+                }
+            });
 
         if self.invalid {
-            frame.label_wrapped_sized(
+            frame.label_with(
                 i18n.text(Message::InvalidAppearanceSettings),
-                design.typography.footnote,
-                560.0,
+                &optics_ui::LabelOpts {
+                    size: design.typography.footnote,
+                    wrap: true,
+                    max_width: 560.0,
+                    ..Default::default()
+                },
             );
         }
-        frame.label_wrapped_sized(
+        frame.label_with(
             i18n.text(Message::AppearanceApplyHint),
-            design.typography.footnote,
-            560.0,
+            &optics_ui::LabelOpts {
+                size: design.typography.footnote,
+                wrap: true,
+                max_width: 560.0,
+                ..Default::default()
+            },
         );
-        frame.row_ex(
-            &LayoutOpts {
+        frame
+            .row()
+            .with_opts(&LayoutOpts {
                 height: 32.0,
                 gap: 8.0,
                 cross: Align::Center,
                 ..Default::default()
-            },
-            |frame| {
+            })
+            .show(|frame| {
                 frame.size_next(210.0, 30.0);
                 if frame.button(i18n.text(Message::ApplyAppearanceSettings)) && self.dirty {
                     match self.candidate() {
@@ -531,8 +637,7 @@ impl SettingsModule for AppearanceModule {
                 if frame.button(i18n.text(Message::ResetAppearanceSettings)) {
                     self.reset_editor();
                 }
-            },
-        );
+            });
     }
 
     fn update_settings(&mut self, snapshot: &SettingsSnapshot) {
@@ -553,18 +658,32 @@ fn text_field(
     design: &Design,
 ) -> bool {
     let mut changed = false;
-    frame.column_ex(
-        &LayoutOpts {
+    frame
+        .column()
+        .with_opts(&LayoutOpts {
             gap: 4.0,
             cross: Align::Stretch,
             ..Default::default()
-        },
-        |frame| {
-            frame.label_sized(label, design.typography.footnote);
-            let resp = frame.textfield_ex(id, buffer, true);
+        })
+        .show(|frame| {
+            frame.label_with(
+                label,
+                &optics_ui::LabelOpts {
+                    size: design.typography.footnote,
+                    ..Default::default()
+                },
+            );
+            let resp = frame.textedit(
+                id,
+                buffer,
+                &optics_ui::TextEditOpts {
+                    accept_tab: true,
+                    select_all_on_focus: true,
+                    ..Default::default()
+                },
+            );
             changed = resp.changed || resp.submitted;
-        },
-    );
+        });
     changed
 }
 

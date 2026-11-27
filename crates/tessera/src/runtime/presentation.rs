@@ -485,6 +485,8 @@ impl CompositorRuntime<'_> {
             !client_cursor_on_hw_plane,
         );
         let mut damage = assessed_damage.output;
+        let mut primary_damage = assessed_damage.primary_output;
+        let overlay_buffer_changed = assessed_damage.overlay_buffer_changed;
         let mut sampled_surface_ids = assessed_damage.sampled_surface_ids;
         let has_mirror_target =
             has_active_mirror_target(&self.server.output_infos(), |connector| {
@@ -575,6 +577,7 @@ impl CompositorRuntime<'_> {
         let mirror_cursor_dirty = cursor_plane_changed && has_mirror_target;
         if mirror_cursor_dirty && !self.can_render_output_targets() {
             damage = FrameDamage::Full;
+            primary_damage = FrameDamage::Full;
         }
         if matches!(damage, FrameDamage::None)
             && !mirror_cursor_dirty
@@ -584,8 +587,6 @@ impl CompositorRuntime<'_> {
             && self.pending_interaction_domain_capture.is_none()
             && !self.screenshot_freeze.armed
             && !self.server.lock_confirmation_pending()
-            && !(self.server.retired_buffers_pending()
-                && (self.primary_plane_state.is_direct() || self.overlay_state.active().is_some()))
         {
             // Nothing visible changed: skip the render and the atomic commit
             // — the scanout contents are already correct, so presenting
@@ -633,26 +634,24 @@ impl CompositorRuntime<'_> {
             self.overlay_telemetry
                 .record(self.host.name(), &overlay.plan);
         }
-        let wanted_overlay = if self.overlay_offload_enabled
-            && !mirror_present
-            && self.direct_outputs.is_empty()
-            && !self.output_targets_cover_all_physical()
-        {
-            output_layer_plans.overlay.as_ref().and_then(|audit| {
-                tessera_composite::presentation::OverlayPlacement::from_plan(
-                    &audit.plan,
-                    audit.output.clone()?,
-                    audit.target,
-                )
-            })
-        } else {
-            None
-        };
+        let wanted_overlay =
+            if self.overlay_offload_enabled && !mirror_present && self.direct_outputs.is_empty() {
+                output_layer_plans.overlay.as_ref().and_then(|audit| {
+                    tessera_composite::presentation::OverlayPlacement::from_plan(
+                        &audit.plan,
+                        audit.output.clone()?,
+                        audit.target,
+                    )
+                })
+            } else {
+                None
+            };
         let overlay_change = self.overlay_state.reconcile(wanted_overlay);
         if overlay_change.requires_primary_repaint() {
             self.damage.force_full_redraw = true;
             self.invalidate_all_surface_damage();
             damage = FrameDamage::Full;
+            primary_damage = FrameDamage::Full;
             if matches!(
                 overlay_change,
                 tessera_composite::presentation::OverlayChange::Deactivated
@@ -672,7 +671,7 @@ impl CompositorRuntime<'_> {
             }
         }
         if output_layer_plans.direct_targets.len() > 1 {
-            let mut last_fence = None;
+            let mut direct_fences = Vec::with_capacity(output_layer_plans.direct_targets.len());
             let mut all_ok = true;
             for (target, plan) in &output_layer_plans.direct_targets {
                 let Some(candidate) = plan.direct_candidate() else {
@@ -683,7 +682,7 @@ impl CompositorRuntime<'_> {
                     .host
                     .present_scanout(candidate, target, damage.area_rects())
                 {
-                    Ok(fence) => last_fence = fence.or(last_fence),
+                    Ok(fence) => fence.append_to(&mut direct_fences),
                     Err(error) => {
                         log::warn!(
                             "{}: multi-target direct scanout to {target} failed: {error}",
@@ -714,11 +713,8 @@ impl CompositorRuntime<'_> {
                     false,
                     Some(&target_refs),
                 );
-                self.last_composited_fence = None;
-                if self.server.retired_buffers_pending() {
-                    self.server
-                        .release_retired_buffers(last_fence.as_ref().map(AsRawFd::as_raw_fd));
-                }
+                let merged = tessera_platform::sync::merge_live_sync_fences(direct_fences);
+                self.release_retired_buffers_after_direct_scanout(&target_refs, merged);
                 self.server.send_frame_callbacks_on_outputs(
                     self.server.monotonic_ms(),
                     PresentedSurfaces::Sampled {
@@ -791,12 +787,10 @@ impl CompositorRuntime<'_> {
                         false,
                         Some(&direct_outputs),
                     );
-                    self.last_composited_fence = None;
-                    if self.server.retired_buffers_pending() {
-                        self.server.release_retired_buffers(
-                            completion_fence.as_ref().map(AsRawFd::as_raw_fd),
-                        );
-                    }
+                    self.release_retired_buffers_after_direct_scanout(
+                        &direct_outputs,
+                        completion_fence,
+                    );
                     self.server.send_frame_callbacks_on_outputs(
                         self.server.monotonic_ms(),
                         PresentedSurfaces::Sampled {
@@ -845,6 +839,7 @@ impl CompositorRuntime<'_> {
                         client_cursor_on_hw_plane = false;
                         client_cursor_key = None;
                         damage = FrameDamage::Full;
+                        primary_damage = FrameDamage::Full;
                         self.damage.reset_cursor_baseline();
                     }
                     if matches!(
@@ -897,6 +892,114 @@ impl CompositorRuntime<'_> {
             self.damage.force_full_redraw = true;
             self.invalidate_all_surface_damage();
             damage = FrameDamage::Full;
+            primary_damage = FrameDamage::Full;
+        }
+        // Zero-GPU overlay-only fast path (ADR-0268): when an active overlay
+        // window only swaps its buffer in place and Primary has zero damage,
+        // update only the KMS overlay plane without acquiring a Vulkan frame or
+        // rewriting Primary.
+        let single_physical_output = self
+            .server
+            .output_infos()
+            .iter()
+            .filter(|o| o.kind.is_physical())
+            .count()
+            <= 1;
+        let overlay_only_eligible = matches!(
+            overlay_change,
+            tessera_composite::presentation::OverlayChange::Updated
+        ) && matches!(primary_damage, FrameDamage::None)
+            && overlay_buffer_changed
+            && !was_scanout
+            && !mirror_present
+            && !mirror_cursor_dirty
+            && (!cursor_plane_changed || single_physical_output)
+            && frame_capture.is_none()
+            && self.pending_capture.is_none()
+            && self.pending_interaction_domain_capture.is_none()
+            && self.pending_window_capture.is_none()
+            && self.pending_pick.is_none()
+            && !session_locked
+            && !self.screenshot_freeze.armed
+            && !stream_forcing_due
+            && !self.streams.any_output_live()
+            && !self.server.lock_confirmation_pending();
+        if overlay_only_eligible
+            && let Some((active, overlay_surface)) = self.active_overlay_dmabuf()
+        {
+            match self
+                .host
+                .present_overlay_only(tessera_platform::host::OverlayLayer {
+                    surface: &overlay_surface,
+                    output: &active.output,
+                    target: active.target,
+                    zpos: active.zpos,
+                }) {
+                Ok(completion_fence) => {
+                    let overlay_outputs = [active.output.as_str()];
+                    let overlay_ids = [active.surface_id];
+                    self.streams.accumulate_damage(&damage);
+                    self.server.acknowledge_presented_surface_damage_on_outputs(
+                        overlay_ids.iter(),
+                        false,
+                        Some(&overlay_outputs),
+                    );
+                    self.release_retired_buffers_after_direct_scanout(
+                        &overlay_outputs,
+                        completion_fence,
+                    );
+                    self.server.send_frame_callbacks_on_outputs(
+                        self.server.monotonic_ms(),
+                        PresentedSurfaces::Sampled {
+                            ids: &overlay_ids,
+                            drew_preview_sources: false,
+                        },
+                        Some(&overlay_outputs),
+                    );
+                    self.damage.last_present_minute = Some(wall_clock_minute());
+                    self.damage.last_presented_cursor = Some((cursor_shape, cursor_hidden));
+                    self.damage.last_presented_client_cursor = client_cursor_key;
+                    self.damage.last_presented_cursor_position = Some(cursor_position);
+                    self.damage.last_presented_cursor_hotspot =
+                        hw_cursor_visible.then_some(last_committed_hotspot);
+                    self.damage.last_presented_cursor_pixels =
+                        hw_cursor_visible.then_some(last_committed_sprite_size);
+                    self.damage.force_full_redraw = false;
+                    self.renderer.gc(self.server.live_surface_ids());
+                    self.renderer.begin_frame();
+                    self.frame_count += 1;
+                    self.drain_shell_chrome_events();
+                    return Ok(PresentationOutcome::Submitted);
+                }
+                Err(HostError::Drm(DrmError::Busy | DrmError::FlipTimeout)) => {
+                    self.damage.pending_damage = Some(match self.damage.pending_damage.take() {
+                        Some(pending) => union_frame_damage(pending, damage),
+                        None => damage,
+                    });
+                    self.drain_shell_chrome_events();
+                    return Ok(PresentationOutcome::Retry {
+                        wait: RetryWait::BackendEvent,
+                    });
+                }
+                Err(HostError::Drm(DrmError::CursorFallback)) => {
+                    client_cursor_on_hw_plane = false;
+                    client_cursor_key = None;
+                    damage = FrameDamage::Full;
+                    primary_damage = FrameDamage::Full;
+                    self.damage.reset_cursor_baseline();
+                }
+                Err(error) => {
+                    log::warn!(
+                        "{}: overlay-only commit rejected ({error}); falling back to composition",
+                        self.host.name()
+                    );
+                    self.overlay_state.deactivate();
+                    self.damage.force_full_redraw = true;
+                    self.invalidate_all_surface_damage();
+                    damage = FrameDamage::Full;
+                    primary_damage = FrameDamage::Full;
+                }
+            }
         }
         // Normal DRM frames use one native target per physical output. The
         // union path remains for capture/screenshot frames and for complex
@@ -919,6 +1022,8 @@ impl CompositorRuntime<'_> {
         {
             let outcome = self.render_output_targets(
                 &damage,
+                &primary_damage,
+                overlay_buffer_changed,
                 &sampled_surface_ids,
                 cursor_shape,
                 cursor_hidden,
@@ -1921,13 +2026,7 @@ impl CompositorRuntime<'_> {
                         }
                     }
                 });
-                let overlay_frame = self.overlay_state.active().and_then(|active| {
-                    let sets = self.server.desktop_frame_sets();
-                    self.server
-                        .toplevel_dmabuf_frames_with(&sets.visible, &sets.occluded)
-                        .into_iter()
-                        .find(|frame| frame.id == active.surface_id)
-                });
+                let overlay_frame = self.active_overlay_dmabuf().map(|(_, frame)| frame);
                 if self.overlay_state.active().is_some() && overlay_frame.is_none() {
                     self.overlay_state.deactivate();
                     self.damage.force_full_redraw = true;
@@ -2155,7 +2254,7 @@ impl CompositorRuntime<'_> {
                 // Due-ness alone only rides this already-happening composite
                 // (ADR-0126); it never caused the frame.
                 if dmabuf_stream_capture_due {
-                    self.blit_dmabuf_stream_frames(completion_fence.as_ref());
+                    self.blit_dmabuf_stream_frames(&completion_fence);
                 }
                 if let Some(overlay) = self.overlay_state.active()
                     && !sampled_surface_ids.contains(&overlay.surface_id)
@@ -2176,7 +2275,7 @@ impl CompositorRuntime<'_> {
                     }
                     (Some(outputs), kms_fence)
                 } else {
-                    (None, None)
+                    (None, tessera_platform::sync::CompletionFence::Signaled)
                 };
                 let presented_outputs = target_outputs
                     .as_ref()
@@ -2199,13 +2298,12 @@ impl CompositorRuntime<'_> {
                         ),
                     }
                 }
-                let merged_completion_fence = tessera_platform::sync::merge_live_sync_fences(
-                    completion_fence
-                        .into_iter()
-                        .chain(target_kms_fence)
-                        .collect(),
+                let merged_completion_fence =
+                    tessera_platform::sync::merge_completions([completion_fence, target_kms_fence]);
+                self.release_retired_buffers_after_composited_frame(
+                    presented_outputs.as_deref(),
+                    merged_completion_fence,
                 );
-                self.release_retired_buffers_after_composited_frame(merged_completion_fence);
 
                 // Pace clients: fire frame callbacks for this presentation and
                 // complete `wp_presentation_feedback` for exactly the surfaces

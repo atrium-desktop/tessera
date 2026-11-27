@@ -15,7 +15,7 @@ negative_knowledge: true
 - Deciders: Tessera Architecture Working Group
 - Consulted: `crates/tessera-composite` (candidate policy), `crates/tessera-platform` (plane capabilities/commit), `crates/tessera` (scene facts/damage)
 - Amends: [ADR-0101](0101-dual-presentation-paths-and-conservative-kms-plane-allocation.md), [ADR-0234](0234-output-layers-are-plane-allocation-contracts-not-scene-layers.md)
-- Amended by: [ADR-0236](0236-overlay-placement-is-a-pure-state-machine.md) — placement transitions are a pure state machine with an explicit Primary-repaint contract; [ADR-0237](0237-a-direct-scanned-primary-excludes-overlay-offload.md) — a direct-scanned Primary excludes overlay offload.
+- Amended by: [ADR-0236](0236-overlay-placement-is-a-pure-state-machine.md) — placement transitions are a pure state machine with an explicit Primary-repaint contract; [ADR-0237](0237-a-direct-scanned-primary-excludes-overlay-offload.md) — a direct-scanned Primary excludes overlay offload; [ADR-0268](0268-per-output-overlay-offload-and-overlay-only-commits.md) — integrates overlay offload into per-output render targets and adds the zero-GPU overlay-only commit fast path.
 
 ---
 

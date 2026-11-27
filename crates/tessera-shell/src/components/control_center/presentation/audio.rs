@@ -48,15 +48,15 @@ impl ControlCenter {
             "tessera-hud-audio-detail",
             &chrome_place(area, transparent()),
             |f| {
-                f.column_ex(
-                    &LayoutOpts {
+                f.column()
+                    .with_opts(&LayoutOpts {
                         width: area.w,
                         height: area.h,
                         gap: 12.0,
                         cross: Align::Stretch,
                         ..Default::default()
-                    },
-                    |f| {
+                    })
+                    .show(|f| {
                         self.render_audio_detail_header(f, area, i18n, &hud, type_scale, out);
                         // The capture indicator sits directly under the header,
                         // above every control, because it is the one reading on
@@ -87,15 +87,15 @@ impl ControlCenter {
                             };
                         let body_h = (area.h - reserved).max(1.0);
                         f.scroll("tessera-audio-scroll", |f| {
-                            f.column_ex(
-                                &LayoutOpts {
+                            f.column()
+                                .with_opts(&LayoutOpts {
                                     width: area.w,
                                     height: body_h,
                                     gap: 10.0,
                                     cross: Align::Stretch,
                                     ..Default::default()
-                                },
-                                |f| {
+                                })
+                                .show(|f| {
                                     self.render_microphone_fader(
                                         f, area, i18n, &hud, type_scale, &status, out,
                                     );
@@ -125,11 +125,9 @@ impl ControlCenter {
                                             f, area, i18n, &hud, type_scale, &status, out,
                                         );
                                     }
-                                },
-                            );
+                                });
                         });
-                    },
-                );
+                    });
             },
         );
         f.set_theme(original);
@@ -146,43 +144,41 @@ impl ControlCenter {
     ) {
         let hud = *hud;
         // Header row: [< Back] Title
-        f.row_ex(
-            &LayoutOpts {
+        f.row()
+            .with_opts(&LayoutOpts {
                 width: area.w,
                 height: 36.0,
                 cross: Align::Center,
                 gap: 8.0,
                 ..Default::default()
-            },
-            |f| {
-                let (back_resp, _) = f.pressable_row(
-                    "tessera-audio-back-btn",
-                    i18n.text(Message::Back),
-                    &LayoutOpts {
+            })
+            .show(|f| {
+                let (back_resp, _) = f
+                    .row()
+                    .with_opts(&LayoutOpts {
                         width: 80.0,
                         height: 36.0,
-                        radius: 10.0,
+                        corner_radii: optics_ui::CornerRadii::uniform(10.0),
                         pad: 6.0,
                         gap: 4.0,
                         bg: hud.surface_recessed,
                         cross: Align::Center,
                         ..Default::default()
-                    },
-                    |f, _| {
-                        f.icon_raw(
+                    })
+                    .id_label("tessera-audio-back-btn", i18n.text(Message::Back))
+                    .show(|f| {
+                        f.icon(
                             optics_ui::sys::optics_ui_icon_id::OPTICS_UI_ICON_CHEVRON_LEFT,
                             16.0,
                         );
                         display_label(f, i18n.text(Message::Back), type_scale.body);
-                    },
-                );
+                    });
                 if back_resp.clicked {
                     self.show_page(Page::Main, out);
                 }
                 f.spacer(4.0);
                 display_label(f, i18n.text(Message::Sound), type_scale.headline);
-            },
-        );
+            });
     }
 
     /// The capture fader: level, mute, and the microphone currently in use.
@@ -257,11 +253,11 @@ fn render_capture_banner(
     emphasis: Color,
 ) {
     f.set_theme(themes::hud(hud).with_fg(emphasis));
-    f.row_ex(
-        &LayoutOpts {
+    f.row()
+        .with_opts(&LayoutOpts {
             width,
             height: CAPTURE_BANNER_H,
-            radius: 10.0,
+            corner_radii: optics_ui::CornerRadii::uniform(10.0),
             bg: hud.surface_recessed,
             border: hud.border,
             border_width: 1.0,
@@ -269,12 +265,11 @@ fn render_capture_banner(
             cross: Align::Center,
             gap: 6.0,
             ..Default::default()
-        },
-        |f| {
-            f.icon_raw(Glyph::Mic.id(), 16.0);
+        })
+        .show(|f| {
+            f.icon(Glyph::Mic.id(), 16.0);
             display_label(f, i18n.text(Message::MicrophoneInUse), type_scale.footnote);
-        },
-    );
+        });
 }
 
 /// One section heading inside the Sound page.
@@ -286,17 +281,16 @@ fn render_section(
     hud: &ControlCenterColors,
 ) {
     f.set_theme(themes::hud(hud).with_fg(hud.text_muted));
-    f.row_ex(
-        &LayoutOpts {
+    f.row()
+        .with_opts(&LayoutOpts {
             width,
             height: 20.0,
             cross: Align::Center,
             ..Default::default()
-        },
-        |f| {
+        })
+        .show(|f| {
             display_label(f, title, type_scale.footnote);
-        },
-    );
+        });
 }
 
 /// The playback-device rows (ADR-0215).
@@ -316,36 +310,36 @@ fn render_output_rows(
         render_empty_note(f, area, i18n, hud, type_scale);
         return;
     }
-    f.column_ex(
-        &LayoutOpts {
+    f.column()
+        .with_opts(&LayoutOpts {
             width: area.w,
             gap: 8.0,
             cross: Align::Stretch,
             ..Default::default()
-        },
-        |f| {
+        })
+        .show(|f| {
             for (idx, output) in status.audio_outputs.iter().enumerate() {
                 let is_default = output.is_default;
-                let (row, _) = f.pressable_row(
-                    &format!("tessera-audio-output-{idx}"),
-                    &output.description,
-                    &LayoutOpts {
+                let (row, _) = f
+                    .row()
+                    .with_opts(&LayoutOpts {
                         width: area.w,
                         height: 44.0,
                         pad: 8.0,
-                        radius: 12.0,
+                        corner_radii: optics_ui::CornerRadii::uniform(12.0),
                         bg: hud.surface_recessed,
                         cross: Align::Center,
                         gap: 8.0,
                         ..Default::default()
-                    },
-                    |f, _| {
+                    })
+                    .id_label(&format!("tessera-audio-output-{idx}"), &output.description)
+                    .show(|f| {
                         f.set_theme(themes::hud(hud).with_fg(if is_default {
                             hud.accent
                         } else {
                             hud.text
                         }));
-                        f.icon_raw(audio_output_icon(output.kind), 18.0);
+                        f.icon(audio_output_icon(output.kind), 18.0);
                         f.set_theme(themes::hud(hud).with_fg(hud.text));
                         display_label(f, &output.description, type_scale.body);
                         f.flex(1.0);
@@ -354,18 +348,16 @@ fn render_output_rows(
                             // The marker is the server's statement, not a
                             // cached click.
                             f.set_theme(themes::hud(hud).with_fg(hud.accent));
-                            f.icon_raw(Glyph::Check.id(), 16.0);
+                            f.icon(Glyph::Check.id(), 16.0);
                         }
-                    },
-                );
+                    });
                 if row.clicked
                     && let Some(action) = ControlCenter::audio_output_intent(output)
                 {
                     out.system_actions.push(action);
                 }
             }
-        },
-    );
+        });
 }
 
 /// The capture-device rows (ADR-0216).
@@ -382,54 +374,52 @@ fn render_input_rows(
         render_empty_note(f, area, i18n, hud, type_scale);
         return;
     }
-    f.column_ex(
-        &LayoutOpts {
+    f.column()
+        .with_opts(&LayoutOpts {
             width: area.w,
             gap: 8.0,
             cross: Align::Stretch,
             ..Default::default()
-        },
-        |f| {
+        })
+        .show(|f| {
             for (idx, input) in status.audio_inputs.iter().enumerate() {
                 let is_default = input.is_default;
-                let (row, _) = f.pressable_row(
-                    &format!("tessera-audio-input-{idx}"),
-                    &input.description,
-                    &LayoutOpts {
+                let (row, _) = f
+                    .row()
+                    .with_opts(&LayoutOpts {
                         width: area.w,
                         height: 44.0,
                         pad: 8.0,
-                        radius: 12.0,
+                        corner_radii: optics_ui::CornerRadii::uniform(12.0),
                         bg: hud.surface_recessed,
                         cross: Align::Center,
                         gap: 8.0,
                         ..Default::default()
-                    },
-                    |f, _| {
+                    })
+                    .id_label(&format!("tessera-audio-input-{idx}"), &input.description)
+                    .show(|f| {
                         f.set_theme(themes::hud(hud).with_fg(if is_default {
                             hud.accent
                         } else {
                             hud.text
                         }));
-                        f.icon_raw(audio_input_icon(input.kind), 18.0);
+                        f.icon(audio_input_icon(input.kind), 18.0);
                         f.set_theme(themes::hud(hud).with_fg(hud.text));
                         display_label(f, &input.description, type_scale.body);
                         f.flex(1.0);
                         f.spacer(0.0);
                         if is_default {
                             f.set_theme(themes::hud(hud).with_fg(hud.accent));
-                            f.icon_raw(Glyph::Check.id(), 16.0);
+                            f.icon(Glyph::Check.id(), 16.0);
                         }
-                    },
-                );
+                    });
                 if row.clicked
                     && let Some(action) = ControlCenter::audio_input_intent(input)
                 {
                     out.system_actions.push(action);
                 }
             }
-        },
-    );
+        });
 }
 
 /// The single "no sound server answered" note, shared by both lists so they
@@ -442,21 +432,20 @@ fn render_empty_note(
     type_scale: TypeScale,
 ) {
     f.set_theme(themes::hud(hud).with_fg(hud.text_muted));
-    f.column_ex(
-        &LayoutOpts {
+    f.column()
+        .with_opts(&LayoutOpts {
             width: area.w,
             height: 44.0,
             cross: Align::Center,
             ..Default::default()
-        },
-        |f| {
+        })
+        .show(|f| {
             f.flex(1.0);
             f.spacer(0.0);
             display_label(f, i18n.text(Message::Unavailable), type_scale.body);
             f.flex(1.0);
             f.spacer(0.0);
-        },
-    );
+        });
 }
 
 /// The glyph for one output transport. Purely presentational: the transport is

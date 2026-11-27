@@ -170,158 +170,199 @@ impl SettingsModule for PowerModule {
         out: &mut ModuleEvents,
     ) {
         frame.heading(i18n.text(Message::PowerManagement), 2);
-        frame.label_wrapped_sized(
+        frame.label_with(
             i18n.text(Message::PowerManagementDescription),
-            design.typography.label,
-            560.0,
+            &optics_ui::LabelOpts {
+                size: design.typography.label,
+                wrap: true,
+                max_width: 560.0,
+                ..Default::default()
+            },
         );
 
-        frame.column_ex(&settings_card_layout(design), |frame| {
-            frame.heading(i18n.text(Message::AutomaticIdle), 3);
-            if frame
-                .setting_switch(
-                    "power-automatic-idle",
-                    i18n.text(Message::AutomaticIdle),
-                    i18n.text(Message::AutomaticIdleDescription),
-                    &mut self.draft.enabled,
-                    false,
-                )
-                .changed
-            {
-                self.dirty = true;
-            }
-        });
-
-        frame.column_ex(&settings_card_layout(design), |frame| {
-            frame.heading(i18n.text(Message::DimDisplay), 3);
-            let before = self.draft.dim_after_seconds != 0;
-            let editable = self.stage_editable(0);
-            if stage_editor(
-                frame,
-                i18n,
-                "power-dim",
-                Message::DimDisplay,
-                Message::DimDisplayDescription,
-                &mut self.draft.dim_after_seconds,
-                editable,
-                design,
-            ) {
-                if before != (self.draft.dim_after_seconds != 0) {
-                    self.toggle_stage(0, !before);
-                } else {
-                    self.normalize_after(0);
-                }
-                self.dirty = true;
-            }
-            if self.draft.dim_after_seconds != 0 {
-                frame.row_ex(&section_heading_layout(), |frame| {
-                    frame.label_sized(i18n.text(Message::DimLevel), design.typography.label);
-                    frame.flex(1.0);
-                    frame.spacer(0.0);
-                    frame.label_sized(
-                        &format!("{}%", self.draft.dim_percent),
-                        design.typography.footnote,
-                    );
-                });
-                let mut percent = f32::from(self.draft.dim_percent);
-                if self.draft.enabled && frame.slider("##power-dim-level", &mut percent, 1.0, 100.0)
+        frame
+            .column()
+            .with_opts(&settings_card_layout(design))
+            .show(|frame| {
+                frame.heading(i18n.text(Message::AutomaticIdle), 3);
+                if frame
+                    .setting_switch(
+                        "power-automatic-idle",
+                        i18n.text(Message::AutomaticIdle),
+                        i18n.text(Message::AutomaticIdleDescription),
+                        &mut self.draft.enabled,
+                        false,
+                    )
+                    .changed
                 {
-                    self.draft.dim_percent = percent.round() as u8;
                     self.dirty = true;
                 }
-            }
-        });
+            });
 
-        frame.column_ex(&settings_card_layout(design), |frame| {
-            frame.heading(i18n.text(Message::LockAfterIdle), 3);
-            let before = self.draft.lock_after_seconds != 0;
-            let editable = self.stage_editable(1);
-            if stage_editor(
-                frame,
-                i18n,
-                "power-lock",
-                Message::LockAfterIdle,
-                Message::LockAfterIdleDescription,
-                &mut self.draft.lock_after_seconds,
-                editable,
-                design,
-            ) {
-                if before != (self.draft.lock_after_seconds != 0) {
-                    self.toggle_stage(1, !before);
-                } else {
-                    self.normalize_after(1);
+        frame
+            .column()
+            .with_opts(&settings_card_layout(design))
+            .show(|frame| {
+                frame.heading(i18n.text(Message::DimDisplay), 3);
+                let before = self.draft.dim_after_seconds != 0;
+                let editable = self.stage_editable(0);
+                if stage_editor(
+                    frame,
+                    i18n,
+                    "power-dim",
+                    Message::DimDisplay,
+                    Message::DimDisplayDescription,
+                    &mut self.draft.dim_after_seconds,
+                    editable,
+                    design,
+                ) {
+                    if before != (self.draft.dim_after_seconds != 0) {
+                        self.toggle_stage(0, !before);
+                    } else {
+                        self.normalize_after(0);
+                    }
+                    self.dirty = true;
                 }
-                self.dirty = true;
-            }
-        });
+                if self.draft.dim_after_seconds != 0 {
+                    frame
+                        .row()
+                        .with_opts(&section_heading_layout())
+                        .show(|frame| {
+                            frame.label_with(
+                                i18n.text(Message::DimLevel),
+                                &optics_ui::LabelOpts {
+                                    size: design.typography.label,
+                                    ..Default::default()
+                                },
+                            );
+                            frame.flex(1.0);
+                            frame.spacer(0.0);
+                            frame.label_with(
+                                &format!("{}%", self.draft.dim_percent),
+                                &optics_ui::LabelOpts {
+                                    size: design.typography.footnote,
+                                    ..Default::default()
+                                },
+                            );
+                        });
+                    let mut percent = f32::from(self.draft.dim_percent);
+                    if self.draft.enabled
+                        && frame.slider("##power-dim-level", &mut percent, 1.0, 100.0)
+                    {
+                        self.draft.dim_percent = percent.round() as u8;
+                        self.dirty = true;
+                    }
+                }
+            });
 
-        frame.column_ex(&settings_card_layout(design), |frame| {
-            frame.heading(i18n.text(Message::TurnDisplayOff), 3);
-            let before = self.draft.display_off_after_seconds != 0;
-            let editable = self.stage_editable(2);
-            if stage_editor(
-                frame,
-                i18n,
-                "power-display-off",
-                Message::TurnDisplayOff,
-                Message::TurnDisplayOffDescription,
-                &mut self.draft.display_off_after_seconds,
-                editable,
-                design,
-            ) {
-                if before != (self.draft.display_off_after_seconds != 0) {
-                    self.toggle_stage(2, !before);
-                } else {
-                    self.normalize_after(2);
+        frame
+            .column()
+            .with_opts(&settings_card_layout(design))
+            .show(|frame| {
+                frame.heading(i18n.text(Message::LockAfterIdle), 3);
+                let before = self.draft.lock_after_seconds != 0;
+                let editable = self.stage_editable(1);
+                if stage_editor(
+                    frame,
+                    i18n,
+                    "power-lock",
+                    Message::LockAfterIdle,
+                    Message::LockAfterIdleDescription,
+                    &mut self.draft.lock_after_seconds,
+                    editable,
+                    design,
+                ) {
+                    if before != (self.draft.lock_after_seconds != 0) {
+                        self.toggle_stage(1, !before);
+                    } else {
+                        self.normalize_after(1);
+                    }
+                    self.dirty = true;
                 }
-                self.dirty = true;
-            }
-        });
+            });
 
-        frame.column_ex(&settings_card_layout(design), |frame| {
-            frame.heading(i18n.text(Message::SuspendAutomatically), 3);
-            let before = self.draft.suspend_after_seconds != 0;
-            let editable = self.stage_editable(3);
-            if stage_editor(
-                frame,
-                i18n,
-                "power-suspend",
-                Message::SuspendAutomatically,
-                Message::SuspendAutomaticallyDescription,
-                &mut self.draft.suspend_after_seconds,
-                editable,
-                design,
-            ) {
-                if before != (self.draft.suspend_after_seconds != 0) {
-                    self.toggle_stage(3, !before);
-                } else {
-                    self.normalize_after(3);
+        frame
+            .column()
+            .with_opts(&settings_card_layout(design))
+            .show(|frame| {
+                frame.heading(i18n.text(Message::TurnDisplayOff), 3);
+                let before = self.draft.display_off_after_seconds != 0;
+                let editable = self.stage_editable(2);
+                if stage_editor(
+                    frame,
+                    i18n,
+                    "power-display-off",
+                    Message::TurnDisplayOff,
+                    Message::TurnDisplayOffDescription,
+                    &mut self.draft.display_off_after_seconds,
+                    editable,
+                    design,
+                ) {
+                    if before != (self.draft.display_off_after_seconds != 0) {
+                        self.toggle_stage(2, !before);
+                    } else {
+                        self.normalize_after(2);
+                    }
+                    self.dirty = true;
                 }
-                self.dirty = true;
-            }
-        });
+            });
+
+        frame
+            .column()
+            .with_opts(&settings_card_layout(design))
+            .show(|frame| {
+                frame.heading(i18n.text(Message::SuspendAutomatically), 3);
+                let before = self.draft.suspend_after_seconds != 0;
+                let editable = self.stage_editable(3);
+                if stage_editor(
+                    frame,
+                    i18n,
+                    "power-suspend",
+                    Message::SuspendAutomatically,
+                    Message::SuspendAutomaticallyDescription,
+                    &mut self.draft.suspend_after_seconds,
+                    editable,
+                    design,
+                ) {
+                    if before != (self.draft.suspend_after_seconds != 0) {
+                        self.toggle_stage(3, !before);
+                    } else {
+                        self.normalize_after(3);
+                    }
+                    self.dirty = true;
+                }
+            });
 
         self.invalid = self.draft.validate().is_err();
         if self.invalid {
-            frame.label_wrapped_sized(
+            frame.label_with(
                 i18n.text(Message::InvalidPowerSettings),
-                design.typography.footnote,
-                560.0,
+                &optics_ui::LabelOpts {
+                    size: design.typography.footnote,
+                    wrap: true,
+                    max_width: 560.0,
+                    ..Default::default()
+                },
             );
         }
-        frame.label_wrapped_sized(
+        frame.label_with(
             i18n.text(Message::PowerApplyHint),
-            design.typography.footnote,
-            560.0,
+            &optics_ui::LabelOpts {
+                size: design.typography.footnote,
+                wrap: true,
+                max_width: 560.0,
+                ..Default::default()
+            },
         );
-        frame.row_ex(
-            &LayoutOpts {
+        frame
+            .row()
+            .with_opts(&LayoutOpts {
                 height: 32.0,
                 gap: 8.0,
                 cross: Align::Center,
                 ..Default::default()
-            },
-            |frame| {
+            })
+            .show(|frame| {
                 frame.size_next(210.0, 30.0);
                 if frame.button(i18n.text(Message::ApplyPowerSettings))
                     && self.dirty
@@ -336,8 +377,7 @@ impl SettingsModule for PowerModule {
                 if frame.button(i18n.text(Message::ResetPowerSettings)) {
                     self.reset_editor();
                 }
-            },
-        );
+            });
     }
 
     fn update_settings(&mut self, snapshot: &SettingsSnapshot) {
@@ -378,33 +418,42 @@ fn stage_editor(
         changed = true;
     }
     if enabled {
-        frame.row_ex(&section_heading_layout(), |frame| {
-            frame.flex(1.0);
-            frame.spacer(0.0);
-            if editable {
-                let presets = timeout_presets(*seconds);
-                let labels = presets
-                    .iter()
-                    .map(|seconds| format_duration(*seconds, i18n))
-                    .collect::<Vec<_>>();
-                let items = labels.iter().map(String::as_str).collect::<Vec<_>>();
-                let mut selected = presets
-                    .iter()
-                    .position(|preset| preset == seconds)
-                    .unwrap_or_default() as i32;
-                frame.size_next(210.0, 30.0);
-                if frame.dropdown(&format!("##{id}-timeout"), &mut selected, &items)
-                    && let Some(selected) = usize::try_from(selected)
-                        .ok()
-                        .and_then(|index| presets.get(index))
-                {
-                    *seconds = *selected;
-                    changed = true;
+        frame
+            .row()
+            .with_opts(&section_heading_layout())
+            .show(|frame| {
+                frame.flex(1.0);
+                frame.spacer(0.0);
+                if editable {
+                    let presets = timeout_presets(*seconds);
+                    let labels = presets
+                        .iter()
+                        .map(|seconds| format_duration(*seconds, i18n))
+                        .collect::<Vec<_>>();
+                    let items = labels.iter().map(String::as_str).collect::<Vec<_>>();
+                    let mut selected = presets
+                        .iter()
+                        .position(|preset| preset == seconds)
+                        .unwrap_or_default() as i32;
+                    frame.size_next(210.0, 30.0);
+                    if frame.dropdown(&format!("##{id}-timeout"), &mut selected, &items)
+                        && let Some(selected) = usize::try_from(selected)
+                            .ok()
+                            .and_then(|index| presets.get(index))
+                    {
+                        *seconds = *selected;
+                        changed = true;
+                    }
+                } else {
+                    frame.label_with(
+                        &format_duration(*seconds, i18n),
+                        &optics_ui::LabelOpts {
+                            size: design.typography.footnote,
+                            ..Default::default()
+                        },
+                    );
                 }
-            } else {
-                frame.label_sized(&format_duration(*seconds, i18n), design.typography.footnote);
-            }
-        });
+            });
     }
     changed
 }

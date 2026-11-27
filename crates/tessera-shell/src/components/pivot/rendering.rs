@@ -230,24 +230,36 @@ pub fn render_pivot(
             },
         ),
         |frame| {
-            frame.row_ex(
-                &LayoutOpts {
+            frame
+                .row()
+                .with_opts(&LayoutOpts {
                     width: search_rect.w,
                     height: search_rect.h,
                     gap: 12.0,
                     pad: 20.0,
                     cross: Align::Center,
                     ..Default::default()
-                },
-                |frame| {
-                    frame.icon_raw(Glyph::Search.id(), 22.0);
+                })
+                .show(|frame| {
+                    frame.icon(Glyph::Search.id(), 22.0);
                     if query_empty {
-                        frame.label_compact_sized(&shown_placeholder, type_scale.title);
+                        frame.label_with(
+                            &shown_placeholder,
+                            &optics_ui::LabelOpts {
+                                size: type_scale.title,
+                                ..Default::default()
+                            },
+                        );
                     } else {
-                        frame.label_compact_sized(&shown_query, type_scale.title);
+                        frame.label_with(
+                            &shown_query,
+                            &optics_ui::LabelOpts {
+                                size: type_scale.title,
+                                ..Default::default()
+                            },
+                        );
                     }
-                },
-            );
+                });
         },
     );
 
@@ -269,7 +281,7 @@ pub fn render_pivot(
                 },
                 LayoutOpts {
                     bg: design.colors.application_text,
-                    radius: 1.0,
+                    corner_radii: optics_ui::CornerRadii::uniform(1.0),
                     pad: 0.0,
                     ..surface_layout()
                 },
@@ -322,9 +334,12 @@ pub fn render_pivot(
                 ),
                 |frame| {
                     frame.centered(panel.w, EMPTY_HEIGHT, |frame| {
-                        frame.label_compact_sized(
+                        frame.label_with(
                             i18n.text(Message::NoApplicationsFound),
-                            type_scale.body,
+                            &optics_ui::LabelOpts {
+                                size: type_scale.body,
+                                ..Default::default()
+                            },
                         );
                     });
                 },
@@ -383,68 +398,89 @@ pub fn render_pivot(
                         },
                     ),
                     |frame| {
-                        frame.row_ex(
-                            &LayoutOpts {
+                        frame
+                            .row()
+                            .with_opts(&LayoutOpts {
                                 width: row.w,
                                 height: row.h,
                                 gap: 12.0,
                                 pad: 10.0,
                                 cross: Align::Center,
                                 ..Default::default()
-                            },
-                            |frame| {
+                            })
+                            .show(|frame| {
                                 match &item.icon {
                                     ItemIcon::App(ptr) => render_icon(frame, *ptr, progress),
                                     ItemIcon::System(ic) => {
                                         frame.icon(*ic, 22.0);
                                     }
                                     ItemIcon::Raw(id) => {
-                                        frame.icon_raw(*id, 22.0);
+                                        frame.icon(*id, 22.0);
                                     }
                                     ItemIcon::Math => {
-                                        frame.icon_raw(Glyph::Sliders.id(), 22.0);
+                                        frame.icon(Glyph::Sliders.id(), 22.0);
                                     }
                                     ItemIcon::Agent => {
-                                        frame.icon_raw(Glyph::Zap.id(), 22.0);
+                                        frame.icon(Glyph::Zap.id(), 22.0);
                                     }
                                 }
-                                frame.column_ex(
-                                    &LayoutOpts {
+                                frame
+                                    .column()
+                                    .with_opts(&LayoutOpts {
                                         width: text_w,
                                         height: 40.0,
                                         gap: 2.0,
                                         ..Default::default()
-                                    },
-                                    |frame| {
-                                        frame.label_compact_sized(&name, type_scale.body);
+                                    })
+                                    .show(|frame| {
+                                        frame.label_with(
+                                            &name,
+                                            &optics_ui::LabelOpts {
+                                                size: type_scale.body,
+                                                ..Default::default()
+                                            },
+                                        );
                                         if let Some(sub) = &subtitle {
-                                            frame.label_compact_sized(sub, type_scale.footnote);
+                                            frame.label_with(
+                                                sub,
+                                                &optics_ui::LabelOpts {
+                                                    size: type_scale.footnote,
+                                                    ..Default::default()
+                                                },
+                                            );
                                         }
-                                    },
-                                );
+                                    });
                                 frame.flex(1.0);
                                 if is_running && !selected {
-                                    frame.label_compact_sized("●", type_scale.caption);
-                                }
-                                if selected {
-                                    frame.row_ex(
-                                        &LayoutOpts {
-                                            pad: 4.0,
-                                            radius: 5.0,
-                                            bg: design.colors.menu_border,
-                                            cross: Align::Center,
+                                    frame.label_with(
+                                        "●",
+                                        &optics_ui::LabelOpts {
+                                            size: type_scale.caption,
                                             ..Default::default()
-                                        },
-                                        |frame| {
-                                            frame.label_compact_sized(
-                                                action_badge,
-                                                type_scale.caption,
-                                            );
                                         },
                                     );
                                 }
-                            },
-                        );
+                                if selected {
+                                    frame
+                                        .row()
+                                        .with_opts(&LayoutOpts {
+                                            pad: 4.0,
+                                            corner_radii: optics_ui::CornerRadii::uniform(5.0),
+                                            bg: design.colors.menu_border,
+                                            cross: Align::Center,
+                                            ..Default::default()
+                                        })
+                                        .show(|frame| {
+                                            frame.label_with(
+                                                action_badge,
+                                                &optics_ui::LabelOpts {
+                                                    size: type_scale.caption,
+                                                    ..Default::default()
+                                                },
+                                            );
+                                        });
+                                }
+                            });
                     },
                 );
             }
@@ -477,7 +513,7 @@ pub fn render_pivot(
                         } else {
                             Color::TRANSPARENT
                         },
-                        radius: 14.0,
+                        corner_radii: optics_ui::CornerRadii::uniform(14.0),
                         pad: 0.0,
                         cross: Align::Center,
                         ..surface_layout()
@@ -485,7 +521,13 @@ pub fn render_pivot(
                 ),
                 |frame| {
                     frame.centered(pill.w, pill.h, |frame| {
-                        frame.label_compact_sized(i18n.text(cat.message()), type_scale.footnote);
+                        frame.label_with(
+                            i18n.text(cat.message()),
+                            &optics_ui::LabelOpts {
+                                size: type_scale.footnote,
+                                ..Default::default()
+                            },
+                        );
                     });
                 },
             );
@@ -523,26 +565,32 @@ pub fn render_pivot(
                         } else {
                             Color::TRANSPARENT
                         },
-                        radius: 8.0,
+                        corner_radii: optics_ui::CornerRadii::uniform(8.0),
                         pad: 0.0,
                         ..surface_layout()
                     },
                 ),
                 |frame| {
-                    frame.column_ex(
-                        &LayoutOpts {
+                    frame
+                        .column()
+                        .with_opts(&LayoutOpts {
                             width: tile.w,
                             height: tile.h,
                             gap: 6.0,
                             pad: 6.0,
                             cross: Align::Center,
                             ..Default::default()
-                        },
-                        |frame| {
+                        })
+                        .show(|frame| {
                             render_icon(frame, icon, progress);
-                            frame.label_compact_sized(&name, type_scale.caption);
-                        },
-                    );
+                            frame.label_with(
+                                &name,
+                                &optics_ui::LabelOpts {
+                                    size: type_scale.caption,
+                                    ..Default::default()
+                                },
+                            );
+                        });
                 },
             );
         }
@@ -559,20 +607,20 @@ pub fn render_icon(frame: &mut Frame, icon: Option<*mut c_void>, progress: f32) 
             frame.image(pointer as *mut optics_ui::sys::optics_gfx_image, size, size);
         },
         None => {
-            frame.column_ex(
-                &LayoutOpts {
+            frame
+                .column()
+                .with_opts(&LayoutOpts {
                     width: size,
                     height: size,
                     bg: Color::rgba(78, 88, 120, 230),
-                    radius: 9.0,
+                    corner_radii: optics_ui::CornerRadii::uniform(9.0),
                     ..Default::default()
-                },
-                |frame| {
+                })
+                .show(|frame| {
                     frame.centered(size, size, |frame| {
-                        frame.icon_raw(Glyph::FileText.id(), 20.0);
+                        frame.icon(Glyph::FileText.id(), 20.0);
                     });
-                },
-            );
+                });
         }
     });
 }

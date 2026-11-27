@@ -13,9 +13,10 @@ use super::output_target::{
     gfx_target_acquire_is_transient,
 };
 use super::*;
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::fd::OwnedFd;
+use std::time::Duration;
 use tessera_platform::host::RenderTargetCommit;
-use tessera_platform::sync::{merge_live_sync_fences, sync_file_is_signaled};
+use tessera_platform::sync::{CompletionFence, merge_live_sync_fences};
 use tessera_wayland::PresentedSurfaces;
 
 /// Bilinear-filter pixel margin added around projected source damage on mirror
@@ -23,8 +24,35 @@ use tessera_wayland::PresentedSurfaces;
 /// (ADR-0250, `[INV-ARCH-160]`).
 const MIRROR_DAMAGE_MARGIN_PX: i32 = 2;
 
+/// Bounded wait used only when `SYNC_IOC_MERGE` fails while live fences remain
+/// unmerged (ADR-0264, `[INV-ARCH-159]`).
+const UNMERGED_FENCE_WAIT_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// Classification of the frame's completion synchronization state for pure
+/// retirement-release planning (ADR-0264, `[INV-ARCH-159]`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum CompletionState {
+    /// All contributing GPU/KMS work is already signaled or waited on.
+    Signaled,
+    /// A single merged live `sync_file` is available for non-blocking handoff.
+    LiveFence,
+    /// `SYNC_IOC_MERGE` failed while multiple fences remained live; must wait
+    /// before releasing retired buffers.
+    UnmergedFences,
+}
+
+impl CompletionState {
+    fn from_fence(fence: &CompletionFence) -> Self {
+        match fence {
+            CompletionFence::Signaled => Self::Signaled,
+            CompletionFence::Live(_) => Self::LiveFence,
+            CompletionFence::Unmerged(_) => Self::UnmergedFences,
+        }
+    }
+}
+
 /// Action to release retired client buffers at a presentation boundary
-/// (ADR-0250, `[INV-ARCH-159]`).
+/// (ADR-0250, ADR-0264, `[INV-ARCH-159]`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RetiredReleaseAction {
     /// No retired buffers are pending.
@@ -34,6 +62,9 @@ pub(super) enum RetiredReleaseAction {
     ReleaseImmediate,
     /// Release immediately with the merged sync_file completion fence.
     ReleaseWithFence,
+    /// Wait for unmerged live fences (escalating to `device.wait_idle()` on
+    /// timeout/error) and then release immediately.
+    WaitUnmergedAndRelease,
     /// Synchronize the Vulkan device (`wait_idle`) and release immediately
     /// (nested host swapchain, which exposes no exportable completion fence).
     WaitDeviceAndRelease,
@@ -44,11 +75,12 @@ pub(super) enum RetiredReleaseAction {
 ///
 /// Frame-count deferral (`retired_defer`) is intentionally absent: deferring
 /// release across N frames starves 2–4 buffer client swapchains and deadlocks
-/// once a blocked client stops producing damage (ADR-0250, `[INV-ARCH-159]`).
+/// once a blocked client stops producing damage (ADR-0250, ADR-0264,
+/// `[INV-ARCH-159]`).
 pub(super) fn plan_retired_release(
     retired_pending: bool,
     presents_through_host_swapchain: bool,
-    has_live_fence: bool,
+    completion: CompletionState,
 ) -> RetiredReleaseAction {
     if !retired_pending {
         return RetiredReleaseAction::None;
@@ -56,10 +88,10 @@ pub(super) fn plan_retired_release(
     if presents_through_host_swapchain {
         return RetiredReleaseAction::WaitDeviceAndRelease;
     }
-    if has_live_fence {
-        RetiredReleaseAction::ReleaseWithFence
-    } else {
-        RetiredReleaseAction::ReleaseImmediate
+    match completion {
+        CompletionState::Signaled => RetiredReleaseAction::ReleaseImmediate,
+        CompletionState::LiveFence => RetiredReleaseAction::ReleaseWithFence,
+        CompletionState::UnmergedFences => RetiredReleaseAction::WaitUnmergedAndRelease,
     }
 }
 
@@ -287,50 +319,125 @@ fn plan_group_render(
 }
 
 impl CompositorRuntime<'_> {
+    /// Synchronize both the presentation backend (KMS page-flip barrier on DRM)
+    /// and the Vulkan device when an unmerged fence wait times out or fails
+    /// (ADR-0264, `[INV-ARCH-159]`).
+    fn wait_unmerged_or_sync_all(&mut self, fence: &CompletionFence) {
+        if fence.wait_all(UNMERGED_FENCE_WAIT_TIMEOUT) {
+            return;
+        }
+        log::warn!(
+            "{}: unmerged completion fence wait did not finish cleanly; synchronizing backend and Vulkan device",
+            self.host.name()
+        );
+        if let Err(error) = self.host.wait_presented(self.device) {
+            log::warn!(
+                "{}: backend presentation wait failed during fence fallback: {error}",
+                self.host.name()
+            );
+        }
+        self.device.wait_idle();
+    }
+
     /// Release retired client buffers immediately after a composited frame
-    /// using the most accurate completion fence available (ADR-0250,
+    /// for `presented_outputs` (`None` = whole desktop) using the most accurate
+    /// completion fence available (ADR-0250, ADR-0264, ADR-0265,
     /// `[INV-ARCH-159]`).
     ///
-    /// Also retains a duplicate of the live completion fence in
-    /// `self.last_composited_fence` so any subsequent `NoDamage` frame that
-    /// finds retired buffers can release them immediately without starving
-    /// client swapchains.
+    /// Retains the remaining live completion fence per output in
+    /// `self.retained_output_fences` so sibling outputs with independent pacing
+    /// are never clobbered and subsequent `NoDamage` frames release retired
+    /// buffers immediately.
     pub(super) fn release_retired_buffers_after_composited_frame(
         &mut self,
-        completion_fence: Option<OwnedFd>,
+        presented_outputs: Option<&[&str]>,
+        completion_fence: CompletionFence,
     ) {
-        let live_fence = completion_fence.filter(|fence| !sync_file_is_signaled(fence.as_raw_fd()));
-        if self.host.presents_through_host_swapchain() {
-            self.last_composited_fence = None;
-        } else {
-            self.last_composited_fence =
-                live_fence.as_ref().and_then(|fence| fence.try_clone().ok());
-        }
+        let mut completion_fence = completion_fence.prune_signaled();
+        let completion_state = CompletionState::from_fence(&completion_fence);
+        let retired_pending = self
+            .server
+            .retired_buffers_pending_on_outputs(presented_outputs);
         match plan_retired_release(
-            self.server.retired_buffers_pending(),
+            retired_pending,
             self.host.presents_through_host_swapchain(),
-            live_fence.is_some(),
+            completion_state,
         ) {
             RetiredReleaseAction::None => {}
             RetiredReleaseAction::ReleaseImmediate => {
-                self.server.release_retired_buffers(None);
+                self.server
+                    .release_retired_buffers_on_outputs(presented_outputs, None);
             }
             RetiredReleaseAction::ReleaseWithFence => {
+                self.server.release_retired_buffers_on_outputs(
+                    presented_outputs,
+                    completion_fence.as_raw_fd(),
+                );
+            }
+            RetiredReleaseAction::WaitUnmergedAndRelease => {
+                self.wait_unmerged_or_sync_all(&completion_fence);
                 self.server
-                    .release_retired_buffers(live_fence.as_ref().map(AsRawFd::as_raw_fd));
+                    .release_retired_buffers_on_outputs(presented_outputs, None);
+                completion_fence = CompletionFence::Signaled;
             }
             RetiredReleaseAction::WaitDeviceAndRelease => {
                 self.device.wait_idle();
-                self.server.release_retired_buffers(None);
+                self.server
+                    .release_retired_buffers_on_outputs(presented_outputs, None);
+                completion_fence = CompletionFence::Signaled;
             }
         }
+        if self.host.presents_through_host_swapchain() {
+            self.retained_output_fences.clear();
+        } else {
+            self.retained_output_fences
+                .record(presented_outputs, completion_fence);
+        }
+    }
+
+    /// Release retired client buffers after a direct-scanout commit for
+    /// `presented_outputs` using its KMS completion fence, failing safe if
+    /// multi-CRTC out-fences could not be merged (ADR-0264, ADR-0265,
+    /// `[INV-ARCH-159]`).
+    pub(super) fn release_retired_buffers_after_direct_scanout(
+        &mut self,
+        presented_outputs: &[&str],
+        completion_fence: CompletionFence,
+    ) {
+        let mut completion_fence = completion_fence.prune_signaled();
+        if self
+            .server
+            .retired_buffers_pending_on_outputs(Some(presented_outputs))
+        {
+            match &completion_fence {
+                CompletionFence::Signaled => {
+                    self.server
+                        .release_retired_buffers_on_outputs(Some(presented_outputs), None);
+                }
+                CompletionFence::Live(_) => {
+                    self.server.release_retired_buffers_on_outputs(
+                        Some(presented_outputs),
+                        completion_fence.as_raw_fd(),
+                    );
+                }
+                CompletionFence::Unmerged(_) => {
+                    self.wait_unmerged_or_sync_all(&completion_fence);
+                    self.server
+                        .release_retired_buffers_on_outputs(Some(presented_outputs), None);
+                    completion_fence = CompletionFence::Signaled;
+                }
+            }
+        }
+        self.retained_output_fences
+            .record(Some(presented_outputs), completion_fence);
     }
 
     /// Release retired client buffers when no new composited frame was
     /// submitted (e.g. `NoDamage` fast-exit or cursor-only mirror update).
     ///
-    /// Prevents swapchain deadlock when a client commits a replacement buffer
-    /// that produces no visible desktop damage (ADR-0250, `[INV-ARCH-159]`).
+    /// Collects only the retained fences for the outputs that actually have
+    /// pending retired buffers so sibling outputs remain isolated (ADR-0250,
+    /// ADR-0264, ADR-0265, `[INV-ARCH-159]`).
     pub(super) fn release_idle_retired_buffers(&mut self) {
         if !self.server.retired_buffers_pending() {
             return;
@@ -340,20 +447,34 @@ impl CompositorRuntime<'_> {
             self.server.release_retired_buffers(None);
             return;
         }
-        let live_fence = match self.last_composited_fence.as_ref() {
-            Some(fence) if !sync_file_is_signaled(fence.as_raw_fd()) => Some(fence.as_raw_fd()),
-            Some(_) => {
-                self.last_composited_fence = None;
-                None
+        let (has_unscoped, pending_outputs) = self.server.retired_buffer_pending_outputs();
+        let retained = self
+            .retained_output_fences
+            .completion_for_idle(has_unscoped, &pending_outputs);
+        let completion_state = CompletionState::from_fence(&retained);
+        match plan_retired_release(true, false, completion_state) {
+            RetiredReleaseAction::None => {}
+            RetiredReleaseAction::ReleaseImmediate => {
+                self.server.release_retired_buffers(None);
             }
-            None => None,
-        };
-        self.server.release_retired_buffers(live_fence);
+            RetiredReleaseAction::ReleaseWithFence => {
+                self.server.release_retired_buffers(retained.as_raw_fd());
+            }
+            RetiredReleaseAction::WaitUnmergedAndRelease => {
+                self.wait_unmerged_or_sync_all(&retained);
+                self.server.release_retired_buffers(None);
+            }
+            RetiredReleaseAction::WaitDeviceAndRelease => {
+                self.device.wait_idle();
+                self.server.release_retired_buffers(None);
+            }
+        }
     }
     /// Whether the normal frame can use the per-output target path.
     ///
-    /// Capture, screenshot freeze, streams, session lock, and active overlays
-    /// still compose into the union surface before presenting through targets.
+    /// Capture, screenshot freeze, streams, and session lock still compose into
+    /// the union surface before presenting through targets. Active KMS overlay
+    /// offload runs natively on per-output targets (ADR-0268).
     pub(super) fn can_render_output_targets(&self) -> bool {
         if self.host.name() != "drm" || !self.host.is_active() {
             return false;
@@ -365,7 +486,6 @@ impl CompositorRuntime<'_> {
             || self.pending_interaction_domain_capture.is_some()
             || self.pending_window_capture.is_some()
             || self.pending_pick.is_some()
-            || self.overlay_state.active().is_some()
             || self.streams.any_output_live()
             || self.server.lock_confirmation_pending()
         {
@@ -404,9 +524,9 @@ impl CompositorRuntime<'_> {
         &mut self,
         cursor_shape: u32,
         cursor_hidden: bool,
-    ) -> Result<(Vec<String>, Option<OwnedFd>), Box<dyn std::error::Error>> {
+    ) -> Result<(Vec<String>, CompletionFence), Box<dyn std::error::Error>> {
         let Some(presented) = self.host.presented_dmabuf() else {
-            return Ok((Vec::new(), None));
+            return Ok((Vec::new(), CompletionFence::Signaled));
         };
         let groups = self.presentation_groups().to_vec();
         let outputs = self.server.output_infos();
@@ -533,16 +653,19 @@ impl CompositorRuntime<'_> {
                                 .wait_dmabuf_acquire(image, fence)
                                 .map_err(|error| error.to_string())?;
                         }
-                        session.draw_image_opaque_sub(
+                        session.draw_image_with(
                             image,
-                            dst_x,
-                            dst_y,
-                            dst_w,
-                            dst_h,
-                            source_rect.origin.x as f32 / full_w,
-                            source_rect.origin.y as f32 / full_h,
-                            source_rect.size.w.max(1) as f32 / full_w,
-                            source_rect.size.h.max(1) as f32 / full_h,
+                            (dst_x, dst_y, dst_w, dst_h),
+                            &optics_gfx::ImageDrawOpts {
+                                src: Some((
+                                    source_rect.origin.x as f32 / full_w,
+                                    source_rect.origin.y as f32 / full_h,
+                                    source_rect.size.w.max(1) as f32 / full_w,
+                                    source_rect.size.h.max(1) as f32 / full_h,
+                                )),
+                                opaque_only: true,
+                                ..Default::default()
+                            },
                         );
                         if output.role.is_mirror() && !software_cursor && !cursor_hidden {
                             let source_scale = outputs
@@ -611,9 +734,7 @@ impl CompositorRuntime<'_> {
                 if group_ok && !commit_batch.is_empty() {
                     match self.host.present_render_targets(commit_batch) {
                         Ok(kms_fence) => {
-                            if let Some(fence) = kms_fence {
-                                kms_fences.push(fence);
-                            }
+                            kms_fence.append_to(&mut kms_fences);
                             for (idx, submitted) in submitted_frames {
                                 if let Err(error) = submitted.present() {
                                     log::warn!(
@@ -678,9 +799,7 @@ impl CompositorRuntime<'_> {
         Ok((presented_sources, merge_live_sync_fences(kms_fences)))
     }
 
-    /// Whether every physical output has a compositor target. Overlay
-    /// offload is disabled while this is true because a KMS overlay is not
-    /// part of the union source image a target blits.
+    /// Whether every physical output has a compositor target.
     pub(super) fn output_targets_cover_all_physical(&self) -> bool {
         let physical = self
             .server
@@ -703,6 +822,24 @@ impl CompositorRuntime<'_> {
         self.output_targets_cover_all_physical()
     }
 
+    /// Resolve the live DMA-BUF descriptor for the currently active KMS overlay
+    /// placement, if its surface is still mapped and visible.
+    pub(super) fn active_overlay_dmabuf(
+        &self,
+    ) -> Option<(
+        tessera_composite::presentation::OverlayPlacement,
+        tessera_primitives::SurfaceDmabuf,
+    )> {
+        let active = self.overlay_state.active()?.clone();
+        let sets = self.server.desktop_frame_sets();
+        let frame = self
+            .server
+            .toplevel_dmabuf_frames_with(&sets.visible, &sets.occluded)
+            .into_iter()
+            .find(|frame| frame.id == active.surface_id)?;
+        Some((active, frame))
+    }
+
     /// Render and present the ordinary desktop through per-output targets.
     ///
     /// Processes each presentation group independently:
@@ -719,6 +856,8 @@ impl CompositorRuntime<'_> {
     pub(super) fn render_output_targets(
         &mut self,
         damage: &FrameDamage,
+        primary_damage: &FrameDamage,
+        overlay_buffer_changed: bool,
         sampled_surface_ids: &[usize],
         cursor_shape: u32,
         cursor_hidden: bool,
@@ -730,6 +869,26 @@ impl CompositorRuntime<'_> {
         window_switcher: Option<&tessera_shell::component::WindowSwitcherPresentation>,
         live_previews: &[tessera_shell::component::LivePreviewPresentation],
     ) -> Result<PresentationOutcome, Box<dyn std::error::Error>> {
+        let overlay_pair = self.active_overlay_dmabuf();
+        if self.overlay_state.active().is_some() && overlay_pair.is_none() {
+            self.overlay_state.deactivate();
+            self.damage.force_full_redraw = true;
+            self.invalidate_all_surface_damage();
+            return Ok(PresentationOutcome::Retry {
+                wait: RetryWait::BackendEvent,
+            });
+        }
+        let (active_overlay, overlay_frame) = match overlay_pair {
+            Some((active, frame)) => (Some(active), Some(frame)),
+            None => (None, None),
+        };
+        let excluded_overlay_window = active_overlay.as_ref().map(|overlay| overlay.window);
+        let target_primary_damage = if active_overlay.is_some() {
+            primary_damage
+        } else {
+            damage
+        };
+
         let groups = self.presentation_groups().to_vec();
         let outputs = self.server.output_infos();
         let primary = outputs
@@ -776,6 +935,7 @@ impl CompositorRuntime<'_> {
         let mut any_permanent_failure = false;
         let mut cursor_fallback = false;
         let mut reconfigured_or_inactive = false;
+        let mut overlay_rejected = false;
         let mut began_renderer_frame = false;
 
         let mut targets = std::mem::take(&mut self.output_targets);
@@ -798,7 +958,7 @@ impl CompositorRuntime<'_> {
                     if special_full {
                         Some(FrameDamage::Full)
                     } else {
-                        let damage = self.target_damage(output, target, damage)?;
+                        let damage = self.target_damage(output, target, target_primary_damage)?;
                         // Chrome is composited on the primary only; its
                         // frosted / glass bodies repaint when anything they
                         // sample changed (ADR-0253).
@@ -829,6 +989,44 @@ impl CompositorRuntime<'_> {
                 },
             );
             if plan.sources.is_empty() && plan.mirrors.is_empty() {
+                // Multi-output steady-state overlay-only update (ADR-0268): if
+                // this group's Primary pixels did not change while another
+                // group rendered, swap only the overlay plane here.
+                if overlay_buffer_changed
+                    && let (Some(active), Some(surface)) =
+                        (active_overlay.as_ref(), overlay_frame.as_ref())
+                    && group.outputs.contains(&active.output)
+                {
+                    match self
+                        .host
+                        .present_overlay_only(tessera_platform::host::OverlayLayer {
+                            surface,
+                            output: &active.output,
+                            target: active.target,
+                            zpos: active.zpos,
+                        }) {
+                        Ok(kms_fence) => {
+                            kms_fence.append_to(&mut committed_fences);
+                            presented_sources.push(active.output.clone());
+                            submitted_groups.push(vec![active.output.clone()]);
+                        }
+                        Err(HostError::Drm(DrmError::ScanoutUnsupported)) => {
+                            overlay_rejected = true;
+                        }
+                        Err(error) => match classify_target_commit_error(&error) {
+                            TargetCommitFailure::CursorFallback => cursor_fallback = true,
+                            TargetCommitFailure::ReconfiguredOrInactive => {
+                                reconfigured_or_inactive = true;
+                            }
+                            TargetCommitFailure::TransientBusy => {
+                                transient_retry = Some(RetryWait::BackendEvent);
+                            }
+                            TargetCommitFailure::Permanent => {
+                                overlay_rejected = true;
+                            }
+                        },
+                    }
+                }
                 continue;
             }
 
@@ -1002,7 +1200,7 @@ impl CompositorRuntime<'_> {
                                             color_scheme,
                                             soft_shadow_layer.as_ref(),
                                             shadow_style,
-                                            None,
+                                            excluded_overlay_window,
                                         );
                                         canvas.restore();
                                         drawn
@@ -1055,7 +1253,7 @@ impl CompositorRuntime<'_> {
                             color_scheme,
                             soft_shadow_layer.as_ref(),
                             shadow_style,
-                            None,
+                            excluded_overlay_window,
                         )
                         .map_err(|error| error.to_string())?;
                         session.restore();
@@ -1349,7 +1547,14 @@ impl CompositorRuntime<'_> {
                                     .wait_dmabuf_acquire(image, fence)
                                     .map_err(|error| error.to_string())?;
                             }
-                            session.draw_image_opaque(image, dst_x, dst_y, dst_w, dst_h);
+                            session.draw_image_with(
+                                image,
+                                (dst_x, dst_y, dst_w, dst_h),
+                                &optics_gfx::ImageDrawOpts {
+                                    opaque_only: true,
+                                    ..Default::default()
+                                },
+                            );
                             if let Some((cursor_sprite, draw_x, draw_y, draw_w, draw_h, _)) =
                                 cursor_draw
                             {
@@ -1458,11 +1663,27 @@ impl CompositorRuntime<'_> {
                         .map(|commit| commit.connector.clone())
                         .collect();
 
-                    match self.host.present_render_targets(commit_batch) {
+                    let group_overlay = match (active_overlay.as_ref(), overlay_frame.as_ref()) {
+                        (Some(active), Some(surface))
+                            if committed_group_outputs.contains(&active.output) =>
+                        {
+                            Some(tessera_platform::host::OverlayLayer {
+                                surface,
+                                output: &active.output,
+                                target: active.target,
+                                zpos: active.zpos,
+                            })
+                        }
+                        _ => None,
+                    };
+                    let had_group_overlay = group_overlay.is_some();
+
+                    match self
+                        .host
+                        .present_render_targets_with_overlay(commit_batch, group_overlay)
+                    {
                         Ok(kms_fence) => {
-                            if let Some(fence) = kms_fence {
-                                committed_fences.push(fence);
-                            }
+                            kms_fence.append_to(&mut committed_fences);
                             committed_fences.extend(group_render_fences);
                             for (idx, submitted) in submitted_frames {
                                 if let Err(error) = submitted.present() {
@@ -1497,34 +1718,44 @@ impl CompositorRuntime<'_> {
                             // Drop submitted frames without advancing the gfx
                             // ring so the abandoned slot is reused cleanly.
                             drop(submitted_frames);
-                            match classify_target_commit_error(&error) {
-                                TargetCommitFailure::CursorFallback => {
-                                    log::warn!(
-                                        "{}: hardware cursor rejected on target commit; repainting with software cursor",
-                                        self.host.name()
-                                    );
-                                    cursor_fallback = true;
-                                }
-                                TargetCommitFailure::ReconfiguredOrInactive => {
-                                    log::warn!(
-                                        "{}: transient target commit failure; retrying: {error}",
-                                        self.host.name()
-                                    );
-                                    reconfigured_or_inactive = true;
-                                }
-                                TargetCommitFailure::TransientBusy => {
-                                    log::debug!(
-                                        "{}: target group commit still busy; coalescing frame",
-                                        self.host.name()
-                                    );
-                                    transient_retry = Some(RetryWait::BackendEvent);
-                                }
-                                TargetCommitFailure::Permanent => {
-                                    log::warn!(
-                                        "{}: target group commit failed: {error}",
-                                        self.host.name()
-                                    );
-                                    permanently_failed.extend(committed_group_outputs);
+                            if had_group_overlay
+                                && matches!(error, HostError::Drm(DrmError::ScanoutUnsupported))
+                            {
+                                log::warn!(
+                                    "{}: per-output overlay presentation rejected; falling back to composition: {error}",
+                                    self.host.name()
+                                );
+                                overlay_rejected = true;
+                            } else {
+                                match classify_target_commit_error(&error) {
+                                    TargetCommitFailure::CursorFallback => {
+                                        log::warn!(
+                                            "{}: hardware cursor rejected on target commit; repainting with software cursor",
+                                            self.host.name()
+                                        );
+                                        cursor_fallback = true;
+                                    }
+                                    TargetCommitFailure::ReconfiguredOrInactive => {
+                                        log::warn!(
+                                            "{}: transient target commit failure; retrying: {error}",
+                                            self.host.name()
+                                        );
+                                        reconfigured_or_inactive = true;
+                                    }
+                                    TargetCommitFailure::TransientBusy => {
+                                        log::debug!(
+                                            "{}: target group commit still busy; coalescing frame",
+                                            self.host.name()
+                                        );
+                                        transient_retry = Some(RetryWait::BackendEvent);
+                                    }
+                                    TargetCommitFailure::Permanent => {
+                                        log::warn!(
+                                            "{}: target group commit failed: {error}",
+                                            self.host.name()
+                                        );
+                                        permanently_failed.extend(committed_group_outputs);
+                                    }
                                 }
                             }
                         }
@@ -1540,6 +1771,14 @@ impl CompositorRuntime<'_> {
 
         self.output_targets = targets;
 
+        if overlay_rejected {
+            self.overlay_state.deactivate();
+            self.damage.force_full_redraw = true;
+            self.invalidate_all_surface_damage();
+            return Ok(PresentationOutcome::Retry {
+                wait: RetryWait::BackendEvent,
+            });
+        }
         if cursor_fallback {
             self.damage.reset_cursor_baseline();
             self.damage.force_full_redraw = true;
@@ -1612,23 +1851,31 @@ impl CompositorRuntime<'_> {
             self.server
                 .send_frame_callbacks(self.server.monotonic_ms(), PresentedSurfaces::Nothing);
         } else {
+            let mut effective_sampled: Vec<usize> = sampled_surface_ids.to_vec();
+            if let Some(active) = active_overlay.as_ref()
+                && presented_sources.contains(&active.output)
+                && !effective_sampled.contains(&active.surface_id)
+            {
+                effective_sampled.push(active.surface_id);
+            }
             let target_refs = presented_sources
                 .iter()
                 .map(String::as_str)
                 .collect::<Vec<_>>();
             self.primary_plane_state.commit_composited();
             self.server.acknowledge_presented_surface_damage_on_outputs(
-                sampled_surface_ids.iter(),
+                effective_sampled.iter(),
                 drew_preview_sources,
                 Some(&target_refs),
             );
-            self.release_retired_buffers_after_composited_frame(merge_live_sync_fences(
-                committed_fences,
-            ));
+            self.release_retired_buffers_after_composited_frame(
+                Some(&target_refs),
+                merge_live_sync_fences(committed_fences),
+            );
             self.server.send_frame_callbacks_on_outputs(
                 self.server.monotonic_ms(),
                 PresentedSurfaces::Sampled {
-                    ids: sampled_surface_ids,
+                    ids: &effective_sampled,
                     drew_preview_sources,
                 },
                 Some(&target_refs),
@@ -1944,35 +2191,69 @@ mod tests {
     #[test]
     fn test_inv_arch_159_retired_release_never_defers_across_frames() {
         assert_eq!(
-            plan_retired_release(false, false, true),
+            plan_retired_release(false, false, CompletionState::LiveFence),
             RetiredReleaseAction::None
         );
         assert_eq!(
-            plan_retired_release(false, true, false),
+            plan_retired_release(false, true, CompletionState::Signaled),
             RetiredReleaseAction::None
         );
         // Explicit-sync DRM (per-output targets, union, direct-scanout exit, or
         // NoDamage with live retained fence) releases immediately with fence.
         assert_eq!(
-            plan_retired_release(true, false, true),
+            plan_retired_release(true, false, CompletionState::LiveFence),
             RetiredReleaseAction::ReleaseWithFence
         );
         // Implicit-sync DRM (export_dmabuf waited) or signaled retained fence
         // releases immediately without deferring 4 frames.
         assert_eq!(
-            plan_retired_release(true, false, false),
+            plan_retired_release(true, false, CompletionState::Signaled),
             RetiredReleaseAction::ReleaseImmediate
+        );
+        // Failed SYNC_IOC_MERGE while live fences remain must never fail open
+        // into ReleaseImmediate (ADR-0264).
+        assert_eq!(
+            plan_retired_release(true, false, CompletionState::UnmergedFences),
+            RetiredReleaseAction::WaitUnmergedAndRelease
         );
         // Nested host swapchain synchronizes the device and releases immediately
         // instead of deferring 4 frames and starving 2-3 buffer swapchains.
         assert_eq!(
-            plan_retired_release(true, true, false),
+            plan_retired_release(true, true, CompletionState::Signaled),
             RetiredReleaseAction::WaitDeviceAndRelease
         );
         assert_eq!(
-            plan_retired_release(true, true, true),
+            plan_retired_release(true, true, CompletionState::LiveFence),
             RetiredReleaseAction::WaitDeviceAndRelease
         );
+        assert_eq!(
+            plan_retired_release(true, true, CompletionState::UnmergedFences),
+            RetiredReleaseAction::WaitDeviceAndRelease
+        );
+    }
+
+    #[test]
+    fn test_inv_arch_159_retained_output_fences_isolate_independent_outputs() {
+        use std::os::fd::FromRawFd;
+
+        let new_live_fd = || {
+            let raw = unsafe { libc::eventfd(0, libc::EFD_NONBLOCK | libc::EFD_CLOEXEC) };
+            assert!(raw >= 0);
+            unsafe { OwnedFd::from_raw_fd(raw) }
+        };
+
+        let mut retained = RetainedOutputFences::default();
+        retained.record(Some(&["eDP-1"]), CompletionFence::Live(new_live_fd()));
+        retained.record(Some(&["HDMI-A-1"]), CompletionFence::Live(new_live_fd()));
+
+        // Clearing or overwriting eDP-1 (e.g. entering direct scanout on eDP-1)
+        // must not disturb HDMI-A-1's retained fence.
+        retained.record(Some(&["eDP-1"]), CompletionFence::Signaled);
+        let edp_idle = retained.completion_for_idle(false, &["eDP-1".to_owned()]);
+        assert!(matches!(edp_idle, CompletionFence::Signaled));
+
+        let hdmi_idle = retained.completion_for_idle(false, &["HDMI-A-1".to_owned()]);
+        assert!(matches!(hdmi_idle, CompletionFence::Live(_)));
     }
 
     #[test]

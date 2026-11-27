@@ -18,7 +18,7 @@ pub fn render_disc(frame: &mut Frame, id: &str, center: (f32, f32), diameter: f3
             LayoutOpts {
                 bg: color,
                 border: Color::TRANSPARENT,
-                radius: diameter * 0.5,
+                corner_radii: optics_ui::CornerRadii::uniform(diameter * 0.5),
                 ..materials::surface_layout()
             },
         ),
@@ -49,7 +49,7 @@ pub fn render_ring(
                 bg: Color::TRANSPARENT,
                 border: color,
                 border_width,
-                radius: diameter * 0.5,
+                corner_radii: optics_ui::CornerRadii::uniform(diameter * 0.5),
                 ..materials::surface_layout()
             },
         ),

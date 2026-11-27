@@ -17,6 +17,7 @@ negative_knowledge: true
 - Amended by: [ADR-0249](0249-presentation-groups-and-per-output-pacing.md) — *Presentation Groups Synchronize Shared Content Without Reintroducing a Union Swapchain*
 - Amended by: [ADR-0250](0250-fence-accurate-client-buffer-release-and-cached-mirror-composition.md) — *Fence-Accurate Client Buffer Release and Cached Partial-Damage Mirror Composition*
 - Amended by: [ADR-0258](0258-client-cursor-hardware-plane-offload-and-per-output-overlay-parity.md) — per-output DRM rendering draws non-offloaded client cursor overlays and offloads eligible client cursors onto the KMS hardware cursor plane.
+- Amended by: [ADR-0268](0268-per-output-overlay-offload-and-overlay-only-commits.md) — per-output render targets natively support KMS overlay offload and zero-GPU overlay-only commits.
 
 ## Context
 

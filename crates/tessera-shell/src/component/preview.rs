@@ -72,7 +72,7 @@ pub enum PreviewCardState {
 #[must_use]
 pub fn panel_material(design: &Design) -> LayoutOpts {
     let mut material = materials::panel(design);
-    material.radius = design.radii.panel_lg;
+    material.corner_radii = optics_ui::CornerRadii::uniform(design.radii.panel_lg);
     material
 }
 
@@ -84,7 +84,7 @@ pub fn card_material(design: &Design, state: PreviewCardState, corner_radius: f3
         PreviewCardState::Hovered => materials::selection(design, false),
         PreviewCardState::Selected => materials::selection(design, true),
     };
-    material.radius = corner_radius;
+    material.corner_radii = optics_ui::CornerRadii::uniform(corner_radius);
     material.pad = 0.0;
     material
 }
@@ -180,7 +180,7 @@ mod tests {
         let design = Design::dark();
         let cards = [card(7, 20)];
         let selected = card_material(&design, PreviewCardState::Selected, cards[0].corner_radius);
-        assert_eq!(selected.radius, design.radii.control);
+        assert_eq!(selected.corner_radii.tl, design.radii.control);
         assert_eq!(selected.bg, design.selection.selected_tint);
         assert_eq!(cards[0].geometry.label.size.h, 20);
     }
@@ -210,6 +210,6 @@ mod tests {
         assert_eq!(selected.bg, design.selection.selected_tint);
         assert_eq!(hovered.border_width, 0.0);
         assert_eq!(selected.border_width, 0.0);
-        assert_eq!(selected.radius, 9.0);
+        assert_eq!(selected.corner_radii.tl, 9.0);
     }
 }

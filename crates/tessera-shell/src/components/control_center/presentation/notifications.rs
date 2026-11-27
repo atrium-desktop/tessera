@@ -34,46 +34,45 @@ impl ControlCenter {
             rect,
             1.0,
             LayoutOpts {
-                radius: design.radii.panel_lg,
+                corner_radii: optics_ui::CornerRadii::uniform(design.radii.panel_lg),
                 ..materials::canvas_panel(&hud)
             },
             |f| {
-                f.column_ex(
-                    &LayoutOpts {
+                f.column()
+                    .with_opts(&LayoutOpts {
                         width: rect.w,
                         height: rect.h,
                         pad: layout::CARD_PAD,
                         gap: layout::SECTION_GAP,
                         cross: Align::Stretch,
                         ..Default::default()
-                    },
-                    |f| {
+                    })
+                    .show(|f| {
                         // The clock answers "what time is it" for a desktop
                         // with no top bar.
-                        f.column_ex(
-                            &LayoutOpts {
+                        f.column()
+                            .with_opts(&LayoutOpts {
                                 width: inner_w,
                                 height: CLOCK_BLOCK_H,
                                 gap: 2.0,
                                 ..Default::default()
-                            },
-                            |f| {
+                            })
+                            .show(|f| {
                                 f.set_theme(base);
                                 display_label(f, &time, type_scale.hero);
                                 f.set_theme(muted);
                                 display_label(f, &date, type_scale.body);
-                            },
-                        );
+                            });
 
-                        f.row_ex(
-                            &LayoutOpts {
+                        f.row()
+                            .with_opts(&LayoutOpts {
                                 width: inner_w,
                                 height: LIST_HEADER_H,
                                 gap: 8.0,
                                 cross: Align::Center,
                                 ..Default::default()
-                            },
-                            |f| {
+                            })
+                            .show(|f| {
                                 f.set_theme(base);
                                 display_label(
                                     f,
@@ -84,27 +83,29 @@ impl ControlCenter {
                                 f.spacer(0.0);
                                 if !notifications.is_empty() {
                                     f.set_theme(base.with_fg(hud.accent));
-                                    if f.button_subtle(i18n.text(Message::ClearAllNotifications)) {
+                                    if f.button_with_variant(
+                                        i18n.text(Message::ClearAllNotifications),
+                                        optics_ui::ButtonVariant::Subtle,
+                                    ) {
                                         dismissed.extend(notifications.iter().map(|n| n.id));
                                     }
                                 }
-                            },
-                        );
+                            });
 
                         if notifications.is_empty() {
                             f.set_theme(muted);
-                            f.row_ex(
-                                &LayoutOpts {
+                            f.row()
+                                .with_opts(&LayoutOpts {
                                     width: inner_w,
                                     height: EMPTY_LIST_H,
                                     gap: 8.0,
                                     cross: Align::Center,
                                     ..Default::default()
-                                },
-                                |f| {
+                                })
+                                .show(|f| {
                                     f.flex(1.0);
                                     f.spacer(0.0);
-                                    f.icon_raw(Glyph::BellOff.id(), 16.0);
+                                    f.icon(Glyph::BellOff.id(), 16.0);
                                     display_label(
                                         f,
                                         i18n.text(Message::NoNotifications),
@@ -112,21 +113,20 @@ impl ControlCenter {
                                     );
                                     f.flex(1.0);
                                     f.spacer(0.0);
-                                },
-                            );
+                                });
                             return;
                         }
 
                         f.flex(1.0);
                         f.scroll("control-center-notification-list", |f| {
-                            f.column_ex(
-                                &LayoutOpts {
+                            f.column()
+                                .with_opts(&LayoutOpts {
                                     width: inner_w,
                                     gap: NOTIFICATION_GAP,
                                     cross: Align::Stretch,
                                     ..Default::default()
-                                },
-                                |f| {
+                                })
+                                .show(|f| {
                                     for notification in notifications.iter() {
                                         if notification_card(
                                             f,
@@ -138,11 +138,9 @@ impl ControlCenter {
                                             dismissed.push(notification.id);
                                         }
                                     }
-                                },
-                            );
+                                });
                         });
-                    },
-                );
+                    });
             },
         );
         f.set_theme(original);
@@ -172,43 +170,56 @@ fn notification_card(
     let first_line = notification.body.lines().next().unwrap_or_default();
     let body = ellipsize(f, first_line, type_scale.footnote, text_w);
     let app = ellipsize(f, &app, type_scale.caption, text_w);
-    let (response, _) = f.pressable_row(
-        &format!("control-center-notification-{}", notification.id),
-        &notification.summary,
-        &LayoutOpts {
+    let (response, _) = f
+        .row()
+        .with_opts(&LayoutOpts {
             width,
             height: NOTIFICATION_H,
             pad: 12.0,
             gap: 10.0,
-            radius: 12.0,
+            corner_radii: optics_ui::CornerRadii::uniform(12.0),
             bg: hud.surface_recessed,
             cross: Align::Center,
             ..Default::default()
-        },
-        |f, _| {
+        })
+        .id_label(
+            &format!("control-center-notification-{}", notification.id),
+            &notification.summary,
+        )
+        .show(|f| {
             f.set_theme(muted);
-            f.icon_raw(Glyph::Bell.id(), 16.0);
-            f.column_ex(
-                &LayoutOpts {
+            f.icon(Glyph::Bell.id(), 16.0);
+            f.column()
+                .with_opts(&LayoutOpts {
                     flex: 1.0,
                     gap: 1.0,
                     ..Default::default()
-                },
-                |f| {
+                })
+                .show(|f| {
                     if !app.is_empty() {
                         f.set_theme(muted);
-                        f.label_sized(&app, type_scale.caption);
+                        f.label_with(
+                            &app,
+                            &optics_ui::LabelOpts {
+                                size: type_scale.caption,
+                                ..Default::default()
+                            },
+                        );
                     }
                     f.set_theme(base);
                     display_label(f, &summary, type_scale.body);
                     if !body.is_empty() {
                         f.set_theme(muted);
-                        f.label_sized(&body, type_scale.footnote);
+                        f.label_with(
+                            &body,
+                            &optics_ui::LabelOpts {
+                                size: type_scale.footnote,
+                                ..Default::default()
+                            },
+                        );
                     }
-                },
-            );
-        },
-    );
+                });
+        });
     f.set_theme(base);
     response.clicked
 }

@@ -7,10 +7,13 @@
 /// Deferred effect outputs: one materialization boundary for every consumer
 /// (Optics ADR-0147).
 pub mod effects;
+mod image_draw;
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::os::fd::BorrowedFd;
+
+use image_draw::ImageDrawExt as _;
 
 use tessera_primitives::SurfaceDmabuf;
 use tessera_primitives::SurfacePixels;
@@ -871,6 +874,7 @@ fn draw_window_resize_shadow(
             w + inset * 2.0,
             h + inset * 2.0,
             extent as f32 + 2.0,
+            0.0,
             optics_gfx::rgba(0, 0, 0, alpha as u8),
             1.0,
         );
@@ -1411,7 +1415,8 @@ impl Renderer {
                                             w: 0.0,
                                             h: 0.0,
                                         },
-                                        clip_radius: 0.0,
+                                        clip_radii: optics_gfx::CornerRadii::ZERO.to_raw(),
+                                        clip_curvature: 0.0,
                                     },
                                 },
                             };

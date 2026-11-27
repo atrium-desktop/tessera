@@ -605,8 +605,68 @@ fn registry_exposes_clipboard_and_host_ime_protocols() {
         stdout.contains("interface: 'wp_tearing_control_manager_v1'"),
         "wp_tearing_control_manager_v1 global missing:\n{stdout}"
     );
+    if server.state.syncobj_device.is_some() {
+        assert!(
+            stdout.contains("interface: 'wp_linux_drm_syncobj_manager_v1'"),
+            "wp_linux_drm_syncobj_manager_v1 global missing when syncobj device is open:\n{stdout}"
+        );
+    }
     assert!(
         !stdout.contains("zwp_primary_selection_device_manager_v1"),
         "Primary Selection must not be advertised:\n{stdout}"
     );
+}
+
+#[test]
+fn test_inv_arch_159_per_output_buffer_retirement_isolates_sibling_outputs() {
+    if std::env::var_os("XDG_RUNTIME_DIR").is_none() {
+        eprintln!("skipping: XDG_RUNTIME_DIR not set");
+        return;
+    }
+    let mut server = Server::new().expect("Server::new");
+    let mut hdmi_outputs = std::collections::BTreeSet::new();
+    hdmi_outputs.insert("HDMI-A-1".to_owned());
+
+    let mut spanning_outputs = std::collections::BTreeSet::new();
+    spanning_outputs.insert("eDP-1".to_owned());
+    spanning_outputs.insert("HDMI-A-1".to_owned());
+
+    server
+        .state
+        .retired_buffer_releases
+        .push(RetiredBufferRelease {
+            buffer: std::ptr::null_mut(),
+            explicit_release: std::ptr::null_mut(),
+            syncobj_release: None,
+            pending_outputs: PendingReleaseOutputs::Outputs(hdmi_outputs),
+            collected_fences: Vec::new(),
+        });
+    server
+        .state
+        .retired_buffer_releases
+        .push(RetiredBufferRelease {
+            buffer: std::ptr::null_mut(),
+            explicit_release: std::ptr::null_mut(),
+            syncobj_release: None,
+            pending_outputs: PendingReleaseOutputs::Outputs(spanning_outputs),
+            collected_fences: Vec::new(),
+        });
+
+    assert!(server.retired_buffers_pending_on_outputs(Some(&["eDP-1"])));
+    assert!(server.retired_buffers_pending_on_outputs(Some(&["HDMI-A-1"])));
+    assert!(!server.retired_buffers_pending_on_outputs(Some(&["DP-1"])));
+
+    // Presenting eDP-1 must NOT release the HDMI-A-1-only buffer, and must
+    // keep the spanning buffer pending for HDMI-A-1.
+    server.release_retired_buffers_on_outputs(Some(&["eDP-1"]), None);
+    assert_eq!(server.state.retired_buffer_releases.len(), 2);
+    assert!(
+        !server.retired_buffers_pending_on_outputs(Some(&["eDP-1"])),
+        "eDP-1 contribution was satisfied; both remaining entries wait only on HDMI-A-1"
+    );
+    assert!(server.retired_buffers_pending_on_outputs(Some(&["HDMI-A-1"])));
+
+    // Once HDMI-A-1 presents, both entries drain cleanly.
+    server.release_retired_buffers_on_outputs(Some(&["HDMI-A-1"]), None);
+    assert!(!server.retired_buffers_pending());
 }

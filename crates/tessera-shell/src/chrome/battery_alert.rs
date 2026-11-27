@@ -219,7 +219,7 @@ impl Chrome for BatteryAlert {
                     bg: Color::TRANSPARENT,
                     border: design.colors.application_text,
                     border_width: 2.0,
-                    radius: 6.0,
+                    corner_radii: optics_ui::CornerRadii::uniform(6.0),
                     pad: 0.0,
                     ..materials::surface_layout()
                 },
@@ -238,7 +238,7 @@ impl Chrome for BatteryAlert {
                 },
                 LayoutOpts {
                     bg: fill_color,
-                    radius: 3.0,
+                    corner_radii: optics_ui::CornerRadii::uniform(3.0),
                     pad: 0.0,
                     ..materials::surface_layout()
                 },
@@ -256,7 +256,7 @@ impl Chrome for BatteryAlert {
                 },
                 LayoutOpts {
                     bg: design.colors.application_text,
-                    radius: 2.0,
+                    corner_radii: optics_ui::CornerRadii::uniform(2.0),
                     pad: 0.0,
                     ..materials::surface_layout()
                 },
@@ -269,9 +269,18 @@ impl Chrome for BatteryAlert {
             "tessera-battery-alert-percent",
             &materials::chrome_place(layout.percent, materials::transparent()),
             |frame| {
-                frame.row_ex(&stretch(layout.percent), |frame| {
-                    frame.label_sized(&percent, design.typography.hero);
-                });
+                frame
+                    .row()
+                    .with_opts(&stretch(layout.percent))
+                    .show(|frame| {
+                        frame.label_with(
+                            &percent,
+                            &optics_ui::LabelOpts {
+                                size: design.typography.hero,
+                                ..Default::default()
+                            },
+                        );
+                    });
             },
         );
 
@@ -290,8 +299,14 @@ impl Chrome for BatteryAlert {
             "tessera-battery-alert-title",
             &materials::chrome_place(layout.title, materials::transparent()),
             |frame| {
-                frame.row_ex(&stretch(layout.title), |frame| {
-                    frame.label_sized(&title, design.typography.headline);
+                frame.row().with_opts(&stretch(layout.title)).show(|frame| {
+                    frame.label_with(
+                        &title,
+                        &optics_ui::LabelOpts {
+                            size: design.typography.headline,
+                            ..Default::default()
+                        },
+                    );
                 });
             },
         );
@@ -306,9 +321,18 @@ impl Chrome for BatteryAlert {
             "tessera-battery-alert-body",
             &materials::chrome_place(layout.body, materials::transparent()),
             |frame| {
-                frame.row_ex(&stretch_top(layout.body), |frame| {
-                    frame.label_compact_sized(&body, design.typography.label);
-                });
+                frame
+                    .row()
+                    .with_opts(&stretch_top(layout.body))
+                    .show(|frame| {
+                        frame.label_with(
+                            &body,
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
+                    });
             },
         );
 
@@ -528,7 +552,7 @@ mod tests {
         assert_eq!(body.radius, design.radii.panel_lg);
         // The veil dims the whole output so the panel is the only live surface.
         let veil = materials::modal_scrim(&design, 1.0);
-        assert_eq!(veil.radius, 0.0);
+        assert_eq!(veil.corner_radii.tl, 0.0);
         assert!(veil.bg.components().3 > 0);
         let layout = AlertLayout::for_display(display, Reserved::default());
         assert!(layout.panel.w > 0.0 && layout.panel.h > 0.0);

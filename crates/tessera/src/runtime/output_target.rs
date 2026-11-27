@@ -525,16 +525,19 @@ impl CompositorRuntime<'_> {
                         .wait_dmabuf_acquire(image, fence)
                         .map_err(|error| error.to_string())?;
                 }
-                session.draw_image_opaque_sub(
+                session.draw_image_with(
                     image,
-                    dst_x,
-                    dst_y,
-                    dst_w,
-                    dst_h,
-                    source.x / full_w,
-                    source.y / full_h,
-                    source.width / full_w,
-                    source.height / full_h,
+                    (dst_x, dst_y, dst_w, dst_h),
+                    &optics_gfx::ImageDrawOpts {
+                        src: Some((
+                            source.x / full_w,
+                            source.y / full_h,
+                            source.width / full_w,
+                            source.height / full_h,
+                        )),
+                        opaque_only: true,
+                        ..Default::default()
+                    },
                 );
                 if let Some((origin, source_scale, cursor)) = cursor {
                     let fit = dst_w / source.width.max(1.0);

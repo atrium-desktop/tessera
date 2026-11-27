@@ -65,57 +65,96 @@ impl SettingsModule for AccessibilityModule {
         let mut preferences = self.preferences.clone();
         let mut changed = false;
 
-        frame.column_ex(&settings_card_layout(design), |frame| {
-            frame.row_ex(&section_heading_layout(), |frame| {
-                frame.label_sized(i18n.text(Message::Accessibility), design.typography.title);
+        frame
+            .column()
+            .with_opts(&settings_card_layout(design))
+            .show(|frame| {
+                frame
+                    .row()
+                    .with_opts(&section_heading_layout())
+                    .show(|frame| {
+                        frame.label_with(
+                            i18n.text(Message::Accessibility),
+                            &optics_ui::LabelOpts {
+                                size: design.typography.title,
+                                ..Default::default()
+                            },
+                        );
+                    });
+
+                // 1. Visual Accessibility
+                frame
+                    .row()
+                    .with_opts(&section_heading_layout())
+                    .show(|frame| {
+                        frame.label_with(
+                            "Visual Assistance",
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
+                        frame.flex(1.0);
+                    });
+
+                if frame.checkbox(
+                    "Invert colors",
+                    &mut preferences.accessibility.visual.invert_colors,
+                ) {
+                    changed = true;
+                }
+
+                if frame.checkbox(
+                    "High contrast mode",
+                    &mut preferences.accessibility.visual.high_contrast,
+                ) {
+                    changed = true;
+                }
+
+                // 2. Typing & Physical Assistance
+                frame
+                    .row()
+                    .with_opts(&section_heading_layout())
+                    .show(|frame| {
+                        frame.label_with(
+                            "Typing & Keyboard",
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
+                        frame.flex(1.0);
+                    });
+
+                if frame.checkbox(
+                    "Sticky keys (latch modifiers sequentially)",
+                    &mut preferences.accessibility.keyboard.sticky_keys,
+                ) {
+                    changed = true;
+                }
+
+                // 3. Screen Reader
+                frame
+                    .row()
+                    .with_opts(&section_heading_layout())
+                    .show(|frame| {
+                        frame.label_with(
+                            "Screen Reader (AT-SPI)",
+                            &optics_ui::LabelOpts {
+                                size: design.typography.label,
+                                ..Default::default()
+                            },
+                        );
+                        frame.flex(1.0);
+                    });
+
+                if frame.checkbox(
+                    "Enable desktop accessibility bus for Orca",
+                    &mut preferences.accessibility.screen_reader.enabled,
+                ) {
+                    changed = true;
+                }
             });
-
-            // 1. Visual Accessibility
-            frame.row_ex(&section_heading_layout(), |frame| {
-                frame.label_sized("Visual Assistance", design.typography.label);
-                frame.flex(1.0);
-            });
-
-            if frame.checkbox(
-                "Invert colors",
-                &mut preferences.accessibility.visual.invert_colors,
-            ) {
-                changed = true;
-            }
-
-            if frame.checkbox(
-                "High contrast mode",
-                &mut preferences.accessibility.visual.high_contrast,
-            ) {
-                changed = true;
-            }
-
-            // 2. Typing & Physical Assistance
-            frame.row_ex(&section_heading_layout(), |frame| {
-                frame.label_sized("Typing & Keyboard", design.typography.label);
-                frame.flex(1.0);
-            });
-
-            if frame.checkbox(
-                "Sticky keys (latch modifiers sequentially)",
-                &mut preferences.accessibility.keyboard.sticky_keys,
-            ) {
-                changed = true;
-            }
-
-            // 3. Screen Reader
-            frame.row_ex(&section_heading_layout(), |frame| {
-                frame.label_sized("Screen Reader (AT-SPI)", design.typography.label);
-                frame.flex(1.0);
-            });
-
-            if frame.checkbox(
-                "Enable desktop accessibility bus for Orca",
-                &mut preferences.accessibility.screen_reader.enabled,
-            ) {
-                changed = true;
-            }
-        });
 
         if changed {
             self.preferences = preferences.clone();

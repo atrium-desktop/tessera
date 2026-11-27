@@ -1,5 +1,44 @@
 use super::*;
-use crate::sync::merge_sync_fences;
+use crate::sync::{CompletionFence, merge_completions, merge_sync_fences};
+
+/// Whether a KMS atomic commit returned an `OUT_FENCE_PTR` descriptor for every
+/// CRTC included in `targets` (ADR-0264).
+///
+/// Subset commits (`present_scanout`, single-group `present_render_targets`,
+/// `present_to`) only attach `OUT_FENCE_PTR` to `targets`, so completeness is
+/// checked against `targets.len()`, never against the display set's total
+/// output count.
+pub(super) fn out_fences_complete(
+    use_out_fences: bool,
+    collected_fences: usize,
+    target_count: usize,
+) -> bool {
+    use_out_fences && target_count > 0 && collected_fences == target_count
+}
+
+/// Whether `commit_scanout` may attach an overlay on `overlay_target_index`
+/// given the commit's `source`, `targets` slice, and any currently active
+/// overlay output index (`current_overlay_index`) (ADR-0268).
+///
+/// Rules:
+/// - An overlay requires `PrimaryPlaneSource::Composited` (ADR-0237).
+/// - The overlay's target output must be part of `targets`.
+/// - If another output already owns an active overlay outside `targets`, reject
+///   so two CRTCs never carry uncoordinated overlays.
+pub(super) fn overlay_commit_allowed(
+    source: PrimaryPlaneSource,
+    overlay_target_index: Option<usize>,
+    current_overlay_index: Option<usize>,
+    targets: &[usize],
+) -> bool {
+    let Some(new_index) = overlay_target_index else {
+        return true;
+    };
+    if !overlay_source_supported(source) || !targets.contains(&new_index) {
+        return false;
+    }
+    current_overlay_index.is_none_or(|cur| cur == new_index || targets.contains(&cur))
+}
 
 pub(super) fn scanout_formats_support(
     formats: &HashMap<u32, Vec<u64>>,
@@ -467,6 +506,7 @@ impl DrmBackend {
                 current: None,
                 retiring: None,
                 source: None,
+                geometry: PrimaryScanoutGeometry::UnionLayout,
                 pending: false,
                 modeset_done: false,
             })
@@ -1156,45 +1196,55 @@ impl DrmBackend {
                 primary.props.crtc_id,
                 property::Value::CRTC(Some(output.crtc)),
             );
+            let PrimaryPlaneGeometry {
+                src: (source_x, source_y, source_width, source_height),
+                dst: (destination_x, destination_y, destination_width, destination_height),
+            } = primary_plane_geometry(
+                (u32::from(width), u32::from(height)),
+                (output.x, output.y),
+                output.source_size,
+                output.destination,
+                self.slots[output_index].geometry,
+            );
             request.add_property(
                 primary.handle,
                 primary.props.src_x,
-                property::Value::UnsignedRange((output.x as u64) << 16),
+                property::Value::UnsignedRange((source_x as u64) << 16),
             );
             request.add_property(
                 primary.handle,
                 primary.props.src_y,
-                property::Value::UnsignedRange((output.y as u64) << 16),
+                property::Value::UnsignedRange((source_y as u64) << 16),
             );
             request.add_property(
                 primary.handle,
                 primary.props.src_w,
-                property::Value::UnsignedRange((width as u64) << 16),
+                property::Value::UnsignedRange((source_width as u64) << 16),
             );
             request.add_property(
                 primary.handle,
                 primary.props.src_h,
-                property::Value::UnsignedRange((height as u64) << 16),
+                property::Value::UnsignedRange((source_height as u64) << 16),
             );
             request.add_property(
                 primary.handle,
                 primary.props.crtc_x,
-                property::Value::SignedRange(0),
+                property::Value::SignedRange(i64::from(destination_x)),
             );
             request.add_property(
                 primary.handle,
                 primary.props.crtc_y,
-                property::Value::SignedRange(0),
+                property::Value::SignedRange(i64::from(destination_y)),
             );
             request.add_property(
                 primary.handle,
                 primary.props.crtc_w,
-                property::Value::UnsignedRange(width as u64),
+                property::Value::UnsignedRange(u64::from(destination_width)),
             );
             request.add_property(
                 primary.handle,
                 primary.props.crtc_h,
-                property::Value::UnsignedRange(height as u64),
+                property::Value::UnsignedRange(u64::from(destination_height)),
             );
             if let Some(clips) = primary.props.fb_damage_clips {
                 request.add_property(primary.handle, clips, property::Value::Blob(0));
@@ -1322,7 +1372,7 @@ impl DrmBackend {
         surface: &optics_gfx::Surface,
         frame: optics_gfx::SubmittedFrame<'_>,
         damage: Option<&[tessera_primitives::Rect]>,
-    ) -> Result<Option<OwnedFd>, DrmError> {
+    ) -> Result<CompletionFence, DrmError> {
         let targets = (0..self.displays.outputs.len()).collect::<Vec<_>>();
         self.present_inner(surface, frame, damage, &targets, None)
     }
@@ -1334,7 +1384,7 @@ impl DrmBackend {
         &mut self,
         surface: &optics_gfx::Surface,
         frame: optics_gfx::SubmittedFrame<'_>,
-    ) -> Result<Option<OwnedFd>, DrmError> {
+    ) -> Result<CompletionFence, DrmError> {
         if !self.active || !self.render_ready || !self.outputs_powered {
             return Err(DrmError::Inactive);
         }
@@ -1378,7 +1428,7 @@ impl DrmBackend {
         };
         frame.present()?;
         self.presented_composite = presented_composite;
-        Ok(completion_fence)
+        Ok(CompletionFence::from_option(completion_fence))
     }
 
     /// Present the composite to an explicit subset of outputs. Outputs not
@@ -1390,7 +1440,7 @@ impl DrmBackend {
         frame: optics_gfx::SubmittedFrame<'_>,
         damage: Option<&[tessera_primitives::Rect]>,
         targets: &[&str],
-    ) -> Result<Option<OwnedFd>, DrmError> {
+    ) -> Result<CompletionFence, DrmError> {
         let mut indices = Vec::with_capacity(targets.len());
         for target in targets {
             indices.push(
@@ -1411,7 +1461,7 @@ impl DrmBackend {
         frame: optics_gfx::SubmittedFrame<'_>,
         damage: Option<&[tessera_primitives::Rect]>,
         overlay: crate::host::OverlayLayer<'_>,
-    ) -> Result<Option<OwnedFd>, DrmError> {
+    ) -> Result<CompletionFence, DrmError> {
         let targets = (0..self.displays.outputs.len()).collect::<Vec<_>>();
         self.present_inner(surface, frame, damage, &targets, Some(overlay))
     }
@@ -1423,7 +1473,7 @@ impl DrmBackend {
         damage: Option<&[tessera_primitives::Rect]>,
         targets: &[usize],
         overlay: Option<crate::host::OverlayLayer<'_>>,
-    ) -> Result<Option<OwnedFd>, DrmError> {
+    ) -> Result<CompletionFence, DrmError> {
         if !self.active || !self.render_ready || !self.outputs_powered {
             return Err(DrmError::Inactive);
         }
@@ -1519,8 +1569,10 @@ impl DrmBackend {
         // free backbuffer slot instead of rotating into the live scanout buffer.
         frame.present()?;
         self.presented_composite = presented_composite;
-        let fences: Vec<OwnedFd> = completion_fence.into_iter().chain(kms_fence).collect();
-        Ok(merge_sync_fences(fences))
+        Ok(merge_completions([
+            CompletionFence::from_option(completion_fence),
+            kms_fence,
+        ]))
     }
 
     /// Create an exportable compositor-owned surface at a mirror's native
@@ -1549,7 +1601,7 @@ impl DrmBackend {
         &mut self,
         exported: optics_gfx::ExportedDmabuf,
         target: &str,
-    ) -> Result<Option<OwnedFd>, DrmError> {
+    ) -> Result<CompletionFence, DrmError> {
         self.present_render_targets(vec![crate::host::RenderTargetCommit::from_exported(
             target.to_owned(),
             exported,
@@ -1564,11 +1616,22 @@ impl DrmBackend {
     /// at one atomic boundary without reintroducing a union framebuffer.
     /// Returns the merged KMS `OUT_FENCE_PTR` when reclaiming a direct-scanned
     /// client plane so retired client buffers can be released accurately
-    /// (ADR-0250, `[INV-ARCH-159]`).
+    /// (ADR-0250, ADR-0264, `[INV-ARCH-159]`).
     pub fn present_render_targets(
         &mut self,
         targets: Vec<crate::host::RenderTargetCommit>,
-    ) -> Result<Option<OwnedFd>, DrmError> {
+    ) -> Result<CompletionFence, DrmError> {
+        self.present_render_targets_with_overlay(targets, None)
+    }
+
+    /// Present a coherent output group in one atomic commit, optionally
+    /// attaching a KMS overlay plane on one of the committed outputs
+    /// (ADR-0268).
+    pub fn present_render_targets_with_overlay(
+        &mut self,
+        targets: Vec<crate::host::RenderTargetCommit>,
+        overlay: Option<crate::host::OverlayLayer<'_>>,
+    ) -> Result<CompletionFence, DrmError> {
         if targets.is_empty() {
             return Err(DrmError::ScanoutUnsupported);
         }
@@ -1614,8 +1677,160 @@ impl DrmBackend {
             PrimaryPlaneSource::Composited,
             PrimaryScanoutGeometry::ModeSizedTarget,
             false,
-            None,
+            overlay,
         )
+    }
+
+    /// Zero-GPU-composite steady-state overlay update (ADR-0268).
+    ///
+    /// Replaces the framebuffer on an already-active KMS overlay plane without
+    /// acquiring a Vulkan frame or rewriting the Primary plane. Activation,
+    /// deactivation, geometry/plane changes, and Primary-damaged frames must
+    /// continue to flow through [`Self::present_render_targets_with_overlay`]
+    /// or [`Self::present_with_overlay`].
+    pub fn present_overlay_only(
+        &mut self,
+        layer: crate::host::OverlayLayer<'_>,
+    ) -> Result<CompletionFence, DrmError> {
+        if !self.active || !self.render_ready || !self.outputs_powered {
+            return Err(DrmError::Inactive);
+        }
+        if self.pending_resize.is_some() {
+            return Err(DrmError::Reconfigured);
+        }
+        let output_index = self
+            .slot_index_for_connector(layer.output)
+            .ok_or(DrmError::ScanoutUnsupported)?;
+        if self.slots[output_index].pending {
+            return Err(DrmError::Busy);
+        }
+        if !self.slots[output_index].modeset_done
+            || self.slots[output_index].source != Some(PrimaryPlaneSource::Composited)
+            || self.slots[output_index].current.is_none()
+        {
+            return Err(DrmError::ScanoutUnsupported);
+        }
+        let current_matches_output = self
+            .current_overlay
+            .as_ref()
+            .is_some_and(|cur| cur.output == layer.output);
+        if !current_matches_output {
+            return Err(DrmError::ScanoutUnsupported);
+        }
+
+        let mut overlay_scanout = self.import_overlay_scanout(&layer)?;
+        let steady_state_same_placement = self.current_overlay.as_ref().is_some_and(|cur| {
+            cur.output == overlay_scanout.output
+                && cur.plane == overlay_scanout.plane
+                && cur.target == overlay_scanout.target
+                && cur.zpos == overlay_scanout.zpos
+        });
+        if !steady_state_same_placement {
+            self.release_overlay_scanout(overlay_scanout);
+            return Err(DrmError::ScanoutUnsupported);
+        }
+
+        let output = &self.displays.outputs[output_index];
+        let Some(overlay_plane) = output
+            .planes
+            .overlay
+            .discovered
+            .iter()
+            .find(|plane| plane.handle == overlay_scanout.plane)
+        else {
+            self.release_overlay_scanout(overlay_scanout);
+            return Err(DrmError::ScanoutUnsupported);
+        };
+
+        let mut request = atomic::AtomicModeReq::new();
+        add_cursor_plane_to_commit(
+            &mut request,
+            output,
+            self.cursor_state,
+            &self.cursor_buffers,
+        );
+        add_overlay_plane_to_commit(
+            &mut request,
+            output,
+            overlay_plane,
+            overlay_scanout.framebuffer,
+            overlay_scanout.acquire_fence.as_ref(),
+            overlay_scanout.width,
+            overlay_scanout.height,
+            overlay_scanout.target,
+            overlay_scanout.zpos,
+        );
+
+        let output_crtc = output.crtc;
+        let out_fence_prop = output.props.crtc_out_fence_ptr;
+
+        // Complete-plane preflight (`[INV-ARCH-125]`): reject before touching
+        // live scanout state if the driver declines the overlay swap.
+        if let Err(error) = self
+            .card()
+            .atomic_commit(AtomicCommitFlags::TEST_ONLY, request.clone())
+        {
+            self.release_overlay_scanout(overlay_scanout);
+            let mapped = commit_error(error);
+            return Err(match mapped {
+                DrmError::Busy | DrmError::Inactive | DrmError::FlipTimeout => mapped,
+                _ => DrmError::ScanoutUnsupported,
+            });
+        }
+
+        let mut out_fence_fd: i32 = -1;
+        if let Some(prop) = out_fence_prop {
+            let pointer = (&mut out_fence_fd as *mut i32) as usize as u64;
+            request.add_property(output_crtc, prop, property::Value::UnsignedRange(pointer));
+        }
+
+        let flags = AtomicCommitFlags::NONBLOCK | AtomicCommitFlags::PAGE_FLIP_EVENT;
+        if let Err(error) = self.card().atomic_commit(flags, request) {
+            if out_fence_fd >= 0 {
+                unsafe { libc::close(out_fence_fd) };
+            }
+            self.release_overlay_scanout(overlay_scanout);
+            let cursor_rejected = !commit_error_is_transient(&error)
+                && (self.cursor_state.is_some() || self.cursor_plane_active);
+            if cursor_rejected {
+                log::warn!(
+                    "drm: overlay-only commit cursor rejected ({error}); disabling hardware cursor"
+                );
+                self.disable_hardware_cursor();
+                return Err(DrmError::CursorFallback);
+            }
+            return Err(commit_error(error));
+        }
+
+        self.cursor_plane_active = self.cursor_state.is_some();
+        if self.cursor_plane_active {
+            self.hardware_cursor_failures = 0;
+        }
+        overlay_scanout.acquire_fence = None;
+        if let Some(unretired) = self.retiring_overlay.take() {
+            log::warn!(
+                "drm: leaking retired overlay scanout on {} (plane {:?}) after a lost page-flip event",
+                unretired.output,
+                unretired.plane
+            );
+        }
+        self.retiring_overlay = self.current_overlay.take();
+        self.current_overlay = Some(overlay_scanout);
+        self.slots[output_index].pending = true;
+        self.pending_flips
+            .insert(self.displays.outputs[output_index].crtc);
+
+        if out_fence_prop.is_some() && out_fence_fd >= 0 {
+            // SAFETY: OUT_FENCE_PTR writes a fresh owned sync_file descriptor.
+            return Ok(CompletionFence::Live(unsafe {
+                OwnedFd::from_raw_fd(out_fence_fd)
+            }));
+        }
+        if out_fence_fd >= 0 {
+            unsafe { libc::close(out_fence_fd) };
+        }
+        self.wait_for_flip(Duration::from_secs(1))?;
+        Ok(CompletionFence::Signaled)
     }
 
     /// Source rectangle of one output inside the shared composite framebuffer.
@@ -1647,7 +1862,7 @@ impl DrmBackend {
         client: &tessera_primitives::SurfaceDmabuf,
         target: &str,
         damage: Option<&[tessera_primitives::Rect]>,
-    ) -> Result<Option<OwnedFd>, DrmError> {
+    ) -> Result<CompletionFence, DrmError> {
         if !self.active || !self.render_ready || !self.outputs_powered {
             return Err(DrmError::Inactive);
         }
@@ -1735,15 +1950,11 @@ impl DrmBackend {
             None,
         )?;
         // A client buffer now owns the primary plane; the retained composited
-        // descriptor no longer describes what is on screen.
+        // descriptor no longer describes what is on screen. `commit_scanout`
+        // already guarantees that `CompletionFence::Signaled` is only returned
+        // after the flip has landed (e.g. via `wait_for_flip` on drivers
+        // lacking `OUT_FENCE_PTR`).
         self.presented_composite = None;
-        if completion_fence.is_none() {
-            // Older KMS drivers lack CRTC OUT_FENCE_PTR. Preserve correct
-            // wl_buffer release semantics by waiting for the page flip only
-            // on that compatibility path; modern drivers remain fully
-            // pipelined through the returned sync_file.
-            self.wait_for_flip(Duration::from_secs(1))?;
-        }
         Ok(completion_fence)
     }
 
@@ -1986,35 +2197,50 @@ impl DrmBackend {
     /// ST 2084, BT.2020 primaries, D65 white, 1000 cd/m² mastering. Padded to
     /// the kernel struct's 32-byte size.
     fn hdr_output_metadata_bytes() -> [u8; 32] {
-        let mut blob = [0u8; 32];
-        let mut at = 0usize;
-        let put_u32 = |blob: &mut [u8; 32], at: &mut usize, value: u32| {
-            blob[*at..*at + 4].copy_from_slice(&value.to_ne_bytes());
-            *at += 4;
-        };
-        let put_u16 = |blob: &mut [u8; 32], at: &mut usize, value: u16| {
-            blob[*at..*at + 2].copy_from_slice(&value.to_ne_bytes());
-            *at += 2;
-        };
-        put_u32(&mut blob, &mut at, 1); // HDMI static metadata type 1
-        blob[at] = 2; // EOTF: ST 2084 (PQ)
-        blob[at + 1] = 0; // static metadata type 1
-        at += 2;
-        let xy = |v: f32| (f64::from(v) / 0.00002).round() as u16; // 0.00002 units
-        for (x, y) in [
-            (0.708f32, 0.292f32), // BT.2020 R
-            (0.170, 0.797),       // BT.2020 G
-            (0.131, 0.046),       // BT.2020 B
-            (0.3127, 0.3290),     // D65 white point
-        ] {
-            put_u16(&mut blob, &mut at, xy(x));
-            put_u16(&mut blob, &mut at, xy(y));
+        #[repr(C)]
+        struct HdrMetadataInfoframe {
+            eotf: u8,
+            metadata_type: u8,
+            display_primaries: [[u16; 2]; 3],
+            white_point: [u16; 2],
+            max_display_mastering_luminance: u16,
+            min_display_mastering_luminance: u16,
+            max_cll: u16,
+            max_fall: u16,
         }
-        put_u16(&mut blob, &mut at, 1000); // max display mastering luminance (cd/m²)
-        put_u16(&mut blob, &mut at, 50); // min: 50 × 0.0001 = 0.005 cd/m²
-        put_u16(&mut blob, &mut at, 1000); // MaxCLL
-        put_u16(&mut blob, &mut at, 400); // MaxFALL
-        blob
+        #[repr(C)]
+        struct HdrOutputMetadata {
+            metadata_type: u32,
+            hdmi_metadata_type1: HdrMetadataInfoframe,
+            _pad: [u8; 2],
+        }
+        const _: () = assert!(std::mem::size_of::<HdrOutputMetadata>() == 32);
+        const fn xy(v_millionths: u32) -> u16 {
+            // 0.00002 units => divide millionths by 20 with rounding.
+            ((v_millionths + 10) / 20) as u16
+        }
+        let metadata = HdrOutputMetadata {
+            metadata_type: 1, // HDMI static metadata type 1
+            hdmi_metadata_type1: HdrMetadataInfoframe {
+                eotf: 2,          // ST 2084 (PQ)
+                metadata_type: 0, // static metadata type 1
+                display_primaries: [
+                    [xy(708_000), xy(292_000)], // BT.2020 R
+                    [xy(170_000), xy(797_000)], // BT.2020 G
+                    [xy(131_000), xy(46_000)],  // BT.2020 B
+                ],
+                white_point: [xy(312_700), xy(329_000)], // D65
+                max_display_mastering_luminance: 1000,   // cd/m²
+                min_display_mastering_luminance: 50,     // 50 × 0.0001 = 0.005 cd/m²
+                max_cll: 1000,
+                max_fall: 400,
+            },
+            _pad: [0; 2],
+        };
+        // SAFETY: `HdrOutputMetadata` is `#[repr(C)]`, 32 bytes, all fields
+        // initialized (no uninitialized padding: u32 at 0..4, u8+u8 at 4..6,
+        // twelve u16 at 6..30, [u8; 2] at 30..32).
+        unsafe { std::mem::transmute::<HdrOutputMetadata, [u8; 32]>(metadata) }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2027,10 +2253,22 @@ impl DrmBackend {
         geometry: PrimaryScanoutGeometry,
         allow_async: bool,
         overlay: Option<crate::host::OverlayLayer<'_>>,
-    ) -> Result<Option<OwnedFd>, DrmError> {
-        if overlay.is_some()
-            && (!overlay_source_supported(source) || targets.len() != self.displays.outputs.len())
-        {
+    ) -> Result<CompletionFence, DrmError> {
+        let current_overlay_index = self
+            .current_overlay
+            .as_ref()
+            .and_then(|ov| self.slot_index_for_connector(&ov.output));
+        let new_overlay_index = match overlay.as_ref() {
+            Some(layer) => match self.slot_index_for_connector(layer.output) {
+                Some(index) => Some(index),
+                None => {
+                    self.release_scanout_options(scanouts);
+                    return Err(DrmError::ScanoutUnsupported);
+                }
+            },
+            None => None,
+        };
+        if !overlay_commit_allowed(source, new_overlay_index, current_overlay_index, targets) {
             self.release_scanout_options(scanouts);
             return Err(DrmError::ScanoutUnsupported);
         }
@@ -2072,7 +2310,9 @@ impl DrmBackend {
             },
             None => None,
         };
-        let overlay_transition = overlay_scanout.is_some() || self.current_overlay.is_some();
+        let current_overlay_in_targets =
+            current_overlay_index.is_some_and(|index| targets.contains(&index));
+        let overlay_transition = overlay_scanout.is_some() || current_overlay_in_targets;
         let mut request = atomic::AtomicModeReq::new();
         // Per-commit FB_DAMAGE_CLIPS blobs, destroyed once the commit ioctl
         // has run (the kernel references the blob, it does not borrow ours).
@@ -2084,14 +2324,24 @@ impl DrmBackend {
                     .matches_source(PrimaryPlaneSource::DirectClient)
             })
         });
-        let use_out_fences =
-            (source.needs_kms_completion_fence() || overlay_transition || leaving_direct_client)
-                && targets.iter().all(|&index| {
-                    self.displays.outputs[index]
+        let needs_kms_fence =
+            source.needs_kms_completion_fence() || overlay_transition || leaving_direct_client;
+        let out_fence_targets: Vec<(usize, crtc::Handle, property::Handle)> = if needs_kms_fence {
+            targets
+                .iter()
+                .map(|&index| {
+                    let output = &self.displays.outputs[index];
+                    output
                         .props
                         .crtc_out_fence_ptr
-                        .is_some()
-                });
+                        .map(|prop| (index, output.crtc, prop))
+                })
+                .collect::<Option<Vec<_>>>()
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let use_out_fences = !out_fence_targets.is_empty();
         let mut out_fence_fds = vec![-1_i32; self.displays.outputs.len()];
         for &output_index in targets {
             let output = &self.displays.outputs[output_index];
@@ -2356,16 +2606,13 @@ impl DrmBackend {
         // OUT_FENCE_PTR is an execution result, not part of mode validation.
         // Add it only after TEST_ONLY so the preflight never allocates or
         // mutates sync-file storage.
-        if use_out_fences {
-            for &output_index in targets {
-                let output = &self.displays.outputs[output_index];
-                let pointer = (&mut out_fence_fds[output_index] as *mut i32) as usize as u64;
-                request.add_property(
-                    output.crtc,
-                    output.props.crtc_out_fence_ptr.expect("checked above"),
-                    property::Value::UnsignedRange(pointer),
-                );
-            }
+        for &(output_index, crtc_handle, prop_handle) in &out_fence_targets {
+            let pointer = (&mut out_fence_fds[output_index] as *mut i32) as usize as u64;
+            request.add_property(
+                crtc_handle,
+                prop_handle,
+                property::Value::UnsignedRange(pointer),
+            );
         }
         let can_async = allow_async && self.atomic_async_page_flip && !needs_modeset;
         let commit_result = if can_async {
@@ -2436,24 +2683,27 @@ impl DrmBackend {
             slot.retiring = slot.current.take();
             slot.current = Some(scanout);
             slot.source = Some(source);
+            slot.geometry = geometry;
             slot.pending = true;
         }
         let mut overlay_scanout = overlay_scanout;
         if let Some(overlay) = overlay_scanout.as_mut() {
             overlay.acquire_fence = None;
         }
-        if let Some(unretired) = self.retiring_overlay.take() {
-            // Mirror the primary-scanout rule: a lost page-flip event leaves
-            // the buffer possibly on screen, so leak it rather than freeing
-            // memory KMS may still scan.
-            log::warn!(
-                "drm: leaking retired overlay scanout on {} (plane {:?}) after a lost page-flip event",
-                unretired.output,
-                unretired.plane
-            );
+        if overlay_transition {
+            if let Some(unretired) = self.retiring_overlay.take() {
+                // Mirror the primary-scanout rule: a lost page-flip event leaves
+                // the buffer possibly on screen, so leak it rather than freeing
+                // memory KMS may still scan.
+                log::warn!(
+                    "drm: leaking retired overlay scanout on {} (plane {:?}) after a lost page-flip event",
+                    unretired.output,
+                    unretired.plane
+                );
+            }
+            self.retiring_overlay = self.current_overlay.take();
+            self.current_overlay = overlay_scanout;
         }
-        self.retiring_overlay = self.current_overlay.take();
-        self.current_overlay = overlay_scanout;
         self.pending_flips.extend(
             targets
                 .iter()
@@ -2463,25 +2713,31 @@ impl DrmBackend {
             self.slots[index].modeset_done = true;
             self.displays.outputs[index].link_bad = false;
         }
-        if overlay_transition && !use_out_fences {
-            // Overlay scans out a live client buffer. Without OUT_FENCE_PTR
-            // there is no non-blocking release signal, so pay the flip wait
-            // here rather than letting the client reuse memory still on
-            // screen.
-            self.wait_for_flip(Duration::from_secs(1))?;
-        }
         let fences = out_fence_fds
             .into_iter()
             .filter(|fd| *fd >= 0)
             // SAFETY: OUT_FENCE_PTR writes fresh owned sync_file descriptors.
             .map(|fd| unsafe { OwnedFd::from_raw_fd(fd) })
             .collect::<Vec<_>>();
-        if use_out_fences && fences.len() == self.displays.outputs.len() {
-            Ok(merge_sync_fences(fences))
-        } else {
-            drop(fences);
-            Ok(None)
+        if out_fences_complete(use_out_fences, fences.len(), targets.len()) {
+            return Ok(merge_sync_fences(fences));
         }
+        if use_out_fences {
+            log::warn!(
+                "drm: expected {} KMS out-fence(s) for commit targets, kernel returned {}; falling back to flip wait",
+                targets.len(),
+                fences.len()
+            );
+        }
+        drop(fences);
+        if needs_kms_fence {
+            // Older KMS drivers lack CRTC OUT_FENCE_PTR (or a driver returned
+            // an incomplete fence set). Preserve correct client wl_buffer
+            // release semantics by waiting for the page flip before reporting
+            // completion (ADR-0250, ADR-0264, `[INV-ARCH-159]`).
+            self.wait_for_flip(Duration::from_secs(1))?;
+        }
+        Ok(CompletionFence::Signaled)
     }
 
     pub(super) fn wait_for_flip(&mut self, timeout: Duration) -> Result<(), DrmError> {

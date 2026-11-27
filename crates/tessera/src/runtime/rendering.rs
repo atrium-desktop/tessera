@@ -1096,6 +1096,7 @@ impl WindowShadowRenderer {
                         window.size.w as f32,
                         window.size.h as f32,
                         SHADOW_CORNER_RADIUS,
+                        0.0,
                         optics_gfx::rgba(255, 255, 255, 255),
                     );
                     session.restore();

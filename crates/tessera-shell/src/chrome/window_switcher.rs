@@ -465,14 +465,14 @@ impl Chrome for WindowSwitcher {
             presentation.visibility,
             panel_material,
             |frame| {
-                frame.column_ex(
-                    &LayoutOpts {
+                frame
+                    .column()
+                    .with_opts(&LayoutOpts {
                         width: panel.w,
                         height: panel.h,
                         ..Default::default()
-                    },
-                    |_| {},
-                );
+                    })
+                    .show(|_| {});
             },
         );
 
@@ -499,7 +499,10 @@ impl Chrome for WindowSwitcher {
                     ),
                 ),
                 |frame| {
-                    frame.column_ex(&layer_size(selection.w, selection.h), |_| {});
+                    frame
+                        .column()
+                        .with_opts(&layer_size(selection.w, selection.h))
+                        .show(|_| {});
                 },
             );
         }
@@ -536,7 +539,10 @@ impl Chrome for WindowSwitcher {
                         ),
                     ),
                     |frame| {
-                        frame.column_ex(&layer_size(outer.w, outer.h), |_| {});
+                        frame
+                            .column()
+                            .with_opts(&layer_size(outer.w, outer.h))
+                            .show(|_| {});
                     },
                 );
             }
@@ -572,21 +578,22 @@ impl Chrome for WindowSwitcher {
                     label_rect,
                     LayoutOpts {
                         bg: Color::TRANSPARENT,
-                        radius: design.radii.control,
+                        corner_radii: optics_ui::CornerRadii::uniform(design.radii.control),
                         ..surface_layout()
                     },
                 ),
                 move |frame| {
-                    frame.row_ex(
-                        &LayoutOpts {
+                    frame
+                        .row()
+                        .with_opts(&LayoutOpts {
                             width: label_rect.w,
                             height: label_rect.h,
                             gap: 7.0,
                             pad: 8.0,
                             cross: Align::Center,
                             ..Default::default()
-                        },
-                        move |frame| {
+                        })
+                        .show(move |frame| {
                             if let Some(icon) = icon {
                                 unsafe {
                                     frame.image_tinted(
@@ -597,9 +604,14 @@ impl Chrome for WindowSwitcher {
                                     );
                                 }
                             }
-                            frame.label_compact_sized(&label, design.typography.label);
-                        },
-                    );
+                            frame.label_with(
+                                &label,
+                                &optics_ui::LabelOpts {
+                                    size: design.typography.label,
+                                    ..Default::default()
+                                },
+                            );
+                        });
                 },
             );
         }
@@ -1577,7 +1589,7 @@ mod tests {
         );
         assert_eq!(selected_wash.bg, design.selection.selected_tint);
         assert_eq!(selected_wash.border_width, 0.0);
-        assert_eq!(selected_wash.radius, design.radii.control);
+        assert_eq!(selected_wash.corner_radii.tl, design.radii.control);
         assert_eq!(card.outer.size.w, 220);
         assert_eq!(selected, WindowId(7));
     }

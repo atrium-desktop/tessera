@@ -116,7 +116,15 @@ impl StylePainter for CinematicPainter {
                 },
                 aligned_layer(alignment),
             ),
-            |ui| ui.label_compact_sized(clock, layout.clock_size),
+            |ui| {
+                ui.label_with(
+                    clock,
+                    &optics_ui::LabelOpts {
+                        size: layout.clock_size,
+                        ..Default::default()
+                    },
+                )
+            },
         );
         ui.set_theme(lock_theme(
             &self.visual.design,
@@ -134,7 +142,15 @@ impl StylePainter for CinematicPainter {
                 },
                 aligned_layer(alignment),
             ),
-            |ui| ui.label_compact_sized(date, 13.0),
+            |ui| {
+                ui.label_with(
+                    date,
+                    &optics_ui::LabelOpts {
+                        size: 13.0,
+                        ..Default::default()
+                    },
+                )
+            },
         );
     }
 
@@ -172,7 +188,13 @@ impl StylePainter for CinematicPainter {
                 // Keep the cinematic profile quiet and precise. optics-ui titles
                 // are deliberately bold; the regular compact run gives this
                 // line the lighter stroke requested by the composition.
-                ui.label_compact_sized(&display_name, 24.0);
+                ui.label_with(
+                    &display_name,
+                    &optics_ui::LabelOpts {
+                        size: 24.0,
+                        ..Default::default()
+                    },
+                );
             },
         );
 
@@ -196,7 +218,15 @@ impl StylePainter for CinematicPainter {
                     },
                     aligned_layer(Align::End),
                 ),
-                |ui| ui.label_compact_sized(&keyboard, 11.0),
+                |ui| {
+                    ui.label_with(
+                        &keyboard,
+                        &optics_ui::LabelOpts {
+                            size: 11.0,
+                            ..Default::default()
+                        },
+                    )
+                },
             );
         }
 
@@ -231,18 +261,23 @@ impl StylePainter for CinematicPainter {
                 },
             ),
             |ui| {
-                ui.row_ex(
-                    &optics_ui::LayoutOpts {
+                ui.row()
+                    .with_opts(&optics_ui::LayoutOpts {
                         width: layout.field_width,
                         height: layout.field_height,
                         pad: 0.0,
                         cross: Align::Center,
                         ..Default::default()
-                    },
-                    |ui| {
-                        ui.label_compact_sized(&credential, 12.0);
-                    },
-                );
+                    })
+                    .show(|ui| {
+                        ui.label_with(
+                            &credential,
+                            &optics_ui::LabelOpts {
+                                size: 12.0,
+                                ..Default::default()
+                            },
+                        );
+                    });
             },
         );
 
@@ -271,7 +306,15 @@ impl StylePainter for CinematicPainter {
                     },
                     aligned_layer(Align::End),
                 ),
-                |ui| ui.label_compact_sized(&message, 12.0),
+                |ui| {
+                    ui.label_with(
+                        &message,
+                        &optics_ui::LabelOpts {
+                            size: 12.0,
+                            ..Default::default()
+                        },
+                    )
+                },
             );
         }
         let _ = localized_ref("", "");

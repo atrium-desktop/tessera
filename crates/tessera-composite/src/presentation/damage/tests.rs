@@ -808,3 +808,101 @@ fn offscreen_damage_translates_origin_then_maps_to_target() {
         FrameDamage::None
     ));
 }
+
+#[test]
+fn test_inv_arch_131_overlay_in_place_buffer_commit_leaves_primary_damage_none() {
+    #[derive(Clone)]
+    struct Frame {
+        id: usize,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        generation: u64,
+    }
+    impl SurfaceDamageFrame for Frame {
+        fn id(&self) -> usize {
+            self.id
+        }
+        fn generation(&self) -> u64 {
+            self.generation
+        }
+        fn damage(&self) -> &[Rect] {
+            &[]
+        }
+        fn damage_full(&self) -> bool {
+            true
+        }
+        fn placement(&self) -> SurfacePlacement {
+            let geometry = SurfaceGeometry {
+                position: tessera_primitives::Point {
+                    x: self.x,
+                    y: self.y,
+                },
+                ..Default::default()
+            };
+            SurfacePlacement::resolve(&geometry, self.w, self.h)
+        }
+    }
+
+    let mut tracker = ClientDamageTracker::default();
+    let bg = Frame {
+        id: 1,
+        x: 0,
+        y: 0,
+        w: 400,
+        h: 300,
+        generation: 1,
+    };
+    let ov = Frame {
+        id: 2,
+        x: 50,
+        y: 50,
+        w: 320,
+        h: 180,
+        generation: 1,
+    };
+
+    // Frame 1: initial appearance dirties both total and primary.
+    let first = tracker.assess_with_overlay_split(
+        [
+            &bg as &dyn SurfaceDamageFrame,
+            &ov as &dyn SurfaceDamageFrame,
+        ],
+        Some(2),
+    );
+    assert!(matches!(first.primary_only, ClientDamage::Area(_)));
+    assert!(!first.overlay_buffer_changed);
+
+    // Frame 2: only the offloaded overlay surface commits a new buffer in place.
+    let ov_next = Frame {
+        generation: 2,
+        ..ov.clone()
+    };
+    let second = tracker.assess_with_overlay_split(
+        [
+            &bg as &dyn SurfaceDamageFrame,
+            &ov_next as &dyn SurfaceDamageFrame,
+        ],
+        Some(2),
+    );
+    assert_eq!(second.primary_only, ClientDamage::None);
+    assert!(second.overlay_buffer_changed);
+    assert!(matches!(second.total, ClientDamage::Area(_)));
+
+    // Frame 3: moving the overlay surface dirties Primary as well (ADR-0236).
+    let ov_moved = Frame {
+        x: 80,
+        generation: 3,
+        ..ov
+    };
+    let third = tracker.assess_with_overlay_split(
+        [
+            &bg as &dyn SurfaceDamageFrame,
+            &ov_moved as &dyn SurfaceDamageFrame,
+        ],
+        Some(2),
+    );
+    assert!(matches!(third.primary_only, ClientDamage::Area(_)));
+    assert!(!third.overlay_buffer_changed);
+}

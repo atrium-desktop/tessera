@@ -181,4 +181,9 @@ unsafe extern "C" {
     // tearing-control-v1
     pub static wp_tearing_control_manager_v1_interface: wl_interface;
     pub static wp_tearing_control_v1_interface: wl_interface;
+
+    // linux-drm-syncobj-v1
+    pub static wp_linux_drm_syncobj_manager_v1_interface: wl_interface;
+    pub static wp_linux_drm_syncobj_timeline_v1_interface: wl_interface;
+    pub static wp_linux_drm_syncobj_surface_v1_interface: wl_interface;
 }

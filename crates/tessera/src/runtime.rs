@@ -1131,7 +1131,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         wallpaper,
         clear,
         frame_count,
-        last_composited_fence: None,
+        retained_output_fences: RetainedOutputFences::default(),
         primary_plane_state: PrimaryPlaneState::default(),
         direct_outputs: std::collections::BTreeSet::new(),
         output_targets: std::collections::BTreeMap::new(),

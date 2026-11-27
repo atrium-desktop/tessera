@@ -154,7 +154,11 @@ impl Chrome for ControlledWindowGuard {
                         bg: self.design.colors.modal_scrim.with_alpha(WASH_ALPHA),
                         border,
                         border_width: 2.0,
-                        radius: if window.state.fullscreen { 0.0 } else { 7.0 },
+                        corner_radii: optics_ui::CornerRadii::uniform(if window.state.fullscreen {
+                            0.0
+                        } else {
+                            7.0
+                        }),
                         ..surface_layout()
                     },
                 ),
@@ -229,13 +233,19 @@ impl Chrome for ControlledWindowGuard {
                         bg: self.design.colors.application_surface.with_alpha(232),
                         border,
                         border_width: 1.0,
-                        radius: BADGE_HEIGHT * 0.5,
+                        corner_radii: optics_ui::CornerRadii::uniform(BADGE_HEIGHT * 0.5),
                         ..surface_layout()
                     },
                 ),
                 move |frame| {
                     frame.centered(badge.w, badge.h, |frame| {
-                        frame.label_compact_sized(&label, footnote)
+                        frame.label_with(
+                            &label,
+                            &optics_ui::LabelOpts {
+                                size: footnote,
+                                ..Default::default()
+                            },
+                        )
                     });
                 },
             );

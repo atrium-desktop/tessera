@@ -63,6 +63,7 @@ fn main() {
         ("staging/xdg-activation", "xdg-activation-v1"),
         ("staging/color-management", "color-management-v1"),
         ("staging/tearing-control", "tearing-control-v1"),
+        ("staging/linux-drm-syncobj", "linux-drm-syncobj-v1"),
     ];
 
     let mut build = cc::Build::new();
